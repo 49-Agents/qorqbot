@@ -29,7 +29,9 @@ def _schema(properties, required=()):
 READS = {
     'agentic_change_get': ({'submission_id': _UUID}, ('submission_id',)),
     'overseer_evidence_list': ({'run_id': _STR, 'selection': _OBJ, **_PAGE}, ('run_id', 'selection')),
-    'overseer_episode_get': ({'run_id': _STR, 'episode_ref': _OBJ, 'frontier': _OBJ, 'cursor': _STR, 'max_chars': {'type': 'integer', 'minimum': 1}}, ('run_id', 'episode_ref', 'frontier')),
+    'overseer_episode_get': ({'run_id': _STR, 'episode_ref': _OBJ, 'frontier': _OBJ,
+        'cursor': {'type': 'string', 'maxLength': 4096}, 'max_chars': {'type': 'integer', 'minimum': 1}},
+        ('run_id', 'episode_ref', 'frontier')),
     'overseer_proposals_list': (_PAGE, ()),
     'overseer_delta_get': ({'id': _UUID, 'revision': {'type': 'integer', 'minimum': 1}}, ('id',)),
     'overseer_deltas_list': ({**_PAGE, 'decision': {'enum': ['undecided', 'accepted', 'rejected']}}, ()),
@@ -88,8 +90,10 @@ WRITE['overseer_application_inspect_satisfaction'] = ({
 
 class OverseerOperations:
     def __init__(self, runtime):
+        import threading
         self.runtime = runtime
         self.executor_ready = False
+        self._evidence_scan_lock = threading.Lock()
 
     def register(self):
         for name, (properties, required) in READS.items():
@@ -177,6 +181,7 @@ class OverseerOperations:
             request = {'episode_ref': args['episode_ref'], 'frontier': args['frontier'], 'cursor': args.get('cursor'),
                        'max_chars': args.get('max_chars', 160000)}
             result = provider.get_episode(**request)
+            request['frontier'] = result['frontier']
             refs = result['source_refs']
         run_ref = {'provider': 'qorqut_overseer', 'agent_id': ctx.principal_id, 'conversation_id': session['conversation_id'],
                    'run_id': args['run_id'], 'namespace': {'kind': 'global', 'business_id': None}}
@@ -192,12 +197,17 @@ class OverseerOperations:
         if name == 'agentic_change_get':
             from .direct import get
             return get(self.runtime, context, **args)
+        if name in ('overseer_evidence_list', 'overseer_episode_get'):
+            # Retried transports must not race inventory cursors or publish a
+            # duplicate page presentation. Refuse before provider/admission work.
+            if not self._evidence_scan_lock.acquire(blocking=False):
+                raise DomainError('evidence_busy', 'Evidence reading is still in progress. Retry this same cursor shortly; progress is preserved.')
+            try:
+                return self._evidence_delivery(name, context, args, uow)
+            finally:
+                self._evidence_scan_lock.release()
         ctx, _ = current_overseer(self.runtime, context, uow)
         layer = self.runtime.agentic_layer
-        if name == 'overseer_evidence_list':
-            return self._evidence_delivery(name, ctx, args, uow)
-        if name == 'overseer_episode_get':
-            return self._evidence_delivery(name, ctx, args, uow)
         if name == 'overseer_proposals_list':
             page = layer.overseer.proposals.list(limit=args.get('limit', 20), cursor=args.get('cursor'))
             access = EvidenceAccess(self.runtime, ctx)

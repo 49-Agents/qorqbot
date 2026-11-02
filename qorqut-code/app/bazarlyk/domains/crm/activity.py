@@ -3,7 +3,9 @@ developments (the Domain's ``CRMOperations.local_activity``) plus the events of 
 linked to.
 
 Only direct links count: Task links (either direction), ``concerns``/``related_to`` relationships (either direction) and
-typed references in the record's own comments. Nothing is inferred and nothing is followed recursively. Every linked source
+typed references in the record's own comments, each read in the scope its comment was written in (the comment's pinned
+``reference_namespace`` once the record has moved; a cited Task that has since moved is followed to its current place only
+where the caller may read it). Nothing is inferred and nothing is followed recursively. Every linked source
 is opened with the caller's own current authority on every page; one that is absent, archived away or no longer readable
 is skipped without a trace. The read is pure: it never writes, acknowledges an inbox event, marks a conversation read or
 calls a provider. Private owner conversations and native session stores are never read.
@@ -26,6 +28,8 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import IDENTITY, schema, timestamp, utc_clock
 from qorqut_operations.contracts import DomainError, canonical_bytes, canonical_hash
 from qorqut_operations.tasks import links as task_links
+from qorqut_operations.tasks.history import ABSENT
+from qorqut_operations.tasks.relocation import scope_of
 from qorqut_operations.tasks.scope import task_context, task_namespace
 
 from .sources import Row, Sources, Target, instant
@@ -177,12 +181,26 @@ class CRMActivityOperations:
             other = (edge["to_type"], edge["to_id"]) if (edge["from_type"], edge["from_id"]) == ("task", task_id) \
                 else (edge["from_type"], edge["from_id"])
             self.add_reference(uow, scope, *other, add)
+        located = {}
         for message in self.batches(
-                uow, "SELECT rowid AS position,refs_json FROM thread_messages WHERE rowid>? AND business_id IS ? AND item_type='task' "
-                "AND item_id=? AND kind='comment' AND refs_json<>'[]' ORDER BY rowid LIMIT ?", (scope, task_id)):
+                uow, "SELECT rowid AS position,refs_json,reference_namespace FROM thread_messages WHERE rowid>? AND business_id IS ? "
+                "AND item_type='task' AND item_id=? AND kind='comment' AND refs_json<>'[]' ORDER BY rowid LIMIT ?", (scope, task_id)):
+            # A note's references are relative to the scope it was written in: the pinned namespace once its Task has moved.
+            valid, origin = scope_of(message["reference_namespace"]) if message["reference_namespace"] is not None else (True, scope)
+            if not valid:
+                continue
             for item in json.loads(message["refs_json"]):
-                if isinstance(item, dict) and item.get("type") in NOTE_KINDS and isinstance(item.get("id"), str):
-                    self.add_reference(uow, scope, item["type"], item["id"], add)
+                if not (isinstance(item, dict) and item.get("type") in NOTE_KINDS and isinstance(item.get("id"), str)):
+                    continue
+                if item["type"] != "task":
+                    self.add_reference(uow, origin, item["type"], item["id"], add)
+                    continue
+                # The exact Task written in that scope, else where the audited relocation put it for a reader who may read it.
+                where = located.get((origin, item["id"]))
+                if where is None:
+                    where = located[(origin, item["id"])] = (self.tasks.history.target(ctx, item["id"], uow, origin),)
+                if where[0] is not ABSENT:
+                    add("task", where[0], item["id"])
         return [found[key] for key in sorted(found)]
 
     @staticmethod

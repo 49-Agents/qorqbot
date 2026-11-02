@@ -187,7 +187,9 @@ def attach_agentic_inbox(runtime, layer, inbox):
             # A restored/foreign feed must fail before scanning can append events
             # that happen to fill the missing sequence numbers.
             bridge.status(uow)
-            layer.changes.scan()
+            # Never wait for the module authoring lock while holding the main
+            # database writer. The next existing nudge pass retries the scan.
+            layer.changes.scan(lock_timeout=0)
             result = bridge.reconcile(uow)
         except Exception as error:
             connection.execute("ROLLBACK TO SAVEPOINT agentic_inbox_drain")

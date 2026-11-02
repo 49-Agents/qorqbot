@@ -30,9 +30,10 @@ SOURCE = schema({'type': {'enum': ['task', 'signoff', 'reference', 'project', 't
 FIELDS = {'agent_id': {'type': 'string', 'format': 'uuid'}, 'peer_role': {'enum': ['ordubashy']}, 'scope': {'enum': ['business', 'global']}, 'source': SOURCE}
 # Every refusal that means "this coordinator cannot read that source now".
 # `context_refresh_required` belongs here: one stale card must not abort the
-# whole inbox page that lists it.
+# whole inbox page that lists it. `record_moved` is a Task that left this scope: its old-scope channel is unavailable
+# there (a direct read still answers it), so a directory, inbox page or notification skips it instead of failing.
 UNAVAILABLE = {'forbidden', 'not_found', 'policy_denied', 'validation_error', 'operation_unavailable',
-               'management_unavailable', 'busy', 'document_unavailable', 'context_refresh_required'}
+               'management_unavailable', 'busy', 'document_unavailable', 'context_refresh_required', 'record_moved'}
 
 
 def source_key(kind, business_id, identity):
@@ -228,7 +229,8 @@ class PrivateConversations:
             scoped = task_context(selected, {'scope': 'global'} if selected.business_id is None else {}, uow)
             self.app.authorize(scoped, self.app.registry.get('tasks_get'), (), uow, namespace=self.namespace(scoped))
             if not uow.repository('tasks', business_id=scoped.business_id).get(identity):
-                raise DomainError('not_found', 'Task does not exist in this scope')
+                # Like every other Task read, a Task that moved answers record_moved for a caller who may read it where it is now.
+                raise self.domains.tasks.missing(scoped, uow, identity)
             return
         if kind == 'table':
             # A general and a CRM Table are one source kind; the private channel never reads or posts to the team thread.

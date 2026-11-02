@@ -496,6 +496,9 @@ class HTTPAPI:
                     # with project_id, and the engine refuses any target differing from the selected project.
                     "project_record_get", "project_items_list", "project_items_candidates", "project_item_get",
                     "project_items_link", "project_items_unlink", "owner_reminders_list",
+                    # Move to project: the source is the explicit source_business_id argument (null for Global), so the root
+                    # route is allowed and the business route must agree with it. No scope selector is accepted.
+                    "tasks_move_targets", "tasks_move_to_project_preview", "tasks_move_to_project",
                     # Parent-detail readers promised to the record pane: a routine's runs and a known job's own safe
                     # result. Root is Global-source only; the business route reads its Project source. Both are normal
                     # reads through split_options, argument validation and policy, with no job browser or enumeration.

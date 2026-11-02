@@ -180,16 +180,21 @@ class HostAgenticView:
         cannot silently switch to a newer configuration halfway through a write.
         """
         for _ in range(CONSISTENCY_ATTEMPTS):
-            before = self.catalog_revision
-            if revision is not None and revision != before:
-                break
-            try:
-                result = reader()
-            except AgenticError as exc:
-                if self.catalog_revision != before:
-                    continue
-                raise DomainError("agentic_unavailable", exc.message, details={"agentic_code": exc.code}) from exc
+            error = None
+            with self.layer.catalog.read_session():
+                before = self.catalog_revision
+                if revision is not None and revision != before:
+                    break
+                try:
+                    result = reader()
+                except AgenticError as exc:
+                    error = exc
+            # At the outer boundary this is a fresh read. Nested projections
+            # share the caller's snapshot and its final revision check.
             if self.catalog_revision == before:
+                if error is not None:
+                    raise DomainError("agentic_unavailable", error.message,
+                                      details={"agentic_code": error.code}) from error
                 return result
         raise DomainError("agentic_revision_conflict", "Managed instructions changed during projection; retry with current configuration",
                           retryable=True)

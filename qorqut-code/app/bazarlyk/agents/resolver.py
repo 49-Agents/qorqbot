@@ -358,8 +358,9 @@ class AgentConfigResolver:
         from bazarlyk.agentic.view import CONSISTENCY_ATTEMPTS
         for _ in range(CONSISTENCY_ATTEMPTS):
             try:
-                return self._resolve_agent_config(principal, business_id=business_id,
-                                                  session_registration=session_registration)
+                return self.require_agentic_view().consistent(
+                    lambda: self._resolve_agent_config(principal, business_id=business_id,
+                                                       session_registration=session_registration))
             except DomainError as exc:
                 if exc.code != "agentic_revision_conflict":
                     raise

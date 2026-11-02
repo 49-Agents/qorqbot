@@ -10,11 +10,107 @@ from typing import Mapping, Protocol
 from qorqut_operations.contracts import DomainError
 from qorqut_business_docs_versioning import HistoryStore, NotFound
 
-MAX_THREAD_PAGES = 10
+MAX_THREAD_PAGES = 1
+MAX_THREAD_PAGE_NOTES = 20
+SCAN_SECONDS = 3.0
 MAX_HISTORY_REVISIONS = 100
 MAX_TRANSCRIPT_ENTRIES = 1000
 MAX_TRANSCRIPT_RECORDS = 2000
 MAX_TRANSCRIPT_PAGE_BYTES = 8 * 1024 * 1024
+EPISODE_WORK_SECONDS = 2.0
+EPISODE_WORK_RESERVE_SECONDS = 0.25
+EPISODE_MAX_CANDIDATES = 20
+EPISODE_CURSOR_SCOPE = "focused_episode"
+EPISODE_CURSOR_VERSION = 2
+
+_EPISODE_KIND_ALIASES = {
+    "parent_task": "task", "task": "task", "tasks": "task",
+    "signoff": "signoff", "signoffs": "signoff",
+    "action": "action", "action_logs": "action",
+    "document": "document", "documents": "document",
+    "supersedes_id": "signoff", "superseded_by_id": "signoff",
+}
+
+
+def _episode_source_key(ref):
+    """Return the namespace-qualified episode identity for one captured member."""
+    if not isinstance(ref, Mapping):
+        return None
+    namespace = ref.get("namespace")
+    locator = ref.get("locator")
+    if not isinstance(namespace, Mapping) or not isinstance(locator, Mapping):
+        return None
+    kind = ref.get("kind")
+    transcript_lineage = None
+    if kind in {"task", "task_message"}:
+        base_kind, identity = "task", locator.get("task_id") or ref.get("record_id")
+    elif kind in {"action", "action_revision", "action_message"}:
+        base_kind, identity = "action", locator.get("action_id") or ref.get("record_id")
+    elif kind in {"signoff", "signoff_note", "signoff_response", "execution_outcome"}:
+        base_kind, identity = "signoff", locator.get("signoff_id") or ref.get("record_id")
+    elif kind in {"document", "document_revision"}:
+        base_kind, identity = "document", locator.get("document_id") or ref.get("record_id")
+    elif kind == "transcript_entry":
+        lineage = [locator.get("agent_id"), locator.get("provider"), locator.get("conversation_id")]
+        if (ref.get("provider") != "operations"
+                or not all(isinstance(part, str) and part for part in lineage)):
+            return None
+        base_kind, identity, transcript_lineage = "transcript", _key(lineage), lineage
+    else:
+        return None
+    if not isinstance(identity, str) or not identity:
+        return None
+    if not ((namespace.get("kind") == "global" and namespace.get("business_id") is None) or
+            (namespace.get("kind") == "business" and isinstance(namespace.get("business_id"), str)
+             and namespace.get("business_id"))):
+        return None
+    if (base_kind == "transcript"
+            and ref.get("episode_id") not in {
+                _episode(dict(namespace), base_kind, transcript_lineage),
+                _episode(dict(namespace), base_kind, identity)}):
+        return None
+    return (_key(dict(namespace)), base_kind, identity)
+
+
+def _episode_relation(relation, source_ref):
+    """Normalize frozen host relation metadata without changing namespace meaning."""
+    if not isinstance(relation, Mapping):
+        return None
+    raw_kind = relation.get("kind") or relation.get("type") or relation.get("resource_type")
+    kind = _EPISODE_KIND_ALIASES.get(raw_kind)
+    identity = relation.get("record_id") or relation.get("id") or relation.get("resource_id")
+    if kind is None or not isinstance(identity, str) or not identity:
+        return None
+    if "business_id" in relation:
+        business_id = relation["business_id"]
+        if business_id is None:
+            namespace = {"kind": "global", "business_id": None}
+        elif isinstance(business_id, str) and business_id:
+            namespace = {"kind": "business", "business_id": business_id}
+        else:
+            return None
+    else:
+        namespace = source_ref.get("namespace")
+        if not isinstance(namespace, Mapping):
+            return None
+        namespace = dict(namespace)
+    if not ((namespace.get("kind") == "global" and namespace.get("business_id") is None) or
+            (namespace.get("kind") == "business" and isinstance(namespace.get("business_id"), str)
+             and namespace.get("business_id"))):
+        return None
+    label = raw_kind if isinstance(raw_kind, str) and raw_kind else kind
+    return (_key(namespace), kind, identity), label
+
+
+def _episode_link_ref(key):
+    namespace_key, kind, identity = key
+    import json
+    namespace = json.loads(namespace_key)
+    locator_key = {"task": "task_id", "action": "action_id", "signoff": "signoff_id",
+                   "document": "document_id"}[kind]
+    return {"provider": "operations", "kind": kind, "record_id": identity,
+            "namespace": namespace, "episode_id": _episode(namespace, kind, identity),
+            "locator": {locator_key: identity}}
 
 
 class EvidenceAccess(Protocol):
@@ -421,147 +517,517 @@ class CaptureJournal:
         import base64
         import json
         import sqlite3
+        import time
+
         if not isinstance(episode_ref, Mapping) or not isinstance(episode_ref.get("id"), str):
             raise DomainError("validation_error", "Episode reference requires an ID")
         if not isinstance(frontier, Mapping) or not isinstance(frontier.get("snapshot_id"), str):
             raise DomainError("validation_error", "A captured frontier is required")
         if type(max_chars) is not int or not 1 <= max_chars <= 160000:
             raise DomainError("validation_error", "Invalid episode page size")
-        snapshot = frontier["snapshot_id"]
+        started = time.monotonic()
+        work_deadline = started + EPISODE_WORK_SECONDS - EPISODE_WORK_RESERVE_SECONDS
+        snapshot, root_id = frontier["snapshot_id"], episode_ref["id"]
         with sqlite3.connect(self.path) as db:
             found = db.execute("SELECT selection,selection_key,captured_at,max_sequence,gaps FROM frontiers WHERE snapshot_id=?",
                                (snapshot,)).fetchone()
             if found is None or found[2] != frontier.get("captured_at"):
                 raise DomainError("evidence_unavailable", "Captured frontier is unavailable")
+            if cursor is not None:
+                try:
+                    if not isinstance(cursor, str) or len(cursor) > 4096:
+                        raise ValueError("cursor size")
+                    binding = json.loads(base64.b64decode(cursor.encode("ascii") + b"=" * (-len(cursor) % 4),
+                                                         altchars=b"-_", validate=True))
+                    if not isinstance(binding, dict):
+                        raise ValueError("cursor object")
+                    legacy = set(binding) == {"snapshot", "episode", "sequence", "offset"}
+                    if legacy:
+                        valid_binding = binding["snapshot"] == snapshot and binding["episode"] == root_id
+                    else:
+                        valid_binding = (binding.get("scope") == EPISODE_CURSOR_SCOPE
+                            and binding.get("version") == EPISODE_CURSOR_VERSION
+                            and binding.get("snapshot") == snapshot and binding.get("captured_at") == found[2]
+                            and binding.get("episode") == root_id)
+                    if not valid_binding:
+                        raise ValueError("cursor binding")
+                except (ValueError, TypeError, KeyError, UnicodeError) as exc:
+                    raise DomainError("validation_error", "Invalid episode cursor") from exc
             selection = json.loads(found[0])
             resolve_selection(self.access, selection)
             candidates = db.execute("SELECT c.sequence,c.ref,c.material_ref,c.relations,c.gaps,c.episode_id FROM captures c "
                 "JOIN frontier_members m ON m.identity=c.identity WHERE m.snapshot_id=? AND c.sequence<=? "
                 "ORDER BY c.sequence LIMIT 1001", (snapshot, found[3])).fetchall()
-        truncated = len(candidates) > 1000
-        candidates = candidates[:1000]
-        aliases = {"parent_task": "task", "task": "task", "signoff": "signoff", "action": "action",
-                   "document": "document", "supersedes_id": "signoff", "superseded_by_id": "signoff"}
+        truncated_rows = len(candidates) > 1000
+        rows = []
+        for sequence, raw_ref, raw_material, raw_relations, raw_gaps, episode_id in candidates[:1000]:
+            ref = json.loads(raw_ref)
+            rows.append({"sequence": sequence, "raw_ref": raw_ref, "raw_material": raw_material,
+                         "episode_id": episode_id, "ref": ref, "relations": json.loads(raw_relations),
+                         "gaps": json.loads(raw_gaps), "key": _episode_source_key(ref)})
+        frontier_view = {"snapshot_id": snapshot, "captured_at": found[2],
+            "providers": [{"provider": provider, "anchor": str(found[3])}
+                          for provider in sorted({row["ref"].get("provider") for row in rows
+                                                  if isinstance(row["ref"].get("provider"), str)})],
+            "gaps": json.loads(found[4])}
+        root_rows = [row for row in rows if row["episode_id"] == root_id]
+        if not root_rows:
+            raise DomainError("evidence_unavailable", "Episode is absent from this captured frontier")
+        root_keys = {row["key"] for row in root_rows if row["key"] is not None}
+        if not root_keys:
+            raise DomainError("evidence_unavailable", "Episode has no usable captured source identity")
 
-        def related_episodes(row):
-            ref = json.loads(row[1])
-            for relation in json.loads(row[3]):
-                if not isinstance(relation, dict):
-                    continue
-                kind = aliases.get(relation.get("kind") or relation.get("type"))
-                identity = relation.get("record_id") or relation.get("id")
-                if not kind or not isinstance(identity, str):
-                    continue
-                namespace = ref["namespace"]
-                if relation.get("business_id") is not None:
-                    namespace = {"kind": "business", "business_id": relation["business_id"]}
-                yield _episode(namespace, kind, identity)
+        rows_by_key = {}
+        for row in rows:
+            if row["key"] is not None:
+                rows_by_key.setdefault(row["key"], []).append(row)
 
-        # Private captured metadata identifies a conservative set of possible relatives.
-        # Do not perform source reads for every unrelated episode in the frontier.
-        # This is only a prefilter: authorization and the graph of permitted sources
-        # below still decide what can be returned, including revoked links/bridges.
-        possible_graph = {}
-        for row in candidates:
-            for other in related_episodes(row):
-                possible_graph.setdefault(row[5], set()).add(other)
-                possible_graph.setdefault(other, set()).add(row[5])
-        possible, queue = {episode_ref["id"]}, [episode_ref["id"]]
-        while queue:
-            for other in possible_graph.get(queue.pop(), ()):
-                if other not in possible:
-                    possible.add(other)
-                    queue.append(other)
-        candidates = [row for row in candidates if row[5] in possible]
-        permitted, denied_episodes = [], set()
-        for row in candidates:
-            ref = json.loads(row[1])
-            try:
-                self._authorize(ref)
-                if not self._excluded(ref):
-                    permitted.append(row)
-            except DomainError:
-                denied_episodes.add(row[5])
+        # Select exactly one relation hop from the requested episode. Incoming
+        # relations are checked against the same namespace-qualified identity.
+        attachment_kinds = {"signoff", "action", "document"}
+        attachment_episode_proofs = {}
+        def add_attachment_proof(episode_id, proof_row):
+            if episode_id == root_id:
+                return
+            proofs = attachment_episode_proofs.setdefault(episode_id, [])
+            if all(existing["sequence"] != proof_row["sequence"] for existing in proofs):
+                proofs.append(proof_row)
+
+        for row in rows:
+            if row["key"] is None:
                 continue
-        graph, missing = {}, set()
-        known = {row[5] for row in permitted}
-        for row in permitted:
-            start = row[5]
-            for other in related_episodes(row):
-                if other not in known:
-                    missing.add(start)
-                    continue
-                graph.setdefault(start, set()).add(other)
-                graph.setdefault(other, set()).add(start)
-        selected, queue = {episode_ref["id"]}, [episode_ref["id"]]
-        while queue:
-            current = queue.pop()
-            for other in graph.get(current, ()):
-                if other not in selected:
-                    selected.add(other)
-                    queue.append(other)
-        rows = [row[:5] for row in permitted if row[5] in selected]
-        if not rows:
-            if episode_ref["id"] in denied_episodes:
-                return {"id": episode_ref["id"], "scope": None, "records": [], "source_refs": [], "relations": [],
-                        "frontier": dict(frontier), "availability": "forbidden", "complete": False, "gaps": [{"code": "forbidden"}], "next_cursor": None}
-            raise DomainError("evidence_unavailable", "Episode is absent or forbidden in this captured frontier")
-        extra_gaps = ([{"code": "related_source_not_captured"}] if selected & missing else [])
-        if truncated:
-            extra_gaps.append({"code": "frontier_members_truncated"})
-        start_sequence, offset = 0, 0
+            if row["episode_id"] == root_id:
+                for relation in row["relations"]:
+                    edge = _episode_relation(relation, row["ref"])
+                    if edge and edge[0][1] in attachment_kinds:
+                        for member in rows_by_key.get(edge[0], ()):
+                            add_attachment_proof(member["episode_id"], row)
+            elif row["key"][1] in attachment_kinds:
+                for relation in row["relations"]:
+                    edge = _episode_relation(relation, row["ref"])
+                    if edge and edge[0] in root_keys:
+                        # For an incoming edge, the attached source itself is
+                        # the frozen proof. Its read path checks admission and
+                        # exclusion before yielding either body or navigation.
+                        add_attachment_proof(row["episode_id"], row)
+                        break
+        attachment_episode_ids = set(attachment_episode_proofs)
+        attachment_episode_ids.discard(root_id)
+        attachment_rows = [row for row in rows if row["episode_id"] in attachment_episode_ids]
+        attachment_proofs = {row["sequence"]: attachment_episode_proofs[row["episode_id"]]
+                             for row in attachment_rows}
+        attachment_by_key = {}
+        for row in attachment_rows:
+            if row["key"] is None:
+                continue
+            old = attachment_by_key.get(row["key"])
+            if old is None or row["ref"].get("kind") == row["key"][1]:
+                attachment_by_key[row["key"]] = row
+        selected_episode_ids = {root_id, *attachment_episode_ids}
+        selected_keys = root_keys | {row["key"] for row in attachment_rows if row["key"] is not None}
+
+        # Navigation only inspects frozen relation metadata. Each candidate is
+        # admitted later, when its page is built; no target body is read here.
+        link_proofs = {}
+        def add_link(target_key, relation_name, origin_row, target_row=None, attachment_endpoint=None):
+            if target_key is None or target_key in selected_keys or target_key[1] not in {"task", "signoff", "action", "document"}:
+                return
+            entry = link_proofs.get(target_key)
+            if entry is None:
+                captured_row = target_row or next(iter(rows_by_key.get(target_key, ())), None)
+                entry = {"target_ref": captured_row["ref"] if captured_row else _episode_link_ref(target_key),
+                         "captured": captured_row is not None, "proofs": []}
+                link_proofs[target_key] = entry
+            if attachment_endpoint is None and origin_row["episode_id"] in attachment_episode_ids:
+                attachment_endpoint = origin_row
+            gate_proofs = (attachment_proofs.get(attachment_endpoint["sequence"], ())
+                           if attachment_endpoint is not None else ())
+            endpoint_identity = (_identity(attachment_endpoint["ref"])
+                                 if attachment_endpoint is not None else None)
+            proof = {"sequence": origin_row["sequence"], "origin_ref": origin_row["ref"],
+                     "relation": relation_name,
+                     "endpoint_ref": attachment_endpoint["ref"] if attachment_endpoint is not None else None,
+                     "endpoint_identity": endpoint_identity,
+                     "gate_proofs": [item["ref"] for item in gate_proofs]}
+            if all(existing["sequence"] != proof["sequence"] or existing["relation"] != proof["relation"]
+                   or existing["endpoint_identity"] != proof["endpoint_identity"]
+                   for existing in entry["proofs"]):
+                entry["proofs"].append(proof)
+
+        for row in rows:
+            if row["key"] is None:
+                continue
+            if row["episode_id"] in selected_episode_ids:
+                for relation in row["relations"]:
+                    edge = _episode_relation(relation, row["ref"])
+                    if edge:
+                        add_link(edge[0], edge[1], row, next(iter(rows_by_key.get(edge[0], ())), None))
+            for relation in row["relations"]:
+                edge = _episode_relation(relation, row["ref"])
+                if edge and edge[0] in selected_keys and row["key"] not in selected_keys:
+                    add_link(row["key"], edge[1], row, row,
+                             attachment_endpoint=attachment_by_key.get(edge[0]))
+        link_groups = []
+        for target_key in sorted(link_proofs, key=lambda item: (item[0], item[1], item[2])):
+            entry = link_proofs[target_key]
+            proofs = sorted(entry["proofs"], key=lambda proof: (proof["sequence"],
+                _key(proof["origin_ref"]), proof["relation"], proof["endpoint_identity"] or ""))
+            link_groups.append({"key": target_key, "target_ref": entry["target_ref"],
+                                "captured": entry["captured"], "proofs": proofs})
+
+        phase, position, offset, proof_position, gate_position, gap_seen = "root", 0, 0, 0, 0, False
+        cursor_reset = False
+        value = None
         if cursor:
             try:
                 if not isinstance(cursor, str) or len(cursor) > 4096:
                     raise ValueError("cursor size")
-                value = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
-                if value["snapshot"] != snapshot or value["episode"] != episode_ref["id"]:
-                    raise ValueError("cursor binding")
-                start_sequence, offset = value["sequence"], value["offset"]
-                if type(start_sequence) is not int or type(offset) is not int or offset < 0:
-                    raise ValueError("cursor position")
-            except (ValueError, TypeError, KeyError) as exc:
-                raise DomainError("validation_error", "Invalid episode cursor") from exc
-        records, refs, relations, gaps, remaining, next_cursor = [], [], [], json.loads(found[4]) + extra_gaps, max_chars, None
-        for sequence, raw_ref, raw_material, raw_relations, raw_gaps in rows:
-            if sequence < start_sequence:
-                continue
-            ref = {**json.loads(raw_ref), "material_ref": json.loads(raw_material)}
-            if self._excluded(ref):
-                offset = 0
-                continue
-            try:
-                content = self.get_source(ref)
-            except DomainError as error:
-                gaps.append({"code": error.code, "source": "unavailable"})
-                offset = 0
-                continue
-            text = json.dumps(content, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-            if offset > len(text):
-                raise DomainError("validation_error", "Episode cursor exceeds source size")
-            chunk = text[offset:offset + remaining]
-            records.append({"source_ref": ref, "content_fragment": chunk, "encoding": "json", "offset": offset})
-            refs.append(ref)
-            relations.extend(json.loads(raw_relations))
-            gaps.extend(json.loads(raw_gaps))
-            remaining -= len(chunk)
-            end = offset + len(chunk)
-            if end < len(text) or remaining == 0:
-                if end < len(text):
-                    next_seq, next_offset = sequence, end
+                value = json.loads(base64.b64decode(cursor.encode("ascii") + b"=" * (-len(cursor) % 4),
+                                                    altchars=b"-_", validate=True))
+                if not isinstance(value, dict):
+                    raise ValueError("cursor object")
+                if set(value) == {"snapshot", "episode", "sequence", "offset"}:
+                    sequence, old_offset = value["sequence"], value["offset"]
+                    if (value["snapshot"] != snapshot or value["episode"] != root_id or type(sequence) is not int
+                            or type(old_offset) is not int or not 0 <= sequence <= found[3] + 1
+                            or not 0 <= old_offset <= 2**31 - 1):
+                        raise ValueError("legacy cursor binding or bounds")
+                    # The former cursor encoded the transitive graph position.
+                    # It is valid for this root/frontier, but must restart the
+                    # smaller scope without touching saved coverage.
+                    cursor_reset = True
                 else:
-                    next_seq, next_offset = sequence + 1, 0
-                if end < len(text) or any(row[0] >= next_seq for row in rows):
-                    payload = {"snapshot": snapshot, "episode": episode_ref["id"], "sequence": next_seq, "offset": next_offset}
-                    next_cursor = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
-                break
-            offset = 0
-        unique_relations = list({_key(relation): relation for relation in relations}.values())
-        return {"id": episode_ref["id"], "scope": refs[0].get("scope") if refs else None, "records": records,
-                "source_refs": refs, "relations": unique_relations, "frontier": dict(frontier),
-                "availability": "partial" if gaps else "available", "complete": not gaps and next_cursor is None,
-                "gaps": gaps, "next_cursor": next_cursor}
+                    required = {"scope", "version", "snapshot", "captured_at", "episode", "phase",
+                                "position", "offset", "gap_seen"}
+                    allowed = required | {"proof", "gate"}
+                    if not required <= set(value) or set(value) - allowed:
+                        raise ValueError("cursor fields")
+                    if (value["scope"] != EPISODE_CURSOR_SCOPE
+                            or type(value["version"]) is not int
+                            or value["version"] != EPISODE_CURSOR_VERSION):
+                        raise ValueError("cursor version")
+                    if value["snapshot"] != snapshot or value["captured_at"] != found[2] or value["episode"] != root_id:
+                        raise ValueError("cursor binding")
+                    phase, position = value["phase"], value["position"]
+                    offset, gap_seen = value["offset"], value["gap_seen"]
+                    proof_position = value.get("proof", 0)
+                    gate_position = value.get("gate", 0)
+                    if phase not in {"root", "attachments", "links"} or type(position) is not int or position < 0:
+                        raise ValueError("cursor phase or position")
+                    if (type(offset) is not int or not 0 <= offset <= 2**31 - 1
+                            or type(gap_seen) is not bool or type(proof_position) is not int or proof_position < 0
+                            or type(gate_position) is not int or gate_position < 0):
+                        raise ValueError("cursor offset or state")
+                    phase_items = {"root": root_rows, "attachments": attachment_rows, "links": link_groups}[phase]
+                    if position > len(phase_items):
+                        raise ValueError("cursor position bounds")
+                    if phase == "root" and (proof_position != 0 or gate_position != 0
+                                             or "proof" in value or "gate" in value):
+                        raise ValueError("root cursor proof position")
+                    if phase == "attachments":
+                        if "proof" not in value or "gate" in value:
+                            raise ValueError("attachment proof position")
+                        if position < len(attachment_rows) and proof_position >= len(attachment_proofs[attachment_rows[position]["sequence"]]):
+                            raise ValueError("attachment proof bounds")
+                        if position == len(phase_items) and (offset != 0 or proof_position != 0):
+                            raise ValueError("attachment terminal position")
+                    if phase == "root" and position == len(phase_items) and offset != 0:
+                        raise ValueError("cursor terminal offset")
+                    if phase == "links":
+                        if "proof" not in value or "gate" not in value:
+                            raise ValueError("missing link proof position")
+                        if offset != 0 or (position == len(link_groups) and (proof_position != 0 or gate_position != 0)):
+                            raise ValueError("link cursor offset")
+                        if position < len(link_groups) and proof_position >= len(link_groups[position]["proofs"]):
+                            raise ValueError("link proof bounds")
+                        if position < len(link_groups):
+                            gate_proofs = link_groups[position]["proofs"][proof_position]["gate_proofs"]
+                            if gate_position >= max(1, len(gate_proofs)):
+                                raise ValueError("link gate bounds")
+            except (ValueError, TypeError, KeyError, UnicodeError) as exc:
+                raise DomainError("validation_error", "Invalid episode cursor") from exc
+        else:
+            phase, position, offset, proof_position, gate_position, gap_seen = "root", 0, 0, 0, 0, False
 
+        frontier_truncated = truncated_rows or any(
+            isinstance(gap, dict) and gap.get("code") == "frontier_members_truncated"
+            for gap in json.loads(found[4]))
+        if frontier_truncated:
+            gap_seen = True
+
+        # Check the requested episode's current admission on every continuation.
+        anchor_row = next((row for row in root_rows
+                           if row["key"] and row["ref"].get("kind") == row["key"][1]), root_rows[0])
+        anchor_ref = anchor_row["ref"]
+        anchor_sequence = anchor_row["sequence"]
+        if anchor_row["key"] and anchor_row["key"][1] == "transcript":
+            import json
+            agent, provider, conversation = json.loads(anchor_row["key"][2])
+            anchor_ref = {"provider": "native_archive", "kind": "transcript", "record_id": anchor_row["key"][2],
+                "namespace": anchor_row["ref"]["namespace"], "episode_id": root_id,
+                "locator": {"agent_id": agent, "provider": provider, "conversation_id": conversation}}
+            anchor_sequence = None
+        anchor = {"ref": anchor_ref, "sequence": anchor_sequence, "row": anchor_row}
+        records, refs, relations, related_episodes, gaps = [], [], [], [], []
+        try:
+            self._authorize(anchor["ref"])
+            if self._excluded(anchor["ref"]):
+                raise DomainError("forbidden", "Episode is excluded")
+        except DomainError:
+            return {"id": root_id, "scope": None, "records": [], "source_refs": [],
+                    "relations": [], "related_episodes": [], "frontier": frontier_view,
+                    "availability": "forbidden", "complete": False,
+                    "gaps": [{"code": "forbidden"}], "next_cursor": None,
+                    **({"cursor_reset": True} if cursor_reset else {})}
+        if time.monotonic() >= work_deadline:
+            payload = {"scope": EPISODE_CURSOR_SCOPE, "version": EPISODE_CURSOR_VERSION,
+                "snapshot": snapshot, "captured_at": found[2], "episode": root_id,
+                "phase": phase, "position": position, "offset": offset, "gap_seen": gap_seen}
+            if phase in {"attachments", "links"}:
+                payload["proof"] = proof_position
+            if phase == "links":
+                payload["gate"] = gate_position
+            next_cursor = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
+            result = {"id": root_id, "scope": anchor["ref"].get("scope", anchor_row["ref"].get("scope")), "records": records,
+                "source_refs": refs, "relations": relations, "related_episodes": related_episodes,
+                "frontier": frontier_view, "availability": "partial", "complete": False,
+                "gaps": [{"code": "frontier_members_truncated"}] if frontier_truncated else [],
+                "next_cursor": next_cursor}
+            if cursor_reset:
+                result["cursor_reset"] = True
+            return result
+
+        phases = {"root": (root_rows, "attachments"), "attachments": (attachment_rows, "links"),
+                  "links": (link_groups, None)}
+        remaining = max_chars
+        candidate_count = 1
+        current_admissions = {_identity(anchor["ref"])}
+        counted_sources = {anchor["sequence"]} if anchor["sequence"] is not None else set()
+        while phase is not None:
+            phase_items, following = phases[phase]
+            if position >= len(phase_items):
+                phase, position, offset, proof_position, gate_position = following, 0, 0, 0, 0
+                continue
+            if (candidate_count >= EPISODE_MAX_CANDIDATES or remaining <= 0
+                    or time.monotonic() >= work_deadline):
+                break
+            item = phase_items[position]
+            if phase == "attachments":
+                proofs = attachment_proofs[item["sequence"]]
+                if proof_position >= len(proofs):
+                    gaps.append({"code": "related_source_forbidden"})
+                    gap_seen = True
+                    position, offset, proof_position = position + 1, 0, 0
+                    continue
+                proof_row = proofs[proof_position]
+                proof_ref = proof_row["ref"]
+                proof_identity = _identity(proof_ref)
+                target_identity = _identity(item["ref"])
+                proof_is_target = proof_identity == target_identity
+                proof_new = proof_identity not in current_admissions and not proof_is_target
+                source_new = item["sequence"] not in counted_sources
+                if candidate_count + (1 if proof_new else 0) + (1 if source_new else 0) > EPISODE_MAX_CANDIDATES:
+                    break
+                if proof_new:
+                    if time.monotonic() >= work_deadline:
+                        break
+                    candidate_count += 1
+                    try:
+                        self._authorize(proof_ref)
+                        if self._excluded(proof_ref):
+                            raise DomainError("forbidden", "Attachment relation proof is excluded")
+                        current_admissions.add(proof_identity)
+                    except DomainError:
+                        gaps.append({"code": "related_source_forbidden"})
+                        gap_seen = True
+                        proof_position += 1
+                        if proof_position >= len(proofs):
+                            position, offset, proof_position = position + 1, 0, 0
+                        continue
+                if time.monotonic() >= work_deadline:
+                    break
+                source_ref = {**item["ref"], "material_ref": json.loads(item["raw_material"])}
+                try:
+                    content = self.get_source(source_ref)
+                    current_admissions.add(target_identity)
+                except DomainError as error:
+                    gaps.append({"code": error.code, "source": "unavailable"})
+                    gap_seen = True
+                    if source_new:
+                        candidate_count += 1
+                        counted_sources.add(item["sequence"])
+                    position, offset, proof_position = position + 1, 0, 0
+                    continue
+            elif phase == "root":
+                source_ref = {**item["ref"], "material_ref": json.loads(item["raw_material"])}
+                try:
+                    content = self.get_source(source_ref)
+                    current_admissions.add(_identity(item["ref"]))
+                except DomainError as error:
+                    gaps.append({"code": error.code, "source": "unavailable"})
+                    gap_seen = True
+                    if item["sequence"] not in counted_sources:
+                        candidate_count += 1
+                        counted_sources.add(item["sequence"])
+                    position, offset = position + 1, 0
+                    continue
+            else:
+                group = item
+                proofs = group["proofs"]
+                if proof_position >= len(proofs):
+                    position, proof_position, gate_position = position + 1, 0, 0
+                    continue
+                proof = proofs[proof_position]
+                origin_ref = proof["origin_ref"]
+                origin_identity = _identity(origin_ref)
+                origin_new = origin_identity not in current_admissions
+                endpoint_ref = proof.get("endpoint_ref")
+                endpoint_identity = _identity(endpoint_ref) if endpoint_ref is not None else None
+                endpoint_new = (endpoint_identity is not None and endpoint_identity != origin_identity
+                                and endpoint_identity not in current_admissions)
+                gate_proofs = proof["gate_proofs"]
+                if gate_position >= len(gate_proofs) and gate_proofs:
+                    position, proof_position, gate_position = position + 1, 0, 0
+                    continue
+                gate_ref = gate_proofs[gate_position] if gate_proofs else None
+                gate_identity = _identity(gate_ref) if gate_ref else None
+                gate_new = (gate_identity is not None and gate_identity not in current_admissions
+                            and gate_identity not in {origin_identity, endpoint_identity})
+                # Reserve target admission while checking the relation origin
+                # plus any selected attachment endpoint and its direct-edge proof.
+                needed = (1 if origin_new else 0) + (1 if endpoint_new else 0) + (1 if gate_new else 0) + 1
+                if candidate_count + needed > EPISODE_MAX_CANDIDATES:
+                    break
+                if origin_new:
+                    if time.monotonic() >= work_deadline:
+                        break
+                    candidate_count += 1
+                    try:
+                        self._authorize(origin_ref)
+                        if self._excluded(origin_ref):
+                            raise DomainError("forbidden", "Related source is excluded")
+                        current_admissions.add(origin_identity)
+                    except DomainError:
+                        gaps.append({"code": "related_source_forbidden"})
+                        gap_seen = True
+                        proof_position += 1
+                        if proof_position >= len(proofs):
+                            position, proof_position = position + 1, 0
+                        gate_position = 0
+                        continue
+                if endpoint_new:
+                    if time.monotonic() >= work_deadline:
+                        break
+                    candidate_count += 1
+                    try:
+                        self._authorize(endpoint_ref)
+                        if self._excluded(endpoint_ref):
+                            raise DomainError("forbidden", "Selected attachment is excluded")
+                        current_admissions.add(endpoint_identity)
+                    except DomainError:
+                        gaps.append({"code": "related_source_forbidden"})
+                        gap_seen = True
+                        proof_position += 1
+                        if proof_position >= len(proofs):
+                            position, proof_position = position + 1, 0
+                        gate_position = 0
+                        continue
+                if gate_new:
+                    if time.monotonic() >= work_deadline:
+                        break
+                    candidate_count += 1
+                    try:
+                        self._authorize(gate_ref)
+                        if self._excluded(gate_ref):
+                            raise DomainError("forbidden", "Attachment relation proof is excluded")
+                        current_admissions.add(gate_identity)
+                    except DomainError:
+                        gaps.append({"code": "related_source_forbidden"})
+                        gap_seen = True
+                        gate_position += 1
+                        if gate_position >= len(gate_proofs):
+                            proof_position += 1
+                            if proof_position >= len(proofs):
+                                position, proof_position = position + 1, 0
+                            gate_position = 0
+                        continue
+                if time.monotonic() >= work_deadline:
+                    break
+                target_ref = group["target_ref"]
+                candidate_count += 1
+                if _identity(target_ref) != origin_identity:
+                    try:
+                        self._authorize(target_ref)
+                        if self._excluded(target_ref):
+                            raise DomainError("forbidden", "Related target is excluded")
+                    except DomainError:
+                        gaps.append({"code": "related_source_forbidden"})
+                        gap_seen = True
+                        position, proof_position, gate_position = position + 1, 0, 0
+                        continue
+                namespace_key, kind, identity = group["key"]
+                namespace = json.loads(namespace_key)
+                related_episodes.append({"episode_ref": {"id": _episode(namespace, kind, identity)},
+                    "kind": kind, "record_id": identity, "namespace": namespace,
+                    "relation": proof["relation"], "captured": group["captured"]})
+                position, proof_position, gate_position = position + 1, 0, 0
+                if len(related_episodes) >= EPISODE_MAX_CANDIDATES:
+                    break
+                continue
+
+            content_text = json.dumps(content, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            if offset > len(content_text):
+                raise DomainError("validation_error", "Episode cursor exceeds source size")
+            fragment = content_text[offset:offset + remaining]
+            records.append({"source_ref": source_ref, "content_fragment": fragment,
+                            "encoding": "json", "offset": offset})
+            refs.append(source_ref)
+            if offset == 0:
+                gaps.extend(item["gaps"])
+                if item["gaps"]:
+                    gap_seen = True
+            for relation in item["relations"]:
+                if _episode_relation(relation, item["ref"]) is None:
+                    relations.append(relation)
+            remaining -= len(fragment)
+            if item["sequence"] not in counted_sources:
+                candidate_count += 1
+                counted_sources.add(item["sequence"])
+            end = offset + len(fragment)
+            if end < len(content_text):
+                offset = end
+                break
+            position, offset, proof_position, gate_position = position + 1, 0, 0, 0
+            if remaining <= 0:
+                break
+
+        if phase is not None and position >= len(phases[phase][0]):
+            phase, position, offset, proof_position, gate_position = phases[phase][1], 0, 0, 0, 0
+        unfinished = phase is not None
+        next_cursor = None
+        if unfinished:
+            payload = {"scope": EPISODE_CURSOR_SCOPE, "version": EPISODE_CURSOR_VERSION,
+                "snapshot": snapshot, "captured_at": found[2], "episode": root_id,
+                "phase": phase, "position": position, "offset": offset, "gap_seen": gap_seen}
+            if phase in {"attachments", "links"}:
+                payload["proof"] = proof_position
+            if phase == "links":
+                payload["gate"] = gate_position
+            next_cursor = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
+
+        unique_relations = list({_key(relation): relation for relation in relations}.values())
+        display_gaps = list(gaps)
+        if frontier_truncated and not any(gap.get("code") == "frontier_members_truncated" for gap in display_gaps):
+            display_gaps.append({"code": "frontier_members_truncated"})
+        scope = refs[0].get("scope") if refs else anchor["ref"].get("scope", anchor_row["ref"].get("scope"))
+        partial = bool(gap_seen or next_cursor)
+        result = {"id": root_id, "scope": scope, "records": records, "source_refs": refs,
+            "relations": unique_relations, "related_episodes": related_episodes,
+            "frontier": frontier_view, "availability": "partial" if partial else "available",
+            "complete": not partial, "gaps": display_gaps, "next_cursor": next_cursor}
+        if cursor_reset:
+            result["cursor_reset"] = True
+        return result
 
 def _episode(namespace, kind, identity):
     from uuid import NAMESPACE_URL, uuid5
@@ -589,6 +1055,11 @@ class HostScanner:
     def __init__(self, runtime, context, access, journal):
         self.runtime, self.context, self.access, self.journal = runtime, context, _access(access), journal
         self.readers = AdmittedReaders(runtime, access)
+        self.deadline = None
+
+    def expired(self):
+        import time
+        return self.deadline is not None and time.monotonic() >= self.deadline
 
     def keys(self, selection, uow, *, after=None, limit=20):
         """A bounded stable page of registered routing identities, not bodies."""
@@ -726,7 +1197,7 @@ class HostScanner:
             return self._document(selection_key, namespace, identity, uow)
         return self._transcript(selection_key, namespace, identity, uow)
 
-    def _admit_notes(self, namespace, identity, kind, uow, *, cursor=None, limit=100):
+    def _admit_notes(self, namespace, identity, kind, uow, *, cursor=None, limit=MAX_THREAD_PAGE_NOTES):
         from qorqut_operations.application.plans import page_position
         if kind == "signoff":
             ids = uow.connection.execute("SELECT id FROM signoff_notes WHERE signoff_id=? AND sequence<? "
@@ -852,7 +1323,7 @@ class HostScanner:
         if item.get("created_by") in self.journal.overseer_ids:
             return result, []
         for _ in range(MAX_THREAD_PAGES):
-            args = {"task_id": identity, "limit": 100}
+            args = {"task_id": identity, "limit": MAX_THREAD_PAGE_NOTES}
             if cursor:
                 args["cursor"] = cursor
             self._admit_notes(namespace, identity, "task", uow, cursor=cursor)
@@ -964,7 +1435,7 @@ class HostScanner:
         position_key = self._continuation_key(namespace, "signoff_notes", identity)
         before, unresolved = self.journal.continuation(selection_key, position_key), False
         for _ in range(MAX_THREAD_PAGES):
-            params = {**args, "limit": 100}
+            params = {**args, "limit": MAX_THREAD_PAGE_NOTES}
             if before:
                 params["before"] = before
             self._admit_notes(namespace, identity, "signoff", uow, cursor=before)
@@ -1007,6 +1478,8 @@ class HostScanner:
         end, completed = min(maximum, last + MAX_HISTORY_REVISIONS), last
         excluded_history = bool(previous and self.journal._excluded(previous))
         for number in range(last + 1, end + 1):
+            if number > last + 1 and self.expired():
+                break
             revision_pre = self._locator(namespace, "action_revision", identity, action_id=identity, revision=number)
             value = ops.read("actions_get", {"action_id": identity, "revision": number}, revision_pre, uow)["action"]
             # Existing Action reads may intentionally redact references. Consult
@@ -1069,7 +1542,7 @@ class HostScanner:
         position_key = self._continuation_key(namespace, "action_thread", identity)
         cursor, unresolved = self.journal.continuation(selection_key, position_key), False
         for _ in range(MAX_THREAD_PAGES):
-            args = {"action_id": identity, "limit": 100}
+            args = {"action_id": identity, "limit": MAX_THREAD_PAGE_NOTES}
             if cursor:
                 args["cursor"] = cursor
             self._admit_notes(namespace, identity, "action", uow, cursor=cursor)
@@ -1178,6 +1651,9 @@ class HostScanner:
         previous = self.journal.captured_revision("operations", "document_revision", namespace, identity, last) if last else None
         gaps = []
         for row_version in versions:
+            if result and self.expired():
+                more = True
+                break
             number = row_version[0]
             if number > 1 and not result and previous is None:
                 gaps.append({"code": "document_before_unavailable"})
@@ -1188,7 +1664,7 @@ class HostScanner:
                 origin_event_id=f"document:{identity}:v{number}", original_refs=linked_sources,
                 before_ref=result[-1] if result else previous,
                 after_ref={**version_pre, "revision": str(number)} if number > 1 else None))
-        self.journal.set_continuation(selection_key, position_key, versions[-1][0] if more else None)
+        self.journal.set_continuation(selection_key, position_key, int(result[-1]["revision"]) if more and result else None)
         if more:
             gaps.append({"code": "document_history_continuation_pending"})
         if not result and not last:
@@ -1255,7 +1731,7 @@ class HostScanner:
                 for record in records:
                     if record.end > receipt.record_boundary:
                         break
-                    if (count >= MAX_TRANSCRIPT_ENTRIES or record_count >= MAX_TRANSCRIPT_RECORDS
+                    if ((record_count and self.expired()) or count >= MAX_TRANSCRIPT_ENTRIES or record_count >= MAX_TRANSCRIPT_RECORDS
                             or (record_count and record.end - start > MAX_TRANSCRIPT_PAGE_BYTES)):
                         continuation = {"receipt_id": receipt.receipt_id, "offset": record.offset,
                                         "state": projector.state.dump(), "blocked": blocked}
@@ -1491,9 +1967,14 @@ class EvidenceProvider:
         import base64
         import json
         import sqlite3
+        import time
         from .provenance import content_hash
         if type(limit) is not int or not 1 <= limit <= 100:
             raise DomainError("validation_error", "Limit must be from 1 through 100")
+        # Limit is a maximum, not a promise to fill a page. Leave time for source
+        # admission, the frozen frontier and delivery retention under MCP's 15s call.
+        limit = min(limit, 20)
+        self.scanner.deadline = time.monotonic() + SCAN_SECONDS
         resolved = resolve_selection(self.access, selection)
         selection_key = content_hash(resolved)
         pending_after = 0
@@ -1519,7 +2000,10 @@ class EvidenceProvider:
         with self.scanner.runtime.database.read() as uow:
             candidates = self.scanner.keys(resolved, uow, after=position, limit=limit)
             more = len(candidates) > limit
-            for key, namespace, kind, identity in candidates[:limit]:
+            for index, (key, namespace, kind, identity) in enumerate(candidates[:limit]):
+                if index and self.scanner.expired():
+                    more = True
+                    break
                 try:
                     _, source_gaps = self.scanner.capture(selection_key, namespace, kind, identity, uow)
                     gaps.extend(source_gaps)
@@ -1532,13 +2016,18 @@ class EvidenceProvider:
             db.execute("INSERT INTO scan_progress(selection_key,position,generation) VALUES(?,?,?) "
                        "ON CONFLICT(selection_key) DO UPDATE SET position=excluded.position,generation=excluded.generation",
                        (selection_key, json.dumps(position) if position is not None else None, generation))
+            # A source may span several inventory sweeps. Keep a cursor until
+            # all saved source continuations have drained, including ones first
+            # encountered on an earlier page of this sweep.
+            continuing = db.execute("SELECT 1 FROM source_continuations WHERE selection_key=? "
+                                    "AND value IS NOT NULL AND value!='null' LIMIT 1", (selection_key,)).fetchone()
         pending = self.journal.pending(selection_key, after=pending_after, limit=limit)
         gaps.extend(pending["gaps"])
         frontier = self.journal.frontier(resolved, selection_key, gaps=gaps,
                                          episode_ids=[ref["episode_id"] for ref in pending["items"]], source_refs=pending["items"])
         gaps = frontier["gaps"]
         next_cursor = None
-        if more or pending["next_after"] is not None:
+        if more or continuing or pending["next_after"] is not None:
             payload = {"selection": selection_key, "provider": "host_inventory", "generation": generation,
                        "after": pending["next_after"] if pending["next_after"] is not None else pending_after}
             next_cursor = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
