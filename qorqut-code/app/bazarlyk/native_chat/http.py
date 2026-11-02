@@ -30,7 +30,8 @@ HEARTBEAT_SECONDS = 15
 
 
 def matches(parts):
-    return len(parts) >= 4 and parts[0] == "root" and parts[1] == "agents" and parts[3] == "chat"
+    return parts == ["root", "thread-attachments"] or (
+        len(parts) >= 4 and parts[0] == "root" and parts[1] == "agents" and parts[3] == "chat")
 
 
 def _conversation(request):
@@ -57,10 +58,18 @@ async def route(runtime, request, principal_id, parts, request_id):
     """Handle one chat request. ``parts`` is the full path split, already known to satisfy :func:`matches`."""
     if request.headers.get("authorization") is not None:
         raise DomainError("forbidden", "Agent chat is for the owner's dashboard")
-    if not _UUID.fullmatch(parts[2]):
-        raise DomainError("not_found", "Select an active registered agent")
-    agent_id, tail, chat = parts[2], parts[4:], runtime.native_chat
+    thread_upload = parts == ["root", "thread-attachments"]
+    chat = runtime.native_chat
     run = anyio.to_thread.run_sync
+    if thread_upload:
+        if request.method != "POST":
+            raise DomainError("not_found", "Attachment endpoint is not registered")
+        agent_id = await run(partial(chat.thread_upload_target, principal_id))
+        tail = ["attachments"]
+    else:
+        if not _UUID.fullmatch(parts[2]):
+            raise DomainError("not_found", "Select an active registered agent")
+        agent_id, tail = parts[2], parts[4:]
 
     def ok(data):
         result = response(OperationResult.ok(data, request_id=request_id))
@@ -99,6 +108,9 @@ async def route(runtime, request, principal_id, parts, request_id):
             if size > MAX_BYTES:
                 raise DomainError("payload_too_large", "Files must be 25 MB or smaller")
             body.append(chunk)
+        if thread_upload:
+            return ok(await run(partial(chat.upload_thread, principal_id, agent_id,
+                                        request.headers.get("idempotency-key"), name, b"".join(body))))
         return ok(await run(partial(chat.upload, principal_id, agent_id, request.headers.get("idempotency-key"),
                                     request.headers.get("x-chat-binding"), name, b"".join(body))))
     body = await read_json(request, limit=64 * 1024)

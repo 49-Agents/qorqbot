@@ -274,6 +274,29 @@ class NativeChat:
                 raise DomainError("terminal_changed", "The agent conversation changed; send again")
             return uploads.save(self.runtime.root, profile, principal_id, expected_binding, key, name, data)
 
+    def thread_upload_target(self, principal_id):
+        from bazarlyk.management.identity import private_participants
+        with self.database.read() as uow:
+            agent_id = private_participants(uow)[1]
+            return self._target(uow, principal_id, agent_id)["agent_id"]
+
+    def upload_thread(self, principal_id, agent_id, key, name, data):
+        """Owner Task attachments go to the configured Ordubashy, including offline.
+
+        Saving is not sending: normal thread permissions still govern the comment.
+        Recheck the coordinator chosen before reading the upload, never re-aim it.
+        """
+        from bazarlyk.management.identity import private_participants
+        from . import uploads
+        uploads.validate(key, name, data)
+        with self.runtime.application.writer_admission.writer(), self.arbiter.locks(agent_id):
+            with self.database.read() as uow:
+                profile = self._target(uow, principal_id, agent_id)
+                self.runtime.application.ensure_writes_open(uow)
+                if private_participants(uow)[1] != agent_id:
+                    raise DomainError("revision_conflict", "The attachment recipient changed; try again")
+            return uploads.save(self.runtime.root, profile, principal_id, "thread", key, name, data)
+
     def send(self, principal_id: str, agent_id: str, text: str, key: str, expected_binding: str) -> dict:
         """Admit one owner message for the exact native session ``expected_binding`` names and return at once; the backend types
         it when that same conversation's composer is ready. The pin is the ``binding_id`` the owner's page last saw. After the
