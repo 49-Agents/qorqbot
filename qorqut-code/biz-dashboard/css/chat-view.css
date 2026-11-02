@@ -8,8 +8,16 @@
 .gchat-banner[hidden], .gchat-older[hidden], .gchat-jump[hidden], .gchat-empty[hidden], .gchat-composer[hidden] { display: none; }
 .gchat-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: var(--chat-top-inset, 0px) 2px 14px; overscroll-behavior: contain; }
 .gchat-older { display: block; margin: 0 auto 12px; }
-.gchat-log { display: flex; flex-direction: column; gap: 22px; }
+.gchat-log { padding-left: 32px; display: flex; flex-direction: column; gap: 22px; }
 .gchat-msg { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: min(760px, 88%); }
+.gchat-bubble-row { position: relative; min-width: 0; max-width: 100%; }
+.chat-view .gchat-copy { position: absolute; right: calc(100% + 4px); top: 8px; display: grid; place-items: center; width: 28px; height: 28px; min-height: 28px; padding: 6px; border: 0; border-radius: 7px; background: none; color: var(--fg-2); opacity: 0; pointer-events: none; transition: opacity 140ms ease; transform: none; }
+.gchat-copy svg { width: 16px; height: 16px; }
+.chat-view .gchat-msg:hover .gchat-copy, .chat-view .gchat-copy:focus-visible, .chat-view .gchat-copy.copied { opacity: 1; pointer-events: auto; }
+.chat-view .gchat-copy:hover { background: var(--hover); color: var(--fg); }
+.chat-view .gchat-copy.copied { color: var(--ok); }
+@media (hover: none) { .chat-view .gchat-copy { opacity: .65; pointer-events: auto; } }
+@media (prefers-reduced-motion: reduce) { .chat-view .gchat-copy { transition: none; } }
 .gchat-user { align-self: flex-end; align-items: flex-end; }
 .gchat-agent { align-self: flex-start; }
 .gchat-notice { align-self: center; align-items: center; max-width: 80%; font-size: 12px; color: var(--fg-2); }
@@ -81,7 +89,7 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 .gchat-state[data-state="failed"], .gchat-state[data-state="uncertain"], .gchat-state[data-state="undelivered"] { color: var(--danger); }
 .gchat-pending .gchat-state { max-width: 100%; }
 .gchat-pending[data-state="waiting"] .gchat-body, .gchat-pending[data-state="submitting"] .gchat-body { opacity: .7; }
-.gchat-pending-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.gchat-pending-list { padding-left: 32px; display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
 .gchat-pending-list:empty { display: none; }
 .gchat-pending-actions { display: inline-flex; gap: 6px; }
 .gchat-pending-actions button { min-height: 26px; padding: 2px 9px; font-size: 11px; }

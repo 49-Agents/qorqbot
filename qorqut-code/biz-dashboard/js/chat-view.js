@@ -13,6 +13,24 @@ function chatViewTimestamp(value) {
   return `<time class="gchat-time" datetime="${date.toISOString()}" title="${full}" aria-label="${full}">${esc(CHAT_VIEW_TIME.format(date))}</time>`;
 }
 
+// The live private host may be HTTP, where the Clipboard API is unavailable.
+async function chatViewCopyText(text) {
+  try { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return; } } catch (_) {}
+  const active = document.activeElement, selection = window.getSelection();
+  const ranges = selection ? Array.from({length: selection.rangeCount}, (_, i) => selection.getRangeAt(i).cloneRange()) : [];
+  const input = document.createElement('textarea');
+  input.value = text; input.readOnly = true;
+  input.style.cssText = 'position:fixed;left:0;top:0;opacity:0;pointer-events:none';
+  document.body.append(input);
+  try {
+    input.select();
+    if (!document.execCommand('copy')) throw new Error('Copy failed');
+  } finally {
+    input.remove(); active?.focus({preventScroll: true});
+    if (selection && ranges.length) { selection.removeAllRanges(); ranges.forEach(range => selection.addRange(range)); }
+  }
+}
+
 // ---- Markdown (headings, lists, quotes, tables, code, emphasis, and the shared safe links)
 const chatViewInline = text => {
   let html = '';
@@ -202,6 +220,8 @@ function mountChatView(host, options = {}) {
   const nodes = new Map();                       // entry key -> element
   const pendingNodes = new Map();                // pending key -> element
   const cleanups = [];
+  const copyTimers = new Set();
+  cleanups.push(() => { copyTimers.forEach(clearTimeout); copyTimers.clear(); });
   let disposed = false, ready = false, initial = true, atBottom = true, unseen = 0, deferBottom = false, pendingState = null;
   let lastState = {top: 0, atBottom: true, anchorKey: null, anchorOffset: 0};
 
@@ -372,6 +392,31 @@ function mountChatView(host, options = {}) {
   const titleHtml = entry => entry.title ? `<strong class="gchat-title">${esc(entry.title)}</strong>` : '';
   const markerHtml = notice => notice?.label ? `<span class="gchat-marker">${esc(notice.label)}</span>` : '';
   const telegramBody = text => `<details class="gchat-body gchat-telegram"><summary><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.4 3.6 18.1 20c-.2 1.2-.9 1.5-1.8.9l-5-3.7-2.4 2.3c-.3.3-.5.5-1 .5l.4-5.1L17.6 6.5c.4-.4-.1-.6-.6-.3L5.5 13.4.6 11.9c-1.1-.4-1.1-1.1.2-1.6L20 2.9c.9-.3 1.7.2 1.4.7Z"/></svg><span>Telegram</span></summary><span class="gchat-text">${esc(text)}</span></details>`;
+  function addCopyButton(node, text, markerOnly = false) {
+    const body = node.querySelector('.gchat-body');
+    if (!body || body.hidden || markerOnly || !String(text || '').trim()) return;
+    const row = document.createElement('div'); row.className = 'gchat-bubble-row';
+    body.before(row); row.append(body);
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'gchat-copy'; button.title = 'Copy message';
+    button.setAttribute('aria-label', 'Copy message');
+    button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3"/></svg>';
+    row.append(button);
+  }
+  function paintTimestamps() {
+    let previous = NaN;
+    for (const entry of model.entries) {
+      const at = entry.timestamp ? new Date(entry.timestamp).getTime() : NaN;
+      const show = Number.isFinite(at) && (!Number.isFinite(previous) || at < previous || at - previous >= 3600000);
+      const node = nodes.get(entry.key), time = node.querySelector('.gchat-time');
+      const iso = show ? new Date(at).toISOString() : null;
+      if (time?.getAttribute('datetime') !== iso) {
+        time?.remove();
+        if (show) node.insertAdjacentHTML('afterbegin', chatViewTimestamp(entry.timestamp));
+      }
+      previous = at;
+    }
+  }
   function paintEntry(entry) {
     let node = nodes.get(entry.key);
     const isNew = !node;
@@ -415,7 +460,7 @@ function mountChatView(host, options = {}) {
       }
       node.append(actions);
     }
-    node.insertAdjacentHTML('beforeend', chatViewTimestamp(entry.timestamp));
+    addCopyButton(node, entry.text, notice?.markerOnly);
     return {node, isNew};
   }
   // Entries arrive in canonical order; nodes are reused and moved only when their position changes.
@@ -435,6 +480,7 @@ function mountChatView(host, options = {}) {
     if (!node) { node = document.createElement('div'); pendingNodes.set(item.key, node); }
     const speaker = item.speaker === 'notice' ? 'notice' : 'user';
     node.className = `gchat-msg gchat-pending gchat-${speaker}`;
+    node._entry = item;
     node.dataset.inputId = item.key; node.dataset.state = item.state || ''; node.dataset.inputType = item.inputType || '';
     node.dataset.resendable = String(!!item.resendable);
     const signature = JSON.stringify([item.state, item.stateLabel, item.text, item.notice?.label, !!item.resendable, item.collapsedSource,
@@ -449,6 +495,7 @@ function mountChatView(host, options = {}) {
         const refs = chatViewOwnerReferences(node.querySelector('.gchat-body'));
         if (refs) node.insertBefore(refs, node.querySelector('.gchat-state'));
       }
+      addCopyButton(node, item.text);
     }
     return {node};
   }
@@ -521,6 +568,7 @@ function mountChatView(host, options = {}) {
     if (patch.entries) {
       model.entries = patch.entries;
       reconcile(model.entries, log, nodes, paintEntry);
+      paintTimestamps();
       let last = -1;
       model.entries.forEach((entry, index) => { if (before.has(entry.key)) last = index; });
       model.entries.forEach((entry, index) => { if (index > last && !before.has(entry.key) && entry.speaker === 'agent') appended++; });
@@ -544,6 +592,20 @@ function mountChatView(host, options = {}) {
 
   // ---- interaction
   listen(root, 'click', event => {
+    const copy = event.target.closest('.gchat-copy');
+    if (copy) {
+      const text = copy.closest('.gchat-msg')?._entry?.text;
+      if (typeof text !== 'string') return;
+      chatViewCopyText(text).then(() => {
+        if (disposed || !copy.isConnected) return;
+        copy.title = 'Copied'; copy.setAttribute('aria-label', 'Copied'); copy.classList.add('copied');
+        const timer = setTimeout(() => {
+          copyTimers.delete(timer); copy.title = 'Copy message'; copy.setAttribute('aria-label', 'Copy message'); copy.classList.remove('copied');
+        }, 1400);
+        copyTimers.add(timer);
+      }).catch(() => { if (!disposed) toast('Couldn’t copy message.'); });
+      return;
+    }
     const chip = event.target.closest('[data-preview-href]');
     if (chip) { openPreview(chip); return; }
     if (event.target.closest('[data-preview-close]')) { closePreview(); return; }
