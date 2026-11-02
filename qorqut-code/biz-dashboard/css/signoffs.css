@@ -161,3 +161,12 @@
 .sg-whatsapp .sg-text { padding: 4px 10px; border-left: 2px solid var(--line-2); background: var(--wash); }
 .sg-whatsapp .sg-text, .sg-email .sg-text { max-height: none; overflow: visible; }
 .sg-inline .sg-whatsapp { margin-bottom: 12px; }
+
+/* The message itself is the edit target; retain its quiet left edge. */
+.sg-whatsapp textarea.sg-message-editor{display:block;box-sizing:border-box;width:100%;min-height:0;max-height:none;margin:0;resize:none;overflow:hidden;border:0;border-left:2px solid var(--line-2);border-radius:0;font:inherit;line-height:1.6;color:var(--fg);background:var(--wash);cursor:text}
+.sg-whatsapp textarea.sg-message-editor:focus{outline:none;box-shadow:none}
+.sg-whatsapp textarea.sg-message-editor:not([readonly]){border-left-color:var(--fg-3)}
+.sg-message-controls .sg-notice:empty{display:none}
+.sg-edit-history{margin-top:8px;color:var(--fg-2);font-size:12px}
+.sg-previous-message{white-space:pre-wrap;overflow-wrap:anywhere}
+.sg-inline .sg-row:not(.sg-open) .sg-edit-history{display:none}
