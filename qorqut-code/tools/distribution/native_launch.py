@@ -65,6 +65,7 @@ def environment(root, home):
                                         native / 'clis/node_modules/.bin', Path('/usr/bin'), Path('/bin')])),
         'LD_LIBRARY_PATH': str(native / 'lib'),
         'SSL_CERT_FILE': str(native / 'share/ca-certificates.crt'),
+        'FONTCONFIG_FILE': str(native / 'share/fonts/fonts.conf'),
         'PYTHONTZPATH': str(native / 'share/zoneinfo'),
         'GIT_EXEC_PATH': str(native / 'lib/git-core'),
         'GIT_TEMPLATE_DIR': str(native / 'share/git-core/templates'),
