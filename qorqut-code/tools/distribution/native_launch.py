@@ -254,6 +254,7 @@ def main(argv=None):
         if not 1024 <= args.port <= 65535:
             raise RuntimeError('Choose a port from 1024 to 65535')
         with socket.socket() as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             probe.bind(('127.0.0.1', args.port))
         env = environment(root, root / 'instance/home')
         argv = [runtime / 'venv/bin/python', '-I', '-B', '-m', 'bazarlyk.service',
