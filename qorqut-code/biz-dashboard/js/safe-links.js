@@ -15,6 +15,31 @@ function safeFileReference(raw) {
   return `/files/view?path=${encodeURIComponent(path)}`;
 }
 
+// The one-time record link the standalone CRM viewer uses: /?open_task=<task id>&scope=global#/global/agents or
+// /?open_task=<task id>&business_id=<uuid>#/global/agents. Returns {taskId, businessId} (businessId null = Global), {invalid: true}
+// when the route is present but malformed, or null when `open_task` is absent. It validates only; nothing is read here.
+const OPEN_TASK_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function openTaskRoute(search) {
+  const params = new URLSearchParams(search), keys = [...params.keys()];
+  if (!keys.includes('open_task')) return null;
+  const count = name => keys.filter(key => key === name).length;
+  const taskId = params.get('open_task');
+  if (count('open_task') !== 1 || keys.some(key => !['open_task', 'scope', 'business_id'].includes(key)) || count('scope') + count('business_id') !== 1
+    || !taskId || !taskId.trim() || taskId.length > 200 || /[\u0000-\u001f\u007f-\u009f]/u.test(taskId)) return {invalid: true};
+  if (count('scope')) return params.get('scope') === 'global' ? {taskId, businessId: null} : {invalid: true};
+  const businessId = params.get('business_id');
+  return OPEN_TASK_UUID.test(businessId) ? {taskId, businessId} : {invalid: true};
+}
+// The same-origin href for a scoped Task, or null: Global is explicit, a Project needs its UUID; never inferred.
+function openTaskHref(taskId, businessId) {
+  const url = new URL('/', 'http://local.invalid');
+  url.searchParams.set('open_task', String(taskId ?? ''));
+  if (businessId == null) url.searchParams.set('scope', 'global'); else url.searchParams.set('business_id', String(businessId));
+  const href = `/${url.search}#/global/agents`;
+  const route = openTaskRoute(url.search);
+  return route && !route.invalid ? href : null;
+}
+
 // The href a link may carry, or null: http(s) with a host and no credentials, or an in-app file/table viewer link.
 // javascript:, data:, file:, protocol-relative and every other form is refused.
 function safeLinkUrl(raw) {
@@ -23,7 +48,14 @@ function safeLinkUrl(raw) {
   const file = safeFileReference(text);
   if (file) return file;
   if (/\s/u.test(text)) return null;
-  if (text.startsWith("/")) return /^\/(?:files|tables)\/view\?[A-Za-z0-9_.~%=&\/+-]+$/.test(text) ? text : null;
+  if (text.startsWith("/")) {
+    if (/^\/\?open_task=/.test(text)) {
+      // Only the exact, validated record route: root path, its three allowed keys and the fixed workspace hash.
+      const [path, hash] = text.split('#');
+      return hash === '/global/agents' && text.split('#').length === 2 && openTaskRoute(path.slice(1)) && !openTaskRoute(path.slice(1)).invalid ? text : null;
+    }
+    return /^\/(?:files|tables)\/view\?[A-Za-z0-9_.~%=&\/+-]+$/.test(text) ? text : null;
+  }
   if (!/^https?:\/\/[^\/?#]/i.test(text)) return null;
   try {
     const url = new URL(text);

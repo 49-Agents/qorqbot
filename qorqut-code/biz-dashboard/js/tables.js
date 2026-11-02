@@ -67,7 +67,7 @@ async function renderTables(container) {
       if (!append) list.innerHTML = '';
       for (const item of result.items) {
         const button = document.createElement('button'); button.type = 'button'; button.className = 'data-item'; button.dataset.id = item.id;
-        button.innerHTML = `<strong>${esc(mode === 'tables' ? item.title : item.metadata.filename)}</strong><span>${esc(mode === 'tables' ? `${item.row_count} rows${item.archived ? ' · Archived' : ''}` : fmtBytes(item.metadata.size))}</span>`;
+        button.innerHTML = `<strong>${esc(mode === 'tables' ? item.title : item.metadata.filename)}</strong><span>${esc(mode === 'tables' ? `${item.table_kind === 'crm' ? 'CRM · ' : ''}${item.row_count} ${item.table_kind === 'crm' ? 'entries' : 'rows'}${item.archived ? ' · Archived' : ''}` : fmtBytes(item.metadata.size))}</span>`;
         button.onclick = () => mode === 'tables' ? dataOpenTable(item.id) : dataOpenUpload(item.id);
         list.appendChild(button);
       }
@@ -103,7 +103,8 @@ async function dataOpenTable(id, append = false) {
   dataSelect(id);
   try {
     const draft = dataDraft();
-    const result = draft ? {table: draft.table} : await dataCall(biz, 'tables_get', {table_id: id});
+    const result = draft && !draft.crm ? {table: draft.table} : await dataCall(biz, 'tables_get', {table_id: id});
+    if (crmIsCrm(result.table)) { dataOpenCrm(panel, result.table, id, biz, generation); return; }
     const found = draft ? {items: draft.rows, table_revision: draft.table.revision, next_cursor: draft.cursor} : await dataCall(biz, 'tables_rows_list', {table_id: id, limit: 50, ...(_data.query ? {query: _data.query} : {}), ...(_data.order ? {order_by: _data.order, descending: _data.descending} : {}), ...(append && _data.cursor ? {cursor: _data.cursor} : {})});
     if (!dataActive(biz, panel) || generation !== _dataDetail || _data.selected !== id) return;
     if (found.table_revision !== result.table.revision) throw new Error('Table changed while loading. Refresh to read the current version.');
@@ -116,6 +117,7 @@ async function dataOpenTable(id, append = false) {
       listed.querySelector('strong').textContent = table.title;
       listed.querySelector('span').textContent = `${table.row_count} rows${table.archived ? ' · Archived' : ''}`;
     }
+    _crmMount?.dispose(); _crmMount = null;
     panel.innerHTML = `<header class="data-heading">${dataIconButton('data-back', 'Back to tables', aicon('arrow-left', 'currentColor', 18))}<h1>${esc(table.title)}</h1><span class="data-spacer"></span>${dataViewLink(biz, id) ? dataIconButton('data-copy-link', 'Copy link', '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>') : ''}${dataIconButton('data-edit-table', 'Edit table and columns', dataSettingsIcon)}</header>${table.description ? `<p class="data-description">${esc(table.description)}</p>` : ''}${biz === null ? '' : '<div id="data-work"></div>'}<div class="data-row-tools"><label>Search rows<input type="search" id="data-row-query" class="inp" value="${esc(_data.query)}"></label><span class="data-spacer"></span><div id="data-draft-actions" hidden><button type="button" class="btn" id="data-discard">Discard</button><button type="button" class="btn primary" id="data-save">Save</button></div>${dataIconButton('data-row-delete', 'Remove selected rows', SVG_X)}${dataIconButton('data-row-new', 'Add row', SVG_TPLUS)}</div><div class="data-grid-wrap"><table class="data-grid"><thead><tr><th class="data-check"><input type="checkbox" id="data-select-all" aria-label="Select visible rows"></th>${table.columns.map(column => `<th><button type="button" data-sort="${column.id}" ${column.type === 'json' ? 'disabled' : ''}>${esc(column.name)}${_data.order === column.id ? (_data.descending ? ' ↓' : ' ↑') : ''}</button></th>`).join('')}</tr></thead><tbody></tbody></table></div><footer class="data-footer"><span id="data-row-count"></span><button class="btn" id="data-more" ${_data.cursor ? '' : 'hidden'}>Load more</button></footer>`;
     panel.querySelector('#data-back').onclick = dataBack;
     panel.querySelector('#data-edit-table').onclick = () => dataTableEditor(table);
@@ -147,6 +149,56 @@ async function dataOpenTable(id, append = false) {
     dataRenderRows();
     if (biz !== null) workRelatedChips(panel.querySelector('#data-work'), biz, 'data_tables', id);
   } catch (error) { if (dataActive(biz, panel) && generation === _dataDetail) dataError(error); }
+}
+
+// A CRM keeps the ordinary heading, link and settings controls; its rows are memberships, not data rows.
+let _crmMount = null;
+// The left list shows a CRM's current title, entry count and archive state whenever the open Table's metadata changes.
+function dataCrmListed(table) {
+  const listed = document.querySelector(`.data-item[data-id="${table.id}"]`);
+  if (!listed) return;
+  listed.querySelector('strong').textContent = table.title;
+  listed.querySelector('span').textContent = `CRM · ${table.row_count} entries${table.archived ? ' · Archived' : ''}`;
+}
+// The outer heading, description, related-work area and actions of an open CRM. Called with null while the Table is
+// unavailable (nothing from it remains rendered) and again with fresh metadata once access is read successfully.
+function dataCrmChrome(panel, table, id, biz) {
+  const chrome = panel.querySelector('.crm-chrome');
+  const back = dataIconButton('data-back', 'Back to tables', aicon('arrow-left', 'currentColor', 18));
+  if (!table) chrome.innerHTML = `<header class="data-heading">${back}<h1>Table unavailable</h1></header>`;
+  else chrome.innerHTML = `<header class="data-heading">${back}<h1>${esc(table.title)}</h1><span class="crm-kind-badge">CRM</span><span class="data-spacer"></span>${dataViewLink(biz, id) ? dataIconButton('data-copy-link', 'Copy link', '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>') : ''}<button type="button" class="quiet" id="crm-pin-table" aria-label="Pin table to Focus">Pin to Focus</button>${dataIconButton('data-edit-table', 'Edit table, stages and columns', dataSettingsIcon)}</header>${table.description ? `<p class="data-description">${esc(table.description)}</p>` : ''}${table.archived ? '<p class="data-description muted">Archived table: entries and columns are read only. Linked records stay editable.</p>' : ''}${biz === null ? '' : '<div id="data-work"></div>'}`;
+  chrome.querySelector('#data-back').onclick = () => { _crmMount?.dispose(); _crmMount = null; dataBack(); };
+  if (!table) return;
+  chrome.querySelector('#data-edit-table').onclick = () => dataTableEditor(_data.table);
+  chrome.querySelector('#crm-pin-table').onclick = async () => { try { await crmPinTable(_data.table); toast('Pinned to Focus'); } catch (error) { dataError(error); } };
+  const copy = chrome.querySelector('#data-copy-link');
+  if (copy) copy.onclick = () => dataCopyLink(dataViewLink(biz, table.id), copy);
+  if (biz !== null) workRelatedChips(chrome.querySelector('#data-work'), biz, 'data_tables', id);
+}
+function dataOpenCrm(panel, table, id, biz, generation) {
+  if (!dataActive(biz, panel) || generation !== _dataDetail || _data.selected !== id) return;
+  _crmMount?.dispose(); _crmMount = null;
+  document.querySelector('#data-error').hidden = true;
+  _data.table = table; _data.rows = []; _data.cursor = null;
+  dataCrmListed(table);
+  panel.innerHTML = '<div class="crm-chrome"></div><div class="crm-host"></div>';
+  dataCrmChrome(panel, table, id, biz);
+  _crmMount = crmTableMount(panel.querySelector('.crm-host'), {biz, table, draftKey: dataDraftKey(), drafts: _dataDrafts,
+    isActive: () => dataActive(biz, panel) && _data.selected === id,
+    onTable: next => {
+      // Only the Table that is shown may update the outer Table reference that Settings and Pin act on.
+      if (_data.selected !== id || next.id !== id) return;
+      _data.table = next; dataCrmListed(next);
+      const heading = panel.querySelector('h1'); if (heading) heading.textContent = next.title;
+    },
+    onUnavailable: () => {
+      // Lost access: no title, description, related labels, actions or list label of the Table remain, and it is no longer the active reference.
+      _data.table = {id, title: '', columns: [], archived: true, unavailable: true};
+      dataCrmChrome(panel, null, id, biz);
+      const listed = document.querySelector(`.data-item[data-id="${id}"]`);
+      if (listed) { listed.querySelector('strong').textContent = 'Table unavailable'; listed.querySelector('span').textContent = ''; }
+    },
+    onAvailable: fresh => { if (_data.selected !== id) return; _data.table = fresh; dataCrmListed(fresh); dataCrmChrome(panel, fresh, id, biz); } });
 }
 
 function dataStartDraft() {
@@ -304,22 +356,66 @@ function dataForm(title, body, save, after, label = 'Save', biz = dataTarget()) 
 function dataTableEditor(table = null) {
   // The editor keeps the scope it opened in for rendering and saving, whatever the page shows afterwards.
   const biz = dataTarget();
+  const kindFixed = table ? (table.table_kind || 'general') : null;
   const columns = (table?.columns || [{id: 'name', name: 'Name', type: 'text'}]).map(column => ({...column}));
-  const editor = dataForm(table ? 'Edit table' : 'New table', `<label>Title<input class="inp" id="data-title" maxlength="200" value="${esc(table?.title || '')}"></label><label>Description<textarea class="inp" id="data-description">${esc(table?.description || '')}</textarea></label><fieldset><legend>Columns</legend><div id="data-columns"></div><button type="button" class="btn" id="data-column-add">${SVG_TPLUS}Add column</button></fieldset><label>Topics<input class="inp" data-tags="topics" value="${esc((table?.tags.topics || []).join(', '))}"></label>${table ? `<label class="data-binary"><input type="checkbox" id="data-table-archived" ${table.archived ? 'checked' : ''}>Archived</label>` : ''}`, async (el, submit) => {
+  const stages = (table?.crm_config?.stages || []).map(stage => ({...stage}));
+  const startCrm = kindFixed === 'crm';
+  const editor = dataForm(table ? 'Edit table' : 'New table', `<label>Title<input class="inp" id="data-title" maxlength="200" value="${esc(table?.title || '')}"></label>${table ? `<p class="muted" id="data-kind-fixed">${startCrm ? 'CRM table: its entries are existing records. The kind cannot be changed.' : 'General table'}</p>` : `<label>Kind<select class="inp" id="data-kind"><option value="general">General table</option><option value="crm">CRM (entries are existing records)</option></select></label>`}<label>Description<textarea class="inp" id="data-description">${esc(table?.description || '')}</textarea></label><fieldset id="data-stages-box" ${startCrm ? '' : 'hidden'}><legend>Stages <span class="muted">(optional; independent of Task state)</span></legend><div id="data-stages"></div><button type="button" class="btn" id="data-stage-add">${SVG_TPLUS}Add stage</button></fieldset><fieldset><legend>Columns</legend><div id="data-columns"></div><button type="button" class="btn" id="data-column-add">${SVG_TPLUS}Add column</button></fieldset><label>Topics<input class="inp" data-tags="topics" value="${esc((table?.tags.topics || []).join(', '))}"></label>${table ? `<label class="data-binary"><input type="checkbox" id="data-table-archived" ${table.archived ? 'checked' : ''}>Archived</label>` : ''}`, async (el, submit) => {
+    const crm = isCrm();
+    const stageRows = [...el.querySelectorAll('.data-stage')].map(row => ({id: row.querySelector('[data-field=id]').value.trim(), name: row.querySelector('[data-field=name]').value.trim(), ...(row.querySelector('[data-field=archived]').checked ? {archived: true} : {})}));
     const changes = {title: el.querySelector('#data-title').value.trim(), description: el.querySelector('#data-description').value,
-      columns: [...el.querySelectorAll('.data-column')].map(row => ({id: row.querySelector('[data-field=id]').value, name: row.querySelector('[data-field=name]').value, type: row.querySelector('select').value})),
+      columns: [...el.querySelectorAll('.data-column')].map(row => ({id: row.querySelector('[data-field=id]').value, name: row.querySelector('[data-field=name]').value, type: row.querySelector('select[aria-label="Column type"]').value,
+        ...(crm && row.querySelector('[data-field=source]').value ? {record_field: row.querySelector('[data-field=source]').value === 'fields.' ? 'fields.' + row.querySelector('[data-field=custom]').value.trim() : row.querySelector('[data-field=source]').value} : {})})),
       tags: Object.fromEntries([...el.querySelectorAll('[data-tags]')].map(node => [node.dataset.tags, [...new Set(node.value.split(',').map(value => value.trim()).filter(Boolean))]])),
+      ...(crm ? {crm_config: {stages: stageRows}} : {}),
       ...(table ? {archived: el.querySelector('#data-table-archived').checked} : {})};
-    return submit(table ? 'tables_update' : 'tables_create', table ? {table_id: table.id, expected_revision: table.revision, changes} : changes);
+    return submit(table ? 'tables_update' : 'tables_create', table ? {table_id: table.id, expected_revision: table.revision, changes} : {...changes, ...(crm ? {table_kind: 'crm'} : {})});
   }, async result => { if (dataView()) { _data.selected = result.table.id; _data.mode = 'tables'; await renderTables(dataContainer()); } }, 'Save', biz);
-  const host = editor.el.querySelector('#data-columns');
+  const root = editor.el, host = root.querySelector('#data-columns'), stageHost = root.querySelector('#data-stages');
+  const isCrm = () => kindFixed ? startCrm : root.querySelector('#data-kind').value === 'crm';
+  const sourceOptions = value => `<option value="">Local to this table</option>${CRM_RECORD_FIELDS.map(([field, label]) => `<option value="${field}" ${field === value ? 'selected' : ''}>Record: ${esc(label)}</option>`).join('')}<option value="fields." ${value?.startsWith('fields.') ? 'selected' : ''}>Record: custom field…</option>`;
   const add = (column, existing = false) => {
     const row = document.createElement('div'); row.className = 'data-column';
-    row.innerHTML = `<input class="inp" data-field="id" aria-label="Column ID" value="${esc(column.id)}" ${existing ? 'readonly' : ''}><input class="inp" data-field="name" aria-label="Column name" value="${esc(column.name)}"><select class="inp" aria-label="Column type">${['text','number','boolean','date','json'].map(kind => `<option ${kind === column.type ? 'selected' : ''}>${kind}</option>`).join('')}</select><button type="button" class="data-icon" title="Remove column" aria-label="Remove column">${SVG_X}</button>`;
+    const custom = column.record_field?.startsWith('fields.') ? column.record_field.slice(7) : '';
+    row.innerHTML = `<input class="inp" data-field="id" aria-label="Column ID" value="${esc(column.id)}" ${existing ? 'readonly' : ''}><input class="inp" data-field="name" aria-label="Column name" value="${esc(column.name)}"><select class="inp" aria-label="Column type">${['text','number','boolean','date','json'].map(kind => `<option ${kind === column.type ? 'selected' : ''}>${kind}</option>`).join('')}</select><span class="data-column-crm" ${isCrm() ? '' : 'hidden'}><select class="inp" data-field="source" aria-label="Column source">${sourceOptions(column.record_field)}</select><input class="inp" data-field="custom" aria-label="Custom field id" placeholder="custom field id" value="${esc(custom)}" ${custom || column.record_field === 'fields.' ? '' : 'hidden'}></span><button type="button" class="data-icon" title="Remove column" aria-label="Remove column">${SVG_X}</button>`;
+    const source = row.querySelector('[data-field=source]'), type = row.querySelector('select[aria-label="Column type"]');
+    source.onchange = () => {
+      const known = CRM_RECORD_FIELDS.find(([field]) => field === source.value);
+      row.querySelector('[data-field=custom]').hidden = source.value !== 'fields.';
+      if (known) { type.value = known[2]; type.disabled = true; } else type.disabled = false;
+    };
+    if (column.record_field && CRM_RECORD_FIELDS.some(([field]) => field === column.record_field)) type.disabled = true;
     row.querySelector('button').onclick = () => row.remove(); host.appendChild(row);
   };
+  const stageSlug = name => name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').replace(/^(\d)/, 's_$1').slice(0, 60);
+  const addStage = (stage, existing = false) => {
+    const row = document.createElement('div'); row.className = 'data-stage';
+    row.innerHTML = `<input class="inp" data-field="name" aria-label="Stage name" maxlength="200" value="${esc(stage.name)}"><input class="inp" data-field="id" aria-label="Stage ID" value="${esc(stage.id)}" ${existing ? 'readonly' : ''}><label class="data-binary"><input type="checkbox" data-field="archived" ${stage.archived ? 'checked' : ''}>Retired</label><button type="button" class="data-icon" title="Remove stage" aria-label="Remove stage">${SVG_X}</button>`;
+    const name = row.querySelector('[data-field=name]'), id = row.querySelector('[data-field=id]');
+    if (!existing) name.oninput = () => { if (!id.dataset.touched) id.value = stageSlug(name.value); };
+    id.oninput = () => { id.dataset.touched = '1'; };
+    row.querySelector('button').onclick = () => row.remove(); stageHost.appendChild(row);
+  };
+  const paintKind = () => {
+    const crm = isCrm();
+    root.querySelector('#data-stages-box').hidden = !crm;
+    host.querySelectorAll('.data-column-crm').forEach(node => { node.hidden = !crm; });
+    host.classList.toggle('data-columns-crm', crm);
+  };
   columns.forEach(column => add(column, !!table));
-  editor.el.querySelector('#data-column-add').onclick = () => { let n = 1; const ids = [...host.querySelectorAll('[data-field=id]')].map(node => node.value); while (ids.includes('column_' + n)) n++; add({id: 'column_' + n, name: 'Column ' + n, type: 'text'}); };
+  stages.forEach(stage => addStage(stage, true));
+  const kind = root.querySelector('#data-kind');
+  if (kind) kind.onchange = () => {
+    // A new CRM starts from the default columns unless the owner already changed the single starter column.
+    const untouched = host.children.length === 1 && host.querySelector('[data-field=id]').value === 'name' && host.querySelector('[data-field=name]').value === 'Name';
+    const defaults = host.children.length === CRM_DEFAULT_COLUMNS.length && host.querySelector('[data-field=id]').value === 'record_name';
+    if (kind.value === 'crm' && untouched) { host.replaceChildren(); CRM_DEFAULT_COLUMNS.forEach(column => add(column)); }
+    else if (kind.value === 'general' && defaults) { host.replaceChildren(); add({id: 'name', name: 'Name', type: 'text'}); }
+    paintKind();
+  };
+  paintKind();
+  root.querySelector('#data-stage-add').onclick = () => { addStage({id: '', name: ''}); stageHost.lastChild.querySelector('[data-field=name]').focus(); };
+  root.querySelector('#data-column-add').onclick = () => { let n = 1; const ids = [...host.querySelectorAll('[data-field=id]')].map(node => node.value); while (ids.includes('column_' + n)) n++; add({id: 'column_' + n, name: 'Column ' + n, type: 'text'}); paintKind(); };
 }
 
 async function dataOpenUpload(id) {

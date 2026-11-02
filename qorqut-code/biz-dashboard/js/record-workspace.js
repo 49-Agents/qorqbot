@@ -4,6 +4,8 @@
 // and Close. Entries stay mounted in a bounded navigation stack so tab changes and Back
 // preserve dashboard edits, drafts and scroll instead of rebuilding conversations.
 const RW_MAX_STACK = 20;
+// Unsaved CRM cell/stage edits made in a record workspace; keyed by Table scope so they survive tab switches.
+const rwCrmDrafts = new Map();
 const RW_CHAT_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 15a3 3 0 0 1-3 3H8l-4 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3z"/><path d="M8 8h8M8 12h5"/></svg>';
 // The existing Project icon (the Project management briefcase) also marks a Project record.
 const RW_PROJECT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12a24 24 0 0 0 18 0M10 13h4"/></svg>';
@@ -16,7 +18,7 @@ const RW_PROJECT_SECTIONS = [
 ];
 // A record gets a Chat tab only when the private channel already supports that source type,
 // or when the typed contract says this exact inventory target is an existing private source.
-const RW_THREAD_TYPES = new Set(['task', 'signoff', 'project', 'reference']);
+const RW_THREAD_TYPES = new Set(['task', 'signoff', 'project', 'reference', 'table']);
 let rwPanelSequence = 0;
 
 function rwEsc(value) { return esc(value == null ? '' : value); }
@@ -151,7 +153,7 @@ function rwConfirmDiscard(entry) {
         finish(false); close();
       }
     }});
-    actions.push({label: 'Discard', onClick: close => { finish(true); close(); }});
+    actions.push({label: 'Discard', onClick: close => { try { entry?.dashboard?.discard?.(); } catch (_) { /* dropped with the dashboard */ } finish(true); close(); }});
     modal({stack: true, width: 460, title: 'Unsaved changes', body: '<p>This record dashboard has unsaved changes.</p><p class="ferr" role="alert" hidden></p>',
       actions, onClose: () => finish(false)});
   });
@@ -750,7 +752,7 @@ async function rwDashboardMount(host, record, ctx) {
   if (source.type === 'action' && !record.project_id) return rwActionDashboard(host, record, ctx, call);
   if ((source.type === 'table' || record.resource_type === 'data_tables') && !record.project_id) return rwTableDashboard(host, record, ctx, call);
   if (source.type === 'job') return rwJobDashboard(host, record, ctx);
-  if (source.type === 'task') return rwTaskDashboard(host, record, ctx, call);
+  if (source.type === 'task') return rwWithActivity(host, record, ctx, await rwTaskDashboard(host, record, ctx, call));
   if (source.type === 'email' || record.resource_type === 'email_conversations') {
     host.classList.add('record-panel');
     historicalEmailMount(host);
@@ -759,6 +761,32 @@ async function rwDashboardMount(host, record, ctx) {
   return rwReferenceDashboard(host, record, ctx, call);
 }
 
+// A Task's chronological activity (discussion, linked work, CRM membership developments and agent-recorded email or
+// messages) sits below its editor. It loads only when opened; the editor, its drafts and the private Chat tab are untouched.
+function rwWithActivity(host, record, ctx, controller) {
+  if (!controller || typeof crmActivityMount !== 'function') return controller;
+  const section = rwNode('details', 'rw-activity-section');
+  section.append(rwNode('summary', '', 'Activity'));
+  const body = rwNode('div', 'rw-activity-body');
+  section.append(body);
+  let activity = null;
+  section.addEventListener('toggle', () => {
+    if (section.open && !activity) activity = crmActivityMount(body, {biz: record.biz || null, task: {id: record.source.id},
+      navigate: ref => { const target = rwRecordFromItem({source: ref}); return target ? ctx.navigate(target) : null; }});
+  });
+  host.append(section);
+  // An editor that repaints its host must not drop the activity section.
+  const observer = new MutationObserver(() => { if (!section.isConnected && host.isConnected) host.append(section); });
+  observer.observe(host, {childList: true});
+  return new Proxy(controller, {
+    get(target, key) {
+      if (key === 'dispose') return () => { observer.disconnect(); activity?.dispose(); target.dispose?.(); };
+      if (key === 'hasUnsaved') return () => rwDirty(target) || !!activity?.dirty();
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
 // ---------------------------------------------------------------- Task
 async function rwTaskDashboard(host, record, ctx, call) {
   host.classList.add('record-panel');
@@ -1309,7 +1337,7 @@ async function rwReferenceDashboard(host, record, ctx, call) {
     box.append(rwNode('h3', '', content.table.title || item.label || record.label || 'Table'));
     host.append(box);
     const controller = await rwTableBody(box, record, ctx, call);
-    return {dirty: () => false, onShow: async () => { if (!await revalidate()) return; await controller?.onShow?.(); },
+    return {...rwForwardEdits(controller), onShow: async () => { if (!await revalidate()) return; await controller?.onShow?.(); },
       dispose() { controller?.dispose?.(); host.replaceChildren(); }};
   }
   if (content.ticket) {
@@ -1356,7 +1384,7 @@ async function rwReferenceDashboard(host, record, ctx, call) {
     box.append(rwNode('h3', '', item.label || record.label || 'Table'));
     host.append(box);
     const controller = await rwTableBody(box, record, ctx, call);
-    return {dirty: () => false, hasUnsaved: () => false, onShow: async () => { if (await revalidate?.()) await controller?.onShow?.(); },
+    return {...rwForwardEdits(controller), onShow: async () => { if (await revalidate?.()) await controller?.onShow?.(); },
       dispose() { controller?.dispose?.(); host.replaceChildren(); }};
   }
   if (authorized) {
@@ -1389,6 +1417,13 @@ function rwSafeUrl(value) {
   } catch (_) { return null; }
 }
 
+// A wrapper around a Table body must report and settle the body's own unsaved CRM edits, never hardcode "clean".
+function rwForwardEdits(controller) {
+  return {dirty: () => !!controller && rwDirty(controller), hasUnsaved: () => !!controller && rwDirty(controller),
+    ...(typeof controller?.save === 'function' ? {save: () => controller.save()} : {}),
+    ...(typeof controller?.discard === 'function' ? {discard: () => controller.discard()} : {})};
+}
+
 // The existing Tables workspace writes to the global drawer. A record dashboard keeps the
 // canonical table read in this pane instead: same operations and columns, no exit button.
 async function rwTableBody(host, record, ctx, call) {
@@ -1399,6 +1434,22 @@ async function rwTableBody(host, record, ctx, call) {
   if (!table) throw new Error('This table is no longer available.');
   const title = rwNode('h4', '', table.title || record.label || 'Table');
   const description = table.description ? rwNode('p', 'muted', table.description) : null;
+  const biz = record.biz || null;
+  // The Table team thread is the shared discussion; the private Chat tab stays its own conversation.
+  const teamHost = rwNode('section', 'rw-table-team');
+  const teamNavigate = ref => { const target = rwRecordFromItem({source: ref}); return target ? ctx.navigate(target) : null; };
+  const crmReady = typeof crmThreadMount === 'function' && typeof crmTableMount === 'function';
+  if (crmReady && crmIsCrm(table)) {
+    const alreadyTitled = [...host.children].some(child => child.tagName === 'H3');
+    if (!alreadyTitled) host.append(title);
+    if (description) host.append(description);
+    const crmHost = rwNode('div', 'crm-host');
+    host.append(crmHost);
+    const mount = crmTableMount(crmHost, {biz, table, draftKey: JSON.stringify(['rw', biz, table.id]), drafts: rwCrmDrafts,
+      isActive: () => ctx.alive() && host.isConnected, onUnavailable: () => { void ctx.unavailable?.(); }});
+    return {dirty: () => mount.dirty(), hasUnsaved: () => mount.dirty(), save: () => mount.save(), discard: () => mount.discard(), onShow: () => mount.refresh(),
+      dispose() { mount.dispose(); host.replaceChildren(); }};
+  }
   const status = rwNode('p', 'muted', 'Loading rows…');
   const wrap = rwNode('div', 'rw-table-wrap');
   const grid = rwNode('table', 'rw-table');
@@ -1406,7 +1457,8 @@ async function rwTableBody(host, record, ctx, call) {
   const retry = rwNode('button', 'quiet', 'Retry'); retry.type = 'button'; retry.hidden = true;
   // The Project reader already prints the table title as its h3; do not repeat it.
   const alreadyTitled = [...host.children].some(child => child.tagName === 'H3');
-  host.append(...(alreadyTitled ? [] : [title]), ...(description ? [description] : []), status, wrap, more, retry);
+  host.append(...(alreadyTitled ? [] : [title]), ...(description ? [description] : []), status, wrap, more, retry, teamHost);
+  const team = crmReady ? crmThreadMount(teamHost, {biz, table, navigate: teamNavigate}) : {dispose() {}};
   wrap.append(grid);
   let cursor = null, rows = [], generation = 0, disposed = false, loading = false;
   const value = raw => raw == null ? '' : typeof raw === 'object' ? JSON.stringify(raw) : String(raw);
@@ -1474,7 +1526,7 @@ async function rwTableBody(host, record, ctx, call) {
       } catch (failure) {
         if (!disposed && ctx.alive() && (accessLost(failure) || sourceGone(failure))) await ctx.unavailable?.();
       }
-    }, dispose() { disposed = true; generation++; host.replaceChildren(); }};
+    }, dispose() { disposed = true; generation++; team.dispose(); host.replaceChildren(); }};
   return controller;
 }
 async function rwTableDashboard(host, record, ctx, call) {

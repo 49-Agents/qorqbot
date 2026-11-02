@@ -354,13 +354,17 @@ function agfocusTick(p) {
 function agfocusRecoverWork(p) {
   if (!agpadActive(p) || !p.focusMount?.isConnected || !p.focusWork?.size) return;
   for (const item of agfocusVisibleItems(p, p.focus?.items || [])) {
-    if (!['task','project'].includes(item.source?.type) || item.unavailable) continue;
+    if (!agfocusExpandable(item) || item.unavailable) continue;
     const branch = p.focusWork.get(item.id);
     if (branch?.expanded && !branch.loaded && !branch.flight) agfocusExpandWork(p, item);
   }
 }
 
-const agfocusRestorable=(p,item)=>['task','project'].includes(item.source?.type) && !item.unavailable && !!p.focusWork?.get(item.id)?.expanded;
+// Task, Project and CRM Table cards expand; an ordinary Table's data rows are never operational child records.
+const agfocusSourceOf=item=>item.resolved_source || item.source || null;
+const agfocusIsCrm=item=>{const source=agfocusSourceOf(item);return source?.type==='table' && source.table_kind==='crm';};
+const agfocusExpandable=item=>['task','project'].includes(item.source?.type) || agfocusIsCrm(item);
+const agfocusRestorable=(p,item)=>agfocusExpandable(item) && !item.unavailable && !!p.focusWork?.get(item.id)?.expanded;
 
 async function agfocusRefresh(p) {
   if (!agpadActive(p)) return;
@@ -379,7 +383,7 @@ async function agfocusRefresh(p) {
       }
       if (!Array.isArray(data.items) || !Number.isInteger(data.revision)) throw new Error('Invalid Focus response');
       p.focusPageKey=pageKey;
-      p.focus = data; p.focusError = '';
+      p.focus = data; p.focusError = p.focusLinkError || ''; p.focusLinkError = '';
       void agfocusTextHost()?.load(p);
       for(const [id,seq] of p.focusPrivateRead || [])if(requestSeq>seq)p.focusPrivateRead.delete(id);
       for(const [id,seq] of p.focusPrivateUnread || [])
@@ -507,6 +511,52 @@ function agfocusBuildWork(item,source,snapshot) {
   }
   return {items,references};
 }
+// CRM expansion: a Table card lists its active member records (crm_entries_list) in membership order, 50 per page, in the
+// Table's own scope. Entry rows are derived presentation: the row id carries the scoped Table path and the membership id,
+// the record keeps its own canonical Task scope, and nothing writes parent_id or creates a Focus card.
+async function agfocusFetchCrmWork(table,base,target) {
+  const slug=crmSlug(table);
+  if(table.business_id!=null && !slug)throw Object.assign(new Error('This table is unavailable.'),{code:'not_found'});
+  const snapshot={children:[...base.children],related:[],childCursor:base.childCursor,relationCursor:null,childPages:base.childPages,relationPages:0};
+  // Names and archive state come from the Table itself; a failed read here only drops the stage names.
+  // The parallel Table read always settles into a value, so a failed entry read can never leave it as an unhandled rejection.
+  const tableRead=base.childPages===0?crmCall(slug,'tables_get',{table_id:table.id}).then(data=>({table:data.table})).catch(error=>({error})):null;
+  while(snapshot.childPages<target && (snapshot.childPages===0 || snapshot.childCursor)) {
+    const data=await crmCall(slug,'crm_entries_list',{table_id:table.id,include_archived:true,limit:AGFOCUS_WORK_PAGE,...(snapshot.childCursor?{cursor:snapshot.childCursor}:{})});
+    snapshot.childCursor=data.next_cursor || null;snapshot.childPages++;
+    snapshot.revision=data.table_revision;
+    for(const entry of data.items || [])snapshot.children.push(entry);
+  }
+  const read=await tableRead;
+  if(read?.error && (accessLost(read.error) || sourceGone(read.error)))throw read.error;
+  snapshot.table=read?.table || base.table || null;
+  return snapshot;
+}
+function agfocusCrmWorkRow(parent,table,entry,config) {
+  const base={revision:entry.revision || 1,_workParent:parent.id,_workKind:'crm',_depth:(parent._depth || 0)+1,_crmEntry:entry.id,_crmTable:{id:table.id,business_id:table.business_id ?? null}};
+  const ref=entry.record_ref,id=`${parent.id}/crm/${agfocusWorkKey({type:'table',id:table.id,business_id:table.business_id})}/${entry.id}`;
+  const slug=ref && crmSlug(ref);
+  // No cached title, scope or cells for an unavailable record, or for one whose Project cannot be routed.
+  if(entry.unavailable || !ref || (ref.business_id!=null && !slug))return {...base,id,label:'',unavailable:true,archived:false,references:[]};
+  const record=entry.record || {};
+  const link={type:'task',resource_type:'tasks',task_type:record.task_type,id:ref.id,business_id:ref.business_id ?? null,business_slug:slug,label:record.title,customer_state:record.customer_state};
+  const stage=entry.stage_id==null?'':(config?.stages || []).find(candidate=>candidate.id===entry.stage_id)?.name || entry.stage_id;
+  return {...base,id,label:record.title || 'Record',source:link,resolved_source:link,state:record.status,source_revision:record.revision,unavailable:false,archived:!!record.archived,
+    conversation:{type:'task',id:ref.id,business_id:ref.business_id ?? null},references:[],_crmStage:stage,_workBusinessId:table.business_id ?? null,_sameScope:(ref.business_id ?? null)===(table.business_id ?? null)};
+}
+function agfocusBuildCrmWork(item,table,snapshot) {
+  const seen=new Set([agfocusWorkKey(table)]),items=[];
+  for(const entry of snapshot.children) {
+    if(entry.removed)continue;
+    const ref=entry.record_ref;
+    // The same record is listed once per CRM; a repeat across pages (after the list shifted) is dropped.
+    const key=ref && !entry.unavailable?agfocusWorkKey({type:'task',id:ref.id,business_id:ref.business_id}):'entry:'+entry.id;
+    if(seen.has(key))continue;
+    seen.add(key);
+    items.push(agfocusCrmWorkRow(item,table,entry,snapshot.table?.crm_config));
+  }
+  return {items,references:[]};
+}
 // Project expansion reads its own inventory: top-level work derived from authoritative ownership and
 // explicit links, 25 rows per page. Root_tasks_only keeps the Task hierarchy under its own parent rows.
 async function agfocusFetchProjectWork(project,base,target) {
@@ -544,7 +594,7 @@ function agfocusBuildProjectWork(item,project,snapshot) {
 // Returns true when the snapshot was applied, false when it failed or no longer matches; failures keep the loaded snapshot.
 async function agfocusRunWork(p,item,branch,kind) {
   const source=item.resolved_source || item.source,key=agfocusWorkKey(source),mount=p.focusMount,token={kind};
-  const isProject=source.type==='project';
+  const isProject=source.type==='project',isTable=source.type==='table';
   branch.flight=token;if(kind==='more'){branch.moving=true;agfocusPaint(p);}
   const current=()=>branch.flight===token && p.focusWork?.get(item.id)===branch && branch.expanded && !!mount?.isConnected && p.focusMount===mount && agpadActive(p,true) &&
     agfocusVisibleItems(p,p.focus?.items || []).some(row=>row.id===item.id && !row.unavailable && agfocusWorkKey(row.resolved_source || row.source)===key);
@@ -554,25 +604,26 @@ async function agfocusRunWork(p,item,branch,kind) {
     const base=kind==='more'?branch:empty;
     const target=kind==='first'?{child:1,relation:1}:kind==='refresh'?{child:Math.max(1,branch.childPages),relation:Math.max(1,branch.relationPages)}:
       {child:branch.childPages+(branch.childCursor?1:0),relation:branch.relationPages+(branch.relationCursor?1:0)};
-    const snapshot=isProject?await agfocusFetchProjectWork(source,base,target.child):await agfocusFetchWork(source,base,target);
+    const snapshot=isTable?await agfocusFetchCrmWork(source,base,target.child):isProject?await agfocusFetchProjectWork(source,base,target.child):await agfocusFetchWork(source,base,target);
     if(!current())return false;
-    const built=isProject?agfocusBuildProjectWork(item,source,snapshot):agfocusBuildWork(item,source,snapshot);
+    const built=isTable?agfocusBuildCrmWork(item,source,snapshot):isProject?agfocusBuildProjectWork(item,source,snapshot):agfocusBuildWork(item,source,snapshot);
     // Unchanged data keeps the existing row objects so nothing downstream sees a different snapshot.
     if(JSON.stringify(built.items)!==JSON.stringify(branch.items))branch.items=built.items;
     if(JSON.stringify(built.references)!==JSON.stringify(branch.references))branch.references=built.references;
-    Object.assign(branch,{children:snapshot.children,related:snapshot.related,childCursor:snapshot.childCursor,relationCursor:snapshot.relationCursor,childPages:snapshot.childPages,relationPages:snapshot.relationPages,sourceKey:key});
+    Object.assign(branch,{children:snapshot.children,related:snapshot.related,childCursor:snapshot.childCursor,relationCursor:snapshot.relationCursor,childPages:snapshot.childPages,relationPages:snapshot.relationPages,sourceKey:key,
+      ...(isTable?{table:snapshot.table,revision:snapshot.revision}:{})});
     const first=!branch.loaded;branch.loaded=true;applied=true;
-    if(first || kind==='more'){p.focusError='';agfocusAnnounce(p,branch.items.length+branch.references.length?`${branch.items.length+branch.references.length} related work items`:'No related work');}
+    if(first || kind==='more'){p.focusError='';agfocusAnnounce(p,isTable?(branch.items.length?`${branch.items.length} CRM entries`:'No CRM entries'):branch.items.length+branch.references.length?`${branch.items.length+branch.references.length} related work items`:'No related work');}
     return true;
   } catch(error) {
     if(current()) {
-      if(branch.loaded && !accessLost(error) && !sourceGone(error))p.focusError=(kind==='more'?'Could not load more related work. ':'Could not refresh related work. ')+error.message;
+      if(branch.loaded && !accessLost(error) && !sourceGone(error))p.focusError=(isTable?(kind==='more'?'Could not load more CRM entries. ':'Could not refresh CRM entries. '):(kind==='more'?'Could not load more related work. ':'Could not refresh related work. '))+error.message;
       else {
         // First load, lost access or a gone source: the branch and everything beneath it leaves the board.
         branch.expanded=false;
         Object.assign(branch,{loaded:false,items:[],references:[],children:[],related:[],childCursor:null,relationCursor:null,childPages:0,relationPages:0});
         for(const id of [...p.focusWork.keys()])if(id.startsWith(item.id+'/'))p.focusWork.delete(id);
-        p.focusError='Could not load related work. '+error.message;agfocusSaveWork(p);
+        p.focusError=(isTable?'Could not load CRM entries. ':'Could not load related work. ')+error.message;agfocusSaveWork(p);
       }
     }
     return false;
@@ -599,7 +650,7 @@ async function agfocusExpandWork(p,item,refresh=false) {
     if(kind!=='more' || p.focusWork.get(item.id)!==branch || !branch.expanded || !agpadActive(p))return;
   }
   const kind=branch.loaded?'refresh':'first';
-  if(kind==='first'){agfocusPaint(p);agfocusAnnounce(p,'Loading related work…');}
+  if(kind==='first'){agfocusPaint(p);agfocusAnnounce(p,agfocusIsCrm(item)?'Loading CRM entries…':'Loading related work…');}
   const flight=agfocusRunWork(p,item,branch,kind);
   branch.flight.promise=flight;
   await flight;
@@ -625,11 +676,13 @@ function agfocusWorkExtras(p,node,item) {
   const branch=p.focusWork?.get(item.id);
   if(!branch?.expanded)return;
   const hasMore=!!(branch.childCursor || branch.relationCursor);
-  if(!branch.references?.length && !hasMore && branch.loaded)return;
+  const crm=agfocusIsCrm(item);
+  if(!branch.references?.length && !hasMore && branch.loaded && !(crm && !branch.items.length))return;
   const moreFocused=node.contains(document.activeElement) && document.activeElement.classList.contains('agfocus-work-more');
   const row=document.createElement('div');row.className='agfocus-work-extras';row.setAttribute('aria-label','Related work');
   node.querySelector('.agfocus-row').after(row);
-  if(!branch.loaded){const loading=document.createElement('span');loading.className='muted';loading.textContent='Loading related work…';row.append(loading);return;}
+  if(!branch.loaded){const loading=document.createElement('span');loading.className='muted';loading.textContent=crm?'Loading CRM entries…':'Loading related work…';row.append(loading);return;}
+  if(crm && !branch.items.length && !hasMore){const none=document.createElement('span');none.className='muted agfocus-crm-empty';none.setAttribute('role','status');none.textContent='No entries in this CRM';row.append(none);return;}
   const icons={file:'M14 3H5v18h14V8z M14 3v5h5 M8 13h8 M8 17h8',table:'M3 4h18v16H3z M3 10h18 M9 4v16',link:'M10 14l4-4 M8 16l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0 M16 8l1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0'};
   for(const ref of branch.references){
     const target=ref.resolved_source,kind=target.type==='table'?'table':['material','email'].includes(target.type)?'file':'link';
@@ -640,7 +693,7 @@ function agfocusWorkExtras(p,node,item) {
     row.append(chip);
   }
   if(hasMore){
-    const more=document.createElement('button');more.type='button';more.className='quiet agfocus-work-more';more.textContent=branch.moving?'Loading more related work…':'More related work';
+    const more=document.createElement('button');more.type='button';more.className='quiet agfocus-work-more';more.textContent=branch.moving?(crm?'Loading more entries…':'Loading more related work…'):(crm?'More entries':'More related work');
     more.setAttribute('aria-disabled',String(!!branch.moving));
     more.onclick=event=>{event.stopPropagation();if(!branch.moving)agfocusMoreWork(p,item);};row.append(more);
     if(moreFocused)more.focus({preventScroll:true});
@@ -723,12 +776,14 @@ function agfocusPaint(p) {
       p.focusSnoozePopup?.itemId===item.id && p.focusSnoozePopup.close();
       for(const el of node.querySelectorAll('.agfocus-scope,.agfocus-marker,.agfocus-actions,.agfocus-unread')) {el.replaceChildren();delete el._html;}
       node.querySelector('.agfocus-unread').hidden=true;
+      if(item._workKind==='crm')agfocusRowControls(p,node,item,node.querySelector('.agfocus-actions'));
       node.querySelector('.ttl').textContent='This item is no longer available.';
       const flag=node.querySelector('.agfocus-flag');agfocusText(flag,'Unavailable');flag.hidden=false;
       continue;
     }
     const source=item.resolved_source || item.source || item.conversation || {};
     const projectItem=source.type==='project';
+    const tableItem=source.type==='table',crmItem=tableItem && source.table_kind==='crm';
     const taskItem=source.type==='task';
     // A Project card keeps its real Project name; a Focus display-name override never renames it.
     const name=projectItem ? (item.resolved_source?.label || item.label || 'Project') : (item.display_name?.trim() || item.label);
@@ -741,6 +796,14 @@ function agfocusPaint(p) {
       const toggle=marker.querySelector('button');
       toggle.onpointerdown=event=>event.stopPropagation();
       toggle.onclick=event=>{event.stopPropagation();agfocusToggleWork(p,item);};
+    } else if(tableItem) {
+      if(crmItem) {
+        const expanded=!!p.focusWork?.get(item.id)?.expanded;
+        agfocusHtml(marker,`<button type="button" class="task-type-marker task-subtasks-toggle agfocus-crm-toggle" aria-expanded="${expanded}" aria-label="${expanded?'Collapse':'Expand'} CRM entries">${RW_TABLE_ICON}</button>`);
+        const toggle=marker.querySelector('button');
+        toggle.onpointerdown=event=>event.stopPropagation();
+        toggle.onclick=event=>{event.stopPropagation();agfocusToggleWork(p,item);};
+      } else agfocusHtml(marker,`<span class="task-type-marker" role="img" aria-label="Table">${RW_TABLE_ICON}</span>`);
     } else if(taskItem && !taskShowsState(taskRecord)){
       if(taskRecord.task_type==='story'){
         const expanded=!!p.focusWork?.get(item.id)?.expanded;
@@ -763,8 +826,9 @@ function agfocusPaint(p) {
     const snoozed=agfocusSnoozed(item);
     node.classList.toggle('agfocus-snoozed',snoozed);
     const stateLabel=taskItem?customerStateText({task_type:taskRecord.task_type,customer_state:source.customer_state}):'';
-    const flagText=[stateLabel,item.archived?'Archived':''].filter(Boolean).join(' · ');
-    agfocusText(flag,flagText);flag.hidden=!flagText;
+    // A CRM stage is shown beside, never instead of, the Task's own state.
+    const flagText=[tableItem?(crmItem?'CRM':'Table'):'',stateLabel,item._crmStage?'Stage: '+item._crmStage:'',source.archived?'Archived table':'',item.archived?(tableItem?'Card archived':'Archived'):''].filter(Boolean).join(' · ');
+    agfocusText(flag,flagText);flag.title=flagText;flag.hidden=!flagText;
     const actions=node.querySelector('.agfocus-actions');
     node.tabIndex=0;node.setAttribute('role','group');node.setAttribute('aria-label',name);
     // Following a derived row opens that record; it never pins it, changes its parent or invents a channel.
@@ -790,6 +854,7 @@ function agfocusPaint(p) {
     actions.querySelector('[data-focus-snooze]').setAttribute('aria-pressed',String(snoozed));
     agfocusRowPending(p,node);
     actions.querySelector('[data-focus-snooze]').hidden=!!item._workParent;
+    agfocusRowControls(p,node,item,actions);
     agfocusUnread(p,node,item);
     node.classList.toggle('agfocus-collapsed',p.focusSelected!==item.id);
     node.setAttribute('aria-expanded',String(p.focusSelected===item.id));
@@ -802,6 +867,64 @@ function agfocusPaint(p) {
   $('[data-focus-previous]',host).hidden=!p.focusPages?.length;
   $('[data-focus-page]',host).textContent=(p.focusPages?.length || data.next_offset!=null)?'Page '+((p.focusPages?.length||0)+1):'';
   agfocusDesktopTab(p);
+}
+
+// Distinct controls, each named for what it changes: the Focus card, the Table itself, a CRM membership. None of them
+// touches the others: archiving a card never archives the Table, removing an entry never archives its record.
+function agfocusRowControls(p,node,item,actions) {
+  const wanted=[];
+  if(item._workKind==='crm' && !item.unavailable) {
+    wanted.push(['pin',`Pin ${item.label} to Focus`,'Pin']);
+  }
+  if(item._workKind==='crm') wanted.push(['remove',item.unavailable?'Remove this unavailable entry from CRM':`Remove ${item.label} from CRM`,'Remove from CRM']);
+  const source=agfocusSourceOf(item);
+  if(!item._workParent && source?.type==='table' && !item.unavailable) {
+    wanted.push(['card',item.archived?'Restore Focus card':'Archive Focus card',item.archived?'Restore card':'Archive card']);
+    wanted.push(['table',source.archived?'Table is archived':'Archive table (the table itself)',source.archived?'Archived table':'Archive table']);
+  }
+  for(const existing of [...actions.querySelectorAll('[data-focus-extra]')])if(!wanted.some(([kind])=>existing.dataset.focusExtra===kind))existing.remove();
+  for(const [kind,label,text] of wanted) {
+    let button=actions.querySelector(`[data-focus-extra="${kind}"]`);
+    if(!button){button=document.createElement('button');button.type='button';button.className='quiet agfocus-extra';button.dataset.focusExtra=kind;actions.append(button);}
+    button.setAttribute('aria-label',label);button.title=label;agfocusText(button,text);
+    button.disabled=kind==='table'&&!!source.archived;
+    button.onpointerdown=event=>event.stopPropagation();
+    button.onclick=event=>{event.stopPropagation();void agfocusExtraAction(p,item,kind,button);};
+  }
+}
+async function agfocusExtraAction(p,item,kind,button) {
+  if(button.disabled || button.getAttribute('aria-busy')==='true')return;
+  button.setAttribute('aria-busy','true');
+  const fail=error=>{p.focusError=`Could not ${({pin:'pin the record',remove:'remove the entry',card:'change the Focus card',table:'archive the table'})[kind]}. `+(error.message || '');agfocusAnnounce(p,p.focusError);agfocusPaint(p);};
+  try {
+    if(kind==='pin') {
+      await crmPinRecord({id:item.source.id,business_id:item.source.business_id ?? null});
+      agfocusAnnounce(p,'Pinned to Focus.');
+      await agfocusRefresh(p);
+    } else if(kind==='card') {
+      coreData(await post('/root/operations/focus_set_archived',{scope:'global',item_id:item.id,expected_card_revision:item.revision,archived:!item.archived,idempotency_key:newRequestId()}));
+      agfocusAnnounce(p,item.archived?'Focus card restored.':'Focus card archived.');
+      await agfocusRefresh(p);
+    } else if(kind==='table') {
+      const table=agfocusSourceOf(item),slug=crmSlug(table);
+      if(table.business_id!=null && !slug)throw new Error('This table is unavailable.');
+      if(!await taskConfirm({title:'Archive this table?',message:'This archives the table itself, so its entries and columns become read only. Member records, their states and their other Focus cards are unchanged. The Focus card stays.',confirmLabel:'Archive table'}))return;
+      const current=(await crmCall(slug,'tables_get',{table_id:table.id})).table;
+      await crmCall(slug,'tables_update',{table_id:table.id,expected_revision:current.revision,changes:{archived:true},idempotency_key:newRequestId()});
+      agfocusAnnounce(p,'Table archived.');
+      await agfocusRefresh(p);
+    } else if(kind==='remove') {
+      if(!await taskConfirm({title:'Remove from this CRM?',message:'This removes the entry from this CRM only. The record, its history, its state and its other tables are unchanged.',confirmLabel:'Remove from CRM'}))return;
+      const table=item._crmTable,slug=crmSlug(table);
+      if(table.business_id!=null && !slug)throw new Error('This table is unavailable.');
+      const current=(await crmCall(slug,'tables_get',{table_id:table.id})).table;
+      await crmCall(slug,'crm_entries_remove',{table_id:table.id,entry_id:item._crmEntry,expected_revision:current.revision,idempotency_key:newRequestId()});
+      agfocusAnnounce(p,'Removed from CRM.');
+      const parent=agfocusVisibleItems(p,p.focus?.items || []).find(row=>row.id===item._workParent);
+      if(parent)await agfocusExpandWork(p,parent,true);
+    }
+  } catch(error){fail(error);}
+  finally{button.removeAttribute('aria-busy');}
 }
 
 function agfocusNewTab(item) {
@@ -917,8 +1040,41 @@ async function agfocusOpenSignoff(p, summary) {
   }
 }
 
+// A one-time canonical Task link (/?open_task=...&scope=global|business_id=<uuid>#/global/agents) from the standalone CRM
+// viewer. It validates the whole route before any read, consumes it, reads the authorized Task and opens it in the shared
+// record workspace. It never selects, creates or pins a Focus card, and an invalid, mixed or unknown target never falls
+// through to another scope or record.
+async function agfocusOpenTaskLink(p,url) {
+  const route=openTaskRoute(url.search);
+  const consume=()=>{url.search='';history.replaceState(null,'',url);};
+  const refuse=message=>{consume();if(agpadActive(p)){p.focusError=p.focusLinkError=message;agfocusPaint(p);}};
+  if(route.invalid || url.searchParams.has('focus_item'))return refuse('This record link is not valid.');
+  let slug=null;
+  if(route.businessId!==null) {
+    const business=(state.bizs || []).find(b=>b.id===route.businessId || b.business_id===route.businessId);
+    if(!business?.slug)return refuse('This project is unavailable.');
+    slug=business.slug;
+  }
+  consume();
+  try {
+    const data=await crmCall(slug,'tasks_get',{task_id:route.taskId});
+    if(!agpadActive(p) || p.view!=='focus' || !p.focusMount?.isConnected)return;
+    if(!data.task)throw new Error('missing');
+    const task=data.task;
+    const record=rwRecordFromItem({source:{type:'task',id:task.id,business_id:route.businessId,business_slug:slug,label:task.title,task_type:task.task_type,state:task.status}},{can_thread:true});
+    if(!record || record.scopeMissing)throw new Error('missing');
+    agfocusShowDock(p);
+    await p.focusWorkspace?.open(record,{root:true,tab:'dashboard'});
+  } catch(error){
+    // The ordinary unavailable state: no identity or cached data from the link is repeated.
+    if(agpadActive(p)){p.focusError=p.focusLinkError='This record is unavailable.';agfocusPaint(p);}
+  }
+}
+
 async function agfocusOpenLinkedItem(p) {
-  const url=new URL(location.href),id=url.searchParams.get('focus_item');
+  const url=new URL(location.href);
+  if(typeof openTaskRoute==='function' && url.searchParams.has('open_task'))return agfocusOpenTaskLink(p,url);
+  const id=url.searchParams.get('focus_item');
   if(!id)return;
   url.searchParams.delete('focus_item');history.replaceState(null,'',url);
   try {
@@ -958,6 +1114,8 @@ async function agfocusSelect(p,id) {
   const source=next._item.resolved_source || next._item.source;
   // An ordinary Task still opens its existing hierarchy; a Project only expands through its chevron.
   if(source?.type==='task' && (agfocusTaskRecord(next._item).task_type!=='story' || p.focusWork?.get(next._item.id)?.expanded!==false))void agfocusExpandWork(p,next._item);
+  // A selected CRM expands like a Story unless its entries were collapsed on purpose.
+  else if(agfocusIsCrm(next._item) && p.focusWork?.get(next._item.id)?.expanded!==false)void agfocusExpandWork(p,next._item);
 }
 
 function agfocusRefreshThreads(p) {
@@ -1029,7 +1187,7 @@ function agfocusContext(node,item) {
   const scope=node.querySelector('.agfocus-scope');
   // A Project card already carries its exact Project name as its title: no same-name scope badge.
   const project=source.type==='project';
-  scope.hidden=project || (!!item._workParent && (item.source?.type==='task' || item.source?.type==='project') && item._workBusinessId!=null && businessId===item._workBusinessId);
+  scope.hidden=project || !!item._sameScope || (!!item._workParent && (item.source?.type==='task' || item.source?.type==='project') && item._workBusinessId!=null && businessId===item._workBusinessId);
   if(project){scope.replaceChildren();delete scope._html;return;}
   const businessName=source.business_name || (state.bizs || []).find(b=>b.slug===biz)?.name || (source.type==='task'?'Project':'Project');
   agfocusHtml(scope,businessId || biz
@@ -1245,11 +1403,11 @@ function agfocusDesktopMount(p, ctx = null) {
 
 // One atomic create-and-present call; a retry keeps the exact request and key.
 function agfocusAdd(p) {
-  let submission=null, pending=false, typeEditor;
+  let submission=null, pending=false, typeEditor, tableReady=false;
   const text=agfocusTextHost(),textReady=!!text && !!p.agentId && text.ready(p);
   const projects=(state.bizs || []);
-  const kinds=`<div class="focus-add-kind" role="radiogroup" aria-label="What to add"><label><input type="radio" name="kind" value="item" checked> Task or link</label><label><input type="radio" name="kind" value="project"> Existing Project</label>${text && p.agentId?`<label><input type="radio" name="kind" value="text"${textReady?'':' disabled'}> Text or space</label>`:''}</div>${text && p.agentId && !textReady?`<p class="muted">${esc(text.unavailable(p))}</p>`:''}`;
-  modal({title:'Add to Focus', body:`<form id="focus-add-form">${kinds}<div data-add-item><label>Title<input class="inp" name="title" required maxlength="200" autocomplete="off"></label><label>Link <span class="muted">(optional)</span><input class="inp" name="link" type="url" placeholder="https://…"></label><p class="muted">Leave the link empty to create a task.</p>${taskTypeFields()}</div><div data-add-project hidden><label>Project<select class="inp" name="project">${projects.map(biz=>`<option value="${esc(biz.business_id||biz.id)}">${esc(biz.name||biz.slug)}${biz.archived?' (archived)':''}</option>`).join('')}</select></label><p class="muted">${projects.length?'Pins the actual accessible Project. Pinning never creates a Project or a new conversation.':'No accessible Projects.'}</p></div><div data-add-text hidden><label>Text <span class="muted">(optional)</span><textarea class="inp" name="text" rows="5" maxlength="8000" placeholder="A heading, a note, or leave empty for blank space"></textarea></label><p class="muted">Saved on this agent's Focus only. Agents never read it.</p></div><p role="alert" class="bad" hidden></p></form>`,
+  const kinds=`<div class="focus-add-kind" role="radiogroup" aria-label="What to add"><label><input type="radio" name="kind" value="item" checked> Task or link</label><label><input type="radio" name="kind" value="project"> Existing Project</label><label><input type="radio" name="kind" value="table"> Existing Table or CRM</label>${text && p.agentId?`<label><input type="radio" name="kind" value="text"${textReady?'':' disabled'}> Text or space</label>`:''}</div>${text && p.agentId && !textReady?`<p class="muted">${esc(text.unavailable(p))}</p>`:''}`;
+  modal({title:'Add to Focus', body:`<form id="focus-add-form">${kinds}<div data-add-item><label>Title<input class="inp" name="title" required maxlength="200" autocomplete="off"></label><label>Link <span class="muted">(optional)</span><input class="inp" name="link" type="url" placeholder="https://…"></label><p class="muted">Leave the link empty to create a task.</p>${taskTypeFields()}</div><div data-add-project hidden><label>Project<select class="inp" name="project">${projects.map(biz=>`<option value="${esc(biz.business_id||biz.id)}">${esc(biz.name||biz.slug)}${biz.archived?' (archived)':''}</option>`).join('')}</select></label><p class="muted">${projects.length?'Pins the actual accessible Project. Pinning never creates a Project or a new conversation.':'No accessible Projects.'}</p></div><div data-add-table hidden><label>Scope<select class="inp" name="table_scope" aria-label="Table scope"><option value="">Global</option>${projects.map(biz=>`<option value="${esc(biz.slug)}">${esc(biz.name||biz.slug)}</option>`).join('')}</select></label><label>Show<select class="inp" name="table_kind" aria-label="Table kind"><option value="">Tables and CRMs</option><option value="general">Tables only</option><option value="crm">CRMs only</option></select></label><label>Table<select class="inp" name="table" aria-label="Table to pin"></select></label><button type="button" class="quiet" data-add-table-more hidden>More tables</button><p class="muted" data-add-table-status role="status"></p><p class="muted">Pins an existing table. Pinning never creates a table and changes nothing about it or its entries.</p></div><div data-add-text hidden><label>Text <span class="muted">(optional)</span><textarea class="inp" name="text" rows="5" maxlength="8000" placeholder="A heading, a note, or leave empty for blank space"></textarea></label><p class="muted">Saved on this agent's Focus only. Agents never read it.</p></div><p role="alert" class="bad" hidden></p></form>`,
     actions:[{label:'Cancel',onClick:close=>close()}, {label:'Add', primary:true, onClick:async(close,el)=>{
       if(pending)return;
       const form=el.querySelector('form'), error=form.querySelector('[role="alert"]');
@@ -1258,7 +1416,13 @@ function agfocusAdd(p) {
         if(!text.add(p,form.elements.text.value)){error.textContent=text.unavailable(p) || 'Could not add the text block.';error.hidden=false;return;}
         close();return;
       }
-      if(mode==='project') {
+      if(mode==='table') {
+        const select=form.elements.table,option=select.selectedOptions[0];
+        if(!option || !option.value || !tableReady){error.textContent='Choose a table.';error.hidden=false;return;}
+        // A key is kept only for the exact table it was made for; any other selection starts a new request.
+        const same=submission?.args.source?.id===option.value && (submission.args.source.business_id ?? '')===(option.dataset.businessId || '');
+        if(!same)submission={operation:'focus_present',args:{scope:'global',source:{type:'table',id:option.value,business_id:option.dataset.businessId||null},idempotency_key:newRequestId()}};
+      } else if(mode==='project') {
         const projectId=form.elements.project.value;
         if(!projectId){error.textContent='Choose a Project.';error.hidden=false;return;}
         const key=newRequestId();
@@ -1289,11 +1453,42 @@ function agfocusAdd(p) {
       el.querySelector('[name=link]').oninput=e=>{el.querySelector('.task-type-editor').hidden=!!e.target.value.trim();};
       for(const radio of form.querySelectorAll('[name=kind]'))radio.onchange=()=>{
         const mode=form.elements.kind.value;
-        el.querySelector('[data-add-item]').hidden=mode!=='item';el.querySelector('[data-add-project]').hidden=mode!=='project';el.querySelector('[data-add-text]').hidden=mode!=='text';
+        el.querySelector('[data-add-item]').hidden=mode!=='item';el.querySelector('[data-add-project]').hidden=mode!=='project';el.querySelector('[data-add-text]').hidden=mode!=='text';el.querySelector('[data-add-table]').hidden=mode!=='table';
         form.elements.title.required=mode==='item';
-        const target=mode==='project'?el.querySelector('[name=project]'):mode==='text'?el.querySelector('[name=text]'):form.elements.title;
+        if(mode==='table')loadTables();else{tableSeq++;tableReady=false;addButton().disabled=pending;}
+        submission=null;
+        const target=mode==='project'?el.querySelector('[name=project]'):mode==='text'?el.querySelector('[name=text]'):mode==='table'?form.elements.table_scope:form.elements.title;
         target.focus();
       };
+      // Existing tables of the chosen scope; the picker lists, it never creates.
+      let tableCursor=null,tableSeq=0;
+      const addButton=()=>el.querySelector('.mfoot .primary');
+      const syncAdd=()=>{if(form.elements.kind.value==='table')addButton().disabled=pending || !tableReady || !form.elements.table.value;};
+      const loadTables=async(more=false)=>{
+        const own=++tableSeq,select=form.elements.table,status=el.querySelector('[data-add-table-status]'),moreButton=el.querySelector('[data-add-table-more]');
+        const slug=form.elements.table_scope.value||null,kind=form.elements.table_kind.value;
+        // A new scope/kind/mode invalidates the previous choices and any frozen request at once; Add stays off until this query succeeds.
+        if(!more){select.replaceChildren();tableCursor=null;moreButton.hidden=true;submission=null;}
+        tableReady=false;syncAdd();
+        status.textContent='Loading tables…';
+        try {
+          const data=await crmCall(slug,'tables_list',{limit:50,...(kind?{table_kind:kind}:{}),...(more&&tableCursor?{cursor:tableCursor}:{})});
+          if(own!==tableSeq || !el.isConnected)return;
+          if(!more)select.replaceChildren();
+          for(const table of data.items || []){
+            const option=new Option(`${table.table_kind==='crm'?'CRM · ':'Table · '}${table.title}${table.archived?' (archived)':''}`,table.id);
+            option.dataset.businessId=table.business_id ?? '';select.append(option);
+          }
+          tableCursor=data.next_cursor || null;moreButton.hidden=!tableCursor;
+          tableReady=true;syncAdd();
+          status.textContent=select.options.length?'':'No tables in this scope.';
+        } catch(failure){
+          if(own===tableSeq && el.isConnected){select.replaceChildren();moreButton.hidden=true;tableReady=false;syncAdd();status.textContent='Could not load tables. '+(accessLost(failure)||sourceGone(failure)?'This scope is unavailable.':uiFailure(failure,{load:true}));}
+        }
+      };
+      form.elements.table_scope.onchange=()=>loadTables();form.elements.table_kind.onchange=()=>loadTables();
+      el.querySelector('[data-add-table-more]').onclick=()=>loadTables(true);
+      form.elements.table.onchange=()=>{submission=null;syncAdd();};
       form.elements.title.focus();
       form.onsubmit=event=>{event.preventDefault();el.querySelector('.mfoot button:last-child')?.click();};
     }});
