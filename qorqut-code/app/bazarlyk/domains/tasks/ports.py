@@ -13,6 +13,7 @@ from qorqut_operations.tasks import TaskPorts
 from qorqut_operations.tasks.scope import task_namespace
 
 from bazarlyk.agents.contact import owner_directed_target
+from bazarlyk.agents.roles import LEARNING_APPLIER_ROLE
 from bazarlyk.domains.dev_tickets import DevTickets
 from bazarlyk.inbox import attention
 from bazarlyk.inbox.owner_tasks import ordubashies, tasks as owner_task_rows
@@ -37,6 +38,10 @@ class HostAssignees:
 
     def owner_directed(self, ctx, identity, uow):
         return owner_directed_target(ctx, identity, uow)
+
+    def worker_excluded(self, ctx, identity, uow):
+        profile = uow.repository("agent_profiles", business_id=None).get(identity)
+        return bool(profile and (profile.get("profile_json") or {}).get("role", {}).get("id") == LEARNING_APPLIER_ROLE)
 
 
 class HostFocus:
@@ -100,7 +105,9 @@ class HostRouting:
     def mandatory(uow, business_id, task, actor_id):
         """The mandatory v1 routes of a Task: the Focus coordinator of an owner's change to a focused Task and the
         Ordubashy followers of owner work."""
-        required = set()
+        from bazarlyk.agents.attention import task_recipients
+
+        required = set(task_recipients(uow, business_id, task, actor_id))
         installation = uow.repository("installation").get("service")
         if installation and installation["management_coordinator_id"] and actor_id == installation["owner_principal_id"]:
             focused = uow.connection.execute(

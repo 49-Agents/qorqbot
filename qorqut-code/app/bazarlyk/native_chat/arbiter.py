@@ -139,6 +139,12 @@ class InputArbiter:
                     if retention is not None:
                         retention.capture_owner_input(uow, session, request, row)
                     if request.input_type == TYPE_CHAT:
+                        from bazarlyk.management.identity import configured_ordubashy, installation_owner
+                        if (request.agent_id == configured_ordubashy(uow, require_codex=False)
+                                and request.principal_id == installation_owner(uow)):
+                            from bazarlyk.agents.attention_delivery import record_attention_activity
+                            record_attention_activity(uow, request.agent_id, 'owner_message', row['created_at'],
+                                'native-input:' + row['id'], attention=self.runtime.application.ordubashy_attention)
                         # The message is accepted here, whether or not its delivery is later delayed; a worker's owner message
                         # is noted to Ordubashy in this same transaction and never from the scrubbed input.
                         forward_owner_message(uow, kind="chat", source_id=row["id"], sender_id=request.principal_id,

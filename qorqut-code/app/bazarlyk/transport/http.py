@@ -1159,6 +1159,33 @@ class HTTPAPI:
             call = partial(nudges.recovery_notice, actor.principal.id, body["notification_id"], consumer_id=body["consumer_id"])
             data = await anyio.to_thread.run_sync(partial(self.runtime.observed_agent_call, context, "inbox.recovery", "notice", call))
             return response(OperationResult.ok(data, request_id=new_id()))
+        if request.method == "POST" and parts == ["agent", "attention-hook"]:
+            await anyio.to_thread.run_sync(self.runtime.require_authority)
+            actor = await anyio.to_thread.run_sync(lambda: self.authentication.agent(request.headers.get("authorization")))
+            request.scope["bazarlyk.auth"] = actor
+            body = await read_json(request, limit=8192)
+            checked_fields(body, {'registration_id', 'session_id', 'action', 'claim'},
+                           {'registration_id', 'session_id', 'action'})
+            if body['registration_id'] != actor.registration_id:
+                raise DomainError('forbidden', 'Attention hook registration does not match credential')
+            action = body['action']
+            attention = self.runtime.attention_runtime
+            if action == 'claim':
+                call = partial(attention.hook_claim, actor.principal.id, actor.registration_id, body['session_id'])
+            elif action in ('begin', 'settle'):
+                claim = body.get('claim')
+                keys = {'id', 'claim_token', 'claim_consumer_id', 'claim_binding_generation',
+                        'focus_generation', 'revision'}
+                if not isinstance(claim, dict) or not keys.issubset(claim) or claim['claim_consumer_id'] != body['session_id']:
+                    raise DomainError('validation_error', 'Invalid attention hook claim')
+                call = partial(attention.hook_begin if action == 'begin' else attention.hook_settle,
+                               actor.principal.id, actor.registration_id, claim)
+            else:
+                raise DomainError('validation_error', 'Invalid attention hook action')
+            context = await anyio.to_thread.run_sync(partial(self.runtime.agent_context, actor.principal, diagnostic=True))
+            value = await anyio.to_thread.run_sync(partial(self.runtime.observed_agent_call, context,
+                'agent.attention_hook', action, call))
+            return response(OperationResult.ok({'result': value}, request_id=new_id()))
         if request.method == "POST" and parts == ["agent", "checkpoint"]:
             await anyio.to_thread.run_sync(self.runtime.require_authority)
             actor = await anyio.to_thread.run_sync(lambda: self.authentication.agent(request.headers.get("authorization")))

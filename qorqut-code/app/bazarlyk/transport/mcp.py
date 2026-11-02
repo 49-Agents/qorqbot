@@ -2,6 +2,7 @@
 
 import logging
 from dataclasses import replace
+from uuid import UUID
 
 import anyio
 from mcp import types
@@ -21,6 +22,27 @@ from .results import failure
 from . import batches, mcp_presentation, mcp_reads
 
 logger = logging.getLogger(__name__)
+
+ATTENTION_SESSION_OPERATIONS = frozenset({'attention_get', 'attention_add', 'attention_remove',
+    'attention_focus_set', 'attention_focus_clear', 'attention_workflow_update'})
+
+
+def attention_binding(headers):
+    """Parse only the native binding pair provided by the authenticated bridge."""
+    sessions = headers.getlist('x-qorqut-native-session')
+    generations = headers.getlist('x-qorqut-binding-generation')
+    if len(sessions) != 1 or len(generations) != 1:
+        raise DomainError('inbox_generation_stale', 'Attention requires one complete native session binding')
+    session, generation = sessions[0], generations[0]
+    try:
+        if str(UUID(session)) != session or not generation.isascii() or not generation.isdecimal():
+            raise ValueError
+        number = int(generation)
+        if str(number) != generation or not 1 <= number < 2**63:
+            raise ValueError
+    except (ValueError, TypeError, AttributeError):
+        raise DomainError('inbox_generation_stale', 'Attention native session binding is malformed') from None
+    return session, number
 
 OPTION_SCHEMAS = {
     "expected_revision": {"type": "integer", "minimum": 1},
@@ -149,7 +171,7 @@ class RegisteredAgentCaller:
     def exposes(descriptor):
         return not descriptor.owner_only and "mcp" in descriptor.exposure
 
-    def invocation_context(self, actor, *, canonical_name, options):
+    def invocation_context(self, actor, *, canonical_name, options, native_binding=None):
         context = self.runtime.agent_context(actor.principal, diagnostic=canonical_name in DIAGNOSTIC_OPERATIONS,
             business_id=options.business_id,
             session_registration_id=actor.registration_id, review_business_id=options.review_business_id)
@@ -157,6 +179,8 @@ class RegisteredAgentCaller:
             context = replace(context, delegation_binding_id=actor.delegation_binding_id,
                 delegation_assignment_id=actor.delegation_assignment_id,
                 delegation_generation=actor.delegation_generation)
+        if native_binding is not None:
+            context = replace(context, inbox_session_id=native_binding[0], inbox_generation=native_binding[1])
         return context
 
     def check_batch(self, actor):
@@ -305,6 +329,9 @@ class MCPTransport:
             args, options = split_options(arguments, domain_fields=domain_fields)
             self.caller.validate_options(actor, canonical_name, options)
             self.caller.validate_arguments(actor, canonical_name, args)
+            binding = (attention_binding(self.server.request_context.request.headers)
+                       if isinstance(self.caller, RegisteredAgentCaller) and canonical_name in ATTENTION_SESSION_OPERATIONS
+                       else None)
             if canonical_name == "agent_config_get" and detail in {"compact", "summary", "context"}:
                 # These projections never return the live briefing. Prevent its
                 # potentially expensive domain reads from delaying the mandatory
@@ -312,7 +339,11 @@ class MCPTransport:
                 options = replace(options, omit_work_briefing=True)
             def invoke():
                 nonlocal context
-                context = self.caller.invocation_context(actor, canonical_name=canonical_name, options=options)
+                if binding is not None:
+                    context = self.caller.invocation_context(actor, canonical_name=canonical_name, options=options,
+                                                             native_binding=binding)
+                else:
+                    context = self.caller.invocation_context(actor, canonical_name=canonical_name, options=options)
                 # Bind application observation to this transport call's
                 # correlation ID after trusted context resolution.
                 context = replace(context, request_id=request_id)

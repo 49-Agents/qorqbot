@@ -1,7 +1,7 @@
 """Scoped current work and small session observations, separate from durable progress."""
 from dataclasses import replace
 from contextlib import nullcontext
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import logging
@@ -251,6 +251,7 @@ class AgentActivity:
         boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
         namespace=str(Path('/proc/self/ns/pid').readlink())
         observations=[]
+        genuine_tools=[]
         namespace_pids=None
         now=timestamp(self.clock)
         for row in rows:
@@ -285,6 +286,11 @@ class AgentActivity:
                 if checked_at is not None:
                     checked_at = datetime.fromtimestamp(checked_at,tz=self.clock().tzinfo).isoformat()
                 observations.append((state,sequence,last_seen,activity_at,check_state,checked_at,row['agent_id'],row['session_id']))
+                genuine = data.get('genuine_tool_activity')
+                if alive and isinstance(genuine, dict) and isinstance(genuine.get('tool_id'), str):
+                    genuine_at = datetime.fromtimestamp(genuine['at'], tz=timezone.utc).isoformat()
+                    genuine_tools.append((row['agent_id'], row['session_id'], row['registration_id'],
+                                          genuine['tool_id'], genuine_at))
                 reviewed_at = row['assignment_reviewed_at'] or row['work_reviewed_at'] or row['work_updated_at']
                 updated=datetime.fromisoformat(reviewed_at).timestamp() if reviewed_at else None
                 feedback=path.with_name(row['session_id']+'.feedback.json')
@@ -297,6 +303,19 @@ class AgentActivity:
                 self.app.ensure_writes_open(u)
                 u.connection.executemany('UPDATE agent_activity SET state=?,sequence=?,last_seen_at=?,activity_at=?,checkpoint_state=?,checkpoint_checked_at=? '
                     'WHERE agent_id=? AND session_id=? AND sequence<=?', [(*row,row[1]) for row in observations])
+                from bazarlyk.management.identity import configured_ordubashy
+                coordinator = configured_ordubashy(u, require_codex=False)
+                for agent_id, session_id, registration_id, tool_id, genuine_at in genuine_tools:
+                    if agent_id != coordinator:
+                        continue
+                    binding = u.connection.execute('SELECT consumer_id FROM native_session_owners WHERE agent_id=?',
+                                                   (agent_id,)).fetchone()
+                    if not binding or binding['consumer_id'] != session_id:
+                        continue
+                    from bazarlyk.agents.attention_delivery import record_attention_activity
+                    record_attention_activity(u, agent_id, 'agent_activity', genuine_at,
+                        'tool:' + registration_id + ':' + session_id + ':' + tool_id,
+                        attention=self.app.ordubashy_attention)
                 cutoff=timestamp(lambda:self.clock()-timedelta(days=7))
                 u.connection.execute("DELETE FROM agent_activity WHERE state='offline' AND activity_at<? "
                     'AND session_id<>(SELECT s.session_id FROM agent_activity s WHERE s.agent_id=agent_activity.agent_id '

@@ -194,6 +194,10 @@ def extract(component, repository, root):
                                 shutil.copyfileobj(archive.extractfile(member), handle)
                     else:
                         raise ExportError(f"{name}: unsupported archive entry {member.name!r}")
+            # tarfile stops at the end markers; drain Git's trailing tar padding
+            # before closing the pipe so a successful archive cannot get SIGPIPE.
+            while process.stdout.read(1024 * 1024):
+                pass
         finally:
             process.stdout.close()
             code = process.wait()

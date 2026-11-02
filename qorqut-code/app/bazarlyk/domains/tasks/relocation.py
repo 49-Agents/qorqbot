@@ -45,6 +45,11 @@ TASK_COLUMNS = {
     "overseer_development_tasks.task_id": "blocking", "overseer_development_tasks.task_ref_json": "blocking",
     "agent_checkpoint_findings.task_id": "historical", "system_incident_impacts.task_id": "historical",
     "task_moves.task_id": "audit", "task_moves.task_created_at": "audit",
+    "attention_memberships.task_id": "followed", "attention_memberships.task_created_at": "followed",
+    "attention_memberships.task_business_id": "followed",
+    "agent_attention.work_task_json": "followed", "attention_workflows.work_task_json": "followed",
+    "attention_membership_events.task_id": "historical", "attention_membership_events.task_created_at": "historical",
+    "attention_membership_events.task_business_id": "historical",
 }
 # Typed item columns (``item_type``/``source_type`` plus an id): the stores that hold a Task through a type column.
 TYPED_REFERENCES = {
@@ -172,7 +177,37 @@ class HostRelocation:
                                         self.card_task(row, relocation)))
         blockers.extend(self.unclassified_children(connection, tables, relocation))
         blockers.extend(self.active_bindings(connection, tables, relocation, material))
+        attention = self.attention_rows(connection, tables, relocation)
+        if {"agent_attention", "attention_memberships", "attention_workflows"} & tables:
+            material["attention"] = digest([[table, *list(row)] for table, row in attention])
+            counts["attention_references"] = len(attention)
+        for table, row in attention:
+            if table == "attention_memberships" and connection.execute(
+                "SELECT 1 FROM attention_memberships WHERE agent_id=? AND task_business_id IS ? AND task_id=?",
+                (row["agent_id"], relocation.destination, row["task_id"])).fetchone():
+                blockers.append(blocker("attention_membership_exists", "The destination already has this Attention membership", row["task_id"]))
         return AdapterReport(counts, blockers, material)
+
+    @staticmethod
+    def attention_rows(connection, tables, relocation):
+        """Snapshot all mutable Attention references that follow these scoped Tasks."""
+        result, ids = [], set(relocation.ids)
+        fields = {"agent_attention": ("focus_json", "work_task_json"),
+                  "attention_workflows": ("work_task_json", "related_refs_json")}
+        if "attention_memberships" in tables:
+            rows = connection.execute("SELECT * FROM attention_memberships WHERE task_business_id IS ? AND task_id IN "
+                                      + marks(relocation.ids) + " ORDER BY id", (relocation.source, *relocation.ids)).fetchall()
+            result.extend(("attention_memberships", row) for row in rows)
+        for table, columns in fields.items():
+            if table not in tables:
+                continue
+            for row in connection.execute(f'SELECT * FROM "{table}" ORDER BY rowid'):
+                if any(row[field] and rewrite(decoded(row[field]), relocation.source, relocation.destination, ids)[1]
+                       for field in columns):
+                    result.append((table, row))
+        if len(result) > MAXIMUM_ROWS:
+            raise DomainError("result_too_large", "Too many Attention references to move safely")
+        return result
 
     @staticmethod
     def conversations(connection, tables, relocation):
@@ -217,7 +252,7 @@ class HostRelocation:
     def unclassified_children(connection, tables, relocation):
         """Foreign keys to ``tasks`` that no adapter classifies: rows naming a moved Task make the move impossible."""
         found = []
-        for table in sorted(tables - CORE_CHILDREN):
+        for table in sorted(tables - CORE_CHILDREN - {"attention_memberships"}):
             if table.startswith("sqlite_"):
                 continue
             groups: dict[int, list] = {}
@@ -332,6 +367,28 @@ class HostRelocation:
                 raise_changed()
             uow.next_sequence("focus_board")
             counts["focus_cards"] += 1
+        attention = self.attention_rows(connection, tables, relocation)
+        if {"agent_attention", "attention_memberships", "attention_workflows"} & tables:
+            counts["attention_references"] = len(attention)
+        for table, row in attention:
+            if table == "attention_memberships":
+                updated = connection.execute("UPDATE attention_memberships SET task_business_id=?, revision=revision+1 WHERE id=? AND revision=?",
+                                             (destination, row["id"], row["revision"])).rowcount
+            else:
+                fields = ("focus_json", "work_task_json") if table == "agent_attention" else ("work_task_json", "related_refs_json")
+                values = {}
+                for field in fields:
+                    if row[field]:
+                        value, found = rewrite(decoded(row[field]), source, destination, ids)
+                        if found:
+                            values[field] = json.dumps(value)
+                assignments = ", ".join(f"{name}=?" for name in values)
+                predicate = "agent_id=?" if table == "agent_attention" else "agent_id=? AND run_id=?"
+                key = (row["agent_id"],) if table == "agent_attention" else (row["agent_id"], row["run_id"])
+                updated = connection.execute(f"UPDATE {table} SET {assignments}, revision=revision+1, updated_at=? WHERE {predicate} AND revision=?",
+                                             (*values.values(), at, *key, row["revision"])).rowcount
+            if updated != 1:
+                raise_changed()
         return counts
 
 

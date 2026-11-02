@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import hashlib
 import logging
 import os
 from pathlib import Path
@@ -225,6 +226,21 @@ class Indexer:
                                          length=completion.length, completed_at=_record_time(completion.timestamp, now),
                                          preview=completion.preview, origin=completion.origin, user_work=completion.user_work)
                 result.completions += 1 if row else 0
+                # Only the original timestamp on a newly indexed real reply is
+                # activity. Observer time and system-only reminder turns are not.
+                if row and completion.timestamp and (completion.origin == 'user' or completion.user_work):
+                    try:
+                        stamp = datetime.fromisoformat(completion.timestamp.replace('Z', '+00:00'))
+                    except (ValueError, TypeError):
+                        stamp = None
+                    if stamp is not None and stamp.tzinfo is not None:
+                        from bazarlyk.management.identity import configured_ordubashy
+                        if session['agent_id'] == configured_ordubashy(uow, require_codex=False):
+                            from bazarlyk.agents.attention_delivery import record_attention_activity
+                            key = hashlib.sha256((session['conversation_id'] + ':' + completion.identity_kind + ':'
+                                                  + completion.key).encode()).hexdigest()
+                            record_attention_activity(uow, session['agent_id'], 'agent_activity', stamp.isoformat(),
+                                'native-reply:' + key, attention=self.runtime.application.ordubashy_attention)
             grew = receipt.sequence != fresh["receipt_sequence"] or consumed != start
             changes = store.capture_changes(fresh, **self._proposal(fresh, session, receipt, consumed, state, finalized))
             if changes:

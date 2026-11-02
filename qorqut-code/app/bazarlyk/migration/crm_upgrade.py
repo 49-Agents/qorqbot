@@ -247,6 +247,26 @@ def _quoted(names):
     return ", ".join(f'"{name}"' for name in names)
 
 
+def backfill_latest_completion(connection):
+    """Backfill old Done Tasks from retained structured transitions, else creation time.
+
+    The first-completion table cannot establish the latest completion after reopening.
+    Creation time is a stable ordering fallback, not a claimed completion timestamp.
+    This runs before target triggers are installed and changes no copied source column.
+    """
+    counts = {"history": 0, "fallback": 0}
+    for rowid, business_id, task_id, created_at in connection.execute(
+            "SELECT rowid,business_id,id,created_at FROM tasks WHERE status='done'").fetchall():
+        history = connection.execute(
+            "SELECT MAX(created_at) FROM thread_messages WHERE business_id IS ? AND item_type='task' AND item_id=? "
+            "AND kind='system' AND json_extract(change_json,'$.to')='done' "
+            "AND json_extract(change_json,'$.from') IS NOT NULL "
+            "AND json_extract(change_json,'$.from')!='done'", (business_id, task_id)).fetchone()[0]
+        counts["history" if history else "fallback"] += 1
+        connection.execute("UPDATE tasks SET latest_completed_at=? WHERE rowid=?", (history or created_at, rowid))
+    return counts
+
+
 def build(source, work, assembly, compiled, steps):
     """Create ``work`` as the upgraded store, verified, from the (immutable) ``source``. ``work`` is left on any failure."""
     target = assembly.target
@@ -263,6 +283,9 @@ def build(source, work, assembly, compiled, steps):
         for table in steps["carried"]:
             names = _quoted(steps["columns"][table])
             connection.execute(f'INSERT INTO main."{table}" (rowid, {names}) SELECT rowid, {names} FROM src."{table}" ORDER BY rowid')
+        backfill = None
+        if "latest_completed_at" in steps["added_columns"].get("tasks", ()):
+            backfill = backfill_latest_completion(connection)
         for statement in seeds:
             connection.execute(INSERT_INTO.sub("INSERT OR IGNORE INTO", statement, count=1))
         # The copy itself leaves a zero counter for every empty AUTOINCREMENT table; the source's counters replace all of them.
@@ -286,7 +309,7 @@ def build(source, work, assembly, compiled, steps):
         connection.execute("COMMIT")
         if connection.execute("PRAGMA main.integrity_check").fetchone()[0] != "ok":
             raise _refuse("upgrade_failed", "The upgraded store failed its integrity check")
-        return rows
+        return rows, backfill
     except sqlite3.Error as exc:
         raise _refuse("upgrade_failed", f"The upgrade could not build the new store ({type(exc).__name__}: {exc})") from exc
     finally:
@@ -396,7 +419,7 @@ def upgrade(source, destination, *, dry_run=False, assembly=None, configuration=
         os.close(descriptor)
         work, cleanup = Path(name), lambda: [Path(str(work) + suffix).unlink(missing_ok=True) for suffix in ("", "-journal", "-wal", "-shm")]
     try:
-        rows = build(source, work, assembly, compiled, steps)
+        rows, backfill = build(source, work, assembly, compiled, steps)
         Database(work, assembly=assembly).open_existing()
         # Every check that can fail is made before the exclusive link: the store opens as the composed target, the source is
         # still the file that was read and has no active sidecar, and the report is complete.
@@ -407,7 +430,7 @@ def upgrade(source, destination, *, dry_run=False, assembly=None, configuration=
             publish(work, destination)
     finally:
         cleanup()
-    return {
+    report = {
         "mode": "dry-run" if dry_run else "upgrade", "ok": True,
         "source": {"path": str(source), "sha256": before_hash, "unchanged": True},
         "source_target": frozen["target"],
@@ -418,6 +441,9 @@ def upgrade(source, destination, *, dry_run=False, assembly=None, configuration=
         "changed_indexes": steps["changed_indexes"], "changed_triggers": steps["changed_triggers"],
         "checks": {"source_recognized": True, "schema": "equal", "rows": "identical", "foreign_keys": "ok", "integrity": "ok"},
     }
+    if backfill is not None:
+        report["latest_completion_backfill"] = backfill
+    return report
 
 
 def main(argv=None):

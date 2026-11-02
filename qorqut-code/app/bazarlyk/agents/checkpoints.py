@@ -80,13 +80,15 @@ class AgentCheckpoints:
         return ctx, row
 
     def _findings(self, ctx, row, native, uow, *, focus_only=False):
+        from bazarlyk.management.identity import configured_ordubashy
+        coordinator = ctx.principal_id == configured_ordubashy(uow, require_codex=False)
         items = row['items_json']  # Repository rows already decode JSON columns.
         if is_worker(uow.connection, ctx.principal_id):
             # A worker's one shared assignment, not its observed session list, is the work these checks look at.
             assignment = uow.repository('agent_current_work').get(ctx.principal_id)
             items = [assignment['item_json']] if assignment and assignment['item_json'] else []
         issues = {}
-        for item in ([] if focus_only else items[:10]):
+        for item in ([] if focus_only or coordinator else items[:10]):
             task_id, business = item.get('task_id'), item['business_id']
             if not task_id:
                 continue
@@ -108,7 +110,7 @@ class AgentCheckpoints:
                                'task_id': task_id}
         reviewed = (row['work_reviewed_turn'] == native['root_turn_id']
                     and row['work_reviewed_sequence'] >= native['dirty_sequence'])
-        if not focus_only and native['dirty_sequence'] and not reviewed:
+        if not focus_only and not coordinator and native['dirty_sequence'] and not reviewed:
             # One reminder episode per substantive root turn, never per Stop or continuation.
             issues[REVIEW + ':' + native['root_turn_id']] = {
                 'code': 'work_review_missing', 'business_id': ctx.business_id, 'task_id': None,

@@ -427,6 +427,12 @@ class PrivateConversations:
         sequence = cursor.lastrowid
         uow.connection.execute('UPDATE owner_conversations SET revision=revision+1,latest_sequence=?,updated_at=? '
                                'WHERE id=?', (sequence, now, row['id']))
+        _, coordinator = private_participants(uow)
+        if coordinator:
+            from bazarlyk.agents.attention_delivery import record_attention_activity
+            record_attention_activity(uow, coordinator, 'owner_message' if role == 'owner' else 'agent_activity',
+                                      now, 'owner-conversation:' + message['id'],
+                                      attention=self.app.ordubashy_attention)
         if role == 'owner':
             self.deliver(ctx, row, source, sequence, now, uow)
         message.pop('conversation_id')

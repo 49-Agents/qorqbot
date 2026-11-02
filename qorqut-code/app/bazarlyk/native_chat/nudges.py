@@ -86,6 +86,12 @@ class HostVisibility:
         ctx = self._context(uow, agent_id)
         if ctx is None:
             return set()
+        # This port is used only for automatic announcements. Explicit inbox
+        # reads and acknowledgements retain the inbox's normal authorization.
+        from bazarlyk.management.identity import configured_ordubashy
+        attention = (self.inbox.app.ordubashy_attention
+                     if agent_id == configured_ordubashy(uow, require_codex=False) else None)
+        focused = bool(attention and attention.state(uow, agent_id).get('focus_json'))
         granted: set[int] = set()
         source_visibility = {}
         for row in events:
@@ -103,7 +109,7 @@ class HostVisibility:
                         source_visibility[key] = visible
                 else:
                     visible = source_visibility[key]
-                if visible:
+                if visible and (not focused or attention.related_event(uow, agent_id, row)):
                     granted.add(row["id"])
             except DomainError:
                 LOG.debug("Inbox event %s is not provably visible to %s", row["id"], agent_id, exc_info=True)
@@ -222,6 +228,15 @@ class NudgeBackend:
         for profile in agents:
             if self._stop_event.is_set():
                 return
+            attention_runtime = getattr(self.runtime, 'attention_runtime', None)
+            if attention_runtime is not None:
+                try:
+                    with self.runtime.application.writer_admission.writer():
+                        attention_runtime.send_due(profile)
+                except DomainError:
+                    raise
+                except Exception:
+                    LOG.debug('Attention reminder deferred for %s', profile['agent_id'], exc_info=True)
             if profile["agent_id"] not in due:
                 self._memo.pop(profile["agent_id"], None)
                 continue

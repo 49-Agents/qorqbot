@@ -101,4 +101,5 @@ class AgenticAccess:
         return {"operation": operation, "actor": {"actor_id": profile.agent_id, "actor_kind": "agent"},
                 "selection": selection, "root": str(layer.root), "state": str(layer.state),
                 "instance_id": layer.instance_id, "can_manage": can_manage,
-                "profile_revision": profile.revision, "registration_id": registration["id"]}
+                "profile_revision": profile.revision, "registration_id": registration["id"],
+                "attention_required": profile.agent_id == configured_ordubashy(uow, require_codex=False)}

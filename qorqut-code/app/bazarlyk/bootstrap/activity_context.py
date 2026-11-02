@@ -13,7 +13,31 @@ from . import handoff, recovery
 from .client import load_registration, write_json_private
 
 
-def emit(hook, registration_path, runtime, output, stream):
+def emit_claimed_output(output, stream, receipt_path, receipt, *, begin, settle, clock):
+    """Emit an already composed hook response after a fenced authorization.
+
+    A lost authorization response, partial write, flush failure, or receipt
+    write failure leaves the host's begun claim for uncertain reconciliation.
+    The private receipt survives a failed host settlement.
+    """
+    payload = json.dumps(output, separators=(',', ':')) + '\n'
+    if not begin():
+        return False
+    written = stream.write(payload)
+    if written != len(payload):
+        raise OSError('incomplete hook output')
+    stream.flush()
+    saved = {**receipt, 'delivered_at': clock()}
+    write_json_private(receipt_path, saved)
+    try:
+        settle(saved)
+    except Exception:
+        # The durable local receipt is recovered by the host's bounded pass.
+        pass
+    return True
+
+
+def emit(hook, registration_path, runtime, output, stream, *, deliver=None):
     if hook.get('hook_event_name') not in {'PreToolUse', 'PostToolUse', 'PostToolUseFailure'}:
         return False
     if hook.get('agent_id') or hook.get('parent_session_id'):
@@ -52,8 +76,12 @@ def emit(hook, registration_path, runtime, output, stream):
         if text:
             output = {'hookSpecificOutput': {'hookEventName': hook['hook_event_name'],
                                              'additionalContext': text}}
-        stream.write(json.dumps(output, separators=(',', ':')) + '\n')
-        stream.flush()
+        if deliver is None:
+            stream.write(json.dumps(output, separators=(',', ':')) + '\n')
+            stream.flush()
+        else:
+            if not deliver(output, stream):
+                return True  # No second write; retain the recovery handoff.
         # No progress or success state is committed before stdout succeeds.
         write_json_private(path, {**item, 'consumed': True})
     if episode:

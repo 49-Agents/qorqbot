@@ -211,7 +211,7 @@ def checkpoint_activity(hook, previous, *, runtime='codex', reads=frozenset()):
     return current
 
 
-def checkpoint_post(registration, body):
+def checkpoint_post(registration, body, *, route='/api/agent/checkpoint', timeout=10):
     """Bounded stdlib-only native connection; credential/error bodies stay private."""
     from urllib.request import Request, HTTPRedirectHandler, build_opener
     from urllib.parse import urlsplit
@@ -229,11 +229,13 @@ def checkpoint_post(registration, body):
     token = path.read_text().strip()
     if not 32 <= len(token) <= 512 or any(c.isspace() for c in token):
         raise ValueError('invalid credential')
-    request = Request(f'{endpoint.scheme}://{endpoint.netloc}/api/agent/checkpoint',
+    if route not in {'/api/agent/checkpoint', '/api/agent/attention-hook'}:
+        raise ValueError('invalid hook endpoint')
+    request = Request(f'{endpoint.scheme}://{endpoint.netloc}{route}',
         data=json.dumps(body).encode(),
         headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'}, method='POST')
     try:
-        with build_opener(NoRedirects()).open(request, timeout=10) as response:
+        with build_opener(NoRedirects()).open(request, timeout=timeout) as response:
             raw = response.read(4 * 1024 * 1024 + 1)
     except HTTPError as exc:
         try:
@@ -356,6 +358,61 @@ def checkpoint_receipt(path):
     return receipt
 
 
+def emit_attention(hook, registration_path, runtime, output, stream):
+    """Compose a reminder with the complete existing hook response, best effort."""
+    def plain():
+        stream.write(json.dumps(output, separators=(',', ':')) + '\n')
+        stream.flush()
+        return True
+    if (hook.get('hook_event_name') not in {'PostToolUse', 'PostToolUseFailure'}
+            or hook.get('agent_id') or hook.get('parent_session_id')):
+        return plain()
+    try:
+        registration = json.loads(registration_path.read_text())
+        session = str(uuid.UUID(hook['session_id']))
+        if not session_owner(runtime, session):
+            return plain()
+        base = {'registration_id': registration['registration_id'], 'session_id': session}
+        def post(action, claim=None):
+            body = {**base, 'action': action}
+            if claim is not None:
+                body['claim'] = claim
+            return checkpoint_post(registration, body, route='/api/agent/attention-hook', timeout=1)['result']
+        claim = post('claim')
+        if not isinstance(claim, dict) or not isinstance(claim.get('text'), str):
+            return plain()
+        occurrence, token = str(uuid.UUID(claim['id'])), str(uuid.UUID(claim['claim_token']))
+        combined = dict(output)
+        specific = dict(combined.get('hookSpecificOutput') or {})
+        if specific.get('hookEventName') not in (None, hook['hook_event_name']):
+            return plain()
+        specific['hookEventName'] = hook['hook_event_name']
+        specific['additionalContext'] = '\n\n'.join(filter(None, [specific.get('additionalContext'), claim['text']]))
+        combined['hookSpecificOutput'] = specific
+        if post('begin', claim) is not True:
+            return plain()
+    except Exception:
+        # A lost begin response leaves the host's begun claim uncertain, and no
+        # attention bytes are emitted. Existing recovery output still survives.
+        return plain()
+    try:
+        try:
+            from bazarlyk.bootstrap.activity_context import emit_claimed_output
+        except ImportError:
+            from activity_context import emit_claimed_output
+        from datetime import datetime, timezone
+        receipt = {key: claim[key] for key in ('id', 'claim_token', 'claim_consumer_id',
+            'claim_binding_generation', 'focus_generation', 'registration_id')}
+        path = Path(registration['workspace']) / '.bazarlyk' / 'attention-receipts' / (occurrence + '-' + token + '.json')
+        emit_claimed_output(combined, stream, path, receipt, begin=lambda: True,
+            settle=lambda saved: post('settle', claim), clock=lambda: datetime.now(timezone.utc).isoformat())
+        return True
+    except Exception:
+        # Never print a second response after a partial write or failed flush.
+        # The host quarantines a begun emission and later recovers its receipt.
+        return False
+
+
 def continuing_claude_session(previous, registration, session_id, runtime, owner, boot_id, pid_namespace):
     """Trust a changed cwd only for this registration's still-live bound Claude session."""
     return (runtime == 'claude-code' and isinstance(previous, dict)
@@ -404,6 +461,16 @@ def record(hook, registration_path, runtime, *, now=None):
             'session_id':session_id,'runtime':runtime,'state':state,'owner':owner,
             'boot_id':boot_id,'pid_namespace':pid_namespace,
             'activity_at':now,'sequence':max(time.time_ns(),previous.get('sequence',0)+1),'reminder_at':previous.get('reminder_at',now)}
+        genuine = previous.get('genuine_tool_activity')
+        if not isinstance(genuine, dict):
+            genuine = None
+        tool_id = hook.get('tool_use_id')
+        if (owner and event in {'PostToolUse', 'PostToolUseFailure'} and not hook.get('agent_id')
+                and not hook.get('parent_session_id') and isinstance(tool_id, str) and 0 < len(tool_id) <= 120):
+            if not genuine or genuine.get('tool_id') != tool_id:
+                genuine = {'tool_id': tool_id, 'at': now}
+        if isinstance(genuine, dict):
+            value['genuine_tool_activity'] = genuine
         protocols = registration.get('checkpoint_protocol')
         checkpoint_enabled = isinstance(protocols, dict) and protocols.get(runtime) in (1,2)
         if checkpoint_enabled:
@@ -466,7 +533,8 @@ def main():
         except ImportError:
             pass  # Historical standalone installs still record activity.
         else:
-            if emit(hook, args.registration, args.runtime, output, sys.stdout):
+            if emit(hook, args.registration, args.runtime, output, sys.stdout,
+                    deliver=lambda value, stream: emit_attention(hook, args.registration, args.runtime, value, stream)):
                 return
     except (OSError,ValueError,KeyError,TypeError,AttributeError):
         # Hook bookkeeping remains best-effort for the user's work, but a
@@ -484,7 +552,7 @@ def main():
                 replay_http(registration)
         except Exception:
             pass
-    print(json.dumps(output,separators=(',',':')))
+    emit_attention(hook, args.registration, args.runtime, output, sys.stdout)
 
 
 if __name__=='__main__':

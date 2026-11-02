@@ -30,6 +30,7 @@ from bazarlyk.overseer.schema import storage_contribution as overseer_storage
 from bazarlyk.storage import history
 from bazarlyk.telegram.media_schema import storage_contribution as telegram_media_storage
 from .agent_work import storage_contribution as agent_work_storage
+from .attention import storage_contribution as attention_storage
 from .records import HostRecordEffects
 from .schema import storage_contributions
 from .transactions import inbox_finalizers, require_change_feed
@@ -75,7 +76,7 @@ def host_contributions(change_feed, extensions=NO_EXTENSIONS):
     generated ``agent_activity`` observations. The sealed-snapshot metadata of outbound
     Telegram files (``telegram_file_payloads``) is the host's own table beside the generated ``telegram`` tables it references."""
     return (*storage_contributions(), signoff_storage(), project_links_storage(), background_storage(), native_chat_storage(),
-            inbox_nudges_storage(), agent_work_storage(), telegram_media_storage(), agentic_inbox_storage(), overseer_storage(),
+            inbox_nudges_storage(), agent_work_storage(), attention_storage(), telegram_media_storage(), agentic_inbox_storage(), overseer_storage(),
             FileEffectContribution("documents", {DOCUMENTS: DocumentLifecycle()}, history.RECEIPTS),
             RecordEffectContribution("records", HostRecordEffects()),
             TransactionContribution("inbox", finalizers=inbox_finalizers(extensions.sources)),

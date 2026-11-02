@@ -17,11 +17,13 @@ from qorqut_agentic.catalog import Selection
 from qorqut_agentic.cli import MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, OPERATIONS, dispatch, parse_json
 from qorqut_agentic.errors import AgenticError, InvalidRequestError, UnavailableError
 from qorqut_agentic.runtime import LocalProcessRuntime
+from qorqut_agentic.util import check_operation_id
 from qorqut_operations.contracts import DomainError
 
 from bazarlyk.bootstrap.client import load_registration
 from bazarlyk.bootstrap.mcp_reconnect import ReconnectBridge
 from .access import MANAGEMENT_OPERATIONS, validate_context
+from . import attention as workflow_attention
 
 
 _OVERRIDES = frozenset({"actor", "actor_id", "actor_kind", "selection", "root", "state", "instance_id",
@@ -43,11 +45,13 @@ _OVERSEER_READS = frozenset({
 })
 _OVERSEER_MUTATIONS = _OVERSEER_OPERATIONS - _OVERSEER_READS
 _SAFE_CODE = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
+_ATTENTION_MUTATIONS = frozenset({"workflows.start", "workflows.resume", "workflows.pause", "workflows.cancel",
+                                  "workflows.complete_step"})
 
 
 def request_parts(request):
     if (not isinstance(request, dict) or not {"operation", "arguments"} <= set(request)
-            or set(request) - {"operation", "arguments", "context"}):
+            or set(request) - {"operation", "arguments", "context", "attention"}):
         raise InvalidRequestError("request requires operation, arguments and optional context")
     operation, arguments = request["operation"], request["arguments"]
     if not isinstance(operation, str) or operation not in OPERATIONS:
@@ -66,7 +70,11 @@ def request_parts(request):
         validate_context(context)
     except DomainError as exc:
         raise InvalidRequestError(exc.message) from None
-    return operation, dict(arguments), dict(context)
+    attention = request.get("attention", {})
+    if (not isinstance(attention, dict) or set(attention) - {"task", "intent"}
+            or (attention and operation not in {"workflows.start", "workflows.resume"})):
+        raise InvalidRequestError("attention accepts only task and intent on workflow start or resume")
+    return operation, dict(arguments), dict(context), dict(attention)
 
 
 def _rpc_result(response, identity):
@@ -130,12 +138,12 @@ class NativeClient:
         value = _access_payload(self._call("tools/call", {
             "name": "agentic_access", "arguments": {"operation": operation, **context}}))
         required = {"operation", "actor", "selection", "root", "state", "instance_id", "can_manage",
-                    "profile_revision", "registration_id"}
+                    "profile_revision", "registration_id", "attention_required"}
         if set(value) != required:
             raise AgenticError("Invalid native access binding", code="access_unavailable")
         if (value["operation"] != operation or value["registration_id"] != registration["registration_id"]
                 or value["actor"] != {"actor_id": registration["agent_id"], "actor_kind": "agent"}
-                or type(value["can_manage"]) is not bool or type(value["profile_revision"]) is not int
+                or type(value["can_manage"]) is not bool or type(value["attention_required"]) is not bool or type(value["profile_revision"]) is not int
                 or value["profile_revision"] < 1 or not isinstance(value["instance_id"], str)
                 or re.fullmatch(r"inst_[0-9a-f]{32}", value["instance_id"]) is None):
             raise AgenticError("Native access identity does not match registration", code="access_unavailable")
@@ -154,12 +162,13 @@ class NativeClient:
 
     @staticmethod
     def _same_binding(first, current):
-        if any(first[key] != current[key] for key in ("actor", "root", "state", "instance_id", "registration_id")):
+        if any(first[key] != current[key] for key in ("actor", "root", "state", "instance_id", "registration_id", "attention_required")):
             raise AgenticError("Native access binding changed during request", code="access_unavailable")
 
     def execute(self, request):
         self.local_effect_started = False
-        operation, arguments, context = request_parts(request)
+        operation, arguments, context, attention = request_parts(request)
+        user_arguments = dict(arguments)
         existing_workflow = operation.startswith("workflows.") and operation != "workflows.start"
         # Existing runs carry their own routing; histories/receipts remain owned
         # after that original project's grant changes. No caller context can
@@ -180,7 +189,7 @@ class NativeClient:
             if any(run["selection"].get(field) != value for field, value in context.items()):
                 raise InvalidRequestError("request context contradicts the workflow's saved context")
             if operation not in _HISTORICAL_WORKFLOWS:
-                self._eligible_run(layer, run, access, operation, arguments.get("step_id"))
+                access = self._eligible_run(layer, run, access, operation, arguments.get("step_id"))
         if operation in _ATTRIBUTED:
             attribution = arguments.get("attribution")
             if attribution is None:
@@ -206,13 +215,71 @@ class NativeClient:
                                      or operation in {"history.commit", "history.restore", "changes.scan",
                                                       "changes.advance_cursor", "lifecycle.recover"}
                                      or operation in _OVERSEER_MUTATIONS)
-        result = dispatch(layer, {"operation": operation, "arguments": arguments})
+        if access["attention_required"] and operation in _ATTENTION_MUTATIONS:
+            result = self._attention_mutation(layer, operation, arguments, context, attention, access, user_arguments=user_arguments)
+        else:
+            result = dispatch(layer, {"operation": operation, "arguments": arguments})
         if operation == "catalog.list":
             # The module's catalog issues describe the entire tree. Return only
             # diagnostics belonging to currently eligible packages here.
             result["issues"] = [issue for issue in result["issues"]
                                 if issue.get("package_id") in selection["package_ids"]]
         return result
+
+    def _attention_mutation(self, layer, operation, arguments, routing, attention, access, *, user_arguments=None):
+        operation_id = check_operation_id(arguments.get("operation_id"))
+        registration = load_registration(self.registration_path)
+        bound = workflow_attention.binding(registration)
+        request_hash = workflow_attention.fingerprint({"operation": operation, "arguments": user_arguments if user_arguments is not None else arguments,
+                                                        "routing": routing, "attention": attention})
+        with workflow_attention.receipt(registration, access["instance_id"], access["actor"]["actor_id"], operation_id) as store:
+            saved = store.read()
+            if saved is not None:
+                if saved.get("request_hash") != request_hash:
+                    raise AgenticError("Workflow operation id was used for a different request", code="operation_conflict")
+                if saved.get("binding") != bound or saved.get("registration_id") != access["registration_id"]:
+                    raise AgenticError("Workflow receipt belongs to a different native binding", code="access_unavailable")
+                if saved.get("selection") != access["selection"] and saved["phase"] == "prepared":
+                    raise AgenticError("Workflow outcome remains uncertain; original access changed before reconciliation",
+                                       code="access_unavailable", details={"outcome_unknown": True, "operation_id": operation_id})
+            else:
+                params = {"scope": "global", "operation": operation, "operation_id": operation_id, **bound, **attention}
+                if operation != "workflows.start":
+                    params["run_id"] = arguments.get("run_id")
+                snapshot = _access_payload(self._call("tools/call", {"name": "attention_workflow_context", "arguments": params}))
+                payload = snapshot.get("payload")
+                if (snapshot.get("version") != 1 or not isinstance(payload, dict)
+                        or payload.get("instance_id") != access["instance_id"]
+                        or payload.get("operation") != operation or payload.get("operation_id") != operation_id):
+                    raise AgenticError("Workflow attention instance does not match native access", code="state_mismatch")
+                saved = {"phase": "prepared", "request_hash": request_hash, "selection": access["selection"],
+                         "registration_id": access["registration_id"], "binding": bound, "context": snapshot,
+                         "dispatch_arguments": arguments}
+                store.write(saved)
+            if saved["phase"] == "prepared":
+                result = dispatch(layer, {"operation": operation, "arguments": saved["dispatch_arguments"]})
+                run_id = result["run"]["run_id"]
+                saved.update(phase="sync_pending", run_id=run_id)
+                store.write(saved)
+            else:
+                run_id = saved["run_id"]
+                result = {"run": layer.workflows.get(run_id)["run"], "operation_id": operation_id}
+                self._own_run(result["run"], access["actor"])
+            if saved["phase"] == "sync_pending":
+                sync = {"scope": "global", "operation": operation, "operation_id": operation_id, "run_id": run_id,
+                        "context": saved["context"], "idempotency_key": "workflow-attention-" + request_hash}
+                try:
+                    result["attention"] = _access_payload(self._call("tools/call", {"name": "attention_workflow_sync", "arguments": sync}))
+                    saved["phase"] = "settled"
+                    saved.pop("context", None)
+                    saved.pop("selection", None)
+                    saved.pop("dispatch_arguments", None)
+                    store.write(saved)
+                except Exception:
+                    raise AgenticError("Workflow completed locally; attention synchronization is pending",
+                                       code="attention_sync_pending", details={"local_operation_completed": True,
+                                       "run_id": run_id, "operation_id": operation_id}) from None
+            return result
 
     @staticmethod
     def _own_run(run, actor):

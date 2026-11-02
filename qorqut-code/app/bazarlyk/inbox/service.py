@@ -152,6 +152,24 @@ class HostInbox:
                     'source_type': 'tasks', 'source_id': row['id'], 'include_related': False,
                     **flags,
                     'summary': source_summary(row, 'tasks')})
+                manual[(row['business_id'], 'tasks', row['id'])] = result[-1]
+        if ctx.principal_id in ordubashies(uow):
+            for row in uow.connection.execute(
+                    "SELECT t.* FROM attention_memberships m JOIN tasks t ON t.business_id IS m.task_business_id "
+                    "AND t.id=m.task_id AND t.created_at=m.task_created_at WHERE m.agent_id=?", (ctx.principal_id,)):
+                if not service.visible(ctx, 'tasks', row['id'], row['business_id'], uow):
+                    continue
+                key = (row['business_id'], 'tasks', row['id'])
+                if key in manual:
+                    manual[key]['attention_board'] = True
+                    continue
+                business = uow.repository('businesses').get(row['business_id']) if row['business_id'] else None
+                item = {'id': None, 'agent_id': ctx.principal_id, 'business_id': row['business_id'],
+                    'business_slug': business['slug'] if business else None, 'source_type': 'tasks',
+                    'source_id': row['id'], 'include_related': False, 'automatic': True,
+                    'managed_by': 'attention_board', 'attention_board': True, 'summary': source_summary(dict(row), 'tasks')}
+                result.append(item)
+                manual[key] = item
         return result
 
 
