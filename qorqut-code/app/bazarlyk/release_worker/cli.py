@@ -72,6 +72,9 @@ def build_parser() -> argparse.ArgumentParser:
     app_update = commands.add_parser("v12-app-deploy", help="apply a same-schema host, Operations and dashboard update preserving native sessions and pinned helpers")
     app_update.add_argument("--selection", type=Path, required=True)
     app_update.add_argument("--confirm-deploy", action="store_true")
+    coordinated = commands.add_parser("v12-coordinated-deploy", help="activate a same-schema full release after an approved cutoff and offline conversion")
+    coordinated.add_argument("--selection", type=Path, required=True)
+    coordinated.add_argument("--confirm-deploy", action="store_true")
     helper_update = commands.add_parser("v12-helper-activate", help="activate explicitly selected same-protocol native helpers without restarting sessions")
     helper_update.add_argument("--selection", type=Path, required=True)
     helper_update.add_argument("--confirm-adopt", action="store_true")
@@ -153,6 +156,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "v12-app-deploy":
             from .v12_repair import app_deploy
             _json(app_deploy(args.selection, confirm=args.confirm_deploy))
+            return 0
+        if args.command == "v12-coordinated-deploy":
+            from .v12_repair import coordinated_deploy
+            _json(coordinated_deploy(args.selection, confirm=args.confirm_deploy))
             return 0
         if args.command == "v12-repair":
             from .v12_repair import repair
