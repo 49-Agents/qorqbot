@@ -143,16 +143,23 @@ class Attention:
     def cancel_reminders(self, uow, agent, now, *, focus_only=False):
         uow.connection.execute("UPDATE attention_reminders SET state=CASE WHEN emission_started_at IS NOT NULL THEN 'uncertain' ELSE 'cancelled' END,updated_at=?,revision=revision+1 WHERE agent_id=? AND state IN ('pending','claimed')" + (" AND kind IN ('focus','workflow_detach')" if focus_only else ''), (now, agent))
 
-    def task(self, ctx, ref, uow):
+    def task(self, ctx, ref, uow, *, lifecycle_only=False):
         agent = configured_ordubashy(uow, require_codex=False)
         if ctx.principal_kind == 'human':
             peer = self.app.policy.context_for(agent, business_id=None, review_business_id=None, uow=uow)
-            self.task(peer, ref, uow)
+            self.task(peer, ref, uow, lifecycle_only=lifecycle_only)
         selected = self.app.current_context(replace(ctx, business_id=ref['business_id'], review_business_id=ref['business_id']), uow)
         descriptor = self.app.registry.get('tasks_get')
         if ref['business_id'] is not None: descriptor = replace(descriptor, global_capability=None)
         self.app.authorize(selected, descriptor, (), uow, namespace='business:'+ref['business_id'] if ref['business_id'] else 'global')
         args = {'task_id': ref['id'], **({'scope': 'global'} if ref['business_id'] is None else {})}
+        if lifecycle_only:
+            from qorqut_operations.tasks.scope import task_context
+            selected = task_context(selected, args, uow)
+            task = uow.repository('tasks', business_id=selected.business_id).get(ref['id'])
+            if task is None:
+                raise DomainError('not_found', 'Task is unavailable')
+            return task
         return descriptor.read(selected, args, InvocationOptions(), uow)['task']
 
     def resolve(self, ctx, agent, ref, uow):
@@ -350,7 +357,7 @@ class Attention:
             if not row: raise DomainError('not_found', 'Membership is unavailable')
             if row['revision'] != args['expected_membership_revision']: raise DomainError('revision_conflict', 'Membership changed; reread it', current_revision=row['revision'])
             ref = {'type':'task','id':row['task_id'],'business_id':row['task_business_id']}
-            task = self.task(ctx, ref, uow)
+            task = self.task(ctx, ref, uow, lifecycle_only=True)
             if task['created_at'] != row['task_created_at']: raise DomainError('not_found', 'Task is unavailable')
             if ctx.principal_kind == 'agent' and task['status'] == 'blocked': raise DomainError('forbidden', 'Blocked work cannot be discarded')
             if ctx.principal_kind == 'agent' and task['status'] == 'done' and (args.get('owner_requested') is not True or not args.get('rationale','').strip()):
@@ -409,7 +416,7 @@ class Attention:
         elif op == 'attention_remove':
             row = uow.connection.execute('SELECT * FROM attention_memberships WHERE id=?',(args['membership_id'],)).fetchone()
             ref = {'type':'task','id':row['task_id'],'business_id':row['task_business_id']}
-            task = self.task(ctx,ref,uow)
+            task = self.task(ctx,ref,uow,lifecycle_only=True)
             self.membership_event(uow,agent,row['id'],ref,row['task_created_at'],ctx.principal_id,'removed',now,owner_requested=args.get('owner_requested',False),rationale=args.get('rationale',''))
             uow.connection.execute('DELETE FROM attention_memberships WHERE id=?',(row['id'],))
             uow.connection.execute("UPDATE attention_workflows SET detached_at=?,updated_at=?,revision=revision+1 WHERE agent_id=? AND detached_at IS NULL AND json_extract(work_task_json,'$.id')=? AND json_extract(work_task_json,'$.business_id') IS ?", (now,now,agent,ref['id'],ref['business_id']))
@@ -434,6 +441,9 @@ class Attention:
                 uow.connection.execute('UPDATE agent_attention SET revision=revision+1,updated_at=? WHERE agent_id=?',(now,agent))
         if op == 'attention_add':
             return self.add_result(ctx,task,uow)
+        if op == 'attention_remove':
+            return {'agent_id': agent, 'membership_id': args['membership_id'],
+                    'removed': True, 'revision': self.state(uow, agent)['revision']}
         result = self.read(ctx,{},uow)
         if op == 'attention_focus_set' and ctx.principal_kind == 'agent':
             result['agent_hint'] = BOARD_TRANSITION_HINT
