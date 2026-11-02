@@ -82,11 +82,12 @@ follows its child Tasks and directly linked items, including links added
 later, without recursion. Your own changes do not wake you. Responsibility events such as
 owner responses also arrive without a subscription.
 
-New incoming business email stays with an existing assignee who may read it.
-Otherwise it notifies only the configured intake coordinator, the active
-Ordubashy, when that agent may read the business's email. The notified agent
-reads the email before routing it, then takes ownership or assigns it with
-`email_assign`; an inbox notification does not grant new assignment permissions.
+New incoming business email notifies the configured intake coordinator, the active
+Ordubashy, when that agent may read the business's email, whoever else is
+assigned. Each existing assignee who may read it keeps its own notification. The
+notified agent reads the email before routing it, then takes ownership or assigns
+it with `email_assign`; an inbox notification does not grant new assignment
+permissions or change an assignment.
 
 Subscriptions survive restarts and have no timed expiry. Review them with
 `inbox_subscriptions_list`; remove unwanted subscriptions with

@@ -279,14 +279,13 @@ def finalize_events(uow):
             business = record.get('business_id', record.get('review_business_id'))
             if capture['source_type']=='email_messages' and responsible:
                 reader=getattr(uow.database,'email_reader',None)
-                handlers=assigned(uow,business,'material',record['id'])
-                # An assignee who can read the mail now keeps it. Otherwise (unassigned, or only historical/denied
-                # assignees) new responsibility goes to the configured coordinator alone; the edges are not rewritten.
-                if reader and not any(reader(agent,business,uow) for agent in handlers):
+                if reader:
+                    # The configured coordinator is told of every new incoming business message, whoever else is assigned;
+                    # assignees keep their own delivery below. The assignment edges are never rewritten.
                     coordinator=intake_coordinator(uow,business,reader)
                     if coordinator:
                         direct.add(coordinator)
-                    else:
+                    elif not any(reader(agent,business,uow) for agent in assigned(uow,business,'material',record['id'])):
                         LOGGER.warning('Incoming business email has no eligible intake recipient: business=%s conversation=%s',
                                        business, record['id'])
             edge = _json(capture['after_json']) or _json(capture['before_json']) or {}
