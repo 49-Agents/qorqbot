@@ -130,7 +130,6 @@
 .sg-content-label { display: block; font-size: 11px; color: var(--fg-3); margin: 4px 0 4px; }
 .sg-content-row .sg-content-label { margin: 2px 0 0; }
 .sg-content-value { white-space: pre-wrap; overflow-wrap: anywhere; }
-.sg-secondary { color: var(--fg-3); font: 11px/1.5 var(--mono); overflow-wrap: anywhere; }
 .sg-recipient-name { font-weight: 600; overflow-wrap: anywhere; }
 .sg-text { max-height: 18em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font: 14px/1.6 var(--sans); padding: 6px 10px; border-left: 2px solid var(--line-2); background: var(--wash); color: var(--fg); }
 .sg-text:focus-visible, .sg-content summary:focus-visible { outline: 2px solid var(--fg-2); outline-offset: 2px; }
@@ -155,3 +154,10 @@
 @media (max-width: 520px) {
   .sg-content-row, .sg-change { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
+
+/* Keep compact message cards focused on the recipient and proposed text. */
+.sg-inline .sg-row:not(.sg-open) .sg-message-rationale { display: none; }
+.sg-whatsapp .sg-content-row { margin: 0 0 8px; }
+.sg-whatsapp .sg-text { padding: 0; border: 0; background: none; }
+.sg-whatsapp .sg-text, .sg-email .sg-text { max-height: none; overflow: visible; }
+.sg-inline .sg-whatsapp { margin-bottom: 12px; }
