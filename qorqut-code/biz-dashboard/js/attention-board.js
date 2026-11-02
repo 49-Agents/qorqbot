@@ -114,6 +114,7 @@ function attentionBoardTick(p) {
 function attentionBoardRefresh(p) {
   const cache = attentionBoardCache(p);
   if (cache.run) return cache.run.promise;
+  if (!attentionBoardLive(p, cache)) return Promise.resolve();
   const run = {};
   cache.run = run;
   const progressive = !cache.data;
@@ -122,8 +123,8 @@ function attentionBoardRefresh(p) {
     try {
       let cursor = null, data, items = [], seen = new Set();
       do {
-        const page = coreData(await post('/root/operations/attention_get', {scope:'global', agent_id:p.agentId, limit:100, ...(cursor ? {cursor} : {})}));
-        if (cache.run !== run) return;
+        const page = coreData(await post('/root/operations/attention_get', {scope:'global', agent_id:cache.agentId, limit:100, ...(cursor ? {cursor} : {})}));
+        if (cache.run !== run || p.attentionCache !== cache) return;
         if (!data) data = page;
         items.push(...page.items); cursor = page.next_cursor;
         if (cursor && seen.has(cursor)) throw Error('Attention pagination did not advance.');
@@ -134,9 +135,18 @@ function attentionBoardRefresh(p) {
       cache.data = {...data, items}; cache.partial = false; cache.error = null; cache.at = Date.now(); cache.retryAt = Date.now() + ATTENTION_POLL_MS;
       show();
     } catch (error) {
-      if (cache.run !== run) return;
+      if (cache.run !== run || p.attentionCache !== cache) return;
       cache.at = 0; cache.retryAt = Date.now() + ATTENTION_POLL_MS; cache.error = error;
-      if (accessLost(error)) { cache.data = null; cache.partial = false; if (p.attentionBoard) { p.attentionBoard.data = null; p.attentionBoard.board.querySelector('[data-attention-list]')?.replaceChildren(); } }
+      if (accessLost(error)) {
+        cache.data = null; cache.partial = false;
+        if (p.attentionBoard) {
+          p.attentionBoard.data = null;
+          for (const selector of ['[data-attention-list]', '[data-attention-focus]']) p.attentionBoard.board.querySelector(selector)?.replaceChildren();
+          p.attentionBoard.workspace.dispose();
+          p.attentionBoard.board.querySelector('[data-attention-record]').hidden = true;
+          agfocusOverlayClose(p);
+        }
+      }
       if (attentionBoardLive(p, cache)) attentionBoardShowError(p, error);
     } finally { if (cache.run === run) cache.run = null; }
   })();
