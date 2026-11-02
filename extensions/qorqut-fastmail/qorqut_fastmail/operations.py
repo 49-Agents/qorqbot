@@ -241,20 +241,22 @@ class FastmailOperations:
         client = self.client()
         if op == "fastmail_capabilities_get":
             result = self.account(client)
-        elif op == "fastmail_identities_list":
-            result = client.identities()
-        elif op == "fastmail_folders_list":
-            result = client.folders()
-        elif op == "fastmail_messages_search":
-            result = client.search(args)
-        elif op == "fastmail_message_get":
-            result = client.message(args["message_id"])
-        elif op == "fastmail_thread_get":
-            result = client.thread(args["thread_id"], position=args.get("position"), limit=args.get("limit"))
         elif op == "fastmail_receipt_get":
             result = self.receipt(client, args["request_id"], uow)
         else:
-            result = self.attachment(client, args)
+            self.account(client)            # every account-specific read first proves the engine serves the configured account
+            if op == "fastmail_identities_list":
+                result = client.identities()
+            elif op == "fastmail_folders_list":
+                result = client.folders()
+            elif op == "fastmail_messages_search":
+                result = client.search(args)
+            elif op == "fastmail_message_get":
+                result = client.message(args["message_id"])
+            elif op == "fastmail_thread_get":
+                result = client.thread(args["thread_id"], position=args.get("position"), limit=args.get("limit"))
+            else:
+                result = self.attachment(client, args)
         if not isinstance(result, dict) or len(json.dumps(plain(result), default=str)) > MAX_RESULT_BYTES:
             raise DomainError("external_result_invalid", "The Fastmail engine returned an invalid or oversized result")
         return plain(result)
@@ -276,6 +278,7 @@ class FastmailOperations:
     def receipt(self, client, request_id, uow):
         job = self.job_state(uow, request_id)
         try:
+            self.account(client)
             receipt = client.receipt(request_id)
         except DomainError as exc:
             if job is None or exc.code != "operation_unavailable":
