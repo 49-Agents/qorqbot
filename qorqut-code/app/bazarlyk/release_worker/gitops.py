@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from . import local_integration
 from .errors import ReleaseError
 from .manifest import HISTORY_REFS
 
@@ -22,9 +23,16 @@ def protected_ref(name: str) -> bool:
     return leaf in HISTORY_REFS or leaf in {"main", "master"}
 
 
+def _reject_local_intent(component: dict[str, Any], intent: dict[str, Any]) -> None:
+    if intent.get("provenance") == local_integration.PROVENANCE:
+        raise ReleaseError(f"{component['id']}: local integration evidence cannot be used by a remote-backed component")
+
+
 def prepare_merge(component: dict[str, Any], *, confirm: bool) -> dict[str, Any]:
     if not confirm:
         raise ReleaseError("merge requires --confirm-merge after a recorded merge authorization")
+    if local_integration.is_local(component):
+        return local_integration.merge_intent(component)
     repo = Path(component["repository"])
     branch = component.get("checked_out_branch")
     target = component["target_branch"]
@@ -73,6 +81,10 @@ def merge_component(
 ) -> dict[str, Any]:
     if not confirm:
         raise ReleaseError("merge requires --confirm-merge after a recorded merge authorization")
+    if local_integration.is_local(component):
+        # Read-only verification of the already completed local integration;
+        # nothing here may fetch, push or write a ref or object.
+        return local_integration.merge_result(component, intent)
     if intent is None:
         intent = (
             {
@@ -84,6 +96,7 @@ def merge_component(
             if component.get("unchanged")
             else prepare_merge(component, confirm=confirm)
         )
+    _reject_local_intent(component, intent)
     repo = Path(component["repository"])
     branch = component.get("checked_out_branch")
     target = component["target_branch"]
@@ -147,6 +160,9 @@ def merge_component(
 def reconcile_merge(component: dict[str, Any], intent: dict[str, Any]) -> dict[str, Any]:
     """Reconcile a merge whose push or post-push journal write was interrupted."""
 
+    if local_integration.is_local(component):
+        return local_integration.reconcile_merge(component, intent)
+    _reject_local_intent(component, intent)
     repo = Path(component["repository"])
     target = str(intent.get("target", component.get("target_branch", "")))
     merge_commit = str(intent.get("merge_commit", ""))
@@ -294,6 +310,8 @@ def _verify_cleanup_worktree(component: dict[str, Any], intent: dict[str, Any]) 
 
 
 def prepare_cleanup(component: dict[str, Any], *, confirm: bool) -> dict[str, Any]:
+    if local_integration.is_local(component):
+        local_integration.reject_cleanup(component)
     if not confirm:
         raise ReleaseError("cleanup requires --confirm-cleanup")
     repo = Path(component["repository"])
@@ -337,6 +355,8 @@ def cleanup_component(
     intent: dict[str, Any] | None = None,
     phase_callback: Any = None,
 ) -> dict[str, Any]:
+    if local_integration.is_local(component):
+        local_integration.reject_cleanup(component)
     if intent is None:
         intent = prepare_cleanup(component, confirm=confirm)
     elif not confirm:
@@ -429,6 +449,8 @@ def cleanup_component(
 def reconcile_cleanup(component: dict[str, Any], intent: dict[str, Any]) -> dict[str, Any]:
     """Inspect cleanup progress without deleting anything."""
 
+    if local_integration.is_local(component):
+        local_integration.reject_cleanup(component)
     raw_worktree = intent.get("worktree")
     raw_task_directory = intent.get("task_directory")
     raw_common_repo = intent.get("common_repo")

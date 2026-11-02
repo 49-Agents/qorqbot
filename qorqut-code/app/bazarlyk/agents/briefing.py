@@ -205,7 +205,7 @@ class _Briefing:
             # Detail includes failures and applied outcomes that list DTOs omit.
             row = self.read("signoffs_get", {**scope, "signoff_id": row["id"]}).get("signoff", row)
             self.add("Decisions And Outcomes", row.get("title", "Signoff"), select(row,
-                ("id", "title", "state", "status_revision", "updated_at", "feedback", "decision", "error", "affected_scope", "category", "decision_state", "execution_state", "platform")),
+                ("id", "title", "state", "status_revision", "updated_at", "feedback", "decision", "error", "affected_scope", "category", "decision_state", "execution_state", "platform", "outcome")),
                 reason="your proposal or owner feedback", read=f"signoffs_get(signoff_id={row['id']})", limit=2500)
         return self.render()
 

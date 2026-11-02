@@ -27,7 +27,7 @@ from bazarlyk.catalog.packages import validate_schema as validate_catalog_schema
 from bazarlyk.catalog.sources import SOURCE_SCHEMA, load_sources
 from qorqut_operations.contracts import DomainError
 
-from . import entry_verifier
+from . import artifact_placement, entry_verifier, local_integration
 from .errors import ReleaseError, UncertainRemoteEffect, UnsupportedAdapter
 from .io import atomic_json, atomic_write, digest, file_digest
 
@@ -1804,6 +1804,18 @@ class IndependentEngineAdapter(Adapter):
         for field in ("health_command", "inspect_command"):
             if not isinstance(recipe[field], list) or not any("{release}" in str(item) for item in recipe[field]):
                 raise UnsupportedAdapter(f"{component['id']}: deployment_recipe.{field} must explicitly target {{release}}")
+        local_integration.validate_component(component, installation)
+
+    def _verify_source(self, component: dict[str, Any], *, require_clean: bool = True) -> None:
+        if local_integration.is_local(component):
+            local_integration.verify_frozen(component)
+            return
+        super()._verify_source(component, require_clean=require_clean)
+
+    def stage(self, component: dict[str, Any], context: AdapterContext) -> dict[str, Any]:
+        if local_integration.is_local(component):
+            local_integration.verify_frozen(component)
+        return super().stage(component, context)
 
     def inspect(self, component: dict[str, Any], context: AdapterContext) -> dict[str, Any]:
         self.validate(component, context.installation_config)
@@ -1835,12 +1847,18 @@ class IndependentEngineAdapter(Adapter):
         recipe = component["deployment_recipe"]
         artifact = _verify_staged_artifact(component, context)
         release = str(Path(recipe["release_root"]) / context.plan["release_id"])
-        context.executor.run(["test", "!", "-e", release])
-        context.executor.run(["mkdir", "-p", release])
-        copier = getattr(context.executor, "copy_tree", None)
-        if copier is None:
-            raise ReleaseError(f"{component['id']}: executor cannot transfer staged engine artifact")
-        copier(artifact, Path(release))
+        if local_integration.is_local(component):
+            # Immediately before the first destination effect.
+            local_integration.verify_frozen(component)
+        if local_integration.placement_enabled(component):
+            artifact_placement.place(context.executor, artifact, recipe["release_root"], context.plan["release_id"])
+        else:
+            context.executor.run(["test", "!", "-e", release])
+            context.executor.run(["mkdir", "-p", release])
+            copier = getattr(context.executor, "copy_tree", None)
+            if copier is None:
+                raise ReleaseError(f"{component['id']}: executor cannot transfer staged engine artifact")
+            copier(artifact, Path(release))
         expected_digest = _stage_record(context, component["id"])["tree_digest"]
         _verify_destination(context.executor, artifact, Path(release), expected_digest)
         receipt = _run_receipt_recipe(

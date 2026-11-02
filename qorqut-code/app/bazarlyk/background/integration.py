@@ -26,6 +26,9 @@ from .platform_actions import PlatformPrograms
 from qorqut_operations.background.routines import RoutineScheduler
 from qorqut_operations.background.service import BackgroundService
 
+# The only Global jobs `jobs_get` shows a caller admitted by the account-mail capability alone (no routines capability).
+ACCOUNT_MAIL_JOB_KINDS = frozenset({"email.account_mutation", "email.scoped_mutation"})
+
 
 def _report_completed(runtime, row):
     """Wake the Telegram bridge after a report's artifacts and completed state are committed (no I/O, no write)."""
@@ -138,9 +141,26 @@ def register_operations(runtime, programs, authority, *, clock=None):
     install_contribution(runtime.registry, routines.contribution())
     learnings = LearningOperations(runtime.application, programs, authority, documents=runtime.domains.documents).register()
 
+    def account_mail_job(ctx, args, uow):
+        """The Global job a caller holding only the account-mail capability may inspect, or one uniform refusal that does
+        not reveal whether the job exists, which kind it is or which part of the account gate failed."""
+        refusal = DomainError("forbidden", "Global job details require the global routines capability")
+        row = uow.repository("jobs", business_id=None).get(args["job_id"])
+        try:
+            runtime.application.account_email._access(ctx, uow)
+        except (DomainError, AttributeError):
+            raise refusal from None
+        if row is None or row["kind"] not in ACCOUNT_MAIL_JOB_KINDS:
+            raise refusal
+        return row
+
     def job_get(ctx, args, options, uow):
         business_id = None if args.get("scope") == "global" else ctx.business_id
-        row = uow.repository("jobs", business_id=business_id).get(args["job_id"], required=True)
+        if business_id is None and "manage_global_routines" not in ctx.global_capabilities:
+            # Admitted by the account-mail capability alone: only the account-mail family, only past the current account gate.
+            row = account_mail_job(ctx, args, uow)
+        else:
+            row = uow.repository("jobs", business_id=business_id).get(args["job_id"], required=True)
         if row["kind"] == "whatsapp.send":
             # The frozen recipient and text live only in the job and its Signoff. The installation owner reads the job;
             # every agent (the proposer included) gets status and error codes only.
@@ -191,8 +211,8 @@ def register_operations(runtime, programs, authority, *, clock=None):
     runtime.registry.register(OperationDescriptor("jobs_get", schema({"job_id": UUID, "scope": {"enum": ["business", "global"]}}, ["job_id"]),
         effect_kind="read", supports_signoff=False, scope_kinds={"business", "global"},
         resolve_namespace=lambda c,a: "global" if a.get("scope") == "global" else "business:" + c.business_id,
-        global_capability="manage_global_routines", read=job_get,
-        description="Inspect a scoped background job. The initiating agent and owner can read its full result; "
+        global_capability="manage_global_routines", global_read_capability_alternatives=frozenset({"manage_fastmail"}),
+        read=job_get, description="Inspect a scoped background job. The initiating agent and owner can read its full result; "
             "other agents receive status and error codes for coordination without private payloads."))
 
     runtime.background_operations = (routines, learnings)

@@ -18,6 +18,7 @@ from qorqut_operations.signoffs import ReferenceTarget, SignoffPorts
 from qorqut_operations.storage.assembly import AssemblyError
 
 from bazarlyk.agents.global_peers import marketing_peer
+from bazarlyk.domains import account_email_outcome
 from bazarlyk.domains.email.decisions import email_context
 from bazarlyk.domains.platform_actions.proposals import EXECUTION_STATES, execution_sql, execution_state
 from bazarlyk.domains.campaigns.attribution import campaign
@@ -76,6 +77,12 @@ class HostExecution:
     @staticmethod
     def execution_sql(alias):
         return execution_sql(alias)
+
+    @staticmethod
+    def outcome(row, uow, *, detail=True):
+        """The account-mail result of an approved send, derived from its job (read only; see ``account_email_outcome``):
+        the bounded summary in a list row, the full model in a detail read."""
+        return account_email_outcome.signoff_outcome(row, uow, detail=detail)
 
 
 class HostPeers:

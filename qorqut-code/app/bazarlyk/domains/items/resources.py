@@ -34,6 +34,15 @@ def resource_table(kind):
     return "documents" if kind in DOCUMENT_TYPES else kind
 
 
+def _task_projection(row):
+    """The compact Task type of a related item. A Customer also shows its kind and state label, nothing of its profile or notes."""
+    attributes = task_attributes(row)
+    if attributes["task_type"] != "customer":
+        return {"task_type": attributes["task_type"]}
+    return {"task_type": "customer", "customer_kind": attributes.get("customer_kind"),
+            "customer_state": attributes.get("customer_state") or ""}
+
+
 class RelatedResources:
     def __init__(self, application, documents):
         if application is None or documents is None:
@@ -110,6 +119,6 @@ class RelatedResources:
                  or metadata.get("name") or metadata.get("filename") or row.get("payload_json", {}).get("subject") or row.get("payload_json", {}).get("title")
                  or row.get("profile_json", {}).get("display_name") or row.get("name")
                  or fallback)
-        return {**({"task_type": task_attributes(row)["task_type"]} if kind == "tasks" else {}),
+        return {**(_task_projection(row) if kind == "tasks" else {}),
                 "label": label, "state": row.get("status", row.get("state", metadata.get("status"))), "path": row.get("path"),
                 "kind": row.get("kind"), "revision": row.get("revision")}

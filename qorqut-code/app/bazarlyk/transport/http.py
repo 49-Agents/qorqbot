@@ -546,7 +546,10 @@ class HTTPAPI:
                     # Raw Global sources (scope=shared) and the exact-input and document commands of the source status UI: only these eight.
                     "context_list", "context_get", "context_search", "context_retry", "context_retract",
                     "context_queue_get", "context_queue_retry", "context_queue_discard",
-                    "email_conversation_get",
+                    "email_conversation_get", "email_conversations_list",
+                    # The record panel's Global note reader: the existing owner-only READ, which declares only ``document_id`` (the
+                    # route supplies the scope). No note write and no scope input is added here.
+                    "notes_get",
                     "account_email_capabilities_get", "account_email_folders_list", "account_email_identities_list",
                     "account_email_search", "account_email_message_get", "account_email_thread_get", "account_email_attachment_get",
                     "account_email_message_update", "account_email_message_delete", "account_email_folder_create",

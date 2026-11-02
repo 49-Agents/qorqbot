@@ -1,13 +1,15 @@
-"""Isolated owner conversations with Ordubashy and with individual workers.
+"""The private owner conversation with Ordubashy on one Task, Signoff, email conversation or Focus Reference.
 
-The default preserves the original owner/Ordubashy source key. Worker threads
-bind an exact peer_agent_id and use a separate key, delivery, cursor and history;
-the converted Marketing agent keeps its stored keys and history under its UUID.
-The optional agent_id/peer_role selector never grants access: every source and
-participant is reauthorized. Team notes and private account mail are unchanged.
-A worker takes part in an active business through its effective scope, never
-a membership row. Business-home identities are historical: their stored channels
-are history, never an executable peer.
+Each source has one private channel: the installation owner and the registered Ordubashy, resolved from the stored
+identity (``private_participants``), never from a display name. The channel keeps the original owner/Ordubashy source key
+(a null ``peer_agent_id``) and its history. The optional agent_id/peer_role fields are not selectors: they may restate
+that same Ordubashy and every other value is refused, so no request chooses a worker, a default, or another channel.
+
+A row bound to any other ``peer_agent_id`` belongs to a retired per-worker channel. It is never readable, countable,
+deliverable, notified or replayed; every projection below reads the null-peer channel alone, so such a row can neither be
+disclosed nor leave an unread marker nobody can clear. The separately invoked maintenance in
+``bazarlyk.maintenance.private_peer_cleanup`` is the only thing that removes those rows. Team notes and private account
+mail are unchanged.
 """
 
 import json
@@ -19,8 +21,6 @@ from qorqut_operations.conversations import SUMMARY, author, normalize_summary, 
 from bazarlyk.agents.global_scope import active_business_participant
 from bazarlyk.management.identity import installation_owner, private_participants
 
-from .owner_forwarding import forward_owner_message
-
 AUDIENCE = 'owner_ordubashy'
 EVENT_SOURCE = 'owner_conversations'
 EVENT_SUMMARY = 'Private message from the owner'
@@ -28,7 +28,8 @@ BUSINESS_ONLY = {'email'}
 SOURCE = schema({'type': {'enum': ['task', 'signoff', 'email', 'reference']},
                  'id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
                  'business_id': {'type': ['string', 'null']}}, ('type', 'id'))
-FIELDS = {'agent_id': {'type': 'string', 'format': 'uuid'}, 'peer_role': {'enum': ['ordubashy', 'global-worker']}, 'scope': {'enum': ['business', 'global']}, 'source': SOURCE}
+# `agent_id` and `peer_role` only restate the one Ordubashy channel; any other value is refused (see `participants`).
+FIELDS = {'agent_id': {'type': 'string', 'format': 'uuid'}, 'peer_role': {'enum': ['ordubashy']}, 'scope': {'enum': ['business', 'global']}, 'source': SOURCE}
 # Every refusal that means "this coordinator cannot read that source now".
 # `context_refresh_required` belongs here: one stale card must not abort the
 # whole inbox page that lists it.
@@ -38,20 +39,15 @@ EMAIL_READERS = ('email_conversation_get', 'email_conversations_list',
                  'business_email_conversation_get', 'business_email_conversations_list')
 
 
-def worker_peer(uow, identity):
-    """Whether this identity is an active registered worker, the only agent with a private owner channel besides Ordubashy."""
-    from bazarlyk.agents.worker_access import is_worker
-    return is_worker(uow.connection, identity)
-
-
-def source_key(kind, business_id, identity, peer_agent_id=None):
-    """Stable per-object key. A Reference keeps its card key through edits."""
-    base = 'reference:' + identity if kind == 'reference' else 'source:' + (business_id or 'global') + ':' + kind + ':' + identity
-    return 'peer:' + peer_agent_id + ':' + base if peer_agent_id else base
+def source_key(kind, business_id, identity):
+    """Stable per-object key of the one owner–Ordubashy channel. A Reference keeps its card key through edits."""
+    return 'reference:' + identity if kind == 'reference' else 'source:' + (business_id or 'global') + ':' + kind + ':' + identity
 
 
 def conversation_row(uow, key):
-    return uow.connection.execute('SELECT * FROM owner_conversations WHERE source_key=?', (key,)).fetchone()
+    """The Ordubashy channel of one source. A row bound to another peer is retired history and never returned."""
+    return uow.connection.execute('SELECT * FROM owner_conversations WHERE source_key=? AND peer_agent_id IS NULL',
+                                  (key,)).fetchone()
 
 
 def message_count(uow, conversation_id):
@@ -73,36 +69,22 @@ def has_unread(uow, conversation_id, last_read_sequence):
 EMPTY_STATE = {'private_unread': False, 'private_message_count': 0}
 
 
-def private_index(ctx, bindings, uow, service=None):
+def private_index(ctx, bindings, uow):
     """Focus counters for many card bindings in one query. Writes nothing.
 
-    Only the installation owner ever sees an unread marker, so the cursor join
-    is bound to that one principal; everybody else reads counts alone. Every
-    peer channel is counted only while the exact peer/source pair would
-    still pass a fresh channel read, so counters never outlive that authority
-    and never fall back to the legacy Ordubashy key.
+    Only the installation owner ever sees an unread marker, so the cursor join is bound to that one principal; the
+    registered Ordubashy reads counts alone and every other caller reads nothing. Only the null-peer Ordubashy channel is
+    counted: a retired per-worker row never contributes a count or an unread marker.
     """
-    canonical = {source_key(b['type'], b.get('business_id'), b['id']): b for b in bindings}
+    canonical = {source_key(b['type'], b.get('business_id'), b['id']) for b in bindings}
     if not canonical:
         return {}
     owner = installation_owner(uow)
     reader = owner if owner and ctx.principal_kind == 'human' and ctx.principal_id == owner else None
-    mapping = {}
-    # A worker that lost its eligibility must not read the legacy channel's counts instead.
-    if reader or ctx.principal_id == private_participants(uow)[1]:
-        mapping.update({key: (key, None) for key in canonical})
-    peers = [ctx.principal_id] if worker_peer(uow, ctx.principal_id) else []
-    if reader:
-        # A revoked or inactive peer's channel is unreadable, so it cannot leave
-        # an unread marker the owner has no way to clear.
-        peers = [r[0] for r in uow.connection.execute(
-            "SELECT DISTINCT peer_agent_id FROM owner_conversations WHERE peer_agent_id IS NOT NULL")
-            if worker_peer(uow, r[0])]
-    for peer in peers:
-        mapping.update({'peer:' + peer + ':' + key: (key, peer) for key in canonical})
-    if not mapping:
+    coordinator = private_participants(uow)[1]
+    if not reader and not (coordinator and ctx.principal_kind == 'agent' and ctx.principal_id == coordinator):
         return {}
-    placeholders = ','.join('?' * len(mapping))
+    placeholders = ','.join('?' * len(canonical))
     rows = uow.connection.execute(
         'SELECT c.source_key AS key,'
         ' (SELECT count(*) FROM owner_conversation_messages m WHERE m.conversation_id=c.id) AS total,'
@@ -110,26 +92,16 @@ def private_index(ctx, bindings, uow, service=None):
         "    AND m.author_role='coordinator' AND m.sequence>COALESCE("
         '      (SELECT r.last_read_sequence FROM owner_conversation_reads r'
         '        WHERE r.conversation_id=c.id AND r.principal_id=?),0)) AS unread'
-        ' FROM owner_conversations c WHERE c.source_key IN (' + placeholders + ')',
-        (reader, *mapping)).fetchall()
-    result, available = {}, {}
-    for row in rows:
-        key, peer = mapping[row['key']]
-        if peer is not None:
-            if (peer, key) not in available:
-                available[(peer, key)] = service is not None and service.channel_available(ctx, canonical[key], peer, uow)
-            if not available[(peer, key)]:
-                continue
-        value = result.setdefault(key, dict(EMPTY_STATE))
-        value['private_unread'] |= bool(reader) and bool(row['unread'])
-        value['private_message_count'] += row['total']
-    return result
+        ' FROM owner_conversations c WHERE c.peer_agent_id IS NULL AND c.source_key IN (' + placeholders + ')',
+        (reader, *canonical)).fetchall()
+    return {row['key']: {'private_unread': bool(reader) and bool(row['unread']), 'private_message_count': row['total']}
+            for row in rows}
 
 
-def private_state(ctx, binding, uow, service=None):
+def private_state(ctx, binding, uow):
     """Focus counters for one card binding. Reading them writes nothing."""
     key = source_key(binding['type'], binding.get('business_id'), binding['id'])
-    return private_index(ctx, [binding], uow, service).get(key, dict(EMPTY_STATE))
+    return private_index(ctx, [binding], uow).get(key, dict(EMPTY_STATE))
 
 
 def visible_conversation(app, ctx, conversation_id, uow):
@@ -153,16 +125,16 @@ class PrivateConversations:
         registry.register(OperationDescriptor('owner_conversation_peers', schema(FIELDS, ('source',)),
             **common, owner_only=True, exposure=frozenset({'dashboard', 'worker'}), effect_kind='read',
             read=lambda c, a, o, u: self.peers(c, a, u),
-            description='List available private Task peers and unread state for the owner. Does not mark messages read.'))
+            description='Show the owner’s one private channel on this object, Ordubashy’s, and its unread state. No other peer exists. Does not mark messages read.'))
         registry.register(OperationDescriptor('owner_conversation_get', schema({**FIELDS,
             'before': {'type': 'integer', 'minimum': 1}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}}, ('source',)),
             **common, effect_kind='read', read=lambda c, a, o, u: self.read(c, a, u),
-            description='Read your private owner conversation on one object. A worker defaults to its own isolated channel. The owner selects a worker by agent_id (peer_role global-worker requires it); omission preserves the Ordubashy channel.'))
+            description='Read the private owner–Ordubashy conversation on one object. It is the only private channel: agent_id and peer_role may only restate Ordubashy.'))
         registry.register(OperationDescriptor('owner_conversation_send', schema({**FIELDS,
             'text': {'type': 'string', 'minLength': 1, 'maxLength': 20000}, 'summary': SUMMARY,
             'expected_conversation_revision': {'type': 'integer', 'minimum': 1}}, ('source', 'text')),
             **common, prepare=self.prepare, apply=self.apply, replay_validator=self.validate_replay,
-            description='Send one private message to the selected owner–peer channel on this object. It never posts to the team discussion and never changes the source.'))
+            description='Send one private message to the owner–Ordubashy channel on this object. It never posts to the team discussion and never changes the source.'))
         registry.register(OperationDescriptor('owner_conversation_mark_read', schema({**FIELDS,
             'sequence': {'type': 'integer', 'minimum': 0}}, ('source', 'sequence')),
             supports_signoff=False, scope_kinds=frozenset({'business', 'global'}),
@@ -177,40 +149,27 @@ class PrivateConversations:
     # ----- identity and canonical binding -------------------------------------
 
     def participants(self, uow, ctx=None, args=None):
+        """The exact (owner, Ordubashy) pair. A request may restate Ordubashy and nothing else.
+
+        Neither the caller nor a default chooses the peer: an explicit agent_id other than the registered Ordubashy is
+        refused, and so is any other caller than the owner or Ordubashy (see `role`)."""
         owner, coordinator = private_participants(uow)
         args = args or {}
         selected = args.get('agent_id')
-        agent = ctx is not None and ctx.principal_kind == 'agent'
-        if selected is None and agent and worker_peer(uow, ctx.principal_id):
-            selected = ctx.principal_id
-        if args.get('peer_role') == 'global-worker' and not selected:
-            raise DomainError('validation_error', 'Select one active worker by agent_id')
-        selected = selected or coordinator
-        # The retained peer_role must agree with the selected UUID; nothing falls back to another channel.
-        if args.get('peer_role') == 'ordubashy' and selected != coordinator:
-            raise DomainError('forbidden', 'Selected peer does not match this channel')
-        if args.get('peer_role') == 'global-worker' and selected == coordinator:
-            raise DomainError('forbidden', 'Selected peer does not match this channel')
-        if selected != coordinator and not worker_peer(uow, selected):
-            raise DomainError('forbidden', 'Select an active worker for this source')
-        if agent and ctx.principal_id != selected:
-            raise DomainError('forbidden', 'A peer may access only its own private owner conversation')
-        return owner, selected
+        if (selected is not None and selected != coordinator) or args.get('peer_role', 'ordubashy') != 'ordubashy':
+            raise DomainError('forbidden', 'The only private owner channel is with Ordubashy')
+        return owner, coordinator
 
     def role(self, ctx, uow, args=None):
-        owner, peer = self.participants(uow, ctx, args)
+        owner, coordinator = self.participants(uow, ctx, args)
         if owner and ctx.principal_kind == 'human' and ctx.principal_id == owner:
             return 'owner'
-        if peer and ctx.principal_kind == 'agent' and ctx.principal_id == peer:
+        if coordinator and ctx.principal_kind == 'agent' and ctx.principal_id == coordinator:
             return 'coordinator'
-        raise DomainError('forbidden', 'Private conversations belong to the owner and the selected agent')
+        raise DomainError('forbidden', 'Private conversations belong to the owner and Ordubashy')
 
-    def peer_binding(self, ctx, args, uow):
-        _, peer = self.participants(uow, ctx, args)
-        return peer if peer != private_participants(uow)[1] else None
-
-    def key(self, ctx, args, source, uow):
-        return source_key(source['type'], source['business_id'], source['id'], self.peer_binding(ctx, args, uow))
+    def key(self, source):
+        return source_key(source['type'], source['business_id'], source['id'])
 
     def effective_business(self, ctx, source):
         """Business-scoped calls bind their own business; Global may name one."""
@@ -319,23 +278,15 @@ class PrivateConversations:
         business = self.effective_business(ctx, source)
         selected = self.select(ctx, business, uow)
         self.source_check(selected, source['type'], source['id'], uow, role)
-        binding = self.peer_binding(ctx, args, uow)
-        if binding:
-            peer = self.app.policy.context_for(binding, business_id=business, review_business_id=business, uow=uow)
-            self.app.authorize(peer, self.app.registry.get('owner_conversation_get'), (), uow, namespace=self.namespace(peer))
-            peer = self.select(peer, business, uow)
-            self.source_check(peer, source['type'], source['id'], uow, 'coordinator')
         return role, {'type': source['type'], 'id': source['id'], 'business_id': business}
 
     def readable(self, ctx, conversation_id, uow):
-        """True when the exact selected agent can still read this conversation."""
-        row = uow.connection.execute('SELECT * FROM owner_conversations WHERE id=?', (conversation_id,)).fetchone()
+        """True when Ordubashy can still read this Ordubashy-channel conversation; a retired peer's is never readable."""
+        row = uow.connection.execute('SELECT * FROM owner_conversations WHERE id=? AND peer_agent_id IS NULL',
+                                     (conversation_id,)).fetchone()
         if row is None:
             return False
         _, coordinator = private_participants(uow)
-        coordinator = row['peer_agent_id'] or coordinator
-        if row['peer_agent_id'] and not worker_peer(uow, coordinator):
-            return False
         if not coordinator or ctx.principal_kind != 'agent' or ctx.principal_id != coordinator:
             return False
         try:
@@ -354,19 +305,16 @@ class PrivateConversations:
 
     # ----- operations ---------------------------------------------------------
 
-    def view(self, row, source, uow, peer=None):
-        bound = row['peer_agent_id'] if row is not None else peer
-        audience = 'owner_agent' if bound else AUDIENCE
-        return {'id': row['id'] if row else None, 'source': source, 'audience': audience,
-                'agent_id': row['peer_agent_id'] if row is not None else peer,
+    def view(self, row, source, uow):
+        return {'id': row['id'] if row else None, 'source': source, 'audience': AUDIENCE, 'agent_id': None,
                 'revision': row['revision'] if row else 0,
                 'latest_sequence': row['latest_sequence'] if row else 0,
                 'message_count': message_count(uow, row['id']) if row else 0}
 
-    def channel_available(self, ctx, source, peer, uow):
-        """True while this caller could read the exact peer channel for the source right now."""
+    def channel_available(self, ctx, source, uow):
+        """True while this caller could read the Ordubashy channel for the source right now."""
         try:
-            self.resolve(ctx, {'source': source, 'agent_id': peer}, uow)
+            self.resolve(ctx, {'source': source}, uow)
         except DomainError as error:
             if error.code in UNAVAILABLE:
                 return False
@@ -374,31 +322,30 @@ class PrivateConversations:
         return True
 
     def peers(self, ctx, args, uow):
-        owner, coordinator = private_participants(uow)
+        """The owner's one private channel for the source: Ordubashy's, while it can be read and the source is visible."""
+        owner, coordinator = self.participants(uow, ctx, args)
         if ctx.principal_kind != 'human' or ctx.principal_id != owner:
-            raise DomainError('forbidden', 'Only the owner can list private peers')
+            raise DomainError('forbidden', 'Only the owner can list the private channel')
         source = dict(args['source'])
         business = self.effective_business(ctx, source)
         source['business_id'] = business
         selected = self.select(ctx, business, uow)
         self.source_check(selected, source['type'], source['id'], uow)
-        result = []
-        for row in uow.connection.execute("SELECT agent_id,profile_json FROM agent_profiles WHERE status='active'"):
-            identity = row['agent_id']
-            if identity != coordinator and not worker_peer(uow, identity):
-                continue
-            if not self.channel_available(ctx, source, identity, uow):
-                continue
-            profile = json.loads(row['profile_json'])
-            stored = conversation_row(uow, source_key(source['type'], business, source['id'], None if identity == coordinator else identity))
-            result.append({'agent_id': identity, 'name': profile.get('display_name') or profile.get('name') or identity,
-                'role': profile['role'], 'channel': 'private' if identity == coordinator else 'worker',
-                'unread': bool(stored and has_unread(uow,stored['id'],read_cursor(uow,stored['id'],owner)))})
-        return {'peers': result}
+        if not coordinator or not self.channel_available(ctx, source, uow):
+            return {'peers': []}
+        row = uow.connection.execute("SELECT profile_json FROM agent_profiles WHERE agent_id=? AND status='active'",
+                                     (coordinator,)).fetchone()
+        if row is None:
+            return {'peers': []}
+        profile = json.loads(row['profile_json'])
+        stored = conversation_row(uow, source_key(source['type'], business, source['id']))
+        return {'peers': [{'agent_id': coordinator, 'name': profile.get('display_name') or profile.get('name') or coordinator,
+                           'role': profile['role'], 'channel': 'private',
+                           'unread': bool(stored and has_unread(uow, stored['id'], read_cursor(uow, stored['id'], owner)))}]}
 
     def read(self, ctx, args, uow):
         role, source = self.resolve(ctx, args, uow)
-        row = conversation_row(uow, self.key(ctx, args, source, uow))
+        row = conversation_row(uow, self.key(source))
         limit, messages, more = args.get('limit', 20), [], False
         if row is not None:
             page = [dict(item) for item in uow.connection.execute(
@@ -416,7 +363,7 @@ class PrivateConversations:
             cursor = read_cursor(uow, row['id'], owner) if row is not None else 0
             state = {'last_read_sequence': cursor,
                      'unread': has_unread(uow, row['id'], cursor) if row is not None else False}
-        return {'conversation': self.view(row, source, uow, self.peer_binding(ctx, args, uow)), 'messages': messages,
+        return {'conversation': self.view(row, source, uow), 'messages': messages,
                 'next_before': messages[0]['sequence'] if more and messages else None,
                 'participants': participants(uow, {owner, coordinator}), 'read_state': state}
 
@@ -430,46 +377,44 @@ class PrivateConversations:
         if not isinstance(args['text'], str) or not args['text'].strip():
             raise DomainError('validation_error', 'A private message must contain 1–20000 characters and cannot be blank')
         normalize_summary(args.get('summary'))
-        _, peer = self.participants(uow, ctx, args)
-        return self.plan(ctx, 'owner_conversation_send', args, 'Private message', peer)
+        _, coordinator = self.participants(uow, ctx, args)
+        return self.plan(ctx, 'owner_conversation_send', args, 'Private message', coordinator)
 
     def validate_peer(self, ctx, args, plan, uow):
-        _, peer = self.participants(uow, ctx, args)
-        if peer != plan.affected_scope.get('conversation_peer_id'):
+        """The Ordubashy a request was prepared for must still be the registered one when it applies."""
+        _, coordinator = self.participants(uow, ctx, args)
+        if coordinator != plan.affected_scope.get('conversation_peer_id'):
             raise DomainError('revision_conflict', 'Conversation peer changed; read the channel again')
 
     def validate_replay(self, ctx, args, saved, uow):
-        """Re-authorize a saved private receipt and confirm it still belongs to the exact selected channel.
+        """Re-authorize a saved private receipt and confirm it still belongs to the Ordubashy channel.
 
-        The same pair, peer and canonical-source checks as a fresh read run first, so a revoked capability or a
-        denied source never discloses the saved private message. A role-only selector that now resolves to a
-        different Marketing identity, or a receipt that predates the peer binding, is refused rather than retargeted.
+        The same pair and canonical-source checks as a fresh read run first, so a revoked capability, a denied source or a
+        request that selected any peer but Ordubashy (a retired per-worker channel included) never discloses the saved
+        private message. A receipt bound to another peer or conversation is refused rather than retargeted.
         """
         _, source = self.resolve(ctx, args, uow)
-        peer = self.peer_binding(ctx, args, uow)
         binding = (saved.data or {}).get('conversation')
         if binding is None:
-            # Only legacy owner-Ordubashy receipts predate the binding.
-            if peer is not None:
-                raise DomainError('revision_conflict', 'Conversation peer changed; read the channel again')
-            return
-        row = conversation_row(uow, self.key(ctx, args, source, uow))
-        if binding.get('agent_id') != peer or (binding.get('id') is not None and (row is None or row['id'] != binding['id'])):
+            return                      # Only legacy owner–Ordubashy receipts predate the binding.
+        row = conversation_row(uow, self.key(source))
+        if binding.get('agent_id') is not None or (binding.get('id') is not None and (row is None or row['id'] != binding['id'])):
             raise DomainError('revision_conflict', 'Conversation peer changed; read the channel again')
 
     def apply(self, ctx, plan, uow):
         args = plain(plan.arguments)
         role, source = self.resolve(ctx, args, uow)
         self.validate_peer(ctx, args, plan, uow)
-        key = self.key(ctx, args, source, uow)
-        peer = self.peer_binding(ctx, args, uow)
+        key = self.key(source)
         now = timestamp(self.clock)
         # Concurrent first sends converge on the one row this key already owns.
         uow.connection.execute('INSERT OR IGNORE INTO owner_conversations'
             '(id,source_key,business_id,source_type,source_id,audience,revision,latest_sequence,created_at,updated_at,peer_agent_id)'
-            ' VALUES(?,?,?,?,?,?,1,0,?,?,?)',
-            (new_id(), key, source['business_id'], source['type'], source['id'], AUDIENCE, now, now, peer))
+            ' VALUES(?,?,?,?,?,?,1,0,?,?,NULL)',
+            (new_id(), key, source['business_id'], source['type'], source['id'], AUDIENCE, now, now))
         row = conversation_row(uow, key)
+        if row is None:
+            raise DomainError('revision_conflict', 'Private conversation is bound to another channel; read it again')
         expected = args.get('expected_conversation_revision')
         if expected is not None and expected != row['revision']:
             raise DomainError('revision_conflict', 'Private conversation changed; read it again',
@@ -486,18 +431,14 @@ class PrivateConversations:
                                'WHERE id=?', (sequence, now, row['id']))
         if role == 'owner':
             self.deliver(ctx, row, source, sequence, now, uow)
-            if peer:
-                forward_owner_message(uow, kind='private_conversation', source_id=message['id'], sender_id=ctx.principal_id,
-                                      worker_id=peer, body=args['text'], accepted_at=now)
         message.pop('conversation_id')
         return {'message': author({**message, 'sequence': sequence}, uow),
-                'conversation': {'id': row['id'], 'agent_id': peer, 'revision': row['revision'] + 1,
+                'conversation': {'id': row['id'], 'agent_id': None, 'revision': row['revision'] + 1,
                                  'latest_sequence': sequence, 'message_count': message_count(uow, row['id'])}}
 
     def deliver(self, ctx, row, source, sequence, now, uow):
         """One delivery to the coordinator. No body, summary or source title."""
         _, coordinator = private_participants(uow)
-        coordinator = row['peer_agent_id'] or coordinator
         if not coordinator:
             return
         event = uow.connection.execute('INSERT INTO inbox_events'
@@ -511,8 +452,8 @@ class PrivateConversations:
         role, _ = self.resolve(ctx, args, uow)
         if role != 'owner':
             raise DomainError('forbidden', 'Only the installation owner records the private read position')
-        _, peer = self.participants(uow, ctx, args)
-        return self.plan(ctx, 'owner_conversation_mark_read', args, 'Private read position', peer)
+        _, coordinator = self.participants(uow, ctx, args)
+        return self.plan(ctx, 'owner_conversation_mark_read', args, 'Private read position', coordinator)
 
     def apply_mark(self, ctx, plan, uow):
         args = plain(plan.arguments)
@@ -520,13 +461,12 @@ class PrivateConversations:
         self.validate_peer(ctx, args, plan, uow)
         if role != 'owner':
             raise DomainError('forbidden', 'Only the installation owner records the private read position')
-        row = conversation_row(uow, self.key(ctx, args, source, uow))
-        peer = self.peer_binding(ctx, args, uow)
+        row = conversation_row(uow, self.key(source))
         # The receipt binds the exact channel it marked, so a replay can be checked against the current selection.
-        binding = {'id': row['id'] if row else None, 'agent_id': peer}
+        binding = {'id': row['id'] if row else None, 'agent_id': None}
         if row is None:
             return {'read_state': {'last_read_sequence': 0, 'unread': False,
-                                   'any_unread': private_state(ctx, source, uow, self)['private_unread']}, 'conversation': binding}
+                                   'any_unread': private_state(ctx, source, uow)['private_unread']}, 'conversation': binding}
         if args['sequence'] > row['latest_sequence']:
             raise DomainError('validation_error', 'Acknowledge only a sequence this conversation has reached')
         existing = uow.connection.execute('SELECT last_read_sequence FROM owner_conversation_reads '
@@ -542,4 +482,4 @@ class PrivateConversations:
                 'WHERE conversation_id=? AND principal_id=?',
                 (value, timestamp(self.clock), row['id'], ctx.principal_id))
         return {'read_state': {'last_read_sequence': value, 'unread': has_unread(uow, row['id'], value),
-                               'any_unread': private_state(ctx, source, uow, self)['private_unread']}, 'conversation': binding}
+                               'any_unread': private_state(ctx, source, uow)['private_unread']}, 'conversation': binding}

@@ -11,7 +11,7 @@ from qorqut_operations.contracts import DomainError, Principal, new_id, plain
 from qorqut_operations.application.plans import UUID, PlanBuilder, schema, utc_clock, timestamp
 from qorqut_operations.discussion import ThreadItem, set_follow
 from qorqut_operations.tasks.scope import task_context
-from bazarlyk.agents.worker_access import is_worker, require_worker_manager
+from bazarlyk.agents.worker_access import require_worker_manager
 from .events import ITEM_TYPES
 from .messages import Messages
 
@@ -125,9 +125,9 @@ class InboxService:
         """Use current domain authorization; unavailable objects disclose no summary."""
         if source_type == 'owner_conversations':
             # Private rows are not an inbox item type and cannot be subscribed
-            # to; only the exact bound peer (configured Ordubashy or the eligible
-            # bound worker) sees its own delivery, and only while the bound source
-            # itself is still readable.
+            # to; only the configured Ordubashy sees a delivery of the owner
+            # channel, and only while the bound source itself is still readable.
+            # A retired per-worker row is never visible to anyone.
             from .private_conversations import visible_conversation
             return visible_conversation(self.app, ctx, identity, uow)
         if source_type == 'outreach_events':
@@ -402,8 +402,7 @@ class InboxService:
             raise DomainError('validation_error', 'Private inbox page size must be between 1 and 200')
         ctx = self.context(ctx, uow)
         private = getattr(self.app, 'private_conversations', None)
-        if private is None or (private.participants(uow)[1] != ctx.principal_id
-                               and not is_worker(uow.connection, ctx.principal_id)):
+        if private is None or private.participants(uow)[1] != ctx.principal_id:
             return False
         try:
             self.session_owner(ctx, session_id, uow)

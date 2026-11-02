@@ -248,6 +248,10 @@ def validate_manifest(value: dict[str, Any]) -> dict[str, Any]:
         adapter_name = component.get("adapter", ADAPTERS[category])
         if adapter_name not in KNOWN_ADAPTERS:
             raise UnsupportedAdapter(f"component {identifier}: adapter recipe {adapter_name!r} is not registered")
+        recipe_value = component.get("deployment_recipe")
+        if "local_integration" in component or (isinstance(recipe_value, dict) and "sudo_artifact_placement" in recipe_value):
+            from .local_integration import validate_component
+            validate_component(component, installation)
         if category in {"engine", "outreach"}:
             recipe = component.get("deployment_recipe")
             if not isinstance(recipe, dict):
@@ -363,6 +367,10 @@ def _topological(components: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def resolve_component(component: dict[str, Any]) -> dict[str, Any]:
+    if "local_integration" in component:
+        # Validated on the raw path: resolving first could hide a symlink.
+        from .local_integration import resolve
+        return resolve(component)
     repo = Path(component["repository"]).expanduser().resolve()
     if not (repo / ".git").exists() and not (repo / "HEAD").exists():
         raise ReleaseError(f"component {component['id']} repository is not a Git checkout: {repo}")

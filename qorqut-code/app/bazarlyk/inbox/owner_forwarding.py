@@ -19,7 +19,7 @@ from bazarlyk.management.identity import configured_ordubashy, installation_owne
 NOTICE_SUMMARY = 'Owner message to a worker'
 NAMESPACE = uuid.UUID('4f0d6d5e-8f55-4c4e-9c5a-6a1e0b3f2d17')
 # The original acceptance point, named for the reader of the notice.
-KINDS = {'chat': 'Chat input', 'agent_message': 'inbox message', 'private_conversation': 'private Task conversation message'}
+KINDS = {'chat': 'Chat input', 'agent_message': 'inbox message'}
 # The wrapper (everything but the owner's text) stays well inside WRAPPER_LIMIT: fixed text, two UUIDs, a timestamp and
 # a display name cut at NAME_LIMIT. The original body is never cut.
 WRAPPER_LIMIT = 1000

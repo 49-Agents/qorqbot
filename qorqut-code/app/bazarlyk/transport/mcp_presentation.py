@@ -76,7 +76,7 @@ FOCUS_ITEM_FIELDS = ("id", "revision", "archived", "unavailable")
 SIGNOFF_INDEX_FIELDS = ("id", "review_scope", "proposal_revision", "status_revision", "state",
     "decision_state", "actionable", "execution_state", "category", "operation_name", "title",
     "proposer_agent_id", "proposer_display_name", "proposer_department", "initiated_by_display_name",
-    "attention", "job_id", "created_at", "updated_at", "supersedes_id", "superseded_by_id")
+    "attention", "job_id", "outcome", "created_at", "updated_at", "supersedes_id", "superseded_by_id")
 INBOX_EVENT_FIELDS = ("id", "source_type", "source_id", "event_type", "summary", "created_at",
     "business_id", "business_slug", "actor_name", "message", "source")
 MESSAGE_ITEM_FIELDS = ("id", "event_id", "thread_id", "reply_to", "sender_id", "sender_name",

@@ -104,6 +104,8 @@ class FocusService:
             'business_slug': biz['slug'] if biz else None, 'business_name': biz['name'] if biz else 'Global'}
         if item['type'] == 'task':
             card['task_type'] = resolved.get('task_type', 'task')
+            if card['task_type'] == 'customer':
+                card.update(customer_kind=resolved.get('customer_kind'), customer_state=resolved.get('customer_state', ''))
         if resolved.get('deep_link'):
             card['deep_link'] = resolved['deep_link']
         return card

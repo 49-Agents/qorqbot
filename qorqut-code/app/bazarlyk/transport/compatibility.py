@@ -347,7 +347,8 @@ class DashboardCompatibility:
             result = self.invoke(context, operation, args, self.options(body, revision=before["revision"]))
             return response(result) if result.status != "ok" else JSONResponse({"ok": True, **plain(result.data)})
         if tail == ["task"]:
-            checked_fields(body, {"title", "owner", "owners", "status", "due", "tags", "note", "blocked_by", "fields", "task_type", "overview", "email_conversation_id"} | OPTIONS, {"title"})
+            checked_fields(body, {"title", "owner", "owners", "status", "due", "tags", "note", "blocked_by", "fields", "task_type", "overview", "email_conversation_id",
+                                  "customer_kind", "customer_state", "customer_profile"} | OPTIONS, {"title"})
             args = {key: value for key, value in body.items() if key not in OPTIONS and key not in {"owner", "owners"}}
             args["assignee_ids"] = [self.assignee_id(context, value) for value in body.get("owners", [body["owner"]] if body.get("owner") else [])]
             if args.get("due") == "":

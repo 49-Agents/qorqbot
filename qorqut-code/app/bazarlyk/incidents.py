@@ -56,7 +56,11 @@ _NORMAL = frozenset({
 _SOFTWARE = {'internal_error','invalid_response','invalid_result','invalid_output','invariant_violation'}
 _TECHNICAL_RETRY = {'busy','storage_busy','bootstrap_unavailable','reprepare_required','inbox_delivery_unavailable',
                     'provider_unavailable','timeout','connection_error','service_unavailable'}
-_REPORTABLE = frozenset({"software_fault", "infrastructure_fault", "setup_contract"})
+# An approved account email send that ended without a confirmed submission. Reportable on its own: it is neither a
+# software fault nor a normal workflow result, and only a bound account-mail send job's terminal outcome is given it.
+DELIVERY_FAILURE = "external_delivery_failure"
+_REPORTABLE = frozenset({"software_fault", "infrastructure_fault", "setup_contract", DELIVERY_FAILURE})
+RECONCILE_BATCH = 10
 _HOOK_COMPONENTS = frozenset({'bootstrap', 'inbox', 'activity_hook'})
 _HOOK_OPERATIONS = frozenset({'prepare', 'receipt', 'review', 'watch', 'queue', 'record', 'checkpoint', 'release'})
 _SAFE_SYMBOL = re.compile(r'^[a-z][a-z0-9_.-]{0,79}$')
@@ -120,6 +124,8 @@ def classify(*, error_code="", classification=None, retryable=False, attempts=1,
         classification = _text(classification, 40).lower()
     if code in _NORMAL or classification in _NORMAL:
         return "normal_workflow"
+    if classification == DELIVERY_FAILURE:
+        return DELIVERY_FAILURE
     if principal_missing:
         return "setup_contract"
     if trusted_result or code in _SOFTWARE:
@@ -145,6 +151,7 @@ class IncidentReporter:
         self._success_pending = set()
         self.dropped_observations = 0
         self.last_drain = {'state': 'unobserved', 'at': None}
+        self.last_reconcile = {'state': 'unobserved', 'at': None}
 
     def health(self):
         """Bounded local health; never report a reporting failure as a new incident."""
@@ -247,6 +254,7 @@ class IncidentReporter:
 
     def job_result(self, row, error=None):
         """Called after a job attempt, outside its transaction; no new provider retry."""
+        self.send_outcome(row)
         code = error.get('code', '') if error else 'success'
         known_technical = code in _TECHNICAL_RETRY | _SOFTWARE or code == 'background_failed'
         observation = self.observation(component='background', operation=row['kind'],
@@ -257,6 +265,51 @@ class IncidentReporter:
             terminal=bool(error and known_technical and code != 'busy'),
             trusted_result=code == 'background_failed', recovered=error is None)
         return self.observe(observation)
+
+    def send_outcome(self, row):
+        """Queue the one stable outcome observation of a terminally failed account-mail send, from its committed job row.
+
+        Only the observation is queued; ingestion re-reads the job. A lost or unspooled one is found again by
+        reconciliation, so nothing here is relied on for correctness and no failure escapes."""
+        try:
+            from bazarlyk.domains import account_email_outcome as outcome
+            if row['state'] != 'failed' or outcome.bound_send(row) is None or outcome.stage(row) not in outcome.REPORTABLE:
+                return None
+            return self.observe(self.send_observation(row))
+        except Exception:
+            return None
+
+    def send_observation(self, row):
+        from bazarlyk.domains import account_email_outcome as outcome
+        code = 'external_unconfirmed' if outcome.stage(row) == 'unconfirmed' else 'external_failed'
+        observation = self.observation(component='background', operation=outcome.JOB_KIND,
+            call_site='background.account_email_send', error_code=code, classification=DELIVERY_FAILURE,
+            agent_id=row['initiated_by_principal_id'], job_id=row['id'], attempts=row['attempts'])
+        return replace(observation, observation_id=outcome.observation_id(row['id']))
+
+    def unreported_account_sends(self, uow, limit=RECONCILE_BATCH):
+        """Ids of terminally failed account-mail send jobs with no retained delivery impact, oldest first (bounded).
+
+        A job the provider accepted before its own record failed is no failed send and is never listed."""
+        from bazarlyk.domains import account_email_outcome as outcome
+        operations = sorted(outcome.SEND_OPERATIONS)
+        return [row[0] for row in uow.connection.execute(
+            'SELECT j.id FROM jobs j WHERE j.business_id IS NULL AND j.kind=? AND j.state=\'failed\' '
+            "AND json_extract(j.definition_ref_json,'$.account_email_operation') IN (" + ','.join('?' for _ in operations) + ') '
+            "AND COALESCE(" + outcome.settled_receipt_sql() + ",'') <> 'completed' "
+            'AND NOT EXISTS (SELECT 1 FROM system_incident_impacts x JOIN system_incidents i ON i.id=x.incident_id '
+            'WHERE i.classification=? AND x.job_id=j.id) ORDER BY j.updated_at,j.id LIMIT ?',
+            (outcome.JOB_KIND, *operations, DELIVERY_FAILURE, max(1, min(int(limit), 100))))]
+
+    def report_account_send(self, uow, job_id, *, reporter_id):
+        """Ingest one job's outcome through the same idempotent path as a spooled observation (job row authoritative)."""
+        from bazarlyk.domains import account_email_outcome as outcome
+        from qorqut_operations.storage.repositories import decode_row
+        found = uow.connection.execute('SELECT * FROM jobs WHERE id=? AND business_id IS NULL AND kind=?',
+                                       (job_id, outcome.JOB_KIND)).fetchone()
+        if found is None:
+            return {'created': False, 'updated': False, 'recovered': False, 'skipped': True, 'reason': 'job_missing'}
+        return self._ingest(uow, self.send_observation(decode_row(found)), reporter_id)
 
     def load_active(self, database):
         """Warm the bounded success-probe index at startup and after each drain."""
@@ -600,15 +653,23 @@ class IncidentReporter:
             # a System Dev ticket.
             return {"created": False, "updated": False, "recovered": False,
                     "skipped": True, "reason": obs.classification}
+        delivery = None
+        if obs.classification == DELIVERY_FAILURE:
+            prepared = self._prepare_delivery(conn, obs)
+            if isinstance(prepared, dict):
+                return prepared
+            obs, delivery = prepared
         existing = conn.execute("SELECT id,status,occurrence_count,recovery_count,ticket_id,last_seen FROM system_incidents WHERE fingerprint=?", (obs.fingerprint,)).fetchone()
         now = obs.observed_at
         reopened = False
         if existing is None:
             incident_id, ticket_id = str(uuid.uuid4()), str(uuid.uuid4())
             title = f"System incident: {obs.component}/{obs.operation} ({obs.error_code})"[:200]
+            details, kind = f'{obs.error_code} at {obs.call_site}. Automatically observed; inspect the incident evidence.', 'bug'
+            if delivery is not None:
+                title, details, kind = delivery['title'], delivery['details'], 'tooling'
             conn.execute("INSERT INTO dev_tickets(id,title,details,kind,status,reporter_id,business_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                         (ticket_id,title,f'{obs.error_code} at {obs.call_site}. Automatically observed; inspect the incident evidence.',
-                          'bug','open',reporter_id,obs.business_id,now,now))
+                         (ticket_id,title,details,kind,'open',reporter_id,obs.business_id,now,now))
             conn.execute("INSERT INTO system_incidents(id,fingerprint,ticket_id,title,status,classification,first_seen,last_seen,occurrence_count,recovery_count,business_id,representative_observation_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                          (incident_id, obs.fingerprint, ticket_id, title, "open", obs.classification, now, now, 1, 0, obs.business_id, obs.observation_id))
             event = "opened"
@@ -639,8 +700,15 @@ class IncidentReporter:
         conn.execute("UPDATE system_incident_impacts SET last_seen=max(last_seen,?),episode=episode+(recovered_at IS NOT NULL),recovered_at=NULL "
                      "WHERE incident_id=? AND business_id IS ? AND agent_id IS ? AND session_id IS ? AND task_id IS ? AND operation IS ? AND job_id IS ? AND receipt_id IS ? AND (recovered_at IS NULL OR recovered_at<?)",
                      (now, incident_id, obs.business_id, obs.agent_id, obs.session_id, obs.task_id, obs.operation, obs.job_id, obs.receipt_id, now))
-        conn.execute("INSERT INTO system_incident_history(incident_id,event_kind,observed_at,observation_id,details) VALUES(?,?,?,?,?)", (incident_id, event, now, obs.observation_id, obs.message))
-        if created or reopened:
+        conn.execute("INSERT INTO system_incident_history(incident_id,event_kind,observed_at,observation_id,details) VALUES(?,?,?,?,?)",
+                     (incident_id, event, now, obs.observation_id, delivery['note'] if delivery is not None else obs.message))
+        notified = False
+        if delivery is not None:
+            from bazarlyk.domains.dev_tickets import DevTickets
+            DevTickets.insert_event(uow, existing[4] if existing else ticket_id, 'follow_up', reporter_id,
+                                    details=delivery['note'], created_at=now)
+            notified = self._notify_initiator(conn, incident_id, delivery, reporter_id, now)
+        elif created or reopened:
             coordinator = conn.execute("SELECT management_coordinator_id FROM installation WHERE id='service'").fetchone()
             coordinator = coordinator[0] if coordinator else None
             if coordinator and coordinator != obs.agent_id and self.recipient_current(conn,coordinator,obs.business_id):
@@ -652,7 +720,76 @@ class IncidentReporter:
             conn.execute('UPDATE system_incidents SET representative_observation_id=? WHERE id=?',(obs.observation_id,incident_id))
         self._trim(conn, incident_id)
         return {"incident_id": incident_id, "ticket_id": existing[4] if existing else ticket_id,
-                "created": created, "updated": updated, "recovered": obs.recovered}
+                "created": created, "updated": updated, "recovered": obs.recovered, **({"notified": notified} if delivery is not None else {})}
+
+    def _prepare_delivery(self, conn, obs):
+        """Rebind a delivery-failure observation to its job row (the authority) or say why it is not reportable.
+
+        Returns the rebound observation and the safe text to file, or a result dict for a job that is missing, not a
+        terminally failed bound send, or already has its one retained impact (a replay, restart or reconciliation)."""
+        from bazarlyk.domains import account_email_outcome as outcome
+        from qorqut_operations.storage.repositories import decode_row
+        found = conn.execute('SELECT * FROM jobs WHERE id=? AND business_id IS NULL AND kind=?',
+                             (obs.job_id, outcome.JOB_KIND)).fetchone()
+        job = decode_row(found) if found is not None else None
+        if job is None or job['state'] != 'failed' or outcome.bound_send(job) is None or outcome.stage(job) not in outcome.REPORTABLE:
+            return {'created': False, 'updated': False, 'recovered': False, 'skipped': True, 'reason': 'not_a_failed_account_send'}
+        if conn.execute('SELECT 1 FROM system_incident_impacts x JOIN system_incidents i ON i.id=x.incident_id '
+                        'WHERE i.classification=? AND x.job_id=? LIMIT 1', (DELIVERY_FAILURE, job['id'])).fetchone():
+            return {'created': False, 'updated': False, 'recovered': False, 'duplicate': True}
+        unconfirmed = outcome.stage(job) == 'unconfirmed'
+        signoff = outcome.signoff_for_job(conn, job)
+        reference = f"job {job['id']}" + (f" for Signoff {signoff}" if signoff else '')
+        obs = replace(obs, component='background', operation=outcome.JOB_KIND, call_site='background.account_email_send',
+                      error_code='external_unconfirmed' if unconfirmed else 'external_failed', business_id=None,
+                      agent_id=job['initiated_by_principal_id'], session_id=None, task_id=None, request_id=None,
+                      job_id=job['id'], receipt_id=None, attempts=job['attempts'], message='')
+        if unconfirmed:
+            title = 'Email send unconfirmed'
+            summary = (f'Account email send unconfirmed: the approved send may or may not have gone out ({reference}). '
+                       'Check the mailbox before any replacement send, and tell the owner.')
+            body = ('An approved private-account email send could not be confirmed after recovery, so it may or may not have '
+                    'been submitted to the mail provider. Nothing was sent again. Check the mailbox before any replacement '
+                    'send. Affected jobs and Signoffs are listed in the incident history; no message content or provider '
+                    'text is recorded here.')
+        else:
+            title = 'Email send failed'
+            summary = (f'Account email send failed: the approved send was not sent ({reference}). Nothing was sent again. '
+                       'Tell the owner and ask before preparing a replacement send.')
+            body = ('An approved private-account email send ended without being submitted: the mail provider refused it or it '
+                    'stopped before dispatch. Nothing was sent again. A replacement send needs a new owner decision. Affected '
+                    'jobs and Signoffs are listed in the incident history; no message content or provider text is recorded here.')
+        return obs, {'title': title, 'details': body, 'note': reference[0].upper() + reference[1:] + (': unconfirmed.' if unconfirmed else ': not sent.'),
+                     'summary': summary, 'event_type': 'system_incident_email_send_' + ('unconfirmed' if unconfirmed else 'failed'),
+                     'initiator': job['initiated_by_principal_id']}
+
+    def _notify_initiator(self, conn, incident_id, delivery, reporter_id, now):
+        """One inbox notice for the initiating agent, in the ingestion transaction, if it still holds account authority.
+
+        The initiator being the coordinator never suppresses it; a revoked or inactive initiator gets none (the owner's
+        incident record exists regardless) and, read later, no private access either: the event is shown only to a
+        currently authorized reader of this incident."""
+        if not self.account_recipient_current(conn, delivery['initiator']):
+            return False
+        event_id = conn.execute('INSERT INTO inbox_events(business_id,source_type,source_id,actor_id,event_type,summary,created_at) '
+            'VALUES(?,?,?,?,?,?,?)', (None, 'system_incidents', incident_id, reporter_id, delivery['event_type'],
+                                      delivery['summary'], now)).lastrowid
+        conn.execute('INSERT OR IGNORE INTO inbox_deliveries(agent_id,event_id) VALUES(?,?)', (delivery['initiator'], event_id))
+        return True
+
+    @staticmethod
+    def account_recipient_current(conn, agent_id):
+        """The agent is an active supported global that still holds the account grant as the configured Ordubashy or a worker."""
+        from bazarlyk.agents.worker_access import GLOBAL_WORKER_ROLE
+        profile = active_global(conn, agent_id)
+        if profile is None:
+            return False
+        held = set(profile['scope'].get('global_capabilities', []))
+        if not {'manage_fastmail', 'read_global_context'} <= held:
+            return False
+        coordinator = conn.execute("SELECT management_coordinator_id FROM installation WHERE id='service'").fetchone()
+        role = profile['role']['id']
+        return role == GLOBAL_WORKER_ROLE or (role == 'ordubashy' and bool(coordinator) and coordinator[0] == agent_id)
 
     @staticmethod
     def recipient_current(conn, agent_id, business_id):
@@ -959,26 +1096,66 @@ class IncidentDrain:
         self._stop, self._thread = Event(), None
 
     def drain_once(self):
+        result = self._drain_spool()
+        reconciled = self._reconcile()
+        return {**result, 'reconciled': reconciled} if reconciled else result
+
+    def _reporter_identity(self):
+        """The registered System Dev reporter, provisioned on first use (call inside the writer admission)."""
+        if self.reporter_id is None:
+            from qorqut_operations.application.engine import Application
+            with self.database.transaction(operation='system_incident_reporter_setup') as uow:
+                Application.ensure_writes_open(uow)
+                identity = ensure_system_reporter(uow,self.authority)
+            self.reporter_id = identity
+        return self.reporter_id
+
+    def _drain_spool(self):
         try:
             from contextlib import nullcontext
-            from qorqut_operations.application.engine import Application
             path = self.reporter.spool_dir / 'system-incidents.jsonl'
             if self.reporter_id is not None and safe_path(path) and (not path.exists() or path.stat().st_size == 0):
                 # Healthy idle reporting needs no periodic SQLite writer slot.
                 return {'processed': 0, 'created': 0, 'updated': 0, 'recovered': 0, 'remaining': 0}
             with self.writer() if self.writer else nullcontext():
-                if self.reporter_id is None:
-                    with self.database.transaction(operation='system_incident_reporter_setup') as uow:
-                        Application.ensure_writes_open(uow)
-                        identity = ensure_system_reporter(uow,self.authority)
-                    self.reporter_id = identity
-                result = drain_spool(self.reporter,self.database,reporter_id=self.reporter_id)
+                result = drain_spool(self.reporter,self.database,reporter_id=self._reporter_identity())
                 self.reporter.last_drain = {'state': 'ready', 'at': utc_now()}
                 return result
         except Exception:
             # The spool remains intact; reporting its own failure would recurse.
             self.reporter.last_drain = {'state': 'unavailable', 'at': utc_now()}
             return {"processed": 0, "created": 0, "updated": 0, "recovered": 0, "remaining": None, "degraded": True}
+
+    def _reconcile(self):
+        """Report terminal account-mail send failures whose observation never reached an incident (a lost spool line, a
+        failed drain, a restart, a failure that predates reporting). The job row is authoritative: this only reads
+        terminal jobs, files through the same idempotent ingestion as the spool, never resends or touches the job, and
+        does nothing while writes are closed. One bounded batch per drain interval; an idle system takes no writer slot."""
+        try:
+            from contextlib import nullcontext
+            from qorqut_operations.application.engine import Application
+            from qorqut_operations.background.authority import BackgroundAuthority
+            with self.database.read() as uow:
+                pending = self.reporter.unreported_account_sends(uow)
+            reported = 0
+            for job_id in pending:
+                try:
+                    with self.writer() if self.writer else nullcontext():
+                        reporter_id = self._reporter_identity()
+                        with self.database.transaction(operation='system_incident_reconcile') as uow:
+                            Application.ensure_writes_open(uow)
+                            BackgroundAuthority.require_worker(reporter_id,None,uow)
+                            result = self.reporter.report_account_send(uow, job_id, reporter_id=reporter_id)
+                    reported += int(bool(result.get('created') or result.get('updated')))
+                except Exception as error:
+                    if getattr(error, 'code', None) == 'maintenance':
+                        break   # Writes are closed; the same jobs are found again once they reopen.
+                    continue    # This job stays unreported and is retried on the next pass; the others proceed.
+            self.reporter.last_reconcile = {'state': 'ready', 'at': utc_now()}
+            return reported
+        except Exception:
+            self.reporter.last_reconcile = {'state': 'unavailable', 'at': utc_now()}
+            return 0
 
     def start(self):
         if self._thread and self._thread.is_alive():
