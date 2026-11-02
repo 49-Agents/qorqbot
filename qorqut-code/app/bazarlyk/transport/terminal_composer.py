@@ -63,6 +63,9 @@ FOOTER_PHRASES = (
     "for shortcuts", "context left", "context used", "shift+tab", "ctrl+", "esc to", "tab to", "accept edits",
     "plan mode", "bypass permissions", "auto-accept", "tokens", "/status", "? for",
 )
+# Codex's configurable status line (``  <model> · <directory>``), drawn in explicit 256-colour/RGB tints below the
+# composer and its blank separator row. Its colours are not the gray "dim" range, so it is recognized by shape instead.
+STATUS_SEPARATOR = " \u00b7 "
 
 
 @dataclass(frozen=True)
@@ -152,9 +155,14 @@ def parse(raw):
 
 
 def _style(state):
+    """``inverse``, ``dim``, ``tinted`` (an explicit, non-gray foreground colour) or ``plain`` (default colour).
+
+    ``tinted`` is treated exactly like ``plain`` (typed text) everywhere except the Codex status line rule below."""
     if state["inverse"]:
         return "inverse"
-    return "dim" if is_dim(state) else "plain"
+    if is_dim(state):
+        return "dim"
+    return "plain" if state["fg"] is None else "tinted"
 
 
 def _text(cells):
@@ -177,11 +185,33 @@ def _squash(text):
 def _chrome(cells):
     """A row that is client chrome, not typed content: blank, a horizontal rule, or drawn entirely in dim/inverse styling."""
     text = _text(cells)
-    return not text.strip() or bool(RULE.match(text)) or all(style != "plain" for char, style in cells if char.strip())
+    return not text.strip() or bool(RULE.match(text)) or all(style in ("dim", "inverse") for char, style in cells if char.strip())
 
 
 def _footer(cells):
     return _chrome(cells) or bool(_contains(_text(cells), FOOTER_PHRASES))
+
+
+def _codex_status_line(cells):
+    """Codex's status line: indented, ``<label> · <path>``-shaped, with no default-coloured character and some tint.
+
+    Text typed or pasted into the composer is drawn in the default colour, so it never has this shape."""
+    text = _text(cells)
+    visible = [style for char, style in cells if char.strip()]
+    return (text[:1].isspace() and STATUS_SEPARATOR in text and "plain" not in visible and "tinted" in visible)
+
+
+def _trailing_chrome(client, rows, start):
+    """Whether every row from ``start`` to the bottom is client chrome. For Codex this includes its status line, but only
+    once a blank row has separated it from the composer (the composer's own rows end before that blank row)."""
+    separated = False
+    for index in range(start, len(rows)):
+        cells = rows[index]
+        if _blank(cells):
+            separated = True
+        elif not (_footer(cells) or (client == "codex" and separated and _codex_status_line(cells))):
+            return False
+    return True
 
 
 def _busy_row(text):
@@ -232,7 +262,7 @@ def _holds_paste(client, rows, first, text, cursor):
             end = index
         if seen != want:
             return None
-    if end is None or not all(_footer(rows[index]) for index in range(end + 1, len(rows))):
+    if end is None or not _trailing_chrome(client, rows, end + 1):
         return None
     if cursor and cursor[2] and not first <= cursor[1] <= end:
         return None
@@ -324,9 +354,8 @@ def read(client, raw, cursor=None, expect=None, allow_busy=False):
         if abs(x - content_start) > 1:
             return result("text", "cursor_moved", running)
     else:
-        for index in range(row + 1, len(rows)):
-            if not _footer(rows[index]):
-                return result("text", "continuation_text", running)
+        if not _trailing_chrome(client, rows, row + 1):
+            return result("text", "continuation_text", running)
     return result("empty", "empty_composer_running" if running else "empty_composer", running)
 
 
