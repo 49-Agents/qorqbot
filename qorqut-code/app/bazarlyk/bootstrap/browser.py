@@ -65,6 +65,14 @@ class BrowserTimeout(BrowserError):
     """The CLI was killed at its bound; the page may still have changed."""
 
 
+class BrowserNotConfigured(BrowserError):
+    """The workspace has no browser target file at all."""
+
+
+class BrowserConfigurationInvalid(BrowserError):
+    """A browser target file exists but is unreadable, malformed or points at no usable runtime."""
+
+
 @dataclass(frozen=True)
 class ObservationRequest:
     mode: str
@@ -700,18 +708,20 @@ def _run_observation(workspace: Path, directory: Path, executable: Path, session
                                        capture=capture)
 
 
-def load_target(workspace: Path) -> tuple[str, Path]:
-    """No fallback browser: an operator must explicitly configure this workspace."""
+def read_target(workspace: Path) -> tuple[str, str]:
+    """The workspace's saved ``(cdp_endpoint, runtime_dir)``, validated for shape only; no runtime or Chrome is touched."""
     try:
         target = json.loads((workspace / ".bazarlyk/browser.json").read_text())
+    except FileNotFoundError as exc:
+        raise BrowserNotConfigured("Browser is not configured. Ask the operator to install this workspace's browser target.") from exc
     except (OSError, ValueError) as exc:
-        raise BrowserError("Browser is not configured. Ask the operator to install this workspace's browser target.") from exc
+        raise BrowserConfigurationInvalid("Browser target file is unreadable or not valid JSON.") from exc
     if (not isinstance(target, dict) or set(target) != {"schema_version", "cdp_endpoint", "runtime_dir"}
             or type(target["schema_version"]) is not int or target["schema_version"] != 1):
-        raise BrowserError("Invalid browser target configuration (expected schema version 1).")
+        raise BrowserConfigurationInvalid("Invalid browser target configuration (expected schema version 1).")
     endpoint, runtime = target["cdp_endpoint"], target["runtime_dir"]
     if not isinstance(endpoint, str) or not isinstance(runtime, str):
-        raise BrowserError("Browser endpoint and runtime directory must be strings.")
+        raise BrowserConfigurationInvalid("Browser endpoint and runtime directory must be strings.")
     try:
         url = urlsplit(endpoint)
         valid = (url.scheme == "http" and url.hostname in {"127.0.0.1", "::1"}
@@ -720,8 +730,17 @@ def load_target(workspace: Path) -> tuple[str, Path]:
     except ValueError:
         valid = False
     if not valid:
-        raise BrowserError("Browser CDP must be an explicit loopback HTTP endpoint with a port.")
-    return endpoint.rstrip("/"), runtime_executable(runtime)
+        raise BrowserConfigurationInvalid("Browser CDP must be an explicit loopback HTTP endpoint with a port.")
+    return endpoint.rstrip("/"), runtime
+
+
+def load_target(workspace: Path) -> tuple[str, Path]:
+    """No fallback browser: an operator must explicitly configure this workspace."""
+    endpoint, runtime = read_target(workspace)
+    try:
+        return endpoint, runtime_executable(runtime)
+    except BrowserError as exc:
+        raise BrowserConfigurationInvalid(str(exc)) from exc
 
 
 def runtime_executable(runtime):

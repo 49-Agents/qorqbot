@@ -21,7 +21,7 @@ from bazarlyk.agents.diagnostics import DIAGNOSTIC_OPERATIONS
 # Repair-ticket removal, phase 1: the resolver owns the one list of retained internal readers. Discovery and
 # dispatch refuse them here too, including operations_batch entries and tool names a client cached before removal.
 from bazarlyk.agents.resolver import INTERNAL_ONLY_OPERATIONS
-from bazarlyk.browser.operations import BROWSER_OPERATION
+from bazarlyk.browser.operations import AGENT_BROWSER_MANAGE, BROWSER_OPERATION
 from .results import failure
 from . import batches, mcp_presentation, mcp_reads
 
@@ -406,6 +406,15 @@ class MCPTransport:
                         value = self.runtime.overseer.mutate(canonical_name, context, args)
                     except AgenticError as error:
                         raise DomainError(error.code, str(error), details=error.details) from error
+                    return OperationResult.ok(value, request_id=request_id)
+                if canonical_name == AGENT_BROWSER_MANAGE:
+                    self.runtime.registry.bind_arguments(canonical_name, args)
+                    namespace = self.runtime.application.namespace(context, descriptor, args)
+                    with self.runtime.database.read() as uow:
+                        self.runtime.application.authorize(context, descriptor, (), uow, namespace=namespace, arguments=args)
+                    # The manager decides the exact worker target and rechecks it under the agent's lock; host effects run
+                    # here, outside every database transaction, under the instance's writer admission.
+                    value = self.runtime.browser_manager.manage(actor.principal.id, args, options.idempotency_key)
                     return OperationResult.ok(value, request_id=request_id)
                 if canonical_name == BROWSER_OPERATION:
                     self.runtime.registry.bind_arguments(canonical_name, args)

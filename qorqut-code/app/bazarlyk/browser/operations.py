@@ -4,6 +4,7 @@ from qorqut_operations.application import OperationDescriptor
 
 
 BROWSER_OPERATION = "browser_turn"
+AGENT_BROWSER_MANAGE = "agent_browser_manage"
 
 
 _UUID = {"type": ["string", "null"], "format": "uuid"}
@@ -46,5 +47,39 @@ def register_browser_operation(runtime):
         exposure=frozenset({"mcp"}), global_capability="read_global_context",
         resolve_namespace=resolve_namespace,
         description="Use a browser over trusted MCP. Native callers use their own configured browser lease-free: acquire returns a handle at once, command runs immediately, and release is a no-op; nothing waits or needs reconciling. A timed-out command returns an error: inspect the page before repeating a state-changing action. Any Global agent (Ordubashy, workers, Learning Applier) may instead acquire an active project's shared browser with business_id and protocol=handles; no membership is needed and consumer_id stays optional. That lease is exclusive with the other Global agents, the owner's viewer and durable workers: a busy browser is refused (never taken), and the handle needs renew, release, and reconcile of an uncertain action before retry. Durable workers use an exclusive turn in their assignment scope. Acquire with protocol=handles, then use handle for command/release. Handle callers never pass lease IDs or tokens, and no browser endpoint is returned. Ordubashy alone may call action=list for the browsers (id, label, business_id) and acquire any of them by browser_id (plus business_id for a project browser); listing or referencing a browser in chat takes no turn. Waiting releases execution capacity and never grants shell or arbitrary network access.",
+        prepare=unavailable, apply=unavailable))
+    return runtime
+
+
+def register_agent_browser_management(runtime):
+    """``agent_browser_manage``: Ordubashy's standing authority over his workers' own browsers, MCP only.
+
+    Like ``browser_turn`` it is dispatched by the authenticated MCP bridge, which authorizes it in a short read unit and then
+    runs the host effects outside any database transaction. Who may call it is decided by the host policy rule and the
+    worker-manager check, never by a role file or a caller-supplied value."""
+    def resolve_namespace(_context, _arguments):
+        return "global"
+
+    def unavailable(*_args, **_kwargs):
+        raise RuntimeError("agent_browser_manage must be dispatched by the authenticated MCP bridge")
+
+    runtime.registry.register(OperationDescriptor(AGENT_BROWSER_MANAGE, {
+        "type": "object", "additionalProperties": False,
+        "properties": {
+            "agent_id": {"type": "string", "format": "uuid", "description": "The active permanent worker whose own browser to administer."},
+            "action": {"enum": ["status", "ensure", "repair", "restart", "stop"]},
+        },
+        "required": ["agent_id", "action"],
+    }, version=1, effect_kind="records", supports_signoff=False, scope_kinds=frozenset({"global"}),
+        exposure=frozenset({"mcp"}), global_capability="read_global_context", resolve_namespace=resolve_namespace,
+        description="Set up, diagnose, repair, restart or stop an active worker's own configured browser (Ordubashy only; no owner "
+                    "approval is needed for this routine maintenance). status changes nothing. ensure creates a dedicated headless "
+                    "managed browser when the worker has none, or starts a stopped owned one, and leaves a healthy browser alone. "
+                    "repair also restores a missing target file from saved ownership and restarts an owned browser that does not "
+                    "respond. restart and stop act only on the exact owned browser and are refused while a browser command is "
+                    "running. Profiles, logins and conversations are always preserved; nothing is ever deleted. Mutations need an "
+                    "idempotency_key and report ready only after a real CDP health check. A pre-existing browser without a "
+                    "registered service binding answers browser_management_unconfigured: that is an installation step, not a "
+                    "missing permission. This grants no authority to spend, submit forms or act as the owner.",
         prepare=unavailable, apply=unavailable))
     return runtime
