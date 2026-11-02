@@ -38,9 +38,10 @@ def root_parts(root):
 
 
 def normalize_path(value, roots):
-    """A businesses-root-relative POSIX path from an absolute path under ``roots`` or a relative path.
+    """An operations-root-relative POSIX path from an absolute path under ``roots`` or a relative path.
 
-    ``roots`` are the accepted spellings of the configured businesses root. The
+    ``roots`` are the accepted spellings of this instance's operations root, so a relative path keeps its first
+    segment (``businesses/<slug>/hq/...`` or ``agents/<agent>/...``). The
     result has no empty, ``.`` or ``..`` segments; traversal is rejected, never
     resolved. Whether the file exists, or is a symlink, is not decided here.
     """
@@ -53,7 +54,7 @@ def normalize_path(value, roots):
     if _DOUBLE_ENCODED.search(value):
         raise invalid("The file path contains a doubly encoded separator, dot or NUL")
     if _URL_SCHEME.match(value):
-        raise invalid("Give an absolute path under the businesses root or a path relative to it, not a URL")
+        raise invalid("Give an absolute path under the operations root or a path relative to it, not a URL")
     parts = value.split("/")
     if ".." in parts:
         raise invalid("The file path may not contain '..'")
@@ -65,11 +66,11 @@ def normalize_path(value, roots):
                 names = names[len(prefix):]
                 break
         else:
-            raise invalid("The absolute path is outside the businesses root")
+            raise invalid("The absolute path is outside the operations root")
     else:
         names = [part for part in parts if part and part != "."]
     if not names:
-        raise invalid("A file path below the businesses root is required")
+        raise invalid("A file path below the operations root is required")
     if value.endswith("/"):
         raise invalid("A file path, not a directory, is required")
     return "/".join(names)
@@ -83,7 +84,7 @@ def reject_bad_escapes(raw_query):
 
 @dataclass(frozen=True)
 class Selector:
-    """One file: a businesses-root-relative ``path`` or a registered ``document_id`` (optionally one saved ``version``)."""
+    """One file: an operations-root-relative ``path`` or a registered ``document_id`` (optionally one saved ``version``)."""
 
     path: str | None = None
     document_id: str | None = None

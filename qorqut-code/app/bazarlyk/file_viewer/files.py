@@ -1,4 +1,4 @@
-"""Descriptor-anchored reads of one regular file beneath the businesses root.
+"""Descriptor-anchored reads of one regular file beneath the operations root.
 
 Every path component is opened with ``O_NOFOLLOW`` relative to its parent
 descriptor, starting from the root directory, so a symlink anywhere below the

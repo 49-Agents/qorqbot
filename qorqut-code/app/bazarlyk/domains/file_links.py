@@ -22,12 +22,15 @@ from qorqut_operations.application.plans import UUID, schema
 
 DESCRIPTION = (
     "Build an ordinary link the owner can click to read a file in the Qorqut file viewer. Give exactly one of path "
-    "(absolute under the businesses root, or relative to it) or document_id (a registered document readable in your "
-    "current scope; Global agents select a business with business_id as usual). Optional label; optional version "
-    "(document_id only) links one saved version instead of the current file. Returns viewer_url (root-relative) and a "
-    "ready Markdown link to paste into your reply. For a path this only builds text: nothing is read, listed or "
-    "verified, and the viewer checks the file when the owner opens it, so never claim the file exists because a link "
-    "was built. Grants no file access; only the owner's viewer reads content. Read-only.")
+    "or document_id. A path is the file's absolute path under this instance's operations root (best when you know it), "
+    "or relative to that root with its first folder kept: businesses/<slug>/hq/notes/report.md or "
+    "agents/<agent>/scratch/report.md, never starting at the business slug. document_id is a registered document "
+    "readable in your current scope (Global agents select a business with business_id as usual). Optional label; "
+    "optional version (document_id only) links one saved version instead of the current file. Returns viewer_url "
+    "(root-relative) and a ready Markdown link: paste the returned markdown into your reply unchanged and never build "
+    "the URL by hand. For a path this only builds text: nothing is read, listed or verified, and the viewer checks the "
+    "file when the owner opens it, so never claim the file exists because a link was built. Grants no file access; "
+    "only the owner's viewer reads content. Read-only.")
 
 
 def namespace(ctx, _arguments):

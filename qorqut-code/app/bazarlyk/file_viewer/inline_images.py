@@ -2,7 +2,7 @@
 
 The preview frame allows only data images, so a page's sibling image files would otherwise show as broken. Each local,
 relative image is read through the same descriptor-anchored resolver as every file view (no symlinks, nothing outside
-the businesses root) and substituted into its tag. Scripts, styles, CSS ``url()`` values and other attributes are never
+the operations root) and substituted into its tag. Scripts, styles, CSS ``url()`` values and other attributes are never
 touched; an image that cannot be embedded is left exactly as written, which the frame blocks, and is only counted.
 """
 

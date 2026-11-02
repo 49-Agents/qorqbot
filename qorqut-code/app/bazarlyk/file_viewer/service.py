@@ -1,6 +1,6 @@
 """The owner's file viewer: one resolver for metadata, preview, download and saved history.
 
-A file is named by a businesses-root-relative ``path`` (always its current
+A file is named by an operations-root-relative ``path`` (always its current
 contents) or by a registered ``document_id`` (current contents at its present
 location, or one saved version). Only the installation owner reaches this (the
 HTTP route checks that first); agents never do. Nothing here writes: viewing
