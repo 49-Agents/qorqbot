@@ -18,7 +18,7 @@
 #                                      not needed when BIZ_DASH_LAUNCHER names the stable application launcher
 #   WORKSPACE (or BIZ_DASH_WORKSPACE)  the protected configuration / package-source workspace
 #   INSTANCE_ROOT                      the instance root holding operations/ and qorqut-roles/
-#   COMPONENT_APP, COMPONENT_DASHBOARD, COMPONENT_TEMPLATE   required component locations
+#   COMPONENT_APP, COMPONENT_DASHBOARD   required component locations
 #   COMPONENT_OPERATIONS_ENGINE, COMPONENT_CONTEXT_ENGINE, COMPONENT_ROLES   optional component locations
 # `start.sh argv` prints the exact launch command, one element per line, without starting anything.
 #
@@ -37,8 +37,8 @@ LOG=$STATE/dashboard.log
 
 die() { echo "start.sh: $*" >&2; exit 1; }
 
-COMPONENT_NAMES=(app operations_engine context_engine dashboard template roles)
-REQUIRED_COMPONENTS=(app dashboard template)
+COMPONENT_NAMES=(app operations_engine context_engine dashboard roles)
+REQUIRED_COMPONENTS=(app dashboard)
 declare -A COMPONENTS=()
 
 component_known() {
