@@ -114,6 +114,8 @@ class PublicationExecutor:
                 raw = active.run(['diff-tree', '--no-commit-id', '--name-status', '-r', '-z', '--no-renames', base, tree]).stdout
                 fields = raw.decode('utf-8', 'strict').split('\0')
                 observed = {fields[i + 1]: fields[i] for i in range(0, len(fields) - 1, 2)}
+                from ..layout import require_editable
+                require_editable(observed)
                 expected = {c['path']: {'create': 'A', 'edit': 'M', 'delete': 'D'}[c['action']] for c in plan['changes']}
                 if observed != expected:
                     raise AgenticError('candidate changes do not match the agreed paths and actions', code='owner_input_required',
@@ -178,6 +180,8 @@ class PublicationExecutor:
                           'before_sha256': sha256_hex(before) if before is not None else None,
                           'after_sha256': sha256_hex(after) if after is not None else None,
                           'size': len(after) if after is not None else 0})
+        from ..layout import require_editable
+        require_editable(item["path"] for item in files)
         return files
 
     def publish(self, application_id, *, expected_revision, operation_id):
@@ -233,9 +237,9 @@ class PublicationExecutor:
                 or git.text(['rev-list', '--parents', '-n', '1', candidate]).split() != [candidate, base]
                 or f"Delta-ID: {app['delta_id']}" not in git.text(['log', '-1', '--format=%B', candidate])):
                 raise AgenticError('candidate changed', code='publication_recovery_required')
+            files = self._publication_files(git, base, candidate)
             changes = Changes(self.ctx)
             changes.scan_locked(dict(EXTERNAL_ATTRIBUTION))
-            files = self._publication_files(git, base, candidate)
             before_entries = entries_touching(self.ctx.load_catalog_locked(), {item['path'] for item in files})
             change_id = new_id('chg')
             execution['change_id'] = change_id
@@ -265,6 +269,8 @@ class PublicationExecutor:
 
     def _finish_publication(self, application_id, expected_revision, publication_operation, execution, files, recovery_operation=None, recovery_fingerprint=None):
         from ..changes import Changes, EXTERNAL_ATTRIBUTION, entries_touching, insert_event
+        from ..layout import require_editable
+        require_editable(item["path"] for item in files)
         from .runs import admitted_run
         git = GitRunner(self.ctx.git_executable, self.ctx.root, self.ctx.store.scratch_dir / 'git-home')
         base, candidate = execution['integration_base'], execution['candidate_commit']
@@ -387,6 +393,8 @@ class PublicationExecutor:
                 execution = json.loads(reserved['result'])['execution']
                 self._validate_execution(execution)
                 files = json.loads(row['file_hashes'])
+                from ..layout import require_editable
+                require_editable(item['path'] for item in files)
                 if (row['change_id'] != execution['change_id'] or row['expected_base'] != execution['integration_base']
                     or row['candidate_commit'] != execution['candidate_commit'] or row['candidate_tree'] != execution['candidate_tree']
                     or row['branch_ref'] != execution['branch'] or row['worktree_ref'] != execution['worktree_path']

@@ -22,7 +22,8 @@ import stat
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from .catalog import MANIFEST_NAME, PACKAGES_DIR, Catalog, bundle_digest, load_catalog
+from .catalog import MANIFEST_NAME, Catalog, bundle_digest, load_catalog
+from .layout import import_dir, require_editable
 from .changes import EXTERNAL_ATTRIBUTION, Changes, event_dict, insert_event, normalize_attribution, package_ids_of
 from .core import LayerContext
 from .errors import (
@@ -146,8 +147,8 @@ def parse_changes(changes: Any) -> list[FileOp]:
     return ops
 
 
-def package_revision(files: dict[str, Any], package_id: str) -> str:
-    prefix = f"{PACKAGES_DIR}/{package_id}/"
+def package_revision(files: dict[str, Any], package_dir: str) -> str:
+    prefix = package_dir + "/"
     return bundle_digest((rel, entry.sha256) for rel, entry in files.items() if rel.startswith(prefix))
 
 
@@ -198,7 +199,7 @@ class Authoring:
         expected_package_revision: str | None = None,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """Copy a supplied package snapshot into ``packages/<package_id>/``.
+        """Copy a snapshot into its editable plugin or singleton preference directory.
 
         The snapshot is a directory path or an in-memory file list; bytes are
         copied, never linked. Importing over an existing package requires its
@@ -235,9 +236,16 @@ class Authoring:
             files[MANIFEST_NAME] = (dump_yaml(data).encode("utf-8"), files[MANIFEST_NAME][1])
 
         def build(bctx: BuildContext) -> Batch:
-            prefix = f"{PACKAGES_DIR}/{package_id}/"
+            # Even invalid or ambiguous protected packages reserve their IDs.
+            protected = [f"{area}/{package_id}/{MANIFEST_NAME}" for area in ("roles", "operations", "overseer")
+                         if any(rel == f"{area}/{package_id}" or rel.startswith(f"{area}/{package_id}/")
+                                for rel in (*bctx.base.files, *bctx.base.special))]
+            if protected:
+                require_editable(protected)
+            prefix = (bctx.catalog.packages[package_id].dir if package_id in bctx.catalog.packages else import_dir(package_id)) + "/"
+            require_editable([prefix + MANIFEST_NAME])
             existing = {rel: e for rel, e in bctx.base.files.items() if rel.startswith(prefix)}
-            current_revision = package_revision(bctx.base.files, package_id) if existing else None
+            current_revision = package_revision(bctx.base.files, prefix.rstrip("/")) if existing else None
             if existing:
                 if expected_package_revision is None:
                     raise ConflictError(
@@ -329,7 +337,7 @@ class Authoring:
                 if not isinstance(merged.get("path"), str):
                     raise InvalidRequestError("entry.path is required to write content")
                 split_path(merged["path"], field="entry.path")
-                target = f"{PACKAGES_DIR}/{package_id}/{merged['path']}"
+                target = f"{manifest_path.rsplit('/', 1)[0]}/{merged['path']}"
                 current = bctx.base.files.get(target)
                 if current is None:
                     if expected_sha256 is not None:
@@ -411,11 +419,12 @@ class Authoring:
             raise InvalidRequestError("expected_package_revision is required")
 
         def build(bctx: BuildContext) -> Batch:
-            prefix = f"{PACKAGES_DIR}/{package_id}/"
+            prefix = (bctx.catalog.packages[package_id].dir if package_id in bctx.catalog.packages else import_dir(package_id)) + "/"
+            require_editable([prefix + MANIFEST_NAME])
             existing = {rel: e for rel, e in bctx.base.files.items() if rel.startswith(prefix)}
             if not existing:
                 raise NotFoundError(f"package {package_id!r} does not exist", details={"package_id": package_id})
-            current = package_revision(bctx.base.files, package_id)
+            current = package_revision(bctx.base.files, prefix.rstrip("/"))
             if current != expected_package_revision:
                 raise ConflictError(
                     f"package {package_id!r} changed since revision {expected_package_revision}",
@@ -432,7 +441,9 @@ class Authoring:
     def _manifest_for_edit(bctx: "BuildContext", package_id: str, expected_sha: str) -> tuple[bytes, str, dict[str, Any]]:
         if not is_id(package_id):
             raise InvalidRequestError("package_id is not a valid ID", details={"field": "package_id"})
-        path = f"{PACKAGES_DIR}/{package_id}/{MANIFEST_NAME}"
+        package = bctx.catalog.packages.get(package_id)
+        path = f"{package.dir if package else import_dir(package_id)}/{MANIFEST_NAME}"
+        require_editable([path])
         info = bctx.base.files.get(path)
         if info is None:
             raise NotFoundError(f"package {package_id!r} has no {MANIFEST_NAME}", details={"package_id": package_id})
@@ -475,6 +486,9 @@ class Authoring:
                 raise AgenticError("batch exceeds authoring limits", code="limit_exceeded")
             if any(len(op.content or b"") > MAX_FILE_BYTES for op in batch.ops):
                 raise AgenticError("file exceeds authoring limits", code="limit_exceeded")
+            for op in batch.ops:
+                ctx.tree.kind(op.path)  # Detect unsafe parent symlinks before policy classification.
+            require_editable(op.path for op in batch.ops)
             if not dry_run:
                 self._record_unobserved_edits({op.path for op in batch.ops})
             planned, unchanged = self._plan(batch.ops)
@@ -724,6 +738,7 @@ class Authoring:
             pending = self._pending_state()
             if not pending:
                 return {"recovered": False, "changes": [], "removed_temp_files": ctx.tree.sweep_temp_files()}
+            require_editable(f["path"] for p in pending for f in p["files"])
             conflicts = [
                 {"change_id": p["change_id"], **f} for p in pending for f in p["files"] if f["state"] == "conflict"
             ]

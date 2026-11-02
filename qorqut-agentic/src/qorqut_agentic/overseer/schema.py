@@ -28,3 +28,9 @@ def install(conn):
     for statement in DDL.split(';'):
         if statement.strip():
             conn.execute(statement)
+
+
+OUTSIDE_DDL = "CREATE TABLE outside_deltas (id TEXT PRIMARY KEY, record TEXT NOT NULL, created_at TEXT NOT NULL, created_by TEXT NOT NULL)"
+
+def install_v3(conn):
+    conn.execute(OUTSIDE_DDL)

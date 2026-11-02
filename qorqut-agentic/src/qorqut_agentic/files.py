@@ -358,19 +358,84 @@ class SafeTree:
         return files, special
 
 
+def _legacy_content(tree: SafeTree) -> bool:
+    """Inspect legacy scaffolding without following links or reading files."""
+    root = tree._open_root()
+    count = 0
+
+    def identity(info):
+        return (info.st_dev, info.st_ino, info.st_mode, info.st_mtime_ns, info.st_ctime_ns)
+
+    def visit(parent, name, parts, expected=None):
+        nonlocal count
+        before = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        if expected is not None and identity(before) != identity(expected):
+            raise StateConflictError("Legacy directory changed during inspection")
+        if not stat.S_ISDIR(before.st_mode):
+            return True
+        fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+        try:
+            opened = os.fstat(fd)
+            if identity(before) != identity(opened):
+                raise StateConflictError("Legacy directory changed during inspection")
+            with os.scandir(fd) as entries:
+                for entry in entries:
+                    count += 1
+                    if count > 100000 or len(parts) + 1 > 64:
+                        raise AgenticError("Legacy directory inspection limit exceeded", code="limit_exceeded")
+                    child_parts = (*parts, entry.name)
+                    split_path('/'.join(child_parts))
+                    if visit(fd, entry.name, child_parts):
+                        return True
+            if identity(os.fstat(fd)) != identity(opened) or identity(os.stat(name, dir_fd=parent, follow_symlinks=False)) != identity(opened):
+                raise StateConflictError("Legacy directory changed during inspection")
+            return False
+        finally:
+            os.close(fd)
+
+    try:
+        try:
+            initial = os.stat('packages', dir_fd=root, follow_symlinks=False)
+        except FileNotFoundError:
+            if tree._lstat_kind(root, 'packages') != 'missing':
+                raise StateConflictError("Legacy directory changed during inspection")
+            return False
+        try:
+            return visit(root, 'packages', ('packages',), initial)
+        except FileNotFoundError as exc:
+            raise StateConflictError("Legacy directory changed during inspection") from exc
+    finally:
+        os.close(root)
+
+
 class DiskSource:
     """A hashed index of ``prefix`` on disk with verified reads."""
 
-    def __init__(self, tree: SafeTree, prefix: str = "packages"):
+    def __init__(self, tree: SafeTree, prefix: str | None = None):
         self.tree = tree
         self.prefix = prefix
-        self.files, self.special = tree.inventory(prefix)
+        self.legacy_nonempty = False
+        if prefix is None:
+            self.legacy_nonempty = _legacy_content(tree)
+            self.files, self.special = {}, {}
+            for area in ("roles", "operations", "overseer", "plugins", "user-preferences", "packages"):
+                files, special = tree.inventory(area)
+                self.files.update(files)
+                self.special.update(special)
+            self.legacy_nonempty = self.legacy_nonempty or any(
+                p.startswith("packages/") for p in (*self.files, *self.special))
+        else:
+            self.files, self.special = tree.inventory(prefix)
         self._cache: dict[str, bytes] = {}
 
-    def read(self, rel: str) -> bytes:
+    def read(self, rel: str, *, max_bytes: int | None = None) -> bytes:
         if rel in self._cache:
-            return self._cache[rel]
-        data = self.tree.read(rel)
+            data = self._cache[rel]
+            if max_bytes is not None and len(data) > max_bytes:
+                raise AgenticError(f"file is larger than {max_bytes} bytes: {rel}",
+                                   code="limit_exceeded", details={"path": rel, "limit": max_bytes})
+            return data
+        data = self.tree.read(rel, max_bytes=max_bytes)
         expected = self.files.get(rel)
         if data is None or expected is None or sha256_hex(data) != expected.sha256:
             raise StateConflictError(f"file changed while it was being read: {rel}", details={"path": rel})
@@ -384,7 +449,8 @@ class OverlaySource:
     def __init__(self, base: DiskSource, changes: dict[str, bytes | None]):
         self.base = base
         self.prefix = base.prefix
-        self.changes = {rel: data for rel, data in changes.items() if rel.startswith(base.prefix + "/")}
+        self.legacy_nonempty = base.legacy_nonempty
+        self.changes = {rel: data for rel, data in changes.items() if base.prefix is None or rel.startswith(base.prefix + "/")}
         self.files = dict(base.files)
         self.special = dict(base.special)
         for rel, data in self.changes.items():

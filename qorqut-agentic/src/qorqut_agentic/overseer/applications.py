@@ -209,6 +209,8 @@ class Applications(SatisfactionExecutor, CheckExecutor, PublicationExecutor, App
             raise AgenticError('draft ownership does not match runtime configuration', code='publication_recovery_required')
 
     def _executable_plan(self, plan):
+        from ..layout import require_editable
+        require_editable(change["path"] for change in plan["changes"] if change.get("path"))
         seen = set()
         for change in plan['changes']:
             path = change.get('path')

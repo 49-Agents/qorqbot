@@ -7,6 +7,7 @@ from typing import Any
 # Every code the library can return, with a one-line meaning. docs/INTERFACES.md
 # documents these; tests assert the two stay in step.
 ERROR_CODES: dict[str, str] = {
+    "protected_agentic_area": "A requested write targets a protected agentic area.",
     "invalid_request": "The request is malformed: unknown or missing parameter, wrong type, bad identifier.",
     "validation_failed": "Content failed validation (catalog, schema, argument); nothing was written or started.",
     "unsafe_path": "A path is absolute, escapes the root, names .git, or traverses a symlink.",

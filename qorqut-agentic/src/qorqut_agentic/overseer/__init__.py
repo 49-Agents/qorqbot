@@ -1,5 +1,6 @@
 """Portable Overseer state."""
 
+from .outside import Outside
 from .records import Proposals
 from .deltas import Deltas
 from .support import ImmutableRecords, Inputs, Review
@@ -14,6 +15,7 @@ class Overseer:
         self._ctx = ctx
         self._workflows_factory = workflows_factory
         self.proposals = Proposals(ctx)
+        self.outside = Outside(ctx)
         self.deltas = Deltas(ctx)
         self.coverage = Coverage(ctx)
         self.materials = ImmutableRecords(ctx, 'overseer_materials', 'materials')

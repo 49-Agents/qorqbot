@@ -1,0 +1,15 @@
+schema_version: 1
+id: agentic-management
+name: Agentic layer management
+description: Shared management guidance for explicitly authorized editors of the agentic layer.
+entries:
+  - id: manage
+    kind: skill
+    description: Submit standing instructions for owner Signoff and manage approved changes through the application workflow.
+    when_to_use: When asked to create, correct, review, or maintain skills, instructions, preferences, tools, or workflows.
+    path: skills/manage/SKILL.md
+  - id: bootstrap
+    kind: instruction
+    description: Short management reminder and catalog pointer for agent bootstrap.
+    when_to_use: Always in the bootstrap of an agent authorized by the host to manage the layer.
+    path: bootstrap.md

@@ -17,6 +17,7 @@ from .changes import Changes
 from .core import LayerContext
 from .errors import GitError, InvalidRequestError, NotFoundError
 from .files import split_path
+from .layout import require_editable
 from .util import sha256_hex
 
 MAX_DIFF_BYTES = 256 * 1024
@@ -333,6 +334,10 @@ class History:
             if not pending:
                 raise GitError("the selected paths have no changes to commit", code="nothing_to_commit",
                                details={"paths": selected})
+            # With rename detection disabled, both old and new names are checked.
+            raw = self.git.run(["-c", "status.renames=false", "status", "--porcelain=v1", "-z", "--untracked-files=all", *pathspec]).stdout
+            candidates = [os.fsdecode(record[3:]) for record in raw.split(b"\0") if record]
+            require_editable(candidates)
             self.git.run(["add", "-A", *pathspec], env=env)
             commit_args = ["commit", "--no-verify", "--no-gpg-sign", "-q", "-F", "-"]
             if selected:
@@ -370,6 +375,7 @@ class History:
         selected = _check_paths(paths)
         if not selected:
             raise InvalidRequestError("paths must name at least one file to restore")
+        require_editable(selected)
         pinned = expected_sha256 or {}
         if not isinstance(pinned, dict) or any(k not in selected for k in pinned):
             raise InvalidRequestError("expected_sha256 may only name restored paths")

@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import base64
+import os
 from contextlib import contextmanager
+from copy import deepcopy
 import threading
 from typing import Any
 
-from .catalog import Selection, load_catalog
+from .catalog import Selection, bundle_digest, load_catalog
+from .layout import AREAS
 from .core import LayerContext
-from .errors import InvalidRequestError, NotFoundError, UnavailableError
+from .errors import (AgenticError, InvalidRequestError, NotFoundError, RevisionConflictError,
+                     StateConflictError, UnsafePathError, UnavailableError)
 from .files import DiskSource, split_path
 from .schemas import ENTRY_KINDS
 from .util import is_id, is_ref, sha256_hex, split_frontmatter
@@ -22,12 +26,62 @@ class CatalogReader:
     def __init__(self, ctx: LayerContext) -> None:
         self.ctx = ctx
         self._reads = threading.local()
+        self._snapshot = threading.local()
+
+    def _active_catalog(self):
+        if getattr(self._snapshot, "pid", None) != os.getpid():
+            return None
+        return getattr(self._snapshot, "catalog", None)
 
     def _load(self):
-        current = getattr(self._reads, "catalog", None)
-        if current is not None:
-            return current
-        return load_catalog(DiskSource(self.ctx.tree))
+        catalog = self._active_catalog()
+        if catalog is not None:
+            return catalog
+        catalog = getattr(self._reads, "catalog", None)
+        return catalog if catalog is not None else load_catalog(DiskSource(self.ctx.tree))
+
+    @staticmethod
+    def _revision(source):
+        return bundle_digest((path, item.sha256) for path, item in source.files.items()
+                             if path.split("/", 1)[0] in AREAS)
+
+    def revision(self):
+        """Observe the same authored revision without parsing catalogue manifests."""
+        catalog = self._active_catalog()
+        if catalog is not None:
+            return {"catalog_revision": catalog.revision, "recovery_required": False}
+        with self.ctx.store.lock(exclusive=False):
+            self.ctx.require_no_recovery(publications_only=True)
+            source = DiskSource(self.ctx.tree)
+            return {"catalog_revision": self._revision(source),
+                    "recovery_required": bool(self.ctx.pending_change_ids())}
+
+    @contextmanager
+    def read_snapshot(self):
+        """Pin one verified, read-only catalogue for this thread and layer."""
+        existing = self._active_catalog()
+        if existing is not None:
+            yield existing.revision
+            return
+        with self.ctx.store.lock(exclusive=False):
+            self.ctx.require_no_recovery()
+            try:
+                source = DiskSource(self.ctx.tree)
+                catalog = load_catalog(source)
+                self._snapshot.catalog = catalog
+                self._snapshot.pid = os.getpid()
+                try:
+                    yield catalog.revision
+                    self.ctx.require_no_recovery()
+                    current = DiskSource(self.ctx.tree)
+                    if (current.files != source.files or current.special != source.special
+                            or current.legacy_nonempty != source.legacy_nonempty):
+                        raise RevisionConflictError("Authored catalogue changed during read snapshot")
+                finally:
+                    del self._snapshot.catalog
+                    del self._snapshot.pid
+            except (StateConflictError, UnsafePathError, OSError) as exc:
+                raise RevisionConflictError("Authored catalogue changed during read snapshot") from exc
 
     @contextmanager
     def read_session(self):
@@ -128,7 +182,7 @@ class CatalogReader:
             }
             result.update(self._body(catalog, entry))
             if entry.kind in ("tool", "workflow"):
-                result["definition"] = entry.definition
+                result["definition"] = deepcopy(entry.definition)
             dependencies = []
             for dep_ref in catalog.dependency_closure(ref):
                 dep = catalog.entries[dep_ref]
@@ -167,10 +221,29 @@ class CatalogReader:
             raise UnavailableError(f"package {package_id!r} is not enabled for this selection",
                                    details={"package_id": package_id,
                                             "diagnostics": [f"package {package_id!r} is not enabled for this selection"]})
-        root_path = f"packages/{package_id}/{path}"
         with self.ctx.store.lock(exclusive=False):
             self.ctx.require_no_recovery(publications_only=True)
-            data = self.ctx.tree.read(root_path, max_bytes=max_bytes)
+            catalog = self._load()
+            package = catalog.packages.get(package_id)
+            if package is None:
+                raise NotFoundError(f"no valid package {package_id!r}", details={"package_id": package_id})
+            root_path = f"{package.dir}/{path}"
+            if self._active_catalog() is not None and root_path in catalog.source.files:
+                if catalog.source.files[root_path].size > max_bytes:
+                    raise AgenticError(f"file is larger than {max_bytes} bytes: {root_path}",
+                                       code="limit_exceeded", details={"path": root_path, "limit": max_bytes})
+                try:
+                    data = catalog.source.read(root_path, max_bytes=max_bytes)
+                except (StateConflictError, UnsafePathError, OSError) as exc:
+                    raise RevisionConflictError("Authored resource changed during read snapshot") from exc
+                except AgenticError as exc:
+                    if exc.code != "limit_exceeded":
+                        raise
+                    raise RevisionConflictError("Authored resource changed during read snapshot") from exc
+            elif self._active_catalog() is not None:
+                data = None
+            else:
+                data = self.ctx.tree.read(root_path, max_bytes=max_bytes)
         if data is None:
             raise NotFoundError(f"no such resource {path!r} in package {package_id!r}",
                                 details={"package_id": package_id, "path": path})
@@ -195,9 +268,12 @@ class CatalogReader:
                 "id": p.id,
                 "name": p.name,
                 "description": p.description,
-                "source": p.source,
+                "path": p.dir,
+                "area": p.dir.split("/", 1)[0],
+                "editable": p.dir.split("/", 1)[0] in ("plugins", "user-preferences"),
+                "source": deepcopy(p.source),
                 "manifest_sha256": p.manifest_sha256,
-                "entry_ids": p.entry_ids,
+                "entry_ids": list(p.entry_ids),
             }
             for p in sorted(catalog.packages.values(), key=lambda p: p.id)
             if wanted is None or p.id in wanted

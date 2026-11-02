@@ -30,6 +30,7 @@ OPERATIONS = {
     **{f"tools.{name}": ("tools", name) for name in ("invoke", "test", "receipt", "reconcile")},
     **{f"workflows.{name}": ("workflows", name) for name in
        ("start", "get", "list", "supply_arguments", "start_step", "complete_step", "pause", "resume", "cancel")},
+    **{f"overseer.outside.{name}": ("overseer.outside", name) for name in ("record", "get", "list")},
     **{f"overseer.proposals.{name}": ("overseer.proposals", name) for name in ("record", "get", "list")},
     **{f"overseer.deltas.{name}": ("overseer.deltas", name) for name in ("create", "revise", "get", "list")},
     **{f"overseer.{group}.{name}": (f"overseer.{group}", name)

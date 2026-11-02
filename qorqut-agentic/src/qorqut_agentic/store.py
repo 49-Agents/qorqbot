@@ -19,7 +19,7 @@ from typing import Iterator
 
 from .errors import AgenticError, StoreError
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 DB_NAME = "state.sqlite3"
 LOCK_NAME = "authoring.lock"
 SCRATCH_DIR = "scratch"
@@ -213,6 +213,22 @@ CREATE TABLE IF NOT EXISTS workflow_ops (
 """
 
 
+def _verify_layout(conn, version):
+    from .overseer import schema
+    expected = sqlite3.connect(":memory:")
+    try:
+        expected.executescript(DDL)
+        if version in ("2", "3"):
+            schema.install(expected)
+        if version == "3":
+            schema.install_v3(expected)
+        query = "SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name"
+        if [tuple(row) for row in conn.execute(query)] != [tuple(row) for row in expected.execute(query)]:
+            raise StoreError("unknown or partial state schema", code="state_mismatch")
+    finally:
+        expected.close()
+
+
 class Store:
     def __init__(self, state_dir: Path | str):
         self.state_dir = Path(state_dir)
@@ -278,8 +294,9 @@ class Store:
             conn.execute("PRAGMA journal_mode = WAL")
             conn.executescript(DDL)
             conn.execute("BEGIN IMMEDIATE")
-            from .overseer.schema import install
+            from .overseer.schema import install, install_v3
             install(conn)
+            install_v3(conn)
             for key, value in (
                 ("schema_version", str(SCHEMA_VERSION)),
                 ("root_path", root_path),
@@ -302,10 +319,12 @@ class Store:
             )
         with self.reader() as conn:
             meta = {row["key"]: row["value"] for row in conn.execute("SELECT key, value FROM meta")}
+            if meta.get("schema_version") == str(SCHEMA_VERSION):
+                _verify_layout(conn, str(SCHEMA_VERSION))
         if meta.get("schema_version") != str(SCHEMA_VERSION):
             raise StoreError(
                 f"unsupported state schema version {meta.get('schema_version')!r}",
-                code="migration_required" if meta.get("schema_version") == "1" else "state_mismatch",
+                code="migration_required" if meta.get("schema_version") in ("1", "2") else "state_mismatch",
                 details={"found": meta.get("schema_version"), "supported": SCHEMA_VERSION},
             )
         if meta.get("root_path") != root_path:
@@ -330,17 +349,60 @@ class Store:
                 if meta.get("root_path") != root_path:
                     raise StoreError("the state store is bound to a different authoring root", code="state_mismatch")
                 if meta.get("schema_version") == "2":
+                    _verify_layout(conn, "2")
                     receipt = conn.execute("SELECT completed_at FROM overseer_migrations WHERE from_version = 1 AND to_version = 2").fetchone()
                     if receipt is None:
                         raise StoreError("state was not migrated from schema 1", code="state_mismatch")
                     return {"from_version": 1, "to_version": 2, "completed_at": receipt["completed_at"], "replayed": True}
                 if meta.get("schema_version") != "1":
                     raise StoreError("unsupported state schema version", code="state_mismatch", details={"found": meta.get("schema_version")})
+                _verify_layout(conn, "1")
+                if conn.execute("SELECT 1 FROM pending_changes LIMIT 1").fetchone() or conn.execute("SELECT 1 FROM pending_files LIMIT 1").fetchone():
+                    raise StoreError("unfinished authoring requires recovery", code="state_mismatch")
                 from .overseer.schema import install
                 install(conn)
                 conn.execute("INSERT INTO overseer_migrations VALUES (1, 2, ?)", (completed_at,))
                 conn.execute("UPDATE meta SET value = '2' WHERE key = 'schema_version'")
                 return {"from_version": 1, "to_version": 2, "completed_at": completed_at, "replayed": False}
+
+    def migrate_to_current(self, root_path: str, completed_at: str) -> dict[str, object]:
+        """Validate the exact known schema and upgrade all required steps atomically."""
+        if not self.exists():
+            raise StoreError("no initialized agentic state", code="store_not_initialized")
+        with self.lock(exclusive=True), self.transaction() as conn:
+            return self._migrate_to_current(conn, root_path, completed_at)
+
+    def _migrate_to_current(self, conn, root_path: str, completed_at: str) -> dict[str, object]:
+        """Perform the validated transition on the caller-owned transaction."""
+        import re
+        from .overseer import schema
+        try:
+            meta = {r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM meta")}
+            version = meta.get("schema_version")
+            if (version not in ("1", "2", "3") or meta.get("root_path") != root_path
+                    or not re.fullmatch(r"inst_[0-9a-f]{32}", meta.get("instance_id", ""))
+                    or not meta.get("initialized_at")):
+                raise StoreError("unknown or invalid state metadata", code="state_mismatch")
+            _verify_layout(conn, version)
+            if conn.execute("SELECT 1 FROM pending_changes LIMIT 1").fetchone() or conn.execute("SELECT 1 FROM pending_files LIMIT 1").fetchone():
+                raise StoreError("unfinished authoring requires recovery", code="state_mismatch")
+            if version in ("2", "3") and conn.execute("SELECT 1 FROM overseer_publications WHERE stage NOT IN ('prepared','merged','complete','superseded') LIMIT 1").fetchone():
+                raise StoreError("unfinished publication requires recovery", code="state_mismatch")
+            if version == "3":
+                receipt = conn.execute("SELECT completed_at FROM overseer_migrations WHERE from_version=2 AND to_version=3").fetchone()
+                if receipt is None:
+                    raise StoreError("state was not migrated from schema 2", code="state_mismatch")
+                return {"from_version": 2, "to_version": 3, "completed_at": receipt[0], "replayed": True}
+            if version == "1":
+                schema.install(conn)
+                conn.execute("INSERT INTO overseer_migrations VALUES (1, 2, ?)", (completed_at,))
+                conn.execute("UPDATE meta SET value='2' WHERE key='schema_version'")
+            schema.install_v3(conn)
+            conn.execute("INSERT INTO overseer_migrations VALUES (2, 3, ?)", (completed_at,))
+            conn.execute("UPDATE meta SET value='3' WHERE key='schema_version'")
+            return {"from_version": int(version), "to_version": 3, "completed_at": completed_at, "replayed": False}
+        except sqlite3.DatabaseError as exc:
+            raise StoreError("unknown or partial state schema", code="state_mismatch") from exc
 
     # -- authoring lock ---------------------------------------------------------
     @contextmanager

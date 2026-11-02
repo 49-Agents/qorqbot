@@ -1,0 +1,16 @@
+schema_version: 1
+id: review
+description: Owner-invoked semantic review and a frozen batch with canonical Signoff decisions.
+arguments: []
+steps:
+  - id: load-history
+    instruction_ref: overseer/review-instructions
+  - id: group-and-rank
+    instructions: Read proposals and previous decisions; use agent judgment to group and rank, preserving contrary evidence and rejected decisions. Save consolidated revisions with overseer.deltas.create or overseer.deltas.revise.
+    depends_on: [load-history]
+  - id: freeze-batch
+    instructions: Use overseer.review.save_batch for at most five actionable revisions and ranking reasons of at most 50 words each, with full evidence available.
+    depends_on: [group-and-rank]
+  - id: signoffs
+    instructions: Create owner-only review Signoffs with overseer_input_request and reconcile canonical responses with overseer_input_reconcile. Resolve ambiguous or conditional responses through clarification Signoffs; acceptance queues dormant work.
+    depends_on: [freeze-batch]

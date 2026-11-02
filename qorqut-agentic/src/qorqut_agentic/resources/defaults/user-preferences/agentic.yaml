@@ -1,0 +1,10 @@
+schema_version: 1
+id: user-preferences
+name: User preferences
+description: Universal user preferences.
+entries:
+  - id: preferences
+    kind: skill
+    description: Universal user preferences for all agents.
+    when_to_use: At the start of every agent session.
+    path: SKILL.md

@@ -65,8 +65,10 @@ def package_ids_of(paths: list[str]) -> list[str]:
     found = set()
     for path in paths:
         parts = path.split("/")
-        if len(parts) >= 3 and parts[0] == "packages":
+        if len(parts) >= 3 and parts[0] in ("roles", "operations", "overseer", "plugins"):
             found.add(parts[1])
+        elif len(parts) >= 2 and parts[0] == "user-preferences":
+            found.add("user-preferences")
     return sorted(found)
 
 
@@ -284,6 +286,11 @@ class Changes:
 
     def scan_locked(self, attribution: dict[str, Any], paths: set[str] | None = None) -> dict[str, Any]:
         """Scan while the caller holds the exclusive lock. ``paths`` restricts the scan."""
+        with self.ctx.store.transaction() as conn:
+            return self._scan_connection(conn, attribution, paths=paths)
+
+    def _scan_connection(self, conn, attribution, *, paths=None, change_id=None, created_at=None, details=None):
+        """Reconcile inventory in the caller-owned transaction and lock."""
         ctx = self.ctx
         observed: dict[str, FileEntry | None] = {}
         skipped: list[dict[str, str]] = []
@@ -298,8 +305,7 @@ class Changes:
                     observed[rel] = ctx.tree.digest(rel)
                 elif kind in ("symlink", "other"):
                     skipped.append({"path": rel, "kind": kind})
-        with ctx.store.reader() as conn:
-            known = {row["path"]: row["sha256"] for row in conn.execute("SELECT path, sha256 FROM inventory")}
+        known = {row["path"]: row["sha256"] for row in conn.execute("SELECT path, sha256 FROM inventory")}
         recorded: list[dict[str, Any]] = []
         universe = set(observed) | (set(known) if paths is None else {p for p in paths if p in known})
         for rel in sorted(universe):
@@ -324,23 +330,23 @@ class Changes:
             "deleted": sum(1 for r in recorded if r["action"] == "delete"),
         }
         if not recorded:
-            return {"change": None, **counts, "skipped": skipped, "head": self.cursor_head()}
+            return {"change": None, **counts, "skipped": skipped, "head": self._head(conn)}
+        change_id = change_id or new_id("chg")
+        created_at = created_at or ctx.now()
         catalog = ctx.load_catalog_locked()
         entry_refs = entries_touching(catalog, {r["path"] for r in recorded})
-        change_id = new_id("chg")
-        with ctx.store.transaction() as conn:
-            insert_event(
-                conn,
-                change_id=change_id,
-                created_at=ctx.now(),
-                kind="external_scan",
-                attribution=attribution,
-                files=recorded,
-                entry_refs=entry_refs,
-                details={"observed": "net change between the recorded inventory and the files on disk"},
-            )
-            row = conn.execute("SELECT * FROM changes WHERE change_id = ?", (change_id,)).fetchone()
-            event = event_dict(conn, row)
+        insert_event(
+            conn,
+            change_id=change_id,
+            created_at=created_at,
+            kind="external_scan",
+            attribution=attribution,
+            files=recorded,
+            entry_refs=entry_refs,
+            details={"observed": "net change between the recorded inventory and the files on disk", **(details or {})},
+        )
+        row = conn.execute("SELECT * FROM changes WHERE change_id = ?", (change_id,)).fetchone()
+        event = event_dict(conn, row)
         return {"change": event, **counts, "skipped": skipped, "head": event["sequence"]}
 
     def cursor_head(self) -> int:
@@ -356,21 +362,25 @@ class Changes:
         committed value; earlier unlinked changes to the same path are subsumed
         by the commit's net result and linked too. No new content event is made.
         """
-        linked = 0
         with self.ctx.store.transaction() as conn:
-            for path, sha in committed.items():
-                rows = conn.execute(
-                    "SELECT rowid AS rid, after_sha256 FROM change_files WHERE path = ? AND commit_id IS NULL"
-                    " ORDER BY rowid",
-                    (path,),
-                ).fetchall()
-                last_match = None
-                for index, row in enumerate(rows):
-                    if row["after_sha256"] == sha:
-                        last_match = index
-                if last_match is None:
-                    continue
-                for row in rows[: last_match + 1]:
-                    conn.execute("UPDATE change_files SET commit_id = ? WHERE rowid = ?", (commit_id, row["rid"]))
-                    linked += 1
+            return self._link_commit_connection(conn, commit_id, committed)
+
+    def _link_commit_connection(self, conn, commit_id, committed, *, change_id=None):
+        """Link matching files on a caller-owned transaction."""
+        linked = 0
+        for path, sha in committed.items():
+            rows = conn.execute(
+                "SELECT rowid AS rid, after_sha256 FROM change_files WHERE path = ? AND commit_id IS NULL"
+                + (" AND change_id = ?" if change_id is not None else "") + " ORDER BY rowid",
+                (path, change_id) if change_id is not None else (path,),
+            ).fetchall()
+            last_match = None
+            for index, row in enumerate(rows):
+                if row["after_sha256"] == sha:
+                    last_match = index
+            if last_match is None:
+                continue
+            for row in rows[: last_match + 1]:
+                conn.execute("UPDATE change_files SET commit_id = ? WHERE rowid = ?", (commit_id, row["rid"]))
+                linked += 1
         return linked

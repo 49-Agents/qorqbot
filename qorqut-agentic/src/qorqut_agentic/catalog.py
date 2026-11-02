@@ -9,11 +9,13 @@ every problem is reported as an :class:`Issue`.
 from __future__ import annotations
 
 import posixpath
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Protocol
 
 from .errors import InvalidRequestError, UnsafePathError
 from .files import FileEntry, split_path
+from .layout import AREAS
 from .schemas import (
     ACQUISITION_MODES,
     DEFAULT_TOOL_LIMITS,
@@ -32,7 +34,7 @@ MANIFEST_NAME = "agentic.yaml"
 
 
 class Source(Protocol):
-    prefix: str
+    prefix: str | None
     files: dict[str, FileEntry]
     special: dict[str, str]
 
@@ -78,7 +80,7 @@ class Package:
     id: str
     name: str
     description: str
-    dir: str  # root-relative, e.g. packages/email-composition
+    dir: str  # root-relative physical package directory
     manifest_path: str
     manifest_sha256: str
     source: dict[str, Any] | None
@@ -163,7 +165,7 @@ class Catalog:
         self.packages: dict[str, Package] = {}
         self.entries: dict[str, Entry] = {}
         self.issues: list[Issue] = []
-        self.revision = bundle_digest((rel, entry.sha256) for rel, entry in source.files.items() if rel.startswith(PACKAGES_DIR + "/"))
+        self.revision = bundle_digest((rel, entry.sha256) for rel, entry in source.files.items() if rel.split("/", 1)[0] in AREAS)
 
     # -- lookups ---------------------------------------------------------------
     def get(self, ref: str) -> Entry | None:
@@ -230,10 +232,12 @@ class Catalog:
             "when_to_use": entry.when_to_use,
             "path": entry.path,
             "root_path": entry.root_path,
+            "area": package.dir.split("/", 1)[0],
+            "editable": package.dir.split("/", 1)[0] in ("plugins", "user-preferences"),
             "scope": entry.scope,
             "applicability": {"work_types": list(entry.work_types), "project_ids": list(entry.project_ids)},
             "requires": list(entry.requires),
-            "source": package.source,
+            "source": deepcopy(package.source),
             "revision": entry.revision,
             "bundle_revision": entry.bundle_revision,
             "code_revision": entry.code_revision,
@@ -289,35 +293,45 @@ class Catalog:
 
 def _package_of(rel: str) -> str | None:
     parts = rel.split("/")
-    return parts[1] if len(parts) >= 3 and parts[0] == PACKAGES_DIR else None
+    if parts[0] == "user-preferences":
+        return "user-preferences"
+    return parts[1] if len(parts) >= 3 and parts[0] in AREAS else None
 
 
 def load_catalog(source: Source) -> Catalog:
     catalog = Catalog(source)
     issues = catalog.issues
-    by_dir: dict[str, list[str]] = {}
-    for rel in sorted(source.files):
+    if getattr(source, "legacy_nonempty", False):
+        issues.append(Issue("layout_migration_required", "legacy packages/ requires layout migration", path="packages"))
+    by_dir: set[str] = set()
+    for rel in sorted(set(source.files) | set(source.special)):
         parts = rel.split("/")
-        if parts[0] != PACKAGES_DIR:
+        area = parts[0]
+        if area == "packages":
             continue
-        if len(parts) == 2:
-            issues.append(Issue("stray_file", f"file directly under {PACKAGES_DIR}/ is ignored: {rel}", "warning", path=rel))
-        else:
-            by_dir.setdefault(parts[1], []).append(rel)
+        if area not in AREAS:
+            continue
+        if area == "user-preferences":
+            by_dir.add(area)
+        elif len(parts) >= 3:
+            by_dir.add("/".join(parts[:2]))
+        elif len(parts) == 2:
+            issues.append(Issue("stray_file", f"file directly under {area}/ is ignored: {rel}", "warning", path=rel))
     for rel, kind in sorted(source.special.items()):
-        issues.append(
-            Issue("symlink_not_allowed" if kind == "symlink" else "special_file_not_allowed",
-                  f"{kind} in the catalog tree is not allowed: {rel}", package_id=_package_of(rel), path=rel)
-        )
-        pkg_dir = _package_of(rel)
-        if pkg_dir:
-            by_dir.setdefault(pkg_dir, [])
-
+        issues.append(Issue("symlink_not_allowed" if kind == "symlink" else "special_file_not_allowed",
+                            f"{kind} in the catalog tree is not allowed: {rel}", package_id=_package_of(rel), path=rel))
+    counts: dict[str, int] = {}
+    for directory in by_dir:
+        name = directory.rsplit("/", 1)[-1]
+        counts[name] = counts.get(name, 0) + 1
     built: dict[str, Entry] = {}
-    declared: dict[str, str] = {}  # ref -> package presence, for messages
-    for dir_name in sorted(by_dir):
-        _load_package(catalog, dir_name, built, declared)
-
+    declared: dict[str, str] = {}
+    for directory in sorted(by_dir):
+        name = directory.rsplit("/", 1)[-1]
+        if counts[name] > 1:
+            issues.append(Issue("duplicate_package_id", f"package id {name!r} occurs in multiple areas", package_id=name, path=directory))
+            continue
+        _load_package(catalog, directory, built, declared)
     valid = dict(built)
     _prune_unresolvable(catalog, valid, declared)
     _prune_cycles(catalog, valid)
@@ -330,11 +344,15 @@ def load_catalog(source: Source) -> Catalog:
 
 def _load_package(catalog: Catalog, dir_name: str, built: dict[str, Entry], declared: dict[str, str]) -> None:
     source, issues = catalog.source, catalog.issues
+    pkg_dir = dir_name
+    dir_name = pkg_dir.rsplit("/", 1)[-1]
+    if dir_name == "user-preferences" and pkg_dir != "user-preferences":
+        issues.append(Issue("invalid_package_dir", "user-preferences is reserved for the singleton area", package_id=dir_name, path=pkg_dir))
+        return
     if not is_id(dir_name):
         issues.append(Issue("invalid_package_dir", f"package directory name is not a valid ID: {dir_name!r}",
-                            path=f"{PACKAGES_DIR}/{dir_name}"))
+                            path=pkg_dir))
         return
-    pkg_dir = f"{PACKAGES_DIR}/{dir_name}"
     manifest_path = f"{pkg_dir}/{MANIFEST_NAME}"
     if manifest_path not in source.files:
         issues.append(Issue("missing_manifest", f"package {dir_name!r} has no {MANIFEST_NAME}", package_id=dir_name, path=manifest_path))
