@@ -195,7 +195,6 @@ class RecoveryQuiescer:
     email_history: object | None = None
     # Optional writers of the engine's own inventory: they become required when the composition names them.
     telegram: object | None = None
-    content_sessions: object | None = None
     browser_writers: object | None = None
     sandbox_writers: object | None = None
     container_writers: object | None = None
@@ -212,7 +211,7 @@ class RecoveryQuiescer:
 
     def register_writer(self, name, controller):
         """Add one named controller to the inventory; a name is registered once."""
-        named = {"background", "signoffs", "email_history", "telegram", "content_sessions", "browser", "sandbox"}
+        named = {"background", "signoffs", "email_history", "telegram", "browser", "sandbox"}
         if not isinstance(name, str) or not name or name in named or name in self.writers:
             raise DomainError("invalid_configuration", f"Recovery writer {name!r} is invalid or already registered")
         self.writers[name] = controller
@@ -224,7 +223,7 @@ class RecoveryQuiescer:
         The composition's registered writers drain first (in registration order, the host's own stop order); the
         engine's classes follow. Nothing is stopped by asking."""
         named = (("background", self.background), ("signoffs", self.signoffs), ("email_history", self.email_history),
-                 ("telegram", self.telegram), ("content_sessions", self.content_sessions),
+                 ("telegram", self.telegram),
                  ("browser", self.browser_writers), ("sandbox", self.sandbox_writers))
         engine = {name: controller for name, controller in named if controller is not None}
         controllers = {**self.writers, **engine}
