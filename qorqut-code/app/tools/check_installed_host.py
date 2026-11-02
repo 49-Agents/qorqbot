@@ -43,7 +43,7 @@ exec(compile(Path(_spec.origin).read_bytes(), _spec.origin, "exec"), _snapshot._
 PROBE = Path(__file__).with_name("installed_host_probe.py")
 HEX40 = re.compile(r"[0-9a-f]{40}")
 # The wheels every preparation builds, and the ones added by each selected extension (prepare-local.py's receipt keys).
-BASE_WHEELS = ("qorqut-agentic", "qorqut-operations", "qorqut-context", "document-history", "learning-library", "host")
+BASE_WHEELS = ("qorqut-agentic", "qorqut-operations", "qorqut-context", "document-history", "host")
 SELECTED_WHEELS = {"paper": ("paper-service", "qorqut-paper"), "content": ("content-library", "qorqut-content"),
                    "fastmail": ("email-engine", "qorqut-fastmail")}
 BASE_ENVIRONMENTS = ("venv",)
