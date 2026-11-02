@@ -13,6 +13,14 @@ candidate/decision states, and inspects the typed semantics of each retained ope
 jobs, runs, scan states, files, history targets and ordinary/nested reconciliation and supersession structures. Unknown,
 unprovable, procedural, engine-linked or foreign effects are refused before the PreparedFileExecutor applies any file
 and again before the domain apply.
+
+A reconciliation deliberately removes a fresh same-run earlier item from its batch and keeps only a complete copy in the
+surviving candidate's ``reconciliations[].earlier``. Stored or prepared candidate/decision state stays authoritative for
+every referenced identity. Only a full ``earlier`` copy whose identity has no such state is proved from the copy itself:
+an explicit factual bucket, no engine marker, the relation's scope, and the existing pure item validator against the
+frozen extraction core of its own run (the exact prepared run effect of the same plan, else the stored run). A bare
+identifier, an identity-only stub, unsupported or mismatched evidence and conflicting copies of one identity are refused,
+and a copy never resolves any other reference.
 """
 
 import base64
@@ -26,6 +34,7 @@ from qorqut_context.integration.queue.queue import general_arguments
 from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.documents.serialization import document_bytes, split_document
 
+from . import analysis
 from .intake import snapshot as intake_snapshot
 
 PROCEDURAL_BUCKET = "delta"
@@ -293,6 +302,9 @@ class _Effects:
         self.accepted = False
         self._candidate_rows = {}
         self._decision_rows = {}
+        self._run_rows = {}
+        self.prepared_runs = {}
+        self._embedded = {}
         self._validate_effects()
         if (self.auxiliary or self.auxiliary_jobs) and (
                 type(self.source_bytes) is not int or self.source_bytes < 1):
@@ -389,6 +401,7 @@ class _Effects:
                 _forbidden("A prepared learning run carries unsupported fields: " + ", ".join(unsupported) + ".")
             if _engine_marker(result):
                 _forbidden("A prepared learning run carries a procedural engine projection.")
+            self.prepared_runs[(change.resource.business_id, change.resource.resource_id)] = result
         elif table == "learning_scan_state":
             state = _json_object(values.get("state_json"), "A prepared scan state")
             if change.action == "insert" and values.get("session_id") != change.resource.resource_id:
@@ -453,6 +466,76 @@ class _Effects:
             return None
         return effective(row["candidate_json"], self.decision_row(business, identity))
 
+    def _inserted_here(self, business, identity):
+        """Whether this plan inserts the candidate and no stored row exists yet."""
+        change = self.candidate_changes.get((business, identity))
+        return change is not None and change[0].action == "insert" and self.candidate_row(business, identity) is None
+
+    def has_candidate_state(self, business, identity):
+        """Whether any stored or prepared candidate or decision state exists for this identity."""
+        return (self.candidate_json_after(business, identity) is not None
+                or self.after_decision(business, identity) is not None)
+
+    def frozen_core(self, business, run_id, session):
+        """The frozen extraction core of one run/session: the exact prepared run effect, else the stored run."""
+        key = (business, run_id)
+        result = self.prepared_runs.get(key)
+        if key not in self._run_rows:
+            self._run_rows[key] = self.uow.repository("learning_runs", business_id=business).get(run_id)
+        row = self._run_rows[key]
+        if result is not None:
+            if row is not None:
+                _forbidden("A prepared learning run inserts an existing run.")
+        elif row is None:
+            _forbidden("An embedded earlier learning snapshot names a run that is neither stored nor prepared.")
+        else:
+            result = _json_object(row["result_json"], "A stored learning run")
+        cores = result.get("cores")
+        core = cores.get(session) if isinstance(cores, dict) else None
+        if not isinstance(core, dict):
+            _forbidden("An embedded earlier learning snapshot has no frozen extraction core in its run.")
+        return core
+
+    def embedded_snapshot(self, business, owner, snapshot):
+        """Prove one complete factual ``reconciliations[].earlier`` snapshot whose identity has no stored/prepared state.
+
+        The reconciliation keeps a same-run earlier item only as this full copy inside its surviving candidate. It is
+        trusted only after the existing pure item validator accepts it against its own frozen extraction core; it never
+        becomes a lookup for any other reference.
+        """
+        identity = _identifier(snapshot.get("id"), "An embedded earlier learning identity")
+        copy = _json_object(snapshot, "An embedded earlier learning snapshot")
+        canonical = json.dumps(copy, sort_keys=True, separators=(",", ":"))
+        known = self._embedded.get((business, identity))
+        if known is not None:
+            if known != canonical:
+                _forbidden("A prepared learning plan embeds conflicting copies of one earlier learning record.")
+            return
+        if copy.get("bucket") != CONTEXT_BUCKET:
+            _forbidden("An embedded earlier learning snapshot must explicitly be a complete factual Context item.")
+        if _engine_marker(copy):
+            _forbidden("An embedded earlier learning snapshot carries a procedural engine projection.")
+        if copy.get("scope") != (owner or {}).get("scope"):
+            _forbidden("An embedded earlier learning snapshot belongs to another scope than its relation.")
+        run_id = _text(copy.get("run"), "An embedded earlier learning run")
+        evidence = copy.get("evidence")
+        if not isinstance(evidence, dict):
+            _forbidden("An embedded earlier learning snapshot has no evidence.")
+        if evidence.get("run", run_id) != run_id:
+            _forbidden("An embedded earlier learning snapshot names two different runs.")
+        session = _text(evidence.get("session"), "An embedded earlier learning session")
+        core = self.frozen_core(business, run_id, session)
+        header = core.get("header")
+        if not isinstance(header, dict) or header.get("session") != session:
+            _forbidden("An embedded earlier learning snapshot names another session than its frozen core.")
+        if "evidence_blocks" in core and evidence.get("source") != core.get("source"):
+            _forbidden("An embedded earlier learning snapshot carries another source than its frozen core.")
+        try:
+            analysis.validate_item(copy, core.get("markdown"), source_core=core)
+        except ValueError as exc:
+            _forbidden("An embedded earlier learning snapshot is not supported by its frozen evidence: " + str(exc))
+        self._embedded[(business, identity)] = canonical
+
     # -- validation -----------------------------------------------------------------------------------------------
     def validate(self):
         written = sorted(set(self.candidate_changes) | set(self.decision_changes))
@@ -516,6 +599,9 @@ class _Effects:
             snapshot = _json_object(values.get(side), "A prepared history snapshot")
             if _engine_marker(snapshot):
                 _forbidden("A prepared history snapshot carries a procedural engine projection.")
+            if side == "before_json" and self._inserted_here(self.business, identity) and not any(
+                    value is not None for value in snapshot.values()):
+                continue   # restoring an embedded earlier item: nothing existed before this prepared insert
             if "bucket" in snapshot:
                 if snapshot["bucket"] != CONTEXT_BUCKET:
                     _forbidden("A retained learning change may not record procedural history.")
@@ -825,21 +911,21 @@ def _validate_links(view, business, identity, state, seen=None, depth=0):
     seen = set() if seen is None else seen
     if depth > MAX_GRAPH_DEPTH:
         _forbidden("A prepared learning relation is nested too deeply to inspect.")
-    links = []
+    links = []   # (reference, whether it is a reconciliation's ``earlier`` that may be a complete embedded snapshot)
     for relation in state.get("reconciliations") or []:
         if not isinstance(relation, dict) or "earlier" not in relation:
             _forbidden("A prepared learning relation is malformed.")
-        links.append(relation["earlier"])
+        links.append((relation["earlier"], True))
         supersession = relation.get("supersession")
         if isinstance(supersession, dict) and supersession.get("replacement_id") is not None:
-            links.append(supersession["replacement_id"])
+            links.append((supersession["replacement_id"], False))
     for key in ("reconciled_into", "superseded_by"):
         if state.get(key) is not None:
-            links.append(state[key])
+            links.append((state[key], False))
     supersession = state.get("supersession")
     if isinstance(supersession, dict) and supersession.get("replacement_id") is not None:
-        links.append(supersession["replacement_id"])
-    for link in links:
+        links.append((supersession["replacement_id"], False))
+    for link, may_embed in links:
         embedded, target = None, link
         if isinstance(link, dict):
             embedded, target = link, link.get("id")
@@ -848,6 +934,12 @@ def _validate_links(view, business, identity, state, seen=None, depth=0):
         if embedded is not None:
             if embedded.get("bucket") not in (None, CONTEXT_BUCKET) or _engine_marker(embedded):
                 _forbidden("A prepared learning relation embeds a procedural or engine-linked candidate.")
+            if may_embed and not view.has_candidate_state(business, target):
+                # The same-run earlier item exists only as this complete copy; stored or prepared state, when present,
+                # stays authoritative and is validated below instead.
+                view.embedded_snapshot(business, state, embedded)
+                _validate_links(view, business, target, embedded, seen, depth + 1)
+                continue
             _validate_links(view, business, target, embedded, seen, depth + 1)
         _require_factual(view, business, target, seen, depth + 1)
 
