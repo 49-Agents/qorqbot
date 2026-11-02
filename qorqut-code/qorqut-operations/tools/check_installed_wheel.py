@@ -1,9 +1,9 @@
 """Build the wheel, install it into a disposable virtual environment and import it with no source tree in sight.
 
-    python tools/check_installed_wheel.py [workdir]
+    python tools/check_installed_wheel.py [workdir [first-party-wheel-directory]]
 
 Nothing global or live is touched: the wheel is built from this checkout into ``workdir`` (a temporary directory by
-default), a fresh venv is created there, the wheel is installed with its one runtime dependency, and a short synthetic
+default), a fresh venv is created there, the wheel is installed with its runtime dependencies, and a short synthetic
 script is run from an unrelated working directory with a clean ``sys.path``. The script proves that
 
 * the package imports from the installed wheel (not from the checkout),
@@ -23,11 +23,16 @@ The Signoff slice acts as an active global agent (a supported role, an ecosystem
 access is the active project directory, never a membership row, exactly as the engine requires of every agent.
 
 The build needs ``setuptools`` and ``wheel`` available to ``pip`` (pip fetches them into the isolated build
-environment) and a package index for ``jsonschema``.
+environment) and a package index for ``jsonschema``, ``markdown-it-py`` and ``PyYAML``. The fourth runtime dependency,
+the first-party ``qorqut-business-docs-versioning==0.2.0`` document-history library, is not on an index: give a directory
+holding its built wheel as the second argument (or ``QORQUT_FIRST_PARTY_WHEELS``) and the install uses it as a find-links
+location. The first script also proves the installed wheel brings both document libraries and still loads no host,
+Context, Paper or content module.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -50,6 +55,11 @@ from qorqut_operations.storage import (AssemblyBuilder, Database, FileEffectCont
 location = Path(qorqut_operations.__file__).resolve()
 assert "site-packages" in location.parts, location
 assert not any(name == "bazarlyk" or name.startswith("bazarlyk.") for name in sys.modules)
+# The source-document and exact-history packages import their two document libraries; both come with the wheel.
+import markdown_it, qorqut_business_docs_versioning
+import qorqut_operations.document_history.reads, qorqut_operations.documents.library
+assert "site-packages" in Path(qorqut_business_docs_versioning.__file__).resolve().parts
+assert not any(name.partition(".")[0] in {"bazarlyk", "qorqut_context", "qorqut_paper", "qorqut_content"} for name in sys.modules)
 
 class History:
     def capture_receipt(self, uow, receipt, plan): pass
@@ -549,7 +559,9 @@ def main(argv: list[str]) -> None:
         raise SystemExit(f"Expected exactly one wheel, found {wheels}")
     run([sys.executable, "-m", "venv", str(environment)])
     python = environment / "bin" / "python"
-    run([str(python), "-m", "pip", "install", "--quiet", str(wheels[0])])
+    first_party = argv[2] if len(argv) > 2 else os.environ.get("QORQUT_FIRST_PARTY_WHEELS")
+    find_links = ["--find-links", str(Path(first_party).resolve())] if first_party else []
+    run([str(python), "-m", "pip", "install", "--quiet", *find_links, str(wheels[0])])
     # -I: ignore PYTHON* variables and the user site; the cwd is an empty directory, not the checkout.
     for script in (PROBE, SLICE, NEUTRAL, DIRECTORY):
         output = run([str(python), "-I", "-c", script], cwd=elsewhere)

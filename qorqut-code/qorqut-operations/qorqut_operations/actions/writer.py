@@ -1,18 +1,18 @@
-"""The one writer of Actions: a record, a correction or a withdrawal is a row, its immutable revision and its queue input.
+"""The one writer of Actions: a record, a correction or a withdrawal is a row, its immutable revision and its admitted input.
 
 Every accepted change appends exactly one ``action_revisions`` row in the same prepared plan as the Action row it
 describes. ``settle`` then runs in the applying transaction, after the records are written and before it commits: it
-queues each new revision into the Context input queue (the exact stored revision, never a later read of the Action) and
-announces the change to the Action's followers. Any operation that writes Actions through ``new_action`` must settle its
-plan; the Action operations and the host's platform writebacks do.
+hands each new revision (the exact stored row, never a later read of the Action) to the required ``on_revision`` port
+and announces the change to the Action's followers. Any operation that writes Actions through ``new_action`` must settle
+its plan with the composition's one ``on_revision``; the Action operations and the host's platform writebacks do.
 """
 
 from __future__ import annotations
 
 from qorqut_operations.actions import models
+from qorqut_operations.actions.ports import require_on_revision
 from qorqut_operations.actions.scope import links
 from qorqut_operations.application.plans import UNSET
-from qorqut_operations.context_queue.queue import action_payload, enqueue_action
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.discussion.events import emit_event
 from qorqut_operations.discussion.follows import ThreadItem, auto_follow, followers
@@ -98,8 +98,12 @@ def change_action(builder, uow, before: dict, *, operation, changes: dict, busin
     return {**row, "revision": before["revision"] + 1}
 
 
-def settle(ctx, plan, uow) -> list[dict]:
-    """Queue and announce every Action revision a just-applied plan wrote. Runs inside the applying transaction."""
+def settle(ctx, plan, uow, *, on_revision) -> list[dict]:
+    """Admit and announce every Action revision a just-applied plan wrote. Runs inside the applying transaction.
+
+    ``on_revision(ctx, exact_revision, uow) -> input_id`` is the composition's required port; it receives the stored
+    revision row and its result is reported as ``input_id``."""
+    on_revision = require_on_revision(on_revision)
     settled = []
     for change in plan.changes:
         if change.resource.resource_type != "action_revisions" or change.action != "insert":
@@ -107,8 +111,7 @@ def settle(ctx, plan, uow) -> list[dict]:
         values = plain(change.values)
         revision = uow.repository("action_revisions", business_id=values["business_id"]).get(
             {"action_key": values["action_key"], "revision": values["revision"]}, required=True)
-        input_id = enqueue_action(uow, action_id=revision["action_key"], revision=revision["revision"],
-                                  operation=revision["operation"], payload=action_payload(revision))
+        input_id = on_revision(ctx, revision, uow)
         action = uow.connection.execute("SELECT * FROM action_logs WHERE action_key=?", (revision["action_key"],)).fetchone()
         item = ThreadItem(action["business_id"], "action", action["id"])
         if revision["operation"] == "add":

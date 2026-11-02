@@ -20,6 +20,7 @@ import uuid
 
 from qorqut_operations import local_time
 from qorqut_operations.actions import models
+from qorqut_operations.actions.ports import require_on_revision
 from qorqut_operations.actions.schema import CATEGORIES
 from qorqut_operations.actions.scope import (action_namespace, change_namespace, classify, evidence_visible, is_owner, links, may_change,
                                               reader_scope, scope_clause, visible)
@@ -96,12 +97,13 @@ COMMENT_EVENT = "note_added"
 
 
 class ActionOperations:
-    def __init__(self, application, references: DiscussionReferences, *, clock=utc_clock):
+    def __init__(self, application, references: DiscussionReferences, *, on_revision, clock=utc_clock):
         if not isinstance(references, DiscussionReferences):
             raise AssemblyError("Action discussions need the note references of the Task service (note_references())")
         if not callable(clock):
             raise AssemblyError("The action clock is a callable returning an aware timestamp")
         self.application, self.references, self.clock = application, references, clock
+        self.on_revision = require_on_revision(on_revision)
 
     # -- registration ----------------------------------------------------------------------------------------------
 
@@ -292,7 +294,7 @@ class ActionOperations:
 
     def apply(self, ctx, plan, uow):
         apply_records(ctx, plan, uow)
-        settled = settle(ctx, plan, uow)
+        settled = settle(ctx, plan, uow, on_revision=self.on_revision)
         key = settled[0]["action_key"]
         row = self.find(uow, key)
         scope = reader_scope(ctx, uow)
