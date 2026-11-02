@@ -1,6 +1,46 @@
 // The Global Agents page lists the supported global agents (including every permanent worker) and the owner's workspace Terminal.
 // Business agents are not resident: they are never listed, selected or started here.
 let globalAgentsGeneration = 0;
+// One page-level listener keeps every visible navigation face looking at the
+// pointer, even over Chat. Only pointer/layout changes schedule a frame.
+let globalAgentGazeRefresh;
+function wireGlobalAgentGaze() {
+  if (globalAgentGazeRefresh) { globalAgentGazeRefresh(); return; }
+  let pointer = null, frame = 0;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const paint = () => {
+    frame = 0;
+    document.querySelectorAll('#global-agent-list .qorqbot-agent').forEach(svg => {
+      const box = svg.getBoundingClientRect();
+      if (!box.width || !box.height) return;
+      const dx = pointer ? pointer.x - (box.left + box.width / 2) : 0;
+      const dy = pointer ? pointer.y - (box.top + box.height / 2) : 0;
+      const factor = reducedMotion.matches ? 0 : box.width * .045 / Math.max(100, Math.hypot(dx, dy));
+      svg.querySelectorAll('.qorqbot-gaze').forEach(eye => {
+        const matrix = eye.parentElement.getScreenCTM();
+        if (!matrix) return;
+        const inverse = matrix.inverse();
+        const x = (inverse.a * dx + inverse.c * dy) * factor;
+        const y = (inverse.b * dx + inverse.d * dy) * factor;
+        eye.setAttribute('transform', `translate(${x.toFixed(3)} ${y.toFixed(3)})`);
+      });
+    });
+  };
+  const schedule = () => { if (!frame) frame = requestAnimationFrame(paint); };
+  globalAgentGazeRefresh = schedule;
+  document.addEventListener('pointermove', event => {
+    if (event.pointerType === 'touch') return;
+    pointer = {x:event.clientX, y:event.clientY}; schedule();
+  }, {passive:true});
+  const reset = () => { pointer = null; schedule(); };
+  document.documentElement.addEventListener('pointerleave', reset);
+  window.addEventListener('blur', reset);
+  window.addEventListener('resize', schedule, {passive:true});
+  document.addEventListener('scroll', schedule, {passive:true, capture:true});
+  reducedMotion.addEventListener('change', schedule);
+  schedule();
+}
+
 // Attention links use the mounted roster's normal selection path. The page shell,
 // menu and divider stay in place while the destination agent changes.
 async function globalAgentsNavigate(agentId, options = {}) {
@@ -79,6 +119,7 @@ async function renderGlobalAgents(c) {
     ? '<span class="global-agent-group-divider" aria-hidden="true"></span>' : ''}<button class="item agent" type="button" data-global-agent="${esc(agent.agent_id)}" aria-pressed="false" aria-label="${esc(agent.display_name || agent.name)}">
     <span class="nm">${identityAvatar("agent", agent.display_name || agent.name, {...agent, ...agent.presentation})}</span>
   </button>`.replace(/\s*\n\s*/g, '')).join('');
+  wireGlobalAgentGaze();
   agentNavPaint(); agentNavRefresh();
   if (typeof replyNotifications !== 'undefined') replyNotifications.paint();
   const params = new URLSearchParams(location.search);
