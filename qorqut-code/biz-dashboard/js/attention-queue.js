@@ -38,7 +38,7 @@ const attentionQueue=(()=>{
     approval:'M9 5H5v16h14V5h-4M9 3h6v4H9zM8 14l3 3 5-6',
   };
   const signoffIcon=s=>{
-    const kind=/^(account_email_|email_)(send|reply|forward)$/.test(s.operation_name || '')
+    const kind=/^(account_email_|email_|fastmail_)(send|reply|forward)$/.test(s.operation_name || '')
       || ['email.send','email.batch'].includes(s.platform?.submission?.tool) ? 'email'
       : messageOperations.has(s.operation_name) ? 'message' : 'approval';
     return `<span class="attention-signoff" data-signoff-kind="${kind}" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="${signoffPaths[kind]}"/></svg></span>`;
