@@ -1,11 +1,12 @@
 """Explicit agentic change-feed connection to the existing Operations inbox.
 
 The caller supplies an opened layer and an admitted Operations write UOW. No
-store, thread, runtime adapter, native session or secondary transaction is made
-here. The receiver cursor and ordinary inbox appends commit or roll back together.
+store, thread, runtime adapter, native session or separate transaction owner is
+made here. The receiver cursor and ordinary inbox appends commit or roll back together.
 """
 
 import json
+import logging
 import re
 
 from qorqut_operations.contracts import DomainError, utc_now
@@ -16,6 +17,7 @@ from .inbox_schema import CONSUMER
 
 SOURCE = "agentic_changes"
 EVENT_TYPE = "agentic_layer_changed"
+LOG = logging.getLogger(__name__)
 _INSTANCE = re.compile(r"inst_[0-9a-f]{32}")
 _CHANGE = re.compile(r"chg_[0-9a-f]{32}")
 
@@ -35,6 +37,16 @@ def recipient(connection):
 class AgenticInboxBridge:
     def __init__(self, layer):
         self.layer = layer
+        self._last_callback_failure = None
+
+    @property
+    def last_callback_failure(self):
+        """Bounded in-memory observation of the last failed attached callback.
+
+        A successful callback clears it. Direct calls do not change this
+        observation; the durable cursor, not this diagnostic, controls retries.
+        """
+        return dict(self._last_callback_failure) if self._last_callback_failure is not None else None
 
     def _cursor(self, uow):
         instance_id = self.layer.instance_id
@@ -43,6 +55,13 @@ class AgenticInboxBridge:
         if row is not None and row["instance_id"] != instance_id:
             raise DomainError("agentic_instance_mismatch", "Agentic inbox is bound to a different module store")
         return instance_id, row["last_sequence"] if row is not None else 0, row is not None
+
+    def _changes_after(self, cursor, *, limit):
+        batch = self.layer.changes.list(after=cursor, limit=limit)
+        if cursor > batch["head"]:
+            raise DomainError("agentic_feed_rewound",
+                              "Agentic feed is behind the persisted inbox cursor; explicit reconciliation is required")
+        return batch
 
     @staticmethod
     def _result(instance_id, cursor, recipient_id, pending, delivered=0, self_skipped=0):
@@ -53,33 +72,35 @@ class AgenticInboxBridge:
     def status(self, uow):
         """Read status without binding, initializing or advancing either store."""
         instance_id, cursor, _ = self._cursor(uow)
-        batch = self.layer.changes.list(after=cursor, limit=1)
+        batch = self._changes_after(cursor, limit=1)
         return self._result(instance_id, cursor, recipient(uow.connection), bool(batch["changes"]))
 
     def reconcile(self, uow, *, limit=100):
         """Drain at most limit finalized changes inside the caller's admitted write transaction.
 
-        Exceptions must leave the caller's transaction, so its event/cursor
-        effects roll back. Module consumer cursors are never touched.
+        Direct callers must let exceptions leave their transaction so its
+        event/cursor effects roll back. The attached callback provides a
+        savepoint rollback boundary. Module consumer cursors are never touched.
         """
         uow.require_write()
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise DomainError("validation_error", "Agentic inbox limit must be an integer from 1 to 1000")
         instance_id, cursor, bound = self._cursor(uow)
+        # Check the persisted cursor against the feed before any host write,
+        # including when the recipient is unavailable.
+        batch = self._changes_after(cursor, limit=min(100, limit))
         recipient_id = recipient(uow.connection)
         if not bound:
             uow.connection.execute(
                 "INSERT INTO agentic_inbox_cursor(consumer,instance_id,last_sequence,updated_at) VALUES(?,?,0,?)",
                 (CONSUMER, instance_id, utc_now()))
         if recipient_id is None:
-            pending = bool(self.layer.changes.list(after=cursor, limit=1)["changes"])
+            pending = bool(batch["changes"])
             return self._result(instance_id, cursor, None, pending)
 
         delivered = self_skipped = 0
         pending = False
         while delivered + self_skipped < limit:
-            # Module pages are bounded more tightly than the host drain budget.
-            batch = self.layer.changes.list(after=cursor, limit=min(100, limit - delivered - self_skipped))
             for change in batch["changes"]:
                 sequence = change["sequence"]
                 if type(sequence) is not int or sequence <= cursor:
@@ -104,8 +125,10 @@ class AgenticInboxBridge:
                     "UPDATE agentic_inbox_cursor SET last_sequence=?,updated_at=? WHERE consumer=?",
                     (cursor, utc_now(), CONSUMER))
             pending = batch["has_more"]
-            if not pending:
+            if not pending or delivered + self_skipped >= limit:
                 break
+            # Module pages are bounded more tightly than the host drain budget.
+            batch = self._changes_after(cursor, limit=min(100, limit - delivered - self_skipped))
         return self._result(instance_id, cursor, recipient_id, pending, delivered, self_skipped)
 
     def visible_reference(self, ctx, row, uow):
@@ -158,7 +181,26 @@ def attach_agentic_inbox(runtime, layer, inbox):
     def reconcile(uow):
         if previous is not None:
             previous(uow)
-        return bridge.reconcile(uow)
+        connection = uow.connection
+        connection.execute("SAVEPOINT agentic_inbox_drain")
+        try:
+            result = bridge.reconcile(uow)
+        except Exception as error:
+            connection.execute("ROLLBACK TO SAVEPOINT agentic_inbox_drain")
+            connection.execute("RELEASE SAVEPOINT agentic_inbox_drain")
+            code = getattr(error, "code", None)
+            if not isinstance(code, str) or re.fullmatch(r"[A-Za-z0-9_]{1,80}", code) is None:
+                code = "agentic_callback_failed"
+            error_type = type(error).__name__[:80]
+            bridge._last_callback_failure = {"code": code, "error_type": error_type, "observed_at": utc_now()}
+            # No exception text, paths, attribution or file contents enter this
+            # bounded diagnostic. Pending durable work remains retryable.
+            LOG.warning("Agentic inbox reconcile failed: %s (%s)", code, error_type)
+            return None
+        else:
+            connection.execute("RELEASE SAVEPOINT agentic_inbox_drain")
+            bridge._last_callback_failure = None
+            return result
 
     bridge._backend, bridge._hook = backend, reconcile
     host.agentic_inbox_bridge = runtime.agentic_inbox_bridge = bridge
