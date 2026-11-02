@@ -288,7 +288,7 @@ function agfocusMount(p) {
     signoffQueue.className='focus-signoff-queue';signoffQueue.setAttribute('aria-label','Signoff queue');signoffQueue.hidden=true;
     board.querySelector('.attention-queue').after(signoffQueue);
   }
-  const disposeSignoffs=typeof attentionQueue!=='undefined'?attentionQueue.mountSignoffs(signoffQueue,id=>p.focus?.items.find(item=>item.source?.type==='signoff' && item.source.id===id)?.display_name):()=>{};
+  const disposeSignoffs=typeof attentionQueue!=='undefined'?attentionQueue.mountSignoffs(signoffQueue,id=>p.focus?.items.find(item=>item.source?.type==='signoff' && item.source.id===id)?.display_name,summary=>agfocusOpenSignoff(p,summary)):()=>{};
   // Focus and Threads share one record workspace. Its header owns Back, the type and
   // Chat icon tabs and Close; selecting a row no longer mounts a conversation inside it.
   p.focusWorkspace=recordWorkspaceMount($('.agfocus-dock-content',board),{
@@ -886,6 +886,36 @@ function agfocusWorkspaceTitle(p,record) {
   }
 }
 function agfocusActive(p) { return !!p && agpadActive(p) && p.view==='focus'; }
+
+// A pending-Signoff chip opens the same shared record workspace as a pinned Signoff row. The queue passes the
+// canonical list summary, so an unpinned Signoff still gets its ordinary source/scope descriptor and reader.
+async function agfocusOpenSignoff(p, summary) {
+  if (!summary || summary.type !== 'signoff' || !summary.id) return false;
+  const record=rwRecordFromItem({source: {type: 'signoff', id: summary.id,
+    business_id: summary.review_business_id ?? summary.business_id ?? null, label: summary.title || summary.label,
+    resource_type: 'signoffs', revision: summary.status_revision, business_slug: summary.business_slug,
+    business_name: summary.business_name}}, {can_thread: true});
+  if (!record) {
+    if (agfocusActive(p)) { p.focusError='This Signoff is no longer available.'; agfocusPaint(p); }
+    return false;
+  }
+  agfocusShowDock(p);
+  try {
+    const opened=await p.focusWorkspace?.open(record, {root: true, tab: 'chat'}) ?? false;
+    if (opened) {
+      // The Signoff, not a pinned Focus card, now owns the dock. Clear the old visual selection without hiding the
+      // dock, so clicking that card again can reopen it.
+      const previous=p.focusCards.get(p.focusSelected);
+      if (previous) { previous.classList.add('agfocus-collapsed'); previous.setAttribute('aria-expanded','false'); }
+      p.focusSelected=null;
+    }
+    return opened;
+  } catch (error) {
+    // The workspace owns denial/read failures; never fall back to the retired Signoff modal.
+    if (agfocusActive(p)) { p.focusError=error.message; agfocusPaint(p); }
+    return false;
+  }
+}
 
 async function agfocusOpenLinkedItem(p) {
   const url=new URL(location.href),id=url.searchParams.get('focus_item');

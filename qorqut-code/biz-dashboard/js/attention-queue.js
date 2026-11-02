@@ -56,9 +56,9 @@ const attentionQueue=(()=>{
   }
   const paintAll=()=>{mounts.forEach(paint);const current=remaining();lists.forEach(host=>{if(!host.isConnected){lists.delete(host);return;}host.innerHTML=current.length?current.map(button).join(''):'<p class="muted">Nothing new</p>';});};
   function paintSignoffs(){
-    for(const [host,name] of signoffMounts){
+    for(const [host,mount] of signoffMounts){
       if(!host.isConnected){signoffMounts.delete(host);continue;}
-      const markup=signoffs.map(s=>{const title=name?.(s.id)||s.title;return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" aria-label="Review ${esc(title)}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
+      const markup=signoffs.map(s=>{const title=mount.name?.(s.id)||s.title;return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" aria-label="Review ${esc(title)}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
       const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'');
       if(host._signoffHTML!==html){host.innerHTML=html;host._signoffHTML=html;}
       host.hidden=!signoffs.length&&!signoffsError;
@@ -93,7 +93,18 @@ const attentionQueue=(()=>{
   function signoffClick(event){
     if(event.target.closest('[data-signoffs-retry]')){void refreshSignoffs();return;}
     const key=event.target.closest('[data-signoff-key]')?.dataset.signoffKey,s=signoffs.find(item=>item.id===key);
-    if(s)void open({kind:'signoff',signoff_id:s.id,business_id:s.review_business_id,category:s.category,globalReview:true}).catch(e=>toast(e.message));
+    if(!s)return;
+    const mount=signoffMounts.get(event.currentTarget);
+    if(mount?.opener){
+      // A configured opener owns selection. It builds the normal shared workspace entry from this canonical
+      // summary; a false result (a cancelled discard, for example) leaves the old pane in place and never falls
+      // through to the unrelated legacy Signoff modal. The opener owns its workspace error surface.
+      const summary={type:'signoff',id:s.id,title:s.title,label:s.title,review_business_id:s.review_business_id??null,
+        business_id:s.review_business_id??null,category:s.category,review_scope:s.review_scope,status_revision:s.status_revision};
+      void Promise.resolve(mount.opener(summary)).catch(()=>{});
+      return;
+    }
+    void open({kind:'signoff',signoff_id:s.id,business_id:s.review_business_id,category:s.category,globalReview:true}).catch(e=>toast(e.message));
   }
   async function loadQueue(){
     loading=true;const request=++generation;
@@ -200,7 +211,7 @@ const attentionQueue=(()=>{
   window.addEventListener('focus',()=>{if(mounts.size)void refresh();void refreshSignoffs();});
   if(typeof onChange==='function')onChange(['signoffs'],null,()=>{void refreshSignoffs();});
   return {signoffViewed,viewboxViewed,refresh,refreshSignoffs,paintSignoffs,
-    mountSignoffs(host,name){signoffMounts.set(host,name);host.addEventListener('click',signoffClick);paintSignoffs();void refreshSignoffs();
+    mountSignoffs(host,name,opener){signoffMounts.set(host,{name,opener});host.addEventListener('click',signoffClick);paintSignoffs();void refreshSignoffs();
       return ()=>{signoffMounts.delete(host);host.removeEventListener('click',signoffClick);if(!signoffMounts.size)clearTimeout(signoffTimer);};},
     mount(host){mounts.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);paint(host);void refresh();
     return ()=>{mounts.delete(host);host.removeEventListener('click',clicks);host.removeEventListener('contextmenu',dismiss);if(!mounts.size)clearTimeout(timer);};}};
