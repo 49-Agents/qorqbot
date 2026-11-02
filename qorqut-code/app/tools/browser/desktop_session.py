@@ -64,7 +64,7 @@ class Busy(Exception):
 
 @dataclass(frozen=True)
 class Binaries:
-    """Fixed system executables. Only tests inject replacements; configs cannot."""
+    """Fixed system or packaged executables. Session configs cannot select commands."""
     xvnc: str = "/usr/bin/Xtigervnc"
     xauth: str = "/usr/bin/xauth"
     xdpyinfo: str = "/usr/bin/xdpyinfo"
@@ -74,6 +74,24 @@ class Binaries:
     dbus_daemon: str = "/usr/bin/dbus-daemon"
     dbus_update: str = "/usr/bin/dbus-update-activation-environment"
     keyring_daemon: str = "/usr/bin/gnome-keyring-daemon"
+    native_root: str | None = None
+
+
+def installed_binaries(environment=None):
+    environment = os.environ if environment is None else environment
+    value = environment.get("QORQUT_NATIVE_ROOT")
+    if not value:
+        return Binaries()
+    root = Path(value)
+    if not root.is_absolute() or not root.is_dir():
+        raise ConfigError("QORQUT_NATIVE_ROOT must name the installed native runtime")
+    names = {"xvnc": "Xtigervnc", "xauth": "xauth", "xdpyinfo": "xdpyinfo", "xset": "xset",
+             "window_manager": "openbox", "chrome": "chrome", "dbus_daemon": "dbus-daemon",
+             "dbus_update": "dbus-update-activation-environment", "keyring_daemon": "gnome-keyring-daemon"}
+    paths = {key: str(root / "bin" / name) for key, name in names.items()}
+    if any(not Path(path).is_file() or not os.access(path, os.X_OK) for path in paths.values()):
+        raise ConfigError("the packaged desktop tools are incomplete")
+    return Binaries(**paths, native_root=str(root))
 
 
 @dataclass(frozen=True)
@@ -249,8 +267,9 @@ def collisions(sessions):
     return sorted(set(problems))
 
 
-def plan(session, binaries=Binaries()):
+def plan(session, binaries=None):
     """The exact child argv, in start order. Contains no secret values."""
+    binaries = binaries or installed_binaries()
     local = ipaddress.ip_address(session.vnc_interface).is_loopback
     xvnc = [binaries.xvnc, session.display_name, "-geometry", f"{session.width}x{session.height}", "-depth", "24",
             "-rfbport", str(session.vnc_port), "-interface", session.vnc_interface, "-localhost", "yes" if local else "no",
@@ -259,7 +278,12 @@ def plan(session, binaries=Binaries()):
     chrome = [binaries.chrome, f"--user-data-dir={session.user_data_dir}",
               "--remote-debugging-address=127.0.0.1", f"--remote-debugging-port={session.cdp_port}",
               *session.flags, f"--window-size={session.width},{session.height}", "--start-maximized", session.start_url]
-    return {"xvnc": xvnc, "window_manager": [binaries.window_manager], "chrome": chrome}
+    window_manager = [binaries.window_manager]
+    if binaries.native_root:
+        native = Path(binaries.native_root)
+        xvnc += ["-xkbdir", str(native / "share/X11/xkb"), "-fp", str(native / "share/fonts/X11/misc")]
+        window_manager += ["--config-file", str(native / "share/openbox/rc.xml")]
+    return {"xvnc": xvnc, "window_manager": window_manager, "chrome": chrome}
 
 
 def child_environment(session, base=None):
@@ -367,16 +391,41 @@ class OwnershipLost(RuntimeError):
 
 
 class Supervisor:
-    def __init__(self, session, binaries=Binaries(), environment=None):
+    def __init__(self, session, binaries=None, environment=None):
+        binaries = binaries or installed_binaries(environment)
         self.session, self.binaries = session, binaries
         self.environment = child_environment(session, environment)
+        if binaries.native_root:
+            native = Path(binaries.native_root)
+            installation = native.parent.parent.resolve()
+            home = Path(session.user_data_dir).parent
+            defaults = {"HOME": home, "XDG_CONFIG_HOME": home / "config", "XDG_CACHE_HOME": home / "cache",
+                        "XDG_DATA_HOME": home / "data", "XDG_RUNTIME_DIR": home / "run"}
+            for key, value in defaults.items():
+                directory = Path(session.environment.get(key, value))
+                if not directory.resolve().is_relative_to(installation):
+                    raise ConfigError("packaged desktop state must remain inside its installation folder")
+                directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+                self.environment[key] = str(directory)
+            for path in (session.user_data_dir, session.xauthority, session.vnc_password_file):
+                if not Path(path).resolve().is_relative_to(installation):
+                    raise ConfigError("packaged desktop state must remain inside its installation folder")
+            temporary = installation / ".run/c"
+            temporary.mkdir(mode=0o700, parents=True, exist_ok=True)
+            self.environment.update(LD_LIBRARY_PATH=str(native / "lib"), TMPDIR=str(temporary),
+                                    FONTCONFIG_FILE=str(native / "share/fonts/fonts.conf"),
+                                    XDG_DATA_DIRS=str(native / "share"), XKB_CONFIG_ROOT=str(native / "share/X11/xkb"),
+                                    PATH=str(native / "bin") + ":/usr/bin:/bin")
         self.children, self.stopping, self.window_manager_restarts = {}, False, 0
         self.cleaned = set()
 
     def _spawn(self, role, argv, **options):
         # Each child leads its own process group so shutdown reaches its helpers
         # without ever signalling another session's processes.
-        process = subprocess.Popen(argv, env=self.environment, stdin=subprocess.DEVNULL, start_new_session=True, **options)
+        options.setdefault("stdin", subprocess.DEVNULL)
+        if self.binaries.native_root:
+            options.setdefault("cwd", self.environment["XDG_RUNTIME_DIR"])
+        process = subprocess.Popen(argv, env=self.environment, start_new_session=True, **options)
         self.children[role] = process
         self.cleaned.discard(role)
         return process
@@ -408,9 +457,14 @@ class Supervisor:
         if not credentials:
             raise ConfigError("the systemd keyring-password credential is required")
         subprocess.run([self.binaries.dbus_update, *ACTIVATION_VARIABLES], env=self.environment, check=True, timeout=30)
-        control = Path(self.session.environment["XDG_RUNTIME_DIR"]) / "keyring"
+        control = Path(self.environment["XDG_RUNTIME_DIR"]) / "keyring"
         control.mkdir(mode=0o700, parents=True, exist_ok=True)
         with open(Path(credentials) / KEYRING_CREDENTIAL, "rb") as password:
+            if self.binaries.native_root:
+                self._spawn("keyring", [self.binaries.keyring_daemon, "--foreground", "--components=secrets",
+                                        f"--control-directory={control}", "--unlock"],
+                            stdin=password, stdout=subprocess.DEVNULL)
+                return
             subprocess.run([self.binaries.keyring_daemon, "--daemonize", "--components=secrets",
                             f"--control-directory={control}", "--unlock"], stdin=password, stdout=subprocess.DEVNULL,
                            env=self.environment, check=True, timeout=30)
@@ -418,7 +472,23 @@ class Supervisor:
     def _session_bus(self):
         # Equivalent of the previous dbus-run-session wrapper, but supervised here
         # so this helper stays the unit's main process and can stop Chrome first.
-        bus = self._spawn("dbus", [self.binaries.dbus_daemon, "--session", "--nofork", "--nopidfile", "--print-address=1"],
+        config = ["--session"]
+        if self.binaries.native_root:
+            from xml.sax.saxutils import escape
+            directory = Path(self.environment["XDG_RUNTIME_DIR"])
+            address = str(directory / "bus")
+            if len(os.fsencode(address)) > 100:
+                raise ConfigError("desktop runtime path is too long for a Unix socket; use a shorter installation folder")
+            path = directory / "dbus-session.conf"
+            # No system service activation, /etc includes or machine-specific configuration.
+            content = ('<busconfig><type>session</type><listen>unix:path=' + escape(address) + '</listen>'
+                       '<auth>EXTERNAL</auth><policy context="default"><allow send_destination="*"/>'
+                       '<allow receive_sender="*"/><allow own="*"/></policy></busconfig>')
+            with open(path, "w", encoding="utf-8") as stream:
+                stream.write(content)
+            path.chmod(0o600)
+            config = ["--config-file=" + str(path)]
+        bus = self._spawn("dbus", [self.binaries.dbus_daemon, *config, "--nofork", "--nopidfile", "--print-address=1"],
                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         ready, _, _ = select.select([bus.stdout], [], [], 15)
         address = bus.stdout.readline().decode(errors="replace").strip() if ready else ""
@@ -477,7 +547,8 @@ class Supervisor:
     def stop(self):
         # Chrome first so it flushes its profile while the display still exists.
         lost = []
-        for role, timeout in (("chrome", self.session.chrome_stop_timeout), ("window_manager", 5), ("xvnc", 10), ("dbus", 5)):
+        for role, timeout in (("chrome", self.session.chrome_stop_timeout), ("window_manager", 5),
+                              ("xvnc", 10), ("keyring", 5), ("dbus", 5)):
             try:
                 self._stop_child(role, timeout)
             except OwnershipLost as error:
@@ -489,7 +560,7 @@ class Supervisor:
     def supervise(self, poll=0.25):
         """Return EX_OK after a requested stop or EX_CHILD_FAILED after a child exits."""
         while not self.stopping:
-            for role in ("dbus", "xvnc", "chrome"):
+            for role in ("dbus", "xvnc", "chrome", *(('keyring',) if "keyring" in self.children else ())):
                 if leader_exited(self.children[role]):
                     log(self.session, f"{role} exited with status {self.children[role].returncode}; stopping this session")
                     self.stop()
@@ -502,7 +573,8 @@ class Supervisor:
                     return EX_CHILD_FAILED
                 self.window_manager_restarts += 1
                 self._stop_child("window_manager", 5)
-                self._spawn("window_manager", [self.binaries.window_manager], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self._spawn("window_manager", plan(self.session, self.binaries)["window_manager"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(poll)
         self.stop()
         return EX_OK
@@ -511,7 +583,7 @@ class Supervisor:
         self.stopping = True
 
 
-def run(session, siblings=(), binaries=Binaries(), environment=None, x_directory="/tmp"):
+def run(session, siblings=(), binaries=None, environment=None, x_directory="/tmp"):
     problems = collisions([session, *siblings])
     if problems:
         raise ConfigError("; ".join(problems))

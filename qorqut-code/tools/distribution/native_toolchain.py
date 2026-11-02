@@ -31,7 +31,7 @@ def main():
         work = Path(directory)
         context = work / 'context'
         context.mkdir()
-        for name in ('native.Dockerfile', 'native_collect.py'):
+        for name in ('native.Dockerfile', 'native_collect.py', 'native_xvnc.py'):
             shutil.copy2(here / name, context / name)
         image = 'qorqbot-native:' + hashlib.sha256(b''.join(p.read_bytes() for p in sorted(context.iterdir()))).hexdigest()[:16]
         subprocess.run(['docker', 'build', '-f', str(context / 'native.Dockerfile'), '-t', image, context], check=True)

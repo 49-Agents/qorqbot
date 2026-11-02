@@ -31,7 +31,9 @@ def collect(destination):
             shutil.copy2(source, target, follow_symlinks=True)
         copied.add(source)
 
-    for name in ('python3.12', 'git', 'tmux', 'Xvfb', 'x11vnc', 'openbox', 'dbus-daemon', 'dbus-launch', 'xauth'):
+    for name in ('python3.12', 'git', 'tmux', 'Xtigervnc', 'tigervncpasswd', 'openbox',
+                 'dbus-daemon', 'dbus-launch', 'dbus-update-activation-environment',
+                 'xauth', 'xdpyinfo', 'xset', 'xkbcomp', 'gnome-keyring-daemon'):
         executable = shutil.which(name)
         if not executable:
             raise RuntimeError('Missing native input: ' + name)
@@ -40,10 +42,21 @@ def collect(destination):
     copy('/usr/lib/python3.12', 'lib/python3.12')
     copy('/usr/lib/git-core', 'lib/git-core')
     copy('/usr/share/zoneinfo', 'share/zoneinfo')
+    copy('/usr/share/doc/tigervnc-standalone-server/TIGERVNC-BUILD.json', 'TIGERVNC-BUILD.json')
     for source, target in (('/usr/share/git-core/templates', 'share/git-core/templates'),
                            ('/usr/share/fonts/X11', 'share/fonts/X11'),
+                           ('/usr/share/fonts/truetype/dejavu', 'share/fonts/truetype/dejavu'),
+                           ('/usr/share/X11/xkb', 'share/X11/xkb'),
+                           ('/usr/share/themes/Clearlooks/openbox-3', 'share/themes/Clearlooks/openbox-3'),
+                           ('/etc/xdg/openbox/rc.xml', 'share/openbox/rc.xml'),
                            ('/etc/ssl/certs/ca-certificates.crt', 'share/ca-certificates.crt')):
         copy(source, target)
+    # Relative font paths and an XDG cache keep the relocated desktop independent
+    # of the builder's /etc and the customer's global font configuration.
+    (root / 'share/fonts/fonts.conf').write_text('''<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig><dir prefix="relative">.</dir><cachedir prefix="xdg">fontconfig</cachedir></fontconfig>
+''')
 
     # Include dlopen libraries used by Chromium and NSS as well as ELF dependencies.
     library_root = Path('/usr/lib/x86_64-linux-gnu')

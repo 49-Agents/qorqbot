@@ -1,0 +1,28 @@
+# Optional operator template for an independent :22 TigerVNC session.
+# Adapt the service user, credential and sibling configs before installation.
+# The native download does not install or start system services.
+[Unit]
+Description=Dedicated Outlook Chrome desktop for email execution (:22)
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=qorqut
+Group=qorqut
+WorkingDirectory=/var/lib/qorqut-outlook-browser
+StateDirectory=qorqut-outlook-browser
+StateDirectoryMode=0700
+RuntimeDirectory=qorqut-outlook-browser
+RuntimeDirectoryMode=0700
+LoadCredential=keyring-password:/etc/qorqut-email/outlook-browser-keyring-password
+UMask=0077
+ExecStart=/usr/bin/python3 -I /opt/qorqut-browser-desktop/desktop_session.py run /etc/qorqut-browser-desktops/outlook.json --sibling /etc/qorqut-browser-desktops/ordubashy.json
+KillMode=mixed
+TimeoutStopSec=45
+Restart=always
+RestartSec=5
+RestartPreventExitStatus=78
+
+[Install]
+WantedBy=multi-user.target
