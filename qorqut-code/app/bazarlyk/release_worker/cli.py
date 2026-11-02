@@ -48,6 +48,12 @@ def build_parser() -> argparse.ArgumentParser:
     v12.add_argument("--destination", type=Path, required=True)
     v12_verify = commands.add_parser("v12-verify", help="verify an already prepared v1.2 release")
     v12_verify.add_argument("--release", type=Path, required=True)
+    dashboard_prepare = commands.add_parser("v12-dashboard-prepare", help="prepare a dashboard-only update of the completed v1.2 installation")
+    dashboard_prepare.add_argument("--selection", type=Path, required=True)
+    dashboard_prepare.add_argument("--destination", type=Path, required=True)
+    dashboard_deploy = commands.add_parser("v12-dashboard-deploy", help="apply an owner-authorized, verified dashboard-only release")
+    dashboard_deploy.add_argument("--release", type=Path, required=True)
+    dashboard_deploy.add_argument("--confirm-deploy", action="store_true")
     cutover = commands.add_parser("v12-activate", help="activate an explicitly authorized, finally qualified migration")
     cutover.add_argument("--selection", type=Path, required=True)
     cutover.add_argument("--confirm-cutover", action="store_true")
@@ -116,8 +122,16 @@ def main(argv: list[str] | None = None) -> int:
             _json(prepare(args.selection, args.destination))
             return 0
         if args.command == "v12-verify":
-            from .v12 import verify
-            _json(verify(args.release))
+            from .v12_dashboard import verify_release
+            _json(verify_release(args.release))
+            return 0
+        if args.command == "v12-dashboard-prepare":
+            from .v12_dashboard import prepare
+            _json(prepare(args.selection, args.destination))
+            return 0
+        if args.command == "v12-dashboard-deploy":
+            from .v12_dashboard import deploy
+            _json(deploy(args.release, confirm=args.confirm_deploy))
             return 0
         if args.command=='deploy' and args.recover_from and (args.plan or args.manifest):
             raise ReleaseError('--recover-from uses the saved-installation short path, not a coordinated plan')
