@@ -243,6 +243,24 @@ class Attention:
             if uow.connection.execute("SELECT 1 FROM relationships WHERE business_id IS ? AND from_type='task' AND from_id=? AND role='blocked_by' AND to_type='task' AND to_id=?", (work['business_id'],work['id'],event.get('source_id'))).fetchone(): return True
         return any(ref and ref['type'] == kind and ref['id'] == event.get('source_id') and ref['business_id'] == event.get('business_id') for ref in refs)
 
+    def workflow_summary(self, uow, agent, run_id):
+        """Narrow read-only projection of the exact focused run; never raw arguments, outputs or events."""
+        row = uow.connection.execute('SELECT workflow_name,blocked_since,blocker_reason,paused,detached_at FROM attention_workflows WHERE agent_id=? AND run_id=?', (agent, run_id)).fetchone()
+        unavailable = {'unavailable': True, 'run_id': run_id}
+        layer = getattr(self.runtime, 'agentic_layer', None)
+        if row is None or layer is None: return unavailable
+        try:
+            run = layer.workflows.get(run_id)['run']
+            if run.get('run_id') != run_id or run.get('actor') != {'actor_id': agent, 'actor_kind': 'agent'}: return unavailable
+            steps = [{'id': str(step['id'])[:200], 'label': str(step['id'])[:200], 'status': str(step.get('state'))[:40]} for step in run['steps']]
+            current = next((step for step in steps if step['status'] == 'active'), None) or next((step for step in steps if step['status'] != 'completed'), None)
+            if current and run['state'] in ('running', 'paused', 'waiting_arguments'): current['current'] = True
+            blocked = bool(row['blocked_since']) and run['state'] not in ('completed', 'cancelled')
+            return {'run_id': run_id, 'name': row['workflow_name'], 'state': str(run['state'])[:40], 'paused': bool(row['paused']),
+                'detached': bool(row['detached_at']), 'steps': steps, 'blocked': blocked,
+                'blocker_reason': (row['blocker_reason'] or '')[:1000] if blocked else ''}
+        except Exception: return unavailable
+
     def read(self, ctx, args, uow):
         ctx, agent = self.context(ctx, args, uow)
         state = self.state(uow, agent)
@@ -275,9 +293,13 @@ class Attention:
                 if error.code not in UNREADABLE: raise
                 focus, task_ref, intent = {'unavailable': True}, None, ''
         installation = uow.repository('installation').get('service')
+        workflow = None
+        if state['focus_json'] and state['focus_json'].get('type') == 'workflow' and not focus.get('unavailable'):
+            workflow = self.workflow_summary(uow, agent, state['focus_json']['id'])
         return {'agent_id':agent, 'owner_id':installation['owner_principal_id'], 'revision':state['revision'],
             'attention':{'state':'focused' if state['focus_json'] else 'unfocused','focus':focus,'task':task_ref,'intent':intent,
-                'focus_generation':state['focus_generation'],'focus_started_at':state['focus_started_at'],'updated_at':state['updated_at']},
+                'focus_generation':state['focus_generation'],'focus_started_at':state['focus_started_at'],'updated_at':state['updated_at'],
+                **({'workflow': workflow} if workflow else {})},
             'items':selected, 'next_cursor':next_cursor}
 
     def prepare(self, op, ctx, args, uow):
