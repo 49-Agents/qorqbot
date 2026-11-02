@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import base64
+from contextlib import contextmanager
+import threading
 from typing import Any
 
 from .catalog import Selection, load_catalog
@@ -19,9 +21,34 @@ MAX_ISSUES = 100
 class CatalogReader:
     def __init__(self, ctx: LayerContext) -> None:
         self.ctx = ctx
+        self._reads = threading.local()
 
     def _load(self):
+        current = getattr(self._reads, "catalog", None)
+        if current is not None:
+            return current
         return load_catalog(DiskSource(self.ctx.tree))
+
+    @contextmanager
+    def read_session(self):
+        """Reuse one parsed catalog within a synchronous read projection.
+
+        Nested sessions on this thread share it; other threads and later calls
+        do not. The caller checks fresh revisions outside its outermost session
+        to detect edits during the projection. Each read retains its existing
+        lock and recovery checks; no authoring lock is held across the caller.
+        """
+        if getattr(self._reads, "catalog", None) is not None:
+            yield
+            return
+        with self.ctx.store.lock(exclusive=False):
+            self.ctx.require_no_recovery(publications_only=True)
+            catalog = self._load()
+        self._reads.catalog = catalog
+        try:
+            yield
+        finally:
+            del self._reads.catalog
 
     def list(
         self,
