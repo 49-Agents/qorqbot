@@ -146,13 +146,13 @@ if [ "${1-}" = update ]; then
     updater="$root/runtime"
     if [ ! -d "$updater" ]; then updater="$root/.previous-runtime"; fi
     export LD_LIBRARY_PATH="$updater/native/lib"
-    exec "$updater/native/bin/python3.12" -I "$updater/update.py" "$@"
+    exec "$updater/native/bin/python3.12" -I -B "$updater/update.py" "$@"
 fi
 if [ "${1-}" = extension-install ]; then
     shift
-    exec "$root/runtime/native/bin/python3.12" -I "$root/runtime/extension_install.py" "$@"
+    exec "$root/runtime/native/bin/python3.12" -I -B "$root/runtime/extension_install.py" "$@"
 fi
-exec "$root/runtime/native/bin/python3.12" -I "$root/runtime/launch.py" "$@"
+exec "$root/runtime/native/bin/python3.12" -I -B "$root/runtime/launch.py" "$@"
 ''')
     launcher.chmod(0o755)
     (output / 'qorqbot/README.txt').write_text('''Qorqbot — Linux development candidate

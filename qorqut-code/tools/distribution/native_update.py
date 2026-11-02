@@ -205,9 +205,9 @@ def main(argv=None):
                              'm=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);'
                              'env=m.environment(root,root/"runtime/setup-state");'
                              'm.prepare(root,env);m.initialize(root,env)')
-                    subprocess.run([runtime / 'native/bin/python3.12', '-I', '-c', setup, root],
+                    subprocess.run([runtime / 'native/bin/python3.12', '-I', '-B', '-c', setup, root],
                                    env=env, cwd=root, check=True)
-                    subprocess.run([runtime / 'venv/bin/python', '-I', '-m', 'bazarlyk.bootstrap.native_update_check',
+                    subprocess.run([runtime / 'venv/bin/python', '-I', '-B', '-m', 'bazarlyk.bootstrap.native_update_check',
                                     '--prepared-root', runtime, '--instance-root', instance], env=env, cwd=root, check=True)
                 except BaseException:
                     # No new application was admitted and no data migration ran. Keep failed bytes for inspection.

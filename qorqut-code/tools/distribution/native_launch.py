@@ -133,8 +133,8 @@ def prepare(root, env):
     bootstrap = 'import runpy,sys;sys.path.insert(0,sys.argv.pop(1));runpy.run_module("pip",run_name="__main__")'
     wheels = sorted((runtime / 'wheelhouse').glob('*.whl')) + sorted((runtime / 'wheels').glob('*.whl'))
     # Every input was hash checked. --no-index/--no-deps ensures no first-start download or resolution.
-    run([python, '-I', '-c', bootstrap, pip[0], 'install', '--no-index', '--no-deps', *wheels], env=env, cwd=root)
-    run([python, '-I', '-m', 'pip', 'check'], env=env, cwd=root)
+    run([python, '-I', '-B', '-c', bootstrap, pip[0], 'install', '--no-index', '--no-deps', *wheels], env=env, cwd=root)
+    run([python, '-I', '-B', '-m', 'pip', 'check'], env=env, cwd=root)
     save_json(marker, {'format': 1, 'root': str(root)})
 
 
@@ -148,7 +148,7 @@ def initialize(root, env):
         return record
     if instance.exists() and any(instance.iterdir()):
         raise RuntimeError('The instance folder is not empty and has no successful initialization receipt; nothing was replaced')
-    run([runtime / 'venv/bin/python', '-I', '-m', 'bazarlyk.bootstrap.initialize',
+    run([runtime / 'venv/bin/python', '-I', '-B', '-m', 'bazarlyk.bootstrap.initialize',
          '--prepared-root', runtime, '--instance-root', instance], env=env, cwd=root)
     (instance / 'config/operational-timezone').write_text(env['QORQUT_TIMEZONE'] + '\n')
     return read_json(receipt)
@@ -233,7 +233,7 @@ def main(argv=None):
         record = initialize(root, env)
         if args.command == 'calendar-connect':
             env = environment(root, root / 'instance/home')
-            run([runtime / 'venv/bin/python', '-I', '-m', 'qorqut_google_calendar.connect',
+            run([runtime / 'venv/bin/python', '-I', '-B', '-m', 'qorqut_google_calendar.connect',
                  *remaining, '--config', root / 'instance/config/calendar.json'], env=env, cwd=root)
             config = root / 'instance/config/extensions.json'
             selected = read_json(config)
@@ -251,7 +251,7 @@ def main(argv=None):
         with socket.socket() as probe:
             probe.bind(('127.0.0.1', args.port))
         env = environment(root, root / 'instance/home')
-        argv = [runtime / 'venv/bin/python', '-I', '-m', 'bazarlyk.service',
+        argv = [runtime / 'venv/bin/python', '-I', '-B', '-m', 'bazarlyk.service',
                 '--workspace', runtime / 'src', '--instance-root', root / 'instance',
                 '--extensions-config', root / 'instance/config/extensions.json',
                 '--token-file', root / 'instance/config/owner-token', '--host', '127.0.0.1', '--port', str(args.port)]
