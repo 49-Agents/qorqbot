@@ -565,6 +565,20 @@ function mountChatView(host, options = {}) {
   cleanups.push(() => { olderButton.onclick = null; });
   listen(input, 'input', () => { resizeComposer(); emit('onDraft', input.value); });
   if (picker) {
+    listen(input, 'paste', event => {
+      const data = event.clipboardData;
+      const files = data?.files?.length ? [...data.files] : [...(data?.items || [])]
+        .filter(item => item.kind === 'file').map(item => item.getAsFile()).filter(Boolean);
+      if (!files.length) return; // Ordinary text pastes keep the browser's editing behaviour.
+      event.preventDefault();
+      if (attach.disabled) return;
+      const text = data.getData('text/plain');
+      if (text) {
+        input.setRangeText(text, input.selectionStart, input.selectionEnd, 'end');
+        resizeComposer(); emit('onDraft', input.value);
+      }
+      emit('onFiles', files);
+    });
     listen(attach, 'click', () => picker.click());
     listen(picker, 'change', () => { emit('onFiles', [...picker.files]); picker.value = ''; });
     listen(attachments, 'click', event => {
@@ -574,10 +588,12 @@ function mountChatView(host, options = {}) {
     let depth = 0;
     const fileDrag = event => [...(event.dataTransfer?.types || [])].includes('Files');
     const clearDrop = () => { depth = 0; root.classList.remove('gchat-file-drop'); };
-    listen(host, 'dragenter', event => { if (fileDrag(event)) { event.preventDefault(); depth++; if (!attach.disabled) root.classList.add('gchat-file-drop'); } });
-    listen(host, 'dragover', event => { if (fileDrag(event)) { event.preventDefault(); event.dataTransfer.dropEffect = attach.disabled ? 'none' : 'copy'; } });
-    listen(host, 'dragleave', event => { if (fileDrag(event) && --depth <= 0) clearDrop(); });
-    listen(host, 'drop', event => { if (fileDrag(event)) { event.preventDefault(); clearDrop(); if (!attach.disabled) emit('onFiles', [...event.dataTransfer.files]); } });
+    for (const target of host.contains(form) ? [host] : [host, form]) {
+      listen(target, 'dragenter', event => { if (fileDrag(event)) { event.preventDefault(); depth++; if (!attach.disabled) root.classList.add('gchat-file-drop'); } });
+      listen(target, 'dragover', event => { if (fileDrag(event)) { event.preventDefault(); event.dataTransfer.dropEffect = attach.disabled ? 'none' : 'copy'; } });
+      listen(target, 'dragleave', event => { if (fileDrag(event) && --depth <= 0) clearDrop(); });
+      listen(target, 'drop', event => { if (fileDrag(event)) { event.preventDefault(); clearDrop(); if (!attach.disabled) emit('onFiles', [...event.dataTransfer.files]); } });
+    }
     cleanups.push(clearDrop);
   }
   listen(input, 'keydown', event => {

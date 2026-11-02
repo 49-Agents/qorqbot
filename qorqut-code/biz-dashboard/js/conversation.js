@@ -30,7 +30,7 @@ function conversationKey(source) { return `${source.type}:${source.biz || 'globa
 // can never be shown to, or sent to, another.
 function conversationStateKey(source,channel,peer=null) { return `${conversationKey(source)}:${channel}${peer?`:${peer}`:''}`; }
 function conversationNewState(source,channel,peer=null) {
-  return {source:conversationKey(source),channel,peer,text:'',notes:[],participants:[],loaded:false,cursor:null,before:null,mounts:new Set(),conversation:null,readState:null,unavailable:null};
+  return {source:conversationKey(source),channel,peer,text:'',files:[],notes:[],participants:[],loaded:false,cursor:null,before:null,mounts:new Set(),conversation:null,readState:null,unavailable:null};
 }
 function conversationState(source,channel='private',peer=null) {
   const key=conversationStateKey(source,channel,peer);
@@ -177,6 +177,7 @@ function conversationMount(host,source,adapter={}) {
   function composerState() {
     const s=st();
     return {hidden:readOnly() || lost(),inputDisabled:!!s.sending || !!s.submission,sendDisabled:!!s.sending,
+      filesDisabled:!!s.sending || !!s.submission || readOnly() || lost(),attachments:s.files.map(item=>({key:item.key,name:item.file.name})),
       sendLabel:s.submission?'Retry Send':'Send',placeholder:defaultPlaceholder(),ariaLabel:composerLabel,maxLength:20000};
   }
   function renderComposer() {if(!disposed)chat.render({composer:composerState()},{scroll:'preserve'});}
@@ -311,7 +312,7 @@ function conversationMount(host,source,adapter={}) {
     // A tab switch mid-send must not redirect the message: the channel and its
     // state are fixed for the whole submission.
     const sending=channel,s=channels[sending];
-    if(!current() || s.sending || !s.text.trim() || readOnly() || lost())return;
+    if(!current() || s.sending || (!s.text.trim() && !s.files.length) || readOnly() || lost())return;
     if(conversationIsPeer(sending) && !s.peer){setError(CONVERSATION_TEXT.blocked);return;}
     s.sending=true;syncSending();clearError();
     let saved_=false;
@@ -321,21 +322,34 @@ function conversationMount(host,source,adapter={}) {
         if(sending==='team' && source.type==='task') {
           const data=await conversationCall(source,'tasks_get',{task_id:source.id});revision=data.task.revision;
         }
-        s.submission={text:s.text,idempotency_key:newRequestId(),peer:s.peer,...(sending==='team'?{revision}:{})};
+        s.submission={text:s.text,files:[...s.files],idempotency_key:newRequestId(),peer:s.peer,...(sending==='team'?{revision}:{})};
       }
       const request=s.submission;
       // A retry belongs to the agent it was first sent for.
       if(request.peer!==s.peer)throw Object.assign(new Error(CONVERSATION_CHANGED),{code:'revision_conflict'});
-      if(sending!=='team') await conversationPrivateCall(source,adapter,'owner_conversation_send',{text:request.text,...conversationPeer(s)},{idempotency_key:request.idempotency_key});
-      else if(adapter.send) await conversationRequest(adapter.send(request));
+      const references=[];
+      for(const item of request.files) {
+        if(!item.saved) {
+          try { item.saved=coreData(await conversationRequest(api('/root/thread-attachments',{method:'POST',
+            headers:{'Content-Type':'application/octet-stream','X-File-Name':encodeURIComponent(item.file.name),'Idempotency-Key':item.key},body:item.file}))); }
+          catch(error){error.attachment=true;throw error;}
+        }
+        references.push(item.saved.reference);
+      }
+      const text=references.length?[request.text,references.join('\n')].filter(part=>part.trim()).join('\n\n'):request.text;
+      if(text.length>20000)throw Object.assign(new Error('Message too long'),{code:'message_too_long',attachment:true});
+      if(sending!=='team') await conversationPrivateCall(source,adapter,'owner_conversation_send',{text,...conversationPeer(s)},{idempotency_key:request.idempotency_key});
+      else if(adapter.send) await conversationRequest(adapter.send({...request,text}));
       else await conversationCall(source,{task:'tasks_comment',signoff:'signoffs_comment',email:'email_comment'}[source.type],
-        {[source.type==='email'?'conversation_id':source.type+'_id']:source.id,text:request.text},
+        {[source.type==='email'?'conversation_id':source.type+'_id']:source.id,text},
         {idempotency_key:request.idempotency_key,...(request.revision?{expected_revision:request.revision}:{})});
+      const sent=new Set(request.files.map(item=>item.key));s.files=s.files.filter(item=>!sent.has(item.key));
       s.text='';s.submission=null;saved_=true;syncDraft(s);
     } catch(e){
       // The server owns the channel rule: move the draft to the private channel
       // rather than losing it or retrying a write the owner may not make.
-      if(e.code==='channel_required'){
+      if(e.attachment){if(e.code==='message_too_long')s.submission=null;if(current() && channel===sending)setError(e.code==='message_too_long'?'Shorten your message and try again.':"Couldn't attach the file. Retry Send");}
+      else if(e.code==='channel_required'){
         const draft=s.text;s.submission=null;s.text='';
         channels.private.text=draft;
         selectChannel('private',{acknowledge:false});
@@ -449,6 +463,14 @@ function conversationMount(host,source,adapter={}) {
     ...(composerHost?{composerHost,bannerHost:composerHost}:{}),
     onDraft:text=>{if(!current())return;st().text=text;syncDraft();adapter.onInput?.();},
     onSubmit:()=>{void submit();},
+    ...(source.type==='task'?{
+      onFiles:files=>{
+        const s=st();if(!current() || s.sending || s.submission || readOnly() || lost() || !files.length)return;
+        if(s.files.length+files.length>10 || files.some(file=>file.size>25*1024*1024)){setError('Choose up to 10 files, each 25 MB or smaller.');return;}
+        s.files.push(...files.map(file=>({key:newRequestId(),file})));clearError();syncSending();adapter.onInput?.();
+      },
+      onAttachmentRemove:key=>{const s=st();if(s.sending || s.submission)return;s.files=s.files.filter(item=>item.key!==key);syncSending();adapter.onInput?.();},
+    }:{}),
     onOlder:()=>{void load(true);},
     onViewportChange:()=>captureScroll(),
     // The view hands over the opaque reference value itself; an unavailable reference never reaches this callback.
@@ -476,7 +498,7 @@ function conversationMount(host,source,adapter={}) {
       selectChannel(tab.dataset.channel);expand(true);
     },
     // A draft kept for a lost agent still counts: it is preserved, just never re-aimed.
-    hasDraft:()=>[...conversationStates.values()].some(state=>state.source===key && state.text),
+    hasDraft:()=>[...conversationStates.values()].some(state=>state.source===key && (state.text || state.files.length)),
     dispose:()=>{
       if(disposed)return;
       disposed=true;expanded=false;
