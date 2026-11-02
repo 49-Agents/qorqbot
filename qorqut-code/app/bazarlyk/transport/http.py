@@ -462,6 +462,8 @@ class HTTPAPI:
                     return await self.viewbox_board(request, context, parts[2], request_id)
                 if len(parts) == 5 and parts[1] == "agents" and parts[3:] == ["viewbox", "dismiss"] and request.method == "POST":
                     return await self.viewbox_dismiss(request, context, parts[2], request_id)
+                if len(parts) == 4 and parts[1] == "agents" and parts[3] == "focus-layout" and request.method in {"GET", "POST"}:
+                    return await self.focus_layout(request, context, parts[2], request_id)
                 if len(parts) == 4 and parts[1] == "agents" and parts[3] == "browser-surfaces" and request.method == "GET" and self.compatibility:
                     data = await anyio.to_thread.run_sync(lambda: self.compatibility.local_files.browser_surfaces(context, parts[2]))
                     return JSONResponse(data, headers={"Cache-Control": "no-store"})
@@ -1021,6 +1023,30 @@ class HTTPAPI:
         body = await read_json(request, limit=4096)
         data = await anyio.to_thread.run_sync(partial(
             dismiss, self.runtime.domains.viewbox, self.runtime.paths.runtime, context, agent_id, body))
+        result = response(OperationResult.ok(data, request_id=request_id))
+        result.headers["Cache-Control"] = "private, no-store"
+        return result
+
+    async def focus_layout(self, request, context, agent_id, request_id):
+        """Owner-only read or revision-checked save of one agent's personal Focus text blocks, plus the matching Focus card IDs.
+
+        No bearer credential of any kind can authorize it, and reading creates nothing. The layout is a dashboard preference
+        outside every Focus card, task and agent context; the card IDs are read-only and never accepted from a save.
+        """
+        if request.headers.get("authorization") is not None:
+            raise DomainError("forbidden", "Focus layouts are for the owner's dashboard and take no bearer credential")
+        from bazarlyk.focus_layout_preferences import MAX_REQUEST_BYTES, layout, query_flags
+        flags = query_flags(request.query_params.multi_items())
+        body = None
+        if request.method == "POST":
+            try:
+                body = await read_json(request, limit=MAX_REQUEST_BYTES)
+            except DomainError as error:
+                if error.code != "payload_too_large":
+                    raise
+                raise DomainError("validation_error", "A Focus layout request is limited to 1 MiB",
+                                  field_errors={"blocks": "the encoded request exceeds 1 MiB"}) from None
+        data = await anyio.to_thread.run_sync(partial(layout, self.runtime, context, agent_id, body, **flags))
         result = response(OperationResult.ok(data, request_id=request_id))
         result.headers["Cache-Control"] = "private, no-store"
         return result
