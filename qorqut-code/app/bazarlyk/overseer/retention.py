@@ -78,8 +78,20 @@ class Retention:
             elif (ctx.principal_kind != 'human' or ctx.principal_id != installation_owner(uow)
                   or ctx.source not in ('dashboard', 'worker') or action != 'read'):
                 raise DomainError('forbidden', 'Current conversation authority is required')
+            run_id = run_ref.get('run_id')
+            continued = isinstance(run_id, str) and not run_id.startswith('direct-instruction:')
+            if continued:
+                from .continuation import require_run, owns_run
+                if ctx.principal_kind == 'agent':
+                    _, session = require_run(self.runtime, ctx, uow, run_id)
+                elif not owns_run(uow, Views(self.runtime.agentic_layer).get_admitted_run(run_id), holder):
+                    raise DomainError('forbidden', 'The saved run belongs to another Overseer or owner')
+            historical = (continued and action == 'read' and uow.connection.execute(
+                'SELECT 1 FROM native_sessions WHERE agent_id=? AND conversation_id=? LIMIT 1',
+                (holder, run_ref.get('conversation_id'))).fetchone() is not None)
             if (session is None or run_ref.get('provider') != 'qorqut_overseer'
-                    or run_ref.get('agent_id') != holder or run_ref.get('conversation_id') != session['conversation_id']
+                    or run_ref.get('agent_id') != holder
+                    or (not historical and run_ref.get('conversation_id') != session['conversation_id'])
                     or run_ref.get('namespace') != {'kind': 'global', 'business_id': None}):
                 raise DomainError('forbidden', 'The saved continuing conversation is unavailable')
             run_id = run_ref.get('run_id')
@@ -93,12 +105,6 @@ class Retention:
                 if (saved.get('kind') != 'direct_instruction_submission' or association is None
                         or {**bound, 'request_ref': None} != expected):
                     raise DomainError('forbidden', 'The saved direct-instruction review is unavailable')
-            elif run_id is not None:
-                admission = Views(self.runtime.agentic_layer).get_admitted_run(run_id)
-                invocation = admission and admission.get('invocation', {})
-                if (not admission or invocation.get('conversation_id') != session['conversation_id']
-                        or invocation.get('executor') != {'actor_id': holder, 'actor_kind': 'agent'}):
-                    raise DomainError('forbidden', 'The admitted workflow does not belong to this conversation')
 
     def owner_request(self, context, identity):
         from .authority import current_overseer

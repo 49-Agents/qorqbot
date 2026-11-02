@@ -9,6 +9,7 @@ from bazarlyk.agents.global_scope import active_role_holder
 from bazarlyk.agents.roles import LEARNING_APPLIER_ROLE
 from bazarlyk.native_chat import store
 from bazarlyk.transport.auth import AuthenticatedPrincipal, current_agent_credential
+from .continuation import owns_run
 
 
 class RetentionEventAccess:
@@ -127,10 +128,8 @@ class RetentionEventAccess:
                     raise DomainError('forbidden', 'The direct instruction review binding changed')
             elif binding['run_id'] is not None:
                 admission = Views(self.runtime.agentic_layer).get_admitted_run(binding['run_id'])
-                invocation = admission and admission.get('invocation', {})
-                if (not admission or invocation.get('conversation_id') != session['conversation_id']
-                        or invocation.get('executor') != {'actor_id': holder, 'actor_kind': 'agent'}):
-                    raise DomainError('forbidden', 'The Signoff run is outside the continuing conversation')
+                if not owns_run(uow, admission, holder):
+                    raise DomainError('forbidden', 'The Signoff run belongs to another Overseer or owner')
             business = binding['review_business_id']
         elif event['kind'] == 'task':
             association = uow.connection.execute('SELECT * FROM overseer_development_tasks WHERE request_key=?',
@@ -151,11 +150,8 @@ class RetentionEventAccess:
                     or sum(item.get('id') == association['requirement_id'] for item in plan.get('external_requirements', [])) != 1):
                 raise DomainError('evidence_unavailable', 'The linked Task plan is unavailable')
             admission = Views(self.runtime.agentic_layer).get_admitted_run(app['run_id'])
-            invocation = admission and admission.get('invocation', {})
-            if (not admission or admission.get('kind') != 'application'
-                    or invocation.get('conversation_id') != session['conversation_id']
-                    or invocation.get('executor') != {'actor_id': holder, 'actor_kind': 'agent'}):
-                raise DomainError('forbidden', 'The Task application is outside this conversation')
+            if not owns_run(uow, admission, holder, kind='application'):
+                raise DomainError('forbidden', 'The Task application belongs to another Overseer or owner')
             business = task_ref['namespace']['business_id']
             binding = {'run_id': app['run_id'], 'task_ref': task_ref, 'application_id': app['id'],
                        'plan_revision': association['plan_revision'], 'delta_id': app['delta_id'],
@@ -175,8 +171,13 @@ class RetentionEventAccess:
             self.runtime.require_authority()
         with self.runtime.database.read() as uow:
             event, source, binding, ctx, session = self._resolve(uow)
+            historical = (action == 'read' and binding is not None and binding['run_id']
+                and not binding['run_id'].startswith('direct-instruction:')
+                and uow.connection.execute(
+                    'SELECT 1 FROM native_sessions WHERE agent_id=? AND conversation_id=? LIMIT 1',
+                    (ctx.principal_id, run_ref.get('conversation_id'))).fetchone() is not None)
             if (run_ref.get('provider') != 'qorqut_overseer' or run_ref.get('agent_id') != ctx.principal_id
-                    or run_ref.get('conversation_id') != session['conversation_id']
+                    or (not historical and run_ref.get('conversation_id') != session['conversation_id'])
                     or run_ref.get('namespace') != {'kind': 'global', 'business_id': None}
                     or run_ref.get('run_id') != (binding['run_id'] if binding is not None else None)):
                 raise DomainError('forbidden', 'The retained run does not match the canonical event')

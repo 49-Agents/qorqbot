@@ -24,6 +24,15 @@ from . import batches, mcp_presentation, mcp_reads
 
 logger = logging.getLogger(__name__)
 
+OVERSEER_SESSION_OPERATIONS = frozenset({
+    'overseer_evidence_list', 'overseer_episode_get', 'overseer_input_request', 'overseer_input_reconcile',
+    'overseer_delta_get', 'overseer_application_get', 'overseer_proposals_list',
+    'overseer_application_prepare', 'overseer_application_prepare_merge', 'overseer_application_publish',
+    'overseer_application_recover', 'overseer_application_record_checks', 'overseer_application_replan',
+    'overseer_application_inspect_satisfaction', 'overseer_development_task_create',
+    'overseer_development_task_link', 'overseer_development_tasks_reconcile',
+})
+
 ATTENTION_SESSION_OPERATIONS = frozenset({'attention_get', 'attention_add', 'attention_remove',
     'attention_focus_set', 'attention_focus_clear', 'attention_workflow_update'})
 
@@ -33,7 +42,7 @@ def attention_binding(headers):
     sessions = headers.getlist('x-qorqut-native-session')
     generations = headers.getlist('x-qorqut-binding-generation')
     if len(sessions) != 1 or len(generations) != 1:
-        raise DomainError('inbox_generation_stale', 'Attention requires one complete native session binding')
+        raise DomainError('inbox_generation_stale', 'This operation requires one complete native session binding')
     session, generation = sessions[0], generations[0]
     try:
         if str(UUID(session)) != session or not generation.isascii() or not generation.isdecimal():
@@ -42,7 +51,7 @@ def attention_binding(headers):
         if str(number) != generation or not 1 <= number < 2**63:
             raise ValueError
     except (ValueError, TypeError, AttributeError):
-        raise DomainError('inbox_generation_stale', 'Attention native session binding is malformed') from None
+        raise DomainError('inbox_generation_stale', 'The native session binding is malformed') from None
     return session, number
 
 OPTION_SCHEMAS = {
@@ -200,19 +209,19 @@ class RegisteredAgentCaller:
             if not isinstance(thread, str) or str(UUID(thread)) != thread:
                 raise ValueError
         except (ValueError, AttributeError):
-            raise DomainError('inbox_generation_stale', 'Attention requires the calling Codex thread identity') from None
+            raise DomainError('inbox_generation_stale', 'This operation requires the calling Codex thread identity') from None
         if actor.delegation_assignment_id or actor.delegation_binding_id:
-            raise DomainError('forbidden', 'Delegated identities cannot change Attention')
+            raise DomainError('forbidden', 'Delegated identities cannot use this native session authority')
         with self.runtime.database.read() as uow:
             owner = uow.connection.execute(
                 'SELECT consumer_id,binding_json,generation,desired_state FROM native_session_owners WHERE agent_id=?',
                 (actor.principal.id,)).fetchone()
         if (owner is None or owner['consumer_id'] != thread or owner['desired_state'] != 'running'):
-            raise DomainError('inbox_generation_stale', 'The calling Codex thread does not own Attention')
+            raise DomainError('inbox_generation_stale', 'The calling Codex thread is not the selected native session')
         binding = json.loads(owner['binding_json'])
         if (binding.get('registration_id') != actor.registration_id or binding.get('runtime') != 'codex'
                 or binding.get('session_id') != thread):
-            raise DomainError('inbox_generation_stale', 'The calling Codex registration does not own Attention')
+            raise DomainError('inbox_generation_stale', 'The calling Codex registration does not own the native session')
         # Attention.context rechecks this generation in its operation transaction.
         return thread, owner['generation']
 
@@ -363,8 +372,8 @@ class MCPTransport:
             self.caller.validate_options(actor, canonical_name, options)
             self.caller.validate_arguments(actor, canonical_name, args)
             requires_binding = (isinstance(self.caller, RegisteredAgentCaller)
-                                and canonical_name in ATTENTION_SESSION_OPERATIONS)
-            request_context = self.server.request_context
+                                and canonical_name in (ATTENTION_SESSION_OPERATIONS | OVERSEER_SESSION_OPERATIONS))
+            request_context = self.server.request_context if requires_binding else None
             if canonical_name == "agent_config_get" and detail in {"compact", "summary", "context"}:
                 # These projections never return the live briefing. Prevent its
                 # potentially expensive domain reads from delaying the mandatory

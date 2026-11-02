@@ -195,11 +195,8 @@ def satisfy_input_need(runtime, context, result):
 
 
 def _approved_application(runtime, context, application_id, expected_revision, requirement_id=None):
-    from bazarlyk.native_chat import store
-    from qorqut_agentic.overseer.views import Views
     with runtime.database.read() as uow:
         ctx, _ = current_overseer(runtime, context, uow, capability='manage_agentic_layer')
-        session = store.latest_session(uow.connection, ctx.principal_id)
     app = runtime.agentic_layer.overseer.applications.get(application_id)
     if app['revision'] != expected_revision:
         with runtime.database.read() as uow:
@@ -207,17 +204,13 @@ def _approved_application(runtime, context, application_id, expected_revision, r
                      (application_id, app['plan_revision'], requirement_id)).fetchone() if requirement_id is not None else None)
         if prior is None:
             raise DomainError('stale_revision', 'Application revision changed')
-    admission = Views(runtime.agentic_layer).get_admitted_run(app['run_id']) if app['run_id'] else None
-    invocation = admission and admission.get('invocation', {})
-    if (session is None or not admission or admission['kind'] != 'application'
-            or invocation.get('conversation_id') != session['conversation_id']
-            or invocation.get('executor') != {'actor_id': ctx.principal_id, 'actor_kind': 'agent'}
-            or app['phase'] not in ('planning', 'working', 'prepared') or app['merge'] is not None
+    from .continuation import require_run
+    with runtime.database.read() as uow:
+        ctx, _ = current_overseer(runtime, context, uow, capability='manage_agentic_layer')
+        require_run(runtime, ctx, uow, app['run_id'], kind='application', active=True)
+    if (app['phase'] not in ('planning', 'working', 'prepared') or app['merge'] is not None
             or not app['agreement_ref'] or app['plan'] is None):
         raise DomainError('owner_input_required', 'A currently admitted agreed application is required')
-    workflow = runtime.agentic_layer.workflows.get(app['run_id'])['run']
-    if workflow['state'] not in ('running', 'waiting_arguments'):
-        raise DomainError('invalid_transition', 'The application workflow is not running')
     delta = runtime.agentic_layer.overseer.deltas.get(app['delta_id'])
     if delta['decision'] != 'accepted' or delta['accepted_revision'] != app['accepted_revision']:
         raise DomainError('stale_revision', 'The accepted application revision changed')

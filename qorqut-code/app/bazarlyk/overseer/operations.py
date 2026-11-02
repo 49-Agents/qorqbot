@@ -167,18 +167,9 @@ class OverseerOperations:
     def _evidence_delivery(self, name, context, args, uow):
         import hashlib
         import json
-        from bazarlyk.native_chat import store
         ctx, _ = current_overseer(self.runtime, context, uow, capability='read_agent_experience')
-        admission = Views(self.runtime.agentic_layer).get_admitted_run(args['run_id'])
-        session = store.latest_session(uow.connection, ctx.principal_id)
-        invocation = admission and admission.get('invocation', {})
-        if (not admission or session is None or invocation.get('conversation_id') != session['conversation_id']
-                or invocation.get('executor') != {'actor_id': ctx.principal_id, 'actor_kind': 'agent'}):
-            raise DomainError('owner_input_required', 'The run is not admitted for this continuing conversation')
-        run = self.runtime.agentic_layer.workflows.get(args['run_id'])['run']
-        expected = {'extraction': 'overseer/extract', 'review': 'overseer/review', 'application': 'overseer/apply'}
-        if run['workflow_ref'] != expected.get(admission['kind']) or run['state'] not in ('running', 'waiting_arguments'):
-            raise DomainError('invalid_transition', 'The admitted Overseer workflow is not running')
+        from .continuation import require_run
+        _, session = require_run(self.runtime, ctx, uow, args['run_id'], active=True)
         provider = self._provider(ctx, uow)
         if name == 'overseer_evidence_list':
             request = {'selection': args['selection'], 'cursor': args.get('cursor'), 'limit': args.get('limit', 50)}
@@ -353,8 +344,11 @@ class OverseerOperations:
             from .workflow_requests import create_request
             return create_request(self.runtime, context, **args)
         if name == 'overseer_input_reconcile':
+            from .continuation import require_run
+            binding = self.runtime.agentic_layer.overseer.inputs.get(args['binding_id'])
             with self.runtime.database.read() as uow:
-                current_overseer(self.runtime, context, uow, capability='manage_agentic_layer')
+                ctx, _ = current_overseer(self.runtime, context, uow, capability='manage_agentic_layer')
+                require_run(self.runtime, ctx, uow, binding['run_id'])
             from .executor import acting_as
             with acting_as(context):
                 return self.runtime.agentic_layer.overseer.apply_owner_response(args['binding_id'], args['response'],
@@ -366,8 +360,11 @@ class OverseerOperations:
             from .executor import development_task
             return development_task(self.runtime, context, name, args)
         if name.startswith('overseer_application_'):
+            from .continuation import require_run
+            application = self.runtime.agentic_layer.overseer.applications.get(args['application_id'])
             with self.runtime.database.read() as uow:
-                current_overseer(self.runtime, context, uow, capability='manage_agentic_layer')
+                ctx, _ = current_overseer(self.runtime, context, uow, capability='manage_agentic_layer')
+                require_run(self.runtime, ctx, uow, application['run_id'], kind='application')
             method = getattr(self.runtime.agentic_layer.overseer.applications, name.removeprefix('overseer_application_'), None)
             if not callable(method): raise DomainError('operation_unavailable', 'The application executor is not installed')
             if not self.executor_ready:

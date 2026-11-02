@@ -85,8 +85,6 @@ def create_input_request(runtime, context, binding, form, operation_id, *, direc
     from qorqut_operations.contracts import plain
     from qorqut_operations.signoffs.inputs import validate_form
     from qorqut_agentic.errors import AgenticError
-    from qorqut_agentic.overseer.views import Views
-    from bazarlyk.native_chat import store
 
     if not isinstance(binding, dict) or not isinstance(form, dict):
         raise DomainError('validation_error', 'A binding and input form are required')
@@ -156,12 +154,9 @@ def create_input_request(runtime, context, binding, form, operation_id, *, direc
         if business and business not in ctx.allowed_business_ids:
             raise DomainError('forbidden', 'The requested review scope is unavailable')
         ctx = replace(ctx, business_id=business, review_business_id=business)
-        session = store.latest_session(uow.connection, ctx.principal_id)
-        admission = Views(layer).get_admitted_run(binding['run_id'])
-        invocation = admission and admission.get('invocation', {})
-        if direct_submission is None and (session is None or not admission or invocation.get('conversation_id') != session['conversation_id']
-                or invocation.get('executor') != {'actor_id': ctx.principal_id, 'actor_kind': 'agent'}):
-            raise DomainError('owner_input_required', 'A matching admitted Overseer workflow is required')
+        if direct_submission is None:
+            from .continuation import require_run
+            require_run(runtime, ctx, uow, binding['run_id'], active=True)
         runtime.application.authorize(ctx, runtime.registry.get('signoffs_get'), (), uow, namespace=namespace)
         rows = uow.connection.execute('SELECT id FROM signoffs WHERE proposer_principal_id=? AND review_business_id IS ? AND request_key=? LIMIT 2',
                                       (ctx.principal_id, business, request_key)).fetchall()

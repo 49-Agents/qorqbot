@@ -47,6 +47,9 @@ def current_overseer(runtime, context, uow, *, capability=None):
         raise DomainError('registration_conflict', 'Native registration does not match the current Overseer profile')
     current_agent_credential(uow.connection, AuthenticatedPrincipal(
         ctx.principal, registration['credential_id'], registration['id']), now=time.time())
+    if ctx.inbox_session_id is not None or ctx.inbox_generation is not None:
+        from .continuation import selected_session
+        selected_session(runtime, ctx, uow)
     if capability is not None and capability not in profile.scope.global_capabilities:
         raise DomainError('forbidden', 'The current Overseer capability is required')
     return ctx, profile
