@@ -343,6 +343,10 @@ class Extension:
     def native_connections(self):
         return ()
 
+    def global_capabilities(self):
+        """Additional profile grants available only while this extension is selected."""
+        return ()
+
     def global_discovery_operations(self):
         """Owned operations whose effective configuration evaluates the global scope independently."""
         return ()
@@ -429,6 +433,13 @@ class ExtensionSet:
             raise _invalid("Duplicate extension id: " + ", ".join(sorted(
                 {e.id for e in ordered if sum(1 for o in ordered if o.id == e.id) > 1})))
         object.__setattr__(self, "extensions", tuple(sorted(ordered, key=lambda extension: extension.id)))
+        capabilities = set()
+        for extension in self.extensions:
+            for name in extension.global_capabilities():
+                if not isinstance(name, str) or not SOURCE_KEY.fullmatch(name) or name in capabilities:
+                    raise _invalid("Duplicate or invalid extension global capability")
+                capabilities.add(name)
+        object.__setattr__(self, "global_capabilities", frozenset(capabilities))
         global_discovery = set()
         for extension in self.extensions:
             declared = {entry.name for contribution in extension.catalog() for entry in contribution.entries}

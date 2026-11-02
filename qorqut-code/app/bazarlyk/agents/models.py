@@ -13,7 +13,7 @@ from bazarlyk.catalog.packages import ID, VERSION, validate_policy
 from .roles import RETIRED_ROLE_IDS
 
 
-GLOBAL_CAPABILITIES = frozenset({"coordinate_businesses", "read_global_context", "read_agent_experience", "manage_fastmail", "manage_calendar", "manage_shared_instructions", "publish_roles", "publish_plugins", "manage_global_routines", "manage_ecosystem_agents", "manage_delegated_assignments", "manage_agentic_layer"})
+GLOBAL_CAPABILITIES = frozenset({"coordinate_businesses", "read_global_context", "read_agent_experience", "manage_calendar", "manage_shared_instructions", "publish_roles", "publish_plugins", "manage_global_routines", "manage_ecosystem_agents", "manage_delegated_assignments", "manage_agentic_layer"})
 # Historical grant names that a saved profile may still carry. They authorize nothing, can never be granted, and a stored
 # or inactive record that holds one still parses unchanged.
 RETIRED_GLOBAL_CAPABILITIES = frozenset({"manage_ideas", "manage_business_setup", "read_personal_context", "manage_personal_context", "write_business_strategy"})
@@ -36,7 +36,9 @@ def scope_schema(capabilities):
 
 # What a caller may write, and what a saved profile may still hold.
 SCOPE_SCHEMA = scope_schema(GLOBAL_CAPABILITIES)
-STORED_SCOPE_SCHEMA = scope_schema(GLOBAL_CAPABILITIES | RETIRED_GLOBAL_CAPABILITIES)
+# Saved profiles retain this historical provider grant when its optional package is removed.
+KNOWN_OPTIONAL_CAPABILITIES = frozenset({"manage_fastmail"})
+STORED_SCOPE_SCHEMA = scope_schema(GLOBAL_CAPABILITIES | RETIRED_GLOBAL_CAPABILITIES | KNOWN_OPTIONAL_CAPABILITIES)
 PLUGIN_GRANT_SCHEMA = {"type": "object", "additionalProperties": False,
     "required": ["id", "version", "digest", "config"],
     "properties": {**REFERENCE_SCHEMA["properties"], "config": {"type": "object"}}}
@@ -94,8 +96,11 @@ class AgentProfile:
         which authorizes nothing."""
         data = plain(value)
         historical = stored or (isinstance(data, dict) and data.get("status") == "inactive")
-        errors = sorted(Draft202012Validator(STORED_PROFILE_SCHEMA if historical else PROFILE_SCHEMA,
-                                             format_checker=FormatChecker()).iter_errors(data),
+        capabilities = GLOBAL_CAPABILITIES | frozenset(getattr(registry, "extension_global_capabilities", ()))
+        if historical:
+            capabilities |= RETIRED_GLOBAL_CAPABILITIES | KNOWN_OPTIONAL_CAPABILITIES
+        schema = {**PROFILE_SCHEMA, "properties": {**PROFILE_SCHEMA["properties"], "scope": scope_schema(capabilities)}}
+        errors = sorted(Draft202012Validator(schema, format_checker=FormatChecker()).iter_errors(data),
                         key=lambda err: str(err.path))
         if errors:
             raise DomainError("invalid_profile", errors[0].message)

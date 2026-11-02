@@ -55,11 +55,11 @@ def current_agent_credential(connection, actor, *, now):
         raise DomainError("unauthenticated", "Credential is not bound to this machine registration")
 
 
-def human_global_capabilities(principal_id, uow):
+def human_global_capabilities(principal_id, uow, *, additional=()):
     installation = uow.repository("installation").get("service")
     principal = uow.repository("principals").get(principal_id)
     if installation and installation["owner_principal_id"] == principal_id and principal and principal["active"] and principal["kind"] == "human":
-        return GLOBAL_CAPABILITIES
+        return GLOBAL_CAPABILITIES | frozenset(additional)
     return frozenset()
 
 

@@ -14,7 +14,7 @@ from qorqut_operations.contracts import (ChangePreview, ChangeSet, DomainError, 
 from bazarlyk.composition.locations import agent_workspace, document_root
 from . import plugin_defaults, roles
 from .global_scope import with_effective_scope
-from .models import AgentProfile, PLUGIN_GRANT_SCHEMA, PROFILE_SCHEMA, REFERENCE_SCHEMA, RETIRED_ROLE_IDS, SCOPE_SCHEMA
+from .models import AgentProfile, PLUGIN_GRANT_SCHEMA, PROFILE_SCHEMA, REFERENCE_SCHEMA, RETIRED_ROLE_IDS, GLOBAL_CAPABILITIES, scope_schema
 from qorqut_operations.document_history.files import seed_document
 from qorqut_operations.storage.files import RegisteredFileTarget, file_hash, file_values
 from bazarlyk.management.identity import configured_ordubashy, installation_owner, require_protected_control
@@ -197,9 +197,10 @@ class AgentOperations:
                 global_capability="read_global_context",
                 resolve_namespace=self.roster_namespace if name == "agents_list" else None,
                 read=lambda ctx, args, options, uow, operation=name: self.read(operation, ctx, args, options, uow)))
+        editable = {**EDITABLE, "scope": scope_schema(GLOBAL_CAPABILITIES | frozenset(getattr(registry, "extension_global_capabilities", ())))}
         mutations = {
-            "agents_create": ({**EDITABLE, "scope": SCOPE_SCHEMA, "runtime": {"enum": ["claude-code", "codex"]}}, []),
-            "agents_update": ({"agent_id": UUID_SCHEMA, "changes": {"type": "object", "additionalProperties": False, "properties": EDITABLE, "minProperties": 1}}, ["agent_id", "changes"]),
+            "agents_create": ({**editable, "runtime": {"enum": ["claude-code", "codex"]}}, []),
+            "agents_update": ({"agent_id": UUID_SCHEMA, "changes": {"type": "object", "additionalProperties": False, "properties": editable, "minProperties": 1}}, ["agent_id", "changes"]),
             "agents_deactivate": ({"agent_id": UUID_SCHEMA}, ["agent_id"]),
             "permissions_set": ({"agent_id": UUID_SCHEMA, "overrides": PROFILE_SCHEMA["properties"]["tool_policy"]["properties"]["overrides"]}, ["agent_id", "overrides"]),
             "plugins_enable": ({"agent_id": UUID_SCHEMA, "plugin": PLUGIN_GRANT_SCHEMA}, ["agent_id", "plugin"]),

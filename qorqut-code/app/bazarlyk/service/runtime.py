@@ -421,6 +421,9 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     resolver.agentic_view = agentic_view
     from bazarlyk.agentic.access import AgenticAccess
     AgenticAccess(resolver, agentic_view).register(registry)
+    if global_capabilities_provider is human_global_capabilities:
+        from functools import partial
+        global_capabilities_provider = partial(human_global_capabilities, additional=selection.global_capabilities)
     policy = PolicyResolver(registry, resolver, rules=HOST_POLICY_RULES, worker_profiles=worker_profiles,
         job_consequence_verifier=job_consequence_verifier, human_global_capabilities=global_capabilities_provider)
     installation_recovery_lock = InstallationRecoveryLock(locks.recovery)

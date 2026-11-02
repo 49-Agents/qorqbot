@@ -31,7 +31,7 @@ from .roles import RETIRED_PLUGIN_IDS, SUPPORTED_GLOBAL_ROLES
 
 PROFILE_CACHE_LIMIT = 128
 # Private account capabilities: an operation declaring one is available only to a profile holding it.
-EXPLICIT_CAPABILITY_OPERATIONS = frozenset({"manage_calendar", "manage_fastmail"})
+EXPLICIT_CAPABILITY_OPERATIONS = frozenset({"manage_calendar"})
 # Repair-ticket removal, phase 1: these readers stay installed and keep their internal standing grant because
 # surviving Task, Signoff and Project references resolve through them, but they are not agent tools. This one
 # definition filters effective configuration, briefings, generated native permissions and the MCP inventory;
@@ -78,7 +78,7 @@ def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, pa
         requirement = descriptor.plugin_requirement if descriptor else None
         if requirement and (requirement not in granted or metadata.name not in visible.get(requirement, ())):
             continue
-        if (descriptor and descriptor.global_capability in EXPLICIT_CAPABILITY_OPERATIONS
+        if (descriptor and descriptor.global_capability in (EXPLICIT_CAPABILITY_OPERATIONS | getattr(registry, "extension_global_capabilities", frozenset()))
                 and descriptor.global_capability not in profile.scope.global_capabilities):
             # Central defaults never grant alone: private account tools (calendar, an optional mail provider) need
             # the explicit Global capability on the profile, whatever role default or provider default names them.

@@ -158,6 +158,10 @@ def builtin_registry(extensions=NO_EXTENSIONS) -> OperationRegistry:
     if taken or len({entry.name for entry in contributed}) != len(contributed):
         raise ValueError("An extension may not redeclare operation metadata: " + ", ".join(taken))
     registry = OperationRegistry((*BUILTIN_CATALOG, *ENGINE_ENTRIES, *contributed))
+    from bazarlyk.agents.models import GLOBAL_CAPABILITIES
+    if extensions.global_capabilities & GLOBAL_CAPABILITIES:
+        raise ValueError("An extension may not redeclare a core capability")
+    registry.extension_global_capabilities = extensions.global_capabilities
     registry.extension_policy_rules = extensions.policy_rules
     registry.extension_operation_guidance = extensions.operation_guidance
     registry.extension_global_discovery = extensions.global_discovery_operations

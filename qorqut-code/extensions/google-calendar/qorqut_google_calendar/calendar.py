@@ -34,7 +34,7 @@ class GoogleCalendar(Provider):
         # This connection represents the owner's primary Google calendar.
         row = self.request("GET", GOOGLE + "/calendars/primary").json()
         return [{"connection_id": self.identity, "id": "primary", "name": row.get("summary", row["id"]),
-                 "provider": "google", "timezone": row.get("timeZone"), "organizers": [row["id"]], "writable": True}]
+                 "provider": "google", "provider_name": "Google", "timezone": row.get("timeZone"), "organizers": [row["id"]], "writable": True}]
 
     @staticmethod
     def base(calendar_id):
