@@ -282,6 +282,7 @@ function conversationMount(host,source,adapter={}) {
       if(!more && options.acknowledge)await acknowledge();
     } catch(e){
       if(!current())return;
+      if(e.code==='record_moved')adapter.onMoved?.(e);
       if(['forbidden','not_found','policy_denied','invalid_principal'].includes(e.code)){
         s.notes=[];s.related=[];relatedReady=false;relatedGeneration++;s.participants=[];s.loaded=false;s.before=null;adapter.onRelated?.([]);
         paint();

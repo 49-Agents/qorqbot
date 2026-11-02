@@ -19,6 +19,16 @@ function safeFileReference(raw) {
 // /?open_task=<task id>&business_id=<uuid>#/global/agents. Returns {taskId, businessId} (businessId null = Global), {invalid: true}
 // when the route is present but malformed, or null when `open_task` is absent. It validates only; nothing is read here.
 const OPEN_TASK_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// The read-only table route: /tables/view?table_id=<id>[&business_id=<id>].
+// An omitted business_id explicitly means Global; repeated, unknown, or malformed parameters are invalid.
+function tableViewRoute(search) {
+  const params = new URLSearchParams(search), keys = [...params.keys()];
+  const count = name => keys.filter(key => key === name).length;
+  const tableId = params.get('table_id'), businessId = params.get('business_id');
+  if (count('table_id') !== 1 || count('business_id') > 1 || keys.some(key => !['table_id', 'business_id'].includes(key))
+    || !OPEN_TASK_UUID.test(tableId || '') || (count('business_id') === 1 && !OPEN_TASK_UUID.test(businessId || ''))) return null;
+  return {tableId, businessId: count('business_id') ? businessId : null};
+}
 function openTaskRoute(search) {
   const params = new URLSearchParams(search), keys = [...params.keys()];
   if (!keys.includes('open_task')) return null;

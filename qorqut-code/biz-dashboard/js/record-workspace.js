@@ -83,6 +83,9 @@ function rwRecordFromItem(item, options = {}) {
     || (binding?.type === 'reference' ? {...binding, label: item.reference?.title || item.label, resource_type: 'focus_cards'} : null);
   if (!source || !source.type || !source.id) return null;
   // Explicit null is Global and must not fall through to a binding or parent context.
+  const hasBusinessId=Object.hasOwn(source,'business_id')
+    || !!(item.source && Object.hasOwn(item.source,'business_id'))
+    || !!(item.conversation && Object.hasOwn(item.conversation,'business_id'));
   const businessId = Object.hasOwn(source, 'business_id') ? source.business_id
     : item.source && Object.hasOwn(item.source, 'business_id') ? item.source.business_id
     : item.conversation && Object.hasOwn(item.conversation, 'business_id') ? item.conversation.business_id : null;
@@ -91,10 +94,10 @@ function rwRecordFromItem(item, options = {}) {
   const knownSlug = businessId != null && typeof state !== 'undefined'
     ? (state.bizs || []).find(b => b.id === businessId || b.business_id === businessId || b.slug === businessId)?.slug || null
     : null;
-  const explicitSlug = source.business_slug || item.context_business_slug || null;
+  const explicitSlug = businessId != null ? (source.business_slug || item.context_business_slug || null) : null;
   // A non-null business id without an accessible slug must be reported, never routed to /root.
   // A context slug is only a fallback for an item that has no explicit business id.
-  const biz = explicitSlug || knownSlug || (businessId == null ? options.biz || null : null);
+  const biz = businessId == null ? (hasBusinessId ? null : options.biz || null) : (explicitSlug || knownSlug || null);
   const scopeMissing = businessId != null && !biz;
   const taskType = source.task_type || item.task_type || '';
   const label = source.type === 'project'
@@ -173,7 +176,10 @@ function recordWorkspaceMount(host, options = {}) {
   let stack = [], disposed = false, pendingEviction = false;
   const api = {
     open, navigate, back, close, dispose, current, refresh, hasUnsaved, updateTitle, isOpen: () => stack.length > 0,
-    entry, root: () => stack[0] || null, alive: () => !disposed,
+    entry, root: () => stack[0] || null, alive: () => !disposed, replace, invalidate, parentTable: () => {
+      const item=entry();
+      return item?.pairedParent || item?.crmTable || null;
+    },
   };
   return api;
 
@@ -181,7 +187,7 @@ function recordWorkspaceMount(host, options = {}) {
   function current() { const item = entry(); return item && item.alive ? item.record : null; }
   function makeEntry(record) {
     const item = {
-      record, alive: true, tab: record.can_thread ? 'chat' : 'dashboard', dashboardLoaded: false, dashboard: null,
+      record, alive: true, tab: options.paired ? 'dashboard' : record.can_thread ? 'chat' : 'dashboard', dashboardLoaded: false, dashboard: null,
       scroll: 0, recordEl: null, dashHost: null, chatHost: null, chat: null,
     };
     item.recordEl = rwNode('article', 'rw-record');
@@ -189,7 +195,8 @@ function recordWorkspaceMount(host, options = {}) {
     item.recordEl.dataset.rwType = record.source.type;
     item.recordEl.innerHTML = `<header class="rw-head">
       <button type="button" class="quiet rw-back" aria-label="Back" hidden>← Back</button>
-      <span class="rw-title" role="heading" aria-level="2"></span>
+      <span class="rw-context" hidden>CRM /</span><span class="rw-title" role="heading" aria-level="2"></span>
+      <button type="button" class="quiet rw-move" hidden>Move to project…</button>
       <div class="rw-tabs" role="tablist" aria-label="Record views"></div>
       <button type="button" class="quiet rw-close" aria-label="Close record"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
     </header><div class="rw-body"><div class="rw-pane rw-dashboard" role="tabpanel" tabindex="0"></div><div class="rw-pane rw-chat" role="tabpanel" tabindex="0" hidden><div class="agfocus-conversation rw-conversation"></div></div></div>`;
@@ -205,6 +212,9 @@ function recordWorkspaceMount(host, options = {}) {
     titlePaint(item);
     item.back = item.recordEl.querySelector('.rw-back');
     item.back.onclick = () => { void back(); };
+    item.moveButton = item.recordEl.querySelector('.rw-move');
+    item.moveButton.onclick = () => { void moveRecord(item); };
+    paintMove(item);
     item.recordEl.querySelector('.rw-close').onclick = () => { void close(); };
     item.tabs.querySelectorAll('[data-rw-tab]').forEach(tab => {
       tab.onclick = () => selectTab(item, tab.dataset.rwTab);
@@ -217,7 +227,7 @@ function recordWorkspaceMount(host, options = {}) {
   function tabsHtml(record, item) {
     const tabs = [];
     tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="dashboard" id="${item.dashHost.id}-tab" aria-controls="${item.dashHost.id}" aria-label="${rwEsc(rwTypeLabel(record))} dashboard" title="${rwEsc(rwTypeLabel(record))} dashboard">${rwTypeIcon(record)}</button>`);
-    if (record.can_thread) tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="chat" id="${item.chatHost.id}-tab" aria-controls="${item.chatHost.id}" aria-label="Chat" title="Chat">${RW_CHAT_ICON}</button>`);
+    if (record.can_thread && !options.paired) tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="chat" id="${item.chatHost.id}-tab" aria-controls="${item.chatHost.id}" aria-label="Chat" title="Chat">${RW_CHAT_ICON}</button>`);
     return tabs.join('');
   }
   function paintTabs(item) {
@@ -240,12 +250,81 @@ function recordWorkspaceMount(host, options = {}) {
     tab.setAttribute('aria-label', rwTypeLabel(item.record) + ' dashboard');
     tab.title = rwTypeLabel(item.record) + ' dashboard';
     tab.innerHTML = rwTypeIcon(item.record);
+    paintMove(item);
+  }
+  // Move to project belongs to a saved ordinary Task, Story or Customer; its scope is the record's own canonical business_id.
+  function paintMove(item) {
+    const source = item.record?.source;
+    const movable = !!source && source.type === 'task' && (item.record.task_type || source.task_type) !== 'email'
+      && source.business_id !== undefined && !item.record.scopeMissing && !(source.business_id == null && item.record.biz);
+    item.moveButton.hidden = !movable;
+  }
+  async function moveRecord(item) {
+    if (disposed || !item.alive || item.moveDialog) return;
+    // The normal editor guard: Save or Discard is the owner's explicit choice, never implied.
+    if (rwDirty(item.dashboard)) {
+      if (!await rwConfirmDiscard(item)) return;
+      if (disposed || !item.alive) return;
+    }
+    const record = item.record, source = record.source;
+    let dialog = null;
+    dialog = taskMoveOpen({
+      onClosed: () => { if (item.moveDialog === dialog || !dialog) item.moveDialog = null; },
+      task: {id: source.id, title: record.label, task_type: record.task_type},
+      sourceBusinessId: source.business_id ?? null, sourceSlug: record.biz || null,
+      onSourceLost: () => { if (item.alive) void rwRecordUnavailable(item); },
+      onSourceMoved: error => showMoved(item, error), sourceName: source.business_id == null ? 'Global' : (record.business_name || ''),
+      onMoved: reference => { void replaceWithReference(item, reference); },
+      onMovedElsewhere: reference => { void replaceWithReference(item, reference); },
+    });
+    if (!dialog) return;
+    item.moveDialog = dialog;
+  }
+  // The moved Task keeps its id; its new scope is a new canonical record. Replace this entry in place so Back never
+  // returns to the old-scope copy.
+  function replaceWithReference(item, reference) {
+    const target = rwRecordFromItem({source: {type: 'task', id: reference.id, business_id: reference.business_id, business_slug: reference.business_slug,
+      business_name: reference.business_name, label: reference.label, task_type: reference.task_type}});
+    return target ? replace(item, target, {tab: item.tab}) : false;
+  }
+  async function replace(oldItem, record, {tab = null} = {}) {
+    if (disposed || !record) return false;
+    const index = stack.indexOf(oldItem);
+    if (index < 0 || index !== stack.length - 1) return navigate(record, {tab});
+    stack.pop();
+    removeEntry(oldItem);
+    return pushEntry(record, tab);
+  }
+  // A record_moved reply names the authorized canonical destination; the owner opens it from this notice.
+  function showMoved(item, error) {
+    if (!item?.alive) return;
+    const where = taskMoveDestination(error);
+    if (!where) return;
+    item.recordEl.querySelector('.rw-moved')?.remove();
+    const notice = rwNode('p', 'rw-moved ferr');
+    notice.setAttribute('role', 'alert');
+    notice.append(rwNode('span', '', `This record moved to ${where.destination.name || 'another project'}. `));
+    const open = rwNode('button', 'quiet', 'Open in new project'); open.type = 'button';
+    open.onclick = async () => {
+      if (rwDirty(item.dashboard) && !await rwConfirmDiscard(item)) return;
+      if (disposed || !item.alive) return;
+      void replaceWithReference(item, {id: where.task.id, business_id: where.task.business_id ?? where.destination.id,
+        business_slug: where.destination.slug ?? null, business_name: where.destination.name ?? null, label: item.record.label,
+        task_type: item.record.task_type});
+    };
+    notice.append(open);
+    item.recordEl.querySelector('.rw-head').after(notice);
   }
   function titlePaint(item) {
     const title = item.record.label || 'Record';
     const el = item.recordEl.querySelector('.rw-title');
     if (el.textContent !== title) el.textContent = title;
     el.removeAttribute('title');
+    const context=item.recordEl.querySelector('.rw-context');
+    context.hidden=!item.pairedParent;
+    if(item.pairedParent)context.textContent=`${item.pairedParent.label || 'CRM'} /`;
+    if(item.pairedParent)item.recordEl.dataset.navigationContext='crm-record';
+    else delete item.recordEl.dataset.navigationContext;
     item.recordEl.setAttribute('aria-label', title);
   }
   function tabKey(item, event) {
@@ -264,6 +343,7 @@ function recordWorkspaceMount(host, options = {}) {
   async function open(record, {tab = null, root = true} = {}) {
     if (disposed || !record) return false;
     const key = rwRecordKey(record);
+    let pairedReady = false;
     if (root && stack.length) {
       const last = entry();
       if (rwRecordKey(last.record) === key) {
@@ -274,18 +354,22 @@ function recordWorkspaceMount(host, options = {}) {
       // record already exists deeper in the old path. Its edits are guarded by discardAny().
       if (!await discardAny()) return false;
       if (disposed) return false;
+      if (options.paired) {
+        if (!(await pairedSelect(record, null))) return false;
+        pairedReady = true;
+      }
       clearEntries();
     } else if (!root) {
       const existing = stack.find(item => rwRecordKey(item.record) === key);
       if (existing) return finishExistingNavigation(existing, tab);
     }
-    return pushEntry(record, tab);
+    return pushEntry(record, tab, null, pairedReady);
   }
-  async function navigate(record, {tab = null} = {}) {
+  async function navigate(record, {tab = null, parentTable = null} = {}) {
     if (disposed || !record) return false;
     const existing = stack.find(item => rwRecordKey(item.record) === rwRecordKey(record));
     if (existing) return finishExistingNavigation(existing, tab);
-    return pushEntry(record, tab);
+    return pushEntry(record, tab, parentTable);
   }
   // Returning to an earlier record pops only the finite slice above it. Collect that slice
   // once (never loop on an unchanged stack), guard it, then recheck the stack before removal.
@@ -302,13 +386,14 @@ function recordWorkspaceMount(host, options = {}) {
       reveal();
       return false;
     }
+    if (options.paired && !(await pairedSelect(existing.record, existing.pairedParent))) { reveal(); return false; }
     for (const item of currentAbove) removeEntry(item);
     stack.splice(now + 1);
-    if (tab) existing.tab = existing.record.can_thread ? tab : 'dashboard';
+    if (tab) existing.tab = existing.record.can_thread && !options.paired ? tab : 'dashboard';
     reveal();
     return true;
   }
-  async function pushEntry(record, tab) {
+  async function pushEntry(record, tab, parentTable = null, pairedReady = false) {
     if (disposed) return false;
     if (stack.length >= RW_MAX_STACK) {
       const oldest = stack[0];
@@ -323,17 +408,24 @@ function recordWorkspaceMount(host, options = {}) {
           if (!chosen || disposed || !oldest.alive) return;
           if (stack[0] !== oldest) return;
           removeEntry(stack.shift());
-          if (!disposed) void pushEntry(record, tab);
+          if (!disposed) void pushEntry(record, tab, parentTable, pairedReady);
         });
         reveal();
         return false;
       }
       if (disposed || !oldest.alive) return false;
+      if (options.paired && !pairedReady) {
+        if (!(await pairedSelect(record, parentTable))) return false;
+        pairedReady = true;
+      }
       removeEntry(stack.shift());
     }
+    if (options.paired && !pairedReady && !(await pairedSelect(record, parentTable))) return false;
     // Leaving a dashboard for another record keeps the exact scroll it was hidden at.
     captureScroll(entry());
     const item = makeEntry(record);
+    item.pairedParent = parentTable;
+    titlePaint(item);
     stack.push(item);
     recordsHost.append(item.recordEl);
     showEntry(item, {tab});
@@ -360,7 +452,7 @@ function recordWorkspaceMount(host, options = {}) {
     paintBack();
     restoreScroll(item);
     if (item.tab === 'dashboard') { try { item.dashboard?.onShow?.(); } catch (_) { /* its own error state */ } }
-    mountChat(item);
+    if (!options.paired) mountChat(item);
     if (item.tab === 'chat') { showChat(item); void item.chat?.refresh?.(); }
     options.onTitleChange?.(item.record);
     syncChatVisibility();
@@ -370,8 +462,8 @@ function recordWorkspaceMount(host, options = {}) {
     paintTabs(item);
     paintBack();
     if (tab) item.tab = tab;
-    else if (!item.record.can_thread) item.tab = 'dashboard';
-    item.tab = item.record.can_thread ? item.tab : 'dashboard';
+    else if (!item.record.can_thread || options.paired) item.tab = 'dashboard';
+    item.tab = item.record.can_thread && !options.paired ? item.tab : 'dashboard';
     selectTab(item, item.tab, {initial: true});
     options.onTitleChange?.(item.record);
   }
@@ -380,11 +472,17 @@ function recordWorkspaceMount(host, options = {}) {
     if (!item) return;
     const prior = stack.length > 1 ? stack[stack.length - 2] : null;
     item.back.hidden = !prior;
-    if (prior) item.back.setAttribute('aria-label', 'Back to ' + (prior.record.label || 'previous record'));
+    if (prior) {
+      const label=item.pairedParent ? (item.pairedParent.label || 'CRM') : (prior.record.label || 'previous record');
+      item.back.textContent=item.pairedParent ? `← Back to ${label}` : '← Back';
+      item.back.setAttribute('aria-label', 'Back to ' + label);
+    }
   }
   function removeEntry(item) {
     if (!item || !item.alive) return;
     item.alive = false;
+    try { item.moveDialog?.close(); } catch (_) { /* a dead dialog cannot keep the stack alive */ }
+    item.moveDialog = null;
     item._scrollSave?.();
     item._scrollSave = null;
     try { item.dashboard?.dispose?.(); } catch (_) { /* a dead dashboard cannot keep the stack alive */ }
@@ -416,6 +514,8 @@ function recordWorkspaceMount(host, options = {}) {
       if (!await rwConfirmDiscard(leaving)) { reveal(); return false; }
       if (disposed || !leaving.alive || entry() !== leaving) return false;
     }
+    const prior = stack[stack.length - 2];
+    if (options.paired && !(await pairedSelect(prior.record, prior.pairedParent))) { reveal(); return false; }
     captureScroll(leaving);
     collapseChat(leaving);
     stack.pop();
@@ -449,6 +549,17 @@ function recordWorkspaceMount(host, options = {}) {
       if (disposed || !dirty.alive) return false;
     }
   }
+  async function pairedSelect(record, parentTable) {
+    if (!options.paired || typeof options.onPairedSource !== 'function') return true;
+    return (await options.onPairedSource(record || null, parentTable || null)) !== false;
+  }
+  async function invalidate(record) {
+    const target=record?.source ? rwRecordKey(record) : record?.type ? rwSourceKey(record) : String(record || '');
+    const item=stack.find(candidate=>rwRecordKey(candidate.record)===target);
+    if(!item)return false;
+    await rwRecordUnavailable(item);
+    return true;
+  }
   function refresh() {
     const item = entry();
     if (item?.alive) item.chat?.refresh?.();
@@ -464,6 +575,7 @@ function recordWorkspaceMount(host, options = {}) {
     if (disposed) return;
     if (!await discardAny()) return;
     if (disposed) return;
+    if (options.paired && !(await pairedSelect(null, null))) return;
     dispose();
     options.onClose?.();
   }
@@ -478,7 +590,7 @@ function recordWorkspaceMount(host, options = {}) {
   // -------------------------------------------------------------- tabs
   function selectTab(item, tab, {initial = false, restore = false} = {}) {
     if (!item?.alive) return;
-    if (tab === 'chat' && !item.record.can_thread) tab = 'dashboard';
+    if (tab === 'chat' && (!item.record.can_thread || options.paired)) tab = 'dashboard';
     // A hidden dashboard is at scrollTop 0; never let the return toggle overwrite its saved position.
     if (!restore) captureScroll(item);
     const previous = item.tab;
@@ -524,9 +636,9 @@ function recordWorkspaceMount(host, options = {}) {
     // dashboard; it must not depend on a second read that another writer could have changed.
     const prefetchedTask = item.prefetchedTask || null;
     item.prefetchedTask = null;
-    const navigate = target => {
+    const navigate = (target, navigationOptions = {}) => {
       if (!target) return;
-      void workspace.navigate(target);
+      void workspace.navigate(target, navigationOptions);
     };
     const revalidateProject = async () => {
       if (!record.project_id) return true;
@@ -542,6 +654,7 @@ function recordWorkspaceMount(host, options = {}) {
         return true;
       }
     };
+    const moved = failure => showMoved(item, failure);
     const changed = message => {
       if (!alive()) return;
       if (item.dashboard?.changed) { item.dashboard.changed(message); return; }
@@ -604,8 +717,9 @@ function recordWorkspaceMount(host, options = {}) {
       try {
         const dashboard = await rwDashboardMount(host, record, {
           alive, navigate, workspace, entry: item, options,
+          markCrmTable(table) { if (alive()) item.crmTable={type:'table',id:table.id,business_id:table.business_id ?? null,label:table.label || table.title || item.record.label || 'CRM'}; },
           unavailable: () => rwRecordUnavailable(item), revalidateProject,
-          adoptTaskType, normalizeTaskType, changed, prefetchedTask,
+          adoptTaskType, normalizeTaskType, changed, moved, prefetchedTask,
           // The Project's real name and the task's own source title can differ from the card label.
           title(next) {
             if (!alive() || !next) return;
@@ -624,6 +738,12 @@ function recordWorkspaceMount(host, options = {}) {
         if (!alive()) return;
         if (accessLost(failure) || sourceGone(failure)) {
           void rwRecordUnavailable(item);
+          return;
+        }
+        if (failure?.code === 'record_moved' && taskMoveDestination(failure)) {
+          host.replaceChildren();
+          showMoved(item, failure);
+          item.dashboardLoaded = false;
           return;
         }
         host.replaceChildren();
@@ -664,6 +784,7 @@ function recordWorkspaceMount(host, options = {}) {
         if (!item.alive) return;
         void rwRecordUnavailable(item);
       },
+      onMoved: error => showMoved(item, error),
     });
     // A record thread has one composer: its own pane. No second Comment toggle is drawn.
     host.querySelector('.conversation-toggle')?.remove();
@@ -682,6 +803,10 @@ function recordWorkspaceMount(host, options = {}) {
     const index = stack.indexOf(item);
     if (index < 0) return;
     const wasTop = index === stack.length - 1;
+    if (wasTop && options.paired) {
+      const prior=stack[index-1] || null;
+      await pairedSelect(prior?.record || null,prior?.pairedParent || null);
+    }
     if (item.record) {
       item.record.project_item_prefetched = null;
       item.record.url = null;
@@ -827,6 +952,7 @@ async function rwTaskDashboard(host, record, ctx, call) {
     } catch (failure) {
       if (!ctx.alive()) return false;
       if (accessLost(failure) || sourceGone(failure)) { await ctx.unavailable?.(); return false; }
+      if (failure?.code === 'record_moved') { ctx.moved?.(failure); return false; }
       return true;
     }
   };
@@ -1437,17 +1563,41 @@ async function rwTableBody(host, record, ctx, call) {
   const title = rwNode('h4', '', table.title || record.label || 'Table');
   const description = table.description ? rwNode('p', 'muted', table.description) : null;
   const biz = record.biz || null;
+  const tableBusinessId=Object.hasOwn(table,'business_id') ? table.business_id
+    : (biz ? (state.bizs || []).find(project=>project.slug===biz)?.id : null);
+  const canonicalScope=ref=>{
+    const named=ref?.business_slug ? (state.bizs || []).find(project=>project.slug===ref.business_slug) : null;
+    const hasId=Object.hasOwn(ref || {},'business_id');
+    const businessId=hasId ? ref.business_id : named?.id ?? (ref?.business_slug ? ref.business_slug : tableBusinessId);
+    const project=businessId == null ? null : (state.bizs || []).find(candidate=>candidate.id===businessId
+      || candidate.business_id===businessId || candidate.slug===businessId);
+    const mismatch=hasId && businessId != null && named && project && named.id!==project.id;
+    return {businessId:businessId ?? null,businessSlug:businessId == null ? null : (mismatch ? null : (project?.slug || (businessId===tableBusinessId ? biz : null))),invalid:!!mismatch};
+  };
+  const parentCrm={type:'table',id:table.id,business_id:tableBusinessId,label:table.title || record.label || 'CRM'};
   // The Table team thread is the shared discussion; the private Chat tab stays its own conversation.
   const teamHost = rwNode('section', 'rw-table-team');
-  const teamNavigate = ref => { const target = rwRecordFromItem({source: ref}); return target ? ctx.navigate(target) : null; };
+  const teamNavigate = ref => {
+    const scope=canonicalScope(ref);
+    if(scope.invalid)return null;
+    const target=rwRecordFromItem({source:{...ref,business_id:scope.businessId,business_slug:scope.businessSlug}});
+    return target ? ctx.navigate(target,{parentTable:crmIsCrm(table)?parentCrm:null}) : null;
+  };
   const crmReady = typeof crmThreadMount === 'function' && typeof crmTableMount === 'function';
   if (crmReady && crmIsCrm(table)) {
-    const alreadyTitled = [...host.children].some(child => child.tagName === 'H3');
-    if (!alreadyTitled) host.append(title);
-    if (description) host.append(description);
+    ctx.markCrmTable?.({...parentCrm});
     const crmHost = rwNode('div', 'crm-host');
     host.append(crmHost);
     const mount = crmTableMount(crmHost, {biz, table, draftKey: JSON.stringify(['rw', biz, table.id]), drafts: rwCrmDrafts,
+      onOpenRecord: entry => {
+        const ref=entry?.record_ref;
+        if(!ref?.id || entry.unavailable)return;
+        const scope=canonicalScope(ref);
+        if(scope.invalid)return;
+        const target=rwRecordFromItem({source:{type:'task',id:ref.id,business_id:scope.businessId,business_slug:scope.businessSlug,
+          label:entry.record?.title,task_type:entry.record?.task_type,state:entry.record?.status}}, {can_thread:true});
+        if(target)void ctx.navigate(target,{parentTable:crmIsCrm(table)?parentCrm:null});
+      },
       isActive: () => ctx.alive() && host.isConnected, onUnavailable: () => { void ctx.unavailable?.(); }});
     return {dirty: () => mount.dirty(), hasUnsaved: () => mount.dirty(), save: () => mount.save(), discard: () => mount.discard(), onShow: () => mount.refresh(),
       dispose() { mount.dispose(); host.replaceChildren(); }};
@@ -1785,9 +1935,12 @@ async function rwProjectDashboard(host, record, ctx) {
       paint(activeSection);
     }
   }
+  // A confirmed move changes what this Project owns; re-read the visible section (a read, never an optimistic edit).
+  const onTaskMoved = () => { if (!disposed) void load(activeSection, false, true); };
+  document.addEventListener('qorqut-task-moved', onTaskMoved);
   return {
     dirty: () => false, hasUnsaved: () => false, onShow: revalidate,
-    dispose() { disposed = true; generation++; host.replaceChildren(); },
+    dispose() { disposed = true; generation++; document.removeEventListener('qorqut-task-moved', onTaskMoved); host.replaceChildren(); },
   };
 }
 

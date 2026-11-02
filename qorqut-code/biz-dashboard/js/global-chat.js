@@ -13,6 +13,46 @@ const GLOBAL_CHAT_HIDDEN = new Set();           // settled inputs the owner dism
 // presentation-only: a record keeps the sent text visible until its exact native user entry arrives, and never touches receipts.
 const GLOBAL_CHAT_ACCEPTED = new Map();
 const globalChatText = text => String(text ?? '').replace(/\r\n/g, '\n');
+async function globalChatOpenFocusReference(ref, context = {}) {
+  const pane = Object.hasOwn(context, 'pane') ? context.pane : (typeof _agpad !== 'undefined' ? _agpad : null);
+  const agentId = String(context.agentId ?? pane?.agentId ?? '');
+  const current = () => context.isCurrent?.() !== false
+    && (typeof _agpad === 'undefined' || _agpad === pane)
+    && (!pane || (pane.open && (!agentId || String(pane.agentId ?? '') === agentId)));
+  const supported=new Set(['table','task','reference','signoff','project']);
+  if (!current()) return false;
+  if(supported.has(ref?.type) && typeof ref.id==='string' && ref.id && pane) {
+    if(pane?.open && pane.workspaceRole==='ordubashy' && pane.agentId && state.scope==='global' && state.globalTab==='agents') {
+      if(pane.view!=='focus') {
+        await agpadSetView(pane,'focus');
+        if (!current() || pane.view !== 'focus') return false;
+      }
+      if(pane.view==='focus' && pane.surface) { agpadSurfaceClose(pane); if (!current()) return false; }
+      if(pane.view==='focus') {
+        const frame=pane.workspaceFrame;
+        if(frame?.isConnected && pane.el?.contains(frame)) {
+          await frame.workspaceReady;
+          if (!current() || pane.workspaceFrame !== frame || !frame.isConnected || !pane.el?.contains(frame)) return false;
+          const child=frame.contentWindow, open=child?.agentWorkspacePairedReference;
+          if(typeof open==='function' && child.document.querySelector('.agfocus')) {
+            const opened = await open(ref);
+            return current() && opened === true;
+          }
+        }
+        if(pane.focusMount?.isConnected) {
+          const open=window.agentWorkspacePairedReference;
+          if(typeof open==='function') {
+            const opened = await open(ref);
+            return current() && opened === true;
+          }
+        }
+      }
+      return false;
+    }
+  }
+  if (!current()) return false;
+  return taskProgressOpenReference(ref?.business_slug ?? null,ref,current);
+}
 function globalChatAccept(scope, text, input, position) {
   if (!scope || !input?.id) return;
   const held = GLOBAL_CHAT_ACCEPTED.get(scope) || {records: [], consumed: new Set()};
@@ -88,7 +128,13 @@ function mountAgentView(pane, agent, opts) {
     // The shared main terminal may belong to a shell mounted outside this view (workspace Terminal, a legacy agent without an id):
     // release its viewer (stream and resize observer only; the server process keeps running).
     if (typeof teardownTerm === 'function') teardownTerm();
-    chat = mountGlobalChat(pane, agent, {openTerminal: showTerminal});
+    const originAgentId = String(agent.agent_id ?? '');
+    let mountedChat = null;
+    mountedChat = mountGlobalChat(pane, agent, {openTerminal: showTerminal, openReference: ref => globalChatOpenFocusReference(ref, {
+      agentId: originAgentId,
+      isCurrent: () => !disposed && mountedChat != null && chat === mountedChat && (!opts.isCurrent || opts.isCurrent()),
+    })});
+    chat = mountedChat;
     // Navigation tears the pane down without an event: release the stream once it has left the page.
     const mine = chat;
     watcher = setInterval(() => { if (!pane.isConnected || chat !== mine) { clearInterval(watcher); if (chat === mine) stop(); } }, 2000);
@@ -106,7 +152,16 @@ function mountAgentView(pane, agent, opts) {
       opts.onTerminalStatus?.(status);
     }, opts.terminal.base);
   };
-  const view = {showChat, showTerminal, dispose() {
+  const view = {showChat, showTerminal,
+    selectPairedSource(source, generation, onUnavailable, onReference) {
+      if (disposed || !chat || !opts.isCurrent?.()) return false;
+      return chat.selectPairedSource?.(source, generation, onUnavailable, onReference) ?? false;
+    },
+    clearPairedSource(generation) {
+      if (!chat) return false;
+      return chat.clearPairedSource?.(generation) ?? false;
+    },
+    dispose() {
     if (disposed) return;
     disposed = true; stop();
     if (globalAgentViewActive === view) globalAgentViewActive = null;
@@ -126,6 +181,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   let stream = null, retryTimer = null, retryDelay = 1000, readTimer = null, streamDown = false;
   let disposed = false, loading = false, again = false, generation = 0, finished = false, reading = 0;
   let bannerText = '', reconnecting = false, olderBusy = false, view = null;
+  let pairedHost = null, pairedConversation = null, pairedGeneration = 0;
   const cleanups = [];
 
   // Native shell: header, view switch and the session line stay here; every message, composer and preview is the shared view.
@@ -141,7 +197,10 @@ function mountGlobalChat(pane, agent, options = {}) {
   const sessionText = sessionLine.querySelector('.gchat-session-text');
   const workingTag = sessionLine.querySelector('.gchat-working-tag');
 
-  const live = () => !disposed && root.isConnected;
+  const live = () => !disposed && (root.isConnected || !!pairedHost?.isConnected);
+  const originPane = typeof _agpad !== 'undefined' ? _agpad : null;
+  const openReference = typeof options.openReference === 'function' ? options.openReference
+    : ref => globalChatOpenFocusReference(ref, {pane: originPane, agentId, isCurrent: live});
   const listen = (target, type, handler, opts) => { target.addEventListener(type, handler, opts); cleanups.push(() => target.removeEventListener(type, handler, opts)); };
 
   // ---- the read position: the newest completed reply whose entry is rendered in this visible Chat. Only a rendered page or
@@ -157,7 +216,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   function scheduleRead() {
     clearTimeout(readTimer);
     readTimer = setTimeout(async () => {
-      if (!live() || !session || !globalChatReadable(agentId) || !view.isAtBottom()) return;
+      if (!live() || pairedHost || !session || !globalChatReadable(agentId) || !view.isAtBottom()) return;
       const sequence = renderedBoundary();
       if (sequence <= lastRead || sequence <= reading) return;
       reading = sequence;
@@ -279,7 +338,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   }
 
   // ---- session status, composer enablement and the empty state
-  const canSend = () => !!session?.can_send && viewingLive() && !finished;
+  const canSend = () => !pairedHost && !!session?.can_send && viewingLive() && !finished;
   const selectedFiles = () => GLOBAL_CHAT_FILES.get(composerScope) || [];
   function sessionSummary() {
     if (!session) return {key: 'loading', line: ''};
@@ -453,6 +512,8 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (pending && pending.text !== view.getDraft() && !GLOBAL_CHAT_INFLIGHT.has(composerScope)) GLOBAL_CHAT_SENDS.delete(composerScope);
     },
     onSubmit: text => submit(text),
+    onTask: openReference,
+    onReference: openReference,
     onFiles: files => {
       if (!composerScope || !canSend() || GLOBAL_CHAT_INFLIGHT.has(composerScope) || !files.length) return;
       if (files.length + selectedFiles().length > 10 || files.some(file => file.size > 25 * 1024 * 1024)) {
@@ -467,11 +528,6 @@ function mountGlobalChat(pane, agent, options = {}) {
       GLOBAL_CHAT_SENDS.delete(composerScope); paintSession();
     },
     onOlder: () => loadOlder(),
-    // A resolved Task reference opens that Task's own record thread in the current agent pane's Focus workspace.
-    onTask: reference => {
-      if (typeof agfocusOpenChatTask !== 'function') throw new Error('This Task cannot be opened here.');
-      return agfocusOpenChatTask(agentId, reference);
-    },
     // A Signoff reference is the existing single-item Signoff view: the owner session, exact proposal and decisions stay its own.
     mountSignoff: (ref, host) => sgChatMount(ref, host, {active: () => !disposed}),
     onViewportChange: scheduleRead,
@@ -572,13 +628,43 @@ function mountGlobalChat(pane, agent, options = {}) {
   void load();
   return {
     agentId,
+    selectPairedSource(source, generation, onUnavailable, onReference) {
+      if (!live() || !source || !source.type || !source.id) return false;
+      if (generation < pairedGeneration) return false;
+      pairedGeneration = generation;
+      const biz=source.business_id == null ? null : (state.bizs || []).find(project =>
+        project.id===source.business_id || project.business_id===source.business_id || project.slug===source.business_id)?.slug || null;
+      if(source.business_id != null && !biz)return false;
+      pairedConversation?.dispose?.(); pairedConversation = null;
+      pairedHost = document.createElement('div'); pairedHost.className = 'gchat-paired-record';
+      pane.replaceChildren(pairedHost);
+      const business = source.business_id ?? null;
+      const privateSource = {type: source.type, id: source.id, ...(business == null ? {} : {business_id: business})};
+      pairedConversation = conversationMount(pairedHost, {type: source.type, id: source.id, biz, revision: null}, {
+        inlineComposer: true, related: true, dismissOnOutside: false, privateGlobal: true, privateSource,
+        isVisible: () => live() && pairedHost?.isConnected && !document.hidden,
+        onUnavailable: () => onUnavailable?.(privateSource),
+        openReference: ref => onReference?.(ref),
+      });
+      pairedConversation?.expand?.();
+      return true;
+    },
+    clearPairedSource(generation) {
+      if (generation != null && generation < pairedGeneration) return false;
+      pairedGeneration = generation ?? pairedGeneration + 1;
+      pairedConversation?.dispose?.(); pairedConversation = null; pairedHost = null;
+      if (!disposed) { pane.replaceChildren(root); void load(true); }
+      return true;
+    },
     dispose() {
       disposed = true; generation++;
+      const pairedNode=pairedHost;
+      pairedConversation?.dispose?.(); pairedConversation = null; pairedHost = null;
       closeStream(); clearTimeout(retryTimer); clearTimeout(readTimer);
       saveDraft();
       cleanups.splice(0).forEach(cleanup => cleanup());
       view.dispose();
-      if (pane.firstElementChild === root) pane.innerHTML = '';
+      if (pane.firstElementChild === pairedNode || pane.firstElementChild === root) pane.replaceChildren();
     },
     focus() { view.focusComposer(); },
   };

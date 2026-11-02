@@ -1,8 +1,8 @@
 // The one Chat presentation: message list, markdown, timestamps, reference chips and previews, scrolling, pending receipts and
 // composer. Native Chat (js/global-chat.js), item discussions (js/conversation.js) and Action discussions (js/actions.js) all render
 // through mountChatView; docs/SHARED-CHAT-VIEW-CONTRACT.md is its interface.
-// Record threads opt into reference rows (options.recordReferences): contiguous related Task/Action entries share one compact
-// group and a message's own Task/Action references share the same row inside that message. Grouping is presentation only.
+// Record threads opt into reference rows (options.recordReferences): contiguous related Task/Action entries share one flat
+// attachment list and a message's own Task/Action references share the same rows inside that message. Grouping is presentation only.
 // Presentation only: this module makes no request, stores no draft, never sorts, never decides who may write and never acknowledges
 // anything. Controllers hand it normalized data and receive plain callbacks.
 const CHAT_VIEW_TIME = new Intl.DateTimeFormat(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
@@ -187,6 +187,26 @@ function chatViewReferenceChips(body) {
   return chips.childElementCount ? chips : null;
 }
 
+// Promote validated same-origin table viewer links into canonical table references.
+function chatViewExtractTableLinks(body) {
+  const refs = [], seen = new Set();
+  for (const link of [...body.querySelectorAll('a.safe-link')]) {
+    let url;
+    try { url = new URL(link.href, location.origin); } catch (_) { continue; }
+    if (url.origin !== location.origin || url.pathname !== '/tables/view' || url.hash) continue;
+    const route = tableViewRoute(url.search);
+    if (!route) continue;
+    const value = {type: 'table', id: route.tableId, business_id: route.businessId};
+    const key = chatViewReferenceKey(value);
+    link.remove();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    refs.push({key: `table-link:${key}`, label: '', value});
+  }
+  body.normalize();
+  return refs;
+}
+
 function chatViewOwnerReferences(body) {
   const chips = chatViewReferenceChips(body);
   let removed = false;
@@ -210,6 +230,8 @@ function chatViewOwnerReferences(body) {
 // options.mountSignoff(ref, host) and returns its disposer. The view never decides, fetches or trusts a model-supplied URL.
 const CHAT_VIEW_ICONS = {
   browser: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>',
+  table: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11m6-11v11"/></svg>',
+  task: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 4.5V3h6v1.5M8 10h8m-8 4h8m-8 4h5"/></svg>',
   // The existing Project icon marks a typed Project reference; it is informational, like a Task chip.
   project: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12a24 24 0 0 0 18 0M10 13h4"/></svg>',
 };
@@ -217,12 +239,12 @@ const CHAT_VIEW_TASK_STATES = {open: 'Open', working: 'Working', waiting: 'Waiti
 // A related Action has no execution state of its own, but the existing Action reader does call a withdrawn one
 // "Withdrawn"; only a supplied, known state is labelled. Anything else stays its honest raw value or is omitted.
 const CHAT_VIEW_REFERENCE_STATES = {...CHAT_VIEW_TASK_STATES, withdrawn: 'Withdrawn'};
-// Record threads draw a related Task/Action as one compact row. The glyph is the existing activity/heartbeat icon
+// Record threads draw a related Task/Action as one flat attachment row. The glyph is the existing activity/heartbeat icon
 // (T_VIEW_ICON.activity), kept local so the shared view never depends on tasks.js having loaded first.
 const CHAT_VIEW_ACTIVITY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>';
 const chatViewStateText = state => !state ? '' : (CHAT_VIEW_REFERENCE_STATES[state] || String(state));
 const chatViewStateClass = state => state && Object.hasOwn(CHAT_VIEW_TASK_STATES, state) ? ` ${state}` : '';
-// Ordinary message references expose their opaque value; only an authorized Task/Action becomes a compact row.
+// Ordinary message references expose their opaque value; only an authorized Task/Action becomes a flat row.
 const chatViewReferenceKind = ref => ref?.value?.type === 'task' || ref?.value?.type === 'action' ? ref.value.type : '';
 const chatViewTypedKey = ref => `${ref.type}:${ref.business_id || ''}:${ref.id}`;
 // Same rule as the Focus browser frame: an absolute http(s) URL without credentials; anything else is unavailable.
@@ -234,6 +256,72 @@ function chatViewViewerUrl(value) {
   } catch (_) { return ''; }
 }
 const chatViewDimension = value => Number.isSafeInteger(value) && value > 0 && value <= 32768 ? value : null;
+const chatViewReferenceKey = ref => {
+  let scope = 'unresolved';
+  if (Object.hasOwn(ref || {}, 'business_id') && ref.business_id === null) scope = ref.business_slug ? `global:invalid:${ref.business_slug}` : 'global';
+  else if (ref?.business_id != null) {
+    const businesses = typeof state !== 'undefined' ? state.bizs || [] : [];
+    const business = businesses.find(item => item.id === ref.business_id || item.business_id === ref.business_id);
+    scope = business?.slug && (!ref.business_slug || ref.business_slug === business.slug) ? `business:${ref.business_id}` : `business:${ref.business_id}:invalid:${ref.business_slug || ''}`;
+  } else if (ref?.business_slug) scope = `slug:${ref.business_slug}`;
+  return JSON.stringify([ref?.type || '', scope, ref?.id ?? null]);
+};
+const chatViewReferenceScope = ref => {
+  if (!Object.hasOwn(ref || {}, 'business_id')) return null;
+  if (ref.business_id === null) return ref.business_slug ? null : {key: 'global', path: '/root'};
+  if (typeof ref.business_id !== 'string' || !ref.business_id) return null;
+  const business = (typeof state !== 'undefined' ? state.bizs || [] : []).find(item => item.id === ref.business_id || item.business_id === ref.business_id);
+  if (!business?.slug || (ref.business_slug && ref.business_slug !== business.slug)) return null;
+  return {key: ref.business_id, path: `/biz/${encodeURIComponent(business.slug)}`};
+};
+const chatViewReferenceFailureIsDenied = error => [401, 403, 404].includes(error?.httpStatus) || /^(forbidden|not_found|policy_denied|invalid_principal|operation_unavailable|unavailable)$/i.test(String(error?.code || ''));
+function chatViewReferenceRuntime() {
+  const reads = new Map(), queue = []; let active = 0, disposed = false;
+  const pump = () => { while (!disposed && active < 4 && queue.length) {
+    const item = queue.shift(); active++;
+    Promise.resolve().then(async () => {
+      const scope = chatViewReferenceScope(item.ref);
+      if (!scope) { item.result = {unresolved: true}; return; }
+      const raw = await post(`${scope.path}/operations/${item.ref.type === 'table' ? 'tables_get' : 'tasks_get'}`,
+        item.ref.type === 'table' ? {table_id: item.ref.id, ...(scope.key === 'global' ? {scope: 'global'} : {})} : {task_id: item.ref.id});
+      const data = coreData(raw), value = item.ref.type === 'table' ? data?.table : data?.task;
+      if (!value || String(value.id) !== String(item.ref.id)) throw Object.assign(new Error('Reference unavailable.'), {code: 'not_found'});
+      item.result = {data: value};
+    }).catch(error => { item.result = chatViewReferenceFailureIsDenied(error) ? {denied: true} : {error: true}; }).finally(() => {
+      active--; if (reads.get(item.key) === item) { item.status = 'settled'; for (const [el, update] of item.subscribers) if (el.isConnected) update(item.result); item.subscribers.clear(); } pump();
+    });
+  }};
+  return {
+    read(ref, element, update) {
+      if (!ref || !['table', 'task'].includes(ref.type) || !ref.id || ref.unavailable || ref.available === false) return null;
+      const key = chatViewReferenceKey(ref); let item = reads.get(key);
+      if (!item) { item = {key, ref, status:'queued', subscribers:new Map(), result:null}; reads.set(key,item); queue.push(item); pump(); }
+      if (item.status === 'settled') { if (element?.isConnected) update(item.result); return item.result; }
+      if (element) item.subscribers.set(element,update); return null;
+    },
+    retain(keys) { const keep = new Set(keys); for (const [key,item] of reads) if (!keep.has(key)) { reads.delete(key); item.subscribers.clear(); }
+      for (let i=queue.length-1;i>=0;i--) if (reads.get(queue[i].key)!==queue[i]) queue.splice(i,1); },
+    dispose() { disposed=true; queue.length=0; reads.clear(); },
+  };
+}
+function chatViewPaintReference(button, ref, result, onOpen) {
+  const denied = ref.unavailable || ref.available === false || result?.denied || result?.unresolved;
+  const data = result?.data, isTable = ref.type === 'table';
+  const label = denied ? 'Unavailable reference' : (data?.title || ref.label || (isTable ? 'Table' : 'Record'));
+  // References are compact navigation, not miniature profiles. Keep the saved description untouched.
+  const description = !denied && isTable ? String(data?.description ?? ref.description ?? '').trim() : '';
+  const words = description ? description.split(/\s+/) : [];
+  const detail = words.slice(0, 5).join(' ') + (words.length > 5 ? '…' : '');
+  button.replaceChildren(); button.className = `gchat-reference gchat-reference-block gchat-${ref.type}-reference${denied ? ' gchat-reference-unavailable' : ''}`;
+  button.disabled = !!denied || typeof onOpen !== 'function';
+  const icon = document.createElement('span'); icon.className='gchat-reference-icon'; icon.setAttribute('aria-hidden','true'); icon.innerHTML=CHAT_VIEW_ICONS[ref.type] || '';
+  if (ref.type === 'task' && typeof taskTypeIcon === 'function') icon.innerHTML=taskTypeIcon(data?.task_type || ref.task_type) || icon.innerHTML;
+  button.append(icon);
+  const content=document.createElement('span'); content.className='gchat-reference-content';
+  const title=document.createElement('span'); title.className='gchat-reference-title'; title.textContent=label; content.append(title);
+  if(detail){const small=document.createElement('span');small.className='gchat-reference-detail';small.textContent=detail;content.append(small);}
+  button.append(content);
+}
 // Fit a display of the given size inside the box without cropping or distortion (as the Focus desktop frame does).
 function chatViewFit(width, height, displayWidth, displayHeight) {
   if (!displayWidth || !displayHeight) return {width, height};
@@ -241,7 +329,7 @@ function chatViewFit(width, height, displayWidth, displayHeight) {
   return {width: displayWidth * scale, height: displayHeight * scale};
 }
 const chatViewTypedRoute = ref => JSON.stringify([ref.type, ref.business_id || null, ref.business_slug || null, ref.type === 'browser' ? ref.viewer_url : null]);
-const chatViewTypedSignature = ref => JSON.stringify([ref.type, ref.business_id || null, ref.id, ref.available !== false, ref.label, ref.state, ref.viewer_url, ref.business_slug || null, ref.width, ref.height, ref.role, ref.presentation, ref.type === 'task' ? ref : null]);
+const chatViewTypedSignature = ref => JSON.stringify([ref.type, ref.business_id || null, ref.id, ref.available !== false, ref.label, ref.state, ref.viewer_url, ref.business_slug || null, ref.width, ref.height, ref.role, ref.presentation, ref.type === 'task' || ref.type === 'table' ? ref : null]);
 function chatViewTypedChip(ref, cls) {
   const chip = document.createElement('span');
   chip.className = `gchat-reference ${cls}`;
@@ -324,11 +412,23 @@ function chatViewBrowserCard(ref, url) {
 
 function chatViewTypedMount(ref, host, options, entryKey) {
   const unavailable = () => {
-    const item = {el: chatViewTypedChip({...ref, label: ref.label || 'Unavailable reference'}, 'gchat-reference-unavailable'), dispose() { item.el.remove(); }};
-    item.update = next => next.available === false && (item.el.replaceChildren(...chatViewTypedChip({...next, label: next.label || 'Unavailable reference'}, 'gchat-reference-unavailable').childNodes), true);
+    const item = {el: chatViewTypedChip({...ref, label: 'Unavailable reference'}, 'gchat-reference-unavailable'), dispose() { item.el.remove(); }};
+    item.update = next => next.available === false && (item.el.replaceChildren(...chatViewTypedChip({...next, label: 'Unavailable reference'}, 'gchat-reference-unavailable').childNodes), true);
     return item;
   };
-  if (ref.available === false) return unavailable();
+  if (ref.available === false || ref.unavailable) return unavailable();
+  if (ref.type === 'table' || ref.type === 'task') {
+    let current=ref;
+    const opener=ref.type === 'task' ? (options.onTask === undefined ? options.onReference : options.onTask) : options.onReference;
+    const button=document.createElement(typeof opener === 'function' ? 'button' : 'span');
+    if(button.tagName==='BUTTON') { button.type='button'; button.onclick=()=>{const selected=current;Promise.resolve().then(()=>opener(selected,entryKey)).catch(()=>toast(uiFailure(new Error('Couldn’t open this reference.'))));}; }
+    const paint=(result,requestedKey=chatViewReferenceKey(current))=>{if(chatViewReferenceKey(current)!==requestedKey)return;chatViewPaintReference(button,current,result,opener);};
+    const update=next=>{current=next;const requestedKey=chatViewReferenceKey(next);const notify=result=>paint(result,requestedKey);
+      paint(options.referenceRuntime.read(next,button,notify),requestedKey);
+    };
+    update(ref);
+    return {el:button,update(next){update(next);return true;},dispose(){button.remove();}};
+  }
   if (ref.type === 'agent') {
     const item = {el: chatViewTypedChip(ref, 'gchat-agent-reference'), dispose() { item.el.remove(); }};
     item.update = next => next.available !== false && (item.el.replaceChildren(...chatViewTypedChip(next, 'gchat-agent-reference').childNodes), true);
@@ -337,7 +437,10 @@ function chatViewTypedMount(ref, host, options, entryKey) {
   if (ref.type === 'task') {
     let current = ref;
     const opener = options.onTask === undefined ? options.onReference : options.onTask;
+    // A native Chat Task reference is the same flat attachment row as a record thread: only the status ball and the
+    // title, no chip card around them. The whole row stays the exact Task opener wired at b20a7366.
     let chip = chatViewTypedChip(ref, 'gchat-task-reference');
+    chip.classList.add('gchat-ref-row', 'gchat-ref-row-task');
     if (typeof opener === 'function') {
       const button = document.createElement('button'); button.type = 'button'; button.className = chip.className;
       button.append(...chip.childNodes); chip = button;
@@ -389,16 +492,15 @@ function mountChatView(host, options = {}) {
   };
   const nodes = new Map();                       // entry key -> element
   const pendingNodes = new Map();                // pending key -> element
-  // Record-thread rows: each contiguous related Task/Action run has one group node and one local collapse state.
-  // Identity is source + first record key; collapse is never stored or sent anywhere.
+  // Record-thread rows: each contiguous related Task/Action run has one flat attachment container.
+  // Identity is source + first record key; nothing about a run is stored or sent anywhere.
   const referenceRows = options.recordReferences === true;
-  const groupNodes = new Map();                  // group key -> {el, title, counts, toggle, rows}
-  const collapsedGroups = new Set();
-  let groupSequence = 0;
+  const groupNodes = new Map();                  // group key -> {el, rows}
   const cleanups = [];
   const copyTimers = new Set();
   cleanups.push(() => { copyTimers.forEach(clearTimeout); copyTimers.clear(); });
   let disposed = false, ready = false, initial = true, atBottom = true, unseen = 0, deferBottom = false, pendingState = null;
+  const referenceRuntime = chatViewReferenceRuntime();
   let lastState = {top: 0, atBottom: true, anchorKey: null, anchorOffset: 0};
 
   const root = document.createElement('div');
@@ -616,12 +718,6 @@ function mountChatView(host, options = {}) {
   // data-ref-key) is the only navigation, and an unavailable row stays inert. Nothing is fetched here.
   const relatedGroupTitle = () => String(options.sourceTitle || '').trim() || 'Related work';
   const relatedGroupKey = firstKey => `${options.sourceKey || ''}|${firstKey}`;
-  const relatedGroupCounts = entries => {
-    const tasks = entries.filter(entry => entry.referenceRow === 'task').length;
-    const actions = entries.filter(entry => entry.referenceRow === 'action').length;
-    return [tasks ? `${tasks} ${tasks === 1 ? 'task' : 'tasks'}` : '',
-      actions ? `${actions} ${actions === 1 ? 'action' : 'actions'}` : ''].filter(Boolean).join(' · ');
-  };
   // The Focus status ball (Task) or the shared activity glyph (Action) leads the title. A missing state stays unknown:
   // the Task ball keeps its hollow unknown face and the Action meta simply omits a state word. Nothing defaults to Done.
   function paintReferenceRow(row, kind, label, state, available) {
@@ -685,41 +781,22 @@ function mountChatView(host, options = {}) {
     }
     node.append(referenceRowButton('task', ref.label, ref.state, available, null));
   }
-  // One group per contiguous run of related Task/Action rows. The header names the record already open in this
-  // thread (supplied by its controller) and counts only the rows loaded here; it is informational, with a separate
-  // keyboard-accessible collapse control. No routing is invented for the header itself.
+  // One flat attachment container per contiguous run of related Task/Action rows. It is a plain list with a subtle
+  // left rule: no visible heading, count or collapse control, and no routing is invented for the container itself.
+  // The accessible group name still says which record's thread these rows belong to.
   function relatedGroupNode(group) {
     let item = groupNodes.get(group.key);
     if (!item) {
       const el = document.createElement('div');
       el.className = 'gchat-ref-group gchat-ref-group-related';
       el.setAttribute('role', 'group');
-      const head = document.createElement('div'); head.className = 'gchat-ref-group-head';
-      const title = document.createElement('span'); title.className = 'gchat-ref-group-title';
-      const counts = document.createElement('span'); counts.className = 'gchat-ref-group-counts';
-      const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'quiet gchat-ref-group-toggle';
-      toggle.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
       const rows = document.createElement('div'); rows.className = 'gchat-ref-rows';
-      head.append(title, counts, toggle); el.append(head, rows);
-      item = {el, title, counts, toggle, rows, key: group.key};
+      el.append(rows);
+      item = {el, rows, key: group.key};
       groupNodes.set(group.key, item);
-      // Collapse is local to this view and keyed by the same group identity, so a repaint or refresh keeps it.
-      toggle.onclick = () => {
-        const expanded = rows.hidden;
-        rows.hidden = !expanded;
-        if (expanded) collapsedGroups.delete(group.key); else collapsedGroups.add(group.key);
-        toggle.setAttribute('aria-expanded', String(expanded));
-        toggle.setAttribute('aria-label', expanded ? 'Collapse related work' : 'Expand related work');
-      };
     }
     const title = relatedGroupTitle();
-    item.title.textContent = title;
-    item.counts.textContent = relatedGroupCounts(group.entries);
     item.el.setAttribute('aria-label', title === 'Related work' ? 'Related work' : `Related work in ${title}`);
-    const expanded = !collapsedGroups.has(group.key);
-    item.rows.hidden = !expanded;
-    item.toggle.setAttribute('aria-expanded', String(expanded));
-    item.toggle.setAttribute('aria-label', expanded ? 'Collapse related work' : 'Expand related work');
     return item;
   }
   // Layout: groups preserve canonical entry order. Any other entry — a message, Signoff, Project or other record
@@ -742,30 +819,51 @@ function mountChatView(host, options = {}) {
     }
     return {items, groups};
   }
-  function referenceButtons(entry, refs) {
+  function referenceButtons(entry, refs, linkedRefs = [], node = null) {
     refs.className = 'gchat-references';
+    const typedKeys = new Set((entry.typedReferences || []).filter(ref => ref?.type === 'table').map(chatViewReferenceKey));
+    const seen = new Set();
+    const ordinary = [...(entry.references || []), ...linkedRefs].filter(ref => {
+      const value = ref?.value;
+      if (!value || !['table','task'].includes(value.type)) return true;
+      const key = chatViewReferenceKey(value);
+      if (seen.has(key) || (value.type === 'table' && typedKeys.has(key))) return false;
+      seen.add(key); return true;
+    });
+    if (node) node._referenceByKey = new Map(ordinary.map(ref => [ref.key,ref]));
     let run = null, previousKind = '';
-    for (const ref of entry.references || []) {
+    for (const ref of ordinary) {
       const kind = referenceRows && !entry.referenceOnly ? chatViewReferenceKind(ref) : '';
       if (kind) {
-        // A message's own consecutive Task/Action references share one compact group inside that message only.
+        // A message's own consecutive Task/Action references share one flat attachment list inside that message only.
         if (!run) {
           run = document.createElement('div');
           run.className = 'gchat-ref-group gchat-ref-group-inline';
           run.setAttribute('role', 'group'); run.setAttribute('aria-label', 'Related work');
-          refs.append(run); previousKind = '';
+          const rows = document.createElement('div'); rows.className = 'gchat-ref-rows';
+          run.append(rows); refs.append(run);
         }
         const available = !ref.disabled && ref.value?.unavailable !== true;
-        const row = referenceRowButton(kind, ref.label, ref.value?.state, available, ref.key);
-        if (previousKind && previousKind !== kind) row.classList.add('gchat-ref-split');
-        previousKind = kind; run.append(row);
+        run.firstElementChild.append(referenceRowButton(kind, ref.label, ref.value?.state, available, ref.key));
         continue;
       }
-      run = null; previousKind = '';
+      run = null;
       const button = document.createElement('button');
-      button.type = 'button'; button.className = 'gchat-reference quiet'; button.dataset.refKey = ref.key; button.disabled = !!ref.disabled;
-      const label = document.createElement('span'); label.textContent = ref.label || '';
-      button.append(label); refs.append(button);
+      button.type = 'button'; button.dataset.refKey = ref.key; button.disabled = !!ref.disabled;
+      if (ref.value && ['table','task'].includes(ref.value.type)) {
+        const onOpen = entry.referenceOnly ? null : options.onReference;
+        const requestedKey = chatViewReferenceKey(ref.value);
+        const paint = result => {
+          const current = node?._referenceByKey?.get(ref.key)?.value;
+          if (!current || chatViewReferenceKey(current)!==requestedKey) return;
+          chatViewPaintReference(button,current,ref.disabled ? {unresolved:true} : result,onOpen); button.dataset.refKey=ref.key;
+        };
+        paint(ref.disabled ? {unresolved:true} : referenceRuntime.read(ref.value,button,paint));
+      } else {
+        button.className='gchat-reference quiet';
+        const label=document.createElement('span'); label.textContent=ref.label || ''; button.append(label);
+      }
+      refs.append(button);
     }
     return refs;
   }
@@ -777,7 +875,6 @@ function mountChatView(host, options = {}) {
     node.className = entry.referenceOnly
       ? `gchat-msg gchat-reference-only${referenceRows && entry.referenceRow ? ' gchat-reference-row' : ''}`
       : `gchat-msg gchat-${speaker}`;
-    node.classList.remove('gchat-ref-split');
     node.dataset.id = entry.key;
     if (entry.position != null) node.dataset.position = String(entry.position); else delete node.dataset.position;
     node._entry = entry;
@@ -791,7 +888,7 @@ function mountChatView(host, options = {}) {
     if (speaker === 'notice' && notice?.inputType) node.dataset.inputType = notice.inputType; else delete node.dataset.inputType;
     if (entry.referenceOnly) {
       // Existing reference components only: no body, author, time or copy button. A related Task/Action is one
-      // compact row in a record thread; every other record kind keeps its typed component or reference buttons.
+      // flat attachment row in a record thread; every other record kind keeps its typed component or reference buttons.
       for (const child of [...node.childNodes]) if (child !== node._typedHost) child.remove();
       if (referenceRows && entry.referenceRow) {
         disposeTyped(node);
@@ -811,9 +908,11 @@ function mountChatView(host, options = {}) {
     // A message that carries typed references keeps their host (and so its iframes) across repaints of everything else.
     if (node._typedHost) { for (const child of [...node.childNodes]) if (child !== node._typedHost) child.remove(); node.insertAdjacentHTML('afterbegin', authorHtml(entry) + body); }
     else node.innerHTML = authorHtml(entry) + body;
-    const refs = (speaker === 'user' ? chatViewOwnerReferences(node.querySelector('.gchat-body'))
-      : speaker === 'agent' && entry.partial !== true && chatViewReferenceChips(node.querySelector('.gchat-body'))) || document.createElement('div');
-    referenceButtons(entry, refs);
+    const bodyNode = node.querySelector('.gchat-body');
+    const linkedRefs = chatViewExtractTableLinks(bodyNode);
+    const refs = (speaker === 'user' ? chatViewOwnerReferences(bodyNode)
+      : speaker === 'agent' && entry.partial !== true && chatViewReferenceChips(bodyNode)) || document.createElement('div');
+    referenceButtons(entry, refs, linkedRefs, node);
     if (refs.childElementCount) { if (node._typedHost) node._typedHost.before(refs); else node.append(refs); }
     paintTyped(node, entry);
     if (entry.actions?.length) {
@@ -831,16 +930,19 @@ function mountChatView(host, options = {}) {
   }
   function disposeTyped(node) {
     for (const item of node._typed?.values() || []) item.dispose();
-    node._typed?.clear(); node._typedHost?.remove(); node._typedHost = null;
+    node._typed?.clear();
+    for (const container of node._typedAttachments?.values() || []) container.remove();
+    node._typedAttachments?.clear();
+    node._typedHost?.remove(); node._typedHost = null;
   }
   function paintTyped(node, entry) {
     const refs = entry.referenceOnly || (entry.speaker === 'agent' && entry.partial !== true) ? (entry.typedReferences || []) : [];
     if (!refs.length) { if (node._typedHost) disposeTyped(node); return; }
     if (!node._typedHost) {
       node._typedHost = document.createElement('div'); node._typedHost.className = 'gchat-typed';
-      node._typed = new Map(); node.append(node._typedHost);
+      node._typed = new Map(); node._typedAttachments = new Map(); node.append(node._typedHost);
     }
-    const next = new Map();
+    const next = new Map(), sequence = [];
     for (const ref of refs) {
       const key = chatViewTypedKey(ref), signature = chatViewTypedSignature(ref);
       if (next.has(key)) continue;
@@ -852,15 +954,45 @@ function mountChatView(host, options = {}) {
         if (item.update?.(ref)) item.signature = signature; else { item.dispose(); item = null; }
       }
       if (!item) {
-        item = chatViewTypedMount(ref, node._typedHost, options, entry.key);
+        item = chatViewTypedMount(ref, node._typedHost, {...options, referenceRuntime}, entry.key);
         item.signature = signature; item.available = available; item.route = route;
       }
       next.set(key, item);
+      // Only a resolved Task is a flat attachment row; every other typed reference keeps its own component.
+      sequence.push({key, view: item, attachment: ['table', 'task'].includes(ref.type) && available});
     }
     for (const [key, item] of node._typed) if (!next.has(key)) item.dispose();
     node._typed = next;
+    // Consecutive Task references are one flat attachment list: the same left rule and small inset as a record
+    // thread, so a Task reads the same under a native agent-chat message. Other references keep their own slot
+    // and the canonical order of the message's references is never rearranged.
+    const slots = [];
+    let run = null;
+    for (const mounted of sequence) {
+      if (mounted.attachment) { if (!run) slots.push(run = {items: []}); run.items.push(mounted); }
+      else { run = null; slots.push({view: mounted.view}); }
+    }
+    const attachments = new Map();
+    for (const slot of slots) {
+      if (!slot.items) { slot.el = slot.view.el; continue; }
+      const key = slot.items[0].key;
+      let container = node._typedAttachments.get(key);
+      if (!container) {
+        container = document.createElement('div'); container.className = 'gchat-attachment';
+        container.setAttribute('role', 'group'); container.setAttribute('aria-label', 'Table and record references');
+      }
+      attachments.set(key, container);
+      let rowCursor = container.firstChild;
+      for (const row of slot.items) {
+        const el = row.view.el;
+        if (el === rowCursor) rowCursor = rowCursor.nextSibling; else container.insertBefore(el, rowCursor);
+      }
+      slot.el = container;
+    }
+    for (const [key, container] of node._typedAttachments) if (!attachments.has(key)) container.remove();
+    node._typedAttachments = attachments;
     let cursor = node._typedHost.firstChild;
-    for (const item of next.values()) { if (item.el === cursor) cursor = cursor.nextSibling; else node._typedHost.insertBefore(item.el, cursor); }
+    for (const slot of slots) { if (slot.el === cursor) cursor = cursor.nextSibling; else node._typedHost.insertBefore(slot.el, cursor); }
   }
   // Entries arrive in canonical order; nodes are reused and moved only when their position changes.
   function reconcile(list, host, map, paint) {
@@ -872,23 +1004,21 @@ function mountChatView(host, options = {}) {
       if (node === cursor) cursor = cursor.nextSibling; else host.insertBefore(node, cursor);
     }
   }
-  // Group containers wrap their existing entry nodes; no entry is recreated, so typed components and Signoff
-  // controllers survive a regroup. Removed groups release their only listener before the node is dropped.
+  // Flat attachment containers wrap their existing entry nodes; no entry is recreated, so typed components and
+  // Signoff controllers survive a regroup. A removed run drops its container without touching any row node.
   function reconcileEntries(entries) {
     const {items, groups} = entryLayout(entries);
     const live = new Set(groups.map(group => group.key));
-    for (const [key, item] of groupNodes) if (!live.has(key)) { item.toggle.onclick = null; item.el.remove(); groupNodes.delete(key); }
+    for (const [key, item] of groupNodes) if (!live.has(key)) { item.el.remove(); groupNodes.delete(key); }
     const keep = new Set(entries.map(entry => entry.key));
     for (const [key, node] of nodes) if (!keep.has(key)) { disposeTyped(node); node.remove(); nodes.delete(key); }
     let cursor = log.firstChild;
     for (const item of items) {
       if (item.group) {
         const group = relatedGroupNode(item.group);
-        let rowCursor = group.rows.firstChild, previousKind = '';
+        let rowCursor = group.rows.firstChild;
         for (const entry of item.group.entries) {
           const {node} = paintEntry(entry);
-          node.classList.toggle('gchat-ref-split', !!previousKind && previousKind !== entry.referenceRow);
-          previousKind = entry.referenceRow;
           if (node === rowCursor) rowCursor = rowCursor.nextSibling; else group.rows.insertBefore(node, rowCursor);
         }
         if (group.el === cursor) cursor = cursor.nextSibling; else log.insertBefore(group.el, cursor);
@@ -993,6 +1123,11 @@ function mountChatView(host, options = {}) {
     if (patch.entries) {
       model.entries = patch.entries;
       reconcileEntries(model.entries);
+      const liveReferences = model.entries.flatMap(entry => [
+        ...(entry.references || []).filter(ref => !ref.disabled).map(ref => ref.value), ...(entry.typedReferences || []).filter(ref => ref.type === 'table' || ref.type === 'task'),
+      ]);
+      for (const node of nodes.values()) for (const ref of node._referenceByKey?.values() || []) if (!ref.disabled) liveReferences.push(ref.value);
+      referenceRuntime.retain(liveReferences.filter(ref => ref && ['table', 'task'].includes(ref.type) && !ref.unavailable && ref.available !== false).map(chatViewReferenceKey));
       paintTimestamps();
       let last = -1;
       model.entries.forEach((entry, index) => { if (before.has(entry.key)) last = index; });
@@ -1037,8 +1172,8 @@ function mountChatView(host, options = {}) {
     const entryNode = event.target.closest('.gchat-msg[data-id]');
     const ref = event.target.closest('[data-ref-key]');
     if (ref && entryNode) {
-      const reference = entryNode._entry?.references?.find(item => item.key === ref.dataset.refKey);
-      if (reference && !reference.disabled) emit('onReference', reference.value, entryNode.dataset.id);
+      const reference = entryNode._referenceByKey?.get(ref.dataset.refKey) || entryNode._entry?.references?.find(item => item.key === ref.dataset.refKey);
+      if (reference && !reference.disabled && !ref.disabled) emit('onReference', reference.value, entryNode.dataset.id);
       return;
     }
     const entryAction = event.target.closest('[data-entry-action]');
@@ -1128,10 +1263,10 @@ function mountChatView(host, options = {}) {
       if (disposed) return;
       disposed = true;
       cleanups.splice(0).forEach(cleanup => cleanup());
+      referenceRuntime.dispose();
       for (const node of nodes.values()) disposeTyped(node);
       nodes.clear(); pendingNodes.clear();
-      for (const item of groupNodes.values()) item.toggle.onclick = null;
-      groupNodes.clear(); collapsedGroups.clear();
+      groupNodes.clear();
       input.disabled = true; send.disabled = true;
       form.remove(); banner.remove(); root.remove();
     },

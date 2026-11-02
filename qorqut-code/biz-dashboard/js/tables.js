@@ -55,6 +55,7 @@ async function renderTables(container) {
   container.querySelector('#data-new').onclick = () => _data.mode === 'tables' ? dataTableEditor() : dataOpenUploads();
   container.querySelector('#data-refresh').onclick = () => renderTables(container);
   const search = container.querySelector('#data-search');
+  if (_data.mode === 'tables') container.querySelector('#data-new').hidden = true;
   if (_data.mode === 'tables') container.querySelector('#data-new').disabled = true;
   let timer, listCursor = null, listGeneration = 0;
   const load = async (append = false) => {
@@ -151,7 +152,7 @@ async function dataOpenTable(id, append = false) {
   } catch (error) { if (dataActive(biz, panel) && generation === _dataDetail) dataError(error); }
 }
 
-// A CRM keeps the ordinary heading, link and settings controls; its rows are memberships, not data rows.
+// A CRM keeps the Tables back/link/settings controls; its headline and rows live in the CRM mount.
 let _crmMount = null;
 // The left list shows a CRM's current title, entry count and archive state whenever the open Table's metadata changes.
 function dataCrmListed(table) {
@@ -160,17 +161,16 @@ function dataCrmListed(table) {
   listed.querySelector('strong').textContent = table.title;
   listed.querySelector('span').textContent = `CRM · ${table.row_count} entries${table.archived ? ' · Archived' : ''}`;
 }
-// The outer heading, description, related-work area and actions of an open CRM. Called with null while the Table is
+// The outer navigation, related-work area and actions of an open CRM. Called with null while the Table is
 // unavailable (nothing from it remains rendered) and again with fresh metadata once access is read successfully.
 function dataCrmChrome(panel, table, id, biz) {
   const chrome = panel.querySelector('.crm-chrome');
   const back = dataIconButton('data-back', 'Back to tables', aicon('arrow-left', 'currentColor', 18));
   if (!table) chrome.innerHTML = `<header class="data-heading">${back}<h1>Table unavailable</h1></header>`;
-  else chrome.innerHTML = `<header class="data-heading">${back}<h1>${esc(table.title)}</h1><span class="crm-kind-badge">CRM</span><span class="data-spacer"></span>${dataViewLink(biz, id) ? dataIconButton('data-copy-link', 'Copy link', '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>') : ''}<button type="button" class="quiet" id="crm-pin-table" aria-label="Pin table to Focus">Pin to Focus</button>${dataIconButton('data-edit-table', 'Edit table, stages and columns', dataSettingsIcon)}</header>${table.description ? `<p class="data-description">${esc(table.description)}</p>` : ''}${table.archived ? '<p class="data-description muted">Archived table: entries and columns are read only. Linked records stay editable.</p>' : ''}${biz === null ? '' : '<div id="data-work"></div>'}`;
+  else chrome.innerHTML = `<header class="data-heading">${back}<span class="data-spacer"></span>${dataViewLink(biz, id) ? dataIconButton('data-copy-link', 'Copy link', '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 1 5.7 0l3-3a4 4 0 0 1-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>') : ''}${dataIconButton('data-edit-table', 'Edit table, stages and columns', dataSettingsIcon)}</header>${table.archived ? '<p class="data-description muted">Archived table: entries and columns are read only. Linked records stay editable.</p>' : ''}${biz === null ? '' : '<div id="data-work"></div>'}`;
   chrome.querySelector('#data-back').onclick = () => { _crmMount?.dispose(); _crmMount = null; dataBack(); };
   if (!table) return;
   chrome.querySelector('#data-edit-table').onclick = () => dataTableEditor(_data.table);
-  chrome.querySelector('#crm-pin-table').onclick = async () => { try { await crmPinTable(_data.table); toast('Pinned to Focus'); } catch (error) { dataError(error); } };
   const copy = chrome.querySelector('#data-copy-link');
   if (copy) copy.onclick = () => dataCopyLink(dataViewLink(biz, table.id), copy);
   if (biz !== null) workRelatedChips(chrome.querySelector('#data-work'), biz, 'data_tables', id);
@@ -186,10 +186,9 @@ function dataOpenCrm(panel, table, id, biz, generation) {
   _crmMount = crmTableMount(panel.querySelector('.crm-host'), {biz, table, draftKey: dataDraftKey(), drafts: _dataDrafts,
     isActive: () => dataActive(biz, panel) && _data.selected === id,
     onTable: next => {
-      // Only the Table that is shown may update the outer Table reference that Settings and Pin act on.
+      // Only the Table that is shown may update the outer Table reference used by Settings.
       if (_data.selected !== id || next.id !== id) return;
       _data.table = next; dataCrmListed(next);
-      const heading = panel.querySelector('h1'); if (heading) heading.textContent = next.title;
     },
     onUnavailable: () => {
       // Lost access: no title, description, related labels, actions or list label of the Table remain, and it is no longer the active reference.

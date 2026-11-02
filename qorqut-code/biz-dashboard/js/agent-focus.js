@@ -278,6 +278,7 @@ function agfocusMount(p) {
     const excerpt=document.createElement('section');
     board.querySelector('.attention-queue').before(excerpt);
     todayCalendar=calendarTodayMount(excerpt,event=>{event.stopPropagation();ovOpen('calendar');});
+    excerpt.classList.add('agfocus-calendar');
   }
   // An agent with Focus gets the Browser, Desktop and pending Signoffs in one strip; agents without Focus keep their views and queue.
   p.focusSurfaces=agpadFocusSurfaces(p) && typeof agviewboxSurfacesMount==='function'?agviewboxSurfacesMount(p,board.querySelector('.attention-queue')):null;
@@ -291,14 +292,21 @@ function agfocusMount(p) {
   const disposeSignoffs=typeof attentionQueue!=='undefined'?attentionQueue.mountSignoffs(signoffQueue,id=>p.focus?.items.find(item=>item.source?.type==='signoff' && item.source.id===id)?.display_name,summary=>agfocusOpenSignoff(p,summary)):()=>{};
   // Focus uses the shared record workspace. Its header owns Back, the type and
   // Chat icon tabs and Close; selecting a row no longer mounts a conversation inside it.
+  p.focusWorkspacePaired=false;
   p.focusWorkspace=recordWorkspaceMount($('.agfocus-dock-content',board),{
     entry:'focus',
+    paired:false,
+    onPairedSource:(record,parentTable)=>agfocusPairedSource(record,parentTable),
     visible:()=>agpadActive(p) && p.view==='focus' && p.focusMount===board && !board.hidden,
     onClose:()=>agfocusClearSelection(p),
     onRead:source=>agfocusWorkspaceUnread(p,source,false),
     onUnread:source=>agfocusWorkspaceUnread(p,source,true),
     onTitleChange:record=>agfocusWorkspaceTitle(p,record),
   });
+  const pairedUnavailable=source=>p.focusWorkspace?.invalidate?.(source) ?? false;
+  const pairedReference=ref=>agfocusOpenPairedReference(p,ref);
+  window.agentWorkspacePairedUnavailable=pairedUnavailable;
+  window.agentWorkspacePairedReference=pairedReference;
   const storedHeight=Number(ls(AGFOCUS_THREAD_HEIGHT_KEY));
   p.focusThreadHeight=Number.isFinite(storedHeight) && storedHeight>=AGFOCUS_THREAD_MIN_HEIGHT ? storedHeight : 320;
   const disposeResize=agfocusThreadResizeMount(p,board,body);
@@ -312,6 +320,7 @@ function agfocusMount(p) {
   const repliesChanged=()=>{for(const node of p.focusCards.values())agfocusUnread(p,node,node._item);};
   document.addEventListener('reply-notifications-changed',repliesChanged);
   p.workspaceDispose=()=>{
+    p.el.classList.remove('agfocus-record-selected');
     disposeTools();
     todayCalendar?.dispose();
     disposeAttention();
@@ -319,6 +328,8 @@ function agfocusMount(p) {
     document.removeEventListener('reply-notifications-changed',repliesChanged);
     agfocusOverlayClose(p);disposeResize();disposeOrdering();disposeText();p.focusSnoozePopup?.close();p.focusSnoozePopup=null;
     p.focusWorkspace?.dispose();p.focusWorkspace=null;
+    if(window.agentWorkspacePairedUnavailable===pairedUnavailable)delete window.agentWorkspacePairedUnavailable;
+    if(window.agentWorkspacePairedReference===pairedReference)delete window.agentWorkspacePairedReference;
     p.focusCards.clear();p.focusSelected=null;p.focusMount=null;
   };
   p.focusPrivateUnread ||= new Map();
@@ -833,7 +844,11 @@ function agfocusPaint(p) {
     node.tabIndex=0;node.setAttribute('role','group');node.setAttribute('aria-label',name);
     // Following a derived row opens that record; it never pins it, changes its parent or invents a channel.
     const openRow=()=>{
-      if(item._workParent){agfocusOpenTarget(p,item,{root:false}).catch(error=>toast(error.message));return;}
+      if(item._workParent){
+        const parent=p.focusCards.get(item._workParent)?._item;
+        const parentTable=item._workKind==='crm' && item._crmTable ? {...item._crmTable,type:'table',label:parent?.label || 'CRM'} : null;
+        agfocusOpenTarget(p,item,{root:false,paired:item._workKind==='crm',parentTable}).catch(error=>toast(error.message));return;
+      }
       void agfocusSelect(p,item.id);
     };
     node.onclick=event=>{
@@ -873,9 +888,6 @@ function agfocusPaint(p) {
 // touches the others: archiving a card never archives the Table, removing an entry never archives its record.
 function agfocusRowControls(p,node,item,actions) {
   const wanted=[];
-  if(item._workKind==='crm' && !item.unavailable) {
-    wanted.push(['pin',`Pin ${item.label} to Focus`,'Pin']);
-  }
   if(item._workKind==='crm') wanted.push(['remove',item.unavailable?'Remove this unavailable entry from CRM':`Remove ${item.label} from CRM`,'Remove from CRM']);
   const source=agfocusSourceOf(item);
   if(!item._workParent && source?.type==='table' && !item.unavailable) {
@@ -934,54 +946,77 @@ function agfocusNewTab(item) {
 }
 
 // Open a Focus/related record in the same shared workspace (used by deep links, reference chips and derived rows).
-async function agfocusOpenTarget(p,target,{root=true}={}) {
+async function agfocusOpenTarget(p,target,{root=true,paired=target?._workKind==='crm',parentTable=null}={}) {
   const record=rwRecordFromItem(target,{can_thread:target?.can_thread});
   if(!record)throw new Error('This item is no longer available.');
+  if(!await agfocusWorkspaceMode(p,paired))return false;
   agfocusShowDock(p);
+  if(parentTable?.id) return p.focusWorkspace?.navigate(record,{parentTable});
   return p.focusWorkspace?.open(record,{root,tab:record.can_thread?'chat':'dashboard'});
 }
-// A resolved Task reference in native Chat opens that exact Task's own record and Chat thread in the currently open
-// agent pane's Focus workspace. The reference keeps its exact namespace: a non-null business id always resolves to its
-// own Project and is never routed to Global; an async read never lands in a pane that switched agent or was disposed.
+// Native Chat Task references preserve their canonical scope and open this record's private Focus thread.
 async function agfocusOpenChatTask(agentId, reference) {
-  const pane = typeof _agpad === 'undefined' ? null : _agpad;
-  if (!pane || String(pane.agentId ?? '') !== String(agentId ?? '')) throw new Error('This agent is no longer open.');
-  if (!agpadFocusSurfaces(pane)) throw new Error('This agent has no Focus view.');
-  if (!reference || reference.id == null) throw new Error('This Task is no longer available.');
-  const source = {type: 'task', id: reference.id, business_id: reference.business_id ?? null,
-    business_slug: reference.business_slug || null, label: reference.label || null,
-    task_type: reference.task_type || null, state: reference.state || null};
-  const record = rwRecordFromItem({source, can_thread: true}, {can_thread: true});
-  if (!record) throw new Error('This Task is no longer available.');
-  if (record.scopeMissing) throw new Error('That Task belongs to a Project that is not available here.');
-  if (pane.view !== 'focus' || pane.surface) await agpadSetView(pane, 'focus');
-  if (pane.view !== 'focus' || !pane.focusMount?.isConnected) throw new Error('Focus is unavailable for this agent.');
-  const opened = await agfocusOpenTarget(pane, {source, can_thread: true}, {root: true});
-  if (typeof _agpad === 'undefined' || _agpad !== pane || String(pane.agentId ?? '') !== String(agentId ?? ''))
-    throw new Error('This agent is no longer open.');
-  if (!pane.focusWorkspace?.isOpen?.()) throw new Error('This Task could not be opened.');
+  const pane=typeof _agpad==='undefined'?null:_agpad;
+  if(!pane || String(pane.agentId ?? '')!==String(agentId ?? ''))throw new Error('This agent is no longer open.');
+  if(!agpadFocusSurfaces(pane))throw new Error('This agent has no Focus view.');
+  if(!reference || reference.id==null)throw new Error('This Task is no longer available.');
+  const source={type:'task',id:reference.id,business_id:reference.business_id ?? null,business_slug:reference.business_slug || null,
+    label:reference.label || null,task_type:reference.task_type || null,state:reference.state || null};
+  const record=rwRecordFromItem({source,can_thread:true},{can_thread:true});
+  if(!record)throw new Error('This Task is no longer available.');
+  if(record.scopeMissing)throw new Error('That Task belongs to a Project that is not available here.');
+  if(pane.view!=='focus' || pane.surface)await agpadSetView(pane,'focus');
+  if(pane.view!=='focus' || !pane.focusMount?.isConnected)throw new Error('Focus is unavailable for this agent.');
+  const opened=await agfocusOpenTarget(pane,{source,can_thread:true},{root:true});
+  if(typeof _agpad==='undefined' || _agpad!==pane || String(pane.agentId ?? '')!==String(agentId ?? ''))throw new Error('This agent is no longer open.');
+  if(!pane.focusWorkspace?.isOpen?.())throw new Error('This Task could not be opened.');
   return opened;
+}
+async function agfocusWorkspaceMode(p,paired) {
+  paired=!!paired && p.workspaceRole==='ordubashy';
+  if(p.focusWorkspacePaired===paired && p.focusWorkspace?.alive?.())return true;
+  const previous=p.focusWorkspace;
+  if(previous?.alive?.() && previous.isOpen?.()) {
+    await previous.close();
+    if(previous.isOpen?.())return false; // a dirty guard cancelled the mode switch
+  }
+  previous?.dispose?.();
+  const board=p.focusMount;
+  if(!board?.isConnected)return false;
+  p.focusWorkspacePaired=paired;
+  p.focusWorkspace=recordWorkspaceMount($('.agfocus-dock-content',board),agfocusWorkspaceOptions(p));
+  return true;
 }
 function agfocusShowDock(p) {
   const board=p.focusMount;if(!board?.isConnected)return null;
   if(!p.focusWorkspace?.alive?.())p.focusWorkspace=recordWorkspaceMount($('.agfocus-dock-content',board),agfocusWorkspaceOptions(p));
   const dock=$('.agfocus-dock',board);
   dock.hidden=false;$('.agfocus-layout',board).classList.add('agfocus-thread-open');
+  if(p.workspaceRole==='ordubashy' && p.focusWorkspacePaired){
+    p.el.classList.add('agfocus-record-selected');
+    $('.agfocus-layout',board).classList.add('agfocus-paired-workspace');
+    agfocusThreadHeight(p);
+    return dock;
+  }
   agfocusOverlayOpen(p,board,dock,()=>{void p.focusWorkspace?.close();});
   agfocusThreadHeight(p);
   return dock;
 }
 function agfocusClearSelection(p) {
+  p.el.classList.remove('agfocus-record-selected');
   p.focusSelected=null;
+  p.focusWorkspacePaired=false;
   const board=p.focusMount;if(!board?.isConnected)return;
   $('.agfocus-dock',board).hidden=true;
-  $('.agfocus-layout',board).classList.remove('agfocus-thread-open');
+  $('.agfocus-layout',board).classList.remove('agfocus-thread-open','agfocus-paired-workspace');
   agfocusOverlayClose(p);
   for(const node of p.focusCards.values()){node.classList.add('agfocus-collapsed');node.setAttribute('aria-expanded','false');}
 }
 // Eviction, lost access or a source disappearing closes the mounted record without a save prompt.
 function agfocusForceClose(p) {
+  void agfocusPairedSource(null,null);
   p.focusWorkspace?.dispose();
+  p.focusWorkspacePaired=false;
   p.focusSelected=null;
   const board=p.focusMount;if(board?.isConnected)p.focusWorkspace=recordWorkspaceMount($('.agfocus-dock-content',board),agfocusWorkspaceOptions(p));
   agfocusClearSelection(p);
@@ -989,11 +1024,35 @@ function agfocusForceClose(p) {
 }
 function agfocusWorkspaceOptions(p) {
   return {entry:'focus',
+    paired:!!p.focusWorkspacePaired && p.workspaceRole === 'ordubashy',
+    onPairedSource:(record,parentTable)=>agfocusPairedSource(record,parentTable),
     visible:()=>agpadActive(p) && p.view==='focus' && p.focusMount && !p.focusMount.hidden,
     onClose:()=>agfocusClearSelection(p),
     onRead:source=>agfocusWorkspaceUnread(p,source,false),
     onUnread:source=>agfocusWorkspaceUnread(p,source,true),
     onTitleChange:record=>agfocusWorkspaceTitle(p,record)};
+}
+function agfocusPairedSource(record,parentTable) {
+  const source=record?.source || null;
+  if(!source)return window.parent?.agentWorkspacePairedRecord?.(window,null,null) ?? true;
+  const parent=parentTable?{type:'table',id:parentTable.id,business_id:parentTable.business_id ?? null}:null;
+  if(window.parent!==window && typeof window.parent.agentWorkspacePairedRecord==='function')
+    return window.parent.agentWorkspacePairedRecord(window,{type:source.type,id:source.id,business_id:source.business_id ?? null},parent);
+  return window.agentWorkspacePairedRecord?.(window,{type:source.type,id:source.id,business_id:source.business_id ?? null},parent) ?? true;
+}
+async function agfocusOpenPairedReference(p,ref) {
+  if(!ref?.type || !ref.id)return false;
+  const target=rwRecordFromItem({source:{type:ref.type,id:ref.id,business_id:ref.business_id ?? null,
+    business_slug:ref.business_slug,business_name:ref.business_name,label:ref.label,state:ref.state,resource_type:ref.resource_type,
+    task_type:ref.task_type,revision:ref.revision}}, {can_thread:ref.can_thread});
+  if(!target)return false;
+  const suppliedParent=ref.parent_table || ref.crm_parent || null;
+  const parentTable=target.source.type==='task' && suppliedParent?.type==='table' && suppliedParent.id
+    ? {type:'table',id:suppliedParent.id,business_id:suppliedParent.business_id ?? null,label:suppliedParent.label || suppliedParent.title || 'CRM'} : null;
+  if(!await agfocusWorkspaceMode(p,true))return false;
+  agfocusShowDock(p);
+  if(!p.focusWorkspace?.alive?.())return false;
+  return p.focusWorkspace.navigate(target,{parentTable});
 }
 // Unread state is still owned by the Focus row, not by the workspace header.
 function agfocusWorkspaceRows(p,source) {
@@ -1044,6 +1103,7 @@ async function agfocusOpenSignoff(p, summary) {
     if (agfocusActive(p)) { p.focusError='This Signoff is no longer available.'; agfocusPaint(p); }
     return false;
   }
+  if(!await agfocusWorkspaceMode(p,false))return false;
   agfocusShowDock(p);
   try {
     const opened=await p.focusWorkspace?.open(record, {root: true, tab: 'chat'}) ?? false;
@@ -1085,6 +1145,7 @@ async function agfocusOpenTaskLink(p,url) {
     const task=data.task;
     const record=rwRecordFromItem({source:{type:'task',id:task.id,business_id:route.businessId,business_slug:slug,label:task.title,task_type:task.task_type,state:task.status}},{can_thread:true});
     if(!record || record.scopeMissing)throw new Error('missing');
+    if(!await agfocusWorkspaceMode(p,false))return;
     agfocusShowDock(p);
     await p.focusWorkspace?.open(record,{root:true,tab:'dashboard'});
   } catch(error){
@@ -1105,6 +1166,7 @@ async function agfocusOpenLinkedItem(p) {
     if(!data.item || data.item.unavailable)throw new Error('This Focus item is no longer available.');
     const record=rwRecordFromFocusCard(data.item);
     if(!record)throw new Error('This Focus item is no longer available.');
+    if(!await agfocusWorkspaceMode(p,(record.source || data.item.source)?.type==='table'))return;
     agfocusShowDock(p);
     await p.focusWorkspace?.open(record,{root:true,tab:record.can_thread?'chat':'dashboard'});
   } catch(error){if(agpadActive(p)){p.focusError=error.message;agfocusPaint(p);}}
@@ -1125,6 +1187,8 @@ async function agfocusSelect(p,id) {
   }
   const record=rwRecordFromFocusCard(next._item);
   if(!record)return;
+  const source=record.source || next._item.resolved_source || next._item.source;
+  if(!await agfocusWorkspaceMode(p,source?.type==='table'))return;
   agfocusShowDock(p);
   const opened=await p.focusWorkspace?.open(record,{root:true,tab:record.can_thread?'chat':'dashboard'});
   if(opened===false){if(!p.focusSelected)agfocusClearSelection(p);return;}
@@ -1133,7 +1197,6 @@ async function agfocusSelect(p,id) {
   if(previous && previous!==next){previous.classList.add('agfocus-collapsed');previous.setAttribute('aria-expanded','false');}
   next.classList.remove('agfocus-collapsed');next.setAttribute('aria-expanded','true');
   agfocusThreadHeight(p);
-  const source=next._item.resolved_source || next._item.source;
   // An ordinary Task still opens its existing hierarchy; a Project only expands through its chevron.
   if(source?.type==='task' && (agfocusTaskRecord(next._item).task_type!=='story' || p.focusWork?.get(next._item.id)?.expanded!==false))void agfocusExpandWork(p,next._item);
   // A selected CRM expands like a Story unless its entries were collapsed on purpose.
@@ -1151,6 +1214,7 @@ function agfocusThreadHeight(p,height) {
   const board=p.focusMount,dock=board && $('.agfocus-dock',board);
   if(!dock || dock.hidden || board.hidden)return;
   if(p.focusOverlay){p.focusOverlay.fit();return;}
+  if(p.workspaceRole==='ordubashy'){dock.style.height='auto';return;}
   const body=$('#agpad-body',p.el),bodyBox=body.getBoundingClientRect(),layoutBox=$('.agfocus-layout',board).getBoundingClientRect();
   const available=Math.floor(Math.min(innerHeight,bodyBox.bottom)-Math.max(bodyBox.top,layoutBox.top)-4);
   // The pane scroll container makes even a shorter-than-minimum viewport reachable.
@@ -1528,7 +1592,11 @@ function agfocusOverlayOpen(p,board,dock,onClose=()=>{void p.focusWorkspace?.clo
   const terminal=p.el.closest('.agsplit')?.querySelector('.global-agent-session, #chat');
   if(!terminal || terminal.getBoundingClientRect().width<240)return;
   const layout=board.querySelector('.agfocus-layout'),wasInert=terminal.inert;
-  const fit=()=>{const rect=terminal.getBoundingClientRect();Object.assign(dock.style,{left:rect.left+'px',top:rect.top+'px',width:rect.width+'px',height:rect.height+'px'});};
+  const fit=()=>{
+    const rect=terminal.getBoundingClientRect(),left=Math.max(0,rect.left),top=Math.max(0,rect.top);
+    const right=Math.min(window.innerWidth,rect.right),bottom=Math.min(window.innerHeight,rect.bottom);
+    Object.assign(dock.style,{left:left+'px',top:top+'px',width:Math.max(0,right-left)+'px',height:Math.max(0,bottom-top)+'px'});
+  };
   dock.classList.add('agfocus-chat-overlay');layout.classList.add('agfocus-overlay-open');
   dock.setAttribute('role','dialog');dock.setAttribute('aria-label','Record workspace');
   terminal.inert=true;

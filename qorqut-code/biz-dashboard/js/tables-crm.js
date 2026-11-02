@@ -1,17 +1,113 @@
 // The CRM view of a Table on the existing Tables screen (project and Global). Rows are memberships in independent Task
-// records: shared fields are read from the Task and open its editor, local cells and the stage are edited here with the
-// existing draft/save/conflict behaviour. Remove deletes only the membership. Depends on js/crm.js and js/tables.js.
-function crmTableMount(host, {biz, table, onTable, draftKey, drafts, isActive, onUnavailable, onAvailable}) {
-  let current = table, entries = [], cursor = null, loading = false, generation = 0, alive = true, saving = false, unavailable = false, thread = null, timer;
-  let error, tbody, empty, metaEpoch = 0;
-  const view = {query: '', stage: '', archived: false, removed: false};
+// records: shared fields are read from the Task and open its editor, local cells keep their draft/save/conflict behaviour,
+// and stage changes save independently. Remove deletes only the membership. Depends on js/crm.js and js/tables.js.
+function crmTableMount(host, {biz, table, onTable, onOpenRecord, draftKey, drafts, isActive, onUnavailable, onAvailable}) {
+  let current = table, entries = [], cursor = null, loading = false, generation = 0, alive = true, saving = false, unavailable = false, timer;
+  let error, tbody, empty, metaEpoch = 0, stageUndo = null;
+  const view = {query: '', order: '', descending: false, archived: false, removed: false};
   const draft = () => drafts.get(draftKey);
   const readonly = () => !!current.archived;
   const stages = () => current.crm_config?.stages || [];
+  const activeStages = () => stages().filter(stage => !stage.archived);
+  const columns = () => (current.columns || []).filter(column => {
+    const id = String(column.id || '');
+    const name = String(column.name || '').trim().toLowerCase();
+    if (['next_step', 'next-step', 'nextStep'].includes(id) || name === 'next step') return false;
+    return column.record_field !== 'title';
+  });
   const $q = selector => host.querySelector(selector);
   const fail = (failure, text) => { error.textContent = text ?? uiFailure(failure); error.hidden = false; };
   const dirty = () => !!draft() && (draft().edits.size > 0);
   const originalLocal = (entry, column) => entry.local_cells && Object.hasOwn(entry.local_cells, column.id) ? entry.local_cells[column.id] : entry.cells && Object.hasOwn(entry.cells, column.id) ? entry.cells[column.id] : null;
+  const openRecord = entry => {
+    try {
+      const result = typeof onOpenRecord === 'function' ? onOpenRecord(entry) : crmOpenRecord(entry, {onClosed: () => refresh()});
+      return result && typeof result.then === 'function' ? result.catch(failure => { if (alive && !unavailable) fail(failure); }) : result;
+    } catch (failure) { if (alive && !unavailable) fail(failure); return undefined; }
+  };
+
+  const stageLabel = entry => stages().find(stage => stage.id === entry.stage_id)?.name || entry.stage_id || 'No stage';
+  const stageButton = entryId => [...host.querySelectorAll('tr[data-entry-id]')].find(row => row.dataset.entryId === entryId)?.querySelector('.crm-stage-cycle');
+  function stageAfter(entry) {
+    const available = activeStages();
+    if (!available.length || entry.removed || entry.unavailable) return null;
+    const index = available.findIndex(stage => stage.id === entry.stage_id);
+    return available[index < 0 ? 0 : (index + 1) % available.length];
+  }
+  const nextStage = entry => readonly() || saving || entry._stageSaving ? null : stageAfter(entry);
+  function clearStageUndo(message = '') {
+    if (!stageUndo) return;
+    stageUndo = null;
+    const undo = $q('[data-crm-undo]');
+    if (undo) { undo.hidden = true; undo.disabled = true; undo.onclick = null; }
+    if (message && alive && !unavailable) $q('[data-crm-status]').textContent = message;
+  }
+  async function cycleStage(entry) {
+    const next = nextStage(entry); if (!next) return;
+    const previous = entry.stage_id ?? null;
+    const restoreFocus = host.contains(document.activeElement) && document.activeElement.classList.contains('crm-stage-cycle');
+    entry._stageSaving = true; saving = true; error.hidden = true; syncDraft(); paint();
+    try {
+      const args = {table_id: current.id, entry_id: entry.id, expected_revision: current.revision, changes: {stage_id: next.id}};
+      const result = await crmCall(biz, 'crm_entries_update', {...args, idempotency_key: newRequestId()});
+      if (!live()) return;
+      adopt(result.table);
+      if (draft()) draft().baseRevision = result.table.revision;
+      const changed = entries.find(item => item.id === entry.id);
+      if (changed) changed.stage_id = next.id;
+      stageUndo = {entryId: entry.id, previous, current: next.id, revision: result.table.revision};
+      const feedback = $q('[data-crm-status]');
+      feedback.textContent = `${entry.record?.title || 'Record'} moved to ${next.name}.`;
+      const undo = $q('[data-crm-undo]'); undo.hidden = false; undo.disabled = dirty();
+      undo.onclick = () => writeStage(stageUndo);
+      paint();
+    } catch (failure) {
+      if (!alive) return;
+      if (accessLost(failure) || sourceGone(failure)) return invalidate();
+      const message = crmConflict(failure) ? 'The table changed. The stage was not saved; the latest records have been reloaded.' : uiFailure(failure);
+      fail(failure, message);
+      if (crmConflict(failure)) { await reloadTable(); if (alive && !unavailable) { await load(); fail(failure, message); } }
+    } finally {
+      entry._stageSaving = false; saving = false;
+      if (alive && !unavailable) { paint(); if (restoreFocus) stageButton(entry.id)?.focus(); }
+    }
+  }
+  async function writeStage(token) {
+    if (!token || token !== stageUndo || saving || dirty() || readonly()) return;
+    const entry = entries.find(item => item.id === token.entryId);
+    if (!entry || entry.unavailable || entry.removed || entry.stage_id !== token.current || current.revision !== token.revision) {
+      clearStageUndo('Undo is no longer available because this record changed.'); return;
+    }
+    const restoreFocus = host.contains(document.activeElement) && document.activeElement.hasAttribute('data-crm-undo');
+    entry._stageSaving = true; saving = true; error.hidden = true; syncDraft(); paint();
+    try {
+      // Confirm the Table revision before using this Undo token. An agent may have changed the same stage since it was shown.
+      const fresh = (await crmCall(biz, 'tables_get', {table_id: current.id})).table;
+      if (!live()) return;
+      if (fresh.revision !== token.revision) {
+        adopt(fresh); await load();
+        if (alive && !unavailable) $q('[data-crm-status]').textContent = 'The table changed elsewhere. Undo is no longer available.';
+        clearStageUndo(); return;
+      }
+      if (entry.stage_id !== token.current) { clearStageUndo('The stage changed elsewhere. Undo is no longer available.'); return; }
+      const args = {table_id: current.id, entry_id: token.entryId, expected_revision: token.revision, changes: {stage_id: token.previous}};
+      const result = await crmCall(biz, 'crm_entries_update', {...args, idempotency_key: newRequestId()});
+      if (!live()) return;
+      adopt(result.table); if (draft()) draft().baseRevision = result.table.revision; entry.stage_id = token.previous;
+      stageUndo = null;
+      $q('[data-crm-status]').textContent = 'Stage change undone.';
+      await load();
+    } catch (failure) {
+      if (!alive) return;
+      if (accessLost(failure) || sourceGone(failure)) return invalidate();
+      const message = crmConflict(failure) ? 'The table changed. The stage was not undone; the latest records have been reloaded.' : uiFailure(failure);
+      fail(failure, message);
+      if (crmConflict(failure)) { await reloadTable(); if (alive && !unavailable) { await load(); fail(failure, message); } }
+    } finally {
+      entry._stageSaving = false; saving = false;
+      if (alive && !unavailable) { paint(); if (restoreFocus) stageButton(token.entryId)?.focus(); }
+    }
+  }
   const edit = (entry, patch) => {
     if (!draft()) drafts.set(draftKey, {crm: true, table: current, baseRevision: current.revision, edits: new Map(), attempts: new Map()});
     const record = draft().edits.get(entry.id) || {cells: new Map()};
@@ -28,8 +124,10 @@ function crmTableMount(host, {biz, table, onTable, draftKey, drafts, isActive, o
     if (unavailable) return;
     const pending = dirty();
     $q('[data-crm-draft]').hidden = !pending;
-    host.querySelectorAll('[data-crm-add],[data-crm-remove],[data-crm-restore]').forEach(node => { node.disabled = pending || saving || readonly(); node.title = pending ? 'Save or discard your edits first' : ''; });
-    host.querySelectorAll('[data-crm-query],[data-crm-filter-stage],[data-crm-archived],[data-crm-removed],[data-crm-more]').forEach(node => { node.disabled = pending || saving; });
+    const undo = $q('[data-crm-undo]'); undo.hidden = !stageUndo; undo.disabled = pending || saving || !stageUndo;
+    host.querySelectorAll('[data-crm-sort]').forEach(node => { node.disabled = pending || saving; });
+    host.querySelectorAll('[data-crm-remove],[data-crm-restore]').forEach(node => { node.disabled = pending || saving || readonly(); node.title = pending ? 'Save or discard your edits first' : ''; });
+    host.querySelectorAll('[data-crm-query],[data-crm-archived],[data-crm-removed],[data-crm-more]').forEach(node => { node.disabled = pending || saving; });
     // The submitted inputs are frozen while a write is pending, so a completing save can never discard a newer edit.
     if (saving) host.querySelectorAll('tbody input,tbody select,tbody textarea').forEach(node => { node.disabled = true; });
     $q('[data-crm-save]').disabled = saving; $q('[data-crm-discard]').disabled = saving;
@@ -37,13 +135,15 @@ function crmTableMount(host, {biz, table, onTable, draftKey, drafts, isActive, o
   }
   function paintHead() {
     const head = host.querySelector('thead');
-    head.innerHTML = `<tr><th scope="col">Record</th>${(current.columns || []).map(column => `<th scope="col" title="${esc(column.record_field ? 'Shared field, edited in the record' : 'Local to this table')}">${esc(column.name)}${column.record_field ? ' <span class="muted">(record)</span>' : ''}</th>`).join('')}${stages().length ? '<th scope="col">Stage</th>' : ''}<th scope="col">Task state</th><th scope="col"><span class="crm-sr">Actions</span></th></tr>`;
-    const select = $q('[data-crm-filter-stage]');
-    select.replaceChildren(new Option('All stages', ''), new Option('No stage', '__none__'), ...stages().map(stage => new Option(stage.name + (stage.archived ? ' (retired)' : ''), stage.id)));
-    select.value = view.stage; $q('[data-crm-stage-filter]').hidden = !stages().length;
+    const sortable = column => !column.record_field && ['text', 'number', 'boolean', 'date'].includes(column.type);
+    head.innerHTML = `<tr><th scope="col">Record</th>${columns().map(column => {
+      const active = view.order === column.id, sort = sortable(column);
+      return `<th scope="col" class="${column.type === 'number' ? 'crm-numeric' : ''}"${active ? ` aria-sort="${view.descending ? 'descending' : 'ascending'}"` : ''}>${sort ? `<button type="button" class="crm-sort" data-crm-sort="${esc(column.id)}" aria-label="Sort by ${esc(column.name)}">${esc(column.name)}</button>` : esc(column.name)}</th>`;
+    }).join('')}${stages().length ? '<th scope="col">Stage</th>' : ''}<th scope="col">Task state</th><th scope="col"><span class="crm-sr">Actions</span></th></tr>`;
+    $q('[data-crm-stage-filter]')?.remove();
   }
   function localCell(entry, column) {
-    const td = crmNode('td'); td.dataset.column = column.id;
+    const td = crmNode('td', column.type === 'number' ? 'crm-numeric' : ''); td.dataset.column = column.id;
     const record = draft()?.edits.get(entry.id);
     const changed = record?.cells.has(column.id);
     const original = originalLocal(entry, column);
@@ -84,28 +184,24 @@ function crmTableMount(host, {biz, table, onTable, draftKey, drafts, isActive, o
     const ref = crmRecordRef(entry);
     const name = crmNode('td', 'crm-record-cell');
     const open = crmButton(`Open record ${record.title || ''}`, 'data-cell crm-open', record.title || 'Untitled');
-    open.onclick = () => crmOpenRecord(entry, {onClosed: () => refresh()});
-    name.append(open, crmNode('span', 'muted crm-record-meta', [TASK_TYPE_LABELS[record.task_type] || 'Task', record.archived ? 'Archived record' : '', entry.removed ? 'Removed from CRM' : ''].filter(Boolean).join(' · ')));
+    open.onclick = () => openRecord(entry);
+    name.append(open);
     tr.append(name);
     tr.classList.toggle('crm-removed', !!entry.removed);
-    for (const column of current.columns || []) {
+    for (const column of columns()) {
       if (column.record_field) {
-        const td = crmNode('td', 'crm-shared'); td.dataset.column = column.id;
+        const td = crmNode('td', `crm-shared${column.type === 'number' ? ' crm-numeric' : ''}`); td.dataset.column = column.id;
         const button = crmButton(`${column.name}: ${crmValue(entry.cells?.[column.id])}. Open record to edit`, 'data-cell', crmValue(entry.cells?.[column.id]).slice(0, 300) || '-');
-        button.title = 'Shared field. Opens the record to edit.'; button.onclick = () => crmOpenRecord(entry, {onClosed: () => refresh()});
+        button.title = 'Shared field. Opens the record to edit.'; button.onclick = () => openRecord(entry);
         td.append(button); tr.append(td);
       } else tr.append(localCell(entry, column));
     }
     if (stages().length) {
-      const td = crmNode('td', 'crm-stage'); const select = crmNode('select', 'inp'); select.setAttribute('aria-label', `Stage for ${record.title || 'entry'}`);
-      const edits = draft()?.edits.get(entry.id); const value = edits?.stage !== undefined ? edits.stage : entry.stage_id ?? '';
-      const known = new Set(stages().map(stage => stage.id));
-      select.append(new Option('No stage', ''));
-      for (const stage of stages()) if (!stage.archived || stage.id === value) select.append(new Option(stage.name + (stage.archived ? ' (retired)' : ''), stage.id));
-      if (value && !known.has(value)) select.append(new Option(value, value));
-      select.value = value; select.disabled = readonly() || saving || !!entry.removed;
-      select.onchange = () => { edit(entry, {stage: select.value}); td.classList.toggle('data-modified', draft()?.edits.get(entry.id)?.stage !== undefined); };
-      td.classList.toggle('data-modified', edits?.stage !== undefined); td.append(select); tr.append(td);
+      const td = crmNode('td', 'crm-stage'), target = stageAfter(entry), canCycle = !!nextStage(entry);
+      const reason = !activeStages().length ? 'No active stages' : readonly() ? 'Table is read only' : entry.removed ? 'Removed entry' : 'Save is in progress';
+      const button = crmButton(`Advance stage for ${record.title || 'entry'}${target ? ` to ${target.name}` : ''}`, 'data-cell crm-stage-cycle', stageLabel(entry));
+      button.disabled = !canCycle; button.setAttribute('aria-label', `Stage for ${record.title || 'entry'}: ${stageLabel(entry)}. ${target ? `Advance to ${target.name}` : reason}`);
+      button.onclick = () => cycleStage(entry); td.append(button); tr.append(td);
     }
     // Task state is the Task's own; completing it never removes the entry or moves its stage.
     tr.append(crmNode('td', 'crm-task-state', record.task_type && record.task_type !== 'task' ? TASK_TYPE_LABELS[record.task_type] + (record.status ? ' · ' + (T_LABEL[record.status] || record.status) : '') : T_LABEL[record.status] || record.status || ''));
@@ -115,11 +211,16 @@ function crmTableMount(host, {biz, table, onTable, draftKey, drafts, isActive, o
       restore.onclick = () => runStructural(() => crmCall(biz, 'crm_entries_add', {table_id: current.id, expected_revision: current.revision, record: ref, idempotency_key: newRequestId()}));
       actions.append(restore);
     } else {
-      const pin = crmButton(`Pin ${record.title || 'record'} to Focus`, 'quiet', 'Pin');
-      pin.onclick = async () => { try { await crmPinRecord(ref); toast('Pinned to Focus'); } catch (failure) { fail(failure); } };
-      actions.append(pin, removeButton(entry, record.title || 'entry'));
+      actions.append(removeButton(entry, record.title || 'entry'));
     }
-    tr.append(actions); return tr;
+    tr.append(actions);
+    tr.addEventListener('click', event => {
+      const cell = event.target.closest('td');
+      if (!cell || cell.classList.contains('crm-actions') || cell.classList.contains('crm-stage')) return;
+      if (event.target.closest('button,input,select,textarea,a,[contenteditable="true"]')) return;
+      openRecord(entry);
+    });
+    return tr;
   }
   function removeButton(entry, label) {
     const button = crmButton(`Remove ${label} from CRM`, 'quiet', 'Remove from CRM'); button.dataset.crmRemove = '';
@@ -132,7 +233,7 @@ function crmTableMount(host, {biz, table, onTable, draftKey, drafts, isActive, o
   }
   async function runStructural(operation) {
     error.hidden = true;
-    try { const result = await operation(); if (result?.table) adopt(result.table); await load(); void thread?.refresh?.(); }
+    try { const result = await operation(); if (result?.table) adopt(result.table); await load(); }
     catch (failure) {
       if (!alive) return;
       if (accessLost(failure) || sourceGone(failure)) return invalidate();
@@ -144,13 +245,16 @@ function crmTableMount(host, {biz, table, onTable, draftKey, drafts, isActive, o
   const live = () => alive && !unavailable && isActive();
   function adopt(next) {
     if (!live() || next?.id !== current.id) return;
-    current = next; onTable?.(next); thread?.setTable?.(next); const pending = draft(); if (pending) pending.table = next;
+    if (stageUndo && next.revision !== stageUndo.revision) clearStageUndo('The table changed elsewhere. Undo is no longer available.');
+    current = next; const title = $q('.crm-title'); if (title) title.textContent = next.title || '';
+    onTable?.(next); const pending = draft(); if (pending) pending.table = next;
   }
   async function reloadTable() {
     const epoch = ++metaEpoch;
     try {
       const fresh = (await crmCall(biz, 'tables_get', {table_id: current.id})).table;
       if (epoch !== metaEpoch || !live()) return;
+      clearStageUndo('The table was refreshed. Undo is no longer available.');
       adopt(fresh); paintHead();
     } catch (failure) { if (epoch === metaEpoch && alive && (accessLost(failure) || sourceGone(failure))) invalidate(); /* otherwise the error text above stays */ }
   }
@@ -158,8 +262,8 @@ function crmTableMount(host, {biz, table, onTable, draftKey, drafts, isActive, o
   function invalidate() {
     if (unavailable || !alive) return;
     unavailable = true; generation++; metaEpoch++; loading = false; saving = false; entries = []; cursor = null; clearTimeout(timer);
+    clearStageUndo();
     drafts.delete(draftKey);
-    thread?.dispose(); thread = null;
     // Nothing of the old Table (columns, stages, title) survives as the active reference.
     current = {id: current.id, columns: [], crm_config: null, archived: true, unavailable: true};
     host.replaceChildren();
@@ -182,7 +286,7 @@ function crmTableMount(host, {biz, table, onTable, draftKey, drafts, isActive, o
       if (!alive || epoch !== metaEpoch || mine !== generation || !isActive()) return;
       const first = await crmCall(biz, 'crm_entries_list', {table_id: fresh.id, limit: CRM_PAGE, include_archived: false, include_removed: false});
       if (!alive || epoch !== metaEpoch || mine !== generation || !isActive()) return;
-      unavailable = false; current = fresh; entries = []; cursor = null; view.query = ''; view.stage = ''; view.archived = false; view.removed = false;
+      unavailable = false; current = fresh; entries = []; cursor = null; view.query = ''; view.order = ''; view.descending = false; view.archived = false; view.removed = false;
       build(); entries = first.items || []; cursor = first.next_cursor || null; paint();
       try { onAvailable?.(fresh); } catch (_) { /* the host keeps its own state */ }
     } catch (failure) {
@@ -194,10 +298,12 @@ function crmTableMount(host, {biz, table, onTable, draftKey, drafts, isActive, o
   function paint() {
     if (unavailable) return;
     paintHead(); tbody.replaceChildren(...entries.map(row));
-    const text = view.query || view.stage || view.archived ? 'No matching entries.' : 'No entries yet. Add a new Customer or link an existing record.';
+    const text = view.query || view.archived || view.removed ? 'No matching records.' : 'No records in this table.';
     empty.hidden = entries.length > 0 || loading; empty.textContent = text;
-    $q('[data-crm-count]').textContent = `${entries.length}${cursor ? '+' : ''} entries`;
-    $q('[data-crm-more]').hidden = !cursor; $q('[data-crm-add]').disabled = readonly();
+    const count = $q('[data-crm-count]');
+    count.hidden = !Number.isFinite(current.row_count);
+    if (!count.hidden) count.textContent = `${current.row_count} records`;
+    $q('[data-crm-more]').hidden = !cursor;
     syncDraft();
   }
   // keep > 0 re-reads pages until the entries already shown are covered again (a refresh keeps its pagination and filters).
@@ -207,7 +313,7 @@ function crmTableMount(host, {biz, table, onTable, draftKey, drafts, isActive, o
     const stale = () => !alive || own !== generation || unavailable || !isActive();
     try {
       const args = after => ({table_id: current.id, limit: CRM_PAGE, include_archived: view.archived, include_removed: view.removed,
-        ...(view.query ? {query: view.query} : {}), ...(view.stage && view.stage !== '__none__' ? {stage_id: view.stage} : {}), ...(after ? {cursor: after} : {})});
+        ...(view.query ? {query: view.query} : {}), ...(view.order ? {order_by: view.order, descending: view.descending} : {}), ...(after ? {cursor: after} : {})});
       let after = append ? cursor : null, items = [], data;
       for (;;) {
         data = await crmCall(biz, 'crm_entries_list', args(after));
@@ -216,8 +322,13 @@ function crmTableMount(host, {biz, table, onTable, draftKey, drafts, isActive, o
         if (!keep || !after || items.length >= keep) break;
       }
       if (data.table_revision !== current.revision && !dirty()) { await reloadTable(); if (stale()) return; }
+      if (stageUndo) {
+        const undoEntry = items.find(item => item.id === stageUndo.entryId);
+        if (undoEntry && (undoEntry.unavailable || undoEntry.removed || undoEntry.stage_id !== stageUndo.current))
+          clearStageUndo('The stage changed elsewhere. Undo is no longer available.');
+      }
       const seen = new Set(append ? entries.map(entry => entry.id) : []);
-      const next = items.filter(entry => !seen.has(entry.id) && (view.stage !== '__none__' || !entry.stage_id));
+      const next = items.filter(entry => !seen.has(entry.id));
       entries = append ? [...entries, ...next] : next; cursor = after; error.hidden = true;
     } catch (failure) {
       if (!alive || own !== generation) return;
@@ -227,7 +338,18 @@ function crmTableMount(host, {biz, table, onTable, draftKey, drafts, isActive, o
     } finally { if (own === generation) loading = false; }
     if (alive && own === generation) paint();
   }
-  const refresh = () => load(false, entries.length);
+  const refresh = () => { clearStageUndo('The table was refreshed. Undo is no longer available.'); return load(false, entries.length); };
+  const sortClick = event => {
+    const sort = event.target.closest('[data-crm-sort]'); if (!sort || saving || dirty()) return;
+    const nextOrder = sort.dataset.crmSort, restoreFocus = document.activeElement === sort;
+    view.descending = view.order === nextOrder ? !view.descending : false;
+    view.order = nextOrder; cursor = null;
+    void load().then(() => {
+      if (!restoreFocus || !alive || unavailable) return;
+      [...host.querySelectorAll('[data-crm-sort]')].find(button => button.dataset.crmSort === nextOrder)?.focus();
+    });
+  };
+  host.addEventListener('click', sortClick);
   async function save() {
     const pending = draft(); if (!pending || saving) return;
     for (const input of host.querySelectorAll('.data-cell-input')) if (!input.reportValidity()) return;
@@ -246,7 +368,7 @@ function crmTableMount(host, {biz, table, onTable, draftKey, drafts, isActive, o
         revision = result.table.revision; pending.baseRevision = revision; pending.edits.delete(entryId); pending.attempts.delete(entryId);
         adopt(result.table);
       }
-      drafts.delete(draftKey); void thread?.refresh?.();
+      drafts.delete(draftKey);
     } catch (failure) {
       // Every unsaved edit stays in the draft; a stale table offers a rebase instead of discarding anything.
       failed = true;
@@ -263,34 +385,30 @@ function crmTableMount(host, {biz, table, onTable, draftKey, drafts, isActive, o
   function build() {
     host.replaceChildren();
     host.classList.add('crm-table');
-  host.innerHTML = `<div class="crm-tools data-row-tools"><label>Search entries<input type="search" class="inp" data-crm-query value=""></label>
-      <label data-crm-stage-filter>Stage<select class="inp" data-crm-filter-stage aria-label="Filter by stage"></select></label>
+    host.innerHTML = `<div class="crm-header"><div class="crm-record-count" data-crm-count></div><h2 class="crm-title">${esc(current.title || '')}</h2>${current.description ? `<p class="crm-description">${esc(current.description)}</p>` : ''}</div>
+    <div class="crm-tools data-row-tools"><label class="crm-search-label">Search records<input type="search" class="inp crm-search" data-crm-query placeholder="Search records" value=""></label>
       <label class="data-binary"><input type="checkbox" data-crm-archived>Archived records</label>
       <label class="data-binary"><input type="checkbox" data-crm-removed>Removed entries</label>
       <span class="data-spacer"></span>
       <div class="crm-draft-actions" data-crm-draft hidden><button type="button" class="btn" data-crm-discard>Discard</button><button type="button" class="btn primary" data-crm-save>Save</button></div>
-      <button type="button" class="btn" data-crm-add>Add entry</button></div>
+      </div>
     <p class="data-error" data-crm-error role="alert" hidden></p>
     <div class="data-grid-wrap crm-grid-wrap"><table class="data-grid crm-grid"><thead></thead><tbody></tbody></table></div>
     <p class="data-empty muted" data-crm-empty role="status" hidden></p>
-    <footer class="data-footer"><span data-crm-count></span><button type="button" class="btn" data-crm-more hidden>Load more</button></footer>
-    <section class="crm-team" aria-label="Table team discussion"></section>`;
+    <footer class="data-footer"><span data-crm-status role="status" aria-live="polite"></span><button type="button" class="btn crm-undo" data-crm-undo hidden>Undo</button><button type="button" class="btn" data-crm-more hidden>Load more</button></footer>`;
     error = $q('[data-crm-error]'); tbody = host.querySelector('tbody'); empty = $q('[data-crm-empty]');
     $q('[data-crm-query]').oninput = event => { view.query = event.target.value.trim(); clearTimeout(timer); timer = setTimeout(() => { if (alive) load(); }, 300); };
-    $q('[data-crm-filter-stage]').onchange = event => { view.stage = event.target.value; load(); };
     $q('[data-crm-archived]').onchange = event => { view.archived = event.target.checked; load(); };
     $q('[data-crm-removed]').onchange = event => { view.removed = event.target.checked; load(); };
     $q('[data-crm-more]').onclick = () => load(true);
     $q('[data-crm-save]').onclick = save;
     $q('[data-crm-discard]').onclick = discard;
-    $q('[data-crm-add]').onclick = () => crmAddDialog(biz, current, async result => { if (result?.table) adopt(result.table); await load(); void thread?.refresh?.(); });
-    thread = crmThreadMount($q('.crm-team'), {biz, table: current, navigate: ref => crmOpenRecord({record_ref: ref, record: {title: ref.label}}, {onClosed: () => refresh()})});
     paintHead();
   }
   function discard() { drafts.delete(draftKey); if (alive && !unavailable) void load(); }
   build(); void load();
   return {dirty, refresh, discard, save: async () => { await save(); return !dirty() && !unavailable; },
-    dispose() { alive = false; generation++; clearTimeout(timer); thread?.dispose(); host.replaceChildren(); }};
+    dispose() { alive = false; generation++; clearTimeout(timer); host.removeEventListener('click', sortClick); host.replaceChildren(); }};
 }
 
 // Add: create a new record in this table's own scope (default Customer) or link existing records. Either way the

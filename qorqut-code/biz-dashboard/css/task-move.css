@@ -1,0 +1,8 @@
+.tmove-field { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; font-size: 13px; }
+.tmove-field select { max-width: 100%; }
+.tmove-counts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 16px; margin: 8px 0; padding-left: 18px; font-size: 13px; }
+.tmove-tasks { max-height: 160px; overflow-y: auto; margin: 8px 0; padding-left: 18px; font-size: 13px; }
+.tmove-archived { color: var(--muted, #888); }
+.tmove-visibility, .tmove-detach { font-size: 13px; margin: 8px 0; }
+.tmove-blockers { margin: 4px 0 0; padding-left: 18px; color: var(--bad, #b3261e); font-size: 13px; }
+.tmove-blocked { font-weight: 600; margin: 10px 0 0; }

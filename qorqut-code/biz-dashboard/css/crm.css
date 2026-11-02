@@ -1,5 +1,4 @@
-/* CRM tables: rows are memberships in independent records. Existing Tables styling is reused; this file adds only the
-   CRM-specific rows, the team thread and the record activity. */
+/* CRM tables and record details; shared-thread styling also serves ordinary Tables elsewhere. */
 .crm-kind-badge { font-size: 11px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg-2); }
 .crm-host { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .crm-tools .data-binary { display: flex; flex-direction: row; align-items: center; gap: 6px; }
@@ -8,7 +7,6 @@
 .crm-grid td { vertical-align: middle; }
 .crm-record-cell { min-width: 200px; }
 .crm-record-cell .crm-open { height: auto; min-height: 32px; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
-.crm-record-meta { display: block; padding: 0 12px 8px; font-size: 11px; }
 .crm-shared .data-cell { color: var(--fg-2); }
 .crm-stage select { width: 100%; min-width: 120px; }
 .crm-task-state { padding: 0 12px; font-size: 12px; white-space: nowrap; }
@@ -55,3 +53,102 @@
 .crm-thread-owner{margin:8px 0}
 /* The Task state and CRM stage of a member row are both facts the owner needs; give them room (the full text is also the title). */
 .agfocus [data-card-id*="/crm/"] .agfocus-row .agfocus-flag{font-size:10px;max-width:16em}
+
+/* CRM table presentation follows the dashboard's existing font and color tokens. */
+.crm-host { --crm-row-pad: 8px; }
+.crm-header { padding: 12px 18px 8px; }
+.crm-record-count { margin-bottom: 2px; color: var(--fg-3); font-size: 11px; line-height: 1.4; }
+.crm-title { margin: 0; color: var(--fg); font-size: 19px; font-weight: 600; line-height: 1.4; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.crm-description { margin: 7px 0 0; color: var(--fg-2); font-size: 12px; }
+.crm-tools.data-row-tools { align-items: end; border-bottom: 0; padding: 8px 18px 12px; }
+.crm-tools .crm-search-label { display: block; }
+.crm-tools .crm-search { width: 240px; max-width: 100%; min-height: 32px; padding: 6px 9px; }
+.crm-grid-wrap { min-height: 120px; overflow: auto; }
+.crm-grid { width: 100%; min-width: 0; table-layout: auto; border-collapse: separate; border-spacing: 0; white-space: nowrap; }
+.crm-grid th, .crm-grid td { min-width: 0; max-width: none; border-right: 0; }
+/* Configured fields scroll within the table rather than squeezing emails into letter-wide columns. */
+.crm-grid td.crm-shared { min-width: 160px; }
+.crm-grid td.crm-shared .data-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crm-grid td.crm-stage { min-width: 120px; }
+.crm-grid td.crm-numeric { min-width: 85px; }
+.crm-grid th { height: auto; padding: 0 12px; border-bottom: 1px solid var(--line-2); color: var(--fg-2); font-size: 11px; font-weight: 400; text-align: left; }
+.crm-grid th .crm-sort { min-height: 0; padding: 11px 0; color: inherit; font-size: inherit; font-weight: inherit; }
+.crm-grid th .crm-sort:hover { background: transparent; color: var(--fg); }
+.crm-grid td { padding: var(--crm-row-pad) 12px; border-bottom: 1px solid var(--line); background: transparent; font-size: 12px; vertical-align: middle; }
+.crm-grid th:first-child, .crm-grid td:first-child { position: sticky; left: 0; z-index: 1; min-width: 195px; padding-left: 18px; background: var(--bg); }
+.crm-grid th:last-child, .crm-grid td:last-child { padding-right: 18px; }
+.crm-grid tr:hover td { background: var(--hover); }
+.crm-grid tr:hover td:first-child { background: color-mix(in srgb, var(--fg) 5%, var(--bg)); }
+.crm-record-cell .crm-open { width: auto; height: auto; min-height: 0; padding: 0; color: var(--fg); font-size: 13px; font-weight: 500; text-align: left; white-space: normal; }
+.crm-record-cell .crm-open:hover { background: transparent; text-decoration: underline; text-underline-offset: 3px; }
+.crm-grid .data-cell-input { width: 100%; min-width: 50px; min-height: 0; height: 21px; padding: 0; border: 0; border-radius: 0; background: transparent; font-size: 12px; }
+.crm-grid textarea.data-cell-input { display: block; height: 21px; resize: vertical; }
+.crm-grid .data-cell-input:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; }
+.crm-shared .data-cell { width: auto; height: auto; min-height: 0; max-width: 260px; padding: 0; color: var(--fg-2); font-size: 12px; text-align: left; white-space: normal; }
+.crm-shared .data-cell:hover { background: transparent; color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
+.crm-stage-cycle { width: auto; height: auto; min-height: 0; padding: 4px 6px; margin-left: -6px; color: var(--fg); font-size: 12px; font-weight: 400; }
+.crm-stage-cycle::before { width: 5px; height: 5px; border: 1px solid var(--fg-2); border-radius: 50%; content: ''; }
+.crm-stage-cycle:disabled { opacity: .6; }
+.crm-task-state { padding-right: 12px; padding-left: 12px; font-size: 11px; color: var(--fg-2); }
+.crm-numeric { text-align: right !important; font-variant-numeric: tabular-nums; }
+.crm-numeric input, .crm-numeric textarea { text-align: right; font-variant-numeric: tabular-nums; }
+.crm-actions { padding-right: 8px; padding-left: 8px; }
+.crm-actions button { min-height: 0; padding: 2px 4px; font-size: 11px; }
+.crm-host .data-footer { justify-content: flex-start; gap: 8px; padding: 10px 18px; border-top: 0; color: var(--fg-2); }
+.crm-host .crm-undo { min-height: 0; padding: 2px 4px; color: var(--fg-2); text-decoration: underline; text-underline-offset: 3px; }
+.crm-host .crm-undo[hidden] { display: none; }
+.crm-host .data-footer [data-crm-more] { margin-left: auto; }
+/* The Focus workspace gives every descendant button a pill by default. CRM cells are
+   plain table actions, so these rules restore the approved table controls inside that shell. */
+.agent-workspace-app .agpad .agfocus .crm-title {
+  color: var(--fg); font: 600 19px/1.4 var(--sans); letter-spacing: -.025em;
+}
+.agent-workspace-app .agpad .agfocus .crm-grid button.crm-open,
+.agent-workspace-app .agpad .agfocus .crm-grid button.crm-sort,
+.agent-workspace-app .agpad .agfocus .crm-grid .crm-shared button.data-cell,
+.agent-workspace-app .agpad .agfocus .crm-grid button.crm-stage-cycle {
+  height: auto; min-height: 0; padding: 0; border: 0; border-radius: 0;
+  background: transparent; box-shadow: none; transform: none; transition: none;
+}
+.agent-workspace-app .agpad .agfocus .crm-grid button.crm-open {
+  color: var(--fg); font: 500 13px/1.4 var(--sans); text-align: left;
+  white-space: normal; overflow-wrap: anywhere;
+}
+.agent-workspace-app .agpad .agfocus .crm-grid button.crm-open:hover {
+  background: transparent; color: var(--fg); text-decoration: underline; text-underline-offset: 3px;
+}
+.agent-workspace-app .agpad .agfocus .crm-grid th button.crm-sort {
+  display: inline-flex; width: auto; min-height: 0; justify-content: flex-start; padding: 11px 0;
+  color: var(--fg-2); font: 400 11px/1.4 var(--sans); text-align: left;
+}
+.agent-workspace-app .agpad .agfocus .crm-grid th button.crm-sort:hover {
+  background: transparent; color: var(--fg);
+}
+.agent-workspace-app .agpad .agfocus .crm-grid .crm-shared button.data-cell {
+  width: auto; color: var(--fg-2); font: 400 12px/1.4 var(--sans); text-align: left;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.agent-workspace-app .agpad .agfocus .crm-grid .crm-shared button.data-cell:hover {
+  background: transparent; color: var(--fg); text-decoration: underline; text-underline-offset: 3px;
+}
+.agent-workspace-app .agpad .agfocus .crm-grid button.crm-stage-cycle {
+  display: inline-flex; width: auto; align-items: center; padding: 4px 6px; margin-left: -6px;
+  color: var(--fg); font: 400 12px/1.4 var(--sans); text-align: left;
+}
+.agent-workspace-app .agpad .agfocus .crm-grid button.crm-stage-cycle:hover {
+  background: transparent; color: var(--fg); text-decoration: none;
+}
+.agent-workspace-app .agpad .agfocus .crm-grid button.crm-open:focus-visible,
+.agent-workspace-app .agpad .agfocus .crm-grid button.crm-sort:focus-visible,
+.agent-workspace-app .agpad .agfocus .crm-grid .crm-shared button.data-cell:focus-visible,
+.agent-workspace-app .agpad .agfocus .crm-grid button.crm-stage-cycle:focus-visible {
+  outline: 2px solid var(--fg-2); outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  .crm-header { padding: 10px 15px 8px; }
+  .crm-tools.data-row-tools { padding: 8px 15px 10px; }
+  .crm-host .data-footer { padding-right: 15px; padding-left: 15px; }
+  .crm-grid th:first-child, .crm-grid td:first-child { min-width: 165px; padding-left: 15px; }
+  .crm-grid th:last-child, .crm-grid td:last-child { padding-right: 15px; }
+}
+@media (pointer: coarse) { .crm-tools .crm-search { min-height: 44px; font-size: 16px; } }

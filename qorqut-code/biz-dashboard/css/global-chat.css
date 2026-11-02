@@ -44,3 +44,8 @@
 .gchat:has(> .gchat-session-switch) > .gchat-top,
 .gchat-diagnostic > .gchat-top { max-width:calc(100% - 114px); }
 .gchat-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.gchat-paired-record{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;height:100%;box-sizing:border-box}
+.gchat-paired-record .conversation-panel{display:flex;flex:1;flex-direction:column;min-height:0;padding:0;border:0;border-radius:0}
+.gchat-paired-record .conversation-view{flex:1;height:auto;min-height:0}
+.gchat-paired-record .conversation-inline-compose{flex:none;margin-top:5px;min-width:0}
+.gchat-paired-record .conversation-inline-compose:not(:has(.gchat-composer:not([hidden]))){display:none}

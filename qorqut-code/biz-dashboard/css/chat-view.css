@@ -147,26 +147,31 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 
 .gchat-pending-actions button[data-dismiss] { min-height: 32px; padding: 4px 12px; font-size: 12px; }
 
-/* Typed references (request_user_input): Signoff card, inline browser, Task chip — under their message. */
+/* Typed references (request_user_input): Signoff card, inline browser and entity blocks — under their message. */
 .gchat-typed { display:flex; flex-direction:column; align-items:flex-start; gap:7px; max-width:100%; padding:3px 0 8px; box-sizing:border-box; }
 .gchat-typed:empty { display:none; }
 .gchat-agent-reference, .gchat-project-reference { cursor:default; }
-.chat-view .gchat-task-reference, .agfocus .chat-view button.gchat-task-reference { display:inline-flex; align-items:center; min-height:0; height:auto; margin:0; padding:2px 0; border:0; border-radius:4px; background:transparent; box-shadow:none; color:var(--fg); font:inherit; font-size:11px; cursor:default; }
-.chat-view button.gchat-task-reference, .agfocus .chat-view button.gchat-task-reference { cursor:pointer; }
-/* An openable Task reads as interactive without moving: the inset outline and wash are drawn inside the same box. */
-.chat-view button.gchat-task-reference:hover, .agfocus .chat-view button.gchat-task-reference:hover { background:color-mix(in srgb, var(--fg) 7%, transparent); box-shadow:inset 0 0 0 1px var(--line-2); color:var(--fg); transform:none; }
-.chat-view button.gchat-task-reference:hover > span:not(.gchat-task-state) { text-decoration:underline; }
-.chat-view button.gchat-task-reference:focus-visible { outline:2px solid var(--fg-2); outline-offset:2px; border-radius:4px; }
+.chat-view .gchat-task-reference:not(.gchat-reference-block), .agfocus .chat-view button.gchat-task-reference:not(.gchat-reference-block) { display:inline-flex; align-items:center; min-height:0; height:auto; margin:0; padding:2px 0; border:0; border-radius:4px; background:transparent; box-shadow:none; color:var(--fg); font:inherit; font-size:11px; cursor:default; }
+.chat-view button.gchat-task-reference:not(.gchat-reference-block), .agfocus .chat-view button.gchat-task-reference:not(.gchat-reference-block) { cursor:pointer; }
+/* Keep the latest native Task-reference affordance inside the existing box. */
+.chat-view button.gchat-task-reference:not(.gchat-reference-block):hover, .agfocus .chat-view button.gchat-task-reference:not(.gchat-reference-block):hover { background:color-mix(in srgb, var(--fg) 7%, transparent); box-shadow:inset 0 0 0 1px var(--line-2); color:var(--fg); transform:none; }
+.chat-view button.gchat-task-reference:not(.gchat-reference-block):hover > span:not(.gchat-task-state) { text-decoration:underline; }
+.chat-view button.gchat-task-reference:not(.gchat-reference-block):focus-visible { outline:2px solid var(--fg-2); outline-offset:2px; border-radius:4px; }
 .gchat-project-reference .gchat-project-icon { display:inline-flex; align-items:center; flex:none; color:var(--fg-2); }
 .gchat-project-reference .gchat-project-icon svg { width:14px; height:14px; }
-/* Reuse Focus's state palette, with a fixed dot and no state-control behavior. */
-.gchat-reference>.gchat-task-state { display:inline-flex; align-items:center; justify-content:center; flex:none; width:16px; height:16px; overflow:visible; pointer-events:none; }
-.gchat-task-state.ball .core { width:10px; height:10px; transform:none; transition:none; }
-/* The ball alone shows the state; its word stays in the accessible name as clipped text (the author-label convention). */
-.gchat-reference-state-hidden { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
-
 .gchat-reference>.gchat-agent-icon { display:inline-flex; flex:none; overflow:visible; }
 .gchat-reference-unavailable { color:var(--fg-2); cursor:not-allowed; }
+.gchat-reference-block { display:flex; align-items:flex-start; justify-content:flex-start; gap:10px; width:100%; max-width:100%; min-width:0; height:auto; min-height:0; margin:0; padding:6px 8px; border:0; border-radius:0; background:transparent; box-shadow:none; color:var(--fg); font:inherit; font-size:12px; font-weight:400; line-height:1.45; text-align:left; transition:none; cursor:pointer; box-sizing:border-box; }
+.gchat-reference-block:hover:not(:disabled) { background:var(--hover); box-shadow:inset 0 0 0 1px var(--line-2); transform:none; }
+.gchat-reference-block:focus-visible { outline:2px solid var(--fg-2); outline-offset:2px; }
+.gchat-reference-block:disabled { cursor:not-allowed; }
+.gchat-reference-block>.gchat-reference-icon { display:inline-flex; align-items:center; justify-content:center; width:16px; height:18px; flex:none; overflow:visible; color:var(--fg-2); white-space:normal; }
+.gchat-reference-icon svg { display:block; width:15px; height:15px; }
+.gchat-reference-icon .task-type-icon { width:16px; height:16px; }
+.gchat-reference-block>.gchat-reference-content { display:grid; flex:1 1 auto; grid-template-columns:minmax(0,1fr) auto; align-items:baseline; gap:1px 8px; min-width:0; overflow:visible; text-overflow:clip; white-space:normal; }
+.gchat-reference-title { min-width:0; overflow-wrap:anywhere; white-space:normal; }
+.gchat-reference-count { color:var(--fg-2); font-size:10px; white-space:nowrap; }
+.gchat-reference-detail { grid-column:1 / -1; min-width:0; overflow:visible; color:var(--fg-2); font-size:10px; line-height:1.35; overflow-wrap:anywhere; white-space:normal; }
 .gchat-signoff-reference { width:100%; max-width:520px; min-width:0; }
 .gchat-browser-slot { width:360px; max-width:100%; }
 .gchat-browser { display:flex; flex-direction:column; width:100%; border:1px solid var(--line-2); border-radius:9px; overflow:hidden; background:var(--bg); }
@@ -181,46 +186,37 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 .gchat-browser.is-expanded .gchat-browser-page { flex:1; height:auto; min-height:0; }
 @media(max-width:700px) { .gchat-signoff-reference { max-width:100%; } }
 
-/* Record threads: a contiguous run of related Task/Action records is one modest group of compact rows. A Task keeps
-   the Focus status ball and an Action keeps the shared activity glyph; neither row has its own card border. Message-
-   attached Task/Action references reuse the same row inside that message's own reference area only. */
-.gchat-ref-group { min-width:0; max-width:100%; border:1px solid var(--line-2); border-radius:8px; background:color-mix(in srgb, var(--fg) 2%, transparent); overflow:hidden; }
-.gchat-log > .gchat-ref-group { align-self:flex-start; width:min(760px,100%); margin:14px 0 18px; }
+.gchat-ref-group, .gchat-attachment { display:flex; flex-direction:column; min-width:0; max-width:100%; padding-left:9px; border-left:2px solid var(--line-2); }
+/* Record threads and native agent chat draw Task/Action references as flat attachment lists, not cards: a subtle
+   vertical rule and a small left inset connect consecutive references. A Task row keeps only the Focus status ball and
+   its title; an Action row keeps the shared activity glyph and its honest state. The whole row is the target, and the
+   hover outline/wash is drawn inside the same box so nothing moves. */
+.gchat-log > .gchat-ref-group { align-self:flex-start; width:min(760px,100%); margin:12px 0 16px; }
 .gchat-ref-group-inline { flex:1 1 100%; margin:2px 0; }
-.gchat-ref-group-head { display:flex; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid var(--line); background:var(--wash); }
-.gchat-ref-group-title { flex:1 1 auto; min-width:0; overflow-wrap:anywhere; font-size:12px; font-weight:600; color:var(--fg); }
-.gchat-ref-group-counts { flex:none; font-size:11px; color:var(--fg-2); white-space:nowrap; }
-.chat-view .gchat-ref-group-toggle, .agfocus .chat-view .gchat-ref-group-toggle { display:grid; place-items:center; flex:none; width:26px; height:26px; min-height:26px; padding:4px; border:0; border-radius:5px; background:none; color:var(--fg-2); transform:none; }
-.chat-view .gchat-ref-group-toggle:hover, .agfocus .chat-view .gchat-ref-group-toggle:hover { background:var(--hover); color:var(--fg); border:0; transform:none; }
-.gchat-ref-group-toggle svg { width:14px; height:14px; transition:transform 140ms ease; }
-.gchat-ref-group-toggle[aria-expanded="false"] svg { transform:rotate(-90deg); }
-.chat-view .gchat-ref-group-toggle:focus-visible { outline:2px solid var(--fg-2); outline-offset:1px; }
-.gchat-ref-rows { padding:4px; }
-.gchat-ref-rows[hidden] { display:none; }
+.gchat-attachment { width:100%; }
+.gchat-attachment > .gchat-reference-block { align-self:stretch; width:100%; }
+.gchat-ref-rows { display:flex; flex-direction:column; min-width:0; }
 .gchat-reference-row { display:block; width:100%; max-width:none; margin:0; align-self:stretch; }
-.gchat-ref-split { margin-top:4px; padding-top:4px; border-top:1px solid var(--line); }
-.chat-view .gchat-ref-row, .agfocus .chat-view .gchat-ref-row { display:flex; align-items:center; gap:10px; width:100%; min-width:0; height:auto; min-height:30px; margin:0; padding:7px 6px; border:0; border-radius:5px; background:none; box-shadow:none; color:var(--fg); font:inherit; font-size:12px; font-weight:400; line-height:1.45; text-align:left; text-decoration:none; transform:none; }
-.chat-view button.gchat-ref-row, .chat-view button.gchat-ref-row:hover, .agfocus .chat-view button.gchat-ref-row, .agfocus .chat-view button.gchat-ref-row:hover { cursor:pointer; background:none; color:var(--fg); transform:none; }
-.chat-view button.gchat-ref-row:hover { background:var(--hover); box-shadow:inset 0 0 0 1px var(--line-2); }
-.chat-view button.gchat-ref-row:focus-visible { outline:2px solid var(--fg-2); outline-offset:-2px; }
+.chat-view .gchat-ref-row, .agfocus .chat-view .gchat-ref-row { display:flex; align-items:center; gap:10px; width:100%; min-width:0; height:auto; min-height:30px; margin:0; padding:6px 8px; border:0; border-radius:6px; background:none; box-shadow:none; color:var(--fg); font:inherit; font-size:12px; font-weight:400; line-height:1.45; text-align:left; text-decoration:none; transform:none; }
+.chat-view button.gchat-ref-row, .agfocus .chat-view button.gchat-ref-row { cursor:pointer; }
+/* No shift: the 1px outline and wash are inset into the row's own box. A disabled row keeps none of them. */
+.chat-view button.gchat-ref-row:not(:disabled):hover, .agfocus .chat-view button.gchat-ref-row:not(:disabled):hover { background:var(--hover); box-shadow:inset 0 0 0 1px var(--line-2); color:var(--fg); transform:none; }
+.chat-view button.gchat-ref-row:focus-visible { outline:2px solid var(--fg-2); outline-offset:-2px; border-radius:6px; }
 .gchat-ref-row[disabled] { opacity:.6; cursor:not-allowed; }
 .gchat-ref-row-icon { display:inline-flex; align-items:center; justify-content:center; flex:none; width:16px; height:16px; color:var(--fg-2); }
 .gchat-ref-row-icon svg { width:14px; height:14px; }
-.gchat-ref-row > .gchat-ref-row-title { flex:1 1 auto; min-width:0; overflow-wrap:anywhere; }
+/* The title is the row's flexible text: it wraps instead of truncating, in a record thread and in native chat. */
+.gchat-ref-row > .gchat-ref-row-title, .chat-view .gchat-ref-row > span:not([class]) { flex:1 1 auto; min-width:0; overflow:visible; white-space:normal; text-overflow:clip; overflow-wrap:anywhere; }
 .gchat-ref-row-meta { flex:none; max-width:100%; font-size:10.5px; color:var(--fg-2); }
+.gchat-ref-row-unavailable { color:var(--fg-2); cursor:not-allowed; }
 .gchat-ref-row-unavailable .gchat-ref-row-title { color:var(--fg-2); }
 .gchat-ref-row > .gchat-task-state { display:inline-flex; align-items:center; justify-content:center; flex:none; width:16px; height:16px; }
 @media (max-width: 520px) {
-  .gchat-ref-group-head { flex-wrap:wrap; gap:4px 8px; padding:8px; }
-  .gchat-ref-group-title { flex:1 1 100%; }
-  .gchat-ref-group-counts { flex:1 1 auto; font-size:10.5px; white-space:normal; }
   .chat-view .gchat-ref-row { flex-wrap:wrap; align-items:flex-start; }
-  .gchat-ref-row > .gchat-ref-row-title { flex:1 1 calc(100% - 26px); }
+  .gchat-ref-row > .gchat-ref-row-title, .chat-view .gchat-ref-row > span:not([class]) { flex:1 1 calc(100% - 26px); }
   .gchat-ref-row > .gchat-ref-row-meta { flex:1 1 100%; margin-left:26px; white-space:normal; }
   .gchat-ref-row-icon { margin-top:1px; }
 }
 @media (pointer:coarse) {
   .chat-view .gchat-ref-row { min-height:44px; }
-  .chat-view .gchat-ref-group-toggle { width:44px; min-width:44px; height:44px; min-height:44px; }
 }
-@media (prefers-reduced-motion: reduce) { .gchat-ref-group-toggle svg { transition:none; } }
