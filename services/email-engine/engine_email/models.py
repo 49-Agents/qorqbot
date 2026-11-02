@@ -454,9 +454,12 @@ class Settings:
         read, send = required("EMAIL_READ_TOKEN"), required("EMAIL_SEND_TOKEN")
         if len(read) < 32 or len(send) < 32 or read == send or not read.isascii() or not send.isascii():
             raise ValueError("Use distinct read and send tokens of at least 32 characters")
-        raw = json.loads(Path(required("EMAIL_MAILBOXES_FILE")).read_text())
-        if not isinstance(raw, list) or not raw:
-            raise ValueError("EMAIL_MAILBOXES_FILE must contain a nonempty array")
+        # Business mailboxes are optional: an account-only deployment names no file, or an empty array, and still serves
+        # the /fastmail account API (the sync worker then has no business folder to poll).
+        mailboxes_file = os.environ.get("EMAIL_MAILBOXES_FILE", "")
+        raw = json.loads(Path(mailboxes_file).read_text()) if mailboxes_file else []
+        if not isinstance(raw, list):
+            raise ValueError("EMAIL_MAILBOXES_FILE must contain an array")
         mailboxes = tuple(Mailbox.model_validate(item) for item in raw)
         refs, folders, addresses = set(), set(), set()
         for mailbox in mailboxes:
