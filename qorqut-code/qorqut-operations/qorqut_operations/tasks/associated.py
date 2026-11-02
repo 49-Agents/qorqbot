@@ -94,7 +94,8 @@ class TaskAssociatedRecords:
         if record_type not in self.items.kinds:
             # An empty list would claim there is no history; the record domain itself is absent from this assembly.
             raise DomainError("operation_unavailable", f"The {record_type} record domain is not installed in this host")
-        root = uow.repository("tasks", business_id=ctx.business_id).get(arguments["task_id"], required=True)
+        # A Story that moved answers like every other Task read: ``record_moved`` for a caller who may read it where it is now.
+        root = self.tasks.require(ctx, uow, arguments["task_id"])
         story = self.story_tasks(uow, ctx.business_id, root["id"], arguments.get("include_descendants", True))
         sources = self.sources(ctx, uow, ctx.business_id, story, record_type)
         items = self.records(ctx, uow, sources, record_type)
