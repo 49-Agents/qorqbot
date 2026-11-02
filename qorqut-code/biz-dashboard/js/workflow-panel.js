@@ -1,7 +1,7 @@
 // Read-only Step list for the workflow Ordubashy currently has in Focus, shown directly above the native chat composer.
 // Source is the workflow summary in attention_get's focus (exact run, engine step states); the panel never starts or controls a run.
 const WORKFLOW_PANEL_REFRESH_MS = 5000;
-const WORKFLOW_PANEL_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+const WORKFLOW_PANEL_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 const WORKFLOW_PANEL_STATE = {completed: 'done', active: 'working', pending: 'open'};
 const WORKFLOW_PANEL_TEXT = {completed: 'Done', active: 'Working', pending: 'Upcoming'};
 
@@ -31,8 +31,7 @@ function workflowPanelMount(composer, agentId) {
     panel.hidden = hidden;
     if (hidden) { list.replaceChildren(); return; }
     name.textContent = summary.name || 'Workflow';
-    const current = summary.steps.find(step => step.current);
-    now.textContent = open ? '' : current ? current.label : summary.state === 'completed' ? 'Done' : summary.state === 'cancelled' ? 'Cancelled' : '';
+    now.textContent = open ? 'Hide steps' : 'Show steps';
     head.setAttribute('aria-expanded', String(open));
     head.setAttribute('aria-label', (open ? 'Hide steps of ' : 'Show steps of ') + name.textContent);
     panel.classList.toggle('wfpanel-collapsed', !open);

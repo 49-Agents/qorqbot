@@ -1,11 +1,11 @@
 /* Workflow Step list above the native chat composer; state balls, typography and tokens come from the shared styles. */
-.wfpanel { flex: none; box-sizing: border-box; margin: 0 0 8px; border: 1px solid var(--line-2); border-radius: 14px; background: color-mix(in srgb, var(--bg) 72%, transparent); backdrop-filter: blur(8px); color: var(--fg); font-size: 13px; line-height: 1.45; }
+.wfpanel { flex: none; box-sizing: border-box; margin: 0 0 8px; border: 0; background: none; color: var(--fg); font-size: 13px; line-height: 1.45; }
 .wfpanel[hidden], .wfpanel-steps[hidden] { display: none; }
-.wfpanel-head { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; padding: 6px 12px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.wfpanel-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wfpanel-now { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-2); }
-.wfpanel-chevron { margin-left: auto; display: inline-flex; color: var(--fg-2); transition: transform .15s ease; }
+.wfpanel-head { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 42px; padding: 8px 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.wfpanel-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.wfpanel-now { flex: none; white-space: nowrap; color: var(--fg-2); font-size: 12px; }
+.wfpanel-chevron { flex: none; display: inline-flex; color: var(--fg); transition: transform .15s ease; }
 .wfpanel-collapsed .wfpanel-chevron { transform: rotate(-90deg); }
-.wfpanel-head:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; border-radius: 14px; }
-.wfpanel-steps { list-style: none; margin: 0; padding: 0 12px 8px; max-height: min(30vh, 220px); overflow-y: auto; }
+.wfpanel-head:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; border-radius: 4px; }
+.wfpanel-steps { list-style: none; margin: 0; padding: 0 0 8px; max-height: min(30vh, 220px); overflow-y: auto; }
 @media (max-width: 600px) { .wfpanel-steps { max-height: 26vh; } }
