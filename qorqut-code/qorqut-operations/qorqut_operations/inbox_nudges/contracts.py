@@ -1,8 +1,8 @@
-"""Values of the inbox nudge engine: the exact native binding, the progress observation, reservations and outcomes.
+"""Values of the inbox nudge engine: the exact native binding, the diagnostic observation, reservations and outcomes.
 
-Nothing here knows how a native session is reached. The host supplies a ``Binding`` it has verified, an ``Observation`` of real
-progress it has seen, and reports what the native transport said as an ``Outcome``; the engine only keeps the durable need, the
-immutable attempts and their evidence.
+Nothing here knows how a native session is reached. The host supplies a ``Binding`` it has verified, optionally an
+``Observation`` that is recorded for diagnostics, and reports what the native transport said as an ``Outcome``; the engine only
+keeps the durable need, the immutable attempts and their evidence.
 """
 
 from __future__ import annotations
@@ -27,14 +27,16 @@ NUDGE_TEXT = (
 PROVIDERS = ("claude", "codex")
 TRANSPORTS = ("terminal", "codex_queue")
 
-# Why an attempt was allowed (never "because time passed").
-KIND_INITIAL = "initial"  # the first notice of a pending cycle
-KIND_NEW_SESSION = "new_session"  # an exact new native session of the same cycle gets its own advisory
-KIND_FOLLOW_UP = "follow_up"  # the bounded later notice after real progress
+# What an attempt announces. The stored names are kept for receipt compatibility; their meanings are event-based (a notice is
+# only ever for events not yet announced to its conversation, never "because time passed" or because work progressed).
+KIND_INITIAL = "initial"  # the agent's first notice that may have been typed
+KIND_NEW_SESSION = "new_session"  # the first notice to a native conversation after another conversation of the agent had one
+KIND_FOLLOW_UP = "follow_up"  # newly eligible events, to a conversation that already had a notice
 KINDS = (KIND_INITIAL, KIND_NEW_SESSION, KIND_FOLLOW_UP)
 
 # Attempt states. ``prepared`` is a reservation before any input. ``submitted`` is the native transport's report that the notice
 # was sent (the agent has not been shown to read anything). ``uncertain`` may have reached the session and is never replayed.
+# Only these two cover their events for their conversation; every other state covers nothing.
 # ``deferred``, ``failed``, ``unavailable`` and ``stale`` are definitely not typed: the session was not safely ready, the
 # transport refused, the transport is not supported for this exact session, or the reservation was cancelled before input.
 PREPARED, SUBMITTED, UNCERTAIN = "prepared", "submitted", "uncertain"
@@ -122,11 +124,11 @@ class Binding:
 
 @dataclass(frozen=True)
 class Observation:
-    """What the host has really seen of the agent's work, as monotonic counters.
+    """What the host saw of the agent when it asked for a notice, recorded with the attempt for diagnostics only.
 
-    ``work`` counts completed units of work that were not answers to a nudge; ``user`` counts direct Chat inputs the host
-    positively observed delivered; ``working`` is the host's evidence that a turn is running right now. A nudge's own answer
-    never advances ``work``, so a nudge cannot rearm itself."""
+    ``work`` and ``user`` are the host's counters of completed work and direct Chat inputs, ``working`` its evidence that a
+    turn is running. None of them decides whether or when a notice is due: eligibility is event-based, so Chat input, replies
+    and work neither rearm nor hold back a notice. A host may pass the neutral ``Observation()``."""
 
     work: int = 0
     user: int = 0
@@ -142,8 +144,9 @@ class Observation:
 
 @dataclass(frozen=True)
 class Reservation:
-    """One notice reserved for exactly one session. ``source_key`` is the native input key; ``text`` is what is typed (the
-    transport adds its own system marker)."""
+    """One notice reserved for exactly one session, covering ``event_ids`` (the bounded batch eligible when it was made).
+    ``source_key`` is the native input key; ``text`` is what is typed (the transport adds its own system marker). ``cycle`` is
+    the need's activation count, a diagnostic."""
 
     attempt_id: str
     agent_id: str

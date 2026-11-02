@@ -4,18 +4,24 @@ One durable need per registered agent, immutable attempts and their append-only 
 open unit of work and a ``Visibility`` port: no native I/O, no clock of its own, no thread. The host reserves an attempt, sends
 through its one input arbiter, and settles with exactly what the transport reported.
 
-Rearm rule (frozen): a notice is an advisory about events that are still pending and currently authorized. In one pending cycle
-(the interval in which some covered event is still pending), one exact native session receives
+Eligibility rule (event-based): an inbox event warrants a notice to one native conversation when it is delivered to the agent,
+unacknowledged, currently authorized, and not already announced (or possibly announced) to that conversation. A conversation is
+the agent, provider and conversation id of a binding; the exact binding (generation, process, transport) still decides where
+one attempt may be typed and which receipt may settle it. The coverage of a conversation is every event id recorded by the
+agent's ``submitted`` and ``uncertain`` attempts for it, across its whole history; ``deferred``, ``failed``, ``unavailable`` and
+``stale`` attempts cover nothing. So
 
-* one first notice;
-* one follow-up after the work that was already running at that first notice finishes (``Observation.work`` advances); and
-* one more after each further direct Chat input the host positively observed has been worked through.
+* an unchanged unacknowledged backlog is never announced twice to one conversation, whatever Chat input, reply, work or time
+  passes, and a newly eligible event warrants its own notice independently of older pending ones;
+* a new native conversation receives the outstanding eligible events; reattaching or restarting the same conversation (a new
+  exact binding) replays nothing;
+* an ``uncertain`` attempt suppresses only its own events for its own conversation: it is never sent again and never holds
+  back a newer event.
 
-A timer never rearms a notice; ``MINIMUM_REPEAT_SECONDS`` is only a lower bound between two notices. A nudge's own answer
-does not advance ``Observation.work``, so it cannot ask for another. Acknowledgement or revocation of every covered event ends
-the cycle; new events join the cycle while any covered event is pending (they are coalesced into the next permitted notice).
-An exact new session (a new generation) gets its own advisory, never a replay of an old session's receipt. Anything that may
-have reached a session is ``uncertain`` and is never sent again to that session.
+Pacing only bounds when a due notice may be typed: one reservation per agent, ``MINIMUM_REPEAT_SECONDS`` between two effective
+notices of the agent and the bounded backoff after a notice that was definitely not typed. Nothing rearms a notice: the host's
+``Observation`` is recorded with each attempt for diagnostics and decides nothing, and a need's ``cycle`` only counts its
+activations.
 """
 
 from __future__ import annotations
@@ -25,7 +31,7 @@ from datetime import datetime, timedelta, timezone
 import json
 from typing import Any
 
-from qorqut_operations.contracts import DomainError, canonical_hash, new_id, plain
+from qorqut_operations.contracts import DomainError, canonical_hash, new_id
 
 from .contracts import (ATTEMPT_STATES, DEFERRED, DEFERRED_RETRY_SECONDS, EFFECTIVE, FAILED, FAILED_RETRY_SECONDS, IDLE, KIND_FOLLOW_UP,
                         KIND_INITIAL, KIND_NEW_SESSION, MINIMUM_REPEAT_SECONDS, PENDING, PENDING_SAMPLE, PREPARED, SCAN_ROWS,
@@ -92,6 +98,45 @@ def attempt_row(uow, attempt_id: str) -> dict | None:
     return _row(uow.connection.execute("SELECT * FROM inbox_nudge_attempts WHERE id=?", (attempt_id,)).fetchone())
 
 
+def _chunks(values: list, size: int = 100):
+    for start in range(0, len(values), size):
+        yield values[start:start + size]
+
+
+# ----- coverage -------------------------------------------------------------------------------------------------------------
+
+def conversation(binding: Binding) -> tuple[str, str]:
+    """The coverage identity of a binding (with its agent): the provider and native conversation, not the exact process."""
+    return binding.provider, binding.conversation_id
+
+
+def _covering(states: tuple[str, ...] = EFFECTIVE) -> str:
+    """The event ids that the agent's attempts in ``states`` recorded for one conversation (parameters: agent, provider,
+    conversation id). Membership is decided in SQL over the agent's whole history, so no coverage is materialized in Python.
+    The states are the engine's own literals, so they are written inline."""
+    wanted = ",".join(f"'{state}'" for state in states if state in ATTEMPT_STATES)
+    return ("SELECT j.value FROM inbox_nudge_attempts a, json_each(a.event_ids_json) j WHERE a.agent_id=? "
+            f"AND a.state IN ({wanted}) AND json_extract(a.binding_json,'$.provider')=? "
+            "AND json_extract(a.binding_json,'$.conversation_id')=? AND j.type='integer'")
+
+
+def covered_among(uow, agent_id: str, coverage: tuple[str, str], event_ids, states: tuple[str, ...] = EFFECTIVE) -> set[int]:
+    """Which of the given events the conversation's attempts in ``states`` already cover (submitted or uncertain by default)."""
+    found: set[int] = set()
+    for chunk in _chunks(list(event_ids)):
+        found |= {row[0] for row in uow.connection.execute(
+            _covering(states) + " AND j.value IN (" + ",".join("?" * len(chunk)) + ")", (agent_id, *coverage, *chunk))}
+    return found
+
+
+def has_effect(uow, agent_id: str, coverage: tuple[str, str]) -> bool:
+    """Whether that one conversation of the agent has an attempt that may have been typed."""
+    return uow.connection.execute(
+        "SELECT 1 FROM inbox_nudge_attempts WHERE agent_id=? AND state IN ('submitted','uncertain') "
+        "AND json_extract(binding_json,'$.provider')=? AND json_extract(binding_json,'$.conversation_id')=? LIMIT 1",
+        (agent_id, *coverage)).fetchone() is not None
+
+
 # ----- what is pending ------------------------------------------------------------------------------------------------------
 
 def _authorized(uow, port: Visibility, agent_id: str, rows: list) -> set[int]:
@@ -101,47 +146,63 @@ def _authorized(uow, port: Visibility, agent_id: str, rows: list) -> set[int]:
     return {row["id"] for row in rows} & {identity for identity in granted if type(identity) is int}
 
 
-def scan_pending(uow, port: Visibility, agent_id: str, *, after: int = 0, limit: int = PENDING_SAMPLE,
-                 budget: int = SCAN_ROWS) -> Scan:
-    """A bounded window of the agent's pending events: its unacknowledged deliveries after event ``after``, filtered by current
-    authorization, in id order.
+def _pending_rows(uow, agent_id: str, after: int, limit: int, coverage: tuple[str, str] | None, covered: bool) -> list:
+    """Pending (unacknowledged) delivery rows of the agent after event ``after``, in id order. With ``coverage`` only the events
+    that conversation has not covered (or, with ``covered``, only those it has), decided in SQL so covered rows cost no page."""
+    sql, args = ("SELECT e.* FROM inbox_events e JOIN inbox_deliveries d ON d.event_id=e.id "
+                 "WHERE d.agent_id=? AND d.acknowledged_at IS NULL AND d.event_id>?"), [agent_id, after]
+    if coverage is not None:
+        # An uncorrelated subquery: SQLite evaluates it once per page, above the page's starting position only.
+        sql += f" AND d.event_id {'IN' if covered else 'NOT IN'} ({_covering()} AND j.value>?)"
+        args += [agent_id, *coverage, after]
+    return uow.connection.execute(sql + " ORDER BY d.event_id LIMIT ?", (*args, limit)).fetchall()
 
-    Scans in bounded SQL pages so unauthorized rows never consume the sample, and stops after ``budget`` rows. The result says
-    where the next window resumes (``next``): the last row inspected, or 0 once the last pending row was read, so a long run of
-    unauthorized rows is crossed over several passes and every earlier row is eventually read (and authorized) again."""
+
+def scan_pending(uow, port: Visibility, agent_id: str, *, after: int = 0, limit: int = PENDING_SAMPLE,
+                 budget: int = SCAN_ROWS, coverage: tuple[str, str] | None = None, covered: bool = False) -> Scan:
+    """A bounded window of the agent's pending events: its unacknowledged deliveries after event ``after``, filtered by current
+    authorization, in id order. Given a conversation's ``coverage`` the window holds only the events eligible for it (not yet
+    covered), or with ``covered`` only those already covered.
+
+    Scans in bounded SQL pages so unauthorized rows never consume the sample (and covered ones are not even read), and stops
+    after ``budget`` rows. The result says where the next window resumes (``next``): right after the last event a full sample
+    holds, the last row inspected when the budget ran out, or 0 once the last pending row was read, so a long run of
+    unauthorized rows is crossed over several passes, no authorized event past a page or sample boundary is skipped, and every
+    earlier row is eventually read (and authorized) again."""
     found: list[int] = []
     cursor, read = after, 0
-    while read < budget and len(found) < limit:
+    while read < budget:
         page = min(PAGE, budget - read)
-        rows = uow.connection.execute(
-            "SELECT e.* FROM inbox_events e JOIN inbox_deliveries d ON d.event_id=e.id "
-            "WHERE d.agent_id=? AND d.acknowledged_at IS NULL AND e.id>? ORDER BY e.id LIMIT ?",
-            (agent_id, cursor, page)).fetchall()
+        rows = _pending_rows(uow, agent_id, cursor, page, coverage, covered)
         read += len(rows)
-        if rows:
-            cursor = rows[-1]["id"]
-            granted = _authorized(uow, port, agent_id, rows)
-            found += [row["id"] for row in rows if row["id"] in granted][:limit - len(found)]
+        granted = _authorized(uow, port, agent_id, rows)
+        for index, row in enumerate(rows):
+            cursor = row["id"]
+            if row["id"] in granted:
+                found.append(row["id"])
+                if len(found) >= limit and (index < len(rows) - 1 or len(rows) == page):
+                    return Scan(tuple(found), True, True, False, after, cursor)
         if len(rows) < page:
             # The last pending row was read. Only a window that began at the start covered every pending row; one that began
-            # later is empty-handed proof only when no pending row exists at all.
-            nothing = not found and (after == 0 or uow.connection.execute(
-                "SELECT 1 FROM inbox_deliveries WHERE agent_id=? AND acknowledged_at IS NULL LIMIT 1", (agent_id,)).fetchone() is None)
+            # later is empty-handed proof only when no such pending row exists at all.
+            nothing = not found and (after == 0 or not _pending_rows(uow, agent_id, 0, 1, coverage, covered))
             return Scan(tuple(found), False, after != 0 and not nothing, nothing, after, 0)
-    full = len(found) >= limit
-    return Scan(tuple(found), full, True, False, after, cursor)
+    return Scan(tuple(found), False, True, False, after, cursor)
+
+
+def pending_among(uow, agent_id: str, event_ids: list[int]) -> list:
+    """The pending (unacknowledged) delivery rows of the agent among the given events."""
+    rows: list = []
+    for chunk in _chunks(list(event_ids)):
+        rows += uow.connection.execute(
+            "SELECT e.* FROM inbox_events e JOIN inbox_deliveries d ON d.event_id=e.id WHERE d.agent_id=? "
+            "AND d.acknowledged_at IS NULL AND e.id IN (" + ",".join("?" * len(chunk)) + ")", (agent_id, *chunk)).fetchall()
+    return rows
 
 
 def alive_coverage(uow, port: Visibility, agent_id: str, event_ids: list[int]) -> set[int]:
     """Which of the given events are still pending (unacknowledged) and currently authorized for the agent."""
-    alive: set[int] = set()
-    for start in range(0, len(event_ids), 100):
-        chunk = event_ids[start:start + 100]
-        rows = uow.connection.execute(
-            "SELECT e.* FROM inbox_events e JOIN inbox_deliveries d ON d.event_id=e.id WHERE d.agent_id=? "
-            "AND d.acknowledged_at IS NULL AND e.id IN (" + ",".join("?" * len(chunk)) + ")", (agent_id, *chunk)).fetchall()
-        alive |= _authorized(uow, port, agent_id, rows)
-    return alive
+    return _authorized(uow, port, agent_id, pending_among(uow, agent_id, event_ids))
 
 
 # ----- evidence and attempts ------------------------------------------------------------------------------------------------
@@ -227,75 +288,65 @@ def _stale_reservation(uow, agent_id: str, reason: str, now: str) -> None:
 @dataclass(frozen=True)
 class Facts:
     """What the host's authorization said about one agent, gathered in a read unit of work so no authorization work runs while
-    the writer lock is held. ``latest_alive`` says whether any event the cycle's latest notice covered is still pending
-    (``None`` when there is no such notice)."""
+    the writer lock is held. ``scan`` holds the events eligible for the binding's conversation (every authorized pending event
+    when the agent is offline); ``announced`` says, when nothing is eligible, that some pending authorized event is already
+    covered for that conversation (or could not be proven not to be)."""
 
     scan: Scan
-    cycle: int | None
     active: bool
-    latest_alive: bool | None
+    announced: bool = False
 
 
-def gather(uow, port: Visibility, agent_id: str) -> Facts:
+def gather(uow, port: Visibility, agent_id: str, binding: Binding | None = None) -> Facts:
     need = need_row(uow, agent_id)
-    scan = scan_pending(uow, port, agent_id, after=need["scan_after"] if need is not None else 0)
-    alive = None
-    if need is not None and need["active"] and scan.ids:
-        latest = uow.connection.execute("SELECT event_ids_json FROM inbox_nudge_attempts WHERE agent_id=? AND cycle=? "
-                                        "ORDER BY sequence DESC LIMIT 1", (agent_id, need["cycle"])).fetchone()
-        if latest is not None:
-            alive = bool(alive_coverage(uow, port, agent_id, json.loads(latest["event_ids_json"])))
-    return Facts(scan, need["cycle"] if need is not None else None, bool(need and need["active"]), alive)
+    coverage = conversation(binding) if binding is not None else None
+    scan = scan_pending(uow, port, agent_id, after=need["scan_after"] if need is not None else 0, coverage=coverage)
+    announced = False
+    if coverage is not None and not scan.ids and scan.empty:
+        covered = scan_pending(uow, port, agent_id, limit=1, coverage=coverage, covered=True)
+        announced = bool(covered.ids) or not covered.empty
+    return Facts(scan, bool(need and need["active"]), announced)
 
 
-def refresh(uow, facts: Facts, agent_id: str, now: str) -> tuple[dict | None, Scan]:
+def refresh(uow, facts: Facts, agent_id: str, now: str) -> dict | None:
     """Bring the agent's need in line with what is pending. Writes only when something changed.
 
-    The need is active while any pending, authorized event exists. A new cycle starts when it becomes active again, or when
-    every event the latest notice covered has been acknowledged or revoked (that notice's coverage is stale)."""
+    The need is active while some pending, authorized event exists (eligible or already announced); each activation is a new
+    ``cycle``, which is a diagnostic only. Only a proven-empty window deactivates it; a partial one proves nothing."""
     uow.require_write()
-    scan, need = facts.scan, need_row(uow, agent_id)
-    if not scan.ids:
-        if not scan.empty:
-            # A partial or tail window found nothing authorized: that proves nothing about the rows it did not read, so an
-            # outstanding need stays and the scan simply resumes where this window stopped.
-            return _resume(uow, need, agent_id, scan, now), scan
-        if need is not None and need["active"]:
-            _stale_reservation(uow, agent_id, "no_pending_events", now)
-            uow.connection.execute("UPDATE inbox_nudge_needs SET active=0,reason=NULL,updated_at=? WHERE agent_id=?", (now, agent_id))
-        return _resume(uow, need_row(uow, agent_id), agent_id, scan, now), scan
-    if need is None:
-        uow.connection.execute("INSERT INTO inbox_nudge_needs(agent_id,cycle,active,opened_at,opened_at_first,updated_at) VALUES(?,1,1,?,?,?)",
-                               (agent_id, now, now, now))
-    elif not need["active"]:
-        # The first activation of a row that only held a scan position is cycle one.
-        uow.connection.execute("UPDATE inbox_nudge_needs SET active=1,cycle=cycle+1,opened_at=?,reason=NULL,updated_at=? WHERE agent_id=?",
-                               (now, now, agent_id))
-    elif facts.latest_alive is False and facts.cycle == need["cycle"]:
-        _stale_reservation(uow, agent_id, "coverage_handled", now)
-        uow.connection.execute("UPDATE inbox_nudge_needs SET cycle=cycle+1,opened_at=?,reason=NULL,updated_at=? WHERE agent_id=?",
-                               (now, now, agent_id))
-    return _resume(uow, need_row(uow, agent_id), agent_id, scan, now), scan
+    need = need_row(uow, agent_id)
+    if facts.scan.ids or facts.announced:
+        if need is None:
+            uow.connection.execute("INSERT INTO inbox_nudge_needs(agent_id,cycle,active,opened_at,opened_at_first,updated_at) VALUES(?,1,1,?,?,?)",
+                                   (agent_id, now, now, now))
+        elif not need["active"]:
+            # The first activation of a row that only held a scan position is cycle one.
+            uow.connection.execute("UPDATE inbox_nudge_needs SET active=1,cycle=cycle+1,opened_at=?,reason=NULL,updated_at=? WHERE agent_id=?",
+                                   (now, now, agent_id))
+    elif facts.scan.empty and need is not None and need["active"]:
+        _stale_reservation(uow, agent_id, "no_pending_events", now)
+        uow.connection.execute("UPDATE inbox_nudge_needs SET active=0,reason=NULL,updated_at=? WHERE agent_id=?", (now, agent_id))
+    return need_row(uow, agent_id)
 
 
-def _resume(uow, need: dict | None, agent_id: str, scan: Scan, now: str) -> dict | None:
+def _resume(uow, need: dict | None, agent_id: str, position: int, now: str) -> dict | None:
     """Save where the next window of this agent's scan resumes, in the same transaction as the rest of the preparation.
 
-    This is a position, not a permission: it caches no authorization and acknowledges nothing, and it neither starts a cycle
-    nor spends or rearms a notice allowance. An agent with no row yet gets an inactive one (cycle 0) when the position matters
-    before any authorized event was found."""
+    This is a position, not a permission or coverage: it caches no authorization, acknowledges and announces nothing, and starts
+    no notice. An agent with no row yet gets an inactive one (cycle 0) when the position matters before any authorized event
+    was found."""
     if need is None:
-        if scan.next == 0:
+        if position == 0:
             return None
         uow.connection.execute("INSERT INTO inbox_nudge_needs(agent_id,cycle,active,opened_at,opened_at_first,updated_at,scan_after) "
-                               "VALUES(?,0,0,?,?,?,?)", (agent_id, now, now, now, scan.next))
-    elif need["scan_after"] != scan.next:
-        uow.connection.execute("UPDATE inbox_nudge_needs SET scan_after=?,updated_at=? WHERE agent_id=?", (scan.next, now, agent_id))
+                               "VALUES(?,0,0,?,?,?,?)", (agent_id, now, now, now, position))
+    elif need["scan_after"] != position:
+        uow.connection.execute("UPDATE inbox_nudge_needs SET scan_after=?,updated_at=? WHERE agent_id=?", (position, now, agent_id))
     return need_row(uow, agent_id)
 
 
 def note(uow, agent_id: str, reason: str | None, now: str) -> None:
-    """Remember why an active need has no notice yet (offline, waiting for progress, ...). Writes only on a change."""
+    """Remember why an active need has no notice yet (offline, minimum spacing, ...). Writes only on a change."""
     need = need_row(uow, agent_id)
     if need is not None and need["active"] and need["reason"] != (reason[:200] if reason else None):
         uow.connection.execute("UPDATE inbox_nudge_needs SET reason=?,updated_at=? WHERE agent_id=?",
@@ -303,7 +354,7 @@ def note(uow, agent_id: str, reason: str | None, now: str) -> None:
 
 
 def _retry(uow, agent_id: str, latest: dict, key: str, now: str, policy: Policy) -> Waiting | None:
-    """Pace a retry after a notice that was definitely not typed (its own backoff: it never rearms a delivered notice)."""
+    """Pace a retry after a notice that was definitely not typed (its own bounded backoff for the same exact session)."""
     if latest["state"] not in NO_EFFECT_RETRY or latest["session_key"] != key or latest["settled_at"] is None:
         return None
     streak = 0
@@ -317,14 +368,16 @@ def _retry(uow, agent_id: str, latest: dict, key: str, now: str, policy: Policy)
     return Waiting("retry_later", due) if parse_time(now) < parse_time(due) else None
 
 
-def decide(uow, need: dict, binding: Binding | None, observation: Observation, now: str, policy: Policy) -> str | Waiting:
-    """The kind of notice permitted now for ``binding``, or why none is."""
+def decide(uow, need: dict, binding: Binding | None, now: str, policy: Policy) -> str | Waiting:
+    """Whether a notice of events eligible for ``binding`` may be typed now, and its kind; otherwise why it waits.
+
+    Kinds keep their stored names with event-based meanings: ``initial`` is the agent's first notice that may have been typed,
+    ``new_session`` the first one to a native conversation after another conversation of the agent had one, and ``follow_up``
+    a notice of newly eligible events to a conversation that already had one."""
     if binding is None:
         return Waiting("offline")
-    agent_id, cycle, key = need["agent_id"], need["cycle"], binding.session_key
-    latest = uow.connection.execute("SELECT * FROM inbox_nudge_attempts WHERE agent_id=? AND cycle=? ORDER BY sequence DESC LIMIT 1",
-                                    (agent_id, cycle)).fetchone()
-    if latest is not None and latest["state"] == PREPARED:
+    agent_id, key = need["agent_id"], binding.session_key
+    if uow.connection.execute("SELECT 1 FROM inbox_nudge_attempts WHERE agent_id=? AND state='prepared'", (agent_id,)).fetchone():
         return Waiting("reserved")
     last_effect = uow.connection.execute(
         "SELECT prepared_at,settled_at FROM inbox_nudge_attempts WHERE agent_id=? AND state IN ('submitted','uncertain') "
@@ -333,57 +386,66 @@ def decide(uow, need: dict, binding: Binding | None, observation: Observation, n
         due = add_seconds(last_effect["settled_at"] or last_effect["prepared_at"], policy.minimum_repeat_seconds)
         if parse_time(now) < parse_time(due):
             return Waiting("minimum_spacing", due)
-    effective = [dict(row) for row in uow.connection.execute(
-        "SELECT * FROM inbox_nudge_attempts WHERE agent_id=? AND cycle=? AND state IN ('submitted','uncertain') ORDER BY sequence",
-        (agent_id, cycle))]
-    same = [row for row in effective if row["session_key"] == key]
-    if any(row["state"] == UNCERTAIN for row in same):
-        return Waiting("uncertain_unreconciled")
+    latest = uow.connection.execute("SELECT * FROM inbox_nudge_attempts WHERE agent_id=? ORDER BY sequence DESC LIMIT 1",
+                                    (agent_id,)).fetchone()
     if latest is not None and (waiting := _retry(uow, agent_id, dict(latest), key, now, policy)) is not None:
         return waiting
-    if not same:
-        return KIND_NEW_SESSION if effective else KIND_INITIAL
-    first, last = json.loads(same[0]["progress_json"]), json.loads(same[-1]["progress_json"])
-    allowance = 1 + (1 if first["working"] else 0) + max(0, observation.user - first["user"])
-    if len(same) >= allowance:
-        return Waiting("coalesced")
-    if observation.work <= last["work"]:
-        return Waiting("awaiting_progress")
-    return KIND_FOLLOW_UP
+    if last_effect is None:
+        return KIND_INITIAL
+    return KIND_FOLLOW_UP if has_effect(uow, agent_id, conversation(binding)) else KIND_NEW_SESSION
 
 
 def prepare(uow, facts: Facts, agent_id: str, binding: Binding | Any | None, observation: Observation, now: str,
             policy: Policy) -> Reservation | Waiting:
-    """Reserve one notice for exactly this session, or say why none is due. No native I/O happens here."""
+    """Reserve one notice of the events eligible for exactly this session, or say why none is due. No native I/O happens here.
+
+    ``observation`` is stored with the attempt for diagnostics only."""
     uow.require_write()
     exact = Binding.of(binding, agent_id) if binding is not None else None
-    need, scan = refresh(uow, facts, agent_id, now)
+    scan = facts.scan
+    need = refresh(uow, facts, agent_id, now)
     if not scan.ids:
+        _resume(uow, need, agent_id, scan.next, now)
         if not scan.empty:
             # Nothing authorized in this window and the rest of the inbox was not read: the scan resumes on the next pass.
             note(uow, agent_id, "scan_incomplete", now)
             return Waiting("scan_incomplete")
+        if facts.announced:
+            # Every pending authorized event is already covered for this conversation: nothing is announced again.
+            note(uow, agent_id, "coalesced", now)
+            return Waiting("coalesced")
         return Waiting("idle", status=IDLE)
-    verdict = decide(uow, need, exact, observation, now, policy)
+    verdict = decide(uow, need, exact, now, policy)
     if isinstance(verdict, Waiting):
+        # The position stays where this window began, so the events it found are the ones reserved once a notice is due, with
+        # anything that arrives meanwhile.
         note(uow, agent_id, verdict.reason, now)
         return verdict
+    # A concurrent caller may have covered some of these events since they were read: never announce one twice.
+    covered = covered_among(uow, agent_id, conversation(exact), scan.ids)
+    event_ids = tuple(identity for identity in scan.ids if identity not in covered)
+    if not event_ids:
+        note(uow, agent_id, "coalesced", now)
+        return Waiting("coalesced")
+    need = _resume(uow, need, agent_id, scan.next, now)
     attempt_id = new_id()
     sequence = need["next_sequence"]
     uow.connection.execute(
         "INSERT INTO inbox_nudge_attempts(id,agent_id,cycle,sequence,kind,binding_json,session_key,event_ids_json,progress_json,state,prepared_at) "
         "VALUES(?,?,?,?,?,?,?,?,?,'prepared',?)",
         (attempt_id, agent_id, need["cycle"], sequence, verdict, json.dumps(exact.public(), sort_keys=True), exact.session_key,
-         json.dumps(list(scan.ids)), json.dumps(observation.public(), sort_keys=True), now))
+         json.dumps(list(event_ids)), json.dumps(observation.public(), sort_keys=True), now))
     uow.connection.execute("UPDATE inbox_nudge_needs SET next_sequence=next_sequence+1,reason=NULL,updated_at=? WHERE agent_id=?", (now, agent_id))
-    return Reservation(attempt_id, agent_id, need["cycle"], sequence, verdict, exact, scan.ids)
+    return Reservation(attempt_id, agent_id, need["cycle"], sequence, verdict, exact, event_ids)
 
 
 def check(uow, port: Visibility, attempt_id: str, binding: Binding | Any) -> str | None:
     """Why this reservation may no longer be used, or ``None`` when it may. Read-only.
 
-    A reservation is valid only for the exact binding it was made for, in the cycle it was made in, while some event it covers
-    is still pending and authorized. Acknowledgement, revocation, a changed or ended session all make it stale."""
+    A reservation is valid only for the exact binding it was made for while every event it covers that is still pending is
+    still eligible (authorized and not covered for its conversation by another attempt), and at least one is. An acknowledged
+    event simply drops out; a pending covered event that was revoked makes the whole reservation stale, so a delivered notice
+    never records coverage for an event the agent could not see. A changed or ended session makes it stale too."""
     attempt = attempt_row(uow, attempt_id)
     if attempt is None or attempt["state"] != PREPARED:
         return "not_reserved"
@@ -393,10 +455,11 @@ def check(uow, port: Visibility, attempt_id: str, binding: Binding | Any) -> str
         return "binding_invalid"
     if exact.public() != json.loads(attempt["binding_json"]):
         return "binding_changed"
-    need = need_row(uow, attempt["agent_id"])
-    if need is None or not need["active"] or need["cycle"] != attempt["cycle"]:
-        return "cycle_ended"
-    if not alive_coverage(uow, port, attempt["agent_id"], json.loads(attempt["event_ids_json"])):
+    rows = pending_among(uow, attempt["agent_id"], json.loads(attempt["event_ids_json"]))
+    pending = {row["id"] for row in rows}
+    eligible = (_authorized(uow, port, attempt["agent_id"], rows)
+                - covered_among(uow, attempt["agent_id"], conversation(exact), pending))
+    if not eligible or eligible != pending:
         return "coverage_handled"
     return None
 
@@ -414,31 +477,59 @@ def candidates(uow, agent_ids: list[str]) -> list[str]:
     return found
 
 
-def status(uow, port: Visibility, agent_id: str, *, limit: int = 5) -> dict:
+def status(uow, port: Visibility, agent_id: str, *, limit: int = 5, binding: Binding | Any | None = None) -> dict:
     """What the operator may say about this agent's nudge: pending, deferred, submitted, uncertain, stale or unavailable.
 
-    It reads the live pending set through the host's authorization, so it is never staler than the inbox, and it never claims
-    the agent read anything: ``submitted`` is only the native transport's report."""
-    facts = gather(uow, port, agent_id)
+    Coverage is read for the conversation of ``binding`` when the host supplies its current live binding (it must be this
+    agent's), otherwise for the conversation of the agent's latest attempt. ``submitted`` (or ``uncertain``) means every pending
+    authorized event is already announced (or possibly announced) to it; when some event is not, the state is ``pending`` or
+    the latest undelivered attempt's state, never ``submitted``. The scans are bounded: when the announced scan could not read
+    every covered event and none it read is only possibly announced, the state is ``pending`` (``scan_incomplete``) rather than
+    a conclusive ``submitted``. ``pending`` counts the authorized pending events seen and is distinct from the coverage counts;
+    ``more`` says either scan stopped early, so the counts are lower bounds. It reads the live pending set through the host's
+    authorization, so it is never staler than the inbox, and it never claims the agent read anything: ``submitted`` is only the
+    native transport's report."""
+    exact = Binding.of(binding, agent_id) if binding is not None else None
     need = need_row(uow, agent_id)
     attempts = [view(dict(row)) for row in uow.connection.execute(
-        "SELECT * FROM inbox_nudge_attempts WHERE agent_id=? ORDER BY sequence DESC LIMIT ?", (agent_id, limit))]
-    state, reason = IDLE, None
-    if facts.scan.ids or not facts.scan.empty:
+        "SELECT * FROM inbox_nudge_attempts WHERE agent_id=? ORDER BY sequence DESC LIMIT ?", (agent_id, max(1, limit)))]
+    latest = attempts[0] if attempts else None
+    if exact is not None:
+        coverage = conversation(exact)
+    else:
+        coverage = conversation(Binding.of(latest["binding"])) if latest is not None else None
+    unannounced = scan_pending(uow, port, agent_id, coverage=coverage)
+    announced = (scan_pending(uow, port, agent_id, coverage=coverage, covered=True) if coverage is not None
+                 else Scan((), False, False, True))
+    possibly = set(announced.ids) - covered_among(uow, agent_id, coverage, announced.ids, (SUBMITTED,)) if announced.ids else set()
+    reason = need["reason"] if need is not None and need["active"] else None
+    state = IDLE
+    if unannounced.ids or not unannounced.empty:
         state = PENDING
-        latest = next((row for row in attempts if need is not None and row["cycle"] == need["cycle"]), None)
-        if need is not None and need["active"] and latest is not None and facts.latest_alive is not False:
-            state = {PREPARED: PENDING, SUBMITTED: STATUS_SUBMITTED, UNCERTAIN: STATUS_UNCERTAIN, DEFERRED: STATUS_DEFERRED,
-                     FAILED: STATUS_DEFERRED, UNAVAILABLE: STATUS_UNAVAILABLE, STALE: STATUS_STALE}[latest["state"]]
-            # A delivered notice keeps the reason the next one is held back; an undelivered one says why it was not typed.
-            reason = need["reason"] if latest["state"] in EFFECTIVE + (PREPARED,) and need["reason"] else latest["reason"]
-        elif need is not None and need["active"]:
-            reason = need["reason"]
+        if latest is not None and latest["state"] not in EFFECTIVE:
+            # The latest attempt was meant for events that still wait: an undelivered one says why it was not typed.
+            state = {PREPARED: PENDING, DEFERRED: STATUS_DEFERRED, FAILED: STATUS_DEFERRED, UNAVAILABLE: STATUS_UNAVAILABLE,
+                     STALE: STATUS_STALE}[latest["state"]]
+            reason = latest["reason"] or reason
+    elif possibly:
+        state = STATUS_UNCERTAIN
+        reason = reason or latest["reason"]
+    elif announced.incomplete:
+        # Covered events the scan did not reach could be only possibly announced: nothing conclusive can be said.
+        state, reason = PENDING, "scan_incomplete"
+    elif announced.ids:
+        state = STATUS_SUBMITTED
+        reason = reason or latest["reason"]
+    else:
+        reason = None
     return {"agent_id": agent_id, "state": state, "reason": reason, "cycle": need["cycle"] if need else 0,
-            "active": state != IDLE, "pending": len(facts.scan.ids), "more": facts.scan.more,
-            "opened_at": need["opened_at"] if need and need["active"] and state != IDLE else None, "attempts": attempts,
-            "note": STATUS_NOTE}
+            "active": state != IDLE, "pending": len(unannounced.ids) + len(announced.ids),
+            "more": unannounced.incomplete or announced.incomplete, "unannounced": len(unannounced.ids),
+            "announced": len(announced.ids) - len(possibly), "possibly_announced": len(possibly),
+            "opened_at": need["opened_at"] if need and need["active"] and state != IDLE else None,
+            "attempts": attempts[:limit], "note": STATUS_NOTE}
 
 
-__all__ = ["ATTEMPT_STATES", "Facts", "Policy", "Scan", "alive_coverage", "cancel", "candidates", "check", "decide", "gather",
-           "need_row", "note", "prepare", "refresh", "scan_pending", "settle", "status", "unsettled", "view"]
+__all__ = ["ATTEMPT_STATES", "Facts", "Policy", "Scan", "alive_coverage", "cancel", "candidates", "check", "conversation",
+           "covered_among", "decide", "gather", "has_effect", "need_row", "note", "pending_among", "prepare", "refresh",
+           "scan_pending", "settle", "status", "unsettled", "view"]

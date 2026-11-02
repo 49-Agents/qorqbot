@@ -2,8 +2,9 @@
 
 A nudge is an advisory that an agent has pending, authorized inbox events. It changes no acknowledgement, Task, Action, Signoff
 or routine state, never infers that the agent read or handled anything, and never starts or resumes an agent. The host
-supplies the verified native binding, the current event authorization (``Visibility``) and real-progress observations, sends
-through its own input arbiter, and settles each attempt with what the transport reported. See ``state`` for the rearm rule."""
+supplies the verified native binding and the current event authorization (``Visibility``), sends through its own input arbiter,
+and settles each attempt with what the transport reported. Eligibility is event-based: an event is announced at most once to a
+native conversation. See ``state`` for the rule."""
 
 from .contracts import (ATTEMPT_STATES, DEFERRED_RETRY_SECONDS, FAILED_RETRY_SECONDS, MINIMUM_REPEAT_SECONDS, NUDGE_TEXT,
                         PENDING_SAMPLE, STATUS_NOTE, UNAVAILABLE_RETRY_SECONDS, Binding, Observation, Outcome, Reservation,
