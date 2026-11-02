@@ -13,12 +13,12 @@ import shutil
 import string
 import tempfile
 
-from .git_store import FORMAT_VERSION, Git, PUBLIC_REF, Snapshot
-from .schema import (Conflict, ContextError, change_details, digest, encode,
-                     identifier, metadata as normalize_metadata, object_record,
-                     source_path, text, value_key)
+from .git_store import CONFIG_PATH, CURRENT_CONFIG, FORMAT_VERSION, Git, Snapshot
+from .schema import (Conflict, ContextError, RECORD_KINDS, change_details, digest, encode,
+                     identifier, metadata as normalize_metadata, note_record, object_record,
+                     record_path, source_path, text, value_key)
 from .search import SQLiteIndex, changes_between, project
-from . import graph_edits, input_modes as modes
+from . import controlled, graph_edits, input_modes as modes, questions, supervised_edits
 
 
 def atomic_write(path: Path, content: bytes):
@@ -102,7 +102,7 @@ class Context:
         except ContextError as error:
             raise Conflict("Could not prepare the empty Git repository for initialization") from error
         with context._lock(initializing=True):
-            files = {"graph/config.json": encode({"format_version": FORMAT_VERSION, "published_ref": PUBLIC_REF}),
+            files = {CONFIG_PATH: encode(CURRENT_CONFIG),
                      "graph/catalogs/nodes.json": encode({"basic_entity_type": list(dict.fromkeys(seeds))}),
                      "graph/catalogs/edges.json": encode({})}
             commit = context.git.commit(files, context.runtime, None, "Initialize context vocabulary")
@@ -146,7 +146,7 @@ class Context:
             return None
         job = json.loads(self.job_path.read_bytes())
         self._require_current_format(job)
-        graph_edits.binding(job)
+        controlled.binding(job)
         return job
 
     def pending(self):
@@ -168,6 +168,12 @@ class Context:
             if candidate not in used:
                 return candidate
         raise Conflict("Could not allocate an unused five-character ID")
+
+    @staticmethod
+    def _submission_digest(operation, path, content, normalized, submitted_by, evidence):
+        return digest({"input_mode": modes.GENERAL, "operation": operation, "path": path,
+                       "content": hashlib.sha256(content).hexdigest() if content is not None else None,
+                       "metadata": normalized, "submitted_by": submitted_by, **evidence})
 
     @staticmethod
     def _evidence(**values):
@@ -196,6 +202,8 @@ class Context:
             raise ContextError("foundation/actions/ is reserved for accepted action evidence")
         if path.startswith(graph_edits.PREFIX):
             raise ContextError("foundation/edits/ is reserved for controlled graph edits")
+        if path.startswith(supervised_edits.PREFIX):
+            raise ContextError("foundation/supervised-edits/ is reserved for supervised edits")
         submitted_by = text(submitted_by, "submitted_by")
         if ((operation == "remove" and content is not None) or
                 (operation != "remove" and not isinstance(content, bytes))):
@@ -223,11 +231,94 @@ class Context:
         plan = graph_edits.normalize(plan)
         return self._admit_general("add", graph_edits.source_path(event_id), graph_edits.canonical(plan),
                                    graph_edits.METADATA, submitted_by, event_id, source_bytes,
-                                   record_context, None, controlled=plan)
+                                   record_context, None, edit=controlled.graph_edit(plan))
+
+    def begin_supervised(self, plan, *, content, submitted_by, event_id, source_bytes=modes.SOURCE_BYTES,
+                         record_context=None) -> Submission:
+        """Stage one supervised edit: a supporting Markdown document plus explicit node/edge/note operations.
+
+        Trusted callers only, like ``begin_edit``; nothing here runs a model. ``content`` is preserved exactly as the
+        add-only source ``foundation/supervised-edits/{event_id}.md``; the normalized plan and the document
+        digest are retained in the execution marker. The trusted caller submits exactly the plan and document it
+        reviewed; the engine rechecks ``expected_revision`` and the event binding but cannot establish approval.
+        """
+        event_id, submitted_by, edit, record_context = self._supervised_proposal(
+            plan, content, submitted_by, event_id, source_bytes, record_context)
+        return self._admit_general("add", supervised_edits.source_path(event_id), content,
+                                   supervised_edits.metadata(event_id), submitted_by, event_id, source_bytes,
+                                   record_context, None, edit=edit)
+
+    def _supervised_proposal(self, plan, content, submitted_by, event_id, source_bytes, record_context):
+        event_id = identifier(event_id)
+        submitted_by = text(submitted_by, "submitted_by")
+        self._validate_source(None, source_bytes)
+        content = supervised_edits.document(content, source_bytes)
+        if record_context is not None:
+            record_context = modes.record_context(record_context, source_bytes)
+        plan = supervised_edits.normalize(plan, source_bytes)
+        if len(supervised_edits.canonical(plan)) > source_bytes:
+            raise ContextError("The supervised edit plan exceeds the configured byte limit")
+        return event_id, submitted_by, controlled.supervised_edit(plan, content), record_context
+
+    def preview_supervised(self, plan, *, content, submitted_by, event_id, source_bytes=modes.SOURCE_BYTES,
+                           record_context=None) -> dict:
+        """Validate a supervised proposal against the published head and describe it; mutates nothing.
+
+        Nothing is staged, locked, created or published and no model is involved. A plan whose
+        ``expected_revision`` is no longer the published head, a conflicting pending or published event, or any
+        operation the ordinary validators refuse raises the same error application would. ``submission_digest``
+        is informative: it identifies this proposal but is not an approval or an authorization.
+        """
+        event_id, submitted_by, edit, record_context = self._supervised_proposal(
+            plan, content, submitted_by, event_id, source_bytes, record_context)
+        snapshot, pending = self.snapshot(), self._job()
+        path, metadata = supervised_edits.source_path(event_id), supervised_edits.metadata(event_id)
+        evidence = self._evidence(record_context=record_context, execution=edit.marker)
+        request_digest = self._submission_digest("add", path, content, normalize_metadata(metadata),
+                                                 submitted_by, evidence)
+        summary = {"revision": snapshot.revision, "plan": edit.plan, "document_digest": edit.marker["document_digest"],
+                   "event_id": event_id, "base_revision": snapshot.revision, "source_path": path,
+                   "plan_digest": edit.marker["plan_digest"], "document_bytes": len(content),
+                   "submission_digest": request_digest}
+        existing = snapshot.events.get(event_id)
+        if existing:
+            if existing["submission_digest"] != request_digest:
+                raise Conflict("A published event ID cannot be reused with different input")
+            return {**summary, "status": "published", "published_commit": snapshot.event_commits[event_id]}
+        if pending:
+            if pending["id"] != event_id or pending["submission_digest"] != request_digest:
+                raise Conflict("Complete, retry, or discard the pending event before submitting another")
+            return {**summary, "status": "pending"}
+        if snapshot.revision != edit.plan["expected_revision"]:
+            raise Conflict("Stale expected revision: the published head is not the expected commit")
+        if event_id in snapshot.used_ids:
+            raise Conflict("This ID has already been published")
+        if path in snapshot.files:
+            raise Conflict("This foundation path already exists")
+        self._check_edit(snapshot, edit, event_id, None, source_bytes)
+        job = {"input_mode": modes.GENERAL, "operation": "add", "source": {"id": None},
+               "source_bytes": source_bytes, "draft": supervised_edits.draft(edit.plan)}
+        changes = {(change["kind"], change["id"]): change for change in self._graph_files(snapshot, job)[1]}
+        operations, counts = [], {kind: {"add": 0, "edit": 0, "remove": 0} for kind in RECORD_KINDS}
+        for operation in edit.plan["operations"]:
+            kind, target = supervised_edits.kind(operation["op"]), supervised_edits.object_id(operation)
+            change = changes[(kind, target)]
+            counts[kind][change["operation"]] += 1
+            before = snapshot.records(kind).get(target)
+            support = snapshot.support.get((kind, target), [])
+            operations.append({
+                "op": operation["op"], "kind": kind, "id": target, "operation": change["operation"],
+                "before": json.loads(json.dumps(before)) if before is not None else None,
+                "after": operation.get("record"), "explanation": operation["explanation"],
+                "citations": list(operation["citations"]), "support_before": list(support),
+                "support_after": list(operation.get("support_after", []))})
+        cites = any("self" in operation["citations"] for operation in edit.plan["operations"])
+        return {**summary, "status": "ready", "rationale": edit.plan["rationale"], "operations": operations,
+                "result_counts": counts, "cites_supporting_document": cites}
 
     def _admit_general(self, operation, path, content, metadata, submitted_by, event_id,
-                       source_bytes, record_context, expected_revision, *, controlled=None):
-        """Locked GENERAL admission shared by ordinary source changes and controlled graph edits."""
+                       source_bytes, record_context, expected_revision, *, edit=None):
+        """Locked GENERAL admission shared by ordinary source changes and controlled edits."""
         with self._lock():
             snapshot, pending = self.snapshot(), self._job()
             previous = next((event for event in snapshot.sources.values()
@@ -241,10 +332,9 @@ class Context:
                 metadata = {k: v for k, v in default_source["source"].items() if k not in ("id", "path")}
             normalized = normalize_metadata(metadata)
             evidence = self._evidence(record_context=record_context, expected_revision=expected_revision,
-                                      execution=graph_edits.marker(controlled) if controlled else None)
-            request_digest = digest({"input_mode": modes.GENERAL, "operation": operation, "path": path,
-                                     "content": hashlib.sha256(content).hexdigest() if content is not None else None,
-                                     "metadata": normalized, "submitted_by": submitted_by, **evidence})
+                                      execution=edit.marker if edit else None)
+            request_digest = self._submission_digest(operation, path, content, normalized,
+                                                     submitted_by, evidence)
             if existing:
                 if existing["submission_digest"] != request_digest:
                     raise Conflict("A published event ID cannot be reused with different input")
@@ -254,7 +344,7 @@ class Context:
                 if pending["id"] != event_id or pending["submission_digest"] != request_digest:
                     raise Conflict("Complete, retry, or discard the pending event before submitting another")
                 return Submission(pending["id"], pending["source"]["id"], pending["base_revision"])
-            required = controlled["expected_revision"] if controlled else expected_revision
+            required = edit.plan["expected_revision"] if edit else expected_revision
             if required is not None and snapshot.revision != required:
                 raise Conflict("Stale expected revision: the published head is not the expected commit")
             self._validate_source(content, source_bytes)
@@ -270,11 +360,11 @@ class Context:
                 raise ContextError("Metadata-only or identical-byte edits are deferred")
             self.git.require_clean()
             event_id = event_id or self._allocate(snapshot.used_ids)
-            reserved = {event_id} | (graph_edits.object_ids(controlled) if controlled else set())
+            reserved = {event_id} | (edit.module.object_ids(edit.plan) if edit else set())
             source_id = (self._allocate(snapshot.used_ids | reserved) if operation == "add"
                          else previous["source"]["id"])
-            if controlled:
-                self._check_edit(snapshot, controlled, event_id, source_id)
+            if edit:
+                self._check_edit(snapshot, edit, event_id, source_id, source_bytes)
             return self._stage_submission(snapshot, event_id, source_id, path, normalized,
                 operation, content, submitted_by, request_digest, source_bytes, previous,
                 input_mode=modes.GENERAL, evidence=evidence)
@@ -284,7 +374,9 @@ class Context:
         version = job.get("format_version") if isinstance(job, dict) else None
         if version != FORMAT_VERSION:
             raise Conflict(f"Unsupported pending event format version {version!r}; "
-                           f"this engine supports format {FORMAT_VERSION} only")
+                           f"this engine supports format {FORMAT_VERSION} only"
+                           + ("; complete this unfinished format 2 job with the older engine before switching"
+                              if version == 2 else ""))
 
     @staticmethod
     def _validate_source(content, limit):
@@ -463,14 +555,17 @@ class Context:
             job = self._editable_job(event_id)
             if job["input_mode"] == modes.GENERAL and details["developments"]:
                 raise ContextError("GENERAL input cannot record developments")
+            if kind == "note" and details["developments"]:
+                raise ContextError("A note cannot record developments")
             snapshot = self.snapshot(job["base_revision"])
             record = dict(record)
             object_id = (record["id"] if "id" in record else
                          self._allocate(snapshot.used_ids | set(job["reserved_ids"])))
             record["id"] = object_id
-            record = object_record(kind, record)
+            record = (note_record(record, job["source_bytes"]) if kind == "note"
+                      else object_record(kind, record))
             key = f"{kind}:{object_id}"
-            if object_id not in snapshot.objects(kind) and key not in job["draft"]:
+            if object_id not in snapshot.records(kind) and key not in job["draft"]:
                 if object_id in snapshot.used_ids or object_id in job["reserved_ids"]:
                     raise Conflict("Object ID is already reserved or has been published before")
             if object_id not in job["reserved_ids"]:
@@ -486,6 +581,11 @@ class Context:
     def put_edge(self, event_id, record, **details):
         return self._put(event_id, "edge", record, **details)
 
+    def put_note(self, event_id, record, *, explanation, citations, support_after):
+        """Stage a complete note ``{id?, text, objects}``; links are validated against the final draft at publication."""
+        return self._put(event_id, "note", record, explanation=explanation, citations=citations,
+                         support_after=support_after)
+
     def _remove(self, event_id, kind, object_id, *, explanation, citations, developments=None):
         identifier(object_id)
         details = change_details(explanation, citations, [], [] if developments is None else developments)
@@ -493,11 +593,13 @@ class Context:
             job = self._editable_job(event_id)
             if job["input_mode"] == modes.GENERAL and details["developments"]:
                 raise ContextError("GENERAL input cannot record developments")
+            if kind == "note" and details["developments"]:
+                raise ContextError("A note cannot record developments")
             snapshot = self.snapshot(job["base_revision"])
             key = f"{kind}:{object_id}"
-            if object_id not in snapshot.objects(kind) and key not in job["draft"]:
+            if object_id not in snapshot.records(kind) and key not in job["draft"]:
                 raise ContextError(f"No draft/current {kind} with this ID")
-            if object_id not in snapshot.objects(kind):
+            if object_id not in snapshot.records(kind):
                 del job["draft"][key]  # A create followed by a remove has no published object.
             else:
                 job["draft"][key] = {"kind": kind, "id": object_id, "record": None, **details}
@@ -510,12 +612,16 @@ class Context:
     def remove_edge(self, event_id, object_id, **details):
         return self._remove(event_id, "edge", object_id, **details)
 
+    def remove_note(self, event_id, object_id, *, explanation, citations):
+        """Stage explicit removal of a note; its history and evidence stay published."""
+        return self._remove(event_id, "note", object_id, explanation=explanation, citations=citations)
+
     def _prepare_publication(self, snapshot, job):
         plan = self._bound_plan(job)
         files, changes, objects = self._graph_files(snapshot, job)
         if plan is not None:
             self._require_exact_edit(job, plan)
-            self._require_effective(job, changes)
+            self._require_effective(job, changes, controlled.module_for(plan))
         if job["operation"] == "remove":
             content = None
         else:
@@ -524,7 +630,10 @@ class Context:
                 raise ContextError("The durable source input changed after submission")
         self._validate_source(content, job["source_bytes"])
         mode_outputs = self._validate_mode_output(snapshot, job, objects, content)
+        self._validate_questions(snapshot, job, {kind: set(found) for kind, found in objects.items()})
         files[job["source"]["path"]] = content
+        if snapshot.format_version != FORMAT_VERSION:
+            files[CONFIG_PATH] = encode(CURRENT_CONFIG)
         event = {k: job[k] for k in ("format_version", "id", "base_revision", "submission_digest",
                                     "operation", "submitted_by", "source", "input_mode",
                                     "input_digest", "previous_source_event")}
@@ -535,57 +644,60 @@ class Context:
         return files
 
     def _bound_plan(self, job):
-        """The plan of a controlled graph edit after matching marker, source binding and durable bytes; ``None`` if ordinary."""
-        if not graph_edits.binding(job):
+        """The plan of a controlled edit after matching marker, source binding and durable bytes; ``None`` if ordinary."""
+        if not controlled.binding(job):
             return None
         try:
             content = (self._event_directory(job["id"]) / "input.bin").read_bytes()
         except OSError as error:
-            raise ContextError("The durable graph-edit source input is unavailable") from error
+            raise ContextError("The durable graph-edit/supervised-edit source input is unavailable") from error
         if hashlib.sha256(content).hexdigest() != job["input_digest"]:
             raise ContextError("The durable source input changed after submission")
-        return graph_edits.bound_plan(job, content)
+        return controlled.bound_plan(job, content)
 
     @staticmethod
     def _require_exact_edit(job, plan):
         """A controlled edit publishes its normalized plan exactly: no missing, extra or altered draft content."""
-        if (encode(job["draft"]) != encode(graph_edits.draft(plan)) or
-                encode(job.get("handoff_note")) != encode(graph_edits.HANDOFF)):
-            raise Conflict("The draft is not exactly the bound graph edit; retry the event to stage it")
+        module = controlled.module_for(plan)
+        if (encode(job["draft"]) != encode(module.draft(plan)) or
+                encode(job.get("handoff_note")) != encode(module.HANDOFF) or job.get("questions")):
+            raise Conflict(f"The draft is not exactly the bound {module.NOUN}; retry the event to stage it")
 
     @staticmethod
-    def _require_effective(job, changes):
+    def _require_effective(job, changes, module):
         if len(changes) != len(job["draft"]):
-            raise ContextError("Every graph edit operation must change the context")
+            raise ContextError(f"Every {module.NOUN} operation must change the context")
 
-    def _check_edit(self, snapshot, plan, event_id, source_id):
+    def _check_edit(self, snapshot, edit, event_id, source_id, source_bytes):
         """Validate a plan against its fixed base before any pending state is written."""
+        module, plan = edit.module, edit.plan
         for operation in plan["operations"]:
-            kind, target = graph_edits.kind(operation["op"]), graph_edits.object_id(operation)
-            current = target in snapshot.objects(kind)
-            if operation["op"] in graph_edits.REMOVES:
+            kind, target = module.kind(operation["op"]), module.object_id(operation)
+            current = target in snapshot.records(kind)
+            if operation["op"] in module.REMOVES:
                 if not current:
                     raise ContextError(f"{operation['op']} requires a current {kind}: {target}")
             elif not current and (target in snapshot.used_ids or target in (event_id, source_id)):
                 raise Conflict("Object ID is already reserved or has been published before")
         job = {"input_mode": modes.GENERAL, "operation": "add", "source": {"id": source_id},
-               "draft": graph_edits.draft(plan)}
-        self._require_effective(job, self._graph_files(snapshot, job)[1])
+               "source_bytes": source_bytes, "draft": module.draft(plan)}
+        self._require_effective(job, self._graph_files(snapshot, job)[1], module)
 
     def pending_edit(self, event_id):
-        """The validated plan of the pending controlled graph edit ``event_id``; ``None`` for ordinary input."""
+        """The validated plan of the pending controlled edit ``event_id`` (graph or supervised); ``None`` for ordinary input."""
         identifier(event_id)
         with self._lock():
             return self._bound_plan(self._editable_job(event_id))
 
     def _graph_files(self, snapshot, job):
-        objects = {"node": dict(snapshot.nodes), "edge": dict(snapshot.edges)}
+        objects = {"node": dict(snapshot.nodes), "edge": dict(snapshot.edges), "note": dict(snapshot.notes)}
         support = dict(snapshot.support)
         catalogs = json.loads(json.dumps(snapshot.catalogs))
         files, changes = {}, []
         for draft in job["draft"].values():
-            if job["input_mode"] == modes.GENERAL and draft["developments"]:
-                raise ContextError("GENERAL input cannot record developments")
+            if draft["developments"] and (job["input_mode"] == modes.GENERAL or draft["kind"] == "note"):
+                raise ContextError("GENERAL input cannot record developments" if draft["kind"] != "note"
+                                   else "A note cannot record developments")
             kind, object_id, record = draft["kind"], draft["id"], draft["record"]
             old = objects[kind].get(object_id)
             # Python equality conflates boolean and numeric attribute members.
@@ -596,18 +708,19 @@ class Context:
             operation = "remove" if record is None else ("add" if old is None else "edit")
             details = {k: v for k, v in draft.items() if k != "record"}
             changes.append({**details, "operation": operation})
-            path = f"graph/{kind}s/{object_id}.json"
+            path = record_path(kind, object_id)
             if record is None:
                 objects[kind].pop(object_id)
                 files[path] = None
                 support.pop((kind, object_id), None)
             else:
-                record = object_record(kind, record)
+                record = (note_record(record, job.get("source_bytes")) if kind == "note"
+                          else object_record(kind, record))
                 objects[kind][object_id] = record
                 if record_changed:
                     files[path] = encode(record)
                 support[(kind, object_id)] = draft["support_after"]
-                for name, values in record["attributes"].items():
+                for name, values in (record["attributes"].items() if kind != "note" else ()):
                     known = catalogs[kind].setdefault(name, [])
                     keys = {value_key(v) for v in known}
                     for value in values:
@@ -620,6 +733,12 @@ class Context:
             object_record("edge", edge)
             if edge["from_id"] not in objects["node"] or edge["to_id"] not in objects["node"]:
                 raise ContextError("Every edge endpoint must exist; explicitly handle incident edges")
+        for note in objects["note"].values():
+            note_record(note, job.get("source_bytes"))
+            for link in note["objects"]:
+                if (link["id"] not in objects[link["kind"]] and
+                        (link["kind"], link["id"]) not in snapshot.known_objects):
+                    raise ContextError("A note may link only to final-draft or previously published nodes/edges")
         sources = {key for key, event in snapshot.sources.items() if event["operation"] != "remove"}
         if job["operation"] == "remove":
             sources.discard(job["source"]["id"])
@@ -643,7 +762,8 @@ class Context:
             for object_id in current:
                 refs = support.get((kind, object_id), [])
                 if not refs:
-                    raise ContextError("Current graph objects require supporting source events")
+                    raise ContextError("Current notes require supporting source events" if kind == "note"
+                                       else "Current graph objects require supporting source events")
                 for ref in refs:
                     if referenced_source(ref) not in sources:
                         raise ContextError("Reassess graph support before deleting its source")
@@ -705,6 +825,137 @@ class Context:
             raise Conflict("The bound submission changed after ingestion")
         return outputs
 
+    def _outbox_path(self, event_id):
+        return self.runtime / "questions" / f"{identifier(event_id)}.json"
+
+    @staticmethod
+    def _question_target(snapshot, event_id, present, reference):
+        """Whether a question may reference this record: the event itself or a published event, a final-draft record
+        or a known historical one; never an invented ID or a record created and withdrawn before publication."""
+        kind, target = reference["kind"], reference["id"]
+        if kind == "event":
+            return target == event_id or target in snapshot.events
+        return target in present[kind] or (kind, target) in snapshot.known_objects
+
+    def _validate_questions(self, snapshot, job, present):
+        if "questions" not in job:
+            return
+        if controlled.binding(job) or job["input_mode"] not in (modes.GENERAL, modes.ACTION):
+            raise ContextError("A deterministic edit cannot carry question output")
+        staged = questions.entries(job["questions"], job["source_bytes"])
+        if encode(staged) != encode(job["questions"]):
+            raise ContextError("Invalid staged question output")
+        for entry in staged:
+            for reference in entry["related"]:
+                if not self._question_target(snapshot, job["id"], present, reference):
+                    raise ContextError("A question may reference only this event, a published event, "
+                                       "or a final-draft or previously published record")
+
+    def emit_question(self, event_id, text, related=None):
+        """Add one question ``{text, related}`` to this pending event's staged output; never removes or edits one.
+
+        References are validated now against the published base and this draft, and again, against the final
+        draft, when the draft is validated for publication. The output stays in runtime material and is not part
+        of the draft's records, notes, source evidence or published event.
+        """
+        entry = questions.question(text, related)
+        with self._lock():
+            job = self._editable_job(event_id)
+            if controlled.binding(job):
+                raise ContextError("A deterministic edit cannot emit questions")
+            snapshot = self.snapshot(job["base_revision"])
+            present = {kind: set(snapshot.records(kind)) for kind in RECORD_KINDS}
+            for staged in job["draft"].values():
+                (present[staged["kind"]].discard if staged["record"] is None
+                 else present[staged["kind"]].add)(staged["id"])
+            for reference in entry["related"]:
+                if not self._question_target(snapshot, event_id, present, reference):
+                    raise ContextError("A question may reference only this event, a published event, "
+                                       "or a draft or previously published record")
+            current = list(job.get("questions", []))
+            if any(encode(item) == encode(entry) for item in current):
+                return {"event_id": event_id, "staged": True, "duplicate": True, "count": len(current)}
+            current.append(entry)
+            questions.entries(current, job["source_bytes"])
+            job["questions"] = current
+            job.update(phase="draft", error=None)
+            self._save(job)
+            return {"event_id": event_id, "staged": True, "duplicate": False, "count": len(current)}
+
+    def reset_questions(self, event_id):
+        """Drop the staged question output of an unpublished event (a new model attempt starts without stale questions)."""
+        with self._lock():
+            job = self._editable_job(event_id)
+            if job.get("questions"):
+                job["questions"] = []
+                job.update(phase="draft", error=None)
+                self._save(job)
+            return {"event_id": event_id, "count": 0}
+
+    def _publish_questions(self, job, commit):
+        """Promote staged questions to the deliverable outbox once their event is in Git; idempotent for recovery."""
+        staged = questions.entries(job.get("questions", []), job.get("source_bytes"))
+        if staged:
+            atomic_write(self._outbox_path(job["id"]),
+                         encode({"format_version": FORMAT_VERSION, "event_id": job["id"],
+                                 "published_commit": commit, "questions": staged}))
+
+    def _finished_commit(self, event_id):
+        """The published commit of an event whose publication has fully completed; anything else is a conflict."""
+        snapshot = self.snapshot()
+        commit = snapshot.event_commits.get(event_id)
+        if commit is None:
+            raise Conflict("This event is not published; it has no deliverable question output")
+        job = self._job()
+        if job is not None and job["id"] == event_id:
+            raise Conflict("The published event is still completing; recover it before reading its question output")
+        return commit
+
+    def _outbox(self, event_id, commit):
+        path = self._outbox_path(event_id)
+        if path.is_symlink():
+            raise ContextError("The question outbox entry is not a regular file")
+        try:
+            value = json.loads(path.read_bytes())
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError) as error:
+            raise ContextError("The question outbox entry is unreadable; it was retained") from error
+        if (not isinstance(value, dict) or set(value) != {"format_version", "event_id", "published_commit", "questions"}
+                or value["format_version"] != FORMAT_VERSION or value["event_id"] != event_id
+                or value["published_commit"] != commit):
+            raise ContextError("The question outbox entry does not belong to this published event; it was retained")
+        return questions.entries(value["questions"])
+
+    def question_output(self, event_id):
+        """``{event_id, published_commit, questions}`` of a published event; an empty list when nothing is deliverable.
+
+        Read-only. An unpublished, discarded or still-completing event has no deliverable output and is refused.
+        """
+        identifier(event_id)
+        with self._lock():
+            commit = self._finished_commit(event_id)
+            return {"event_id": event_id, "published_commit": commit,
+                    "questions": self._outbox(event_id, commit) or []}
+
+    def acknowledge_question_output(self, event_id, published_commit):
+        """Remove the delivered runtime payload of a published event; idempotent, and a different commit is refused."""
+        identifier(event_id)
+        modes.full_commit(published_commit, "published_commit")
+        with self._lock():
+            commit = self._finished_commit(event_id)
+            if commit != published_commit:
+                raise Conflict("The acknowledged commit is not this event's published commit")
+            removed = self._outbox(event_id, commit) is not None
+            if removed:
+                self._outbox_path(event_id).unlink()
+                directory = os.open(self.runtime / "questions", os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
+            return {"event_id": event_id, "published_commit": commit, "acknowledged": True, "removed": removed}
+
     def _ensure_index(self, snapshot, before=None):
         revision = self.index.revision()
         if revision == snapshot.revision:
@@ -733,6 +984,8 @@ class Context:
             raise Conflict("Published head moved during completion; preserve the pending record for reconciliation")
         job.update(phase="published", published_commit=commit, error=None)
         self._save(job)
+        self._publish_questions(job, commit)
+        self._checkpoint("after_questions")
         self.git.checkout(job["base_revision"], commit)
         self._checkpoint("after_checkout")
         before = self.snapshot(job["base_revision"])
@@ -747,7 +1000,7 @@ class Context:
         return digest({key: job[key] for key in (
             "format_version", "id", "base_revision", "submission_digest", "operation", "submitted_by",
             "source", "input_digest", "source_bytes", "input_mode", "previous_source_event", "draft")}
-            | {key: job[key] for key in ("action", "handoff_note", "action_associations", "record_context", "execution") if key in job})
+            | {key: job[key] for key in ("action", "handoff_note", "action_associations", "record_context", "execution", "questions") if key in job})
 
     def inspect_draft(self, event_id, *, validate=False):
         """Inspect a pending draft; optionally run publication validation, without publishing.
@@ -764,7 +1017,7 @@ class Context:
                     "submission_digest": job["submission_digest"],
                     "input_digest": job["input_digest"], "draft": job["draft"],
                     "input_mode": job["input_mode"], "previous_source_event": job["previous_source_event"],
-                    **{key: job[key] for key in ("action", "handoff_note", "action_associations", "record_context", "execution") if key in job},
+                    **{key: job[key] for key in ("action", "handoff_note", "action_associations", "record_context", "execution", "questions") if key in job},
                     "digest": self._draft_digest(job), "validated": validate}
 
     def publish(self, event_id, *, expected_draft_digest=None):
@@ -791,6 +1044,7 @@ class Context:
                 self._save(job)
                 commit = self.git.commit(files, self.runtime, snapshot.revision,
                                          f"Context event {event_id}: {job['operation']}")
+                self._verify_commit(job, commit)
                 self._checkpoint("before_publication")
                 self.git.publish(commit, snapshot.revision)
                 self._checkpoint("after_publication")
@@ -799,6 +1053,12 @@ class Context:
                 job["error"] = str(error)
                 self._save(job)
                 raise
+
+    def _verify_commit(self, job, commit):
+        """Refuse to promote a controlled supervised commit whose records differ from its bound plan."""
+        plan = self._bound_plan(job)
+        if plan is not None and controlled.module_for(plan) is supervised_edits:
+            supervised_edits.check_commit(plan, lambda paths: self.git.read(commit, paths))
 
     def recover(self):
         with self._lock():

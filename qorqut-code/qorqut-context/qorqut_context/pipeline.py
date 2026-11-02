@@ -8,10 +8,10 @@ import json
 from pathlib import Path
 import uuid
 
-from . import bootstrap, graph_edits, usage
+from . import bootstrap, controlled, usage
 from .engine import atomic_write, file_lock
 from .runner import AppServerRunner, RunnerConfig
-from .schema import Conflict, ContextError, digest, encode, identifier
+from .schema import Conflict, ContextError, RECORD_KINDS, digest, encode, identifier
 from .tools import EventTools
 from .input_modes import GENERAL, ACTION
 
@@ -99,6 +99,34 @@ class Pipeline:
                 self.on_event(submission.event_id)
             return self._run(submission.event_id)
 
+    def preview_supervised(self, plan, *, content, submitted_by, event_id, record_context=None):
+        """Validate and describe a supervised proposal against the published head; nothing is written or run."""
+        return self.context.preview_supervised(plan, content=content, submitted_by=submitted_by, event_id=event_id,
+                                               source_bytes=self.config.source_bytes, record_context=record_context)
+
+    def submit_supervised(self, plan, *, content, submitted_by, event_id, record_context=None):
+        """Execute a ``qorqut-supervised-edit-v1`` batch with its supporting Markdown document; trusted callers only.
+
+        ``content`` is preserved exactly as ``foundation/supervised-edits/{event_id}.md``. No model, bootstrap,
+        attempt or usage receipt is involved in admission, retry or recovery; the published receipt carries the
+        deterministic execution marker (normalized plan and document digest) and ``model: null``. A stale
+        ``expected_revision`` is refused, never rebased.
+        """
+        with self._lock():
+            submission = self.context.begin_supervised(plan, content=content, submitted_by=submitted_by,
+                event_id=event_id, source_bytes=self.config.source_bytes, record_context=record_context)
+            if self.on_event:
+                self.on_event(submission.event_id)
+            return self._run(submission.event_id)
+
+    def question_output(self, event_id):
+        """``{event_id, published_commit, questions}`` for a published event; refused for any other event."""
+        return self.context.question_output(event_id)
+
+    def acknowledge_question_output(self, event_id, published_commit):
+        """Remove the delivered runtime payload of a published event; repeating it changes nothing."""
+        return self.context.acknowledge_question_output(event_id, published_commit)
+
     def submit_action(self, operation, action_ref, *, text=None, revision_ref=None,
                       related_objects=None, tags=None, submitted_by, event_id=None,
                       expected_previous_commit=None, record_context=None):
@@ -166,7 +194,7 @@ class Pipeline:
         attempts = [] if "execution" in event else self._attempts(event_id)
         if directory is None and attempts:
             directory = attempts[-1][0]
-        counts = {kind: {op: 0 for op in ("add", "edit", "remove")} for kind in ("node", "edge")}
+        counts = {kind: {op: 0 for op in ("add", "edit", "remove")} for kind in RECORD_KINDS}
         for change in event["changes"]:
             counts[change["kind"]][change["operation"]] += 1
         receipt = {"status": "published", "event_id": event_id, "source_id": event["source"]["id"],
@@ -212,22 +240,23 @@ class Pipeline:
         """Fault-injection seam; never alters execution policy."""
 
     def _run_edit(self, event_id, plan, mark):
-        """Stage, validate and publish a validated graph plan with the ordinary primitives; never a model.
+        """Stage, validate and publish a validated controlled plan with the ordinary primitives; never a model.
 
         Entered only from the pending job's validated execution marker. A partial draft left by an
         interruption is completed for the same plan; any draft content outside the plan is refused.
         """
         mark("edit_staging")
+        module = controlled.module_for(plan)
         if self._attempts(event_id):
-            raise Conflict("A deterministic graph edit has no model attempt; the unexpected evidence was retained")
-        expected = graph_edits.draft(plan)
+            raise Conflict(f"A deterministic {module.NOUN} has no model attempt; the unexpected evidence was retained")
+        expected = module.draft(plan)
         staged = self.context.inspect_draft(event_id)["draft"]
         for key, entry in staged.items():
             if key not in expected or encode(entry) != encode(expected[key]):
-                raise Conflict("The pending draft has content outside its bound graph edit; it was retained")
+                raise Conflict(f"The pending draft has content outside its bound {module.NOUN}; it was retained")
         for operation in plan["operations"]:
-            if f"{graph_edits.kind(operation['op'])}:{graph_edits.object_id(operation)}" not in staged:
-                graph_edits.stage(self.context, event_id, operation)
+            if f"{module.kind(operation['op'])}:{module.object_id(operation)}" not in staged:
+                module.stage(self.context, event_id, operation)
                 self._checkpoint("edit_staged")
         self.context.stage_handoff_note(event_id, "")
         mark("edit_validation")
@@ -279,6 +308,7 @@ class Pipeline:
                 return self._receipt(event_id, directory=directory, recovered=True)
 
             phase = "preparation"
+            self.context.reset_questions(event_id)
             source_change = self._source_change(draft)
             runs = private_directory(self.context.runtime / "runs")
             event_runs = private_directory(runs / event_id)

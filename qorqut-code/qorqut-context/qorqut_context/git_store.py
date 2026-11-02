@@ -10,12 +10,17 @@ import stat
 import subprocess
 import tempfile
 
-from . import graph_edits
+from . import controlled
 from .input_modes import ACTION, GENERAL
-from .schema import Conflict, ContextError, identifier
+from .schema import (Conflict, ContextError, GRAPH_KINDS, RECORD_KINDS, identifier, note_record,
+                     record_path)
 
 PUBLIC_REF = "refs/heads/main"
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
+LEGACY_VERSION = 2
+READABLE_VERSIONS = (LEGACY_VERSION, FORMAT_VERSION)
+CONFIG_PATH = "graph/config.json"
+CURRENT_CONFIG = {"format_version": FORMAT_VERSION, "published_ref": PUBLIC_REF}
 INPUT_MODES = (GENERAL, ACTION)
 
 
@@ -67,9 +72,39 @@ class Git:
         return commit
 
     def files(self, revision: str) -> dict[str, bytes]:
-        entries = self.run("ls-tree", "-r", "-z", revision).split(b"\0")
+        return self._blobs(self._entries(self.run("ls-tree", "-r", "-z", revision)))
+
+    def read(self, revision: str, paths) -> dict[str, bytes | None]:
+        """The exact bytes each named path holds at ``revision``, ``None`` where it is absent."""
+        wanted = sorted(set(paths))
+        if not wanted:
+            return {}
+        listed = self._entries(self.run("ls-tree", "-r", "-z", revision, "--", *wanted))
+        found = self._blobs([(path, oid) for path, oid in listed if path in wanted])
+        return {path: found.get(path) for path in wanted}
+
+    def blobs_at(self, commits, path: str) -> dict[str, bytes | None]:
+        """The exact bytes ``path`` holds in each commit, ``None`` where absent, in one Git call."""
+        commits = sorted(set(commits))
+        if not commits:
+            return {}
+        batch = self.run("cat-file", "--batch", data=b"".join(f"{commit}:{path}\n".encode() for commit in commits))
+        offset, result = 0, {}
+        for commit in commits:
+            end = batch.index(b"\n", offset)
+            header = batch[offset:end].split()
+            if header[-1] == b"missing":
+                result[commit], offset = None, end + 1
+                continue
+            start, length = end + 1, int(header[2])
+            result[commit] = batch[start:start + length]
+            offset = start + length + 1
+        return result
+
+    @staticmethod
+    def _entries(output: bytes) -> list[tuple[str, bytes]]:
         objects = []
-        for entry in entries:
+        for entry in output.split(b"\0"):
             if not entry:
                 continue
             header, path = entry.split(b"\t", 1)
@@ -77,6 +112,9 @@ class Git:
             if kind != b"blob" or mode != b"100644":
                 raise ContextError("Context snapshots may contain only regular non-executable files")
             objects.append((path.decode("utf-8"), oid))
+        return objects
+
+    def _blobs(self, objects: list[tuple[str, bytes]]) -> dict[str, bytes]:
         if not objects:
             return {}
         batch = self.run("cat-file", "--batch", data=b"".join(oid + b"\n" for _, oid in objects))
@@ -250,30 +288,52 @@ class Git:
         return datetime.fromtimestamp(seconds, timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def config_version(content) -> int:
+    """The format of one exact ``graph/config.json``: a supported integer version with the published-ref configuration."""
+    try:
+        config = json.loads(content)
+    except (TypeError, ValueError) as error:
+        raise ContextError(f"Missing or invalid record: {CONFIG_PATH}") from error
+    version = config.get("format_version") if isinstance(config, dict) else None
+    if type(version) is not int or version not in READABLE_VERSIONS:
+        raise ContextError(f"Unsupported context format version {version!r}; "
+                           f"this engine reads formats {LEGACY_VERSION} and {FORMAT_VERSION} only")
+    if config != {"format_version": version, "published_ref": PUBLIC_REF}:
+        raise ContextError(f"Context repository configuration is not the supported format {version} configuration")
+    return version
+
+
 class Snapshot:
-    """An immutable published view, including evidence and source/object history."""
+    """An immutable published view, including evidence and source/object history.
+
+    ``format_version`` is the published configuration's own format (2 or 3). Each event must carry the format of
+    the configuration in the commit that published it, and the format never decreases along the history.
+    """
 
     def __init__(self, git: Git, revision: str):
         self.git, self.revision = git, revision
         self.files = git.files(revision)
-        config = self._json("graph/config.json")
-        if config != {"format_version": FORMAT_VERSION, "published_ref": PUBLIC_REF}:
-            version = config.get("format_version") if isinstance(config, dict) else None
-            if version != FORMAT_VERSION:
-                raise ContextError(f"Unsupported context format version {version!r}; "
-                                   f"this engine supports format {FORMAT_VERSION} only")
-            raise ContextError(f"Context repository configuration is not the supported format {FORMAT_VERSION} configuration")
-        self.nodes, self.edges = {}, {}
+        if CONFIG_PATH not in self.files:
+            raise ContextError(f"Missing or invalid record: {CONFIG_PATH}")
+        self.format_version = config_version(self.files[CONFIG_PATH])
+        self.nodes, self.edges, self.notes = {}, {}, {}
         for path, content in self.files.items():
-            for prefix, target in (("graph/nodes/", self.nodes), ("graph/edges/", self.edges)):
+            for prefix, target in (("graph/nodes/", self.nodes), ("graph/edges/", self.edges),
+                                   ("notes/", self.notes)):
                 if path.startswith(prefix):
                     record = json.loads(content)
                     if path != prefix + record["id"] + ".json":
                         raise ContextError("Object ID does not match its path")
+                    if target is self.notes:
+                        note_record(record)
                     target[record["id"]] = record
         self.catalogs = {kind: self._json(f"graph/catalogs/{kind}s.json")
                          for kind in ("node", "edge")}
+        if self.format_version == LEGACY_VERSION and self.notes:
+            raise ContextError(f"A format {LEGACY_VERSION} context cannot hold notes")
         self.event_commits = git.event_commits(revision)
+        configs = git.blobs_at(self.event_commits.values(), CONFIG_PATH)
+        floor = LEGACY_VERSION
         self.events, self.by_commit = {}, {}
         self.sources, self.support, self.used_ids = {}, {}, set()
         self.actions, self.known_objects = {}, set()
@@ -284,14 +344,22 @@ class Snapshot:
             event = self._json(path)
             if event["id"] != event_id:
                 raise ContextError("Event identity does not match its path")
-            if event.get("format_version") != FORMAT_VERSION:
-                raise ContextError(f"A published event is not format {FORMAT_VERSION}")
+            version = config_version(configs[commit])
+            if type(event.get("format_version")) is not int or event["format_version"] != version:
+                raise ContextError(f"A published event is not format {version}")
+            if version < floor:
+                raise ContextError("The context format decreased along the published history")
+            floor = version
             if event.get("input_mode") not in INPUT_MODES:
                 raise ContextError("A published event has no supported input mode")
             original = git.run("cat-file", "blob", f"{commit}:{path}")
             if original != self.files[path]:
                 raise ContextError("An immutable event was modified")
-            graph_edits.check_event(event, self.files)
+            if version == LEGACY_VERSION and controlled.is_supervised(event):
+                raise ContextError(f"A format {LEGACY_VERSION} event cannot be a supervised edit")
+            controlled.check_event(event, self.files)
+            controlled.check_commit(event, self.files.get(event["source"]["path"]),
+                                    lambda paths, commit=commit: git.read(commit, paths))
             self.events[event_id], self.by_commit[commit] = event, event
             self.used_ids.add(event_id)
             self.used_ids.add(event["source"]["id"])
@@ -299,10 +367,18 @@ class Snapshot:
             if event["input_mode"] == ACTION:
                 self.actions[event["action"]["action_ref"]] = event
             for change in event["changes"]:
+                if change["kind"] not in (RECORD_KINDS if version == FORMAT_VERSION else GRAPH_KINDS):
+                    raise ContextError("A published event records an unsupported change kind")
                 self.used_ids.add(change["id"])
                 key = (change["kind"], change["id"])
                 self.known_objects.add(key)
                 self.support[key] = self.resolve_refs(change["support_after"], commit)
+        if self.format_version < floor:
+            raise ContextError("The context format decreased along the published history")
+        for note in self.notes.values():
+            for link in note["objects"]:
+                if (link["kind"], link["id"]) not in self.known_objects:
+                    raise ContextError("A note links to a record that was never published")
 
     def _json(self, path):
         try:
@@ -315,18 +391,41 @@ class Snapshot:
         return [commit if ref == "self" else ref for ref in refs]
 
     def objects(self, kind):
-        if kind not in ("node", "edge"):
+        """Graph objects only: notes are a separate collection (``records``/``notes``), never traversed."""
+        if kind not in GRAPH_KINDS:
             raise ContextError("Object kind must be node or edge")
         return self.nodes if kind == "node" else self.edges
 
+    def records(self, kind):
+        """Every current record of one kind: node, edge, or note."""
+        if kind not in RECORD_KINDS:
+            raise ContextError("Record kind must be node, edge, or note")
+        return self.notes if kind == "note" else self.objects(kind)
+
     def read(self, kind, object_id):
         try:
-            record = self.objects(kind)[object_id]
+            record = self.records(kind)[object_id]
         except KeyError as error:
             raise ContextError(f"No current {kind} with ID {object_id}") from error
-        return {"record": json.loads(json.dumps(record)),
-                "support": list(self.support.get((kind, object_id), [])),
-                "revision": self.revision}
+        result = {"record": json.loads(json.dumps(record)),
+                  "support": list(self.support.get((kind, object_id), [])),
+                  "revision": self.revision}
+        if kind == "note":
+            result["links"] = [{**link, "status": "current" if link["id"] in self.objects(link["kind"]) else "removed"}
+                               for link in record["objects"]]
+        return result
+
+    def linked_notes(self, kind, object_id, *, offset=0, limit=20):
+        """Current notes linking one current or historical node/edge, in note ID order, with their support."""
+        from .input_modes import collection_page
+        self.objects(kind)
+        identifier(object_id)
+        if (kind, object_id) not in self.known_objects:
+            raise ContextError("No object of this kind/ID in published history")
+        notes = [self.read("note", key) for key, note in sorted(self.notes.items())
+                 if any(link["kind"] == kind and link["id"] == object_id for link in note["objects"])]
+        return {"revision": self.revision, "kind": kind, "id": object_id,
+                "current": object_id in self.objects(kind), **collection_page(notes, offset, limit)}
 
     def source_change(self, commit):
         if commit not in self.by_commit:
@@ -377,7 +476,7 @@ class Snapshot:
                     resolved[field] = self.resolve_refs(resolved[field], commit)
                 for development in resolved["developments"]:
                     development["citations"] = self.resolve_refs(development["citations"], commit)
-                path = f"graph/{change['kind']}s/{object_id}.json"
+                path = record_path(change["kind"], object_id)
                 before = self.git.files(event["base_revision"]).get(path)
                 after = self.git.files(commit).get(path)
                 result.append({"event_id": event_id, "commit": commit,
@@ -402,7 +501,7 @@ class Snapshot:
         if source_id not in self.sources:
             raise ContextError("No source with this ID")
         result = []
-        for kind, objects in (("node", self.nodes), ("edge", self.edges)):
+        for kind, objects in (("node", self.nodes), ("edge", self.edges), ("note", self.notes)):
             for object_id in objects:
                 refs = self.support.get((kind, object_id), [])
                 if any(self.by_commit[ref]["source"]["id"] == source_id for ref in refs):

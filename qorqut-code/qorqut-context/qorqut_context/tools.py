@@ -18,6 +18,12 @@ def obj(properties, required=()):
 STRING = {"type": "string"}
 ID = {"type": "string", "pattern": "^[a-z0-9]{5}$"}
 KIND = {"type": "string", "enum": ["node", "edge"]}
+RECORD_KIND = {"type": "string", "enum": ["node", "edge", "note"]}
+NOTE_OBJECTS = {"type": "array", "items": {"type": "object", "properties": {"kind": KIND, "id": ID},
+                                           "required": ["kind", "id"], "additionalProperties": False}}
+QUESTION_KIND = {"type": "string", "enum": ["event", "node", "edge", "note"]}
+QUESTION_RELATED = {"type": "array", "items": {"type": "object", "properties": {"kind": QUESTION_KIND, "id": ID},
+                                               "required": ["kind", "id"], "additionalProperties": False}}
 REF = {"type": "string", "pattern": "^(self|[0-9a-f]{40}|[0-9a-f]{64})$"}
 REFS = {"type": "array", "items": REF}
 ATTRIBUTES = {"type": "object", "additionalProperties": {
@@ -113,15 +119,17 @@ class EventTools:
         return [deepcopy(spec) for spec, _ in self._registry.values()]
 
     def _register(self):
-        self._add("search_context", "Search the published base (draft excluded) by literal words/prefixes and exact attribute members. Default limit 20, maximum 100; has_more invites a narrower query, not pagination.",
-                  obj({"query": STRING, "kind": {"type": "string", "enum": ["node", "edge", "source"]},
+        self._add("search_context", "Search the published base (draft excluded) by literal words/prefixes and exact attribute members across nodes, edges, notes and sources. Filter by kind to search only notes. Default limit 20, maximum 100; has_more invites a narrower query, not pagination.",
+                  obj({"query": STRING, "kind": {"type": "string", "enum": ["node", "edge", "note", "source"]},
                        "attributes": ATTRIBUTES, "limit": PAGE["limit"]}), self._search)
-        self._add("read_object", "Read an effective node/edge with current support, including staged puts/removals; creation IDs are immediately readable.",
-                  obj({"kind": KIND, "id": ID}, ("kind", "id")), self._read_object)
+        self._add("read_object", "Read an effective node/edge/note with current support, including staged puts/removals; creation IDs are immediately readable. A node or edge also lists the IDs of notes that link it; a note lists its links and whether each is still a current graph object.",
+                  obj({"kind": RECORD_KIND, "id": ID}, ("kind", "id")), self._read_object)
+        self._add("list_linked_notes", "Page the effective notes linked to one current or historical node/edge, in note ID order, with their text and support; includes staged notes. Offset/limit: 20 default, 100 maximum.",
+                  obj({"kind": KIND, "id": ID, **PAGE}, ("kind", "id")), self._linked_notes)
         self._add("read_draft", "Read this event's staged changes, including full records and support, with offset/limit (20 default, 100 maximum). Also reports the complete required reassessment list.",
                   obj(PAGE), self._read_draft)
-        self._add("list_objects", "Page effective graph objects in stable ID order, with their support; includes staged changes. Offset/limit: 20 default, 100 maximum.",
-                  obj({"kind": KIND, **PAGE}, ("kind",)), self._list_objects)
+        self._add("list_objects", "Page effective nodes, edges or notes in stable ID order, with their support; includes staged changes. Offset/limit: 20 default, 100 maximum.",
+                  obj({"kind": RECORD_KIND, **PAGE}, ("kind",)), self._list_objects)
         self._add("neighbors", "Page effective incident edges, ordered by edge ID, with direction, endpoints and neighboring records. A staged node deletion does not hide its remaining edges. Default 20, max 100.",
                   obj({"id": ID, "direction": {"type": "string", "enum": ["in", "out", "both"]}, **PAGE}, ("id",)), self._neighbors)
         self._add("read_catalog", "List all node/edge attribute names, or categorical string/boolean values for one attribute, including staged vocabulary. No type filtering or numeric choices/ranges. Offset/limit: 20 default, 100 max.",
@@ -133,8 +141,8 @@ class EventTools:
         self._add("read_evidence", "Resolve a full source-event commit from the published base history to its immutable event and before/after source text. Choose version before or after. Character pages default 16000, max 64000. No paths or other revisions.",
                   obj({"commit": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
                        "version": {"type": "string", "enum": ["before", "after"]}, **TEXT_PAGE}, ("commit", "version")), self._evidence)
-        self._add("object_history", "Page immutable published object/source history; all self references resolve to full source-event commits. Draft excluded. Default 20, max 100.",
-                  obj({"id": ID, "kind": {"type": "string", "enum": ["node", "edge", "source"]}, **PAGE}, ("id", "kind")), self._history)
+        self._add("object_history", "Page immutable published node/edge/note/source history; all self references resolve to full source-event commits. Draft excluded. Default 20, max 100.",
+                  obj({"id": ID, "kind": {"type": "string", "enum": ["node", "edge", "note", "source"]}, **PAGE}, ("id", "kind")), self._history)
         self._add("action_lookup", "Read a shared accepted action at the published base by opaque reference. Audit pages include corrections and withdrawals; current view returns its latest revision. Default 20, max 100.",
                   obj({"action_ref": STRING, "audit": {"type": "boolean"}, **PAGE}, ("action_ref",)),
                   lambda **args: self._view(self.base.action(**args), published=True))
@@ -145,7 +153,7 @@ class EventTools:
         self._add("action_timeline", "Page an object's shared action associations at the published base. Historical removed objects are valid. Current view shows current associations; audit includes corrections and withdrawals. Default 20, max 100.",
                   obj({"kind": KIND, "id": ID, "audit": {"type": "boolean"}, **PAGE}, ("kind", "id")),
                   lambda kind, id, **args: self._view(self.base.action_timeline(kind, id, **args), published=True))
-        self._add("stage_handoff_note", "Replace this event's single main-agent note with all questions and low-confidence items. GENERAL also includes operational claims and requested work. Empty text explicitly means nothing to hand off. Required before publication; a blocked finish requires a nonempty note explaining what needs resolution. Prepared only, never delivered; bounded by source byte limit.",
+        self._add("stage_handoff_note", "Replace this event's single main-agent hand-off note: requested or proposed work and claims of completed operational changes the main agent may need to verify or act on (point at relevant note IDs), and the reason for a blocked finish. Never questions: use emit_question. Empty text explicitly means nothing to hand off. Required before publication; a blocked finish requires a nonempty note explaining what blocks completion. Prepared only, never delivered; bounded by source byte limit.",
                   obj({"text": STRING}, ("text",)), self._handoff)
         if self.input_mode == ACTION:
             self._add("stage_action_associations", "Replace this action's full association set. Date uses ISO or unknown 0; summary/explanations <=150 words. Associate relevant known historical or draft objects; an explicit empty set is valid when no suitable subject exists. Tags are grouping metadata, never graph subjects. Withdrawal needs empty set and previous date. Links cite self automatically.",
@@ -167,9 +175,17 @@ class EventTools:
             self._add("remove_" + kind, "Stage explicit removal of a " + kind + ". Supply explanation (<=150 words), commit/self citations (<=15). Node removal does not cascade; inspect neighbors and handle edges explicitly. No mutations after finish." + development_help,
                       obj({"id": ID, **details}, ("id", "explanation", "citations")),
                       lambda kind=kind, **args: self._remove(kind, **args))
+        self._add("put_note", "Stage a complete atomic note {id?, text, objects}: one useful proposition or closely connected account, understandable without opening its source, keeping dates, attribution, intentions and uncertainty in the text. objects links zero or more nodes/edges that are known published records or staged in this draft; an empty list is valid. Omit id to allocate a new note; supply an existing note ID to revise it (identity and history are kept). A link states relevance, never a relationship among the linked objects. Supply a <=150-word explanation, <=15 commit/self citations and the complete support_after. A note ID is never evidence. No mutations after finish.",
+                  obj({"record": obj({"id": ID, "text": STRING, "objects": NOTE_OBJECTS}, ("text", "objects")),
+                       "support_after": REFS, "explanation": STRING, "citations": REFS},
+                      ("record", "support_after", "explanation", "citations")), self._put_note)
+        self._add("remove_note", "Stage explicit removal of a note that no remaining source supports. Supply an explanation (<=150 words) and commit/self citations (<=15). Its history stays readable. No mutations after finish.",
+                  obj({"id": ID, "explanation": STRING, "citations": REFS}, ("id", "explanation", "citations")), self._remove_note)
+        self._add("emit_question", "Add one question for the owner or Learnings Applier to resolve later. It is staged outside the Context, delivered only if this event publishes, cannot be edited or removed, and never becomes a note, attribute or evidence. related optionally references this event ('event' with this event's ID) or published/staged nodes, edges and notes the answer would affect. No mutations after finish.",
+                  obj({"text": STRING, "related": QUESTION_RELATED}, ("text",)), self._emit_question)
         self._add("finish_propagation", "Finish with complete or blocked and a brief factual summary/reason. For complete, list the exact required reassessed kind/IDs; validates and seals the draft, returning its digest without publishing. Blocked requires a nonempty handoff note and never publishes. An identical repeat is idempotent. Then end the model turn.",
                   obj({"status": {"type": "string", "enum": ["complete", "blocked"]},
-                       "summary": STRING, "reassessed": {"type": "array", "items": obj({"kind": KIND, "id": ID}, ("kind", "id"))}},
+                       "summary": STRING, "reassessed": {"type": "array", "items": obj({"kind": RECORD_KIND, "id": ID}, ("kind", "id"))}},
                       ("status", "summary", "reassessed")), self._finish)
 
     def dispatch(self, name, arguments):
@@ -196,7 +212,8 @@ class EventTools:
 
     def _effective(self):
         draft = self._draft()
-        objects = {"node": deepcopy(self.base.nodes), "edge": deepcopy(self.base.edges)}
+        objects = {"node": deepcopy(self.base.nodes), "edge": deepcopy(self.base.edges),
+                   "note": deepcopy(self.base.notes)}
         support = deepcopy(self.base.support)
         for change in draft["draft"].values():
             kind, key = change["kind"], change["id"]
@@ -224,16 +241,35 @@ class EventTools:
         change = draft["draft"].get(f"{kind}:{id}")
         if id not in objects[kind] and not change and (kind, id) not in self.base.known_objects:
             raise ContextError("No current, historical, or staged object with this kind/ID")
-        return self._view({"record": objects[kind].get(id), "support": support.get((kind, id), []),
-                           "removed": id not in objects[kind], "staged": change is not None,
-                           "historical": (kind, id) in self.base.known_objects})
+        record = objects[kind].get(id)
+        result = {"record": record, "support": support.get((kind, id), []),
+                  "removed": id not in objects[kind], "staged": change is not None,
+                  "historical": (kind, id) in self.base.known_objects}
+        if kind == "note" and record is not None:
+            result["links"] = [{**link, "status": "current" if link["id"] in objects[link["kind"]] else "removed"}
+                               for link in record["objects"]]
+        elif kind != "note":
+            linked = sorted(key for key, note in objects["note"].items()
+                            if any(link["kind"] == kind and link["id"] == id for link in note["objects"]))
+            result["linked_notes"] = {"count": len(linked), "ids": linked[:20], "has_more": len(linked) > 20}
+        return self._view(result)
+
+    def _linked_notes(self, kind, id, offset=0, limit=20):
+        draft, objects, support = self._effective()
+        if (id not in objects[kind] and f"{kind}:{id}" not in draft["draft"] and
+                (kind, id) not in self.base.known_objects):
+            raise ContextError("No current, historical, or staged object with this kind/ID")
+        notes = [{"record": note, "support": support.get(("note", key), [])}
+                 for key, note in sorted(objects["note"].items())
+                 if any(link["kind"] == kind and link["id"] == id for link in note["objects"])]
+        return self._view({"kind": kind, "id": id, "current": id in objects[kind], **page(notes, offset, limit)})
 
     def _read_draft(self, offset=0, limit=20):
         draft = self._draft()
         changes = sorted(draft["draft"].values(), key=lambda c: (c["kind"], c["id"]))
         return self._view({"event_id": self.event_id, "digest": draft["digest"],
                            "input_mode": self.input_mode,
-                           **{key: draft[key] for key in ("action", "handoff_note", "action_associations", "record_context") if key in draft},
+                           **{key: draft[key] for key in ("action", "handoff_note", "action_associations", "record_context", "questions") if key in draft},
                            "required_reassessment": self.required_reassessment,
                            "completion": self.completion, **page(changes, offset, limit)})
 
@@ -329,6 +365,30 @@ class EventTools:
         self._mutation(details["citations"], developments=details.get("developments", []))
         getattr(self.context, "remove_" + kind)(self.event_id, id, **details)
         return {"kind": kind, "id": id, "staged": True}
+
+    def _present(self):
+        """The (kind, id) pairs of effective records: published and staged, minus staged removals."""
+        _, objects, _ = self._effective()
+        return {(kind, key) for kind, found in objects.items() for key in found}
+
+    def _put_note(self, record, **details):
+        self._mutation(details["citations"], details["support_after"])
+        draft = self._draft()
+        if "id" in record and record["id"] not in self.base.notes and f"note:{record['id']}" not in draft["draft"]:
+            raise ContextError("Omit id when creating a note; creation IDs are allocated by Context")
+        present = self._present()
+        for link in record["objects"]:
+            if (link["kind"], link["id"]) not in present and (link["kind"], link["id"]) not in self.base.known_objects:
+                raise ContextError("A note may link only to known published or staged nodes/edges")
+        key = self.context.put_note(self.event_id, record, **details)
+        return {"kind": "note", "id": key, "staged": True}
+
+    def _remove_note(self, id, **details):
+        return self._remove("note", id, **details)
+
+    def _emit_question(self, text, related=None):
+        self._mutation([])
+        return self.context.emit_question(self.event_id, text, related)
 
     def _finish(self, status, summary, reassessed):
         text(summary, "summary")

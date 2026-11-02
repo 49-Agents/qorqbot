@@ -87,6 +87,48 @@ def object_record(kind: str, value: dict) -> dict:
     return result
 
 
+GRAPH_KINDS = ("node", "edge")
+RECORD_KINDS = GRAPH_KINDS + ("note",)
+_RECORD_DIRECTORIES = {"node": "graph/nodes", "edge": "graph/edges", "note": "notes"}
+
+
+def record_path(kind: str, record_id: str) -> str:
+    """The one place that maps a record kind and ID to its current-record file."""
+    if kind not in _RECORD_DIRECTORIES:
+        raise ContextError("Record kind must be node, edge, or note")
+    return f"{_RECORD_DIRECTORIES[kind]}/{identifier(record_id)}.json"
+
+
+def object_links(values) -> list[dict]:
+    """A deduplicated list of ``{kind: node|edge, id}`` references; order of first appearance is kept."""
+    if not isinstance(values, list):
+        raise ContextError("A note's objects must be a list of node/edge references")
+    result, seen = [], set()
+    for item in values:
+        if (not isinstance(item, dict) or set(item) != {"kind", "id"} or
+                item["kind"] not in GRAPH_KINDS):
+            raise ContextError("A note link requires exactly kind node/edge and id")
+        link = {"kind": item["kind"], "id": identifier(item["id"])}
+        if (link["kind"], link["id"]) not in seen:
+            seen.add((link["kind"], link["id"]))
+            result.append(link)
+    return result
+
+
+def note_record(value: dict, limit: int | None = None) -> dict:
+    """The three-field note ``{id, text, objects}``; ``limit`` is the byte ceiling shared with sources."""
+    if not isinstance(value, dict) or set(value) != {"id", "text", "objects"}:
+        raise ContextError("note fields must be ['id', 'objects', 'text']")
+    body = text(value["text"], "note text")
+    try:
+        size = len(body.encode("utf-8"))
+    except UnicodeEncodeError as error:
+        raise ContextError("note text must be valid UTF-8") from error
+    if limit is not None and size > limit:
+        raise ContextError("note text exceeds the configured byte limit")
+    return {"id": identifier(value["id"]), "text": body, "objects": object_links(value["objects"])}
+
+
 def normalize_date(value, *, unknown: bool = True):
     if type(value) is int and value == 0 and unknown:
         return 0

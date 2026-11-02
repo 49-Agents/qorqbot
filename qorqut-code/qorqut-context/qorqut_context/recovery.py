@@ -37,10 +37,11 @@ import stat
 import tempfile
 from typing import Mapping, Protocol
 
-from . import graph_edits
+from . import controlled
 from .engine import Context, atomic_write, check_ownership, file_lock
-from .git_store import FORMAT_VERSION, PUBLIC_REF, Git, Snapshot
+from .git_store import FORMAT_VERSION, PUBLIC_REF, READABLE_VERSIONS, Git, Snapshot
 from .schema import Conflict, ContextError, encode
+from . import questions
 
 FORMAT = "qorqut-context-recovery"
 VERSION = 1
@@ -239,6 +240,8 @@ def _classify_runtime(relative, is_dir, index_name, locks=frozenset()):
     if is_dir:
         if parts[0] == "events":
             return "dir" if len(parts) == 1 or (len(parts) == 2 and EVENT.fullmatch(parts[1])) else "unknown"
+        if parts[0] == "questions":
+            return "dir" if len(parts) == 1 else "unknown"
         if parts[0] == "runs":
             if len(parts) == 1:
                 return "dir"
@@ -256,6 +259,8 @@ def _classify_runtime(relative, is_dir, index_name, locks=frozenset()):
         return "transient"
     if parts[0] == "events":
         return "authority" if len(parts) == 3 and EVENT.fullmatch(parts[1]) and name == "input.bin" else "unknown"
+    if parts[0] == "questions":
+        return "authority" if len(parts) == 2 and re.fullmatch(r"[a-z0-9]{5}\.json", name) else "unknown"
     if parts[0] == "runs":
         return "authority" if len(parts) >= 4 and EVENT.fullmatch(parts[1]) and ATTEMPT.fullmatch(parts[2]) else "unknown"
     if len(parts) == 1:
@@ -458,11 +463,29 @@ def _validate_job(job, snapshot, input_bytes):
     job needs its sealed input.
     """
     Context._require_current_format(job)
-    graph_edits.binding(job)
+    controlled.binding(job)
     if job.get("input_digest") is not None and job["id"] not in snapshot.events:
         content = input_bytes(job["id"])
         if content is None or hashlib.sha256(content).hexdigest() != job["input_digest"]:
             raise RecoveryError("source_invalid", "The pending event's durable input is missing or does not match its digest")
+
+
+def _check_outbox(snapshot, runtime, code):
+    """Each undelivered question payload must be a well-formed current-format entry of an event published at its commit."""
+    directory = runtime / "questions"
+    if not directory.is_dir():
+        return
+    for path in sorted(directory.iterdir()):
+        try:
+            value = json.loads(path.read_bytes())
+            event_id = path.stem
+            if (not isinstance(value, dict) or set(value) != {"format_version", "event_id", "published_commit", "questions"}
+                    or value["format_version"] != FORMAT_VERSION or value["event_id"] != event_id
+                    or snapshot.event_commits.get(event_id) != value["published_commit"]):
+                raise ValueError("identity")
+            questions.entries(value["questions"])
+        except (OSError, ValueError, KeyError, ContextError) as error:
+            raise RecoveryError(code, f"The question outbox entry is invalid or does not match a published event: {path.name}") from error
 
 
 def _snapshot(root, label):
@@ -574,6 +597,7 @@ def _capture(repository, runtime, target, source, index_name, markers, barrier, 
             raise
         except ContextError as error:
             raise RecoveryError("source_invalid", f"The pending job failed the engine's checks: {error}") from error
+    _check_outbox(snapshot, runtime, "source_invalid")
     staged = _status(repository)
     checkout = _checkout_revision(repository, head, job, staged)
     references = _runtime_references(runtime, source)
@@ -629,7 +653,7 @@ def _capture(repository, runtime, target, source, index_name, markers, barrier, 
     barrier_after = _barrier(barrier)
     return {
         "format": FORMAT, "format_version": VERSION,
-        "component": {"name": COMPONENT, "context_format": FORMAT_VERSION, "published_ref": PUBLIC_REF},
+        "component": {"name": COMPONENT, "context_format": snapshot.format_version, "published_ref": PUBLIC_REF},
         "captured_at": clock(),
         "source": {"repository": str(repository), "runtime": str(runtime), "ownership": markers},
         "cutoffs": {"published_commit": head, "events": len(snapshot.events),
@@ -671,7 +695,10 @@ def summary(manifest, manifest_sha256):
 def _manifest_shape(manifest):
     try:
         if (manifest["format"] != FORMAT or manifest["format_version"] != VERSION or manifest["complete"] is not True
-                or manifest["component"] != {"name": COMPONENT, "context_format": FORMAT_VERSION, "published_ref": PUBLIC_REF}
+                or set(manifest["component"]) != {"name", "context_format", "published_ref"}
+                or manifest["component"]["name"] != COMPONENT or manifest["component"]["published_ref"] != PUBLIC_REF
+                or type(manifest["component"]["context_format"]) is not int
+                or manifest["component"]["context_format"] not in READABLE_VERSIONS
                 or manifest["fingerprint"]["before"] != manifest["fingerprint"]["after"]):
             raise ValueError("format")
         for key in ("repository", "runtime"):
@@ -803,6 +830,9 @@ def _git_content(repository, input_bytes, pending_path, manifest):
     except ContextError as error:
         raise RecoveryError("invalid_capture", f"The repository failed the strict object check: {error}") from error
     _, snapshot = _snapshot(repository, "The captured history")
+    if snapshot.format_version != manifest["component"]["context_format"]:
+        raise RecoveryError("invalid_capture", "The manifest's Context format differs from the captured head snapshot")
+    _check_outbox(snapshot, pending_path.parent, "invalid_capture")
     pending = manifest["runtime"]["pending"]
     if pending is not None or pending_path.exists():
         try:

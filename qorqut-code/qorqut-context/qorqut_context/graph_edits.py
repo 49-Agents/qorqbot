@@ -12,6 +12,7 @@ from .schema import ContextError, change_details, digest, encode, identifier, ob
 FORMAT = "qorqut-graph-edit-v1"
 PREFIX = "foundation/edits/"
 EXECUTION = "deterministic_graph_edit"
+NOUN = "graph edit"
 METADATA = {"kind": "graph_edit", "title": "Explicit graph edit", "origin": "controlled_caller"}
 HANDOFF = {"disposition": "empty", "text": ""}
 PUTS = {"put_node": "node", "put_edge": "edge"}

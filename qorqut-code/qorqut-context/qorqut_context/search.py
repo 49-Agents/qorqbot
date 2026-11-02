@@ -67,6 +67,9 @@ def project(snapshot) -> tuple[SearchRecord, ...]:
             attrs = record["attributes"]
             result.append(SearchRecord(kind, record["id"], text, attrs,
                                        digest({"text": text, "attributes": attrs})))
+    for note in snapshot.notes.values():
+        result.append(SearchRecord("note", note["id"], note["text"], {},
+                                   digest({"text": note["text"], "objects": note["objects"]})))
     for source_id, event in snapshot.sources.items():
         if event["operation"] == "remove":
             continue
@@ -140,7 +143,7 @@ class SQLiteIndex:
             db.execute("UPDATE state SET revision = ? WHERE singleton=1", (changes.revision,))
 
     def search(self, revision, query="", *, kind=None, attributes=None, limit=20):
-        if not isinstance(query, str) or kind not in (None, "node", "edge", "source"):
+        if not isinstance(query, str) or kind not in (None, "node", "edge", "note", "source"):
             raise ContextError("Invalid search text or record kind")
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise ContextError("limit must be an integer between 1 and 1000")

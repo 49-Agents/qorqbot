@@ -34,6 +34,35 @@ def candidates(snapshot, source_change):
     return result
 
 
+NOTE_SAMPLE = 40
+NOTE_EXCERPT = 600
+
+
+def note_sample(snapshot, source_change, selected, edge_ids, *, rng=None):
+    """A bounded, unranked starting sample of existing notes, so relevant ones surface even without an entity match.
+
+    A note is eligible when it links a selected node or a sampled edge, or shares a word with either source
+    version. At most ``NOTE_SAMPLE`` are returned uniformly, as ID, excerpt and links; the model reads a whole note
+    or searches notes (``kind: note``) for more. Never every note is injected into a model turn.
+    """
+    notes = getattr(snapshot, "notes", {})
+    source_tokens = tokens("\n".join(source_change[version] or "" for version in ("before", "after")))
+    linked = {("node", key) for key in selected} | {("edge", key) for key in edge_ids}
+    eligible = sorted(key for key, note in notes.items()
+                      if any((link["kind"], link["id"]) in linked for link in note["objects"])
+                      or source_tokens & tokens(note["text"]))
+    chosen = sorted((rng or random.SystemRandom()).sample(eligible, NOTE_SAMPLE)
+                    if len(eligible) > NOTE_SAMPLE else eligible)
+    return {"note_ids": chosen,
+            "notes": [{"id": key, "text": notes[key]["text"][:NOTE_EXCERPT],
+                       "text_truncated": len(notes[key]["text"]) > NOTE_EXCERPT,
+                       "objects": notes[key]["objects"]} for key in chosen],
+            "counts": {"eligible": len(eligible), "returned": len(chosen)},
+            "truncated": len(eligible) > len(chosen),
+            "notice": ("More eligible notes exist beyond this random sample. " if len(eligible) > len(chosen) else "")
+                      + "Use search_context with kind note or list_linked_notes to find others."}
+
+
 def sample(snapshot, selected, *, rng=None):
     rng = rng or random.SystemRandom()
     x = sorted(set(selected))
@@ -78,5 +107,7 @@ def prepare(snapshot, source_change, runner, *, directory, max_payload_bytes=102
         supplied = {item["record"]["id"] for item in matched}
         if not set(selected) <= supplied:
             raise ContextError("Bootstrap selected an ID outside the supplied candidates")
+    graph = sample(snapshot, selected, rng=rng)
     return {"candidate_ids": [item["record"]["id"] for item in matched],
-            "model_called": bool(matched), **sample(snapshot, selected, rng=rng)}
+            "model_called": bool(matched), **graph,
+            "notes": note_sample(snapshot, source_change, graph["X"], graph["edge_ids"], rng=rng)}

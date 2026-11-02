@@ -8,10 +8,24 @@ from pathlib import Path
 import sys
 
 from .engine import Context
+from .input_modes import collection_page
 from .pipeline import Pipeline, PropagationError
 from .runner import RunnerConfig
 from .schema import ContextError
 from .tools import page, text_page
+
+
+EXPLICIT_RUNTIME = ("preview-supervised", "submit-supervised", "question-output", "ack-question-output")
+
+
+class ForbiddenRunner:
+    """The runner of every deterministic command: any model call is a defect, not a fallback."""
+
+    def __init__(self, config):
+        self.config = config
+
+    def run(self, **kwargs):
+        raise ContextError("A deterministic command must never call a model")
 
 
 class JsonParser(argparse.ArgumentParser):
@@ -54,21 +68,39 @@ def parser():
             if field.name not in ("executable", "model", "effort", "service_tier"):
                 command.add_argument("--" + field.name.replace("_", "-"),
                                      type=float if field.name.endswith("timeout") else int, default=field.default)
+    note_list = commands.add_parser("notes", help="List current notes, or those linking one current or historical node/edge")
+    note_list.add_argument("--object-kind", choices=("node", "edge"))
+    note_list.add_argument("--object-id")
+    supervised = {}
+    for name, summary in (("preview-supervised", "Validate and describe a supervised edit against the published head; changes nothing"),
+                          ("submit-supervised", "Apply the supervised edit files you name with its supporting document; never calls a model")):
+        command = supervised[name] = commands.add_parser(name, help=summary)
+        command.add_argument("--plan-file", required=True, help="Explicit qorqut-supervised-edit-v1 JSON plan")
+        command.add_argument("--document-file", required=True, help="Explicit supporting Markdown document; its bytes are preserved")
+        command.add_argument("--submitted-by", required=True)
+        command.add_argument("--event-id", required=True)
+        command.add_argument("--record-context", type=json.loads, help="Optional JSON {scope, provenance} trusted-caller evidence")
+        command.add_argument("--source-bytes", type=int, default=RunnerConfig.source_bytes)
+    output = commands.add_parser("question-output", help="Read the deliverable question output of a published event")
+    output.add_argument("event_id")
+    acknowledge = commands.add_parser("ack-question-output", help="Remove the delivered question payload of a published event")
+    acknowledge.add_argument("event_id")
+    acknowledge.add_argument("published_commit")
     commands.add_parser("pending", help="Inspect the durable pending event and latest attempt")
     commands.add_parser("recover", help="Finish existing publication/indexing without model execution")
     discard = commands.add_parser("discard", help="Explicitly discard one unpublished draft")
     discard.add_argument("event_id")
     search = commands.add_parser("search", help="Search a pinned published graph/source view")
     search.add_argument("query", nargs="?", default="")
-    search.add_argument("--kind", choices=("node", "edge", "source"))
+    search.add_argument("--kind", choices=("node", "edge", "note", "source"))
     search.add_argument("--attributes", type=json.loads, help="JSON object of exact list-member filters")
     search.add_argument("--limit", type=int, default=20)
     show = commands.add_parser("show-object")
-    show.add_argument("kind", choices=("node", "edge"))
+    show.add_argument("kind", choices=("node", "edge", "note"))
     show.add_argument("id")
     history = commands.add_parser("history")
     history.add_argument("id")
-    history.add_argument("--kind", choices=("node", "edge", "source"), required=True)
+    history.add_argument("--kind", choices=("node", "edge", "note", "source"), required=True)
     history.add_argument("--offset", type=int, default=0)
     history.add_argument("--limit", type=int, default=20)
     source = commands.add_parser("source", help="Inspect source-event evidence or a current source by ID")
@@ -92,15 +124,17 @@ def parser():
     timeline.add_argument("id")
     for command in (action, actions, timeline):
         command.add_argument("--audit", action="store_true")
-    for command in (notes, note, action, actions, timeline):
+    for command in (notes, note, note_list, action, actions, timeline):
         command.add_argument("--offset", type=int, default=0)
         command.add_argument("--limit", type=int, default=16000 if command is note else 20)
-    for command in (search, show, history, source, notes, note, action, actions, timeline):
+    for command in (search, show, history, source, notes, note, note_list, action, actions, timeline):
         command.add_argument("--revision", help="Published historical revision; default is current")
     return result
 
 
 def execute(args):
+    if args.command in EXPLICIT_RUNTIME and args.runtime is None:
+        raise ContextError(f"{args.command} requires an explicit --runtime; no default runtime is assumed")
     if args.command == "init":
         context = Context.initialize(args.repo, args.runtime, basic_entity_types=args.basic_entity_type)
         return {"status": "initialized", "revision": context.git.head(), "repository": str(context.root), "runtime": str(context.runtime)}
@@ -135,6 +169,27 @@ def execute(args):
             raise ContextError("Source additions require --kind, --title and --origin")
         return pipeline.submit(args.operation, args.path, content=content, metadata=metadata or None,
                                submitted_by=args.submitted_by, event_id=args.event_id)
+    if args.command in ("preview-supervised", "submit-supervised"):
+        config = RunnerConfig(source_bytes=args.source_bytes)
+        pipeline = Pipeline(context, runner=ForbiddenRunner(config), config=config,
+            on_event=lambda event_id: print(json.dumps({"event_id": event_id}), file=sys.stderr, flush=True))
+        with Path(args.plan_file).open("rb") as handle:
+            raw = handle.read(4 * config.source_bytes + 1)
+        if len(raw) > 4 * config.source_bytes:
+            raise ContextError("The plan file exceeds the configured byte limit")
+        with Path(args.document_file).open("rb") as handle:
+            document = handle.read(config.source_bytes + 1)
+        plan = json.loads(raw)
+        arguments = dict(content=document, submitted_by=args.submitted_by, event_id=args.event_id,
+                         record_context=args.record_context)
+        if args.command == "preview-supervised":
+            return pipeline.preview_supervised(plan, **arguments)
+        return pipeline.submit_supervised(plan, **arguments)
+    if args.command in ("question-output", "ack-question-output"):
+        pipeline = Pipeline(context, runner=ForbiddenRunner(RunnerConfig()))
+        if args.command == "question-output":
+            return pipeline.question_output(args.event_id)
+        return pipeline.acknowledge_question_output(args.event_id, args.published_commit)
     if args.command in ("pending", "recover", "discard"):
         pipeline = Pipeline(context)
         return getattr(pipeline, args.command)(*([args.event_id] if args.command == "discard" else []))
@@ -144,6 +199,13 @@ def execute(args):
     snapshot = context.snapshot(args.revision)
     if args.command == "show-object":
         return snapshot.read(args.kind, args.id)
+    if args.command == "notes":
+        if (args.object_kind is None) != (args.object_id is None):
+            raise ContextError("--object-kind and --object-id must be given together")
+        if args.object_kind:
+            return snapshot.linked_notes(args.object_kind, args.object_id, offset=args.offset, limit=args.limit)
+        return {"revision": snapshot.revision,
+                **collection_page([snapshot.read("note", key) for key in sorted(snapshot.notes)], args.offset, args.limit)}
     if args.command == "handoff-notes":
         return snapshot.handoff_notes(include_empty=args.include_empty, offset=args.offset, limit=args.limit)
     if args.command == "handoff-note":
