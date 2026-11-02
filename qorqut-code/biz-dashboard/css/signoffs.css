@@ -154,6 +154,16 @@
 .sg-val-obj dd { margin: 0; display: block; }
 .sg-fulltext, .sg-more-changes { margin-top: 8px; flex-basis: 100%; }
 .sg-content summary { cursor: pointer; color: var(--fg-2); font-size: 12px; }
+.sg-bound-material { overflow-wrap: anywhere; }
+.sg-bound-material section { margin: 12px 0; }
+.sg-bound-material h4 { margin: 0 0 4px; }
+.sg-bound-material ul { margin: 0; padding-left: 18px; }
+.sg-bound-material dl { margin: 0; }
+.sg-bound-material dt { margin-top: 6px; color: var(--fg-3); font-size: 12px; }
+.sg-bound-material dd { margin: 2px 0 8px 12px; }
+.sg-bound-text { white-space: pre-wrap; }
+.sg-bound-material details { margin-top: 10px; }
+.sg-bound-record .sg-text { margin-top: 6px; }
 @media (max-width: 520px) {
   .sg-content-row, .sg-change { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
