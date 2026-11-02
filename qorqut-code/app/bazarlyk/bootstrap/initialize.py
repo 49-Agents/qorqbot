@@ -247,7 +247,8 @@ def seed_instance(paths: InstancePaths, workspace: Path, selection, owner_name: 
             for role, name, display_name, brief in AGENTS:
                 data = _ok(runtime.application.invoke(context, "agents_create", {
                     "role": pins[role], "plugins": [], "name": name, "display_name": display_name, "assignment_brief": brief,
-                    "scope": {"kind": "ecosystem", "allowed_business_ids": [], "global_capabilities": ["read_global_context"]}},
+                    "scope": {"kind": "ecosystem", "allowed_business_ids": [],
+                              "global_capabilities": ["read_global_context", "manage_agentic_layer"]}},
                     InvocationOptions(idempotency_key=f"initialize-{role}")), f"Registering {display_name}")
                 created[role] = data["agent_id"]
             _ok(runtime.application.invoke(context, "management_coordinator_set", {"coordinator_id": created["ordubashy"]},

@@ -9,7 +9,7 @@ import json
 from qorqut_operations.contracts import DomainError, InvocationOptions, Principal, canonical_hash, plain
 from .preparation import prepare_agent
 
-CAPABILITIES = ("read_global_context", "manage_shared_instructions", "publish_roles", "publish_plugins")
+CAPABILITIES = ("read_global_context", "manage_shared_instructions", "publish_roles", "publish_plugins", "manage_agentic_layer")
 ASSIGNMENT = "Work with the owner to select and implement learning deltas across authorized businesses and shared repositories. Maintain work notes and states; commit and push each delta, then guide optional session-end publication."
 
 

@@ -33,7 +33,7 @@ WORKER_DEFAULT_SCOPE = {"kind": "ecosystem", "allowed_business_ids": [], "global
 # Agent, role and shared-instruction administration and the old peer authority never pass to a worker; every other
 # capability may be delegated up to what the manager holds.
 WORKER_BARRED_CAPABILITIES = frozenset({"manage_ecosystem_agents", "coordinate_businesses", "manage_delegated_assignments",
-                                        "publish_roles", "publish_plugins", "manage_shared_instructions"})
+                                        "publish_roles", "publish_plugins", "manage_shared_instructions", "manage_agentic_layer"})
 MODE_RANK = {"deny": 0, "signoff": 1, "allow": 2}
 
 
@@ -79,6 +79,9 @@ class AgentOperations:
         role_id = profile.data["role"]["id"]
         if role_id in RETIRED_ROLE_IDS and not (operation == "agents_deactivate" and profile.data["status"] == "inactive"):
             raise DomainError("retired_role", "This role is retired; only the supported global roles operate")
+        if (role_id == roles.GLOBAL_WORKER_ROLE and operation != "agents_deactivate"
+                and "manage_agentic_layer" in profile.scope.global_capabilities):
+            raise DomainError("forbidden", "Toolkit management cannot be granted to a worker")
 
     @staticmethod
     def _validate_roster(operation, profile, before, uow):

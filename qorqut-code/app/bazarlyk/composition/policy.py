@@ -42,7 +42,7 @@ WORKSPACE_OPERATIONS = frozenset({"workspace_types", "workspace_get", "workspace
 # document read rules. Content is read solely by the owner's viewer, never through this grant.
 CORE_DEFAULT_ALLOWED = frozenset({"environment_list", "operations_batch", "operations_describe", "agent_runtime_get",
                                   "working_memory_get", "working_memory_update", "agent_context_get",
-                                  "agents_activity_list", "agent_work_update", "business_briefing", "files_link"})
+                                  "agents_activity_list", "agent_work_update", "business_briefing", "files_link", "agentic_access"})
 
 
 def _telegram(name, defaults, overrides, registry, *, role_id, scope, resolve):
