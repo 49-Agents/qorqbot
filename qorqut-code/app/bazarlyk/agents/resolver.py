@@ -32,7 +32,7 @@ PROFILE_CACHE_LIMIT = 128
 
 
 def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, packages=()) -> list[dict]:
-    from bazarlyk.composition.policy import GLOBAL_TABLE_OPERATIONS, resolve_operation_policy
+    from bazarlyk.composition.policy import GLOBAL_DISCOVERY_OPERATIONS, resolve_operation_policy
     overrides = profile.data["tool_policy"]["overrides"]
     defaults = role.manifest["default_tool_policy"]
     granted = {item["id"] for item in profile.data["plugins"]}
@@ -43,10 +43,11 @@ def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, pa
     for metadata in registry.entries():
         decision = resolve_operation_policy(metadata.name, defaults, overrides, registry, role_id=profile.data["role"]["id"])
         modes = None
-        if (metadata.name in GLOBAL_TABLE_OPERATIONS and profile.scope.kind == "ecosystem"
+        if (metadata.name in GLOBAL_DISCOVERY_OPERATIONS and profile.scope.kind == "ecosystem"
                 and "read_global_context" in profile.scope.global_capabilities):
-            # The same tool serves the Global table namespace. Business grants stay as they were;
-            # a Global grant makes the tool available where the business one denies it.
+            # The same tool serves the Global table namespace, and whatsapp_send is a proposal only the Global Ordubashy
+            # can make. Business grants stay as they were; a Global grant makes the tool available where the business
+            # one denies it.
             in_global = resolve_operation_policy(metadata.name, defaults, overrides, registry,
                                                  role_id=profile.data["role"]["id"], scope="global")
             modes = {"business": decision.mode, "global": in_global.mode}
