@@ -202,15 +202,14 @@ function calendarPaintGrid(page, dates, allEvents, eventButton, hourHeight = 64)
   return {startHour,endHour};
 }
 
-// A small, scrollable slice of today's same time grid, above Focus attention.
+// Compact event queue above Focus attention; the Calendar tab keeps its time grid.
 function calendarTodayMount(host, openCalendar) {
   host.className = 'calendar-page calendar-today';
   host.setAttribute('aria-label', "Today's calendar");
-  host.style.setProperty('--calendar-columns',1);
   host.innerHTML = `<header class="calendar-today-heading"><button type="button" class="quiet" data-calendar-open aria-label="Open today's calendar"><span>Today</span><span aria-hidden="true">↗</span></button><time class="calendar-clock" aria-label="Current time"></time></header>
-    <p class="calendar-status" role="status">Loading calendar…</p><div class="calendar-all-day" hidden></div><div class="calendar-today-scroll" tabindex="0" aria-label="Today's hourly calendar" hidden><div class="calendar-week"></div></div>`;
+    <p class="calendar-status" role="status">Loading calendar…</p><ul class="calendar-today-queue" aria-label="Today's events" hidden></ul>`;
   $('[data-calendar-open]',host).onclick = openCalendar;
-  const status = $('.calendar-status',host), scroll = $('.calendar-today-scroll',host);
+  const status = $('.calendar-status',host), queue = $('.calendar-today-queue',host);
   let active = true, pending = false, loadedDay, snapshot, timer;
   const current = () => active && host.isConnected;
   const refresh = async () => {
@@ -234,20 +233,26 @@ function calendarTodayMount(host, openCalendar) {
         } catch (error) { errors.push(`${calendar.name}: ${error.message}`); }
       }));
       if (!current()) return;
-      events.sort((a,b) => a.start.localeCompare(b.start) || a.id.localeCompare(b.id));
-      status.textContent = errors.join(' · ') || (!result.configured ? 'Connect your calendars to see today.' : events.some(event => event.status !== 'cancelled') ? '' : 'No events today.');
-      scroll.hidden = !result.configured;
-      const nextSnapshot = JSON.stringify([key,calendars,events]);
+      const visibleEvents = events.filter(event => event.status !== 'cancelled');
+      visibleEvents.sort((a,b) => {
+        const allDayA = a.start.length === 10, allDayB = b.start.length === 10;
+        return Number(allDayB)-Number(allDayA) || (allDayA ? a.start.localeCompare(b.start) : new Date(a.start)-new Date(b.start)) || a.id.localeCompare(b.id);
+      });
+      status.textContent = errors.join(' · ') || (!result.configured ? 'Connect your calendars to see today.' : visibleEvents.length ? '' : 'No events today.');
+      queue.hidden = !result.configured || !visibleEvents.length;
+      queue.dataset.calendarDay = key;
+      const nextSnapshot = JSON.stringify([key,calendars,visibleEvents]);
       if (snapshot !== nextSnapshot) {
-        const top = scroll.scrollTop;
-        calendarPaintGrid(host,[day],events,(event,allDay) => calendarEventButton(event,calendars,refresh,allDay),48);
-        if (loadedDay !== key) {
-          const spans = events.map(event => calendarDaySpan(event,day)).filter(Boolean);
-          const minutes = now.getHours()*60+now.getMinutes();
-          const next = spans.find(span => span.end > minutes) || spans.at(-1);
-          const startHour = Math.min(8,...spans.map(span => Math.floor(span.start/60)));
-          scroll.scrollTop = Math.max(0,((next ? Math.max(next.start,Math.min(minutes,next.end)) : minutes)-30)/60*48-startHour*48);
-        } else scroll.scrollTop = top;
+        const left = loadedDay === key ? queue.scrollLeft : 0;
+        queue.replaceChildren(...visibleEvents.map(event => {
+          const allDay = event.start.length === 10;
+          const item = document.createElement('li'), button = calendarEventButton(event,calendars,refresh,allDay);
+          button.classList.add('calendar-queue-event');
+          const time = document.createElement('span');
+          time.textContent = allDay ? 'All day' : calendarTime(new Date(event.start));
+          button.prepend(time); item.append(button); return item;
+        }));
+        queue.scrollLeft = left;
         loadedDay = key; snapshot = nextSnapshot;
       }
     } catch (error) { if (current()) status.textContent = error.message; }

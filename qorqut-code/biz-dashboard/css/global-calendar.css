@@ -87,15 +87,16 @@
 .calendar-embedded .calendar-header h1 { font-size:18px; }
 .calendar-embedded .calendar-main { padding:16px 4px; }
 .calendar-embedded .calendar-toolbar { margin-bottom:22px; }
-.calendar-today { flex:none; padding:0 0 12px; margin:0 0 10px; border-bottom:1px solid var(--line-2); }
-.calendar-today-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:5px 0 8px; }
-.agfocus .calendar-today-heading button { display:flex; align-items:center; gap:8px; margin:0; border:0; background:transparent; color:var(--fg); padding:4px 0; height:auto; min-height:28px; font-size:13px; }
+.calendar-today { flex:none; padding:0 0 8px; margin:0 0 6px; border-bottom:1px solid var(--line-2); }
+.calendar-today-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:2px 0 5px; }
+.agfocus .calendar-today-heading button { display:flex; align-items:center; gap:8px; margin:0; border:0; background:transparent; color:var(--fg); padding:2px 0; height:auto; min-height:24px; font-size:13px; }
 .calendar-today-heading button > :last-child { color:var(--fg-2); }
 .calendar-today .calendar-clock { font-size:12px; }
 .calendar-today .calendar-status { font-size:12px; margin:0 0 6px; }
-.calendar-today-scroll { height:168px; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
-.calendar-today-scroll[hidden] { display:none; }
-.calendar-today .calendar-week { padding-top:8px; }
-.calendar-today .calendar-week,.calendar-today .calendar-all-day { grid-template-columns:60px minmax(0,1fr); }
-.calendar-today button.calendar-event { font-size:12px; line-height:16px; padding:3px 6px; }
-.calendar-today .calendar-all-day { margin-bottom:8px; max-height:70px; overflow:auto; }
+.calendar-today-queue { display:flex; gap:8px; overflow-x:auto; overscroll-behavior-x:contain; list-style:none; margin:0; padding:0 0 5px; }
+.calendar-today-queue[hidden] { display:none; }
+.calendar-today-queue > li { flex:0 0 auto; max-width:260px; min-width:0; }
+.calendar-today button.calendar-queue-event { position:static; flex-direction:row; align-items:center; width:100%; height:34px; padding:6px 10px; gap:8px; font-size:13px; line-height:18px; }
+.calendar-today .calendar-queue-event strong { display:block; white-space:nowrap; text-overflow:ellipsis; }
+.calendar-today .calendar-queue-event > span { flex:none; font-size:11px; line-height:14px; white-space:nowrap; opacity:.85; }
+.calendar-today .calendar-queue-event:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
