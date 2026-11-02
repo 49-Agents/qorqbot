@@ -26,6 +26,7 @@ from qorqut_operations.relationships import create_edge, related_rows
 from qorqut_operations.storage.assembly import AssemblyError
 from qorqut_operations.tags.catalog import LABELS_SCHEMA, distinct_labels, item_labels, labels_by_item, matches, plan_item_tags
 from qorqut_operations.tasks import customers, events, links
+from qorqut_operations.tasks.associated import TaskAssociatedRecords
 from qorqut_operations.tasks.models import (DEFAULT_CONFIG, DEFAULT_STATE, full_config, normalize_snooze, snooze_view, stored_fields,
                                             validate_config, validate_dependencies, validate_parent, validate_task)
 from qorqut_operations.tasks.overview import TaskOverview
@@ -37,7 +38,8 @@ from qorqut_operations.tasks.types import (KIND_SCHEMA, PROFILE_SCHEMA, STATE_SC
                                            custom_fields)
 from qorqut_operations.team_channel import reject_owner_team_write
 
-TASK_READS = ("tasks_list", "tasks_get", "tasks_thread_get", "tasks_notes_list", "tasks_config_get", "assignees_list", "tasks_overview")
+TASK_READS = ("tasks_list", "tasks_get", "tasks_thread_get", "tasks_notes_list", "tasks_config_get", "assignees_list", "tasks_overview",
+              "tasks_associated_records")
 TASK_MUTATIONS = ("tasks_create", "tasks_update", "tasks_assign", "tasks_comment", "tasks_complete", "tasks_config_update")
 TASK_FOLLOW = "tasks_follow"
 TASK_ENTRIES = (
@@ -75,6 +77,7 @@ class TaskOperations:
             raise AssemblyError("The task clock is a callable returning an aware timestamp")
         self.application, self.items, self.ports, self.clock = application, items, ports, clock
         self.overview = TaskOverview(self, application)
+        self.associated = TaskAssociatedRecords(self)
         unknown = sorted(set(ports.references.types) - set(items.kinds) - set(ports.references.host_types))
         if unknown:
             raise AssemblyError("Note reference types are neither engine items nor host references: " + ", ".join(unknown))
@@ -104,7 +107,7 @@ class TaskOperations:
             "tasks_get": {"task_id": IDENTITY, "related_cursor": PAGE["cursor"]}, "tasks_thread_get": {**PAGE, "task_id": IDENTITY},
             "tasks_notes_list": {**PAGE, "task_id": IDENTITY}, "tasks_config_get": {}, "assignees_list": {},
         }
-        descriptors = [self.overview.descriptor()]
+        descriptors = [self.overview.descriptor(), self.associated.descriptor()]
         for name, properties in reads.items():
             descriptors.append(OperationDescriptor(
                 name, schema({**SCOPE, **properties}, ("task_id",) if name in {"tasks_get", "tasks_notes_list", "tasks_thread_get"} else ()),
@@ -273,6 +276,8 @@ class TaskOperations:
 
     def read(self, operation, ctx, arguments, uow):
         ctx = task_context(ctx, arguments, uow)
+        if operation == "tasks_associated_records":
+            return self.associated.read(ctx, arguments, uow)
         configuration, config_row = self.configuration(ctx, uow)
         if operation == "tasks_config_get":
             return {"config": configuration, "revision": config_row["revision"] if config_row else None,
