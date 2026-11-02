@@ -76,10 +76,6 @@ function agpadHeadViews(p) {
     header.splice(header.indexOf("viewbox"), 1);
     header.splice(header.indexOf('focus') + 1, 0, "viewbox");
   }
-  if (p.workspaceRole === "ordubashy" && header.includes("ideas")) {
-    header.splice(header.indexOf("ideas"), 1);
-    header.push("ideas");
-  }
   return header;
 }
 function agpadHeadActive(p, view) {
@@ -193,6 +189,9 @@ function agTakeLinkedWorkspace(hash) {
   return requested;
 }
 
+// A linked view must already be one of the pane's views or an installed workspace type. While the workspace
+// declaration is still loading, an unrecognized key waits on that read (the default view stays usable) and is
+// honored only if it turns out to be installed and the owner has not moved elsewhere. Anything else is ignored.
 function agpadRequestView(p, view) {
   if (typeof view !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(view)) return false;
   // Calendar and Tables live in the shared drawer: retired keys never add a tab (links translate first).
@@ -201,6 +200,18 @@ function agpadRequestView(p, view) {
   if (view === "system_dev" || view === "incidents") return false;
   // Business management belongs only to roles whose pane offers it: a stale link never adds it back.
   if (view === "business" && !(typeof agentWorkspaceViews === "function" && agentWorkspaceViews(p.workspaceScope, p.workspaceRole).includes("business"))) return false;
+  if (!p.views.includes(view) && !workspaceType(view)) {
+    const loading = p.workspaceRole ? workspaceTypesLoad() : null;
+    if (!loading) return false;
+    if (!p.viewShown) agpadSetView(p, p.views[0]);
+    const pending = p.pendingView = {view};
+    loading.then(() => {
+      if (p.pendingView !== pending) return;
+      p.pendingView = null;
+      if (_agpad === p && workspaceType(view)) agpadRequestView(p, view);
+    });
+    return true;
+  }
   if (!p.views.includes(view)) p.views.push(view);
   agpadSetView(p, view);
   return true;
@@ -408,7 +419,8 @@ function agpadSetView(p, view, leaveChecked = false) {
     && p.el.querySelector(".agpad-overview-switch");
   if (from === "desktop") p.desktopRequest = (p.desktopRequest || 0) + 1;
   if (from === "browser") p.browserRequest = (p.browserRequest || 0) + 1;
-  p.view = view;
+  if (view !== from) p.pendingView = null;
+  p.view = view; p.viewShown = true;
   if (typeof agentWorkspaceViewChanged === 'function') agentWorkspaceViewChanged(p);
   if (agpadCombinedOverview(p) && agpadOverviewView(view)) {
     p.overviewView = view;

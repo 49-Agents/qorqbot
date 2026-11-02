@@ -33,10 +33,10 @@ const agentWorkspaceSectionIcon = key => ({overview: GLOBAL_ICONS.globe, costs: 
 // navigation or editor state. The child still uses native authenticated reads.
 function agentWorkspaceSnapshot() { return structuredClone({bizs: state.bizs, session: state.session}); }
 
-Object.assign(T_VIEW_LABEL, {business: 'Business management', ideas: 'Ideas', global_context: 'Context'});
+Object.assign(T_VIEW_LABEL, {business: 'Business management', global_context: 'Context'});
 Object.assign(T_VIEW_ICON, {
   business: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12a24 24 0 0 0 18 0M10 13h4"/></svg>',
-  ideas: GLOBAL_ICONS.ideas, global_context: SVG_BRAIN,
+  global_context: SVG_BRAIN,
 });
 
 // The old standalone Context page is a view of one registered agent, selected by stable role id (Calendar and Tables are
@@ -54,8 +54,7 @@ const agentWorkspaceDescriptorRole = (view, role) => view === 'global_context' ?
 function agentWorkspaceLegacyDestination(tab, hash) {
   if (embeddedAgentPane) return null;
   const parts = hash.split('/')[2] === tab ? hash.split('/').slice(3) : [];
-  const alias = {learning: ['context', ['learning']], 'personal-context': ['context', ['personal', ...parts]],
-    ideas: ['context', parts[0] ? ['ideas', parts[0]] : ['ideas']]}[tab];
+  const alias = {learning: ['context', ['learning']], 'personal-context': ['context', ['personal', ...parts]]}[tab];
   const key = alias ? alias[0] : tab;
   return AGENT_PANE_DESTINATIONS[key] ? {...AGENT_PANE_DESTINATIONS[key], tab: key, route: (alias ? alias[1] : parts).join('/')} : null;
 }
@@ -144,10 +143,10 @@ async function agentWorkspaceEscape({agent, business, table}) {
   await agpadSetView(_agpad, 'business');
 }
 
-// Ordubashy (Focus, Ideas) and Learning Applier (Context) have no Business management; Global Marketing keeps it.
+// Ordubashy (Focus) and Learning Applier (Context) have no Business management; Global Marketing keeps it.
 function agentWorkspaceViews(scope, role) {
   if (scope !== 'global') return [];
-  if (role === 'ordubashy') return ['ideas'];
+  if (role === 'ordubashy') return [];
   if (role === 'global-marketing') return ['business'];
   if (role === 'learning-applier') return ['global_context'];
   return [];
@@ -293,7 +292,7 @@ async function agentWorkspaceLeaveEmbedded() {
   if (!confirm('This pane has unsaved edits. Discard them and leave?')) return false;
   // These editors retain drafts in document-local maps. A confirmed discard
   // must clear them now that section navigation no longer destroys the frame.
-  _dataDrafts.clear(); ideaDrafts.clear(); personalDrafts.clear(); workingMemoryDrafts.clear();
+  _dataDrafts.clear(); personalDrafts.clear(); workingMemoryDrafts.clear();
   return true;
 }
 
@@ -342,7 +341,7 @@ async function agentWorkspaceNavigateEmbedded(view, business = 'global', section
     hash = '#' + business;
   } else {
     state.globalTab = view === 'business' ? section : 'context';
-    hash = '#/global/' + state.globalTab + (view === 'ideas' ? '/' + (route || 'ideas') : view === 'global_context' ? '/' + (route || 'graph') : '');
+    hash = '#/global/' + state.globalTab + (view === 'global_context' ? '/' + (route || 'graph') : '');
   }
   const params = new URLSearchParams({'agent-pane-embed': view, business, section: section || ''});
   if (agentWorkspaceDrawerHost()) params.set('workspace-host', 'drawer-tables');
@@ -371,11 +370,6 @@ function agentWorkspaceRenderEmbedded(c) {
     c.innerHTML = '<section class="pane global-content" aria-label="Overview"><div id="global-progress"></div></section>';
     globalProgressMount($('#global-progress', c));
     return true;
-  }
-  const route = location.hash.split('/')[3];
-  if (state.globalTab === 'context' && view === 'ideas') {
-    if (route === 'ideas') { renderIdeas(c); return true; }
-    if (route === 'library') { renderGlobalLibrary(c); return true; }
   }
   return false;
 }
