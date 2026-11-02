@@ -95,6 +95,29 @@
 /* Reminder inventory: text, schedule and state only; scheduling lives in its existing UI. */
 .rw-reminder-text{margin:0 0 10px;font-size:13px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
 .rw-reminder-meta{margin:0;font-size:11px;line-height:1.5}
+/* The one read-only owner Dev report reader: explicit fields, never raw JSON. */
+.rw-ticket-meta{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 10px}
+.rw-ticket-badge{display:inline-flex;align-items:center;padding:1px 7px;border:1px solid var(--line-2);border-radius:10px;font-size:10px;color:var(--fg-2)}
+.rw-ticket-status-open{color:var(--fg);border-color:var(--fg-3)}
+.rw-ticket-status-closed{color:var(--fg-2)}
+.rw-ticket-body{font-size:12.6px;line-height:1.6;overflow-wrap:anywhere}
+.rw-ticket-body p{margin:0 0 8px}
+.rw-ticket-body p:last-child{margin-bottom:0}
+.rw-ticket-body ul,.rw-ticket-body ol{margin:0 0 8px;padding-left:20px}
+.rw-ticket-body blockquote{margin:0 0 8px;padding-left:9px;border-left:2px solid var(--line-2);color:var(--fg-2)}
+.rw-ticket-body pre{overflow:auto;padding:7px;border:1px solid var(--line-2);border-radius:6px;font-size:11px}
+.rw-ticket-body code{padding:0 3px;border-radius:3px;background:var(--hover);font-size:.92em}
+.rw-ticket-fields{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:3px 10px;margin:10px 0 0;font-size:11px;color:var(--fg-2)}
+.rw-ticket-field{display:contents}
+.rw-ticket-fields dt{color:var(--fg-2)}
+.rw-ticket-fields dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.rw-ticket-section{margin-top:14px}
+.rw-ticket-section h4{margin:0 0 6px;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-2)}
+.rw-ticket-deployment{margin:0;font-family:var(--mono, monospace);font-size:11px;overflow-wrap:anywhere}
+.rw-ticket-events{display:flex;flex-direction:column;gap:0}
+.rw-ticket-event{padding:7px 0;border-top:1px solid var(--line-2)}
+.rw-ticket-event-head{display:flex;align-items:center;gap:7px;margin-bottom:4px;font-size:11px}
+.rw-ticket-event .rw-ticket-body{font-size:12px}
 /* Routine inventory: the routine header plus its independently paged run history. */
 .rw-routine-meta{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 10px;margin:0 0 14px;font-size:11px}
 .rw-routine-meta dt{color:var(--fg-2)}

@@ -66,7 +66,7 @@ function rwTypeIcon(record) {
   if (source.type === 'email') return `<span class="task-type-icon task-type-icon-email" role="img" aria-label="Email"></span>`;
   if (record.resource_type === 'data_tables') return RW_TABLE_ICON;
   if (record.resource_type === 'documents') return RW_FILE_ICON;
-  if (source.type === 'action' || record.resource_type === 'action_logs') return T_VIEW_ICON.activity;
+  if (source.type === 'action' || source.type === 'dev_ticket' || record.resource_type === 'action_logs') return T_VIEW_ICON.activity;
   if (record.resource_type === 'owner_reminders') return T_VIEW_ICON.calendar;
   if (record.resource_type === 'routines') return (typeof RT_ICONS === 'object' && RT_ICONS.active) || T_VIEW_ICON.calendar;
   if (source.type === 'job' || record.resource_type === 'jobs') return (typeof RT_ICONS === 'object' && RT_ICONS.logs) || T_VIEW_ICON.calendar;
@@ -120,7 +120,8 @@ function rwRecordFromProjectItem(item, project) {
       business_name: item.business_name, resource_type: item.resource_type, task_type: item.task_type, state: item.state,
       label: item.label, revision: item.revision},
     item, ...(item.can_thread === undefined ? {} : {can_thread: item.can_thread}),
-  }, {project_id: project?.id ?? null, ...(item.can_thread === undefined ? {} : {can_thread: item.can_thread})});
+  }, {project_id: project?.id ?? null,
+    ...(item.type === 'dev_ticket' ? {can_thread: false} : item.can_thread === undefined ? {} : {can_thread: item.can_thread})});
 }
 
 // ---------------------------------------------------------------- confirm discard
@@ -648,7 +649,7 @@ function recordWorkspaceMount(host, options = {}) {
       : {type: ref.type, id: ref.id, business_id: ref.business_id ?? null, business_slug: ref.business_slug, business_name: ref.business_name, label: ref.label, state: ref.state, resource_type: ref.resource_type};
     const target = dto && ref.type === 'reference'
       ? rwRecordFromItem({...dto, source: dto.resolved_source || dto.source || source, conversation: dto.conversation}, {can_thread: canThread})
-      : rwRecordFromItem({source}, {can_thread: canThread ?? (ref.type === 'task' || ref.type === 'signoff' || ref.type === 'project')});
+      : rwRecordFromItem({source}, {can_thread: ref.type === 'dev_ticket' ? false : canThread ?? (ref.type === 'task' || ref.type === 'signoff' || ref.type === 'project')});
     if (target) void navigate(target);
   }
 }
@@ -671,6 +672,7 @@ async function rwDashboardMount(host, record, ctx) {
   const call = async (operation, args = {}, options = {}) => coreData(await post(`${path}/operations/${operation}`, {...args, ...options}));
   if (source.type === 'project') return rwProjectDashboard(host, record, ctx, call);
   if (source.type === 'signoff') return rwSignoffDashboard(host, record, ctx);
+  if (source.type === 'dev_ticket' && !record.project_id) return rwDevTicketDashboard(host, record, ctx);
   if (source.type === 'action' && !record.project_id) return rwActionDashboard(host, record, ctx, call);
   if ((source.type === 'table' || record.resource_type === 'data_tables') && !record.project_id) return rwTableDashboard(host, record, ctx, call);
   if (source.type === 'job') return rwJobDashboard(host, record, ctx);
@@ -988,6 +990,119 @@ async function rwJobDashboard(host, record, ctx) {
   return {dirty: () => false, hasUnsaved: () => false, dispose() { host.replaceChildren(); }};
 }
 
+// ---------------------------------------------------------------- Dev report reader
+// The owner Project inventory and a standalone owner Dev reference both carry the same ticket
+// record. This is the one small read-only renderer authorized for it: only the fields below,
+// never arbitrary JSON or an item summary. The retired System Dev queue and its editors stay out.
+const RW_TICKET_KINDS = {bug: 'Bug', feature: 'Feature', tooling: 'Tooling', workflow: 'Workflow'};
+function rwTicketText(text) {
+  return typeof chatViewMarkdown === 'function' ? chatViewMarkdown(String(text ?? '')) : esc(String(text ?? ''));
+}
+function rwTicketField(box, label, value) {
+  if (value == null || value === '') return;
+  const row = rwNode('div', 'rw-ticket-field');
+  row.append(rwNode('dt', '', label), rwNode('dd', '', String(value)));
+  box.append(row);
+}
+function rwDevTicketContent(host, ticket, extra = {}) {
+  if (!ticket) return null;
+  const box = rwNode('section', 'rw-reader rw-ticket');
+  const title = ticket.title || 'System Dev report';
+  box.append(rwNode('h3', '', title));
+  const meta = rwNode('div', 'rw-ticket-meta');
+  const kind = RW_TICKET_KINDS[ticket.kind] || ticket.kind;
+  if (kind) meta.append(rwNode('span', 'rw-ticket-badge', String(kind)));
+  if (ticket.status) meta.append(rwNode('span', 'rw-ticket-badge rw-ticket-status-' + (ticket.status === 'closed' ? 'closed' : 'open'),
+    ticket.status === 'closed' ? 'Closed' : 'Open'));
+  box.append(meta);
+  if (ticket.details && String(ticket.details).trim()) {
+    const body = rwNode('div', 'rw-ticket-body');
+    body.innerHTML = rwTicketText(ticket.details);
+    box.append(body);
+  } else {
+    box.append(rwNode('p', 'muted', 'No report details were supplied.'));
+  }
+  const times = rwNode('dl', 'rw-ticket-fields');
+  rwTicketField(times, 'Created', ticket.created_at ? rwFormatTime(ticket.created_at) : '');
+  rwTicketField(times, 'Updated', ticket.updated_at ? rwFormatTime(ticket.updated_at) : '');
+  if (times.children.length) box.append(times);
+  if (ticket.resolution && String(ticket.resolution).trim()) {
+    const section = rwNode('section', 'rw-ticket-section');
+    section.append(rwNode('h4', '', 'Resolution'));
+    const body = rwNode('div', 'rw-ticket-body'); body.innerHTML = rwTicketText(ticket.resolution); section.append(body);
+    box.append(section);
+  }
+  if (ticket.verification && String(ticket.verification).trim()) {
+    const section = rwNode('section', 'rw-ticket-section');
+    section.append(rwNode('h4', '', 'Verification'));
+    const body = rwNode('div', 'rw-ticket-body'); body.innerHTML = rwTicketText(ticket.verification); section.append(body);
+    box.append(section);
+  }
+  if (ticket.deployment_ref && String(ticket.deployment_ref).trim()) {
+    const section = rwNode('section', 'rw-ticket-section');
+    section.append(rwNode('h4', '', 'Deployment reference'));
+    section.append(rwNode('p', 'rw-ticket-deployment', String(ticket.deployment_ref)));
+    box.append(section);
+  }
+  // The owner list carries the ticket record only. If an authorized envelope also supplies
+  // events (never fetched here), render that whitelist as supported history; never invent it.
+  const events = Array.isArray(extra.events) ? extra.events : Array.isArray(ticket.events) ? ticket.events : [];
+  if (events.length) {
+    const section = rwNode('section', 'rw-ticket-section rw-ticket-events');
+    section.append(rwNode('h4', '', 'History'));
+    for (const event of events) {
+      if (!event || typeof event !== 'object') continue;
+      const row = rwNode('article', 'rw-ticket-event');
+      const head = rwNode('div', 'rw-ticket-event-head');
+      const kindLabel = ({follow_up: 'Follow-up', resolved: 'Resolved', status_changed: 'Status changed'}[event.event_kind] || 'Update');
+      head.append(rwNode('span', 'rw-ticket-badge', kindLabel));
+      if (event.created_at) head.append(rwNode('time', 'muted', rwFormatTime(event.created_at)));
+      row.append(head);
+      for (const [label, key] of [['Details', 'details'], ['Resolution', 'resolution'], ['Verification', 'verification'], ['Deployment reference', 'deployment_ref']]) {
+        if (event[key] && String(event[key]).trim()) {
+          const body = rwNode('div', 'rw-ticket-body'); body.innerHTML = rwTicketText(event[key]); row.append(body);
+        }
+      }
+      section.append(row);
+    }
+    box.append(section);
+  }
+  host.append(box);
+  return {dirty: () => false, hasUnsaved: () => false, dispose() { box.remove(); }};
+}
+async function rwDevTicketDashboard(host, record, ctx) {
+  host.classList.add('record-panel');
+  let view = null, generation = 0;
+  const read = async () => {
+    const own = ++generation;
+    // The existing owner-only root read, narrowed to this exact record. This is the only
+    // standalone Dev reference reader; agents' dev_tickets_get/history contract is not used.
+    const data = coreData(await post('/root/operations/dev_tickets_list', {ticket_id: record.source.id, status: 'all', details: true}));
+    if (!ctx.alive() || own !== generation) return false;
+    const ticket = (data.items || []).find(row => row?.id === record.source.id);
+    if (!ticket) { await ctx.unavailable?.(); return false; }
+    // A matching id in another scope is not the reference. Explicit null is Global.
+    if ((ticket.business_id ?? null) !== (record.source.business_id ?? null)) { await ctx.unavailable?.(); return false; }
+    view?.dispose?.();
+    view = rwDevTicketContent(host, ticket, {events: data.events, eventsNextOffset: data.events_next_offset ?? data.next_offset});
+    return true;
+  };
+  await read();
+  return {
+    dirty: () => false, hasUnsaved: () => false,
+    async onShow() {
+      try {
+        if (!(await read()) || !ctx.alive()) return;
+      } catch (failure) {
+        if (!ctx.alive()) return;
+        if (accessLost(failure) || sourceGone(failure)) { await ctx.unavailable?.(); return; }
+        // A transient revalidation keeps the last authorized report visible.
+      }
+    },
+    dispose() { generation++; view?.dispose?.(); host.replaceChildren(); },
+  };
+}
+
 // ---------------------------------------------------------------- reference / inventory readers
 async function rwReferenceDashboard(host, record, ctx, call) {
   host.classList.add('record-panel');
@@ -1061,15 +1176,11 @@ async function rwReferenceDashboard(host, record, ctx, call) {
       dispose() { controller?.dispose?.(); host.replaceChildren(); }};
   }
   if (content.ticket) {
-    // System Dev reports are retired destinations in this client and have no canonical
-    // ticket reader to mount. Do not substitute item metadata or raw JSON for the content.
-    const box = rwNode('section', 'rw-reader');
-    box.append(rwNode('h3', '', item.label || record.label || 'System Dev report'));
-    const notice = rwNode('p', 'muted', 'This System Dev report has no reader in this client.');
-    notice.dataset.recordUnavailable = '';
-    box.append(notice);
-    host.append(box);
-    return {dirty: () => false, onShow: revalidate, dispose() { host.replaceChildren(); }};
+    const ticket = rwDevTicketContent(host, content.ticket, {
+      events: content.events, eventsNextOffset: content.events_next_offset ?? content.next_offset,
+    });
+    return {dirty: () => false, onShow: revalidate,
+      dispose() { ticket?.dispose?.(); host.replaceChildren(); }};
   }
   if (content.asset || content.entity || content.person) {
     const nested = content.asset || content.entity || content.person;
