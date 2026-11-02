@@ -9,8 +9,10 @@ principal, thread, provider or model is created or contacted by composition, by 
 
 ``ContextServices`` is the lifecycle contract the host lifetime owns (``start()``, bounded ``stop(timeout=...)``, ``running``,
 ``wake()``, ``diagnostics()``). Started only by the owner of the instance, it registers the dedicated backend ``system``
-principal (stable ``uuid5`` of the installation identity; an existing row of another kind or a disabled one is a visible
-conflict, never repurposed or re-enabled) and runs the existing ``ContextQueueDriver`` through the existing
+principal and the ``context.file`` / ``context.instruct`` completion workers, adding only missing memberships for
+unarchived businesses. Identities use the existing stable installation-derived IDs; an existing principal of another
+kind or a disabled one is a visible conflict, never repurposed or re-enabled. Existing disabled memberships are preserved.
+It runs the existing ``ContextQueueDriver`` through the existing
 ``ContextDriverLoop`` on its one thread. That thread also runs the bounded, synchronous ``ContextUsageCollector`` before and
 after each driver step. It is the only worker: ``stop`` is true exactly when that thread, with any in-flight Context draft, Git
 publication, SQLite recording or usage page, has ended.
@@ -41,6 +43,7 @@ from qorqut_operations.context_queue import ContextQueueOperations
 from qorqut_operations.contracts import DomainError
 
 from bazarlyk.context_usage.collector import ContextUsageCollector
+from bazarlyk.background.context_filing import FILE, INSTRUCT
 from bazarlyk.domains.context_sources import INSTRUCT_ROLES
 from bazarlyk.domains.documents.filing import FilingPorts
 from bazarlyk.service.changes import CONTEXT_QUEUE_KIND
@@ -279,7 +282,12 @@ class ContextServices:
                                        max_backoff_seconds=settings.max_backoff_seconds)
 
     def _register_driver(self) -> str:
-        """Create the dedicated driver principal if absent; an existing identity is verified, never repurposed or re-enabled."""
+        """Register the driver and its filing workers at owned startup, never during reads or admission.
+
+        Converted installations may have the old upload worker but no instruction worker. Both completion
+        programs need their stable system identities and memberships before they can admit work. Existing
+        disabled principals or memberships are never re-enabled; unrelated programs are untouched.
+        """
         with self.database.transaction(operation="context_driver_register") as uow:
             installation = uow.repository("installation").get("service")
             if installation is None:
@@ -290,6 +298,21 @@ class ContextServices:
                 uow.repository("principals").insert({"id": identity, "kind": "system", "display_name": DRIVER_NAME})
             elif existing["kind"] != "system" or not existing["active"]:
                 raise DomainError("invalid_principal", "The Context driver identity is occupied or disabled; it is not changed")
+            authority = self.programs.authority
+            if authority is None:
+                raise DomainError("operation_unavailable", "The Context filing authority is not installed")
+            businesses = uow.connection.execute("SELECT id FROM businesses WHERE archived_at IS NULL").fetchall()
+            for program_id in (FILE, INSTRUCT):
+                worker_id = authority.worker_id(program_id, uow)
+                worker = uow.repository("principals").get(worker_id)
+                if worker is None:
+                    uow.repository("principals").insert({"id": worker_id, "kind": "system",
+                                                         "display_name": program_id + " worker"})
+                authority.require_worker(worker_id, None, uow)
+                for business in businesses:
+                    members = uow.repository("business_memberships", business_id=business["id"])
+                    if members.get(worker_id) is None:
+                        members.insert({"principal_id": worker_id})
         return identity
 
     def _on_commit(self, event: dict) -> None:
