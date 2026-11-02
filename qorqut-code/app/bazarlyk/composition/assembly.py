@@ -21,6 +21,7 @@ from qorqut_operations.storage.database import Database
 
 from bazarlyk.instance_paths import InstancePaths
 from bazarlyk.native_chat.schema import storage_contribution as native_chat_storage
+from bazarlyk.telegram.media_schema import storage_contribution as telegram_media_storage
 from .agent_work import storage_contribution as agent_work_storage
 from .documents import DocumentLifecycle, DocumentReceiptHistory, RESOURCE_TYPE as DOCUMENTS
 from .records import HostRecordEffects
@@ -64,9 +65,10 @@ def host_contributions(change_feed):
     tables they read (``inbox_changes``, ``documents``) as required-table contributions, checked when the store is
     composed, initialised and validated. The inbox nudge engine owns its three tables and reads ``inbox_events`` and
     ``inbox_deliveries``. A worker's one current assignment (``agent_current_work``) is its own host table beside the
-    generated ``agent_activity`` observations."""
+    generated ``agent_activity`` observations. The sealed-snapshot metadata of outbound
+    Telegram files (``telegram_file_payloads``) is the host's own table beside the generated ``telegram`` tables it references."""
     return (*storage_contributions(), signoff_storage(), background_storage(), native_chat_storage(), inbox_nudges_storage(),
-            agent_work_storage(),
+            agent_work_storage(), telegram_media_storage(),
             FileEffectContribution("documents", {DOCUMENTS: DocumentLifecycle()}, DocumentReceiptHistory()),
             RecordEffectContribution("records", HostRecordEffects()),
             TransactionContribution("inbox", finalizers=inbox_finalizers()),
