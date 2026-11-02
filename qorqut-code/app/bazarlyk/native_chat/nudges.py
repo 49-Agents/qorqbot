@@ -84,9 +84,10 @@ class HostVisibility:
         if ctx is None:
             return set()
         granted: set[int] = set()
+        email_access_cache = {}
         for row in events:
             try:
-                if self.inbox.event_visible(ctx, row, uow):
+                if self.inbox.event_visible(ctx, row, uow, email_access_cache=email_access_cache):
                     granted.add(row["id"])
             except DomainError:
                 LOG.debug("Inbox event %s is not provably visible to %s", row["id"], agent_id, exc_info=True)

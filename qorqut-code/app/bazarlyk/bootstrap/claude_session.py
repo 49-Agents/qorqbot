@@ -90,6 +90,10 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
         native = attest(hook,registration_path,runtime)
     except (DomainError,OSError,ValueError):
         pass  # The backend refuses unverified ownership; context delivery can still proceed.
+    if native:
+        # Chat publication describes an attested local session, not successful
+        # context preparation. A pending background bootstrap must not hide it.
+        snapshot_transcript(hook, registration_path, runtime=runtime)
     client = client_factory(registration)
     client.native = native
     from . import handoff, recovery

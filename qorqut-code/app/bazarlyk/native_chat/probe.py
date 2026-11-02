@@ -17,7 +17,7 @@ import re
 from qorqut_operations.contracts import DomainError
 from bazarlyk.bootstrap import codex_session
 from bazarlyk.bootstrap.client import path_has_symlink
-from bazarlyk.bootstrap.terminal_chat import CODEX_SUFFIX, process_fields
+from bazarlyk.bootstrap.terminal_chat import CODEX_SUFFIX, NATIVE_IDENTITY, process_fields
 from bazarlyk.bootstrap.transcript_snapshot import SESSION_ID
 from bazarlyk.transport.agent_terminal_control import NATIVE_ONLY
 
@@ -134,12 +134,17 @@ class SessionProbe:
         config = _read_json(workspace / REGISTRATION)
         if not config or config.get("agent_id") != profile["agent_id"]:
             return None
+        observation = _valid(_read_json(workspace / BINDING), profile, transcript=False)
+        if observation and observation.get("registration_id") not in (None, config.get("registration_id")):
+            observation = None
         if config.get("capture_transcripts") is True:
             marker = _valid(_read_json(workspace / MARKER), profile, transcript=True)
-            if marker:
+            if marker and (observation is None or all(
+                    marker.get(key) == observation.get(key) for key in NATIVE_IDENTITY)):
                 return {**marker, "capture": True, "capture_enabled": True}
-        observation = _valid(_read_json(workspace / BINDING), profile, transcript=False)
-        if observation and observation.get("registration_id") in (None, config.get("registration_id")):
+        # A previous transcript marker (including SessionEnd) cannot mask the
+        # current binding while its first transcript publication is pending.
+        if observation:
             return {**observation, "transcript_path": None, "capture": False,
                     "capture_enabled": config.get("capture_transcripts") is True}
         return None

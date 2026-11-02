@@ -14,6 +14,7 @@ from .client import load_registration, path_has_symlink, write_json_private
 from .transcript_snapshot import EVENTS, SESSION_ID
 
 CODEX_SUFFIX = r"(?:_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})?"
+NATIVE_IDENTITY = ("agent_id", "workspace", "session_id", "runtime", "pid", "started")
 
 
 def process_fields(pid):
@@ -54,13 +55,22 @@ def publish(hook, registration_path, *, runtime="claude-code"):
     process = native_process(runtime)
     if not process:
         return False
+    value = {"agent_id": registration["agent_id"], "workspace": str(workspace),
+        "session_id": session, "runtime": runtime, "transcript_path": str(source),
+        "event": event, **process}
     path = workspace / ".bazarlyk/terminal-chat.json"
-    # A delayed Stop/SessionEnd from an older session must not replace a newer one.
+    # Completion can be the first successful publication after pending bootstrap.
+    # Only the exact current attested binding may replace another session/process;
+    # delayed completion from an old generation must not overwrite a newer one.
     if event in {"Stop", "SessionEnd"} and path.exists():
         old = json.loads(path.read_text())
-        if old.get("session_id") != session:
-            return False
-    write_json_private(path, {"agent_id": registration["agent_id"], "workspace": str(workspace),
-        "session_id": session, "runtime": runtime, "transcript_path": str(source),
-        "event": event, **process})
+        if any(old.get(key) != value[key] for key in NATIVE_IDENTITY):
+            binding_path = workspace / ".bazarlyk/native-binding.json"
+            if path_has_symlink(binding_path) or not binding_path.is_file():
+                return False
+            binding = json.loads(binding_path.read_text())
+            if (binding.get("registration_id") != registration["registration_id"]
+                    or any(binding.get(key) != value[key] for key in NATIVE_IDENTITY)):
+                return False
+    write_json_private(path, value)
     return True
