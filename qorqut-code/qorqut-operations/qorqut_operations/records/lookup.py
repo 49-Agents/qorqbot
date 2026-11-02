@@ -167,6 +167,51 @@ class RecordItems:
                 "archived": archived, "raw_source": bool(metadata.get("raw_source") or row.get("kind") in RAW_KINDS),
                 "summary": metadata.get("filer_summary") or metadata.get("summary", ""), "created_at": row.get("created_at"), "updated_at": row.get("updated_at"), **person}
 
+    def project_inventory_window(self, ctx, uow, *, kind, project_id, source_business_id, include_links,
+                                 after, limit):
+        """Bounded identity/sort metadata for the core ``agent`` contribution of a Project inventory.
+
+        Only identifiers, their actual home scope and the profile's source timestamp are selected. The ordinary
+        authorized ``resolve`` remains the only way this identity becomes an item; selecting metadata grants nothing.
+        """
+        if kind != "agent":
+            raise DomainError("operation_unavailable", f"Project inventory metadata is unavailable for {kind}")
+        limit = max(1, min(int(limit), 100))
+        scope = source_business_id
+        if scope is None:
+            owned = "SELECT agent_id id,home_business_id business_id,updated_at ts FROM agent_profiles " \
+                    "WHERE home_business_id IS NULL"
+            values = []
+        else:
+            # A Global agent is readable inside an active business by the ordinary agent lookup; retain that existing
+            # canonical business scope while enumerating only this source's own and Global profiles.
+            owned = "SELECT agent_id id,? business_id,updated_at ts FROM agent_profiles " \
+                    "WHERE home_business_id IS ? OR home_business_id IS NULL"
+            values = [scope, scope]
+        sql = owned
+        if include_links:
+            sql += (" UNION ALL SELECT l.target_id id,l.target_business_id business_id,"
+                    "COALESCE(a.updated_at,a.created_at) ts FROM project_item_links l "
+                    "JOIN agent_profiles a ON a.agent_id=l.target_id "
+                    "WHERE l.business_id=? AND l.target_type='agent'")
+            values += [project_id]
+        grouped = ("SELECT type,scope,id,MAX(ts) ts FROM ("
+                   + "SELECT 'agent' type,COALESCE(business_id,'') scope,id,ts FROM (" + sql + ") metadata"
+                   + ") GROUP BY type,scope,id")
+        where = ""
+        if after is not None:
+            ts, kind_name, after_scope, identity = after
+            after_scope = "" if after_scope is None else after_scope
+            where = " WHERE (ts<? OR (ts=? AND (type>? OR (type=? AND (scope>? OR (scope=? AND id>?))))))"
+            values += [ts, ts, kind_name, kind_name, after_scope, after_scope, identity]
+        rows = [dict(row) for row in uow.connection.execute(
+            f"SELECT * FROM ({grouped}){where} ORDER BY ts DESC,type ASC,scope ASC,id ASC LIMIT ?",
+            [*values, limit + 1])]
+        result = [{"type": "agent", "id": row["id"],
+                   "business_id": None if row["scope"] in (None, "") else row["scope"],
+                   "updated_at": row["ts"]} for row in rows[:limit]]
+        return {"rows": result, "has_more": len(rows) > limit}
+
     def relationship_item(self, ctx, item, uow):
         table, row = self.resource(ctx, item, uow)
         return self.host.relationship_item(ctx, item, table, row, uow)

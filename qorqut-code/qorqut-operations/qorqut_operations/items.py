@@ -68,6 +68,12 @@ class ItemLookup(Protocol):
 
     def fingerprint(self, ctx, item: Mapping[str, Any], uow, builder=None) -> str: ...
 
+    # Optional Project Inventory metadata port. This method is deliberately not required by ``_LOOKUP_METHODS``: old
+    # lookups keep working for trees, relationships and ordinary item resolution. A Project inventory caller requires
+    # it only for a selected kind and fails with the concrete kind when the port is absent.
+    def project_inventory_window(self, ctx, uow, *, kind, project_id, source_business_id, include_links,
+                                 after, limit): ...
+
 
 class ItemCandidates(Protocol):
     """Typed enumeration of candidate ``{"type", "id"}`` items in the caller's scope, in v1's order, optionally
