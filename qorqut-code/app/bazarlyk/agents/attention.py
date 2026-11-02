@@ -147,7 +147,9 @@ class Attention:
         agent = configured_ordubashy(uow, require_codex=False)
         if ctx.principal_kind == 'human':
             peer = self.app.policy.context_for(agent, business_id=None, review_business_id=None, uow=uow)
-            self.task(peer, ref, uow, lifecycle_only=lifecycle_only)
+            # The coordinator's reach must be checked, but its thread/history is
+            # not part of the owner's response. Authorize the same Task only.
+            self.task(peer, ref, uow, lifecycle_only=True)
         selected = self.app.current_context(replace(ctx, business_id=ref['business_id'], review_business_id=ref['business_id']), uow)
         descriptor = self.app.registry.get('tasks_get')
         if ref['business_id'] is not None: descriptor = replace(descriptor, global_capability=None)
@@ -167,7 +169,7 @@ class Attention:
             row = uow.connection.execute('SELECT * FROM attention_workflows WHERE agent_id=? AND run_id=?', (agent, ref['id'])).fetchone()
             if ref['business_id'] is not None or not row or row['detached_at'] or row['paused']:
                 raise DomainError('not_found', 'Workflow association is unavailable')
-            self.task(ctx, json.loads(row['work_task_json']), uow)
+            self.task(ctx, json.loads(row['work_task_json']), uow, lifecycle_only=True)
             return {**ref, 'label': row['workflow_name']}
         if ctx.principal_kind == 'human':
             peer = self.app.policy.context_for(agent, business_id=None, review_business_id=None, uow=uow)
@@ -297,7 +299,9 @@ class Attention:
         for row in uow.connection.execute('SELECT * FROM attention_memberships WHERE agent_id=?', (agent,)):
             ref = {'type':'task','id':row['task_id'],'business_id':row['task_business_id']}
             try:
-                task = self.task(ctx, ref, uow)
+                # Ordering and membership checks need lifecycle fields, not
+                # every Task's notes, related records and worker projections.
+                task = self.task(ctx, ref, uow, lifecycle_only=True)
                 if task.get('created_at') != row['task_created_at']: continue
             except DomainError as error:
                 if error.code not in UNREADABLE: raise
@@ -312,11 +316,14 @@ class Attention:
             inverted = ''.join(chr(127-ord(char)) for char in completed) if completed else '\x7f'
             return (rank, inverted, item['added_at'], item['membership_id'])
         selected, next_cursor = page(items, args, None, 'attention_get:'+agent, key=ordering, reverse=False)
+        # Preserve the full Task response contract, but hydrate only this page.
+        for item in selected:
+            item['task'] = self.task(ctx, item['task_ref'], uow)
         focus = state['focus_json']
         intent, task_ref = state['intent'], state['work_task_json']
         if focus:
             try:
-                self.task(ctx, task_ref, uow)
+                self.task(ctx, task_ref, uow, lifecycle_only=True)
                 focus = self.resolve(ctx, agent, focus, uow)
             except DomainError as error:
                 if error.code not in UNREADABLE: raise
