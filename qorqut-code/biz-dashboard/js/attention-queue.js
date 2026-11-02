@@ -30,8 +30,21 @@ const attentionQueue=(()=>{
     }
     return [...groups.values()];
   }
+  // Classify from operation metadata, never the editable title or Focus display name.
+  const messageOperations=new Set(['whatsapp_send','telegram_send','telegram_send_file','agents_message_send']);
+  const signoffPaths={
+    message:'M21 11.5a8.5 8.5 0 0 1-8.5 8.5 9 9 0 0 1-4-.9L3 21l1.9-5.5a9 9 0 0 1-.9-4A8.5 8.5 0 0 1 12.5 3H13a8.5 8.5 0 0 1 8 8v.5Z',
+    email:'M3 5h18v14H3zM3 5l9 7 9-7',
+    approval:'M9 5H5v16h14V5h-4M9 3h6v4H9zM8 14l3 3 5-6',
+  };
+  const signoffIcon=s=>{
+    const kind=/^(account_email_|email_)(send|reply|forward)$/.test(s.operation_name || '')
+      || ['email.send','email.batch'].includes(s.platform?.submission?.tool) ? 'email'
+      : messageOperations.has(s.operation_name) ? 'message' : 'approval';
+    return `<span class="attention-signoff" data-signoff-kind="${kind}" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="${signoffPaths[kind]}"/></svg></span>`;
+  };
   const icon=item=>item.kind==='signoff'
-    ? '<span class="attention-signoff" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 5H5v16h14V5h-4M9 3h6v4H9zM8 14l3 3 5-6"/></svg></span>'
+    ? signoffIcon(item)
     : item.kind==='viewbox' ? '<span class="attention-viewbox" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3H6v18h12V7zM14 3v5h4M9 12h6M9 16h6"/></svg></span>'
     : typeof identityAvatar==='function' ? identityAvatar('agent',item.agent_name,{agent_id:item.agent_id,...(typeof globalAgentProfile==='function'?globalAgentProfile(item.agent_id):null),...item.presentation}) : '<span aria-hidden="true">✉</span>';
   const label=item=>item.kind==='signoff'?'Review · '+item.title:item.agent_name+' · '+item.text;
@@ -45,7 +58,7 @@ const attentionQueue=(()=>{
   function paintSignoffs(){
     for(const [host,name] of signoffMounts){
       if(!host.isConnected){signoffMounts.delete(host);continue;}
-      const markup=signoffs.map(s=>{const title=name?.(s.id)||s.title;return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" aria-label="Review ${esc(title)}" title="${esc(s.title)}">${icon({kind:'signoff'})}<span>${esc(title)}</span></button>`;}).join('');
+      const markup=signoffs.map(s=>{const title=name?.(s.id)||s.title;return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" aria-label="Review ${esc(title)}" title="${esc(s.title)}">${signoffIcon(s)}<span>${esc(title)}</span></button>`;}).join('');
       const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'');
       if(host._signoffHTML!==html){host.innerHTML=html;host._signoffHTML=html;}
       host.hidden=!signoffs.length&&!signoffsError;
