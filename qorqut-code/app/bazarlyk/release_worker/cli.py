@@ -88,6 +88,10 @@ def build_parser() -> argparse.ArgumentParser:
     ideas_removal.add_argument("--selection", type=Path, required=True)
     ideas_removal.add_argument("--stage", choices=("inspect", "prepare", "apply", "verify"), required=True)
     ideas_removal.add_argument("--confirm-removal", action="store_true")
+    telegram_media = commands.add_parser("v12-telegram-media", help="inspect, prepare, apply and verify the offline Telegram media schema transition of the stopped v1.2 operational database before a coordinated update")
+    telegram_media.add_argument("--selection", type=Path, required=True)
+    telegram_media.add_argument("--stage", choices=("inspect", "prepare", "apply", "verify"), required=True)
+    telegram_media.add_argument("--confirm-upgrade", action="store_true")
     helper_update = commands.add_parser("v12-helper-activate", help="activate explicitly selected same-protocol native helpers without restarting sessions")
     helper_update.add_argument("--selection", type=Path, required=True)
     helper_update.add_argument("--confirm-adopt", action="store_true")
@@ -185,6 +189,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "v12-ideas-removal":
             from .v12_ideas_removal import ideas_removal
             _json(ideas_removal(args.selection, stage=args.stage, confirm=args.confirm_removal))
+            return 0
+        if args.command == "v12-telegram-media":
+            from .v12_telegram_media import telegram_media
+            _json(telegram_media(args.selection, stage=args.stage, confirm=args.confirm_upgrade))
             return 0
         if args.command == "v12-repair":
             from .v12_repair import repair
