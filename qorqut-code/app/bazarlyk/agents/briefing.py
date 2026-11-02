@@ -20,10 +20,13 @@ UNAVAILABLE = {"forbidden", "policy_denied", "not_found", "operation_unavailable
                "context_unavailable", "context_index_unavailable", "busy", "memory_drift", "memory_sources_unavailable"}
 
 GUIDANCE = (
-    ("Tasks", ("tasks_list", "tasks_get", "tasks_create", "tasks_update", "tasks_assign", "tasks_comment", "tasks_complete")),
+    ("Tasks", ("tasks_list", "tasks_get", "tasks_create", "tasks_update", "tasks_assign", "tasks_comment", "tasks_complete",
+               "crm_activity_list", "crm_activity_record")),
     ("Shared Context", ("context_home", "context_object", "context_expand", "context_find")),
     ("Materials", ("context_items_list", "context_items_get", "materials_update", "context_upload", "content_list", "content_get", "context_items_archive")),
-    ("Tables", ("tables_list", "tables_get", "tables_rows_list", "tables_create", "tables_update", "tables_rows_write")),
+    ("Tables", ("tables_list", "tables_get", "tables_rows_list", "tables_create", "tables_update", "tables_rows_write",
+                "tables_thread_get", "tables_comment", "tables_follow",
+                "crm_entries_list", "crm_entries_add", "crm_entries_update", "crm_entries_remove")),
     ("Own plan and notes", ("plans_get", "plans_set", "notes_list", "notes_get", "notes_create", "notes_update")),
     ("Relationships", ("relationship_roles_list", "relationships_list", "relationships_get", "relationships_create", "relationships_update", "relationships_remove")),
     ("Context review", ("context_reviews_list", "context_review", "context_review_reopen")),

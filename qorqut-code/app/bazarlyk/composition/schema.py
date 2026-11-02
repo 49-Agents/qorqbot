@@ -8,7 +8,7 @@ ownership and the specifications agree."""
 from __future__ import annotations
 
 from qorqut_context.integration import registration as context_registration
-from qorqut_operations import actions, discussion, tags, tasks
+from qorqut_operations import actions, crm, discussion, tags, tasks
 from qorqut_operations.documents.schema import REQUIRED_LIFECYCLES as DOCUMENT_LIFECYCLES
 from qorqut_operations.storage.assembly import AssemblyError, StorageContribution
 
@@ -49,5 +49,8 @@ def storage_contributions() -> tuple[StorageContribution, ...]:
         contributions.append(StorageContribution(
             owner, specs, {name: fields for name, fields in tables.IMMUTABLE_FIELDS.items() if name in specs},
             schema_ddl.OWNER_SCHEMA[owner], required_lifecycles=REQUIRED_LIFECYCLES.get(owner, frozenset())))
-    # The change-feed capture for the engine's record tables comes last: its triggers write into the host's ``inbox_changes``.
-    return (*record_contributions(), *contributions, capture.capture_contribution())
+    # The CRM Domain's storage executes after the host tables its guards sit on (``data_tables`` and ``inbox_changes`` are
+    # host-owned owners here, created in ``contributions`` above); its DDL is declared once by ``qorqut_operations.crm`` and
+    # is never hand-written here. The change-feed capture for the engine's record tables comes last: its triggers write into
+    # the host's ``inbox_changes`` and name the CRM tables.
+    return (*record_contributions(), *contributions, crm.storage_contribution(), capture.capture_contribution())

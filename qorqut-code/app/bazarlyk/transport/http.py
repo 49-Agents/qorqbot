@@ -488,7 +488,7 @@ class HTTPAPI:
                     "calendar_calendars_list", "calendar_events_list", "calendar_event_get",
                     "calendar_event_create", "calendar_event_update", "calendar_event_delete", "calendar_event_respond",
                     "owner_reminder", "telegram_status", "telegram_delivery_get", "telegram_delivery_resolve", "telegram_notify",
-                    "focus_get", "focus_present", "focus_edit", "focus_move", "focus_set_archived", "focus_reply", "signoffs_comment", "signoffs_notes_list", "tasks_thread_get",
+                    "focus_get", "focus_present", "focus_edit", "focus_move", "focus_set_archived", "focus_reply", "signoffs_comment", "signoffs_notes_list", "tasks_thread_get", "crm_activity_list", "crm_activity_record",
                     "workspace_types", "workspace_get",
                     "owner_conversation_get", "owner_conversation_send", "owner_conversation_mark_read", "owner_conversations_list", "owner_conversation_related", "owner_conversation_peers",
                     # Project record reads and explicit links: the six project_* operations and the narrow reminder read.
@@ -537,7 +537,10 @@ class HTTPAPI:
                 return response(result)
             if len(parts) == 3 and parts[:2] == ["root", "operations"] and parts[2] in {
                     "tables_list", "tables_get", "tables_rows_list", "tables_history", "tables_create", "tables_update",
-                    "tables_rows_write", "tables_history_retry", "tables_archive"} and request.method == "POST":
+                    "tables_rows_write", "tables_history_retry", "tables_archive",
+                    # CRM memberships and the Table team discussion serve the Global Table namespace through the same route.
+                    "crm_entries_list", "crm_entries_add", "crm_entries_update", "crm_entries_remove",
+                    "tables_thread_get", "tables_comment", "tables_follow"} and request.method == "POST":
                 context, _ = self.context(actor)
                 args, options = split_options(await read_json(request))
                 if options.business_id is not None or args.get("scope", "global") != "global":

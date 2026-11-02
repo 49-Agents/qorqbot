@@ -1,4 +1,4 @@
-"""The private owner conversation with Ordubashy on one Task, Signoff or Focus Reference.
+"""The private owner conversation with Ordubashy on one Task, Signoff, Table (general or CRM) or Focus Reference.
 
 Each source has one private channel: the installation owner and the registered Ordubashy, resolved from the stored
 identity (``private_participants``), never from a display name. The channel keeps the original owner/Ordubashy source key
@@ -23,7 +23,7 @@ from bazarlyk.management.identity import installation_owner, private_participant
 AUDIENCE = 'owner_ordubashy'
 EVENT_SOURCE = 'owner_conversations'
 EVENT_SUMMARY = 'Private message from the owner'
-SOURCE = schema({'type': {'enum': ['task', 'signoff', 'reference', 'project']},
+SOURCE = schema({'type': {'enum': ['task', 'signoff', 'reference', 'project', 'table']},
                  'id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
                  'business_id': {'type': ['string', 'null']}}, ('type', 'id'))
 # `agent_id` and `peer_role` only restate the one Ordubashy channel; any other value is refused (see `participants`).
@@ -229,6 +229,14 @@ class PrivateConversations:
             self.app.authorize(scoped, self.app.registry.get('tasks_get'), (), uow, namespace=self.namespace(scoped))
             if not uow.repository('tasks', business_id=scoped.business_id).get(identity):
                 raise DomainError('not_found', 'Task does not exist in this scope')
+            return
+        if kind == 'table':
+            # A general and a CRM Table are one source kind; the private channel never reads or posts to the team thread.
+            from qorqut_operations.tables.operations import table_context
+            scoped = table_context(selected, {'scope': 'global'} if selected.business_id is None else {}, uow)
+            self.app.authorize(scoped, self.app.registry.get('tables_get'), (), uow, namespace=self.namespace(scoped))
+            if not uow.repository('data_tables', business_id=scoped.business_id).get(identity):
+                raise DomainError('not_found', 'Table does not exist in this scope')
             return
         if kind == 'project':
             if identity != selected.business_id:

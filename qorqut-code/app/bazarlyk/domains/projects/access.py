@@ -24,7 +24,7 @@ from bazarlyk.management.identity import private_participants
 PROJECT_TYPE = "project"
 # Only these already-supported private conversation sources get a Project inventory ``can_thread``. It is never
 # inferred from a display label, a document kind or an extension's own item type.
-THREAD_KINDS = frozenset({"task", "signoff", "project"})
+THREAD_KINDS = frozenset({"task", "signoff", "project", "table"})
 UNAVAILABLE = frozenset({"forbidden", "not_found", "policy_denied", "operation_unavailable",
                          "business_archived", "context_refresh_required"})
 

@@ -69,10 +69,12 @@ KIND_BY_TABLE = {
     "action_logs": "action_logs", "action_businesses": "action_logs",
     "agent_profiles": "agents", "principals": "agents", "business_memberships": "agents",
     "data_tables": "tables", "data_rows": "tables",
+    # CRM memberships belong to their Table's views; a recorded observation belongs to its Task's activity.
+    "crm_entries": "tables", "crm_activity_events": "tasks",
 }
-# Engine record tables that name their item (`item_type` is 'task' or 'action') instead of belonging to one kind.
+# Engine record tables that name their item (`item_type` is 'task', 'action' or 'table') instead of belonging to one kind.
 ITEM_RECORD_TABLES = frozenset({"thread_messages", "thread_follows", "item_tags"})
-ITEM_KIND_BY_TYPE = {"task": "tasks", "action": "action_logs"}
+ITEM_KIND_BY_TYPE = {"task": "tasks", "action": "action_logs", "table": "tables"}
 # A relationship names two typed endpoints (`from_type`/`to_type`); bump
 # whichever kinds those endpoints belong to rather than invent a tenth
 # "relationships" kind no route reads by.

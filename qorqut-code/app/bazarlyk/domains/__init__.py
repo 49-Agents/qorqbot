@@ -16,6 +16,7 @@ from qorqut_context.integration.usage import ContextUsageOperations
 from qorqut_operations.actions import ActionOperations
 from qorqut_operations.actions.writeback import ActionWriteback
 from qorqut_operations.assets import AssetOperations
+from qorqut_operations.crm import CRMOperations
 from qorqut_operations.items import ItemResolver
 from qorqut_operations.projects.archive import BusinessArchive
 from qorqut_operations.projects.creation import BusinessCreationOperations
@@ -63,6 +64,7 @@ class BusinessDomains:
     actions: ActionOperations = None
     tags: TagOperations = None
     queue: ContextQueueOperations = None
+    crm: CRMOperations = None
 
     def resolve_file_target(self, resource):
         if resource.resource_type == "business_creation_directories":
@@ -115,6 +117,12 @@ def register_business_domains(registry, application, paths, *, agent_resolver, q
     actions = ActionOperations(application, tasks.note_references(), on_revision=on_revision, clock=clock)
     for contribution in (tags.contribution(), tasks.contribution(), actions.contribution(), queue.contribution()):
         install_contribution(registry, contribution)
+    # The Operations CRM Domain: composed over the Table service, Tasks and the neutral items. Tables dispatch CRM rows to
+    # it, so the binding is made here, before the catalog freezes; no discovery or fallback exists. Its storage is
+    # installed once by ``composition.schema``; the host keeps no CRM implementation of its own.
+    crm = CRMOperations(application, tables, tasks, neutral.items, clock=clock)
+    tables.bind_crm(crm)
+    crm.register(registry)
     OwnerActions(paths, clock=clock).register(registry)
     install_contribution(registry, neutral.relationships.contribution())
     archive = BusinessArchive(application)
@@ -136,4 +144,4 @@ def register_business_domains(registry, application, paths, *, agent_resolver, q
     if agent_resolver is not None:
         agent_resolver.working_memory = memory
     documents.register(registry, application, working_memory=memory, shared_context=shared_context)
-    return BusinessDomains(tasks, activity, documents, assets, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, business_creation, memory, archive, context_sources=context_sources, context_questions=context_questions, shared_context=shared_context, viewbox=viewbox, actions=actions, tags=tags, queue=queue)
+    return BusinessDomains(tasks, activity, documents, assets, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, business_creation, memory, archive, context_sources=context_sources, context_questions=context_questions, shared_context=shared_context, viewbox=viewbox, actions=actions, tags=tags, queue=queue, crm=crm)

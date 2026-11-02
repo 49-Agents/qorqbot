@@ -28,7 +28,7 @@ READ_OPERATIONS = frozenset({
     "context_items_list", "context_items_get", "context_navigation_get", "context_graph_get",
     "context_reviews_list", "context_reviews_history", "relationship_roles_list",
     "relationships_list", "relationships_get", "tables_list", "tables_get", "tables_rows_list",
-    "tables_history", "data_uploads_list", "data_uploads_get",
+    "tables_history", "crm_entries_list", "tables_thread_get", "crm_activity_list", "data_uploads_list", "data_uploads_get",
     "content_list", "content_get", "notes_list", "notes_get",
     "assets_list", "assets_get", "actions_list", "actions_get", "actions_config_get", "tags_list",
     "business_progress_get",
@@ -42,7 +42,7 @@ READ_OPERATIONS = frozenset({
 # Owner-requested saves: a specific owner instruction authorizes the write, so
 # these use the ordinary human-owner policy without Signoff.
 # Shared-discussion notes stay excluded: the Task note fields already refuse the
-# installation owner with channel_required.
+# installation owner with channel_required, and so do tables_comment and crm_activity_record.
 WRITE_OPERATIONS = frozenset({
     "owner_conversation_send",
     "tasks_create", "tasks_update", "tasks_assign", "tasks_complete", "tasks_config_update",
@@ -51,6 +51,7 @@ WRITE_OPERATIONS = frozenset({
     "context_review_reopen",
     "relationships_create", "relationships_update", "relationships_remove",
     "tables_create", "tables_update", "tables_rows_write", "tables_history_retry",
+    "crm_entries_add", "crm_entries_update", "crm_entries_remove",
     "data_uploads_upload", "assets_upload", "assets_update", "assets_delete",
     "notes_create", "notes_update", "notes_delete", "notes_upload",
     "actions_record", "business_config_update", "business_config_patch", "environment_set",

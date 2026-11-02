@@ -90,7 +90,7 @@ def related(service, ctx, args, uow):
             WHERE business_id IS :business AND json_extract(refs_json,'$.' || :kind)=:id
           UNION ALL SELECT 'signoff',s.id,s.review_business_id,s.created_at FROM signoffs s, json_each(s.expected_targets_json) t
             WHERE s.review_business_id IS :business
-              AND json_extract(t.value,'$.resource.resource_type')=CASE :kind WHEN 'task' THEN 'tasks' ELSE '' END
+              AND json_extract(t.value,'$.resource.resource_type')=CASE :kind WHEN 'task' THEN 'tasks' WHEN 'table' THEN 'data_tables' ELSE '' END
               AND json_extract(t.value,'$.resource.resource_id')=:id
               AND json_extract(t.value,'$.resource.business_id') IS :business
           UNION ALL SELECT json_extract(r.value,'$.type'),json_extract(r.value,'$.id'),

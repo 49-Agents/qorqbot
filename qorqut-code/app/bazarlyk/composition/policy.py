@@ -5,7 +5,8 @@ resolver interleaved these per-domain rules with the generic precedence steps, s
 phases of ``PolicyRules`` exactly where v1 evaluated them:
 
 * ``before_override``: rules that decide before an agent's explicit override is consulted, either because they
-  refuse it (Telegram roles, the restricted user-input presentation, Global table archive, Project archive, terminal control, owner-action
+  refuse it (Telegram roles, the restricted user-input presentation, the CRM and Table-discussion operations that
+  may never exceed the existing operation they build on, Global table archive, Project archive, terminal control, owner-action
   proposals, ``learning-applier`` only operations, the Learning Applier-only Context question tools that follow the caller's current
   ``context_edit`` decision);
 * ``after_override``: standing core defaults that sit between the explicit override and the role default;
@@ -34,8 +35,25 @@ TELEGRAM_ROLES = frozenset({ORDUBASHY_ROLE})
 # owner and the exact active configured Ordubashy, so this standing default grants no other audience.
 PROJECT_OPERATIONS = frozenset({"project_record_get", "project_items_list", "project_items_candidates",
                                 "project_item_get", "project_items_link", "project_items_unlink"})
+# CRM and Table-discussion operations and the existing operation whose decision each may never exceed. This is a
+# prerequisite, not only a fallback: the new name's own override, else role default, else the prerequisite's mode is
+# combined with the prerequisite's effective decision, strongest of deny > signoff > allow. An ``allow`` on the new name never
+# lifts a denial or Signoff requirement of its prerequisite, and an explicit deny on the new name always wins. Comment
+# authority on a Table is Table write authority (not Task comment, schema or archive authority); reading and following
+# its discussion is Table read authority. ``crm_activity_record`` pins the Task and needs its comment authority.
+CRM_PREREQUISITES = {
+    "crm_entries_list": "tables_rows_list",
+    "crm_entries_add": "tables_rows_write", "crm_entries_update": "tables_rows_write", "crm_entries_remove": "tables_rows_write",
+    "tables_thread_get": "tables_get", "tables_follow": "tables_get",
+    "tables_comment": "tables_rows_write",
+    "crm_activity_list": "tasks_get",
+    "crm_activity_record": "tasks_comment",
+}
+# The Table-based ones serve the Global Table namespace too, whose rule differs from the business one.
+TABLE_PREREQUISITE_OPERATIONS = frozenset(name for name, base in CRM_PREREQUISITES.items() if base in GLOBAL_TABLE_OPERATIONS)
+STRENGTH = {"allow": 0, "signoff": 1, "deny": 2}
 # Operations whose Global rule differs from the business one, so effective-configuration discovery evaluates both scopes.
-GLOBAL_DISCOVERY_OPERATIONS = GLOBAL_TABLE_OPERATIONS | {"whatsapp_send"}
+GLOBAL_DISCOVERY_OPERATIONS = GLOBAL_TABLE_OPERATIONS | TABLE_PREREQUISITE_OPERATIONS | {"whatsapp_send"}
 DEV_AND_INCIDENT_READS = frozenset({"dev_tickets_create", "dev_tickets_agent_list", "dev_tickets_get",
                                     "dev_tickets_follow_up", "dev_tickets_resolve", "system_incidents_agent_list",
                                     "system_incidents_agent_get"})
@@ -59,6 +77,26 @@ def _telegram(name, defaults, overrides, registry, *, role_id, scope, resolve):
     if name == "telegram_notify":
         # Trusted registered workers only (they carry no role); an agent notifies through its own chat.
         return PolicyDecision(defaults.get(name, "deny") if role_id is None else "deny", "telegram_worker")
+
+
+def _prerequisites(name, defaults, overrides, registry, *, role_id, scope, resolve):
+    base = CRM_PREREQUISITES.get(name)
+    if base is None:
+        return None
+    # Re-enter with the caller's own scope: the helper defaults to business, which would judge a Global call by the
+    # business rule. The prerequisite keeps its Global capability, role and explicit-grant rules; nothing carries over.
+    required = resolve(base, scope=scope)
+    if name in overrides:
+        own = PolicyDecision(overrides[name], "agent_override")
+    elif name in defaults:
+        own = PolicyDecision(defaults[name], "role_default")
+    else:
+        own = required
+    decision = required if STRENGTH[required.mode] > STRENGTH[own.mode] else own
+    if decision.mode == "signoff" and not registry.metadata(name).supports_signoff:
+        # A requirement inherited from the prerequisite that this operation cannot stage as a Signoff is a refusal.
+        return PolicyDecision("deny", "prerequisite_signoff_unsupported")
+    return decision
 
 
 def _user_input(name, defaults, overrides, registry, *, role_id, scope, resolve):
@@ -159,8 +197,9 @@ def _fallback_defaults(name, defaults, overrides, registry, *, role_id, scope, r
 
 
 HOST_POLICY_RULES = PolicyRules(
-    before_override=(_telegram, _user_input, global_tables, archive_approval_rule, _owner_approvals, _learning_applier,
-                     _context_questions),
+    # ``_prerequisites`` precedes the blanket Global-table rule so a new Table operation is never decided by it alone.
+    before_override=(_telegram, _user_input, _prerequisites, global_tables, archive_approval_rule, _owner_approvals,
+                    _learning_applier, _context_questions),
     after_override=(_standing_defaults,),
     after_default=(_fallback_defaults,),
 )

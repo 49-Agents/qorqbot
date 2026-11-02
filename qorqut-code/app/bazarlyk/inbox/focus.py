@@ -92,6 +92,10 @@ class FocusService:
             card['task_type'] = resolved.get('task_type', 'task')
             if card['task_type'] == 'customer':
                 card.update(customer_kind=resolved.get('customer_kind'), customer_state=resolved.get('customer_state', ''))
+        if item['type'] == 'table':
+            # A CRM and a general Table are one native source kind; the kind lets a client choose its expansion. The row is
+            # read only after the item resolver has authorized this caller's read of the Table.
+            card['table_kind'] = uow.repository('data_tables', business_id=business).get(item['id'], required=True)['table_kind']
         if resolved.get('deep_link'):
             card['deep_link'] = resolved['deep_link']
         return card

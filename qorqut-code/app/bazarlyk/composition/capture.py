@@ -9,9 +9,17 @@ Immutable tables (thread messages, Action revisions) capture inserts only."""
 
 from __future__ import annotations
 
+from qorqut_operations import crm
 from qorqut_operations.storage.assembly import StorageContribution
 
 OWNER = "operational_feed"
+
+
+def _crm(table: str):
+    """The CRM tables' identity columns come from the Domain's own repository specification, never from a guess here."""
+    spec = crm.TABLES[table]
+    return tuple(dict.fromkeys((spec.scope_column, *spec.keys))) if spec.scope_column else spec.keys
+
 
 # table -> (columns captured as the row identity, events captured)
 CAPTURED = {
@@ -21,6 +29,10 @@ CAPTURED = {
     "item_tags": (("business_id", "item_type", "item_id"), ("insert", "delete")),
     "action_logs": (("business_id", "id"), ("insert", "update")),
     "action_businesses": (("business_id", "action_key"), ("insert", "delete")),
+    # CRM memberships carry their own capture triggers in the Domain's approved DDL (``qorqut_operations.crm``), beside
+    # the guards that read the same rows; declaring them again here would build the same trigger twice and publish two
+    # feed rows per change. Recorded observations are immutable and have no trigger there, so the feed attaches this one.
+    "crm_activity_events": (_crm("crm_activity_events"), ("insert",)),
 }
 
 

@@ -20,7 +20,10 @@ from bazarlyk.composition.locations import business_hq
 TABLES = {**CORE_TABLES, **TABLE_SPECS, **PROJECT_LINK_TABLES,
           **{name: spec for part in record_contributions() for name, spec in part.tables.items()}}
 EXPORT_VERSION = 1
-BUSINESS_TABLES = ("relationships", "context_reviews", "context_review_states", "context_entities", "data_tables", "data_rows", "table_versions", "business_configs", "agent_profiles", "tasks", "thread_messages", "item_tags",
+# ``crm_entries`` (a CRM Table's memberships and local cells) joins the table stores. ``crm_activity_events`` - recorded email
+# and message observations - is deliberately absent from every broad export: external bodies stay in the database and in the
+# separately protected history, never in these Git projections.
+BUSINESS_TABLES = ("relationships", "context_reviews", "context_review_states", "context_entities", "data_tables", "data_rows", "crm_entries", "table_versions", "business_configs", "agent_profiles", "tasks", "thread_messages", "item_tags",
     "documents", "action_logs", "action_revisions",
     "learning_candidates", "learning_decisions", "learning_history", "learning_runs",
     "learning_issues", "learning_issue_candidates", "learning_issue_actions", "learning_issue_links", "learning_engine_packages",
@@ -34,7 +37,7 @@ GLOBAL_TABLES = ("dev_tickets", "dev_ticket_events", "tasks", "thread_messages",
                  # Global-stored actions and every action's business memberships (the action scope).
                  "action_logs", "action_revisions", "action_businesses", "tags",
                  # Global general tables share the business table stores under a NULL business.
-                 "data_tables", "data_rows", "table_versions")
+                 "data_tables", "data_rows", "crm_entries", "table_versions")
 PROJECTION_NOTICE = "Generated from SQLite. Read-only history/recovery projection; edits are not imported."
 
 
