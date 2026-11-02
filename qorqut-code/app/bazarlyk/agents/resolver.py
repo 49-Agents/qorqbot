@@ -53,11 +53,10 @@ def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, pa
             continue  # Retained internal reader; never part of an agent's effective configuration.
         decision = resolve_operation_policy(metadata.name, defaults, overrides, registry, role_id=profile.data["role"]["id"])
         modes = None
-        if (metadata.name in GLOBAL_DISCOVERY_OPERATIONS and profile.scope.kind == "ecosystem"
+        if (metadata.name in (GLOBAL_DISCOVERY_OPERATIONS | getattr(registry, "extension_global_discovery", frozenset())) and profile.scope.kind == "ecosystem"
                 and "read_global_context" in profile.scope.global_capabilities):
-            # The same tool serves the Global table namespace, and whatsapp_send is a proposal only the Global Ordubashy
-            # can make. Business grants stay as they were; a Global grant makes the tool available where the business
-            # one denies it.
+            # Shared table and contributed provider tools may have a distinct Global scope rule.
+            # Business grants stay as they were; evaluate both namespaces without broadening either.
             in_global = resolve_operation_policy(metadata.name, defaults, overrides, registry,
                                                  role_id=profile.data["role"]["id"], scope="global")
             modes = {"business": decision.mode, "global": in_global.mode}
@@ -530,7 +529,10 @@ class AgentConfigResolver:
             workspace=snapshot["row"]["workspace"], business=snapshot["business"],
             allowed_businesses=tuple(snapshot["businesses"]), owner_name=snapshot["owner_name"],
             available_operations=frozenset(tool["canonical_operation"] for tool in tools if tool["available"]),
-            context_home=context_home, agentic_view=view)
+            context_home=context_home, agentic_view=view, extension_guidance=tuple(
+                callback(view) for callback in dict.fromkeys(
+                    callback for name, callback in getattr(self.registry, "extension_operation_guidance", {}).items()
+                    if any(tool["canonical_operation"] == name and tool["available"] for tool in tools))))
         from bazarlyk.agentic.text import render
         session_note = render(view, "host", "app/bazarlyk/agentic/assets/inbox-session-note.md")
         if not session_note.strip() or len(session_note) > MAX_CONTEXT_CHARACTERS:

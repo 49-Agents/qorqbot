@@ -117,7 +117,7 @@ def business_directory(businesses, *, agentic_view=None) -> str:
 def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mapping[str, ContextSource], *,
                     effective_config_id: str, workspace: str, business: Mapping | None,
                     allowed_businesses: tuple[Mapping, ...] = (), owner_name: str = "Owner",
-                    available_operations: frozenset[str] = frozenset(), context_home: str | None = None, agentic_view=None,
+                    available_operations: frozenset[str] = frozenset(), context_home: str | None = None, agentic_view=None, extension_guidance=(),
 ) -> dict:
     entries, rendered = [], []
 
@@ -197,13 +197,11 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
     orientation.append(render(agentic_view, "host", "app/bazarlyk/agentic/assets/startup.md"))
     from .preferences import plugin_discovery_guidance
     orientation.append(plugin_discovery_guidance())
+    orientation.extend(extension_guidance)
     orientation.append(
         render(agentic_view, "host", "app/bazarlyk/agentic/assets/completion-report.md"))
     orientation.append(
         render(agentic_view, "host", "app/bazarlyk/agentic/assets/thread-replies.md"))
-    if "telegram_send" in available_operations:
-        orientation.append(
-            render(agentic_view, "host", "app/bazarlyk/agentic/assets/telegram-replies.md"))
     orientation.append(
         render(agentic_view, "host", "app/bazarlyk/agentic/assets/owner-decisions.md"))
     orientation.append(render(agentic_view, "host", "app/bazarlyk/agentic/assets/trusted-handoffs.md"))

@@ -81,7 +81,7 @@ class RetentionDrain:
                     VALUES (?,?,?,?,?,NULL,?)''', (operation, key, _json(material), _json(metadata), _json(targets), utc_now()))
                 if event['kind'] == 'native_capture':
                     for record in records:
-                        if record.get('source_kind') == 'telegram_owner':
+                        if record.get('owner_source') is not None:
                             owner_source = record['owner_source']
                             identity = owner_source['native_input_id']
                             source_json = _json(owner_source)
@@ -150,39 +150,24 @@ class RetentionDrain:
                     'conversation_id': source['conversation_id'], 'receipt_id': source['receipt_id'],
                     'position': entry.offset, 'timestamp': entry.timestamp}
             if entry.speaker == SPEAKER_USER:
-                from .telegram_retention import association, references
+                from . import external_sources
                 with self.runtime.database.read() as uow:
                     _, _, _, current_ctx, current_session = gate._resolve(uow)
-                    linked = association(self.runtime, uow, current_ctx, current_session, source, entry.offset, entry.length)
+                    linked = external_sources.association(self.runtime, uow, current_ctx, current_session, source, entry.offset, entry.length)
                 if linked is None:
                     records.append({**base, 'actor_kind': 'unknown', 'source_kind': 'native_user', 'text': None,
                                     'availability': 'redacted', 'gaps': [{'code': 'sensitivity_provenance_unresolved'}]})
                     continue
-                linked_refs = references(source, linked)
+                linked_refs = external_sources.references(self.runtime, source, linked)
                 for ref in linked_refs:
                     gate.authorize_source(ref)
                 with self.runtime.database.read() as uow:
                     _, _, _, fresh_ctx, fresh_session = gate._resolve(uow)
-                    if association(self.runtime, uow, fresh_ctx, fresh_session, source, entry.offset, entry.length) != linked:
+                    if external_sources.association(self.runtime, uow, fresh_ctx, fresh_session, source, entry.offset, entry.length) != linked:
                         raise DomainError('evidence_unavailable', 'The observed owner input changed')
-                    message = uow.connection.execute('SELECT body FROM telegram_messages WHERE id=? AND direction=\'inbound\' AND sensitive=0 AND body_redacted=0',
-                                                     (linked['message_id'],)).fetchone()
-                    if message is None or not isinstance(message['body'], str):
-                        raise DomainError('evidence_unavailable', 'The original owner input is unavailable')
-                    owner_source = {'native_input_id': linked['native_input_id'], 'owner_principal_id': linked['owner_principal_id'],
-                        'agent_id': ctx.principal_id, 'provider': source['provider'], 'conversation_id': source['conversation_id'],
-                        'session_id': linked['session_id'], 'source_kind': 'telegram', 'source_key': linked['source_key'],
-                        'accepted_at': linked['accepted_at'], 'native_principal_id': linked['native_principal_id'],
-                        'owner_principal_source': 'telegram_owner_input', 'owner_principal_ref': linked_refs[1],
-                        'association_kind': 'host_reconciled_observation',
-                        'association_method': 'exact_text_and_session_time_window', 'processing_confirmed': False,
-                        'observed_receipt': {'archive_id': source['archive_id'], 'receipt_id': linked['observed_receipt_id'],
-                                             'offset': entry.offset, 'length': entry.length}}
-                    records.append({**base, 'actor_kind': 'human', 'source_kind': 'telegram_owner', 'text': message['body'],
-                        'owner_source': owner_source, 'association_kind': 'host_reconciled_observation',
-                        'association_method': 'exact_text_and_session_time_window', 'processing_confirmed': False,
-                        'observed_receipt_id': linked['observed_receipt_id'], 'length': entry.length, 'gaps': []})
-                    refs.extend(linked_refs)
+                    records.append(external_sources.record(self.runtime, uow, linked, linked_refs,
+                        ctx=ctx, source=source, entry=entry, base=base))
+                refs.extend(linked_refs)
             elif entry.speaker == SPEAKER_AGENT:
                 references = [{'type': t, 'id': i, 'business_id': b} for t, i, b in (entry.references or ())]
                 records.append({**base, 'actor_kind': 'agent', 'source_kind': 'native_agent', 'text': entry.text,

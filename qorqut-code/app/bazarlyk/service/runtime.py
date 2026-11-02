@@ -38,13 +38,13 @@ from qorqut_operations.storage.files import FileApplier
 
 # The writer classes the host's recovery barrier must account for beyond the engine's own (background, Signoffs and
 # browser): each has a real controller, or a zero-writer inventory verified against the composition,
-# or the barrier refuses. Telegram is the engine's optional slot, required here. ``context`` and ``history`` are required
+# or the barrier refuses. ``context`` and ``history`` are required
 # by contract: a composition that lacks them is incomplete, never an empty class. A selected extension's services are
 # further named writers (``Runtime.extension_writers``) and required while the extension is selected; an absent
 # extension adds no required writer.
 RECOVERY_WRITERS = ("native_chat", "inbox_nudges", "activity", "incidents", "terminal_control", "broadcast_dispatcher", "changes",
                     "context", "history")
-RECOVERY_REQUIRED = (*RECOVERY_WRITERS, "telegram")
+RECOVERY_REQUIRED = RECOVERY_WRITERS
 # The runtime attribute behind a lifecycle step whose name differs from it.
 STEP_ATTRIBUTES = {"context": "context_services", "history": "history_observer"}
 
@@ -98,8 +98,6 @@ class Runtime:
     changes: object = None
     delegation: object = None
     delegation_operations: object = None
-    telegram: object = None
-    telegram_operations: object = None
     native_chat: object = None
     inbox_nudges: object = None
     reminders: object = None  # the shared host reminder service (also application.reminders)
@@ -282,9 +280,6 @@ class Runtime:
                  required=True, running=lambda x: bool(x.running)),
             step("terminal_control", self.terminal_control, lambda x: x.start(), stop_with_timeout, "no terminal control",
                  timeout=35, required=True, running=thread_running("thread")),
-            # Disabled by default; an enabled bridge verifies and recovers on its own bounded threads.
-            step("telegram", self.telegram, lambda x: x.start(), stop_with_timeout, "no Telegram bridge", timeout=35,
-                 required=True, recovery="engine"),
             step("broadcast_dispatcher", self.broadcast_dispatcher, lambda x: x.start(), stop_with_timeout,
                  "no broadcast dispatcher", running=thread_running("thread")),
             # Do not stop/restart other writer services beneath a capture that is still completing its verified
@@ -306,7 +301,7 @@ class Runtime:
                  recovery="caller", running=lambda x: bool(x.running)))
         # The recovery orchestrators drain first: an in-flight capture or thaw owns the services and resources below it.
         stop_order = ("recovery_admin", "maintenance_capture", "context", "history", "inbox_nudges",
-                      "native_chat", "terminal_control", "telegram", "broadcast_dispatcher", "activity", "incidents", "changes",
+                      "native_chat", "terminal_control", "broadcast_dispatcher", "activity", "incidents", "changes",
                       "background", "signoffs")
         # A selected extension's services join at the start-before and stop-before anchors they name. Each is a required
         # recovery writer: it drains and resumes through the same stop adapter and start the lifetime uses.
@@ -445,9 +440,9 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     file_targets.register("agent_bootstrap_files", lambda resource: agents.resolve_file_target(resource))
     file_applier = FileApplier(database, file_targets.seal(), locks=locks)
     # The Signoff service names itself the Application's stager and binds to it once. Its ports resolve the retained
-    # management, Focus and WhatsApp domains at call time; they are bound as soon as those exist (below).
+    # management and Focus domains at call time; they are bound as soon as those exist (below).
     signoff_domains = SignoffDomains()
-    signoffs = SignoffService(database, signoff_ports(signoff_domains), locks=locks, file_applier=file_applier)
+    signoffs = SignoffService(database, signoff_ports(signoff_domains, private_signoffs=selection.private_signoffs, outcomes=selection.signoff_outcomes), locks=locks, file_applier=file_applier)
     application = Application(database, registry, policy=policy, signoffs=signoffs,
                               context_resolver=policy.refresh_context, writer_admission=recovery_admission,
                               delegation=HostDelegationProvider(), review_exceptions=HOST_REVIEW_EXCEPTIONS,
@@ -510,12 +505,6 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     runtime.broadcasts = Broadcasts(inbox).register()
     from bazarlyk.agents.terminal_control import TerminalControl
     runtime.terminal_control = TerminalControl(runtime).register()
-    # Inert: no file, network or token access until start(), and disabled unless a private config enables it.
-    from bazarlyk.telegram.bridge import TelegramBridge
-    runtime.telegram = TelegramBridge(runtime, authority_check=runtime.require_authority)
-    runtime.recovery_quiescer.telegram = BoundedWriter(runtime.telegram, "telegram")
-    from bazarlyk.telegram.operations import TelegramOperations
-    runtime.telegram_operations = TelegramOperations(runtime).register()
     from bazarlyk.native_chat.chat import NativeChat
     from bazarlyk.overseer.retention import Retention
     runtime.overseer_retention = Retention(runtime)
@@ -524,7 +513,7 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     runtime.overseer = OverseerOperations(runtime).register()
     from bazarlyk.native_chat.nudges import NudgeBackend, delivery_view
     # The shared reminder service is registered (its operations, legacy wrappers, delivery adapter and runtime.reminders /
-    # application.reminders) before the nudge pass can call its reconcile; it needs only the application, inbox and Telegram bridge.
+    # application.reminders) before the nudge pass can call its reconcile; it needs only the application and inbox; owner delivery uses a selected extension.
     from bazarlyk.reminders.service import ReminderService
     ReminderService(runtime).register()
     # Snooze expiry runs in the nudge pass's own write unit over the Task service's routing ports and this database: it
@@ -554,9 +543,9 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     runtime.focus = FocusService(inbox, signoffs).register()
     from bazarlyk.native_chat.user_input import UserInput
     UserInput(runtime).register()
-    # Every retained optional Signoff integration is a real domain: management routing, the Focus attention board and
-    # personal WhatsApp. A missing one is a composition error, never a silent ABSENT.
-    signoff_domains.bind(management=management, focus_board=runtime.focus.board, whatsapp_send=application.whatsapp_send).require()
+    # Retained Signoff domains are management routing and the Focus attention board. Selected connectors
+    # supply their own private visibility and outcome callbacks through the explicit extension declarations.
+    signoff_domains.bind(management=management, focus_board=runtime.focus.board).require()
     from bazarlyk.inbox.private_conversations import PrivateConversations
     runtime.private_conversations = PrivateConversations(inbox).register()
     # The six Project record operations: one existing Project's inventory, item reads and explicit cross-scope links.

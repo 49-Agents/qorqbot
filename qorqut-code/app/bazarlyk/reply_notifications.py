@@ -2,7 +2,6 @@
 import json
 
 from qorqut_operations.contracts import DomainError
-from qorqut_operations.global_agents import global_agent_ids
 from bazarlyk.management.identity import installation_owner, private_participants
 from bazarlyk.native_chat import store as native_store
 
@@ -84,12 +83,8 @@ def replies(runtime, ctx, include_communications=False, communications_after=Non
                           'agent_name': data.get('display_name') or data.get('name') or reply['agent_name'] or 'Agent',
                           'text': reply['preview'][:180], 'created_at': reply['completed_at'], 'unread': True,
                           'sequence': reply['completion_sequence'], 'nav_only': False})
-        current = global_agent_ids(uow.connection)
-        for row in uow.connection.execute(f"""SELECT m.* FROM telegram_messages m
-            WHERE m.direction='outbound' AND m.purpose='reply' AND m.agent_id IN ({','.join('?' * len(current))})
-            AND m.sensitive=0 AND m.body_redacted=0 ORDER BY m.created_at DESC LIMIT 30""", current):
-            items.append({'id': 'telegram:' + row['id'], 'kind': 'global', 'agent_id': row['agent_id'],
-                          'agent_name': row['chat_name'], 'text': (row['body'] or '')[:180], 'created_at': row['created_at']})
+        for extension in runtime.selection.extensions:
+            items.extend(extension.reply_notifications(uow))
         communications = _communications(uow, communications_after) if include_communications else None
     result = {'items': sorted(items, key=lambda item: (item['created_at'], item['id']))}
     if include_communications:

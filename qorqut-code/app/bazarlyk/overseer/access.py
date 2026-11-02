@@ -173,23 +173,9 @@ class EvidenceAccess:
                         _forbidden()
                     if ((receipt.agent_id, receipt.provider, receipt.conversation_id, receipt.archive_id) != (agent, engine, conversation, loc['archive_id'])
                             or loc['position'] + loc['length'] > receipt.record_boundary): _forbidden()
-            elif kind in ('telegram_owner_input', 'telegram_message'):
-                if kind == 'telegram_owner_input':
-                    if identity != loc.get('owner_input_id'): _forbidden()
-                    rows = uow.connection.execute('SELECT agent_id,owner_principal_id,sensitive FROM telegram_owner_inputs WHERE id=?', (identity,)).fetchall()
-                else:
-                    if identity != loc.get('message_id'): _forbidden()
-                    rows = uow.connection.execute('SELECT agent_id,owner_principal_id,sensitive FROM telegram_owner_inputs WHERE message_id=? LIMIT 2', (identity,)).fetchall()
-                    message = uow.connection.execute('SELECT direction,sensitive,body_redacted FROM telegram_messages WHERE id=?', (identity,)).fetchone()
-                    if message is None or message['direction'] != 'inbound' or message['sensitive'] or message['body_redacted']:
-                        _forbidden()
-                owner = uow.connection.execute("SELECT owner_principal_id FROM installation WHERE id='service'").fetchone()
-                if len(rows) != 1 or owner is None or rows[0]['owner_principal_id'] != owner[0] or rows[0]['sensitive']:
-                    _forbidden()
-                if kind == 'telegram_owner_input' and loc.get('agent_id') != rows[0]['agent_id']: _forbidden()
-                self._agent(ctx, rows[0]['agent_id'], uow)
-                profile = uow.connection.execute('SELECT home_business_id FROM agent_profiles WHERE agent_id=?', (rows[0]['agent_id'],)).fetchone()
-                if profile is None or profile[0] != business: _forbidden()
+            elif (adapter := next((value for value in self.runtime.selection.owner_input_sources.values()
+                                   if kind in value.kinds), None)) is not None:
+                adapter.authorize(self, ctx, kind, identity, loc, business, uow)
             else:
                 _forbidden()
 

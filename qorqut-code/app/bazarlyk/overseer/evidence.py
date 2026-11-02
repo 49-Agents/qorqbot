@@ -1796,110 +1796,22 @@ class HostScanner:
                         actor_id, actor_kind, event_id = agent, "agent", entry_id
                         original_sources, association_info, eligible_text = [], None, entry.text
                         if entry.speaker == SPEAKER_USER:
-                            # Only an existing receipt-to-exact-record association establishes ownership.
-                            association = uow.connection.execute(
-                                "SELECT i.principal_id,i.input_type,i.origin,i.state,i.id,i.source_key,i.reason,"
-                                "json_extract(i.evidence_json,'$.receipt_id'),json_type(i.evidence_json,'$.processing_confirmed'),i.sensitive "
-                                "FROM native_inputs i JOIN native_sessions s ON s.id=i.session_id "
-                                "WHERE i.agent_id=? AND s.agent_id=? AND s.provider=? AND s.conversation_id=? "
-                                "AND (s.transcript_path IS NULL OR s.transcript_path=?) "
+                            association_types = uow.connection.execute(
+                                "SELECT i.input_type FROM native_inputs i JOIN native_sessions s ON s.id=i.session_id "
+                                "WHERE i.agent_id=? AND s.provider=? AND s.conversation_id=? "
                                 "AND json_type(i.evidence_json,'$.native_input_observed')='true' "
                                 "AND json_extract(i.evidence_json,'$.raw_offset')=? LIMIT 2",
-                                (agent, agent, provider, conversation, row["transcript_path"], entry.offset)).fetchall()
-                            if (len(association) != 1 or association[0][0] not in (None, owner_id) or association[0][1] != "telegram"
-                                    or association[0][2] != "owner" or association[0][3] != "uncertain"
-                                    or association[0][6] != "transcript_confirmed" or association[0][8] != "false" or association[0][9]
-                                    or not association[0][7]):
-                                gaps.append({"code": "unresolved_provenance", "reason": "unbound_native_input", "offset": entry.offset})
+                                (agent, provider, conversation, entry.offset)).fetchall()
+                            adapter = self.runtime.selection.owner_input_sources.get(association_types[0][0]) if len(association_types) == 1 else None
+                            result = adapter.evidence(self, uow, agent=agent, provider=provider, conversation=conversation,
+                                row=row, entry=entry, owner_id=owner_id, archive=archive, receipt=receipt, namespace=namespace,
+                                gaps=gaps) if adapter else None
+                            if result is None:
+                                if adapter is None:
+                                    gaps.append({"code": "unresolved_provenance", "reason": "owner_source_unavailable", "offset": entry.offset})
                                 blocked = True
                                 continue
-                            try:
-                                observed = archive.load_receipt(association[0][7])
-                                if ((observed.agent_id, observed.provider, observed.conversation_id, observed.archive_id)
-                                        != (agent, provider, conversation, receipt.archive_id)
-                                        or observed.record_boundary < entry.offset + entry.length):
-                                    raise ValueError("wrong receipt lineage or range")
-                                raw = archive.read_raw(observed, offset=entry.offset, limit=entry.length)
-                                if len(raw.data) != entry.length:
-                                    raise ValueError("incomplete observed range")
-                            except Exception:
-                                gaps.append({"code": "unresolved_provenance", "reason": "association_receipt_unavailable", "offset": entry.offset})
-                                blocked = True
-                                continue
-                            input_pre = self._locator(namespace, "native_input", association[0][4],
-                                agent_id=agent, provider=provider, conversation_id=conversation, input_id=association[0][4])
-                            self.access.authorize_source(input_pre)
-                            original_sources.append(input_pre)
-                            source_key = association[0][5] or ""
-                            if not source_key.startswith("telegram:"):
-                                gaps.append({"code": "unresolved_provenance", "reason": "telegram_source_missing", "offset": entry.offset})
-                                blocked = True
-                                continue
-                            telegram_id = source_key.removeprefix("telegram:")
-                            telegram_pre = self._locator(namespace, "telegram_owner_input", telegram_id, owner_input_id=telegram_id, agent_id=agent)
-                            self.access.authorize_source(telegram_pre)
-                            telegram = uow.connection.execute("SELECT purpose,correlation_id,signoff_id,owner_principal_id,agent_id,sensitive,message_id "
-                                "FROM telegram_owner_inputs WHERE id=?", (telegram_id,)).fetchone()
-                            if (telegram is None or telegram[3] != owner_id or telegram[4] != agent
-                                    or telegram[5] or not telegram[1]):
-                                gaps.append({"code": "unresolved_provenance", "reason": "telegram_source_missing", "offset": entry.offset})
-                                blocked = True
-                                continue
-                            original_sources.append(telegram_pre)
-                            message_pre = self._locator(namespace, "telegram_message", telegram[6], message_id=telegram[6])
-                            self.access.authorize_source(message_pre)
-                            message = uow.connection.execute("SELECT body,direction,sensitive,body_redacted,reply_to_id FROM telegram_messages WHERE id=?",
-                                (telegram[6],)).fetchone()
-                            if (message is None or message[1] != "inbound" or message[2] or message[3]
-                                    or not isinstance(message[0], str)):
-                                gaps.append({"code": "unresolved_provenance", "reason": "telegram_message_unavailable", "offset": entry.offset})
-                                blocked = True
-                                continue
-                            if message[4] and telegram[0] != "signoff_reply":
-                                parent = uow.connection.execute("SELECT agent_id FROM telegram_messages WHERE id=?", (message[4],)).fetchone()
-                                if parent is None or parent[0] is None:
-                                    gaps.append({"code": "unresolved_provenance", "reason": "telegram_reply_origin_unknown", "offset": entry.offset})
-                                    blocked = True
-                                    continue
-                                if parent[0] in self.journal.overseer_ids:
-                                    blocked = True
-                                    continue
-                            original_sources.append(message_pre)
-                            eligible_text = message[0]
-                            actor_id, actor_kind, event_id = owner_id, "human", telegram[1]
-                            association_info = {"association_kind": "host_reconciled_observation",
-                                "association_method": "exact_text_and_session_time_window", "processing_confirmed": False,
-                                "owner_principal_source": "telegram_owner_input", "owner_principal_ref": telegram_pre,
-                                "native_principal_id": association[0][0],
-                                "native_input_ref": input_pre, "owner_input_ref": telegram_pre,
-                                "receipt_ref": {"archive_id": observed.archive_id, "receipt_id": observed.receipt_id,
-                                                "offset": entry.offset, "length": entry.length}}
-                            if telegram[0] == "signoff_reply":
-                                signoff = uow.connection.execute("SELECT proposer_agent_id,proposer_principal_id,review_business_id FROM signoffs WHERE id=?",
-                                    (telegram[2],)).fetchone()
-                                if signoff is None:
-                                    gaps.append({"code": "unresolved_provenance", "reason": "signoff_source_missing", "offset": entry.offset})
-                                    blocked = True
-                                    continue
-                                if signoff[0] in self.journal.overseer_ids or signoff[1] in self.journal.overseer_ids:
-                                    blocked = True
-                                    continue
-                                source_namespace = ({"kind": "business", "business_id": signoff[2]} if signoff[2]
-                                                    else {"kind": "global", "business_id": None})
-                                source_pre = self._locator(source_namespace, "signoff_note", telegram[1], signoff_id=telegram[2], note_id=telegram[1])
-                                try:
-                                    self.access.authorize_source(source_pre)
-                                except DomainError:
-                                    gaps.append({"code": "unresolved_provenance", "reason": "signoff_source_forbidden", "offset": entry.offset})
-                                    blocked = True
-                                    continue
-                                original_sources.append(source_pre)
-                                note = uow.connection.execute("SELECT body FROM signoff_notes WHERE id=? AND signoff_id=?", (telegram[1], telegram[2])).fetchone()
-                                if note is None:
-                                    gaps.append({"code": "unresolved_provenance", "reason": "signoff_source_missing", "offset": entry.offset})
-                                    blocked = True
-                                    continue
-                                eligible_text = note[0]
+                            original_sources, association_info, eligible_text, actor_id, actor_kind, event_id = result
                         elif entry.speaker != SPEAKER_AGENT or blocked:
                             continue
                         if entry.references is not None:

@@ -293,14 +293,13 @@ class OverseerOperations:
             except (ValueError, TypeError, AttributeError):
                 raise DomainError('validation_error', 'Invalid owner request cursor') from None
         limit = args.get('limit', 20)
-        rows = uow.connection.execute('''SELECT * FROM (
+        predicates = ["(i.input_type='chat' AND i.principal_id=x.owner_principal_id)",
+            *(adapter.owner_predicate() for adapter in self.runtime.selection.owner_input_sources.values())]
+        rows = uow.connection.execute(f'''SELECT * FROM (
             SELECT i.created_at AS at,i.id AS id,'chat' AS kind FROM native_inputs i
             JOIN native_sessions s ON s.id=i.session_id JOIN installation x ON x.id='service'
-            LEFT JOIN telegram_owner_inputs t ON i.source_key='telegram:'||t.id AND t.agent_id=i.agent_id
             WHERE i.agent_id=? AND s.provider=? AND s.conversation_id=? AND i.origin='owner'
-              AND ((i.input_type='chat' AND i.principal_id=x.owner_principal_id)
-                   OR (i.input_type='telegram' AND i.principal_id IS NULL AND t.owner_principal_id=x.owner_principal_id)
-                   OR (i.input_type='telegram' AND i.principal_id=x.owner_principal_id AND t.owner_principal_id=x.owner_principal_id))
+              AND ({' OR '.join(predicates)})
             UNION ALL
             SELECT s.created_at AS at,s.id AS id,'workflow_signoff' AS kind FROM overseer_workflow_requests r
             JOIN signoffs s ON s.id=r.signoff_id WHERE r.agent_id=? AND r.conversation_id=?

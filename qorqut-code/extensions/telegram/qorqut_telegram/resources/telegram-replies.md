@@ -1,0 +1,1 @@
+For the concise owner-chat answer to a request in another thread, use telegram_send with purpose=reply in your own configured topic. Follow telegram-owner-communication for delivery states and retries; a queued send is not confirmed delivery.

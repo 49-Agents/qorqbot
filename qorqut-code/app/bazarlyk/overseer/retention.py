@@ -121,10 +121,10 @@ class Retention:
                                               (identity,)).fetchone()
             if (row is None or session is None or row['agent_id'] != ctx.principal_id
                     or row['native_agent'] != row['agent_id']
-                    or row['native_owner'] != row['principal_id'] and not (row['input_type'] == 'telegram' and row['native_owner'] is None)
+                    or row['native_owner'] != row['principal_id'] and not (observed is not None and row['native_owner'] is None)
                     or row['native_session'] != row['session_id'] or row['principal_id'] != installation_owner(uow)
-                    or row['native_sensitive'] != row['sensitive'] or row['input_type'] not in ('chat', 'telegram') or row['origin'] != 'owner'
-                    or row['input_type'] == 'telegram' and (observed is None or row['state'] != 'uncertain' or row['reason'] != 'transcript_confirmed')
+                    or row['native_sensitive'] != row['sensitive'] or row['input_type'] != 'chat' and observed is None or row['origin'] != 'owner'
+                    or row['input_type'] != 'chat' and (observed is None or row['state'] != 'uncertain' or row['reason'] != 'transcript_confirmed')
                     or row['provider'] != session['provider'] or row['conversation_id'] != session['conversation_id']):
                 raise DomainError('not_found', 'The canonical owner request is unavailable')
             source = json.loads(row['source_json'])
@@ -134,8 +134,7 @@ class Retention:
                         'source_key': row['native_source_key'], 'accepted_at': row['native_created_at']}
             if any(source.get(key) != value for key, value in expected.items()):
                 raise DomainError('evidence_unavailable', 'The owner request binding is inconsistent')
-            if row['input_type'] == 'telegram' and (source.get('native_principal_id') != row['native_owner']
-                    or source.get('owner_principal_source') != 'telegram_owner_input'):
+            if observed is not None and source.get('native_principal_id') != row['native_owner']:
                 raise DomainError('evidence_unavailable', 'The observed owner source is inconsistent')
             sensitive = bool(row['sensitive'])
             delivery = {'state': row['state'], 'transport_reported_sent': row['state'] == 'submitted',
@@ -161,7 +160,7 @@ class Retention:
         records = archive.get_retention(material)['records']
         if observed is not None:
             records = [record for record in records if record.get('entry_id') == observed['entry_id']
-                       and record.get('source_kind') == 'telegram_owner' and record.get('owner_source') == source]
+                       and record.get('owner_source') == source]
         elif len(records) == 1 and records[0].get('source') != source:
             records = []
         if len(records) != 1 or not isinstance(records[0].get('text'), str):

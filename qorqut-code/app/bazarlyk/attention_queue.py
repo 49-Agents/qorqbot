@@ -67,10 +67,6 @@ def queue(runtime, ctx, change=None):
                 'viewbox_item_id': row['id'], 'title': row['title'], 'text': row['title'],
                 'created_at': row['placed_at'], 'placement_sequence': row['placement_sequence'], 'unread': True})
         for item in candidates:
-            if item['id'].startswith('telegram:'):
-                message = uow.connection.execute('SELECT body FROM telegram_messages WHERE id=? AND sensitive=0 AND body_redacted=0', (item['id'][9:],)).fetchone()
-                if message:
-                    item['body'] = message['body']
             profile = uow.connection.execute('SELECT profile_json FROM agent_profiles WHERE agent_id=?', (item.get('agent_id'),)).fetchone()
             if profile:
                 data = json.loads(profile[0])

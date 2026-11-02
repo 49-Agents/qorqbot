@@ -3,13 +3,13 @@
 A reminder is a definition row (recipient, text, optional link, one-off time or recurrence, snooze, the next durable due
 boundary and the one current due occurrence). Each due moment is an immutable occurrence row that earns at most one durable
 delivery receipt. Seven operations manage them; the inbox reconcile hook (``reconcile``) turns due boundaries into
-occurrences and hands each to ``ReminderDelivery``, which writes the existing inbox event or Telegram outbox row in the same
+occurrences and hands each to ``ReminderDelivery``, which writes the existing inbox event or selected connector receipt in the same
 transaction. The service never sends anything itself.
 
 Authority: the installation owner and the configured Ordubashy manage every reminder; any other agent manages only the
 reminders addressed to itself. ``creator_id`` stays the origin; ``authority_principal_id`` is whoever last authorized the
 schedule, recipient or a snooze, and is the principal delivery rechecks. Recipient, scheduling authority and the linked item's
-readability for both are rechecked when a delivery is published, when a queued Telegram row is admitted and when an inbox event
+readability for both are rechecked when a delivery is published, when a queued owner delivery is admitted and when an inbox event
 is read; delegated identities never manage reminders."""
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -237,7 +237,7 @@ class ReminderService:
         return True
 
     def deliverable(self, uow, row):
-        """The one shared delivery-eligibility rule; delivery and Telegram admission only consult it through the occurrence."""
+        """The one shared delivery-eligibility rule; delivery and connector admission only consult it through the occurrence."""
         return (self.recipient_ok(uow, row["recipient_id"], row["business_id"]) and self.authority_ok(uow, row)
                 and self.link_ok(uow, row))
 
@@ -292,7 +292,12 @@ class ReminderService:
             available = card is not None
             # A reference this viewer cannot read now is not shown at all, only flagged unavailable.
             link = {**link, "label": card.get("label")} if card is not None else None
-        return record(row, names=self.names(uow, [row], memo["names"]), link=link, link_available=available)
+        result = record(row, names=self.names(uow, [row], memo["names"]), link=link, link_available=available)
+        installation = uow.repository("installation").get("service")
+        if (installation and row["recipient_id"] == installation["owner_principal_id"]
+                and not any(extension.owner_notifications() is not None for extension in self.runtime.selection.extensions)):
+            result["notification_delivery"] = {"state": "unavailable", "reason": "owner_transport_not_installed"}
+        return result
 
     @staticmethod
     def memo():
@@ -682,9 +687,8 @@ class ReminderService:
                                    (timing.stamp(timing.parse_stamp(stamp) + timedelta(seconds=wait)), occurrence_id))
         return published
 
-    @staticmethod
-    def record_receipt(uow, occurrence_id, receipt, stamp):
-        if not isinstance(receipt, dict) or receipt.get("kind") not in {"inbox", "telegram"}:
+    def record_receipt(self, uow, occurrence_id, receipt, stamp):
+        if not isinstance(receipt, dict) or receipt.get("kind") not in {"inbox", *(extension.id for extension in self.runtime.selection.extensions if extension.owner_notifications() is not None)}:
             raise DomainError("invalid_receipt", "Reminder delivery returned an unrecognized receipt")
         uow.connection.execute("UPDATE reminder_occurrences SET receipt_json=?, published_at=?, retry_at=NULL WHERE id=? AND receipt_json IS NULL",
                                (json.dumps(plain(receipt), sort_keys=True), stamp, occurrence_id))

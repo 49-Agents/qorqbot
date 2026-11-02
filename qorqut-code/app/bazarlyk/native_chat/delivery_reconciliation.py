@@ -1,4 +1,4 @@
-"""Confirm uncertain Telegram submissions from exact archived native user entries.
+"""Confirm uncertain optional connector submissions from exact archived native user entries.
 
 This never submits text or acknowledges inbox work. A bounded, restartable scan also
 repairs receipts whose transcript evidence predates installation of this code.
@@ -25,12 +25,15 @@ class DeliveryReconciler:
         self.offsets = {}
 
     def step(self, archive, session, receipt):
+        types = tuple(self.runtime.selection.owner_input_sources)
+        if not types:
+            return
         with self.runtime.database.read() as uow:
             pending = [dict(row) for row in uow.connection.execute(
                 "SELECT i.*, s.ended_at FROM native_inputs i JOIN native_sessions s ON s.id=i.session_id "
                 "WHERE i.agent_id=? AND s.provider=? AND s.conversation_id=? AND s.transcript_path=? "
-                "AND i.input_type='telegram' AND i.state='uncertain' AND i.sensitive=0 AND i.body IS NOT NULL",
-                (session['agent_id'], session['provider'], session['conversation_id'], session['transcript_path']))]
+                f"AND i.input_type IN ({','.join('?' for _ in types)}) AND i.state='uncertain' AND i.sensitive=0 AND i.body IS NOT NULL",
+                (session['agent_id'], session['provider'], session['conversation_id'], session['transcript_path'], *types))]
         if not pending:
             return
         keys = {row['id']: (receipt.archive_id, row['id']) for row in pending}
@@ -65,15 +68,10 @@ class DeliveryReconciler:
                                               evidence, ('uncertain',)):
                         continue
                     uow.connection.execute('UPDATE native_inputs SET body=NULL WHERE id=?', (row['id'],))
-                    # Keep the producer's receipt consistent without sending a second Telegram notice.
-                    if row['source_key'].startswith('telegram:'):
-                        repository = uow.repository('telegram_owner_inputs')
-                        source = repository.get(row['source_key'][len('telegram:'):])
-                        if source and source['agent_id'] == row['agent_id'] and source['state'] in {'submitting', 'uncertain'}:
-                            repository.update(source['id'], {'state': 'submitted', 'error_code': None,
-                                'deferral_reason': None, 'next_attempt_at': None,
-                                'submitted_at': entry.timestamp, 'receipt_json': evidence},
-                                expected_revision=source['revision'])
+                    # Keep the producer's receipt consistent without sending a second connector notice.
+                    adapter = self.runtime.selection.owner_input_sources.get(row['input_type'])
+                    if adapter is not None:
+                        adapter.reconcile(uow, row, entry, evidence)
         # Advance only after successful settlement. A crash safely rechecks archived evidence.
         matched = {row['id'] for row, _ in confirmed}
         for row in pending:

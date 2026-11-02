@@ -649,7 +649,8 @@ def _extension_declaration(extension) -> dict:
     declarations = {}
     for name in ("storage", "catalog", "history", "workspace_types", "item_kinds", "sources",
                  "calendar_providers", "native_connections", "error_statuses", "operation_guards",
-                 "note_derivations", "assets", "package_validators", "integration_adapter"):
+                 "note_derivations", "assets", "package_validators", "integration_adapter", "policy_rules", "private_signoffs",
+                 "operation_guidance", "owner_input_sources", "global_discovery_operations"):
         method = getattr(extension, name, None)
         if not callable(method):
             continue

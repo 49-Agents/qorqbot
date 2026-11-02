@@ -16,6 +16,7 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from qorqut_operations.contracts import (DomainError, InvocationContext, InvocationOptions, OperationResult,
                                          canonical_bytes, canonical_hash, new_id, plain)
+from qorqut_operations import local_time
 from qorqut_operations.storage.database import REQUEST_TIMING, RequestTiming
 from qorqut_operations.storage.repositories import decode_row
 from .auth import AuthenticatedPrincipal
@@ -210,7 +211,8 @@ class HTTPAPI:
             global_owner = bool(installation and installation["owner_principal_id"] == actor.principal.id)
             owned = uow.connection.execute("SELECT 1 FROM business_memberships WHERE principal_id=? AND active=1 AND is_owner=1 LIMIT 1", (actor.principal.id,)).fetchone()
         return {"principal_id": actor.principal.id, "principal_kind": "human", "display_name": actor.principal.display_name,
-                "is_owner": bool(owned) or global_owner, "is_installation_owner": global_owner}
+                "is_owner": bool(owned) or global_owner, "is_installation_owner": global_owner,
+                "operational_timezone": local_time.TIMEZONE}
 
     def _report_transport_failure(self, request, operation, *, context=None):
         reporter = getattr(getattr(self.runtime, "incidents", None), "reporter", None)
@@ -488,7 +490,7 @@ class HTTPAPI:
                     "calendar_calendars_list", "calendar_events_list", "calendar_event_get",
                     "calendar_event_create", "calendar_event_update", "calendar_event_delete", "calendar_event_respond",
                     "owner_reminder", "reminders_create", "reminders_get", "reminders_list", "reminders_update", "reminders_snooze",
-                    "reminders_dismiss", "reminders_cancel", "telegram_status", "telegram_delivery_get", "telegram_delivery_resolve", "telegram_notify",
+                    "reminders_dismiss", "reminders_cancel",
                     "focus_get", "focus_present", "focus_edit", "focus_move", "focus_set_archived", "focus_reply", "signoffs_comment", "signoffs_notes_list", "tasks_thread_get", "crm_activity_list", "crm_activity_record",
                     "attention_get", "attention_add", "attention_remove", "workers_list",
                     "workspace_types", "workspace_get",

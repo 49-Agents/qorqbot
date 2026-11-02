@@ -134,21 +134,12 @@ BUILTIN_CATALOG = (
       ("calendar_calendars_list", "calendar_events_list", "calendar_event_get")),
     *(CatalogEntry(name, False, "compound", frozenset({"mcp", "dashboard"})) for name in
       ("calendar_event_create", "calendar_event_update", "calendar_event_delete", "calendar_event_respond")),
-    # Telegram owner bridge. Agents get send/history/receipts only; status and reconciliation are owner-only.
+    # Legacy reminder alias remains available independently of an owner delivery connector.
     CatalogEntry("owner_reminder", False, "records", frozenset({"mcp", "dashboard"})),
     # Shared reminders for the owner, Ordubashy and other registered agents; owner_reminder and owner_reminders_list are thin wrappers.
     *(CatalogEntry(name, False, kind, frozenset({"mcp", "dashboard", "worker"})) for name, kind in (
         ("reminders_create", "records"), ("reminders_get", "read"), ("reminders_list", "read"), ("reminders_update", "records"),
         ("reminders_snooze", "records"), ("reminders_dismiss", "records"), ("reminders_cancel", "records"))),
-    # Personal WhatsApp: owner-Signoff proposals from the exact bound Ordubashy only (never a direct send tool).
-    CatalogEntry("whatsapp_send", True, "records", frozenset({"mcp"})),
-    CatalogEntry("telegram_send", False, "records", frozenset({"mcp"})),
-    CatalogEntry("telegram_send_file", False, "records", frozenset({"mcp"})),
-    CatalogEntry("telegram_history", False, "read", frozenset({"mcp"})),
-    CatalogEntry("telegram_delivery_get", False, "read", frozenset({"mcp", "dashboard"})),
-    CatalogEntry("telegram_notify", False, "records", frozenset({"dashboard", "worker"})),
-    CatalogEntry("telegram_status", False, "read", frozenset({"dashboard"}), True),
-    CatalogEntry("telegram_delivery_resolve", False, "records", frozenset({"dashboard"}), True),
     *(CatalogEntry(name, True, "records", frozenset({"worker"})) for name in _WORKERS),
 )
 
@@ -167,6 +158,9 @@ def builtin_registry(extensions=NO_EXTENSIONS) -> OperationRegistry:
     if taken or len({entry.name for entry in contributed}) != len(contributed):
         raise ValueError("An extension may not redeclare operation metadata: " + ", ".join(taken))
     registry = OperationRegistry((*BUILTIN_CATALOG, *ENGINE_ENTRIES, *contributed))
+    registry.extension_policy_rules = extensions.policy_rules
+    registry.extension_operation_guidance = extensions.operation_guidance
+    registry.extension_global_discovery = extensions.global_discovery_operations
     registry.register(descriptor())
     return registry
 

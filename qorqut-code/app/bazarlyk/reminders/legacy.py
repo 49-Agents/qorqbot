@@ -4,8 +4,7 @@
 target is always the installation owner and every mutation now needs the owner or the configured Ordubashy: another agent can
 no longer use them to remind the owner. Every call is also authorized as the matching shared ``reminders_*`` operation (a deny
 there is not bypassed here), including when a saved result is replayed. Reminders are stable rows now, so an update keeps its
-reminder_id. Nothing here touches the Telegram outbox except admitting a queued legacy row, which the shared service has already
-taken over."""
+reminder_id. Optional delivery adapters own admission of historical queued transport rows."""
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, page_position, schema
 from qorqut_operations.contracts import DomainError, plain
@@ -54,7 +53,6 @@ class LegacyReminders:
             description="Owner and configured Ordubashy read of the owner's reminders in the selected project (or Global from the "
                         "root route). Safe stored fields only; no delivery, update or cancel.",
             read=self.read))
-        self.runtime.telegram.admit_hooks[NAME] = self.admit
         return self
 
     # ----- owner_reminder -----------------------------------------------------------------------------------------
@@ -142,27 +140,3 @@ class LegacyReminders:
         items, cursor = self.service.scan(uow, where, values, "created_at", True, binding, after, args.get("limit", DEFAULT_PAGE),
                                           lambda row: True)
         return {"reminders": [legacy(row) for row in items], "next_cursor": cursor}
-
-    # ----- queued legacy Telegram rows --------------------------------------------------------------------------------
-
-    def admit(self, uow, row):
-        """Admission of a still-queued legacy ``owner_reminder`` outbox row.
-
-        A row the offline transform imported is delivered by the shared service and is cancelled here, so one reminder can
-        never send twice. A row that was never imported keeps its original rule: recheck the creator's current permission."""
-        if self.service.load(uow, row["id"]) is not None:
-            return "cancelled", "reminder_migrated", "Reminder is delivered by the shared reminder service"
-        namespace = row["source_key"].split("/", 1)[0]
-        business = namespace.removeprefix("business:") if namespace != "global" else None
-        try:
-            ctx = self.app.policy.context_for(row["agent_id"], business_id=business, review_business_id=None, uow=uow)
-            ctx = self.app.current_context(ctx, uow)
-            owner = is_active_installation_owner(uow, ctx.principal_id, ctx.principal_kind)
-            if not owner and (ctx.principal_kind != "agent" or ctx.delegation_assignment_id is not None):
-                raise DomainError("forbidden", "Only the owner and authorized agents may manage owner reminders")
-            decision = self.app.authorize(ctx, self.app.registry.get(NAME), [], uow, namespace=namespace)
-            if decision.mode != "allow":
-                raise DomainError("forbidden", "Reminder permission was revoked")
-        except DomainError:
-            return "cancelled", "permission_revoked", "Reminder creator is no longer authorized"
-        return None

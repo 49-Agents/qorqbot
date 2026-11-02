@@ -5,7 +5,7 @@ resolver interleaved these per-domain rules with the generic precedence steps, s
 phases of ``PolicyRules`` exactly where v1 evaluated them:
 
 * ``before_override``: rules that decide before an agent's explicit override is consulted, either because they
-  refuse it (Telegram roles, the restricted user-input presentation, the CRM and Table-discussion operations that
+  refuse it (selected extension roles, the restricted user-input presentation, the CRM and Table-discussion operations that
   may never exceed the existing operation they build on, Global table archive, Project archive, terminal control, owner-action
   proposals, ``learning-applier`` only operations, the Learning Applier-only Context question tools that follow the caller's current
   ``context_edit`` decision);
@@ -29,8 +29,6 @@ from qorqut_operations.tables import GLOBAL_TABLE_OPERATIONS, global_tables
 from bazarlyk.agents.roles import LEARNING_APPLIER_ROLE, ORDUBASHY_ROLE
 
 READS_AS_TASK = frozenset({"tasks_notes_list", "tasks_thread_get", "tasks_associated_records"})
-TELEGRAM_AGENT_OPERATIONS = frozenset({"telegram_send", "telegram_send_file", "telegram_history", "telegram_delivery_get"})
-TELEGRAM_ROLES = frozenset({ORDUBASHY_ROLE})
 # Project records: one existing Project's inventory and explicit links. The handler itself admits only the installation
 # owner and the exact active configured Ordubashy, so this standing default grants no other audience.
 PROJECT_OPERATIONS = frozenset({"project_record_get", "project_items_list", "project_items_candidates",
@@ -55,7 +53,7 @@ CRM_PREREQUISITES = {
 TABLE_PREREQUISITE_OPERATIONS = frozenset(name for name, base in CRM_PREREQUISITES.items() if base in GLOBAL_TABLE_OPERATIONS)
 STRENGTH = {"allow": 0, "signoff": 1, "deny": 2}
 # Operations whose Global rule differs from the business one, so effective-configuration discovery evaluates both scopes.
-GLOBAL_DISCOVERY_OPERATIONS = GLOBAL_TABLE_OPERATIONS | TABLE_PREREQUISITE_OPERATIONS | {"whatsapp_send", "fastmail_send", "fastmail_reply", "fastmail_forward"}
+GLOBAL_DISCOVERY_OPERATIONS = GLOBAL_TABLE_OPERATIONS | TABLE_PREREQUISITE_OPERATIONS
 # Repair-ticket removal, phase 1: the agent ticket/incident tools are gone. The one retained internal scoped
 # reader keeps its standing grant so surviving Task, Signoff and Project reference resolution still authorizes;
 # the agent MCP caller refuses it as a tool, so the grant exposes no callable agent operation. Phase 2 removes
@@ -71,16 +69,10 @@ CORE_DEFAULT_ALLOWED = frozenset({"environment_list", "operations_batch", "opera
                                   "agents_activity_list", "agent_work_update", "business_briefing", "files_link", "agentic_access"})
 
 
-def _telegram(name, defaults, overrides, registry, *, role_id, scope, resolve):
-    if name in TELEGRAM_AGENT_OPERATIONS:
-        # The role is necessary, never sufficient: the operation also requires the exact configured agent for the chat.
-        if role_id not in TELEGRAM_ROLES:
-            return PolicyDecision("deny", "telegram_role")
-        return PolicyDecision(overrides.get(name, defaults.get(name, "deny")),
-                              "agent_override" if name in overrides else "role_default")
-    if name == "telegram_notify":
-        # Trusted registered workers only (they carry no role); an agent notifies through its own chat.
-        return PolicyDecision(defaults.get(name, "deny") if role_id is None else "deny", "telegram_worker")
+
+def _extension_policy(name, defaults, overrides, registry, **scope):
+    rule = getattr(registry, "extension_policy_rules", {}).get(name)
+    return rule(name, defaults, overrides, registry, **scope) if rule else None
 
 
 def _prerequisites(name, defaults, overrides, registry, *, role_id, scope, resolve):
@@ -123,17 +115,6 @@ def _owner_approvals(name, defaults, overrides, registry, *, role_id, scope, res
             return PolicyDecision("deny", "terminal_control_role")
         # Owner standing authority: Ordubashy's lifecycle actions on workers need no Signoff.
         return PolicyDecision("allow", "terminal_control_owner_authority")
-    if name in {"fastmail_send", "fastmail_reply", "fastmail_forward"}:
-        # Native outbound email now uses exact-content owner review; an allow override cannot skip it.
-        denied = overrides.get(name, defaults.get(name)) == "deny"
-        return PolicyDecision("deny" if denied or scope != "global" else "signoff", "email_owner_approval")
-    if name == "whatsapp_send":
-        # A proposal for the owner's Signoff, never a send. Like owner_action_propose it needs a grant (override or role
-        # default), a deny anywhere wins, only the global Ordubashy qualifies, and an 'allow' cannot remove the approval.
-        # The operation itself also requires the exact agent bound by config/whatsapp-personal.json.
-        granted = overrides.get(name, defaults.get(name, "deny")) != "deny"
-        return PolicyDecision("signoff" if role_id == ORDUBASHY_ROLE and scope == "global" and granted else "deny",
-                              "whatsapp_owner_approval")
     if name == "owner_action_propose":
         # This is delegation of an exact change, never an owner identity/grant.
         # Even an 'allow' override must not remove the human approval boundary.
@@ -214,7 +195,7 @@ def _fallback_defaults(name, defaults, overrides, registry, *, role_id, scope, r
 
 HOST_POLICY_RULES = PolicyRules(
     # ``_prerequisites`` precedes the blanket Global-table rule so a new Table operation is never decided by it alone.
-    before_override=(_telegram, _user_input, _prerequisites, global_tables, archive_approval_rule, _owner_approvals,
+    before_override=(_extension_policy, _user_input, _prerequisites, global_tables, archive_approval_rule, _owner_approvals,
                     _learning_applier, _context_questions),
     after_override=(_standing_defaults,),
     after_default=(_fallback_defaults,),

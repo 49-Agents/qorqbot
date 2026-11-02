@@ -188,7 +188,7 @@ class RetentionEventAccess:
         with self.runtime.database.read() as uow:
             event, source, binding, ctx, session = self._resolve(uow)
             if event['kind'] == 'native_capture':
-                from .telegram_retention import association, references
+                from . import external_sources
                 loc = ref['locator']
                 position, length = loc.get('position'), loc.get('length')
                 if type(position) is not int or type(length) is not int or position < 0 or length <= 0:
@@ -197,8 +197,8 @@ class RetentionEventAccess:
                 receipt = self.runtime.native_chat.indexer.archive(profile).load_receipt(source['receipt_id'])
                 if position + length > receipt.record_boundary:
                     raise DomainError('forbidden', 'The observed range is outside this event')
-                linked = association(self.runtime, uow, ctx, session, source, position, length)
-                if linked is None or ref not in references(source, linked):
+                linked = external_sources.association(self.runtime, uow, ctx, session, source, position, length)
+                if linked is None or ref not in external_sources.references(self.runtime, source, linked):
                     raise DomainError('forbidden', 'The source is not linked to this capture event')
                 return
             if event['kind'] == 'task':

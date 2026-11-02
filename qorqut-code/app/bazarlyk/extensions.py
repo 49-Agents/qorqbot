@@ -178,6 +178,8 @@ class NativeConnection:
     guidance: NativeGuidance
     retires: tuple = ()
     roles: tuple = ()
+    tools: tuple = ()
+    require_new_binding: bool = False
 
     def __post_init__(self):
         for name in ("name", "server"):
@@ -185,6 +187,8 @@ class NativeConnection:
                 raise _invalid(f"A native connection {name} is a bounded lowercase name")
         if not all(isinstance(role, str) and SOURCE_KEY.fullmatch(role.replace("-", "_")) for role in self.roles):
             raise _invalid("A native connection's default roles are bounded lowercase role ids")
+        if type(self.require_new_binding) is not bool or any(not isinstance(tool, str) or not SOURCE_KEY.fullmatch(tool) for tool in self.tools):
+            raise _invalid("Invalid native connection tools or ownership contract")
         for name in ("status", "entry", "files", "orientation", "guidance"):
             if not callable(getattr(self, name)):
                 raise _invalid(f"Native connection {name} must be callable")
@@ -339,6 +343,10 @@ class Extension:
     def native_connections(self):
         return ()
 
+    def global_discovery_operations(self):
+        """Owned operations whose effective configuration evaluates the global scope independently."""
+        return ()
+
     def note_derivations(self):
         """Callables ``(ctx, uow, message) -> reference | None`` resolved on read for Task discussion messages."""
         return ()
@@ -348,6 +356,34 @@ class Extension:
         return {}
 
     def operation_guards(self):
+        return ()
+
+    def policy_rules(self):
+        """Exact operation -> before-override rule; only operations declared by this extension may be named."""
+        return {}
+
+    def operation_guidance(self):
+        """Exact operation -> managed-text callback (agentic_view); composed only when that tool is available."""
+        return {}
+
+    def signoff_outcomes(self):
+        """Exact operation -> local read model callback (row, uow, detail); no provider calls."""
+        return {}
+
+    def private_signoffs(self):
+        """Exact operation -> additional visibility predicate (ctx, uow); never grants ordinary Signoff access."""
+        return {}
+
+    def owner_input_sources(self):
+        """Input type -> trusted source adapter for native receipt reconciliation and private evidence access."""
+        return {}
+
+    def owner_notifications(self):
+        """Optional durable owner reminder transport; None leaves the reminder pending and visible."""
+        return None
+
+    def reply_notifications(self, uow):
+        """Owner-only reply cards, including their already-authorized body, from this extension's own source."""
         return ()
 
     def assets(self):
@@ -393,6 +429,14 @@ class ExtensionSet:
             raise _invalid("Duplicate extension id: " + ", ".join(sorted(
                 {e.id for e in ordered if sum(1 for o in ordered if o.id == e.id) > 1})))
         object.__setattr__(self, "extensions", tuple(sorted(ordered, key=lambda extension: extension.id)))
+        global_discovery = set()
+        for extension in self.extensions:
+            declared = {entry.name for contribution in extension.catalog() for entry in contribution.entries}
+            names = set(extension.global_discovery_operations())
+            if not names <= declared:
+                raise _invalid("Global discovery requires the extension's own operation declarations")
+            global_discovery.update(names)
+        object.__setattr__(self, "global_discovery_operations", frozenset(global_discovery))
         object.__setattr__(self, "sources", SourceHandlers(handler for extension in self.extensions
                                                           for handler in extension.sources()))
         validators, calendars, connections, statuses = {}, {}, {}, {}
@@ -421,6 +465,22 @@ class ExtensionSet:
         object.__setattr__(self, "native_connections", MappingProxyType(connections))
         object.__setattr__(self, "error_statuses", MappingProxyType(statuses))
         object.__setattr__(self, "integration_adapter", adapters[0] if adapters else None)
+        for hook in ("policy_rules", "private_signoffs", "signoff_outcomes", "operation_guidance", "owner_input_sources"):
+            values = {}
+            for extension in self.extensions:
+                declared = {entry.name for contribution in extension.catalog() for entry in contribution.entries}
+                for key, value in getattr(extension, hook)().items():
+                    if key in values or not isinstance(key, str) or not SOURCE_KEY.fullmatch(key):
+                        raise _invalid(f"Duplicate or invalid {hook} key: {key}")
+                    if hook != "owner_input_sources" and (key not in declared or not callable(value)):
+                        raise _invalid(f"{hook} must name this extension's own operation: {key}")
+                    if hook == "owner_input_sources" and not all(callable(getattr(value, method, None)) for method in
+                        ("association", "references", "authorize", "reconcile", "record", "evidence", "owner_predicate")):
+                        raise _invalid(f"Incomplete owner input source: {key}")
+                    values[key] = value
+            object.__setattr__(self, hook, MappingProxyType(values))
+        if sum(extension.owner_notifications() is not None for extension in self.extensions) > 1:
+            raise _invalid("Select at most one owner reminder delivery transport")
         assets = {}
         for extension in self.extensions:
             declared = extension.assets()

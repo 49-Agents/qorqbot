@@ -9,7 +9,7 @@ modal or approval dialog, a running turn, unsent text, a login or trust prompt, 
 The recognizers encode the composer conventions of Codex (a ``›`` prompt line) and Claude Code (a ``>``/``❯`` prompt
 line inside horizontal rules). They are exercised against hand-built fixtures in the tests and have not been validated
 against every client release: a client that draws its composer differently fails closed (``unrecognized``) and its
-input stays queued. ``python -m bazarlyk.telegram composer-check`` classifies a saved capture offline (and, with
+input stays queued. ``python -m qorqut_telegram composer-check`` classifies a saved capture offline (and, with
 ``--pasted-file``, a saved capture taken after a paste) so an owner can verify a client version without any input being
 typed.
 

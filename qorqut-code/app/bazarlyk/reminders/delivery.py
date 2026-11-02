@@ -6,11 +6,11 @@ inside its own write unit. Nothing here schedules, polls, restarts a client or c
 * an agent recipient receives an ordinary inbox event of source ``reminders``. It is written as a system event (no actor), so a
   reminder an agent created for itself is not dropped as an echo of its own change. The existing nudge backend announces it under
   the existing Focused/Unfocused relevance policy, session availability and pacing;
-* the installation owner receives one text in the existing Telegram outbox when that transport is configured. Without it the
-  occurrence stays unpublished and the service retries; the owner's due card never depends on Telegram.
+* the installation owner receives one text in the selected optional transport when configured. Without it the
+  occurrence stays unpublished and the service retries; the owner's due card never depends on a connector.
 
 What was queued is never trusted later. The service's ``current_occurrence`` (stale, snoozed, dismissed, cancelled, rescheduled or
-re-addressed occurrences are gone) is consulted when the Telegram dispatcher is about to send, and its ``visible_occurrence`` is
+re-addressed occurrences are gone) is consulted when the transport dispatcher is about to send, and its ``visible_occurrence`` is
 consulted by the inbox for every read, nudge and acknowledgement, so an invalidated occurrence stops being announced or returned
 even though its event or outbox row was already written. Reading or acknowledging the event changes nothing on the reminder.
 
@@ -20,16 +20,10 @@ import json
 
 from qorqut_operations.contracts import DomainError, Principal, utc_now
 from qorqut_operations.discussion import emit_event
-from bazarlyk.telegram.outbox import enqueue_text
 
 SOURCE_TYPE = "reminders"
 EVENT_TYPE = "reminder_due"
 OUTBOX_SOURCE = "reminder_occurrence"
-# The owner's urgent destination, exactly where the retired owner reminders were sent.
-OWNER_CHAT = "urgent"
-# Telegram refusals that only say the transport cannot take a message now; the occurrence stays pending and is offered again.
-TRANSPORT_UNAVAILABLE = frozenset({"operation_unavailable", "binding_invalid", "installation_binding_mismatch",
-                                   "owner_binding_mismatch", "binding_changed"})
 OUTSTANDING_LIMIT = 50
 WITHDRAWN = "Reminder occurrence is no longer current"
 POINTER_FIELDS = ("reminder_id", "occurrence_id", "revision", "text", "due_at", "time_critical", "linked_item",
@@ -88,19 +82,6 @@ class ReminderDelivery:
     def __init__(self, runtime, service):
         self.runtime, self.service = runtime, service
         self.app = runtime.application
-        self._attached = False
-        self.attach()
-
-    @property
-    def bridge(self):
-        return getattr(self.runtime, "telegram", None)
-
-    def attach(self):
-        """Register the pre-send recheck on the Telegram bridge once it exists (it is constructed before the service)."""
-        bridge = self.bridge
-        if bridge is not None and not self._attached:
-            bridge.admit_hooks[OUTBOX_SOURCE] = self.admit
-            self._attached = True
 
     # ----- handoff -----------------------------------------------------------------------------------------------
 
@@ -186,37 +167,11 @@ class ReminderDelivery:
                 [(utc_now(), WITHDRAWN, recipient, event_id) for event_id in event_ids])
 
     def owner_receipt(self, uow, payload):
-        bridge = self.bridge
-        if bridge is None:
-            return None
-        self.attach()
-        try:
-            # The occurrence id is the outbox source key: a repeated handoff returns the first row, never a second message.
-            _, row, _ = enqueue_text(bridge, uow, bridge.config.chat(OWNER_CHAT), text=payload["text"].strip(), purpose="notice",
-                                     source_kind=OUTBOX_SOURCE, source_key=payload["occurrence_id"])
-        except DomainError as error:
-            if error.code in TRANSPORT_UNAVAILABLE:
-                return None  # unconfigured or unready Telegram: the owner's due card stands and the handoff is retried
-            raise
-        return {"kind": "telegram", "outbox_id": row["id"]}
-
-    # ----- Telegram admission ------------------------------------------------------------------------------------
-
-    def admit(self, uow, row):
-        """Recheck the occurrence immediately before the dispatcher claims the queued owner text.
-
-        A dismissed, snoozed, rescheduled, cancelled, superseded or re-addressed occurrence is closed unsent. A text already
-        sent to Telegram cannot be withdrawn; this only stops one that has not been claimed."""
-        try:
-            payload = self.service.current_occurrence(uow, row["source_key"])
-        except DomainError:
-            return "cancelled", "reminder_unavailable", "The reminder occurrence could not be verified"
-        if payload is None:
-            return "cancelled", "reminder_invalidated", "The reminder occurrence is no longer current"
-        installation = uow.repository("installation").get("service")
-        if not installation or payload.get("recipient_id") != installation["owner_principal_id"]:
-            return "cancelled", "recipient_changed", "The reminder is no longer addressed to the installation owner"
-        return None
+        for extension in self.runtime.selection.extensions:
+            transport = extension.owner_notifications()
+            if transport is not None:
+                return transport.publish(uow, payload, self.service)
+        return None  # No selected transport: retain the due occurrence and retry after configuration.
 
 
 __all__ = ["EVENT_TYPE", "OUTBOX_SOURCE", "ReminderDelivery", "SOURCE_TYPE", "current_payload", "event_occurrence", "pointer",

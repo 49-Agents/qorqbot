@@ -31,7 +31,7 @@ class SignoffDomains:
 
     Using a port before its domain is bound is a composition error, never a silent default."""
 
-    NAMES = ('management', 'focus_board', 'whatsapp_send')
+    NAMES = ('management', 'focus_board')
 
     def __init__(self):
         self._bound = {}
@@ -66,10 +66,12 @@ class HostExecution:
 
     execution_states = EXECUTION_STATES
 
-    @staticmethod
-    def outcome(row, uow, *, detail=False):
-        from .email_outcome import email_outcome
-        return email_outcome(row, uow, detail=detail)
+    def __init__(self, outcomes=None):
+        self.outcomes = dict(outcomes or {})
+
+    def outcome(self, row, uow, *, detail=False):
+        callback = self.outcomes.get(row['operation_name'])
+        return callback(row, uow, detail=detail) if callback else None
 
     @staticmethod
     def execution_state(row, uow=None):
@@ -156,30 +158,25 @@ class HostFocus:
         self.domains.focus_board.release_signoff(row, updated, uow)
 
 
-class HostWhatsAppVisibility:
-    """Personal WhatsApp Signoffs carry the exact recipient and message text, so they are readable only by the installation
-    owner and by the agent the binding names right now (and only while it is an active Global Ordubashy). Every other
-    reader, proposers that are no longer bound included, sees no such Signoff in any read. A fixed predicate that can only
-    remove rows; it grants nothing, and the engine's own scope and policy checks still apply first."""
+class PrivateSignoffVisibility:
+    """Additional visibility narrowing for private effects, including uninstalled providers' history."""
 
-    OPERATION = 'whatsapp_send'
-
-    def __init__(self, domains):
-        self.domains = domains
+    def __init__(self, contributed):
+        from .privacy import PRIVATE_SIGNOFF_OPERATIONS
+        self.rules = dict(contributed)
+        self.operations = sorted(PRIVATE_SIGNOFF_OPERATIONS | self.rules.keys())
 
     def narrow(self, context, uow):
         installation = uow.repository('installation').get('service')
-        if (context.principal_kind == 'human' and installation and installation['owner_principal_id'] == context.principal_id):
+        if context.principal_kind == 'human' and installation and installation['owner_principal_id'] == context.principal_id:
             return '', []
-        if context.principal_kind == 'agent' and context.delegation_assignment_id is None \
-                and self.domains.whatsapp_send.bound_agent(uow) == context.principal_id:
-            return '', []
-        return ' AND (s.operation_name <> ?)', [self.OPERATION]
+        excluded = [name for name in self.operations if name not in self.rules or not self.rules[name](context, uow)]
+        return (' AND (s.operation_name NOT IN (' + ','.join('?' for _ in excluded) + '))', excluded) if excluded else ('', [])
 
 
-def signoff_ports(domains: SignoffDomains) -> SignoffPorts:
+def signoff_ports(domains: SignoffDomains, private_signoffs=None, outcomes=None) -> SignoffPorts:
     """The one ``SignoffPorts`` of this host: every retained optional integration is enabled with its real domain."""
-    return SignoffPorts(execution=HostExecution(), peers=HostPeers(), tasks=HostTasks(), references=HostReferences(),
+    return SignoffPorts(execution=HostExecution(outcomes), peers=HostPeers(), tasks=HostTasks(), references=HostReferences(),
                         platform=ABSENT, email=ABSENT,
                         management=HostManagement(domains), focus=HostFocus(domains),
-                        narrowing=HostWhatsAppVisibility(domains))
+                        narrowing=PrivateSignoffVisibility(private_signoffs or {}))

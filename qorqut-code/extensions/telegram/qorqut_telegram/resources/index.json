@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "telegram-guidance",
+      "path": "qorqut_telegram/resources/telegram-replies.md",
+      "parameters": [],
+      "source_site": "qorqut_telegram/extension.py:Telegram.operation_guidance"
+    }
+  ]
+}
