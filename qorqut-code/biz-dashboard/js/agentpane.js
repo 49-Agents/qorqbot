@@ -14,18 +14,82 @@ const WORKSPACE_SEED = [
   { key: "focus", display_name: "Focus", supported_roles: ["ordubashy"], renderer: "focus_board",
     presentation_actions: ["focus_show", "focus_clear", "focus_browser_input", "focus_present", "focus_edit",
       "focus_move", "focus_set_archived", "focus_reply"] },
-  { key: "campaign_review", display_name: "Outreach", supported_roles: ["ordubashy", "global-worker", "business-agent"], renderer: "campaign_review",
-    presentation_actions: ["workspace_present", "workspace_select", "workspace_attention"] },
 ];
-// Outreach and Focus are task-specific workspaces, so keep them at
-// the front of the agent pane before its general-purpose views.
-const WORKSPACE_PANE_FIRST = new Set(["focus_board", "campaign_review"]);
+// Renderers register themselves (core's Focus below, installed extensions through
+// their same-origin assets). A registration only supplies behavior and static
+// display metadata; availability still comes from the server's workspace_types.
+const WORKSPACE_RENDERERS = new Map();
+function registerWorkspaceRenderer(renderer, definition) {
+  const fn = value => value === undefined || typeof value === "function";
+  if (typeof renderer !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(renderer)) throw new Error("Workspace renderer name is malformed.");
+  if (WORKSPACE_RENDERERS.has(renderer)) throw new Error(`Workspace renderer ${renderer} is already registered.`);
+  if (!definition || typeof definition !== "object" || typeof definition.mount !== "function"
+      || !fn(definition.tick) || !fn(definition.dispose)
+      || (definition.leading !== undefined && typeof definition.leading !== "boolean")
+      || !definition.views || typeof definition.views !== "object" || Array.isArray(definition.views)) {
+    throw new Error(`Workspace renderer ${renderer} has a malformed definition.`);
+  }
+  const views = Object.entries(definition.views);
+  for (const [key, view] of views) {
+    if (!/^[a-z][a-z0-9_]{0,63}$/.test(key) || !view || typeof view.label !== "string" || !view.label || typeof view.icon !== "string") {
+      throw new Error(`Workspace renderer ${renderer} has a malformed view.`);
+    }
+  }
+  WORKSPACE_RENDERERS.set(renderer, { mount: definition.mount, tick: definition.tick, dispose: definition.dispose, leading: !!definition.leading });
+  if (typeof T_VIEW_LABEL === "object" && typeof T_VIEW_ICON === "object") {
+    for (const [key, view] of views) { T_VIEW_LABEL[key] = view.label; T_VIEW_ICON[key] = view.icon; }
+  }
+}
+window.registerWorkspaceRenderer = registerWorkspaceRenderer;
 // Mount resets each renderer's own poll gate, exactly as this pane did before.
-const WORKSPACE_MOUNTS = {
-  focus_board: p => { p.nextFocus = 0; agfocusMount(p); },
-  campaign_review: p => cmpreviewMount(p),
-};
-const WORKSPACE_TICKS = { focus_board: p => agfocusTick(p), campaign_review: p => cmpTick(p) };
+registerWorkspaceRenderer("focus_board", {
+  mount: p => { p.nextFocus = 0; agfocusMount(p); }, tick: p => agfocusTick(p), leading: true,
+  views: { focus: { label: "Focus", icon: typeof T_VIEW_ICON === "object" ? T_VIEW_ICON.focus || "" : "" } },
+});
+
+// Installed extensions' UI assets: the owner-only manifest names same-origin files
+// beneath /extensions/<id>/assets/, each loaded once. A failure leaves that
+// extension's workspace on the ordinary unsupported state.
+let extensionLoadPending = null;
+const EXTENSION_ASSET = /^\/extensions\/([a-z][a-z0-9_-]{0,63})\/assets\/[A-Za-z0-9._-]+\.(js|css)$/;
+function extensionAssets(entry, kind) {
+  const ext = kind === "scripts" ? "js" : "css";
+  const list = entry.assets && entry.assets[kind];
+  if (list === undefined) return [];
+  if (!Array.isArray(list)) throw new Error("Extension asset list is malformed.");
+  return list.map(path => {
+    const match = typeof path === "string" && !path.includes("..") ? EXTENSION_ASSET.exec(path) : null;
+    if (!match || match[1] !== entry.id || match[2] !== ext) throw new Error(`Extension asset ${path} is not allowed.`);
+    return path;
+  });
+}
+function extensionAssetAdd(path, kind) {
+  return new Promise((resolve, reject) => {
+    const node = document.createElement(kind === "scripts" ? "script" : "link");
+    if (kind === "scripts") node.src = path; else { node.rel = "stylesheet"; node.href = path; }
+    node.onload = () => resolve();
+    node.onerror = () => reject(new Error(`Extension asset ${path} did not load.`));
+    (document.head || document.body).appendChild(node);
+  });
+}
+function extensionsLoad() {
+  if (extensionLoadPending) return extensionLoadPending;
+  extensionLoadPending = (async () => {
+    const entries = coreData(await api("/root/extensions")).extensions;
+    if (!Array.isArray(entries)) return;
+    const seen = new Set();
+    for (const entry of entries) {
+      if (!entry || typeof entry.id !== "string" || seen.has(entry.id)) continue;
+      seen.add(entry.id);
+      try {
+        const scripts = extensionAssets(entry, "scripts"), styles = extensionAssets(entry, "styles");
+        await Promise.all(styles.map(path => extensionAssetAdd(path, "styles")));
+        for (const path of scripts) await extensionAssetAdd(path, "scripts");
+      } catch (_) { /* that extension stays unavailable */ }
+    }
+  })().catch(() => {});
+  return extensionLoadPending;
+}
 let workspaceDeclaration = null, workspaceDeclarationAsked = false, workspaceDeclarationPending = null;
 
 function normalizeWorkspaceType(value) {
@@ -37,7 +101,7 @@ function normalizeWorkspaceType(value) {
 }
 function workspaceTypes() { return workspaceDeclaration || WORKSPACE_SEED; }
 function workspaceType(key) { return workspaceTypes().find(type => type.key === key) || null; }
-function workspaceRenderer(type) { return type && WORKSPACE_MOUNTS[type.renderer] || null; }
+function workspaceRenderer(type) { return type && WORKSPACE_RENDERERS.get(type.renderer)?.mount || null; }
 function workspaceViewsFor(roleId) { return roleId ? workspaceTypes().filter(type => type.supported_roles.includes(roleId)) : []; }
 // Anything the pane's base views do not own is a workspace view, mountable only
 // through the registry (or shown as an honest unsupported placeholder).
@@ -48,7 +112,7 @@ function agpadWorkspaceView(view) { return !WORKSPACE_BASE_VIEWS.has(view); }
 // Viewbox is offered to any registered agent (the owner-only board is keyed by its id), after the general views.
 function agentPaneViews(scope, roleId, base = [], browser = false, agentId = null) {
   const leading = [], trailing = [];
-  for (const type of workspaceViewsFor(roleId)) (WORKSPACE_PANE_FIRST.has(type.renderer) ? leading : trailing).push(type.key);
+  for (const type of workspaceViewsFor(roleId)) (WORKSPACE_RENDERERS.get(type.renderer)?.leading ? leading : trailing).push(type.key);
   const personal = typeof agentWorkspaceViews === 'function' ? agentWorkspaceViews(scope, roleId) : [];
   const own = personal.filter(view => view !== 'business');
   leading.unshift(...own);
@@ -127,7 +191,8 @@ function workspaceTypesLoad() {
   if (workspaceDeclarationAsked) return workspaceDeclarationPending;
   workspaceDeclarationAsked = true;
   // One best-effort read per page load; the built-in declaration is the fallback.
-  workspaceDeclarationPending = post("/root/operations/workspace_types", {}).then(result => {
+  // Extension assets load first so their renderers exist when the declared types appear.
+  workspaceDeclarationPending = extensionsLoad().then(() => post("/root/operations/workspace_types", {})).then(result => {
     const types = coreData(result)?.types;
     if (Array.isArray(types)) workspaceDeclaration = types.map(normalizeWorkspaceType).filter(Boolean);
     return workspaceDeclaration;
@@ -224,7 +289,7 @@ function agpadWorkspaceTick(p) {
   if ((p.view === "viewbox" || p.surface?.kind === "viewbox") && typeof agviewboxTick === "function") agviewboxTick(p);
   for (const view of p.views) {
     const type = workspaceType(view);
-    const tick = type && WORKSPACE_TICKS[type.renderer];
+    const tick = type && WORKSPACE_RENDERERS.get(type.renderer)?.tick;
     if (typeof tick === "function") tick(p);
   }
 }
@@ -330,7 +395,7 @@ function agpadDispose() {
   if (_agpad) agpadSurfaceDispose(_agpad);
   _agpad?.focusDetail?.dispose?.();
   _agpad?.workspaceDispose?.();
-  if (typeof cmpDispose === "function") cmpDispose(_agpad);
+  for (const renderer of WORKSPACE_RENDERERS.values()) if (_agpad && renderer.dispose) renderer.dispose(_agpad);
   _agpad?.dividerDispose?.();
   _agpad = null;
 }
