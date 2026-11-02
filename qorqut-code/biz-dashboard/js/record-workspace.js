@@ -232,6 +232,15 @@ function recordWorkspaceMount(host, options = {}) {
     const dashTab = item.tabs.querySelector('[data-rw-tab="dashboard"]');
     if (dashTab) dashTab.setAttribute('aria-controls', item.dashHost.id);
   }
+  // A Task conversion changes the dashboard's subtype while its source identity and Chat
+  // stay put. Update only the existing type tab's icon/label; never rebuild the chat tab.
+  function paintTypeTab(item) {
+    const tab = item.tabs.querySelector('[data-rw-tab="dashboard"]');
+    if (!tab) return;
+    tab.setAttribute('aria-label', rwTypeLabel(item.record) + ' dashboard');
+    tab.title = rwTypeLabel(item.record) + ' dashboard';
+    tab.innerHTML = rwTypeIcon(item.record);
+  }
   function titlePaint(item) {
     const title = item.record.label || 'Record';
     const el = item.recordEl.querySelector('.rw-title');
@@ -511,6 +520,10 @@ function recordWorkspaceMount(host, options = {}) {
     const alive = () => item.alive && attempt === item.dashboardGeneration && host.isConnected && item.dashHost === host;
     const workspace = api;
     const record = item.record;
+    // A subtype adoption carries the exact canonical Task response into the replacement
+    // dashboard; it must not depend on a second read that another writer could have changed.
+    const prefetchedTask = item.prefetchedTask || null;
+    item.prefetchedTask = null;
     const navigate = target => {
       if (!target) return;
       void workspace.navigate(target);
@@ -529,11 +542,56 @@ function recordWorkspaceMount(host, options = {}) {
         return true;
       }
     };
+    const changed = message => {
+      if (!alive()) return;
+      if (item.dashboard?.changed) { item.dashboard.changed(message); return; }
+      let notice = item.dashHost.querySelector('.rw-changed');
+      if (!notice) {
+        notice = rwNode('p', 'rw-changed ferr'); notice.setAttribute('role', 'alert');
+        item.dashHost.prepend(notice);
+      }
+      notice.textContent = message;
+    };
+    // A successful canonical write/reload may change the Task subtype. Replace only this
+    // dashboard in place, preserving the entry, source scope, Chat/draft, selected tab and
+    // stack. The caller has already verified the canonical response and, for a dirty
+    // entry, either refused adoption or explicitly forced a reload.
+    const adoptTaskType = (fresh, {force = false} = {}) => {
+      if (!alive() || !fresh) return false;
+      const nextType = String(fresh.task_type || 'task');
+      if (nextType === (item.record.task_type || 'task')) return false;
+      if (nextType === 'email') return false; // historical email keeps its existing read-only route
+      if (!force && rwDirty(item.dashboard)) {
+        changed('This task changed type elsewhere. Save or discard your edits to reload.');
+        return false;
+      }
+      const previousScroll = item.dashHost.scrollTop;
+      const previousDashboard = item.dashboard;
+      item.record = {...item.record, task_type: nextType,
+        revision: fresh.revision ?? item.record.revision,
+        state: fresh.status ?? item.record.state,
+        label: fresh.title || item.record.label,
+        source: {...item.record.source, task_type: nextType,
+          revision: fresh.revision ?? item.record.source.revision}};
+      item.dashboardLoaded = false;
+      item.dashboardMounting = false;
+      item.scroll = previousScroll;
+      item.prefetchedTask = fresh;
+      try { previousDashboard?.dispose?.(); } catch (_) { /* one replacement only */ }
+      item.dashboard = null;
+      item.dashHost.replaceChildren();
+      titlePaint(item);
+      paintTypeTab(item);
+      options.onTitleChange?.(item.record);
+      mountDashboard(item);
+      return true;
+    };
     (async () => {
       try {
         const dashboard = await rwDashboardMount(host, record, {
           alive, navigate, workspace, entry: item, options,
           unavailable: () => rwRecordUnavailable(item), revalidateProject,
+          adoptTaskType, changed, prefetchedTask,
           // The Project's real name and the task's own source title can differ from the card label.
           title(next) {
             if (!alive() || !next) return;
@@ -547,6 +605,7 @@ function recordWorkspaceMount(host, options = {}) {
         if (!alive()) { try { dashboard?.dispose?.(); } catch (_) { /* late */ } return; }
         item.dashboard = dashboard || {};
         item.dashboardLoaded = true;
+        if (item.scroll) host.scrollTop = item.scroll;
       } catch (failure) {
         if (!alive()) return;
         if (accessLost(failure) || sourceGone(failure)) {
@@ -691,7 +750,7 @@ async function rwDashboardMount(host, record, ctx) {
 // ---------------------------------------------------------------- Task
 async function rwTaskDashboard(host, record, ctx, call) {
   host.classList.add('record-panel');
-  const data = await call('tasks_get', {task_id: record.source.id});
+  const data = ctx.prefetchedTask ? {task: ctx.prefetchedTask} : await call('tasks_get', {task_id: record.source.id});
   if (!ctx.alive()) return null;
   const task = data.task;
   if (!task) throw new Error('Task is no longer available.');
@@ -706,6 +765,19 @@ async function rwTaskDashboard(host, record, ctx, call) {
       const fresh = await call('tasks_get', {task_id: record.source.id});
       if (!ctx.alive()) return false;
       if (!fresh.task) throw Object.assign(new Error('Task is no longer available.'), {code: 'not_found'});
+      const freshType = fresh.task.task_type || 'task';
+      if (freshType !== type) {
+        // An external subtype change is adopted only for a clean entry. A dirty editor keeps
+        // its original type/base/revision and gets a visible changed-record notice; the owner
+        // can save, discard, or explicitly Reload.
+        if (rwDirty(ctx.entry?.dashboard)) {
+          ctx.changed?.('This task changed type elsewhere. Save or discard your edits to reload.');
+          return false;
+        }
+        if (await ctx.adoptTaskType?.(fresh.task)) return false;
+        ctx.changed?.('This task changed type elsewhere. Reload to read the latest version.');
+        return false;
+      }
       return true;
     } catch (failure) {
       if (!ctx.alive()) return false;
@@ -745,8 +817,22 @@ async function rwTaskDashboard(host, record, ctx, call) {
     task_type: target.task_type}}, {biz: null}));
   const relatedMount = (relatedHost, fresh) => rwTaskRelatedMount(relatedHost, record, fresh, ctx);
   if (record.source.business_id == null && typeof globalTasksMount === 'function') {
-    const token = globalTasksMount(host, {initialTaskId: task.id, onBack: () => {}, embedded: true, onNavigate: navigate, renderRelated: relatedMount});
+    const token = globalTasksMount(host, {initialTaskId: task.id, onBack: () => {}, embedded: true, onNavigate: navigate,
+      renderRelated: relatedMount,
+      onCanonical: async (fresh, {reload = false, changes = null} = {}) => {
+        const nextType = fresh.task_type || 'task';
+        if (nextType === (record.task_type || type)) return false;
+        const requested = changes?.task_type;
+        if (!reload && requested !== nextType && token?.dirty?.()) {
+          token.changed?.('This task changed type elsewhere. Save or discard your edits to reload.');
+          return true;
+        }
+        if (await ctx.adoptTaskType?.(fresh, {force: reload || requested === nextType})) return true;
+        token.changed?.('This task changed type elsewhere. Reload to read the latest version.');
+        return true;
+      }});
     return {dirty: () => !!token?.dirty?.(), hasUnsaved: () => !!token?.dirty?.(), onShow: revalidateTask,
+      changed(message) { token?.changed?.(message); },
       dispose() { token?.dispose?.(); host.replaceChildren(); }};
   }
   // tDetail repaints itself after a successful write. Keep one stable adapter and point it at
@@ -758,9 +844,26 @@ async function rwTaskDashboard(host, record, ctx, call) {
     hasUnsaved: () => !!live?.dirty?.(),
     close: () => live?.close?.(),
     onShow: revalidateTask,
+    changed(message) { if (live?.changed) live.changed(message); else ctx.changed?.(message); },
     dispose() { live?.close?.(); host.replaceChildren(); },
   };
-  const mounted = tDetail(task, {host, onClose: () => {}, embedded: true, navigate, relatedMount, onMount: next => { live = next; }});
+  const onCanonical = async (fresh, {reload = false, body = null} = {}) => {
+    const nextType = fresh.task_type || 'task';
+    if (nextType === (record.task_type || type)) return false;
+    const requested = body?.set?.task_type || body?.changes?.task_type;
+    // The owner's own successful type save is already canonical; adopt it even though the
+    // old type editor still reports the just-saved change as dirty. Any other external type
+    // change must not erase unresolved local fields.
+    if (!reload && requested !== nextType && rwDirty(adapter)) {
+      adapter.changed('This task changed type elsewhere. Save or discard your edits to reload.');
+      return true;
+    }
+    if (await ctx.adoptTaskType?.(fresh, {force: reload || requested === nextType})) return true;
+    adapter.changed('This task changed type elsewhere. Reload to read the latest version.');
+    return true;
+  };
+  const mounted = tDetail(task, {host, onClose: () => {}, embedded: true, navigate, relatedMount,
+    onMount: next => { live = next; }, onCanonical});
   live = mounted;
   return adapter;
 }
