@@ -5,7 +5,9 @@ once: the terminal-outcome and execution-fact contributions, the single ``Contex
 filing ports, the domain factory and the driver all share), the controlled graph-edit handler with the retained
 ``INSTRUCT_ROLES`` and the application's own authority, and one ``Context``/``Pipeline`` over ``InstancePaths.context`` and
 ``InstancePaths.context_runtime``. Nothing here touches the disk beyond resolving two paths: no repository, runtime directory,
-principal, thread, provider or model is created or contacted by composition, by a read, or by ``Runtime`` construction.
+principal, thread, provider or model is created or contacted by composition, by a read, or by ``Runtime`` construction. The
+external question store (``InstancePaths.context_questions``) is only named there: its file is created by the first delivery or
+question mutation, never by composition or a read.
 
 ``ContextServices`` is the lifecycle contract the host lifetime owns (``start()``, bounded ``stop(timeout=...)``, ``running``,
 ``wake()``, ``diagnostics()``). Started only by the owner of the instance, it registers the dedicated backend ``system``
@@ -15,7 +17,10 @@ kind or a disabled one is a visible conflict, never repurposed or re-enabled. Ex
 It runs the existing ``ContextQueueDriver`` through the existing
 ``ContextDriverLoop`` on its one thread. That thread also runs the bounded, synchronous ``ContextUsageCollector`` before and
 after each driver step. It is the only worker: ``stop`` is true exactly when that thread, with any in-flight Context draft, Git
-publication, SQLite recording or usage page, has ended.
+publication, SQLite recording or usage page, has ended. After mechanical recovery and on every step of a ready published Context
+the same thread also drains a bounded number of published question batches from the engine's outbox into the external question
+store, independently of whether the queue recorded its last outcome; a delivery failure is a diagnostic and a retry on a later
+step, never a refiling and never a change to a published event.
 
 The service never initializes anything. While the published Context is missing, uninitialized or unusable, or the registered
 coordinator cannot act, queued inputs simply stay queued (or blocked by the driver's own rules) and ordinary operational work
@@ -42,6 +47,7 @@ from qorqut_operations.context_graph_edits import ExecutionFacts
 from qorqut_operations.context_queue import ContextQueueOperations
 from qorqut_operations.contracts import DomainError
 
+from bazarlyk.context_questions import QuestionOutbox, QuestionStore
 from bazarlyk.context_usage.collector import ContextUsageCollector
 from bazarlyk.background.context_filing import FILE, INSTRUCT
 from bazarlyk.domains.context_sources import INSTRUCT_ROLES
@@ -139,6 +145,7 @@ class ContextComposition:
     filing: FilingPorts
     graph_edits: GraphEdits
     settings: ContextSettings
+    questions: QuestionStore | None = None
 
 
 def compose_context(application, paths, settings: ContextSettings | None = None) -> ContextComposition:
@@ -151,8 +158,9 @@ def compose_context(application, paths, settings: ContextSettings | None = None)
     queue = ContextQueueOperations(outcomes=outcomes, clock=settings.clock, executions=executions,
                                    max_content_bytes=config.source_bytes)
     filing = FilingPorts(queue, source_bytes=config.source_bytes)
-    graph_edits = GraphEdits(application, GraphEditPorts(context, source_bytes=config.source_bytes), roles=INSTRUCT_ROLES)
-    return ContextComposition(context, pipeline, outcomes, executions, queue, filing, graph_edits, settings)
+    graph_edits = GraphEdits(application, GraphEditPorts(context, source_bytes=config.source_bytes, supervised_pipeline=pipeline), roles=INSTRUCT_ROLES)
+    questions = QuestionStore(paths.context_questions)
+    return ContextComposition(context, pipeline, outcomes, executions, queue, filing, graph_edits, settings, questions)
 
 
 class _Steps:
@@ -178,6 +186,7 @@ class ContextServices:
         self._driver_id: str | None = None
         self._driver: ContextQueueDriver | None = None
         self._collector: ContextUsageCollector | None = None
+        self._outbox: QuestionOutbox | None = None
         self._loop: ContextDriverLoop | None = None
         self._recovered = False
         self._blocked: dict | None = None
@@ -253,9 +262,11 @@ class ContextServices:
     def diagnostics(self) -> dict:
         """Bounded, side-effect-free facts. It reads, never steps, and never initializes or repairs anything."""
         loop, driver, collector = self._loop, self._driver, self._collector
+        outbox = self._outbox
         result = {"state": "blocked" if self._blocked else "running" if self.running else "stopped" if loop else "not_started",
                   "blocked": self._blocked, "driver_id": self._driver_id, "context": self.reader.status(),
                   "gate": self._last_gate, "loop": None if loop is None else loop.diagnostics(),
+                  "questions": None if outbox is None else outbox.diagnostics(),
                   "collection": {"failures": self._collection_failures, "last_error": self._collection_error,
                                  "collector": None if collector is None else collector.diagnostics()},
                   "driver": None}
@@ -278,6 +289,8 @@ class ContextServices:
         collector = ContextUsageCollector(self.database, pieces.pipeline, driver_id=driver_id, lock_path=self.paths.locks / USAGE_LOCK,
                                           page_size=settings.usage_page_size, max_pages=settings.usage_max_pages)
         self._driver_id, self._driver, self._collector = driver_id, driver, collector
+        if pieces.questions is not None:
+            self._outbox = QuestionOutbox(pieces.context, pieces.pipeline, pieces.questions)
         self._loop = ContextDriverLoop(_Steps(self), poll_seconds=settings.poll_seconds,
                                        max_backoff_seconds=settings.max_backoff_seconds)
 
@@ -338,7 +351,10 @@ class ContextServices:
         if gate is not None:
             return gate
         self._recovered = True
-        return self._driver.recover()
+        try:
+            return self._driver.recover()
+        finally:
+            self._drain_questions()
 
     def step(self) -> dict:
         """One worker step, exactly the loop body: usage collection, one driver step (only for a ready published Context), usage
@@ -347,16 +363,33 @@ class ContextServices:
             raise DomainError("operation_unavailable", "The Context services have not been built")
         self._collect()
         gate = self._ready()
-        if gate is None:
-            if not self._recovered:
-                # Recovery was deferred because the Context was not ready at start; it is mechanical and runs once first.
-                self._recovered = True
-                self._driver.recover()
-            result = self._driver.process_next()
-        else:
-            result = gate
+        try:
+            if gate is None:
+                if not self._recovered:
+                    # Recovery was deferred because the Context was not ready at start; it is mechanical and runs once first.
+                    self._recovered = True
+                    self._driver.recover()
+                result = self._driver.process_next()
+            else:
+                result = gate
+        finally:
+            if gate is None:
+                self._drain_questions()
         self._collect()
         return result
+
+    def _drain_questions(self) -> None:
+        """One bounded delivery pass over the published question outbox. A failure is evidence in the diagnostics and a retry on
+        a later step: it never raises, refiles, or touches a published event."""
+        outbox = self._outbox
+        if outbox is None:
+            return
+        try:
+            outbox.drain()
+        except Exception as error:
+            outbox.last = {"status": "drain_failed", "failed": 1, "errors": [{"event_id": None, "stage": "drain",
+                                                                              "error": type(error).__name__}]}
+            LOGGER.warning("context_question_drain_failed type=%s", type(error).__name__)
 
     def _collect(self) -> None:
         """One bounded usage step. A failure is evidence in the diagnostics, never a zero, an erasure or a rerun."""
