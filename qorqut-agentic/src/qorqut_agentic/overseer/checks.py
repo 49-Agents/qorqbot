@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from uuid import uuid4
 from functools import wraps
+import inspect
 
 from ..errors import AgenticError
 from ..history import GitRunner
@@ -72,10 +73,23 @@ def _command(argv, cwd, env, timeout, maximum):
 def _check_critical_section(fn):
     @wraps(fn)
     def guarded(self, *args, **kwargs):
-        self.ctx.require_no_check_mutation()
+        self._configured()
+        bound = inspect.signature(fn).bind(self, *args, **kwargs)
+        arguments = bound.arguments
+        payload = {'application_id': arguments['application_id'], 'phase': arguments['phase'],
+                   'expected_revision': arguments['expected_revision']}
+        fingerprint = self._fingerprint('applications.record_checks', payload, arguments['operation_id'])
         from ..core import check_effects_scope
-        with self.ctx.store.lock(exclusive=True), check_effects_scope():
-            return fn(self, *args, **kwargs)
+        with self.ctx.store.lock(exclusive=True):
+            with self.ctx.store.reader() as conn:
+                saved = self._saved(conn, arguments['operation_id'], fingerprint)
+                if saved and saved.get('_state') != 'check_running':
+                    if saved.get('execution'):
+                        self._validate_execution(saved['execution'])
+                    return saved
+            self.ctx.require_no_check_mutation()
+            with check_effects_scope():
+                return fn(self, *args, **kwargs)
     return guarded
 
 

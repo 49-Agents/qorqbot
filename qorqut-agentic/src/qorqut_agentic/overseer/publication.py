@@ -45,6 +45,7 @@ class PublicationExecutor:
                     if replay.get('execution'):
                         self._validate_execution(replay['execution'])
                     return replay
+            self.ctx.require_no_check_mutation()
             self.ctx.require_no_recovery()
             with self.ctx.store.transaction() as conn:
                 saved = self._saved(conn, operation_id, fingerprint)
@@ -194,6 +195,7 @@ class PublicationExecutor:
                     if saved.get('execution'):
                         self._validate_execution(saved['execution'])
                     return saved
+            self.ctx.require_no_check_mutation()
             self.ctx.require_no_recovery()
             with self.ctx.store.reader() as conn:
                 app, plan = self._current(conn, application_id, expected_revision)
@@ -374,6 +376,7 @@ class PublicationExecutor:
                     if saved.get('execution'):
                         self._validate_execution(saved['execution'])
                     return saved
+                self.ctx.require_no_check_mutation()
                 app, _ = self._current(conn, application_id, expected_revision)
                 row = conn.execute("SELECT * FROM overseer_publications WHERE application_id=? AND stage NOT IN ('prepared','merged','complete','superseded') ORDER BY rowid DESC LIMIT 1", (application_id,)).fetchone()
                 if not row:

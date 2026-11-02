@@ -23,6 +23,11 @@ def mutate(ctx, operation_id, operation, payload, fn):
         raise InvalidRequestError('operation ID uses the reserved invocation namespace')
     fingerprint = hashlib.sha256(canonical({'operation': operation, 'payload': payload}).encode()).hexdigest()
     with ctx.store.lock(exclusive=True), ctx.store.transaction() as conn:
+        old = conn.execute('SELECT fingerprint, result FROM overseer_operations WHERE operation_id=?', (operation_id,)).fetchone()
+        if old:
+            if old['fingerprint'] != fingerprint:
+                raise AgenticError('operation ID was used for different input', code='operation_conflict')
+            return json.loads(old['result'])
         app_id = payload.get('application_id') if isinstance(payload, dict) else None
         delta_id = payload.get('delta_id') if isinstance(payload, dict) else None
         run_id = payload.get('run_id') if isinstance(payload, dict) else None
@@ -40,11 +45,6 @@ def mutate(ctx, operation_id, operation, payload, fn):
                 target = json.loads(binding['record'])['targets']
                 app_id, delta_id = target.get('application_id'), target.get('delta_id')
         ctx.guard_overseer_admission(conn, application_id=app_id, delta_id=delta_id, run_id=run_id)
-        old = conn.execute('SELECT fingerprint, result FROM overseer_operations WHERE operation_id=?', (operation_id,)).fetchone()
-        if old:
-            if old['fingerprint'] != fingerprint:
-                raise AgenticError('operation ID was used for different input', code='operation_conflict')
-            return json.loads(old['result'])
         result = fn(conn)
         conn.execute('INSERT INTO overseer_operations VALUES (?, ?, ?, ?)',
                      (operation_id, fingerprint, canonical(result), iso(ctx.clock())))

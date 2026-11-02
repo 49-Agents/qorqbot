@@ -106,6 +106,7 @@ class SatisfactionExecutor:
                 saved = self._saved(conn, operation_id, fingerprint)
                 if saved:
                     return saved
+                self.ctx.require_no_check_mutation()
                 app = self._inspection_app(conn, application_id, expected_revision)
             self.ctx.require_no_recovery()
             subjects = {'resource_paths': resource_paths, 'source_refs': source_refs, 'check_receipt_refs': check_receipt_refs}

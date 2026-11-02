@@ -37,6 +37,7 @@ def _guarded_association(fn):
                 saved = self._saved(conn, bound.arguments['operation_id'], fingerprint)
                 if saved:
                     return saved
+            self.ctx.require_no_check_mutation()
             self.ctx.require_no_recovery()
             with self.ctx.store.reader() as conn:
                 for row in conn.execute('SELECT result FROM overseer_operations'):
@@ -54,6 +55,7 @@ class Applications(SatisfactionExecutor, CheckExecutor, PublicationExecutor, App
         self._external_task_gateway = None
 
     def configure_runtime(self, *, worktrees_root, states_root, external_task_gateway, satisfaction_gateway=None):
+        self.ctx.require_no_check_mutation()
         roots = []
         for name, supplied in (("worktrees_root", worktrees_root), ("states_root", states_root)):
             if not isinstance(supplied, (str, os.PathLike)) or not os.path.isabs(supplied):
@@ -118,6 +120,50 @@ class Applications(SatisfactionExecutor, CheckExecutor, PublicationExecutor, App
             if not resolved:
                 return need
         return None
+
+    def _post_merge_checks_passed(self, conn, app, plan):
+        merge = json.loads(app['merge']) if app['merge'] else None
+        definitions = {check['id']: check['kind'] for check in plan['checks'] if check['phase'] == 'post_merge'}
+        if not merge or not definitions:
+            return False
+        publication = conn.execute("SELECT candidate_tree FROM overseer_publications WHERE application_id=? AND change_id=? AND candidate_commit=? AND stage IN ('merged','complete')",
+                                   (app['id'], merge.get('change_id'), merge.get('merged_commit'))).fetchone()
+        if not publication:
+            return False
+        events = [(row['id'], json.loads(row['record'])) for row in conn.execute(
+            'SELECT id,record FROM overseer_application_events WHERE application_id=? ORDER BY rowid DESC', (app['id'],))]
+        run = None
+        for event_id, event in events:
+            candidate = event.get('check_run', {})
+            if (event.get('type') == 'check_run' and candidate.get('phase') == 'post_merge'
+                and candidate.get('plan_revision') == app['plan_revision']
+                and candidate.get('checked_commit') == merge.get('merged_commit')):
+                if candidate.get('id') != event_id:
+                    return False
+                run = candidate
+                break
+        if not run or run.get('checked_tree') != publication['candidate_tree']:
+            return False
+        if run.get('state') == 'uncertain':
+            original_id = run.get('id')
+            run = next((event['check_run'] for event_id, event in events
+                        if event.get('type') == 'check_run_reconciliation'
+                        and event.get('reconciles_check_run_id') == original_id
+                        and event.get('check_run', {}).get('id') == event_id), None)
+        if (not run or run.get('state') != 'passed' or run.get('phase') != 'post_merge'
+            or run.get('plan_revision') != app['plan_revision']
+            or run.get('checked_commit') != merge.get('merged_commit')
+            or run.get('checked_tree') != publication['candidate_tree']):
+            return False
+        receipts = run.get('receipts')
+        if not isinstance(receipts, list) or len(receipts) != len(definitions):
+            return False
+        ids = [receipt.get('check_id') for receipt in receipts if isinstance(receipt, dict)]
+        return (len(ids) == len(definitions) and all(isinstance(item, str) for item in ids)
+                and len(set(ids)) == len(ids) and set(ids) == set(definitions)
+                and all(receipt.get('kind') == definitions[receipt['check_id']]
+                        and receipt.get('outcome') == 'passed' and receipt.get('finished_at') is not None
+                        for receipt in receipts))
 
     def _uncertain_precheck(self, conn, application_id):
         events = [json.loads(row['record']) for row in conn.execute(
@@ -200,6 +246,7 @@ class Applications(SatisfactionExecutor, CheckExecutor, PublicationExecutor, App
                     if execution is not None:
                         self._validate_execution(execution)
                     return saved
+            self.ctx.require_no_check_mutation()
             app, plan = self._current(conn, application_id, expected_revision)
         if not plan['changes']:
             return self._prepare_external(application_id, expected_revision=expected_revision, operation_id=operation_id)
@@ -339,6 +386,7 @@ class Applications(SatisfactionExecutor, CheckExecutor, PublicationExecutor, App
                 saved = self._saved(conn, operation_id, fingerprint)
                 if saved:
                     return saved
+            self.ctx.require_no_check_mutation()
             self.ctx.require_no_recovery()
             return mutate(self.ctx, operation_id, 'applications.replan', payload, write)
 
@@ -446,7 +494,7 @@ class Applications(SatisfactionExecutor, CheckExecutor, PublicationExecutor, App
             if required and all(r in ready for r in required):
                 if not plan['changes'] and phase == 'working':
                     phase, outcome = 'complete', 'external_completed'
-                elif phase == 'merged' and json.loads(app['checks'])['state'] == 'passed':
+                elif phase == 'merged' and self._post_merge_checks_passed(conn, app, plan):
                     phase, outcome = 'complete', 'implemented'
             conn.execute('UPDATE delta_applications SET external_tasks=?,phase=?,outcome=?,revision=revision+1,updated_at=? WHERE id=?',
                          (canonical(tasks), phase, outcome, self.ctx.now(), application_id))

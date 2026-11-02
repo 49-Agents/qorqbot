@@ -66,7 +66,7 @@ def _canonical_response(binding, response, gateway):
     return result
 
 
-def _transition(conn, binding, result, action, now, satisfaction_error=None):
+def _transition(conn, binding, result, action, now, satisfaction_error=None, ctx=None):
     targets = binding['targets']
     delta_id, delta_revision = targets['delta_id'], targets['delta_revision']
     app_id, plan_revision = targets['application_id'], targets['plan_revision']
@@ -181,10 +181,21 @@ def _transition(conn, binding, result, action, now, satisfaction_error=None):
         conn.execute('UPDATE delta_applications SET waiting_input_ref=NULL, revision=revision+1, updated_at=? WHERE id=?',
                      (now, app_id))
     elif purpose == 'close_satisfied' and action == 'close_satisfied':
+        from .runs import admitted_run
+        from .support import blocking_inputs
+        from .applications import Applications
+        applications = Applications(ctx)
+        run = conn.execute('SELECT workflow_ref,control,completed_at,cancelled_at FROM runs WHERE run_id=?',
+                           (app['run_id'],)).fetchone() if app and app['run_id'] else None
+        if (not app or delta['decision'] != 'accepted' or app['accepted_revision'] != delta_revision
+            or delta['accepted_revision'] != app['accepted_revision'] or app['merge'] is not None or app['phase'] != 'planning'
+            or run is None or run['workflow_ref'] != 'overseer/apply' or run['control'] != 'running'
+            or run['completed_at'] or run['cancelled_at'] or not admitted_run(conn, app['run_id'], 'application')
+            or app['waiting_input_ref'] or blocking_inputs(conn, delta_id)
+            or applications._unresolved_need(conn, app_id) or applications._uncertain_precheck(conn, app_id)):
+            return {'status': 'invalid_transition', 'action': None}
         if satisfaction_error is not None:
             return {'status': satisfaction_error, 'action': None}
-        if not app or delta['decision'] != 'accepted' or app['accepted_revision'] != delta_revision or app['merge'] is not None or app['phase'] not in ('queued', 'planning'):
-            return {'status': 'invalid_transition', 'action': None}
         conn.execute("UPDATE delta_applications SET phase='complete', outcome='already_satisfied', satisfaction_evidence=?, revision=revision+1, updated_at=? WHERE id=?",
                      (canonical({'evidence': binding['satisfaction_evidence'], 'owner_response': reference}), now, app_id))
     return {'status': 'applied', 'action': action, 'delta': _read(conn, delta_id) if delta_id else None}
@@ -238,7 +249,7 @@ def apply(ctx, binding_id, response, *, operation_id, gateway=None):
         if not current or json.loads(current['record']) != binding:
             raise AgenticError('binding changed during response reconciliation', code='stale_revision')
         action = _response_action(binding, result, interpretation)
-        outcome = _transition(conn, binding, result, action, ctx.now(), satisfaction_error)
+        outcome = _transition(conn, binding, result, action, ctx.now(), satisfaction_error, ctx)
         conn.execute('INSERT INTO overseer_owner_responses VALUES (?, ?, ?, ?, ?)',
                      (result['response_key'], binding_id, digest, canonical(full), canonical(outcome)))
         if outcome['status'] == 'applied' and outcome['action'] not in (None, 'later', 'revise'):
