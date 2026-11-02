@@ -8,18 +8,20 @@ from datetime import datetime
 import hashlib
 import json
 from pathlib import Path
+import re
+import shlex
 from threading import RLock
 from typing import Any, Mapping
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from bazarlyk.catalog.packages import Catalog, content_hash, declared_plugin_tools, relative_path, visible_plugin_tools
+from bazarlyk.catalog.packages import Catalog, content_hash, declared_plugin_tools, files_digest, relative_path, visible_plugin_tools
 from qorqut_operations.contracts import ArtifactRef, DomainError, InvocationContext, Principal, canonical_hash, new_id, plain, utc_now
 from qorqut_operations.policy import AgentPolicyBasis
 from qorqut_operations.storage.structured import parse_yaml
 from bazarlyk.composition.files import lock_paths
 from bazarlyk.composition.locations import agent_workspace, business_hq
-from bazarlyk.inbox.defaults import INBOX_INSTRUCTIONS, legacy_inbox_skill
+from bazarlyk.inbox.defaults import legacy_inbox_skill
 from bazarlyk.instance_paths import InstancePaths
 from . import role_workflow
 from . import cleanup_workflow
@@ -126,6 +128,8 @@ class AgentConfigResolver:
         self.plugin_handlers = dict(plugin_handlers or {})
         # The installed extensions' native MCP connections, by the name a role declares in ``external_connections``.
         self.native_connections = dict(native_connections or {})
+        # Installed explicitly after opening and verifying the managed layer.
+        self.agentic_view = None
         self._cache: OrderedDict[str, EffectiveAgentConfig] = OrderedDict()
         self._lock = RLock()
         self._profiles: OrderedDict[tuple[str, str], AgentProfile] = OrderedDict()
@@ -336,7 +340,9 @@ class AgentConfigResolver:
             path = Path(artifact["stored_path"])
             signatures.append((artifact["kind"], artifact["digest"], str(path),
                 [(item.relative_to(path).as_posix(), _stat(item)) for item in sorted(path.rglob("*"))]))
-        fingerprint = canonical_hash({"inbox_instructions": INBOX_INSTRUCTIONS, "role_workflow": role_workflow.fingerprint(), "cleanup_workflow": cleanup_workflow.fingerprint(), "profile": profile.data, "workspace": row["workspace"], "target": target,
+        view = self.require_agentic_view()
+        agentic_revision = view.catalog_revision
+        fingerprint = canonical_hash({"agentic_catalog_revision": agentic_revision, "profile": profile.data, "workspace": row["workspace"], "target": target,
             "businesses": businesses, "owners": owner_names,
             "sources": [(key, doc["id"], doc["revision"], doc["content_hash"], doc["availability"]) for key, doc in sorted(selected_docs.items())],
             "artifacts": [(item["kind"], item["artifact_id"], item["version"], item["digest"]) for item in artifacts],
@@ -344,11 +350,24 @@ class AgentConfigResolver:
                             item.plugin_requirement) for item in self.registry.installed()]})
         return {"profile": profile, "row": row, "business": selected, "businesses": businesses,
                 "documents": selected_docs, "owner_name": ", ".join(owner_names) or "Owner",
+                "agentic_catalog_revision": agentic_revision,
                 "registration": dict(registration) if registration else None, "fingerprint": fingerprint,
                 "cache_key": canonical_hash({"fingerprint": fingerprint, "signatures": signatures})}
 
     def resolve_agent_config(self, principal: Principal, *, business_id: str | None = None,
                              session_registration: Mapping | str | None = None) -> EffectiveAgentConfig:
+        from bazarlyk.agentic.view import CONSISTENCY_ATTEMPTS
+        for _ in range(CONSISTENCY_ATTEMPTS):
+            try:
+                return self._resolve_agent_config(principal, business_id=business_id,
+                                                  session_registration=session_registration)
+            except DomainError as exc:
+                if exc.code != "agentic_revision_conflict":
+                    raise
+        raise DomainError("agentic_revision_conflict", "Managed instructions kept changing during composition", retryable=True)
+
+    def _resolve_agent_config(self, principal: Principal, *, business_id: str | None = None,
+                              session_registration: Mapping | str | None = None) -> EffectiveAgentConfig:
         snapshot = self._snapshot(principal, business_id)
         provider = getattr(self, "context_home", None)
         home_text = provider(snapshot["business"]["id"] if snapshot["business"] else None) if provider else None
@@ -358,12 +377,14 @@ class AgentConfigResolver:
             config = self._cache.get(key)
         if config is None:
             config = self._compose(snapshot, context_home=home_text)
+            self.check_agentic_revision(snapshot["agentic_catalog_revision"])
             with self._lock:
                 self._cache[key] = config
                 self._cache.move_to_end(key)
                 while len(self._cache) > 128:
                     self._cache.popitem(last=False)
         data = config.to_dict()
+        self.check_agentic_revision(snapshot["agentic_catalog_revision"])
         data["preparation"] = self.preparation_status(snapshot["registration"], data)
         delivery = None
         if session_registration:
@@ -381,7 +402,88 @@ class AgentConfigResolver:
                                 "observation": "emitted_by_hook_not_model_compliance"}
         data["delivery"] = delivery
         data["context_refresh_required"] = bool(session_registration and (delivery is None or delivery["current_vs_emitted"]))
+        self.check_agentic_revision(snapshot["agentic_catalog_revision"])
         return EffectiveAgentConfig(data)
+
+    def require_agentic_view(self):
+        if self.agentic_view is None:
+            raise DomainError("agentic_unavailable", "The verified managed instruction layer has not been attached")
+        return self.agentic_view
+
+    def check_agentic_revision(self, revision):
+        if self.require_agentic_view().catalog_revision != revision:
+            raise DomainError("agentic_revision_conflict", "Managed instructions changed during composition", retryable=True)
+
+    def native_guidance_digest(self, data):
+        """Fingerprint only the managed prose persisted in native orientation files.
+
+        Both readiness variants are included without probing credentials or a
+        process. Selection remains the existing trusted native connection rule.
+        """
+        from bazarlyk.agentic.text import render
+        from bazarlyk.bootstrap.preparation import external_connections
+        view = self.require_agentic_view()
+
+        def read():
+            software = render(view, "host", "app/bazarlyk/agentic/assets/software-ownership.md")
+            if not isinstance(software, str) or not software.strip():
+                raise DomainError("agentic_resource_unavailable", "Managed software ownership guidance is empty")
+            ordubashy = data["role"]["id"] == "ordubashy" and data["scope"]["kind"] == "ecosystem"
+            connections = []
+            for name in external_connections(self, data):
+                connection = self.native_connections.get(name)
+                if connection is None:
+                    continue
+                item = {"name": name, "server": connection.server,
+                        "orientation_prepared": connection.orientation(True, ordubashy, agentic_view=view),
+                        "orientation_unprepared": connection.orientation(False, ordubashy, agentic_view=view),
+                        "guidance": connection.guidance(agentic_view=view)}
+                if any(not isinstance(item[key], str) for key in item):
+                    raise DomainError("agentic_resource_unavailable", "Managed native connection guidance must be text")
+                connections.append(item)
+            return "sha256:" + canonical_hash({"schema_version": 1, "software_ownership": software,
+                                                "connections": sorted(connections, key=lambda row: (row["name"], row["server"]))})
+
+        return view.consistent(read)
+
+    def managed_skills(self, profile, *, selection):
+        """Current instruction bodies with the immutable native names and grants."""
+        view = self.require_agentic_view()
+        if isinstance(profile, Mapping):
+            profile = AgentProfile(profile)
+
+        def read():
+            metadata, bodies = [], {}
+            for workflow in (role_workflow, cleanup_workflow):
+                item = workflow.skill_metadata(agentic_view=view)
+                content = workflow.skill_files(agentic_view=view)
+                item = {**item, "materialization_hash": files_digest(content)}
+                metadata.append(item)
+                bodies[item["name"]] = content
+            from bazarlyk.bootstrap import email_guidance
+            for package in self.packages_for_profile(profile):
+                for skill in package.skills:
+                    if legacy_inbox_skill(package.kind, skill):
+                        continue
+                    if email_guidance.is_package(package):
+                        content = email_guidance.skill_files(package, self.paths, agentic_view=view)
+                    else:
+                        content = view.skill_files(package.kind, package, skill["id"], selection=selection)
+                    match = re.match(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|$)", content["SKILL.md"].decode("utf-8"), re.S)
+                    frontmatter = parse_yaml(match[1]) if match else {}
+                    if frontmatter.get("name") != skill["name"] or not isinstance(frontmatter.get("description"), str):
+                        raise DomainError("invalid_agentic_skill", "Managed native skill must retain its registered name and description")
+                    if skill["name"] in bodies:
+                        raise DomainError("invalid_agentic_skill", "Multiple managed skills have the same native name")
+                    metadata.append({**skill, "description": frontmatter["description"],
+                        "materialization_hash": files_digest(content),
+                        "owner": {"kind": package.kind, "id": package.id}, "version": package.version,
+                        "digest": package.digest, "generated_path": ".claude/skills/" + skill["name"] + "/SKILL.md",
+                        "expected_discoverability": "project_skill_after_preparation"})
+                    bodies[skill["name"]] = content
+            return metadata, bodies
+
+        return view.consistent(read)
 
     def _compose(self, snapshot: dict, *, context_home: str | None = None) -> EffectiveAgentConfig:
         profile = snapshot["profile"]
@@ -408,28 +510,45 @@ class AgentConfigResolver:
         for key, doc in snapshot["documents"].items():
             sources[key] = ContextSource(doc["id"], read(doc).decode("utf-8"), doc["revision"], doc["content_hash"],
                 str(doc["absolute_path"]))
-        skills = [role_workflow.skill_metadata(), cleanup_workflow.skill_metadata()]
-        for package in packages:
-            for skill in package.skills:
-                if legacy_inbox_skill(package.kind, skill):
-                    continue
-                skills.append({**skill, "owner": {"kind": package.kind, "id": package.id}, "version": package.version,
-                    "digest": package.digest, "generated_path": ".claude/skills/" + skill["name"] + "/SKILL.md",
-                    "expected_discoverability": "project_skill_after_preparation"})
-        config_id = "sha256:" + snapshot["fingerprint"]
+        view = self.require_agentic_view()
+        selection = view.selection(profile, project_id=snapshot["business"]["id"] if snapshot["business"] else None)
+        skills, _ = self.managed_skills(profile, selection=selection)
+        native_guidance_digest = self.native_guidance_digest(profile.to_dict())
+        config_id = "sha256:" + canonical_hash({"fingerprint": snapshot["fingerprint"],
+                                               "native_guidance_digest": native_guidance_digest})
         tools = effective_tool_policy(profile, role, self.registry, packages=packages)
         mandatory = compose_context(profile, role, sources, effective_config_id=config_id,
             workspace=snapshot["row"]["workspace"], business=snapshot["business"],
             allowed_businesses=tuple(snapshot["businesses"]), owner_name=snapshot["owner_name"],
             available_operations=frozenset(tool["canonical_operation"] for tool in tools if tool["available"]),
-            context_home=context_home)
+            context_home=context_home, agentic_view=view)
+        from bazarlyk.agentic.text import render
+        toolkit = render(view, "host", "app/bazarlyk/agentic/assets/toolkit.md",
+                         TOOLKIT_COMMAND=shlex.quote(str(Path(snapshot["row"]["workspace"]) / ".bazarlyk/agentic")))
+        session_note = render(view, "host", "app/bazarlyk/agentic/assets/inbox-session-note.md")
+        if not session_note.strip() or len(session_note) > MAX_CONTEXT_CHARACTERS:
+            raise DomainError("agentic_resource_unavailable", "Managed inbox session guidance is empty or oversized")
+        resource = view.resource("host", "app/bazarlyk/agentic/assets/toolkit.md")
+        rendered = mandatory["rendered"] + "\n\n## Agentic toolkit\n" + toolkit
+        if len(rendered) > MAX_CONTEXT_CHARACTERS:
+            raise DomainError("context_budget_exceeded", "Mandatory context and agentic toolkit exceed the context limit")
+        mandatory = {**mandatory, "rendered": rendered, "character_count": len(rendered),
+                     "bundle_hash": content_hash(rendered.encode()), "entries": [*mandatory["entries"],
+                         {"document_id": resource["root_path"], "source_id": resource["root_path"],
+                          "source_kind": "agentic", "source_path": resource["root_path"], "section_selector": None,
+                          "revision": resource["sha256"], "hash": resource["sha256"], "required": True,
+                          "character_count": len(toolkit), "inclusion_reason": "Managed toolkit discovery and authoring"}]}
         visible_scope = plain(profile.to_dict()["scope"])
         if profile.scope.kind == "ecosystem":
             visible_scope["allowed_business_ids"] = [row["id"] for row in snapshot["businesses"]]
+        self.check_agentic_revision(snapshot["agentic_catalog_revision"])
         return EffectiveAgentConfig({**profile.to_dict(), "scope": visible_scope, "workspace": snapshot["row"]["workspace"],
             "business_id": snapshot["business"]["id"] if snapshot["business"] else None,
             "business_revision": snapshot["business"]["revision"] if snapshot["business"] else None,
             "effective_config_id": config_id, "configuration_revision": config_id, "context_refresh_required": False,
+            "agentic_catalog_revision": snapshot["agentic_catalog_revision"], "agentic_selection": selection,
+            "inbox_session_note": session_note,
+            "native_guidance_digest": native_guidance_digest,
             "mandatory_context": mandatory, "skills": skills, "tools": tools,
             "preparation": {}, "delivery": None})
 
@@ -487,6 +606,10 @@ class AgentConfigResolver:
         expected_skills = {item["name"]: item["materialization_hash"] for item in config["skills"]}
         if projection.get("selected_skills") != expected_skills:
             drift.append("selected_skills_changed")
+        native_guidance = projection.get("native_guidance_digest")
+        if (not isinstance(native_guidance, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", native_guidance)
+                or native_guidance != config["native_guidance_digest"]):
+            drift.append("native_guidance_changed")
         if projection.get("artifact_refs") != {"role": config["role"], "plugins": [{key: item[key] for key in ("id", "version", "digest")} for item in config["plugins"]]}:
             drift.append("artifact_pins_changed")
         from bazarlyk.bootstrap.tool_permissions import changed as tool_permissions_changed
@@ -569,6 +692,7 @@ class AgentConfigResolver:
                 "selected_skills_changed": "The selected skill instructions changed",
                 "artifact_pins_changed": "The selected role or plugins changed",
                 "tool_configuration_changed": "Generated Claude tool permissions need refreshing",
+                "native_guidance_changed": "Managed native orientation changed; explicit agent preparation is required",
             }
             drift = preparation.get("projection_drift", [])
             if (set(drift) == {"helper_probe_unavailable"} and not repair_error
@@ -592,6 +716,8 @@ class AgentConfigResolver:
         result = {"ready": True, "effective_config_id": config.effective_config_id, "refresh_required": changed,
                   "reload_skills": event != "prompt", "preparation": data["preparation"]}
         result["inbox_available"] = any(tool["canonical_operation"] == "inbox_list" and tool["available"] for tool in data["tools"])
+        if result["inbox_available"]:
+            result["inbox_session_note"] = data["inbox_session_note"]
         if event != "prompt" or changed:
             result["mandatory_context"] = data["mandatory_context"]
             memory = getattr(self, 'working_memory', None)

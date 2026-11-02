@@ -74,6 +74,7 @@ def refresh(resolver, principal, config, registration_id, runtime):
                 projection = {**projection, "files": dict(sorted(hashes.items())), "selected_skills": selected,
                               "skills_digest": files_digest({name: body for name, body in files.items()
                                                              if name.startswith(".claude/skills/")})}
+                resolver.check_agentic_revision(data["agentic_catalog_revision"])
                 registrations.update(registration_id, {"projection_json": projection,
                     "skills_digest": projection["skills_digest"]}, expected_revision=registration["revision"])
         except BaseException:

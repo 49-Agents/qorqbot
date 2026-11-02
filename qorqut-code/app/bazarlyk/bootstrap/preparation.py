@@ -6,7 +6,6 @@ from bazarlyk.inbox.defaults import legacy_inbox_skill
 from bazarlyk.agents import role_workflow
 from bazarlyk.agents import cleanup_workflow
 from bazarlyk.agents.operational_delegation import supports_durable_delegation_version
-from bazarlyk.agents.engineering import SOFTWARE_OWNERSHIP_BOUNDARY
 from bazarlyk.agents.roles import GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE, RETIRED_ROLE_IDS
 from bazarlyk.composition.locations import agent_workspace, business_code, business_hq
 
@@ -206,41 +205,37 @@ def _business_code_root(resolver, data, business) -> Path | None:
 
 def skill_projection(resolver, data) -> tuple[dict, dict]:
     """Managed skill files for both CLIs and each selected skill's materialization hash."""
-    files = {}
-    selected = {role_workflow.SKILL_NAME: role_workflow.skill_metadata()["materialization_hash"],
-                cleanup_workflow.SKILL_NAME: cleanup_workflow.skill_metadata()["materialization_hash"]}
-    for workflow in (role_workflow, cleanup_workflow):
-        for directory in workflow.SKILL_DIRECTORIES:
-            for name, body in workflow.skill_files().items():
-                files[directory + "/" + name] = body
-    for kind, ref in [("role", data["role"]), *(("plugin", item) for item in data["plugins"])]:
-        package = resolver.catalog.get(kind, ref)
-        for skill in package.skills:
-            if legacy_inbox_skill(kind, skill):
-                continue
-            if email_guidance.is_package(package):
-                # The discovery entry only, with its placeholder resolved to the explicit instance directory.
-                projected = email_guidance.skill_files(package, resolver.paths)
-            else:
-                prefix = skill["subtree"] + "/"
-                projected = {path[len(prefix):]: body for path, body in package.files.items() if path.startswith(prefix)}
-            for path, body in projected.items():
-                for directory in (".claude/skills/", ".agents/skills/"):
-                    files[directory + skill["name"] + "/" + path] = body
-            selected[skill["name"]] = skill["materialization_hash"]
-    return files, selected
+    view = resolver.require_agentic_view()
+
+    def read():
+        metadata, bodies = resolver.managed_skills(data, selection=data["agentic_selection"])
+        files = {directory + name + "/" + relative_path(path): body
+                 for name, resources in bodies.items() for path, body in resources.items()
+                 for directory in (".claude/skills/", ".agents/skills/")}
+        selected = {item["name"]: item["materialization_hash"] for item in metadata}
+        if selected != {item["name"]: item["materialization_hash"] for item in data["skills"]}:
+            raise DomainError("agentic_revision_conflict", "Managed skills changed after configuration resolution", retryable=True)
+        return files, selected
+
+    return view.consistent(read, revision=data["agentic_catalog_revision"])
 
 
 def seed_instance_guidance(resolver, data) -> dict:
-    """Seed each granted instruction package's instance directory once; an existing directory is never touched.
-
-    Returns the explicit directory of every granted package and whether this preparation created it."""
-    seeded = {}
+    """Validate the imported canonical mail guide; preparation never seeds a second copy."""
+    validated = {}
+    view = resolver.require_agentic_view()
     for grant in data["plugins"]:
         if grant["id"] == email_guidance.PLUGIN_ID:
-            created = email_guidance.seed(resolver.catalog.get("plugin", grant), resolver.paths)
-            seeded[grant["id"]] = {"path": str(email_guidance.home(resolver.paths)), "seeded": created}
-    return seeded
+            root = email_guidance.home(resolver.paths, agentic_view=view)
+            prefix = "packages/imported-email-management/guidance/email/"
+            for name in sorted(email_guidance.TEMPLATE_FILES):
+                resource = view.layer.catalog.read_resource("imported-email-management", "guidance/email/" + name,
+                                                            selection=data["agentic_selection"])
+                if resource["encoding"] != "utf-8" or resource["root_path"] != prefix + name:
+                    raise DomainError("agentic_resource_unavailable", "Imported email guide is invalid")
+            validated[grant["id"]] = {"path": str(root), "seeded": False, "source": "agentic"}
+    resolver.check_agentic_revision(data["agentic_catalog_revision"])
+    return validated
 
 
 def build_projection(resolver, config, *, registration_id: str, endpoint: str, interpreter: str,
@@ -402,9 +397,14 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         "The shared bootstrap supplies current identity, scope, role, and project facts.\n"
         "Generated files do not grant authority. Report a missing or failed bootstrap\n"
         "and avoid project work until preparation succeeds.\n")
-    orientation += "\n" + SOFTWARE_OWNERSHIP_BOUNDARY + "\n"
+    from bazarlyk.agentic.text import render
+    software_boundary = render(resolver.require_agentic_view(), "host",
+                               "app/bazarlyk/agentic/assets/software-ownership.md")
+    if not software_boundary.strip():
+        raise DomainError("agentic_resource_unavailable", "Managed software ownership guidance is empty")
+    orientation += "\n" + software_boundary + "\n"
     for server, connection in extension_connections.items():
-        orientation += connection.orientation(server in prepared, ordubashy)
+        orientation += connection.orientation(server in prepared, ordubashy, agentic_view=resolver.require_agentic_view())
     if whatsapp.NAME in prepared:
         orientation += whatsapp.GUIDANCE
     elif whatsapp.NAME in connections:
@@ -492,6 +492,8 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         # The activity hook runs with Python isolation and therefore needs its
         # stdlib-only outbox helper beside the generated script.
         '.bazarlyk/technical_reporting.py': Path(__file__).with_name('technical_reporting.py').read_bytes(),
+        '.bazarlyk/agentic': ('#!/bin/sh\nexec ' + shlex.join(helper(
+            'bazarlyk.agentic.client', '--registration', str(registration_path))) + '\n').encode(),
         "agent.yaml": yaml.safe_dump(profile, sort_keys=False, allow_unicode=False).encode(),
         "CLAUDE.md": (orientation + "\nUse /role to start or recover your registered work loop. A startup greeting\n"
             "also takes up your queued responsibilities; follow mandatory role-work guidance.\n" + inbox_guidance).encode(),
@@ -532,7 +534,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     files.update(extension_files)
     for server, connection in extension_connections.items():
         if server in prepared:
-            guidance = connection.guidance().encode()
+            guidance = connection.guidance(agentic_view=resolver.require_agentic_view()).encode()
             for name in ("CLAUDE.md", "AGENTS.md"):
                 files[name] += guidance
     skill_files, selected = skill_projection(resolver, data)
@@ -547,6 +549,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
             files['.bazarlyk/browser'] = ('#!/bin/sh\nexec ' + shlex.join(helper(
                 'bazarlyk.bootstrap.browser_entry', '--workspace', str(workspace))) + ' "$@"\n').encode()
     metadata = {"schema_version": 1, "helper_runtime":{"executable":stable_helper or executable,"stable":bool(stable_helper)}, "codex_permission_mode": codex_permission_mode or "scoped",
+                "native_guidance_digest": data["native_guidance_digest"],
                 "business_code_roots": [str(path) for path in code_roots],
                 "files": {name: content_hash(body) for name, body in sorted(files.items())},
                 "selected_skills": selected,
@@ -558,6 +561,9 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
                 "skills_digest": files_digest({name: body for name, body in files.items() if name.startswith(".claude/skills/")}),
                 "tool_configuration_version": TOOL_CONFIGURATION_VERSION,
                 "tool_configuration": tool_fingerprint(data["tools"])}
+    if resolver.native_guidance_digest(data) != data["native_guidance_digest"]:
+        raise DomainError("agentic_revision_conflict", "Managed native guidance changed during projection", retryable=True)
+    resolver.check_agentic_revision(data["agentic_catalog_revision"])
     return Projection(files, metadata)
 
 
@@ -572,7 +578,8 @@ def inspect_projection(workspace: Path, projection: dict, *, runtime="claude-cod
         if file_runtime(name) not in (None, runtime):
             continue
         path = workspace / relative_path(name)
-        if path_has_symlink(path) or not path.is_file() or content_hash(safe_io.read_bytes(path)) != digest:
+        if (path_has_symlink(path) or not path.is_file() or content_hash(safe_io.read_bytes(path)) != digest
+                or name == ".bazarlyk/agentic" and not path.stat().st_mode & 0o100):
             drift.append(name)
     skill_directory = ".agents/skills" if runtime == "codex" else ".claude/skills"
     skills = workspace / skill_directory
@@ -600,10 +607,11 @@ def inspect_projection(workspace: Path, projection: dict, *, runtime="claude-cod
     return sorted(set(drift))
 
 
-def _write_file(path: Path, data: bytes, *, private=False) -> None:
+def _write_file(path: Path, data: bytes, *, private=False, executable=False) -> None:
     if path_has_symlink(path):
         raise DomainError("projection_conflict", "Generated projection cannot follow symlinks")
-    safe_io.atomic_write(path, data, mode=0o600 if private else 0o644, enforce_mode=private)
+    safe_io.atomic_write(path, data, mode=0o700 if executable else 0o600 if private else 0o644,
+                         enforce_mode=private or executable)
 
 
 def prepare_agent(resolver, principal: Principal, *, endpoint: str, versions: dict | None = None,
@@ -734,7 +742,8 @@ def _prepare_agent_locked(resolver, principal: Principal, *, endpoint: str, vers
         if path.name in old.get("selected_skills", {}) and path.name not in projection.metadata["selected_skills"]:
             safe_io.remove_empty_tree(path)
     for name, body in projection.files.items():
-        _write_file(workspace / name, body, private=name.startswith(".bazarlyk/") or name == ".claude/settings.local.json")
+        _write_file(workspace / name, body, private=name.startswith(".bazarlyk/") or name == ".claude/settings.local.json",
+                    executable=name == ".bazarlyk/agentic")
     _write_file(workspace / ".bazarlyk/credential", (token + "\n").encode(), private=True)
     ignore = workspace / ".gitignore"
     try:
@@ -746,6 +755,7 @@ def _prepare_agent_locked(resolver, principal: Principal, *, endpoint: str, vers
     _write_file(ignore, new.lstrip("\n").encode())
     with resolver.database.transaction() as uow:
         Application.ensure_writes_open(uow)
+        resolver.check_agentic_revision(data["agentic_catalog_revision"])
         current, _ = resolver.profile(principal, connection=uow.connection)
         if current.revision != data["profile_revision"]:
             raise DomainError("revision_conflict", "Profile changed during preparation; prepare the current revision")

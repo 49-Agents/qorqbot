@@ -14,7 +14,6 @@ from typing import Callable
 from bazarlyk.catalog.packages import content_hash
 from qorqut_operations.contracts import DomainError, utc_now
 from bazarlyk.agents.context import MAX_CONTEXT_CHARACTERS
-from bazarlyk.inbox.defaults import INBOX_SESSION_NOTE
 from .client import (BOOTSTRAP_TIMEOUT, REQUEST_TIMEOUT, BootstrapClient,
                      load_registration, path_has_symlink, write_json_private)
 from .transcript_snapshot import run as snapshot_transcript
@@ -109,7 +108,10 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     if binding_error:
         setup = 'Inbox notices are paused: ' + binding_error + '. Pending events remain available through your MCP inbox tools.'
     elif response.get("inbox_available"):
-        setup = INBOX_SESSION_NOTE
+        note = response.get("inbox_session_note")
+        if not isinstance(note, str) or not note.strip() or len(note) > MAX_CONTEXT_CHARACTERS:
+            raise DomainError("invalid_bootstrap", "Managed inbox session guidance is missing or exceeds its character budget")
+        setup = note
     if response.get('activity_available'):
         setup += f'\nSESSION CURRENT-WORK ID: {session_id}. Use this native UUID with agent_work_update; activity heartbeat is automatic.'
     if (event == "UserPromptSubmit" and last_id == config_id and not response.get("refresh_required")
