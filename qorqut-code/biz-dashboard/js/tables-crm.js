@@ -370,7 +370,7 @@ function crmTableMount(host, {biz, table, onTable, onOpenRecord, draftKey, draft
       }
       drafts.delete(draftKey);
     } catch (failure) {
-      // Every unsaved edit stays in the draft; a stale table offers a rebase instead of discarding anything.
+      // Every unsaved edit stays in the draft; a stale table offers to refresh the base while retaining the draft.
       failed = true;
       if (accessLost(failure) || sourceGone(failure)) { saving = false; return invalidate(); }
       if (crmConflict(failure)) {

@@ -1,7 +1,7 @@
 // Completed actions: the owner's capture popover (floating bottom-right button) and the
 // Actions list inside the Activity view. Both use the shared core's native actions_* operations through
 // the owner's root route. Every save after the first is a correction (a new immutable revision, checked
-// against the revision the owner last saw) and removal is a withdrawal; neither rewrites history.
+// against the revision the owner last saw) and removal is a withdrawal; both preserve existing versions.
 // Nothing here infers a category from the page that is open: the owner chooses.
 // Times are San Juan time (js/san-juan-time.js); the server owns the recording instant.
 const AC_CATEGORIES = [
