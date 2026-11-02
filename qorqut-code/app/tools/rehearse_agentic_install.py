@@ -97,7 +97,17 @@ def run(prepared, scratch):
     evidence["module_runtime_registry"] = "No host execution adapter registered; native client owns LocalProcessRuntime"
     with runtime.owned_preparation(), patch.dict(os.environ, {"SYNTHETIC_SECRET": "not inherited by tools"}), patch("bazarlyk.installation.helper_launcher", return_value=None), \
             patch.object(preparation, "checkpoint_protocols", return_value={"claude-code": 0, "codex": 0}):
+        from qorqut_agentic import util as agentic_util
+        evidence["yaml_loader"] = agentic_util._StrictLoader.__mro__[1].__name__
+        resolution_started = time.perf_counter()
         before = runtime.resolver.resolve_agent_config(manager).to_dict()
+        first_resolution = time.perf_counter() - resolution_started
+        resolution_started = time.perf_counter()
+        repeated = runtime.resolver.resolve_agent_config(manager).to_dict()
+        subsequent_resolution = time.perf_counter() - resolution_started
+        check(before["effective_config_id"] == repeated["effective_config_id"], "Unchanged resolution changed identity")
+        evidence["context_resolution_seconds"] = {"first": round(first_resolution, 4), "subsequent": round(subsequent_resolution, 4)}
+        check(max(first_resolution, subsequent_resolution) < 15, "Context resolution exceeds the existing native request budget")
         check(before["mandatory_context"]["rendered"].count("## Agentic Toolkit") == 1, "Duplicate toolkit context")
         # Both a directly modified procedural skill and a new package are immediately visible.
         skill_path = "packages/imported-host-builtins/native/app/bazarlyk/agents/skills/role/SKILL.md"
@@ -153,8 +163,9 @@ def run(prepared, scratch):
             check(catalog["ok"], catalog)
             authored = {"schema_version": 1, "id": "synthetic-tools", "name": "Synthetic tools", "description": "Isolated rehearsal",
                 "entries": [{"id": "echo", "kind": "tool", "path": "echo.json", "description": "Echo", "when_to_use": "Synthetic check"},
-                            {"id": "flow", "kind": "workflow", "path": "flow.json", "description": "Progress", "when_to_use": "Synthetic check"}]}
-            files = {"agentic.yaml": json.dumps(authored),
+                            {"id": "flow", "kind": "workflow", "path": "flow.json", "description": "Progress", "when_to_use": "Synthetic check"},
+                            {"id": "new-skill", "kind": "skill", "path": "skills/rehearsal/SKILL.md", "description": "New procedure", "when_to_use": "Synthetic check"}]}
+            files = {"agentic.yaml": json.dumps(authored), "skills/rehearsal/SKILL.md": "---\nname: rehearsal\ndescription: Synthetic newly authored procedure.\n---\nFollow the synthetic check.\n",
                 "echo.json": json.dumps({"schema_version": 1, "runtime": "python", "code": "echo.py", "input_schema": {"type": "object"}, "output_schema": {"type": "object"}}),
                 "echo.py": "import json,sys,os\nv=json.load(sys.stdin)\nprint(json.dumps({'echo':v,'secret':os.environ.get('SYNTHETIC_SECRET')}))\n",
                 "flow.json": json.dumps({"schema_version": 1, "id": "flow", "description": "Synthetic workflow", "steps": [{"id": "one", "instructions": "Synthetic first step"}, {"id": "two", "instructions": "Synthetic second step", "depends_on": ["one"]}]})}
@@ -164,6 +175,8 @@ def run(prepared, scratch):
             mutation = call(transport, registration, "authoring.apply", args)
             from qorqut_agentic.errors import AgenticError
             check(mutation["ok"] and mutation["result"]["change"]["attribution"]["actor_id"] == manager.id, mutation)
+            discovered = call(transport, worker_registration, "catalog.read_entry", {"ref": "synthetic-tools/new-skill"})
+            check(discovered["ok"], "New procedural skill not visible on the next read")
             check(not call(transport, registration, "catalog.list", {"root": "/forged"})["ok"], "Root override accepted")
             try:
                 layer.tools.invoke("synthetic-tools/echo", {}, "host-runtime-refused", {"actor_id": manager.id, "actor_kind": "agent"})
@@ -222,10 +235,10 @@ raise SystemExit(client.main(sys.argv[3:]))
             run_id = flow["result"]["run"]["run_id"]
             progress = call(transport, worker_registration, "workflows.complete_step", {"run_id": run_id, "step_id": "one", "operation_id": "step-one"})
             check(progress["ok"], progress)
-            # Revoke the original package by deleting its source manifest through ordinary authoring.
-            package = layer.root / "packages/synthetic-tools/agentic.yaml"
+            # Remove the package through public authoring; saved progress remains owned.
             layer.authoring.apply({"actor_id": manager.id, "actor_kind": "agent", "reason": "Synthetic revoke"},
-                [{"op": "delete", "path": "packages/synthetic-tools/agentic.yaml", "expected_sha256": digest(package.read_bytes())}])
+                [{"op": "delete", "path": "packages/synthetic-tools/" + path,
+                  "expected_sha256": digest((layer.root / "packages/synthetic-tools" / path).read_bytes())} for path in files])
             reopened = call(transport, worker_registration, "workflows.get", {"run_id": run_id})
             check(reopened["ok"] and reopened["result"]["run"]["steps"][0]["state"] == "completed", reopened)
             denied = call(transport, worker_registration, "workflows.complete_step", {"run_id": run_id, "step_id": "two", "operation_id": "step-two"})
@@ -257,7 +270,7 @@ raise SystemExit(client.main(sys.argv[3:]))
         check(open_installation(paths, selection.ids)[0].instance_id == layer.instance_id, "Legitimate edits refused")
         from bazarlyk.operations_history.catalog import catalog as history_catalog
         from qorqut_operations.history_exports import TECHNICAL_EXCLUDED
-        history = history_catalog(selection.extensions)
+        history = history_catalog(selection.history())
         check(history.classifications["agentic_inbox_cursor"][1].kind == TECHNICAL_EXCLUDED, "Technical cursor leaked into public history")
     runtime.domains.shared_context.close()
     runtime.database.close()
