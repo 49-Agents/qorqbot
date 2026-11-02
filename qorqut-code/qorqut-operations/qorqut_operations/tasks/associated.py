@@ -20,9 +20,27 @@ namespaces links nothing; a business the Action is not shared with is no namespa
 owner-only because the Action domain withholds a Global Action's evidence from a business-scoped non-owner reader, so
 no other reader gains this inferred association.
 
+A Story that has been moved between owning scopes keeps what it had. Each Story Task whose ID a relocation recorded (the
+audited ``task_moves`` identity: its id and immutable creation time, read through ``journey_spans``) is also associated
+through the scopes it stayed in before, but only with what was established during that very stay: an Action whose current task
+evidence was established while the Task was there (the earliest of the unbroken run of immutable revisions that all carry
+that evidence, so a text-only correction detaches nothing and a later re-pointing starts a new run), or a Signoff whose
+frozen expected target named the Task when it was proposed. Another Task that merely reuses the bare ID in a scope, before
+this one arrived or after it left, is a different lifetime and links nothing; the user-editable ``occurred_at`` is never
+identity evidence. The same stay rule bounds the destination's own evidence for a moved Task, and the owner-only shared
+Global inference holds across a move only when the evidence, the explicit sharing and the unique bare ID are all proven at
+the time the evidence was established. A typed reference on a Story Task's own discussion is read in the scope the message
+was written in: its pinned ``reference_namespace`` (first stored by a relocation) or else the message's own scope, so a
+bare Action ID never names a same-ID record of the destination. A Task whose ID was never relocated keeps the
+current scope's behavior exactly; one whose recorded history is not one continuous bounded journey has only its current
+stay, from its creation, and no historical stay is invented for it.
+
 Reading is an ordinary Task read: the operation is authorized in the requested business-or-Global namespace, and every
 returned record is resolved again through the authorized ``ItemResolver``, so an unauthorized or unavailable record is
-never exposed. Nothing is written and no data is backfilled."""
+never exposed. A record associated in another scope is resolved through the caller's current authority in that scope (the
+``HistoricalReferences.context`` seam), never in the record's owning scope merely to make it readable: a revoked source
+membership or a denied read leaves it out without disclosing its ID, label, state or location. Nothing is written and no
+data is backfilled."""
 
 from __future__ import annotations
 
@@ -35,6 +53,7 @@ from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.items import UNAVAILABLE
 from qorqut_operations.storage.repositories import decode_row
+from qorqut_operations.tasks.relocation import journey_spans, scope_of
 from qorqut_operations.tasks.scope import task_namespace
 
 SCOPE = {"scope": {"enum": ["business", "global"]}}
@@ -83,7 +102,11 @@ class TaskAssociatedRecords:
                         "cursor. Withdrawn Actions and decided Signoffs remain part of the record's history. For the "
                         "installation owner, a business-operational Action stored in Global is also associated when it is "
                         "explicitly shared with the requested business and its bare task evidence names exactly one Task among "
-                        "Global and the Action's shared businesses, in that business; that inferred path is owner-only.",
+                        "Global and the Action's shared businesses, in that business; that inferred path is owner-only. A "
+                        "Task that was moved between scopes keeps the records established while it was in an earlier scope "
+                        "(audited stay and the record's own immutable revision or proposal time) and reads a discussion "
+                        "reference in the scope the message was written in; each such record is read with the caller's current "
+                        "authority in that scope and an unavailable one is omitted without a trace.",
             # The Task domain's own Global guard is applied by ``TaskOperations.read``, not merely by the generic policy.
             read=lambda ctx, args, options, uow: self.tasks.read(OPERATION, ctx, args, uow))
 
@@ -126,14 +149,22 @@ class TaskAssociatedRecords:
     # -- the canonical association sources -------------------------------------------------------------------------
 
     def sources(self, ctx, uow, business_id, task_ids, record_type):
-        """``(raw record ID, source Task ID)`` pairs; a record may be found by several routes and several Tasks."""
+        """``(raw record ID, source Task ID, origin scope)`` triples; a record may be found by several routes, Tasks and origins.
+
+        The origin is the scope the association was established in, where the record's ID is resolved and where the
+        caller's authority is checked. It is the current scope for everything a Task that never moved has, and for a
+        relationship, which a relocation never lets cross a scope."""
+        stays = self.stays(uow, business_id, task_ids)
+        plain = set(task_ids) - stays.keys()
         found = self.concerns(uow, business_id, task_ids, record_type)
         if record_type == "action":
-            found |= self.action_evidence(uow, business_id, task_ids)
-            found |= self.shared_action_evidence(ctx, uow, business_id, task_ids)
+            found |= self.action_evidence(uow, business_id, plain)
+            found |= self.shared_action_evidence(ctx, uow, business_id, plain)
         else:
-            found |= self.signoff_targets(uow, business_id, task_ids)
+            found |= self.signoff_targets(uow, business_id, plain)
+        found = {(identity, task_id, business_id) for identity, task_id in found}
         found |= self.thread_references(uow, business_id, task_ids, record_type)
+        found |= self.stay_sources(ctx, uow, record_type, stays)
         return found
 
     @staticmethod
@@ -233,43 +264,191 @@ class TaskAssociatedRecords:
 
     @staticmethod
     def thread_references(uow, business_id, task_ids, record_type):
-        """Typed Action/Signoff references stored on the Story Tasks' own discussion messages."""
+        """``(reference ID, Task ID, origin)`` for the typed Action/Signoff references on the Story Tasks' own messages.
+
+        A reference is relative to the scope its message was written in: the ``reference_namespace`` a relocation pinned
+        (and no later one changes) or, for a message that never needed one, the scope it is stored in. A namespace that
+        names no scope reads nothing, and a bare ID is never looked up anywhere else."""
         found = set()
         for chunk in _chunks(task_ids):
             rows = uow.connection.execute(
-                f"SELECT item_id, refs_json FROM thread_messages WHERE business_id IS ? AND item_type='task' "
+                f"SELECT item_id, refs_json, reference_namespace FROM thread_messages WHERE business_id IS ? AND item_type='task' "
                 f"AND item_id IN ({_marks(chunk)}) AND refs_json NOT IN ('[]', 'null')", [business_id, *chunk])
             for row in rows:
+                valid, origin = (True, business_id) if row["reference_namespace"] is None else scope_of(row["reference_namespace"])
+                if not valid:
+                    continue
                 for reference in json.loads(row["refs_json"]):
                     if (isinstance(reference, Mapping) and reference.get("type") == record_type
                             and isinstance(reference.get("id"), str) and reference["id"]):
-                        found.add((reference["id"], row["item_id"]))
+                        found.add((reference["id"], row["item_id"], origin))
+        return found
+
+    # -- scopes a moved Story Task has been in -----------------------------------------------------------------------
+
+    @staticmethod
+    def stays(uow, business_id, task_ids):
+        """``{Task ID: [(scope, since, until), ...]}`` for each Story Task whose bare ID a relocation ever recorded, newest
+        stay first.
+
+        Only the audited journey of that very Task counts (``journey_spans``). A relocation can free an ID in a scope for
+        another Task to take, so a Task whose ID was ever moved - itself, or an earlier lifetime of the same ID - is bound
+        to its own stays, and the evidence of another lifetime never names it. A Task whose recorded history overflows or is
+        not one continuous journey has one stay, the current scope from its creation: no historical candidate is invented
+        for it. A Task whose ID no relocation ever recorded is absent and keeps the unbounded current-scope behavior."""
+        moved = set()
+        for chunk in _chunks(task_ids):
+            moved.update(row["task_id"] for row in uow.connection.execute(
+                f"SELECT DISTINCT task_id FROM task_moves WHERE task_id IN ({_marks(chunk)})", chunk))
+        return {task_id: journey_spans(uow, business_id, task_id) for task_id in sorted(moved)}
+
+    @staticmethod
+    def within(when, since, until):
+        """Whether an instant falls in the half-open stay ``[since, until)``; an open stay has no end."""
+        return since <= when and (until is None or when < until)
+
+    @staticmethod
+    def evidence(uow, action_key, revision, holds):
+        """``(created_at, accepted state)`` of the revision that began the Action's present ``holds``, else ``None``.
+
+        An Action row is a projection; its immutable revisions say when its current evidence was established. The run
+        starts at the earliest revision such that every revision up to the current one satisfies ``holds`` on its exact
+        accepted state, so a correction of the text alone does not move it and a correction of the evidence starts a new run.
+        The Action's user-editable ``occurred_at`` is never consulted. A current state that does not hold, or a history with
+        a missing revision, proves nothing and yields ``None``."""
+        expected, began = revision, None
+        for row in uow.connection.execute(
+                "SELECT revision, created_at, snapshot_json FROM action_revisions WHERE action_key=? ORDER BY revision DESC",
+                (action_key,)):
+            if row["revision"] != expected:
+                return None
+            state = json.loads(row["snapshot_json"])
+            if not holds(state):
+                return began
+            began, expected = (row["created_at"], state), expected - 1
+        return began if expected == 0 else None
+
+    def stay_sources(self, ctx, uow, record_type, stays):
+        """``(raw record ID, Story Task ID, origin)`` triples established during a stay of each moved Story Task."""
+        if not stays:
+            return set()
+        by_scope = {}
+        for task_id, spans in stays.items():
+            for scope, since, until in spans:
+                by_scope.setdefault(scope, {}).setdefault(task_id, []).append((since, until))
+        if record_type == "signoff":
+            return self.stay_signoff_targets(uow, by_scope)
+        return self.stay_action_evidence(uow, by_scope) | self.stay_shared_evidence(ctx, uow, stays, by_scope)
+
+    def stay_action_evidence(self, uow, by_scope):
+        """Actions whose present ``refs_json.task`` was established, in the Action's own scope, during a stay in that scope."""
+        found = set()
+        for scope, tasks in by_scope.items():
+            for chunk in _chunks(tasks):
+                for row in uow.connection.execute(
+                        "SELECT action_key, revision, json_extract(refs_json, '$.task') AS task_id FROM action_logs "
+                        f"WHERE business_id IS ? AND json_extract(refs_json, '$.task') IN ({_marks(chunk)})", [scope, *chunk]):
+                    task_id = row["task_id"]
+                    began = self.evidence(uow, row["action_key"], row["revision"],
+                                          lambda state: state.get("refs", {}).get("task") == task_id)
+                    if began is not None and any(self.within(began[0], *span) for span in tasks[task_id]):
+                        found.add((row["action_key"], task_id, scope))
+        return found
+
+    def stay_signoff_targets(self, uow, by_scope):
+        """Signoffs whose frozen expected Task target named the Task, in the review scope, when it was proposed in a stay.
+
+        The proposal and its targets are immutable; the later decision time is not when the target was established."""
+        found = set()
+        for scope, tasks in by_scope.items():
+            for chunk in _chunks(tasks):
+                rows = uow.connection.execute(
+                    "SELECT s.id AS signoff_id, s.created_at AS proposed_at, json_extract(t.value, '$.resource.resource_id') AS task_id "
+                    "FROM signoffs s, json_each(s.expected_targets_json) t "
+                    "WHERE s.review_business_id IS ? AND json_extract(t.value, '$.resource.resource_type') = ? "
+                    "AND json_extract(t.value, '$.resource.business_id') IS ? "
+                    f"AND json_extract(t.value, '$.resource.resource_id') IN ({_marks(chunk)})", [scope, TASK_RESOURCE, scope, *chunk])
+                for row in rows:
+                    if any(self.within(row["proposed_at"], *span) for span in tasks[row["task_id"]]):
+                        found.add((row["signoff_id"], row["task_id"], scope))
+        return found
+
+    def stay_shared_evidence(self, ctx, uow, stays, by_scope):
+        """The owner-only shared Global Action inference, proven across a move.
+
+        It holds for a stay in a business only when the Action's explicit sharing with that business and its bare task
+        evidence were both established during the stay, and when, at that instant, exactly one Task lifetime carried the
+        bare ID among Global and every business the Action is (or was then) shared with - the Task itself, in that
+        business. Anything else, including a lifetime of another Task with the same ID, links nothing."""
+        if not is_owner(ctx, uow):
+            return set()
+        found = set()
+        for scope, tasks in by_scope.items():
+            if scope is None:
+                continue
+            for chunk in _chunks(tasks):
+                for row in uow.connection.execute(
+                        "SELECT a.action_key AS action_key, a.revision AS revision, json_extract(a.refs_json, '$.task') AS task_id "
+                        "FROM action_logs a JOIN action_businesses m ON m.action_key = a.action_key "
+                        "WHERE a.business_id IS NULL AND a.category = 'business-operational' AND m.business_id = ? "
+                        f"AND json_extract(a.refs_json, '$.task') IN ({_marks(chunk)})", [scope, *chunk]):
+                    task_id = row["task_id"]
+                    began = self.evidence(
+                        uow, row["action_key"], row["revision"],
+                        lambda state: (state.get("category") == "business-operational" and state.get("refs", {}).get("task") == task_id
+                                       and scope in state.get("business_ids", ())))
+                    if began is None or not any(self.within(began[0], *span) for span in tasks[task_id]):
+                        continue
+                    namespaces = {None, *began[1].get("business_ids", ()), *(
+                        link["business_id"] for link in uow.connection.execute(
+                            "SELECT business_id FROM action_businesses WHERE action_key=?", (row["action_key"],)))}
+                    if self.lifetimes_at(uow, task_id, namespaces, began[0]) == {(scope, stays[task_id][-1][1])}:
+                        found.add((row["action_key"], task_id, scope))
+        return found
+
+    @staticmethod
+    def lifetimes_at(uow, task_id, namespaces, when):
+        """``{(scope, creation time)}`` of every Task lifetime that carried ``task_id`` in one of ``namespaces`` at ``when``."""
+        found = set()
+        for row in uow.connection.execute("SELECT business_id, created_at FROM tasks WHERE id=?", (task_id,)).fetchall():
+            for scope, since, until in journey_spans(uow, row["business_id"], task_id):
+                if scope in namespaces and since <= when and (until is None or when < until):
+                    found.add((scope, row["created_at"]))
         return found
 
     # -- canonical identity, authorization and paging ---------------------------------------------------------------
 
     def records(self, ctx, uow, sources, record_type):
-        """Resolve every distinct record with the authorized item resolver and merge its matching Task IDs."""
+        """Resolve every distinct record with the authorized item resolver and merge its matching Task IDs.
+
+        A record is named once by its canonical scoped ID. It is read in each scope its association was established in,
+        the current scope first, with the caller's authority there; only the origins that may read it contribute their
+        Story Task IDs, and a record no origin may read is left out without a trace."""
         grouped = {}
-        for identity, task_id in sorted(sources):
-            record = self.record(uow, ctx.business_id, record_type, identity)
+        for identity, task_id, origin in sorted(sources, key=lambda source: (source[0], source[1], source[2] is not None, source[2] or "")):
+            record = self.record(uow, origin, record_type, identity)
             if record is None:
                 continue
             canonical, business_id = record
-            grouped.setdefault(canonical, (business_id, set()))[1].add(task_id)
+            grouped.setdefault(canonical, (business_id, {}))[1].setdefault(origin, set()).add(task_id)
         items = []
-        for canonical, (business_id, task_ids) in sorted(grouped.items()):
-            view = self.view(ctx, uow, record_type, canonical)
-            if view is None:
+        for canonical, (business_id, origins) in sorted(grouped.items()):
+            shown, task_ids = None, set()
+            for origin in sorted(origins, key=lambda scope: (scope != ctx.business_id, scope is not None, scope or "")):
+                view = self.view(ctx, uow, origin, record_type, canonical)
+                if view is not None:
+                    shown = shown or view
+                    task_ids |= origins[origin]
+            if shown is None:
                 continue
             items.append({"type": record_type, "id": canonical, "business_id": business_id,
-                          "label": view.get("label", ""), "state": view.get("state"), "revision": view.get("revision"),
+                          "label": shown.get("label", ""), "state": shown.get("state"), "revision": shown.get("revision"),
                           "task_ids": sorted(task_ids)})
         return items
 
     @staticmethod
-    def record(uow, business_id, record_type, identity):
-        """``(canonical scoped ID, owning business ID)`` of a stored record, before any authorization."""
+    def record(uow, origin, record_type, identity):
+        """``(canonical scoped ID, owning business ID)`` of a stored record named in ``origin``, before any authorization."""
         if record_type == "action":
             # Actions are named by their canonical action_id (with its global/ or business/ prefix) or, in one
             # business, by their bare ID inside that business's own storage.
@@ -277,17 +456,19 @@ class TaskAssociatedRecords:
                 row = decode_row(uow.connection.execute(
                     "SELECT action_key, business_id FROM action_logs WHERE action_key=?", (identity,)).fetchone())
             else:
-                row = uow.repository("action_logs", business_id=business_id).get(identity)
+                row = uow.repository("action_logs", business_id=origin).get(identity)
             return (row["action_key"], row["business_id"]) if row else None
         row = uow.connection.execute("SELECT id, review_business_id FROM signoffs WHERE id=?", (identity,)).fetchone()
-        # A Signoff belongs to one review scope; a record of another scope is not part of this namespace's read.
-        if row is None or row["review_business_id"] != business_id:
+        # A Signoff belongs to one review scope; a record of another scope is not part of this origin's read.
+        if row is None or row["review_business_id"] != origin:
             return None
         return row["id"], row["review_business_id"]
 
-    def view(self, ctx, uow, record_type, identity):
+    def view(self, ctx, uow, origin, record_type, identity):
+        """The record as the caller may read it in ``origin``, or ``None`` when that scope or record is unavailable to them."""
         try:
-            return self.items.resolve(ctx, {"type": record_type, "id": identity}, uow)
+            scoped = self.tasks.history.context(ctx, origin, uow)
+            return self.items.resolve(scoped, {"type": record_type, "id": identity}, uow)
         except DomainError as error:
             if error.code not in UNAVAILABLE:
                 raise
