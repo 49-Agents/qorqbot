@@ -249,3 +249,23 @@
 .agfocus-surfaces .agfocus-surface-chip[aria-pressed="true"]{border-color:var(--fg-2);background:var(--hover)}
 .agpad .tbody > .agfocus.agfocus-surface-open{overflow-y:auto}
 .agpad .tbody > .agfocus.agfocus-surface-open > .agfocus-surface{flex:1 0 260px}
+
+/* Text blocks: quiet flat rows; the heading look comes from whitespace, not type. */
+.agfocus-text{position:relative;min-width:0;padding:0 8px 0 0}
+.agfocus .agfocus-text .agfocus-text-input{display:block;width:100%;box-sizing:border-box;min-height:32px;margin:0;padding:6px 40px 6px 34px;border:0;border-radius:8px;background:transparent;box-shadow:none;color:var(--fg);font-size:12.6px;line-height:20px;resize:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;outline:0}
+.agfocus .agfocus-text .agfocus-text-input:focus{background:rgba(255,255,255,.03);box-shadow:none}
+.agfocus .agfocus-text .agfocus-text-input::placeholder{color:transparent}
+.agfocus .agfocus-text .agfocus-text-input:focus::placeholder{color:var(--fg-3)}
+.agfocus .agfocus-text button{position:absolute;top:4px;display:grid;place-items:center;width:24px;height:24px;min-height:24px;margin:0;padding:0;border:0;background:transparent;color:var(--fg-2);opacity:0;transition:opacity .12s}
+.agfocus .agfocus-text .agfocus-text-grip{left:6px;cursor:grab;touch-action:none;user-select:none}
+.agfocus .agfocus-text .agfocus-text-delete{right:12px}
+.agfocus .agfocus-text:hover button,.agfocus .agfocus-text:focus-within button{opacity:1}
+@media (hover:none){.agfocus .agfocus-text button{opacity:.55}}
+.agfocus .agfocus-text button:focus-visible{outline:2px solid var(--fg-2);outline-offset:-2px;opacity:1}
+.agfocus-text.agfocus-dragging{opacity:.6}
+.agfocus-text-status{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 4px;padding:0 10px;font-size:11px;color:var(--fg-2)}
+.agfocus-text-status[hidden]{display:none}
+.agfocus-text-status[data-state=failed],.agfocus-text-status[data-state=conflict],.agfocus-text-status[data-state=load]{color:var(--warn)}
+.agfocus .agfocus-text-status button{min-height:22px;padding:2px 6px;font-size:10px}
+.focus-add-kind{display:flex;gap:16px;margin:0 0 10px}
+.focus-add-kind label{display:flex;align-items:center;gap:6px}

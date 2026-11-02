@@ -28,6 +28,12 @@ function agfocusRowPending(p,node) {
   snooze.disabled=snoozePending || !!p.focusOrderPending || !!node._item.archived;
   snooze.setAttribute('aria-busy',String(snoozePending));
 }
+const agfocusTextHost=()=>typeof focusText!=='undefined'?focusText:null;
+// Rows that take part in ordering: movable Focus cards and text blocks.
+const agfocusMoveRow=(p,id)=>p.focusCards.get(id)||p.focusTextNodes?.get(id)||null;
+const agfocusRowId=node=>node.dataset.cardId||node.dataset.textId;
+const agfocusMoveAble=(p,node)=>!!node && (node.dataset.textId?node.isConnected && node.parentElement?.classList.contains('agfocus-items'):agfocusMoveEligible(p,node));
+const agfocusRowDisabled=(p,node)=>node.dataset.textId?agfocusTextHost().disabled(p,node):node.dataset.moveDisabled==='true';
 function agfocusAnnounce(p,text) { agfocusText(p.focusMount?.querySelector('[data-focus-announcement]'),text); }
 
 async function agfocusMove(p,id,anchorId,side,retry=false) {
@@ -36,30 +42,55 @@ async function agfocusMove(p,id,anchorId,side,retry=false) {
   if(!mount?.isConnected)return;
   if(!retry) {
     if(p.focusMoveSubmission)return;
-    const row=p.focusCards.get(id),anchor=p.focusCards.get(anchorId);
-    if(id===anchorId || !agfocusMoveEligible(p,row) || !agfocusMoveEligible(p,anchor) || !['before_id','after_id'].includes(side))return;
-    const order=[...$('.agfocus-items',mount).children].map(node=>node.dataset.cardId);
-    const moved=order.filter(value=>value!==id),index=moved.indexOf(anchorId);
-    if(index<0)return;
-    moved.splice(index+(side==='after_id'?1:0),0,id);
-    if(moved.every((value,i)=>value===order[i]))return;
-    p.focusMoveSubmission={scope:'global',item_id:id,expected_card_revision:row._item.revision,[side]:anchorId,idempotency_key:newRequestId()};
+    const row=agfocusMoveRow(p,id),anchor=agfocusMoveRow(p,anchorId),text=agfocusTextHost();
+    if(id===anchorId || !agfocusMoveAble(p,row) || !agfocusMoveAble(p,anchor) || !['before_id','after_id'].includes(side))return;
+    // Cards and text blocks share one visible order; text IDs never reach focus_move.
+    let plan=text?text.plan(p,id,anchorId,side):null;
+    if(!text) {
+      // Without the text module the visible order is the card order alone.
+      const order=[...$('.agfocus-items',mount).children].map(node=>node.dataset.cardId),moved=order.filter(value=>value!==id),index=moved.indexOf(anchorId);
+      if(index<0)return;
+      moved.splice(index+(side==='after_id'?1:0),0,id);
+      plan={cardsChanged:!moved.every((value,i)=>value===order[i]),blocksChanged:false,newCards:moved};
+    }
+    if(!plan || (!plan.cardsChanged && !plan.blocksChanged))return;
+    if(!plan.cardsChanged) {
+      p.focusOrderPending=true;agfocusPaint(p);
+      const saved=await plan.apply();
+      p.focusOrderPending=false;
+      if(p.focusMount!==mount)return;
+      if(saved)agfocusAnnounce(p,'Focus item moved.');
+      else {p.focusError='Could not save the text position. Your text is kept; use Retry beside the notes.';agfocusAnnounce(p,p.focusError);}
+      agfocusPaint(p);return;
+    }
+    // A card keeps the drop target as its anchor unless that target is text; then the nearest card in the new order.
+    let anchorCard=row.dataset.cardId && anchor.dataset.cardId?{side,id:anchorId}:null;
+    if(!anchorCard) {
+      const at=plan.newCards.indexOf(id),eligible=cardId=>agfocusMoveEligible(p,p.focusCards.get(cardId));
+      const previous=plan.newCards[at-1],following=plan.newCards[at+1];
+      anchorCard=previous && eligible(previous)?{side:'after_id',id:previous}:following && eligible(following)?{side:'before_id',id:following}:null;
+    }
+    if(!anchorCard)return;
+    p.focusMoveSubmission={scope:'global',item_id:id,expected_card_revision:row._item.revision,[anchorCard.side]:anchorCard.id,idempotency_key:newRequestId()};
+    p.focusMoveText=plan.blocksChanged?plan.apply:null;
   }
   const submission=p.focusMoveSubmission;
   if(!submission)return;
   p.focusOrderPending=true;p.focusError='';agfocusPaint(p);
-  let failure;
+  let failure,textSaved=true;
   try {
     coreData(await post('/root/operations/focus_move',submission));
     p.focusMoveSubmission=null;
+    if(p.focusMoveText){const apply=p.focusMoveText;p.focusMoveText=null;textSaved=await apply();}
   } catch(error) {
     failure=error;
-    if(['revision_conflict','validation_error','not_found','forbidden','policy_denied'].includes(error.code))p.focusMoveSubmission=null;
+    if(['revision_conflict','validation_error','not_found','forbidden','policy_denied'].includes(error.code)){p.focusMoveSubmission=null;p.focusMoveText=null;}
   }
   await agfocusRefresh(p);
   p.focusOrderPending=false;
   if(p.focusMount!==mount)return;
   if(failure){p.focusError='Could not move Focus item. '+failure.message;agfocusAnnounce(p,p.focusError);}
+  else if(!textSaved){p.focusError='Focus item moved, but the text position could not be saved. Your text is kept; use Retry beside the notes.';agfocusAnnounce(p,p.focusError);}
   else agfocusAnnounce(p,'Focus item moved.');
   agfocusPaint(p);
 }
@@ -71,7 +102,7 @@ function agfocusOrderMount(p,board,body) {
     clearMarker();drag.anchor=null;
     const list=$('.agfocus-items',board),box=list.getBoundingClientRect(),pane=body.getBoundingClientRect();
     if(drag.x<box.left || drag.x>box.right || drag.y<Math.max(box.top,pane.top) || drag.y>Math.min(box.bottom,pane.bottom))return;
-    const rows=[...list.children].filter(row=>agfocusMoveEligible(p,row));
+    const rows=[...list.children].filter(row=>agfocusMoveAble(p,row));
     const row=rows.find(row=>{const rect=row.getBoundingClientRect();return drag.y>=rect.top && drag.y<=rect.bottom;});
     if(!row || row===drag.row)return;
     drag.side=drag.y<row.getBoundingClientRect().top+row.getBoundingClientRect().height/2?'before_id':'after_id';
@@ -93,10 +124,18 @@ function agfocusOrderMount(p,board,body) {
     clearTimeout(current.timer);
     if(current.row.hasPointerCapture(current.pointerId))current.row.releasePointerCapture(current.pointerId);
     if(current.active)p.focusSuppressClickUntil=Date.now()+400;
-    if(!cancel && current.active && current.anchor)void agfocusMove(p,current.row.dataset.cardId,current.anchor.dataset.cardId,current.side);
+    if(!cancel && current.active && current.anchor)void agfocusMove(p,agfocusRowId(current.row),agfocusRowId(current.anchor),current.side);
   };
   const down=event=>{
     if(!drag)p.focusSuppressClickUntil=0;
+    // A text block moves only by its handle, so editing and caret selection never start a drag.
+    const grip=event.target.closest('.agfocus-text-grip'),textRow=grip?.closest('.agfocus-text');
+    if(textRow) {
+      if(event.button!==0 || drag || agfocusRowDisabled(p,textRow))return;
+      drag={row:textRow,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,x:event.clientX,y:event.clientY,active:true};
+      textRow.classList.add('agfocus-dragging');textRow.setPointerCapture(event.pointerId);
+      frame=requestAnimationFrame(scroll);return;
+    }
     const line=event.target.closest('.agfocus-row'),row=line?.closest('.agfocus-card');
     if(!line || row.dataset.moveDisabled==='true' || event.button!==0 || drag || !agfocusMoveEligible(p,row))return;
     p.focusSuppressClickUntil=0;
@@ -118,12 +157,12 @@ function agfocusOrderMount(p,board,body) {
   const cancel=event=>{if(drag?.pointerId===event.pointerId)stop(true);};
   const key=event=>{
     if(event.key==='Escape' && drag){event.preventDefault();event.stopImmediatePropagation();stop(true);return;}
-    const row=event.target.closest('.agfocus-card');
-    if(!row || !board.contains(row) || (event.target!==row && !event.target.closest('.agfocus-row')) || row.dataset.moveDisabled==='true' || !event.altKey || !['ArrowUp','ArrowDown'].includes(event.key))return;
+    const grip=event.target.closest('.agfocus-text-grip'),row=grip?grip.closest('.agfocus-text'):event.target.closest('.agfocus-card');
+    if(!row || !board.contains(row) || (!grip && event.target!==row && !event.target.closest('.agfocus-row')) || agfocusRowDisabled(p,row) || !event.altKey || !['ArrowUp','ArrowDown'].includes(event.key))return;
     event.preventDefault();event.stopPropagation();
-    const rows=[...$('.agfocus-items',board).children].filter(node=>agfocusMoveEligible(p,node));
+    const rows=[...$('.agfocus-items',board).children].filter(node=>agfocusMoveAble(p,node));
     const anchor=rows[rows.indexOf(row)+(event.key==='ArrowUp'?-1:1)];
-    if(anchor)void agfocusMove(p,row.dataset.cardId,anchor.dataset.cardId,event.key==='ArrowUp'?'before_id':'after_id');
+    if(anchor)void agfocusMove(p,agfocusRowId(row),agfocusRowId(anchor),event.key==='ArrowUp'?'before_id':'after_id');
   };
   const blur=()=>stop(true);
   const touch=event=>{if(drag?.active)event.preventDefault();};
@@ -252,6 +291,7 @@ function agfocusMount(p) {
   p.focusThreadHeight=Number.isFinite(storedHeight) && storedHeight>=AGFOCUS_THREAD_MIN_HEIGHT ? storedHeight : 320;
   const disposeResize=agfocusThreadResizeMount(p,board,body);
   const disposeOrdering=agfocusOrderMount(p,board,$('.agfocus-layout',board));
+  const disposeText=agfocusTextHost()?.mount(p,board) || (()=>{});
   p.focusSnoozes ||= new Map();
   p.focusOrderPending ||= false;
   p.focusMoveSubmission ||= null;
@@ -270,7 +310,7 @@ function agfocusMount(p) {
     disposeAttention();
     disposeSignoffs();
     document.removeEventListener('reply-notifications-changed',repliesChanged);
-    agfocusOverlayClose(p);disposeResize();disposeOrdering();p.focusSnoozePopup?.close();p.focusSnoozePopup=null;
+    agfocusOverlayClose(p);disposeResize();disposeOrdering();disposeText();p.focusSnoozePopup?.close();p.focusSnoozePopup=null;
     for(const node of p.focusCards.values()){node._conversationHost?._conversation?.dispose();node._referenceObserver?.disconnect();}
     p.focusCards.clear();p.focusSelected=null;p.focusMount=null;
   };
@@ -334,6 +374,7 @@ async function agfocusRefresh(p) {
       if (!Array.isArray(data.items) || !Number.isInteger(data.revision)) throw new Error('Invalid Focus response');
       p.focusPageKey=pageKey;
       p.focus = data; p.focusError = '';
+      void agfocusTextHost()?.load(p);
       for(const [id,seq] of p.focusPrivateRead || [])if(requestSeq>seq)p.focusPrivateRead.delete(id);
       for(const [id,seq] of p.focusPrivateUnread || [])
         if(requestSeq>seq && !data.items.some(item=>item.id===id && item.private_unread))p.focusPrivateUnread.delete(id);
@@ -580,9 +621,10 @@ function agfocusPaint(p) {
   const error = $('.agfocus-error', host);
   agfocusText(error, p.focusError || ''); error.hidden = !p.focusError;
   $('[data-focus-retry-move]',host).hidden=!p.focusMoveSubmission || p.focusOrderPending;
+  agfocusTextHost()?.paintStatus(p);
   if (!data) return;
   const empty=$('.agfocus-empty',host);
-  empty.hidden=!!data.items.length;
+  empty.hidden=!!data.items.length || !!agfocusTextHost()?.hasBlocks(p);
   agfocusText(empty,'Nothing on Focus yet');
   const activity = $('.agfocus-activity', host), a = data.activity;
   activity.hidden = !a;
@@ -593,7 +635,7 @@ function agfocusPaint(p) {
   }
   const list = $('.agfocus-items', host);
   host.dataset.revision=data.revision;
-  const signature=JSON.stringify([data.items,p.focusPageKey,data.next_offset,[...(p.focusWork || [])].map(([id,b])=>[id,b.expanded,b.loaded,b.moving,b.references,!!b.childCursor,!!b.relationCursor])]);
+  const signature=JSON.stringify([data.items,p.focusPageKey,data.next_offset,agfocusTextHost()?.signature(p),[...(p.focusWork || [])].map(([id,b])=>[id,b.expanded,b.loaded,b.moving,b.references,!!b.childCursor,!!b.relationCursor])]);
   if(list.dataset.signature===signature) {
     for(const item of data.items) {
       agfocusUnread(p,p.focusCards.get(item.id),item);
@@ -608,8 +650,10 @@ function agfocusPaint(p) {
   const ids=new Set(data.items.map(item=>item.id));
   if(p.focusSelected && !ids.has(p.focusSelected))agfocusSelect(p,null);
   const retained=$('.agfocus-retained',host);
-  for(const node of [...list.children])if(!ids.has(node.dataset.cardId))retained.appendChild(node);
+  for(const node of [...list.children])if(node.dataset.cardId!==undefined && !ids.has(node.dataset.cardId))retained.appendChild(node);
   let position=0;
+  // Text blocks share the list; card positions count cards only.
+  const cardAt=index=>{let seen=0;for(const child of list.children)if(child.dataset.cardId!==undefined && seen++===index)return child;return null;};
   for(const item of data.items) {
     let node=p.focusCards.get(item.id);
     if(node?.dataset.unavailable && !item.unavailable){node.remove();p.focusCards.delete(item.id);node=null;}
@@ -622,7 +666,8 @@ function agfocusPaint(p) {
       p.focusCards.set(item.id,node);
       list.appendChild(node);
     }
-    if(list.children[position]!==node)list.insertBefore(node,list.children[position]||null);
+    const slot=cardAt(position);
+    if(slot!==node)list.insertBefore(node,slot);
     position++;
     node._item=item;
     if(item.unavailable) {
@@ -730,6 +775,7 @@ function agfocusPaint(p) {
     node.setAttribute('aria-expanded',String(p.focusSelected===item.id));
     if(p.focusSelected===item.id){agfocusText($('[data-focus-thread-title]',host),name);if(!conversation.isExpanded())conversation.expand();}
   }
+  agfocusTextHost()?.reconcile(p,host,list);
   if(focused?.isConnected && host.contains(focused)){focused.focus({preventScroll:true});if(selection)focused.setSelectionRange(...selection);}
   agfocusRefreshThreads(p);
   agfocusThreadHeight(p);
@@ -1158,10 +1204,16 @@ async function agfocusOpenItem(p,item) {
 // One atomic create-and-present call; a retry keeps the exact request and key.
 function agfocusAdd(p) {
   let submission=null, pending=false, typeEditor;
-  modal({title:'Add to Focus', body:`<form id="focus-add-form"><label>Title<input class="inp" name="title" required maxlength="200" autocomplete="off"></label><label>Link <span class="muted">(optional)</span><input class="inp" name="link" type="url" placeholder="https://…"></label><p class="muted">Leave the link empty to create a task.</p>${taskTypeFields()}<p role="alert" class="bad" hidden></p></form>`,
+  const text=agfocusTextHost(),textReady=!!text && !!p.agentId && text.ready(p);
+  const kinds=text && p.agentId?`<div class="focus-add-kind" role="radiogroup" aria-label="What to add"><label><input type="radio" name="kind" value="item" checked> Task or link</label><label><input type="radio" name="kind" value="text"${textReady?'':' disabled'}> Text or space</label></div>${textReady?'':`<p class="muted">${esc(text.unavailable(p))}</p>`}`:'';
+  modal({title:'Add to Focus', body:`<form id="focus-add-form">${kinds}<div data-add-item><label>Title<input class="inp" name="title" required maxlength="200" autocomplete="off"></label><label>Link <span class="muted">(optional)</span><input class="inp" name="link" type="url" placeholder="https://…"></label><p class="muted">Leave the link empty to create a task.</p>${taskTypeFields()}</div><div data-add-text hidden><label>Text <span class="muted">(optional)</span><textarea class="inp" name="text" rows="5" maxlength="8000" placeholder="A heading, a note, or leave empty for blank space"></textarea></label><p class="muted">Saved on this agent's Focus only. Agents never read it.</p></div><p role="alert" class="bad" hidden></p></form>`,
     actions:[{label:'Cancel',onClick:close=>close()}, {label:'Add', primary:true, onClick:async(close,el)=>{
       if(pending)return;
       const form=el.querySelector('form'), error=form.querySelector('[role="alert"]');
+      if(form.elements.kind?.value==='text') {
+        if(!text.add(p,form.elements.text.value)){error.textContent=text.unavailable(p) || 'Could not add the text block.';error.hidden=false;return;}
+        close();return;
+      }
       if(!submission) {
         if(!form.reportValidity())return;
         const title=form.elements.title.value.trim(),link=form.elements.link.value.trim();
@@ -1182,7 +1234,19 @@ function agfocusAdd(p) {
         error.textContent=err.message;error.hidden=false;
         if(['validation_error','forbidden','policy_denied','not_found'].includes(err.code)){submission=null;form.querySelectorAll('input,select,textarea,button').forEach(input=>input.disabled=false);}
       } finally {pending=false;}
-    }}],onOpen:el=>{typeEditor=taskTypeMount(el,null);el.querySelector('[name=link]').oninput=e=>{el.querySelector('.task-type-editor').hidden=!!e.target.value.trim();};el.querySelector('input').focus();el.querySelector('form').onsubmit=event=>{event.preventDefault();el.querySelector('.mfoot button:last-child')?.click();};}});
+    }}],onOpen:el=>{
+      const form=el.querySelector('form');
+      typeEditor=taskTypeMount(el,null);
+      el.querySelector('[name=link]').oninput=e=>{el.querySelector('.task-type-editor').hidden=!!e.target.value.trim();};
+      for(const radio of form.querySelectorAll('[name=kind]'))radio.onchange=()=>{
+        const asText=form.elements.kind.value==='text';
+        el.querySelector('[data-add-item]').hidden=asText;el.querySelector('[data-add-text]').hidden=!asText;
+        form.elements.title.required=!asText;
+        (asText?form.elements.text:form.elements.title).focus();
+      };
+      form.elements.title.focus();
+      form.onsubmit=event=>{event.preventDefault();el.querySelector('.mfoot button:last-child')?.click();};
+    }});
 }
 
 
