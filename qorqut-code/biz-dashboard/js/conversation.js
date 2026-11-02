@@ -106,9 +106,10 @@ function conversationRecordEntry(record) {
   const slug=record.business_slug || business?.slug || null;
   const value=slug?{...record,business_slug:slug}:record;
   const entry={key:`related:${conversationRecordKey(record)}`,speaker:'reference',referenceOnly:true,timestamp:record.created_at,references:[],typedReferences:[]};
+  // A Project's canonical scope is its own id; unlike a business-scoped Signoff it needs no business slug.
   const typed={type:record.type,id:record.id,business_id:record.business_id || null,business_slug:slug,label:record.label,state:record.state,
-    available:!record.unavailable && !(record.business_id && !slug)};
-  if(record.type==='signoff')entry.typedReferences.push(typed);
+    available:!record.unavailable && (record.type==='project' || !(record.business_id && !slug))};
+  if(record.type==='signoff'||record.type==='project')entry.typedReferences.push(typed);
   else if(record.type==='task'){
     entry.typedReferences.push(typed);
     if(typed.available)entry.references.push({key:'open',label:'Open task',value});

@@ -8,12 +8,10 @@
 .record-main{display:flex;flex:1 1 0;flex-direction:column;min-width:0;min-height:0}
 .record-panel{flex:0 0 min(46%,400px);min-width:0;box-sizing:border-box;max-height:min(640px,78vh);overflow:auto;overscroll-behavior:contain;padding:10px 12px;border:1px solid var(--line-2);border-radius:10px;font-size:12px}
 .record-panel[hidden]{display:none}
-.agfocus-region.record-surface .record-body{align-items:stretch}
-.agfocus-region.record-surface .record-panel{max-height:none}
 @container record-surface (max-width:560px){
   .record-body{flex-direction:column}
   .record-main{flex:1 1 auto;min-height:min(320px,60vh)}
-  .record-panel,.agfocus-region.record-surface .record-panel{flex:0 1 auto;max-height:46vh}
+  .record-panel{flex:0 1 auto;max-height:46vh}
 }
 .record-section{margin:0 0 14px}
 .record-section>h4{margin:0 0 6px;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-2)}

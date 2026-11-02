@@ -7,7 +7,7 @@ let recordPanelSequence = 0;
 
 // Global reads of relationships and Context items name their scope; Task operations never do.
 const recordScope = biz => biz ? {} : {scope: 'global'};
-const recordTaskLink = (ctx, task) => ({task_id: task.id, business_id: task.business_id ?? null, business_slug: ctx.biz});
+const recordTaskLink = (ctx, task) => ({task_id: task.id, business_id: task.business_id ?? null, business_slug: ctx.biz, title: task.title, task_type: task.task_type, status: task.status});
 
 async function recordLoadTask(ctx) {
   return (await workCall(ctx.biz, 'tasks_get', {task_id: ctx.task.id})).task;
@@ -293,6 +293,46 @@ function recordPickContext(ctx, onChoose) {
     }});
 }
 
+// Associated Signoffs and Actions are read through the same `concerns` relationships as other
+// linked records, but they are read-only entries here: the existing reader opens each one.
+function recordAssociated(box, ctx, type) {
+  let generation = 0, cursor = null, edges = [];
+  box.innerHTML = `<div class="record-link-list"></div><p class="muted" data-associated-empty hidden>No ${type === 'signoff' ? 'Signoffs' : 'Actions'}.</p>
+    <div class="record-actions"><button type="button" class="quiet" data-associated-more hidden>More</button></div><p class="ferr" role="alert" data-associated-error hidden></p>`;
+  const list = box.querySelector('.record-link-list'), empty = box.querySelector('[data-associated-empty]');
+  const more = box.querySelector('[data-associated-more]'), error = box.querySelector('[data-associated-error]');
+  const present = () => {
+    list.replaceChildren();
+    for (const edge of edges) {
+      const other = edge.source?.type === 'task' && edge.source.id === ctx.task.id ? edge.target_item : edge.source_item;
+      if (!other || other.type !== type || other.unavailable) continue;
+      const row = recordNode('div', 'record-link');
+      const open = recordNode('button', 'quiet record-link-open', other.label || 'Unavailable'); open.type = 'button';
+      open.onclick = () => Promise.resolve(ctx.openRelated?.(other) || (typeof taskProgressOpenReference === 'function' ? taskProgressOpenReference(ctx.biz, other) : null)).catch(failure => toast(uiFailure(failure, {load: true})));
+      row.append(open, recordNode('span', 'muted', [type === 'signoff' ? 'Signoff' : 'Action', other.state].filter(Boolean).join(' · ')));
+      list.append(row);
+    }
+    empty.hidden = !!list.children.length;
+  };
+  async function load(next = false) {
+    const own = ++generation;
+    try {
+      let pages = 0, last = next ? cursor : null;
+      const found = next ? [...edges] : [];
+      do {
+        const page = await workCall(ctx.biz, 'relationships_list', {item: {type: 'task', id: ctx.task.id}, role: 'concerns', direction: 'both', include_archived: false, limit: 50, ...(last ? {cursor: last} : {}), ...recordScope(ctx.biz)});
+        if (own !== generation || !ctx.current()) return;
+        found.push(...page.items); last = page.next_cursor || null; pages++;
+      } while (last && pages < 4);
+      edges = found; cursor = last; error.hidden = true;
+      more.hidden = !cursor; present();
+    } catch (failure) { if (own === generation && ctx.current()) recordRetry(list, uiFailure(failure, {load: true}), () => load()); }
+  }
+  more.onclick = () => load(true);
+  load();
+  return {refresh: () => load(), dispose() { generation++; }};
+}
+
 // Canonical Task activity, newest first, read-only and paged by the thread's own cursor.
 function recordActivity(box, ctx) {
   let generation = 0, cursor = null;
@@ -339,37 +379,70 @@ function recordSection(title, className) {
 
 function recordStoryMount(el, ctx) {
   const parts = {};
-  const overview = recordNode('section', 'record-section');
-  overview.innerHTML = `<h4>Overview</h4><textarea class="inp" data-story-overview aria-label="Story overview" rows="7" maxlength="20000"></textarea>
-    <div class="record-actions"><button type="button" class="btn" data-story-save>Save overview</button><button type="button" class="quiet" data-story-latest hidden>Use latest revision</button></div><p class="ferr" role="alert" data-story-error hidden></p>`;
-  const field = overview.querySelector('[data-story-overview]'), save = overview.querySelector('[data-story-save]');
-  let base = ctx.task.overview || '';
-  field.value = base;
-  const saver = recordSaver(ctx, {error: overview.querySelector('[data-story-error]'), latest: overview.querySelector('[data-story-latest]'), setBusy: busy => { save.disabled = busy; }});
-  save.onclick = () => {
-    if (field.value === base) { saver.show('The overview has no changes to save.'); return; }
-    const value = field.value;
-    saver.run({overview: value}, () => { base = value; parts.links?.refresh(); parts.activity?.refresh(); });
+  const overview = recordNode('section', 'record-section record-story-overview');
+  overview.innerHTML = `<h4>Overview</h4><div class="record-overview" data-story-read tabindex="0"></div>
+    <div class="record-overview-edit" data-story-editpane hidden><textarea class="inp" data-story-overview aria-label="Story overview" rows="7" maxlength="20000"></textarea>
+    <div class="record-actions"><button type="button" class="btn" data-story-save>Save</button><button type="button" class="quiet" data-story-cancel>Cancel</button><button type="button" class="quiet" data-story-latest hidden>Use latest revision</button></div></div>
+    <div class="record-actions" data-story-read-actions><button type="button" class="quiet" data-story-edit aria-label="Edit Story overview">Edit</button></div><p class="ferr" role="alert" data-story-error hidden></p>`;
+  const read = overview.querySelector('[data-story-read]'), field = overview.querySelector('[data-story-overview]');
+  const editWrap = overview.querySelector('[data-story-editpane]'), save = overview.querySelector('[data-story-save]');
+  const editButton = overview.querySelector('[data-story-edit]'), cancel = overview.querySelector('[data-story-cancel]');
+  let base = ctx.task.overview || '', editing = false;
+  const paintRead = () => {
+    read.textContent = base || 'No overview yet.';
+    read.classList.toggle('muted', !base);
   };
+  const showRead = () => {
+    editing = false;
+    read.hidden = false; editWrap.hidden = true; overview.querySelector('[data-story-read-actions]').hidden = false;
+    field.value = base;
+    paintRead();
+  };
+  const enterEdit = () => {
+    editing = true;
+    read.hidden = true; editWrap.hidden = false; overview.querySelector('[data-story-read-actions]').hidden = true;
+    field.value = base;
+    field.focus({preventScroll: true});
+  };
+  paintRead();
+  const saver = recordSaver(ctx, {error: overview.querySelector('[data-story-error]'), latest: overview.querySelector('[data-story-latest]'), setBusy: busy => { save.disabled = busy; editButton.disabled = busy; }});
+  const saveOverview = async () => {
+    if (!editing) return true;
+    if (field.value === base) { saver.show('The overview has no changes to save.'); return true; }
+    const value = field.value;
+    const saved = await saver.run({overview: value}, () => { base = value; parts.links?.refresh(); parts.activity?.refresh(); });
+    if (saved) showRead();
+    return saved;
+  };
+  editButton.onclick = () => enterEdit();
+  cancel.onclick = () => { saver.show(''); showRead(); };
+  save.onclick = () => { void saveOverview(); };
   // Adopting a newer snapshot keeps an unsaved overview as typed and refreshes only a clean one.
   const adopt = fresh => {
     if (!('overview' in fresh)) return;
-    const dirty = field.value !== base;
+    const dirty = editing && field.value !== base;
     base = fresh.overview || '';
     if (!dirty) field.value = base;
+    if (!editing) paintRead();
   };
   overview.querySelector('[data-story-latest]').onclick = () => saver.adoptLatest(adopt);
-  const children = recordSection('Child tasks'), links = recordSection('Linked tasks'), emails = recordSection('Historical email references'), activity = recordSection('Recent activity');
-  el.replaceChildren(overview, children.section, links.section, emails.section, activity.section);
+  const children = recordSection('Child tasks'), links = recordSection('Linked tasks');
+  const signoffs = recordSection('Signoffs'), actions = recordSection('Actions');
+  const emails = recordSection('Historical email references'), activity = recordSection('Recent activity');
+  el.replaceChildren(overview, children.section, links.section, signoffs.section, actions.section, emails.section, activity.section);
   parts.children = recordChildren(children.body, ctx);
   parts.links = recordTaskLinks(links.body, ctx);
+  parts.signoffs = recordAssociated(signoffs.body, ctx, 'signoff');
+  parts.actions = recordAssociated(actions.body, ctx, 'action');
   parts.emails = recordRelated(emails.body, ctx, 'email');
   parts.activity = recordActivity(activity.body, ctx);
   return {
-    dirty: () => field.value !== base,
+    dirty: () => editing && field.value !== base,
+    hasUnsaved: () => editing && field.value !== base,
+    save: saveOverview,
     adopt,
     // Reopening refreshes what others can change; the overview keeps any unsaved text.
-    onShow() { parts.children.refresh(); parts.links.refresh(); parts.emails.refresh(); parts.activity.refresh(); },
+    onShow() { parts.children.refresh(); parts.links.refresh(); parts.signoffs.refresh(); parts.actions.refresh(); parts.emails.refresh(); parts.activity.refresh(); },
     dispose() { for (const part of Object.values(parts)) part.dispose(); },
   };
 }

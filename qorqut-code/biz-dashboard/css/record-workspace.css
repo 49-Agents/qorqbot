@@ -1,0 +1,94 @@
+/* The shared Focus/Threads record workspace: one full-width dashboard or existing chat.
+   Header order: optional Back, title, flexible space, type icon tab, Chat icon tab, close. */
+.rw{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;box-sizing:border-box}
+.rw-records{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
+.rw-record{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
+.rw-record[hidden]{display:none}
+.rw-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:5px;flex:none;min-width:0;
+  padding:4px 6px;border-bottom:1px solid var(--line-2);background:var(--bg)}
+.rw-head .rw-back{flex:none;margin:0;padding:0 6px;min-height:24px;height:24px;font-size:11px;color:var(--fg-2)}
+.rw-title{flex:1;min-width:0;font-size:12.6px;font-weight:500;line-height:1.35;overflow-wrap:anywhere;max-height:2.7em;overflow:auto}
+.rw-tabs{display:flex;align-items:center;gap:2px;flex:none}
+.rw .rw-tabs .rw-tab{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;min-height:28px;margin:0;padding:5px;
+  border:0;border-radius:7px;background:transparent;color:var(--fg-2)}
+.rw .rw-tabs .rw-tab svg{width:16px;height:16px;flex:none}
+.rw .rw-tabs .rw-tab .task-type-icon{width:16px;height:16px;margin:0}
+.rw .rw-tabs .rw-tab:hover{background:var(--hover);color:var(--fg)}
+.rw .rw-tabs .rw-tab[aria-selected="true"]{background:var(--hover);color:var(--fg);box-shadow:inset 0 -2px 0 var(--fg-2)}
+.rw .rw-tabs .rw-tab:focus-visible{outline:2px solid var(--fg-2);outline-offset:-2px}
+.rw-head .rw-close{display:grid;place-items:center;flex:none;width:26px;height:26px;min-height:26px;margin:0;padding:4px;border:0;background:transparent;color:var(--fg-2)}
+.rw-head .rw-close:hover{background:var(--hover);color:var(--fg)}
+.rw-body{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
+.rw-pane{flex:1;min-height:0;min-width:0;box-sizing:border-box}
+.rw-pane[hidden]{display:none}
+/* One pane at a time, full width: a dashboard never sits beside its chat. */
+.rw-dashboard{overflow:auto;overscroll-behavior:contain;padding:10px 12px;font-size:12px}
+.rw-dashboard.record-panel{flex:1 1 auto;max-height:none;border:0;border-radius:0;padding:10px 12px;overflow:auto;font-size:12px}
+.rw-chat{display:flex;flex-direction:column;min-height:0;overflow:hidden;padding:0 6px 6px}
+.rw .agfocus-conversation{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
+.rw .agfocus-conversation>.conversation-panel{display:flex;flex:1;flex-direction:column;min-height:0;padding:0;border:0;border-radius:0}
+.rw .agfocus-conversation>.conversation-panel[hidden]{display:none}
+.rw .agfocus-conversation>.conversation-panel>.conversation-view{flex:1;height:auto;min-height:0}
+.rw .agfocus-conversation>.conversation-inline-compose{flex:none;margin-top:5px;min-width:0}
+.rw .agfocus-conversation>.conversation-inline-compose:not(:has(.gchat-composer:not([hidden]))){display:none}
+.rw-dashboard [data-task-back],.rw-dashboard .global-task-editor-heading [data-back]{display:none}
+.rw-dashboard .task-inline-actions{display:flex;justify-content:flex-end;margin-bottom:10px}
+.rw-status,.rw-unavailable{margin:8px 2px}
+/* Story overview: readable paragraphs until the owner explicitly edits. */
+.record-overview{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55;font-size:12.6px;margin:0 0 6px}
+.record-overview.muted{color:var(--fg-2)}
+.record-overview-edit textarea{display:block;width:100%;box-sizing:border-box}
+.record-story-overview .record-actions{margin-top:6px}
+.rw-dashboard .record-section{margin:0 0 16px}
+.rw-dashboard .record-section>h4{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-2);margin:0 0 7px}
+.rw-dashboard .record-actions{gap:6px}
+/* A Project record's inventory: quiet full-width rows, no stat tiles or nested cards. */
+.rw-project-head h3{margin:0 0 4px;font-size:15px;font-weight:600;overflow-wrap:anywhere}
+.rw-project-archived{display:inline-block;margin:0 0 5px;padding:1px 8px;border:1px solid var(--line-2);border-radius:10px;font-size:10px;color:var(--fg-2)}
+.rw-project-summary{margin:0 0 8px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5}
+.rw-project-tools{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.rw-project-tools button{min-height:26px;padding:3px 9px;font-size:11px}
+.rw-project-tools button[aria-pressed="true"]{background:var(--hover);border-color:var(--fg-3);color:var(--fg)}
+.rw-project-sections{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 10px;padding-bottom:8px;border-bottom:1px solid var(--line-2)}
+.rw-project-sections button{min-height:26px;padding:3px 10px;font-size:11px;border-radius:8px;background:transparent;color:var(--fg-2)}
+.rw-project-sections button[aria-pressed="true"]{background:var(--hover);border-color:var(--fg-3);color:var(--fg)}
+.rw-project-list{display:flex;flex-direction:column;gap:1px;min-width:0}
+.rw-project-row{display:flex;align-items:center;gap:4px;min-width:0;border-radius:7px}
+.rw-project-row:hover{background:var(--hover)}
+.rw .rw-project-row .rw-project-open{display:flex;align-items:center;gap:7px;flex:1;min-width:0;min-height:34px;height:auto;padding:5px 7px;margin:0;border:0;border-radius:7px;background:transparent;color:var(--fg);font-weight:400;text-align:left;transform:none}
+.rw-project-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:18px;height:18px;color:var(--fg-2)}
+.rw-project-icon svg,.rw-project-icon .task-type-icon{width:15px;height:15px;margin:0}
+.rw-project-icon .task-type-icon{background:var(--fg-2)}
+.rw-project-label{flex:1;min-width:0;overflow-wrap:anywhere;font-size:12.6px;line-height:1.35}
+.rw-project-scope{flex:none;max-width:38%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 6px;border:1px solid var(--line-2);border-radius:8px;font-size:9px;color:var(--fg-2)}
+.rw-project-scope[hidden],.rw-project-state[hidden],.rw-project-assoc[hidden]{display:none}
+.rw-project-state{flex:none;font-size:10px;color:var(--fg-2)}
+.rw-project-assoc{flex:none;font-size:9px;color:var(--fg-2)}
+.rw .rw-project-row .rw-project-unlink{flex:none;margin:0;min-height:24px;height:24px;padding:0 7px;font-size:10px;color:var(--fg-2)}
+.rw-project-more{margin:8px 0 0;min-height:26px;padding:3px 10px;font-size:11px}
+.rw-project-empty{margin:8px 2px}
+/* Link an existing item: scope, kind, search, real candidates. */
+.rw-link-dialog{display:grid;gap:8px;min-width:0}
+.rw-link-dialog label{display:grid;gap:3px;font-size:11px;color:var(--fg-2)}
+.rw-link-dialog .inp{width:100%;box-sizing:border-box}
+.rw-link-results{display:flex;flex-direction:column;gap:1px;max-height:min(46vh,420px);overflow:auto;min-width:0}
+.rw .rw-link-option{display:flex;align-items:center;gap:7px;width:100%;min-height:32px;height:auto;padding:4px 7px;border:0;border-radius:6px;background:transparent;color:var(--fg);font-weight:400;text-align:left;transform:none}
+.rw .rw-link-option:hover{background:var(--hover)}
+.rw-link-option .rw-project-label{flex:1;min-width:0}
+.rw-link-empty{margin:2px}
+.rw-reader{padding:2px}
+.rw-reader h3{margin:0 0 8px;font-size:14px;font-weight:600;overflow-wrap:anywhere}
+/* A Signoff dashboard is the existing canonical view, full width. */
+.rw-signoff-panel .sg-body{padding:0}
+.rw-signoff-panel .sg{margin:0}
+.rw .agfocus-reference-frame{width:100%;height:calc(100vh - 220px);min-height:320px}
+@media(max-width:600px){
+  .rw-head{padding:3px 3px}
+  .rw-title{max-height:2.8em;font-size:12px}
+  .rw-dashboard{padding:8px}
+  .rw-dashboard.record-panel{padding:8px}
+  .rw-project-scope{max-width:30%}
+  .rw-project-row{flex-wrap:wrap}
+  .rw .rw-project-row .rw-project-open{flex:1 1 100%}
+  .rw .rw-project-row .rw-project-unlink{margin-left:auto}
+}

@@ -147,7 +147,9 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 /* Typed references (request_user_input): Signoff card, inline browser, Task chip — under their message. */
 .gchat-typed { display:flex; flex-direction:column; align-items:flex-start; gap:7px; max-width:100%; padding:3px 0 8px; box-sizing:border-box; }
 .gchat-typed:empty { display:none; }
-.gchat-task-reference, .gchat-agent-reference { cursor:default; }
+.gchat-task-reference, .gchat-agent-reference, .gchat-project-reference { cursor:default; }
+.gchat-project-reference .gchat-project-icon { display:inline-flex; align-items:center; flex:none; color:var(--fg-2); }
+.gchat-project-reference .gchat-project-icon svg { width:14px; height:14px; }
 /* Reuse Focus's state palette, with a fixed dot and no state-control behavior. */
 .gchat-reference>.gchat-task-state { display:inline-flex; align-items:center; justify-content:center; flex:none; width:16px; height:16px; overflow:visible; pointer-events:none; }
 .gchat-task-state.ball .core { width:10px; height:10px; transform:none; transition:none; }

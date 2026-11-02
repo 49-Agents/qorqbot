@@ -208,6 +208,8 @@ function chatViewOwnerReferences(body) {
 // options.mountSignoff(ref, host) and returns its disposer. The view never decides, fetches or trusts a model-supplied URL.
 const CHAT_VIEW_ICONS = {
   browser: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>',
+  // The existing Project icon marks a typed Project reference; it is informational, like a Task chip.
+  project: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12a24 24 0 0 0 18 0M10 13h4"/></svg>',
 };
 const CHAT_VIEW_TASK_STATES = {open: 'Open', working: 'Working', waiting: 'Waiting', done: 'Done', cancelled: 'Cancelled'};
 const chatViewTypedKey = ref => `${ref.type}:${ref.business_id || ''}:${ref.id}`;
@@ -231,6 +233,11 @@ const chatViewTypedSignature = ref => JSON.stringify([ref.type, ref.business_id 
 function chatViewTypedChip(ref, cls) {
   const chip = document.createElement('span');
   chip.className = `gchat-reference ${cls}`;
+  if (ref.type === 'project' && ref.available !== false) {
+    const icon = document.createElement('span'); icon.className = 'gchat-project-icon'; icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML = CHAT_VIEW_ICONS.project;
+    chip.append(icon);
+  }
   if (ref.type === 'task' && ref.available !== false) {
     const dot = document.createElement('span');
     dot.className = 'ball gchat-task-state' + (Object.hasOwn(CHAT_VIEW_TASK_STATES, ref.state) ? ' ' + ref.state : '');
@@ -316,6 +323,12 @@ function chatViewTypedMount(ref, host, options) {
   if (ref.type === 'task') {
     const item = {el: chatViewTypedChip(ref, 'gchat-task-reference'), dispose() { item.el.remove(); }};
     item.update = next => { item.el.replaceChildren(...chatViewTypedChip(next, 'gchat-task-reference').childNodes); return true; };
+    return item;
+  }
+  // A Project is a valid typed reference in an existing message; the chip never creates a channel.
+  if (ref.type === 'project') {
+    const item = {el: chatViewTypedChip(ref, 'gchat-project-reference'), dispose() { item.el.remove(); }};
+    item.update = next => { item.el.replaceChildren(...chatViewTypedChip(next, 'gchat-project-reference').childNodes); return true; };
     return item;
   }
   if (ref.type === 'browser') {

@@ -14,7 +14,6 @@ function agfocusUnread(p,node,item,value) {
   node.querySelector('.agfocus-unread').hidden=!unread;
   const name=item.display_name?.trim() || item.label;
   node.setAttribute('aria-label',name+(agfocusSnoozed(item)?', postponed':'')+(unread?', unread private reply':''));
-  node._conversationHost?._conversation?.setUnread(unread);
 }
 function agfocusMoveEligible(p,node) {
   return !!node && node.parentElement?.classList.contains('agfocus-items') && !node._item?.unavailable && !node._item?._workParent && !node._item?.archived &&
@@ -266,7 +265,7 @@ function agfocusMount(p) {
   const body = $('#agpad-body', p.el);
   body.innerHTML = `<div class="agfocus"><p class="agfocus-error" role="alert" hidden></p><button type="button" class="quiet" data-focus-retry-move hidden>Retry same move</button><p class="agfocus-sr" data-focus-announcement role="status" aria-live="polite"></p><span class="agfocus-sr" id="agfocus-move-instructions">Use Alt+ArrowUp or Alt+ArrowDown to move one visible row.</span>
     <header><div class="agfocus-heading"><div class="global-eyebrow">Focus</div><div class="agfocus-toolbar"><button type="button" class="quiet agfocus-icon" data-focus-add aria-label="Add to Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button><button class="quiet agfocus-icon" data-focus-refresh aria-label="Refresh Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 18 17"/></svg></button><div class="agfocus-controls"><button class="quiet" data-focus-archived aria-pressed="false">Archived</button><button class="quiet" data-focus-deferred aria-pressed="false">Postponed</button></div></div></div><p class="agfocus-empty muted" role="status">Loading Focus…</p></header>
-    <section class="attention-queue" aria-label="New attention"></section><p class="agfocus-activity muted" hidden></p><section class="agfocus-surface" aria-label="Browser, Desktop or Viewbox" hidden><div class="agfocus-surface-bar"><button type="button" class="quiet" data-surface-back aria-label="Back to Focus">← Focus</button></div><div class="agfocus-surface-body"></div></section><div class="agfocus-layout"><div class="agfocus-items"></div><aside class="agfocus-dock" aria-label="Selected conversation" hidden>${agfocusThreadHeading()}<div class="agfocus-dock-content"></div><div class="agfocus-thread-resize" role="separator" aria-orientation="horizontal" aria-label="Thread height" tabindex="0"></div></aside></div><div class="agfocus-retained" hidden></div><nav class="agfocus-pages" aria-label="Focus pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
+    <section class="attention-queue" aria-label="New attention"></section><p class="agfocus-activity muted" hidden></p><section class="agfocus-surface" aria-label="Browser, Desktop or Viewbox" hidden><div class="agfocus-surface-bar"><button type="button" class="quiet" data-surface-back aria-label="Back to Focus">← Focus</button></div><div class="agfocus-surface-body"></div></section><div class="agfocus-layout"><div class="agfocus-items"></div><aside class="agfocus-dock" aria-label="Selected record" hidden><div class="agfocus-dock-content"></div><div class="agfocus-thread-resize" role="separator" aria-orientation="horizontal" aria-label="Record pane height" tabindex="0"></div></aside></div><div class="agfocus-retained" hidden></div><nav class="agfocus-pages" aria-label="Focus pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
   p.focusDrafts ||= new Map();
   p.focusCards = new Map();
   p.focusWork=agfocusRestoreWork();
@@ -290,6 +289,16 @@ function agfocusMount(p) {
     board.querySelector('.attention-queue').after(signoffQueue);
   }
   const disposeSignoffs=typeof attentionQueue!=='undefined'?attentionQueue.mountSignoffs(signoffQueue,id=>p.focus?.items.find(item=>item.source?.type==='signoff' && item.source.id===id)?.display_name):()=>{};
+  // Focus and Threads share one record workspace. Its header owns Back, the type and
+  // Chat icon tabs and Close; selecting a row no longer mounts a conversation inside it.
+  p.focusWorkspace=recordWorkspaceMount($('.agfocus-dock-content',board),{
+    entry:'focus',
+    visible:()=>agpadActive(p) && p.view==='focus' && p.focusMount===board && !board.hidden,
+    onClose:()=>agfocusClearSelection(p),
+    onRead:source=>agfocusWorkspaceUnread(p,source,false),
+    onUnread:source=>agfocusWorkspaceUnread(p,source,true),
+    onTitleChange:record=>agfocusWorkspaceTitle(p,record),
+  });
   const storedHeight=Number(ls(AGFOCUS_THREAD_HEIGHT_KEY));
   p.focusThreadHeight=Number.isFinite(storedHeight) && storedHeight>=AGFOCUS_THREAD_MIN_HEIGHT ? storedHeight : 320;
   const disposeResize=agfocusThreadResizeMount(p,board,body);
@@ -300,12 +309,6 @@ function agfocusMount(p) {
   p.focusMoveSubmission ||= null;
   $('[data-focus-retry-move]',board).onclick=()=>agfocusMove(p,null,null,null,true);
   $('[data-surface-back]',board).onclick=()=>agpadSurfaceClose(p);
-  $('[data-manage]',board).onclick=event=>p.focusCards.get(p.focusSelected)?._manage?.(event);
-  $('[data-focus-thread-close]',board).onclick=()=>{
-    const row=p.focusCards.get(p.focusSelected);
-    agfocusSelect(p,null);
-    row?.focus({preventScroll:true});
-  };
   const repliesChanged=()=>{for(const node of p.focusCards.values())agfocusUnread(p,node,node._item);};
   document.addEventListener('reply-notifications-changed',repliesChanged);
   p.workspaceDispose=()=>{
@@ -315,7 +318,7 @@ function agfocusMount(p) {
     disposeSignoffs();
     document.removeEventListener('reply-notifications-changed',repliesChanged);
     agfocusOverlayClose(p);disposeResize();disposeOrdering();disposeText();p.focusSnoozePopup?.close();p.focusSnoozePopup=null;
-    for(const node of p.focusCards.values()){node._region?._recordSurface?.dispose();node._conversationHost?._conversation?.dispose();node._referenceObserver?.disconnect();}
+    p.focusWorkspace?.dispose();p.focusWorkspace=null;
     p.focusCards.clear();p.focusSelected=null;p.focusMount=null;
   };
   p.focusPrivateUnread ||= new Map();
@@ -351,13 +354,13 @@ function agfocusTick(p) {
 function agfocusRecoverWork(p) {
   if (!agpadActive(p) || !p.focusMount?.isConnected || !p.focusWork?.size) return;
   for (const item of agfocusVisibleItems(p, p.focus?.items || [])) {
-    if (item.source?.type !== 'task' || item.unavailable) continue;
+    if (!['task','project'].includes(item.source?.type) || item.unavailable) continue;
     const branch = p.focusWork.get(item.id);
     if (branch?.expanded && !branch.loaded && !branch.flight) agfocusExpandWork(p, item);
   }
 }
 
-const agfocusRestorable=(p,item)=>item.source?.type==='task' && !item.unavailable && !!p.focusWork?.get(item.id)?.expanded;
+const agfocusRestorable=(p,item)=>['task','project'].includes(item.source?.type) && !item.unavailable && !!p.focusWork?.get(item.id)?.expanded;
 
 async function agfocusRefresh(p) {
   if (!agpadActive(p)) return;
@@ -420,7 +423,9 @@ function agfocusRestoreWork(){
 function agfocusSaveWork(p){
   try {ls(AGFOCUS_WORK_KEY,JSON.stringify([...p.focusWork].filter(([,branch])=>branch.expanded).map(([id])=>id).slice(-500)));}catch(_){}
 }
-const agfocusWorkKey=source=>String(source.business_slug ?? 'global')+':'+source.id;
+// Type + scope + id, never a bare id: two Projects can present the same Task id.
+const agfocusWorkKey=source=>[source.type,source.business_id ?? source.business_slug ?? 'global',source.id].join(':');
+const agfocusWorkId=(parent,kind,source)=>`${parent.id}/${kind}/${agfocusWorkKey(source)}`;
 
 function agfocusVisibleItems(p,items) {
   const result=[];
@@ -429,7 +434,7 @@ function agfocusVisibleItems(p,items) {
   function append(item,ancestors=new Set()) {
     // Cached child/related snapshots include history; the board toggle applies at every depth.
     if(item._workParent && item.archived && !p.focusIncludearchived)return;
-    const source=item.source?.type==='task'?item.source:null,key=source?agfocusWorkKey(item.resolved_source || source):null;
+    const source=item.resolved_source || item.source || null,key=source?agfocusWorkKey(source):null;
     if(item._workParent && key && ancestors.has(key))return;
     result.push(item);
     if(!source || item.unavailable)return;
@@ -445,16 +450,16 @@ function agfocusVisibleItems(p,items) {
 
 function agfocusWorkRow(parent,source,target,kind) {
   const link={type:'task',resource_type:'tasks',task_type:target.task_type,id:target.id,business_id:source.business_id ?? null,business_slug:source.business_slug ?? null,business_name:source.business_name};
-  return {id:`${parent.id}/task/${target.id}`,revision:target.revision || 1,label:target.title || target.label || 'Task',source:link,resolved_source:link,
+  return {id:agfocusWorkId(parent,'task',link),revision:target.revision || 1,label:target.title || target.label || 'Task',source:link,resolved_source:link,
     state:target.status || target.state,source_revision:target.revision,unavailable:false,archived:!!target.archived,
     conversation:{type:'task',id:target.id,business_id:source.business_id ?? null},references:[],
     _workParent:parent.id,_workBusinessId:source.business_id,_workKind:kind,_depth:(parent._depth || 0)+1};
 }
 function agfocusWorkReference(parent,source,other) {
-  const resourceTypes={table:'data_tables',signoff:'signoffs',action:'action_logs',entity:'context_entities',agent:'agent_profiles',material:'documents'};
+  const resourceTypes={table:'data_tables',signoff:'signoffs',action:'action_logs',entity:'context_entities',agent:'agent_profiles',material:'documents',project:'businesses'};
   const target={...other,type:other.resource_type==='email_conversations'?'email':other.type,resource_type:other.resource_type || resourceTypes[other.type] || other.type,
     business_id:source.business_id ?? null,business_slug:source.business_slug ?? null,business_name:source.business_name};
-  return {id:`${parent.id}/${other.type}/${other.id}`,label:other.label || 'Related item',resolved_source:target,unavailable:false};
+  return {id:agfocusWorkId(parent,other.type,target),label:other.label || 'Related item',resolved_source:target,unavailable:false};
 }
 
 // A branch keeps its last successful snapshot mounted. `loaded` is false only before the first successful read; a
@@ -502,10 +507,44 @@ function agfocusBuildWork(item,source,snapshot) {
   }
   return {items,references};
 }
+// Project expansion reads its own inventory: top-level work derived from authoritative ownership and
+// explicit links, 25 rows per page. Root_tasks_only keeps the Task hierarchy under its own parent rows.
+async function agfocusFetchProjectWork(project,base,target) {
+  const snapshot={children:[...base.children],childCursor:base.childCursor,childPages:base.childPages};
+  while(snapshot.childPages<target && (snapshot.childPages===0 || snapshot.childCursor)) {
+    const data=coreData(await post('/root/operations/project_items_list',{scope:'global',project_id:project.id,section:'work',
+      root_tasks_only:true,include_closed:true,include_archived:true,limit:25,...(snapshot.childCursor?{cursor:snapshot.childCursor}:{})}));
+    snapshot.childCursor=data.next_cursor || null;snapshot.childPages++;
+    for(const item of data.items || [])if(item?.type==='task')snapshot.children.push(item);
+  }
+  return snapshot;
+}
+// A derived Project row keeps its target's real scope. Deduplication and cycle detection use
+// type+scope+id, never a bare id; a separately pinned Task stays its own card.
+function agfocusProjectWorkRow(parent,project,item) {
+  const source={type:item.type,id:item.id,business_id:item.business_id ?? null,business_slug:item.business_slug ?? null,
+    business_name:item.business_name,label:item.label,task_type:item.task_type,state:item.state,revision:item.revision};
+  return {id:agfocusWorkId(parent,'work',source),revision:item.revision || 1,label:item.label || 'Task',source,resolved_source:source,
+    state:item.state,source_revision:item.revision,unavailable:false,archived:!!item.archived,
+    conversation:{type:'task',id:item.id,business_id:item.business_id ?? null},references:[],
+    _workParent:parent.id,_workBusinessId:item.business_id,_workKind:'project',_depth:(parent._depth || 0)+1};
+}
+function agfocusBuildProjectWork(item,project,snapshot) {
+  const seen=new Set([agfocusWorkKey(project)]),items=[],references=[];
+  for(const child of snapshot.children) {
+    const key=agfocusWorkKey({type:child.type,id:child.id,business_id:child.business_id,business_slug:child.business_slug});
+    if(seen.has(key))continue;
+    seen.add(key);
+    items.push(agfocusProjectWorkRow(item,project,child));
+  }
+  return {items,references};
+}
+
 // One read of a branch (first load, refresh of the loaded depth, or one more page), staged and committed atomically.
 // Returns true when the snapshot was applied, false when it failed or no longer matches; failures keep the loaded snapshot.
 async function agfocusRunWork(p,item,branch,kind) {
   const source=item.resolved_source || item.source,key=agfocusWorkKey(source),mount=p.focusMount,token={kind};
+  const isProject=source.type==='project';
   branch.flight=token;if(kind==='more'){branch.moving=true;agfocusPaint(p);}
   const current=()=>branch.flight===token && p.focusWork?.get(item.id)===branch && branch.expanded && !!mount?.isConnected && p.focusMount===mount && agpadActive(p,true) &&
     agfocusVisibleItems(p,p.focus?.items || []).some(row=>row.id===item.id && !row.unavailable && agfocusWorkKey(row.resolved_source || row.source)===key);
@@ -515,9 +554,9 @@ async function agfocusRunWork(p,item,branch,kind) {
     const base=kind==='more'?branch:empty;
     const target=kind==='first'?{child:1,relation:1}:kind==='refresh'?{child:Math.max(1,branch.childPages),relation:Math.max(1,branch.relationPages)}:
       {child:branch.childPages+(branch.childCursor?1:0),relation:branch.relationPages+(branch.relationCursor?1:0)};
-    const snapshot=await agfocusFetchWork(source,base,target);
+    const snapshot=isProject?await agfocusFetchProjectWork(source,base,target.child):await agfocusFetchWork(source,base,target);
     if(!current())return false;
-    const built=agfocusBuildWork(item,source,snapshot);
+    const built=isProject?agfocusBuildProjectWork(item,source,snapshot):agfocusBuildWork(item,source,snapshot);
     // Unchanged data keeps the existing row objects so nothing downstream sees a different snapshot.
     if(JSON.stringify(built.items)!==JSON.stringify(branch.items))branch.items=built.items;
     if(JSON.stringify(built.references)!==JSON.stringify(branch.references))branch.references=built.references;
@@ -597,7 +636,7 @@ function agfocusWorkExtras(p,node,item) {
     const chip=document.createElement('button');chip.type='button';chip.className='quiet agfocus-reference-chip';chip.setAttribute('aria-label',ref.label);chip.dataset.kind=kind;
     chip.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="${icons[kind]}"/></svg><span></span>`;
     chip.querySelector('span').textContent=ref.label;
-    chip.onclick=event=>{event.stopPropagation();agfocusOpenItem(p,target).catch(error=>toast(error.message));};
+    chip.onclick=event=>{event.stopPropagation();agfocusOpenTarget(p,target,{root:false}).catch(error=>toast(error.message));};
     row.append(chip);
   }
   if(hasMore){
@@ -656,7 +695,7 @@ function agfocusPaint(p) {
   list.dataset.signature=signature;
   const focused=document.activeElement,selection=focused?.selectionStart!=null?[focused.selectionStart,focused.selectionEnd]:null;
   const ids=new Set(data.items.map(item=>item.id));
-  if(p.focusSelected && !ids.has(p.focusSelected))agfocusSelect(p,null);
+  if(p.focusSelected && !ids.has(p.focusSelected))agfocusForceClose(p);
   const retained=$('.agfocus-retained',host);
   for(const node of [...list.children])if(node.dataset.cardId!==undefined && !ids.has(node.dataset.cardId))retained.appendChild(node);
   let position=0;
@@ -667,10 +706,8 @@ function agfocusPaint(p) {
     if(node?.dataset.unavailable && !item.unavailable){node.remove();p.focusCards.delete(item.id);node=null;}
     if(!node) {
       node=document.createElement('article');node.className='agfocus-card';node.dataset.cardId=item.id;
-      node.innerHTML='<div class="trow agfocus-row"><span class="agfocus-notification" aria-hidden="true"><span class="agfocus-unread" hidden></span></span><span class="agfocus-marker"></span><span class="task-business-column agfocus-scope"></span><div class="task-headline"><p class="ttl"></p><span class="agfocus-flag" hidden></span></div><div class="agfocus-actions"><button type="button" class="quiet" data-focus-snooze aria-label="Snooze Focus item" aria-haspopup="dialog" aria-expanded="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg></button></div></div><div class="agfocus-region" hidden><details class="agfocus-thread-context"><summary>Context</summary><div class="agfocus-thread-context-body"><p class="agfocus-source-title"></p><div class="agfocus-task-details"></div><div class="agfocus-framing"><section data-framing="requested_response"><p class="agfocus-request"></p></section></div><p class="agfocus-context muted"></p><div class="agfocus-related"></div></div></details><div class="agfocus-conversation"></div></div>';
-      node._region=node.querySelector('.agfocus-region');
-      node._region.dataset.focusThreadId=item.id;
-      node._conversationHost=node.querySelector('.agfocus-conversation');
+      // The card is only a row: the selected record's dashboard or chat lives in the shared workspace dock.
+      node.innerHTML='<div class="trow agfocus-row"><span class="agfocus-notification" aria-hidden="true"><span class="agfocus-unread" hidden></span></span><span class="agfocus-marker"></span><span class="task-business-column agfocus-scope"></span><div class="task-headline"><p class="ttl"></p><span class="agfocus-flag" hidden></span></div><div class="agfocus-actions"><button type="button" class="quiet" data-focus-snooze aria-label="Snooze Focus item" aria-haspopup="dialog" aria-expanded="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg></button></div></div>';
       p.focusCards.set(item.id,node);
       list.appendChild(node);
     }
@@ -679,10 +716,7 @@ function agfocusPaint(p) {
     position++;
     node._item=item;
     if(item.unavailable) {
-      if(p.focusSelected===item.id)agfocusSelect(p,null);
-      node._conversationHost?._conversation?.dispose();
-      node._region._recordSurface?.dispose();
-      node._region.replaceChildren();
+      if(p.focusSelected===item.id)agfocusForceClose(p);
       node.dataset.unavailable='true';node.classList.add('agfocus-unavailable','agfocus-collapsed');
       node.removeAttribute('tabindex');node.removeAttribute('aria-expanded');node.onclick=null;node.onkeydown=null;
       node.setAttribute('aria-label','Unavailable Focus item');
@@ -693,13 +727,21 @@ function agfocusPaint(p) {
       const flag=node.querySelector('.agfocus-flag');agfocusText(flag,'Unavailable');flag.hidden=false;
       continue;
     }
-    const name=item.display_name?.trim() || item.label;
-    const taskItem=item.source?.type==='task';
+    const source=item.resolved_source || item.source || item.conversation || {};
+    const projectItem=source.type==='project';
+    const taskItem=source.type==='task';
+    // A Project card keeps its real Project name; a Focus display-name override never renames it.
+    const name=projectItem ? (item.resolved_source?.label || item.label || 'Project') : (item.display_name?.trim() || item.label);
     const taskRecord=taskItem?agfocusTaskRecord(item):null;
     const taskState=taskRecord?.status || item.state || 'open';
     const marker=node.querySelector('.agfocus-marker');
-    // Keep the state button alive across polling paints, including mid-click.
-    if(taskItem && !taskShowsState(taskRecord)){
+    if(projectItem) {
+      const expanded=!!p.focusWork?.get(item.id)?.expanded;
+      agfocusHtml(marker,`<button type="button" class="task-type-marker task-subtasks-toggle agfocus-project-toggle" aria-expanded="${expanded}" aria-label="${expanded?'Collapse':'Expand'} project work">${RW_PROJECT_ICON}</button>`);
+      const toggle=marker.querySelector('button');
+      toggle.onpointerdown=event=>event.stopPropagation();
+      toggle.onclick=event=>{event.stopPropagation();agfocusToggleWork(p,item);};
+    } else if(taskItem && !taskShowsState(taskRecord)){
       if(taskRecord.task_type==='story'){
         const expanded=!!p.focusWork?.get(item.id)?.expanded;
         agfocusHtml(marker,`<button type="button" class="task-type-marker task-subtasks-toggle" aria-expanded="${expanded}" aria-label="${expanded?'Collapse':'Expand'} subtasks">${taskTypeIcon('story')}</button>`);
@@ -720,69 +762,37 @@ function agfocusPaint(p) {
     const flag=node.querySelector('.agfocus-flag');
     const snoozed=agfocusSnoozed(item);
     node.classList.toggle('agfocus-snoozed',snoozed);
-    const stateLabel=taskItem?customerStateText({task_type:taskRecord.task_type,customer_state:(item.resolved_source || item.source).customer_state}):'';
+    const stateLabel=taskItem?customerStateText({task_type:taskRecord.task_type,customer_state:source.customer_state}):'';
     const flagText=[stateLabel,item.archived?'Archived':''].filter(Boolean).join(' · ');
     agfocusText(flag,flagText);flag.hidden=!flagText;
-    agfocusText(node._region.querySelector('.agfocus-source-title'),item.resolved_source?.label || item.label);
-    node._region.querySelector('.agfocus-request').textContent=item.requested_response || '';
-    node._region.querySelector('[data-framing="requested_response"]').hidden=!item.requested_response;
-    node._region.querySelector('.agfocus-context').textContent=item.context_label?'Conversation: '+item.context_label:'';
     const actions=node.querySelector('.agfocus-actions');
     node.tabIndex=0;node.setAttribute('role','group');node.setAttribute('aria-label',name);
-    // The row owns selection; conversation controls live in the dock and never toggle it.
-    const toggleCard=()=>{
-      agfocusSelect(p,p.focusSelected===item.id?null:item.id);
-      if(p.focusSelected===item.id)node._conversationHost.querySelector('.conversation-inline-compose textarea')?.focus({preventScroll:true});
+    // Following a derived row opens that record; it never pins it, changes its parent or invents a channel.
+    const openRow=()=>{
+      if(item._workParent){agfocusOpenTarget(p,item,{root:false}).catch(error=>toast(error.message));return;}
+      void agfocusSelect(p,item.id);
     };
     node.onclick=event=>{
-      if(event.composedPath().some(el=>el.matches?.('button,a,input,textarea,select,.agfocus-marker,.agfocus-conversation')) || Date.now()<(p.focusSuppressClickUntil || 0))return;
+      if(event.composedPath().some(el=>el.matches?.('button,a,input,textarea,select,.agfocus-marker')) || Date.now()<(p.focusSuppressClickUntil || 0))return;
       if((event.ctrlKey || event.metaKey) && !item._workParent){event.preventDefault();agfocusNewTab(item);return;}
-      if(event.target.closest('.agfocus-row'))toggleCard();
+      if(event.target.closest('.agfocus-row'))openRow();
     };
-    node.onkeydown=event=>{if(event.target===node && ['Enter',' '].includes(event.key)){event.preventDefault();toggleCard();}};
+    node.onkeydown=event=>{if(event.target===node && ['Enter',' '].includes(event.key)){event.preventDefault();openRow();}};
     if(taskItem && taskShowsState(taskRecord)){
       const ball=node.querySelector('.agfocus-task-state');
-      taskStateBind(ball, (item.resolved_source || item.source).business_slug || null, taskRecord, snapshot => {
+      taskStateBind(ball, source.business_slug || null, taskRecord, snapshot => {
         item.state = snapshot.task.status; item.source_revision = snapshot.task.revision;
       });
       ball.onclick=event=>{event.stopPropagation();agfocusTaskState(p,item,ball);};
     }
-    node._manage=event=>{event.stopPropagation();if((event.ctrlKey || event.metaKey) && !item._workParent)agfocusNewTab(item);else agfocusOpenRecord(p,item.resolved_source || item.opening_target);};
     node.setAttribute('aria-describedby','agfocus-move-instructions');
     actions.querySelector('[data-focus-snooze]').onclick=event=>{event.stopPropagation();agfocusSnoozePicker(p,node,event.currentTarget);};
     actions.querySelector('[data-focus-snooze]').setAttribute('aria-pressed',String(snoozed));
     agfocusRowPending(p,node);
     actions.querySelector('[data-focus-snooze]').hidden=!!item._workParent;
-    const related=node._region.querySelector('.agfocus-related');related.replaceChildren();
-    for(const ref of item.references||[]) {
-      const button=document.createElement('button');button.className='quiet';button.textContent=ref.unavailable?'Related item unavailable':ref.label;button.disabled=!!ref.unavailable;
-      button.onclick=()=>agfocusOpenItem(p,ref).catch(e=>toast(e.message));related.appendChild(button);
-    }
-    agfocusRecordSurface(p,node,item,taskRecord);
-    const binding=item.conversation;
-    if(!binding){node.classList.add('agfocus-collapsed');continue;}
-    const conversationHost=node._conversationHost;
-    const conversationBinding=JSON.stringify([binding,item.resolved_source?.business_slug || item.context_business_slug]);
-    if(node._conversationBinding!==conversationBinding){conversationHost._conversation?.dispose();node._conversationBinding=conversationBinding;}
-    const newConversation=!conversationHost._conversation;
-    const conversation=conversationMount(conversationHost,{type:binding.type,id:binding.id,biz:item.resolved_source?.business_slug || item.context_business_slug || null,revision:item.source_revision},{
-      inlineComposer:true,related:true,openReference:ref=>agfocusOpenRecord(p,ref),
-      dismissOnOutside:false,
-      isVisible:()=>p.focusMount===host && !host.hidden && p.focusSelected===item.id && p.view==='focus' && agpadActive(p),
-      // Focus is a Global projection: the private channel names the owning
-      // business inside the canonical source instead of switching routes.
-      privateGlobal:true,
-      privateSource:{type:binding.type,id:binding.id,...(binding.business_id?{business_id:binding.business_id}:{})},
-      onUnavailable:()=>{if(p.focusMount!==host || p.focusCards.get(item.id)!==node)return;node._item.unavailable=true;const current=agfocusVisibleItems(p,p.focus?.items || []).find(other=>other.id===item.id);if(current)current.unavailable=true;agfocusPaint(p);},
-      onRead:()=>{agfocusUnread(p,node,{...node._item,private_unread:false},false);item.private_unread=false;p.focusPrivateUnread?.delete(item.id);p.focusPrivateRead?.set(item.id,p.focusBoardSeq || 0);const current=agfocusVisibleItems(p,p.focus?.items || []).find(other=>other.id===item.id);if(current)current.private_unread=false;},
-      onUnread:()=>{agfocusUnread(p,node,{...node._item,private_unread:true},true);item.private_unread=true;p.focusPrivateUnread?.set(item.id,p.focusBoardSeq || 0);p.focusPrivateRead?.delete(item.id);const current=agfocusVisibleItems(p,p.focus?.items || []).find(other=>other.id===item.id);if(current)current.private_unread=true;},
-    });
-    // Focus has no actionable Comment toggle. Its title carries unread state.
-    if(newConversation)conversationHost.querySelector('.conversation-toggle')?.remove();
     agfocusUnread(p,node,item);
     node.classList.toggle('agfocus-collapsed',p.focusSelected!==item.id);
     node.setAttribute('aria-expanded',String(p.focusSelected===item.id));
-    if(p.focusSelected===item.id){agfocusText($('[data-focus-thread-title]',host),name);if(!conversation.isExpanded())conversation.expand();}
   }
   agfocusTextHost()?.reconcile(p,host,list);
   if(focused?.isConnected && host.contains(focused)){focused.focus({preventScroll:true});if(selection)focused.setSelectionRange(...selection);}
@@ -794,21 +804,86 @@ function agfocusPaint(p) {
   agfocusDesktopTab(p);
 }
 
-// Story, Customer and Email tasks share one optional information panel beside the selected record's conversation.
-function agfocusRecordSurface(p,node,item,taskRecord) {
-  const region=node._region,source=item.resolved_source || item.source;
-  if(!taskRecord || !TASK_SPECIAL_TYPES.includes(taskRecord.task_type) || typeof recordSurfaceMount!=='function'){region._recordSurface?.dispose();return;}
-  recordSurfaceMount(region,{task:{id:source.id,task_type:taskRecord.task_type,business_id:source.business_id ?? null},
-    biz:source.business_slug || item.context_business_slug || null,
-    onTask:()=>{if(p.focusMount?.isConnected)void agfocusRefresh(p);},
-    openTask:link=>agfocusOpenItem(p,{type:'task',id:link.task_id,business_id:link.business_id,business_slug:link.business_slug})});
-}
-
 function agfocusNewTab(item) {
   const url=new URL(location.href);
   url.searchParams.set('focus_item',item.id);url.hash='/global/agents';
   window.open(url.href,'_blank','noopener');
 }
+
+// Open a Focus/related record in the same shared workspace (used by deep links, reference chips and derived rows).
+async function agfocusOpenTarget(p,target,{root=true}={}) {
+  const record=rwRecordFromItem(target,{can_thread:target?.can_thread});
+  if(!record)throw new Error('This item is no longer available.');
+  agfocusShowDock(p);
+  return p.focusWorkspace?.open(record,{root,tab:record.can_thread?'chat':'dashboard'});
+}
+function agfocusShowDock(p) {
+  const board=p.focusMount;if(!board?.isConnected)return null;
+  if(!p.focusWorkspace?.alive?.())p.focusWorkspace=recordWorkspaceMount($('.agfocus-dock-content',board),agfocusWorkspaceOptions(p));
+  const dock=$('.agfocus-dock',board);
+  dock.hidden=false;$('.agfocus-layout',board).classList.add('agfocus-thread-open');
+  agfocusOverlayOpen(p,board,dock,()=>{void p.focusWorkspace?.close();});
+  agfocusThreadHeight(p);
+  return dock;
+}
+function agfocusClearSelection(p) {
+  p.focusSelected=null;
+  const board=p.focusMount;if(!board?.isConnected)return;
+  $('.agfocus-dock',board).hidden=true;
+  $('.agfocus-layout',board).classList.remove('agfocus-thread-open');
+  agfocusOverlayClose(p);
+  for(const node of p.focusCards.values()){node.classList.add('agfocus-collapsed');node.setAttribute('aria-expanded','false');}
+}
+// Eviction, lost access or a source disappearing closes the mounted record without a save prompt.
+function agfocusForceClose(p) {
+  p.focusWorkspace?.dispose();
+  p.focusSelected=null;
+  const board=p.focusMount;if(board?.isConnected)p.focusWorkspace=recordWorkspaceMount($('.agfocus-dock-content',board),agfocusWorkspaceOptions(p));
+  agfocusClearSelection(p);
+  agfocusPaint(p);
+}
+function agfocusWorkspaceOptions(p) {
+  return {entry:'focus',
+    visible:()=>agpadActive(p) && p.view==='focus' && p.focusMount && !p.focusMount.hidden,
+    onClose:()=>agfocusClearSelection(p),
+    onRead:source=>agfocusWorkspaceUnread(p,source,false),
+    onUnread:source=>agfocusWorkspaceUnread(p,source,true),
+    onTitleChange:record=>agfocusWorkspaceTitle(p,record)};
+}
+// Unread state is still owned by the Focus row, not by the workspace header.
+function agfocusWorkspaceRows(p,source) {
+  if(!source)return[];
+  const key=`${source.type}:${source.business_id ?? 'global'}:${source.id}`;
+  return agfocusVisibleItems(p,p.focus?.items || []).filter(item=>{
+    const src=item.resolved_source || item.source || item.conversation;
+    return src && `${src.type}:${src.business_id ?? 'global'}:${src.id}`===key;
+  });
+}
+function agfocusWorkspaceUnread(p,source,unread) {
+  if(!agfocusActive(p))return;
+  for(const item of agfocusWorkspaceRows(p,source)) {
+    item.private_unread=unread;
+    const node=p.focusCards.get(item.id);
+    if(node)agfocusUnread(p,node,item,unread);
+    if(unread){p.focusPrivateUnread?.set(item.id,p.focusBoardSeq || 0);p.focusPrivateRead?.delete(item.id);}
+    else {p.focusPrivateUnread?.delete(item.id);p.focusPrivateRead?.set(item.id,p.focusBoardSeq || 0);}
+  }
+  for(const item of agfocusVisibleItems(p,p.focus?.items || [])) {
+    if(item._workParent)continue;
+    const node=p.focusCards.get(item.id);
+    if(node)agfocusUnread(p,node,item);
+  }
+}
+function agfocusWorkspaceTitle(p,record) {
+  if(!agfocusActive(p)||!record)return;
+  for(const item of agfocusWorkspaceRows(p,record)) {
+    if(item.source?.type!=='project')continue;
+    item.label=record.label;
+    const node=p.focusCards.get(item.id);
+    if(node)agfocusText(node.querySelector('.ttl'),record.label);
+  }
+}
+function agfocusActive(p) { return !!p && agpadActive(p) && p.view==='focus'; }
 
 async function agfocusOpenLinkedItem(p) {
   const url=new URL(location.href),id=url.searchParams.get('focus_item');
@@ -818,68 +893,46 @@ async function agfocusOpenLinkedItem(p) {
     const data=coreData(await post('/root/operations/focus_get',{scope:'global',item_id:id}));
     if(!agpadActive(p) || p.view!=='focus')return;
     if(!data.item || data.item.unavailable)throw new Error('This Focus item is no longer available.');
-    await agfocusOpenItem(p,data.item.resolved_source || data.item.opening_target);
+    const record=rwRecordFromFocusCard(data.item);
+    if(!record)throw new Error('This Focus item is no longer available.');
+    agfocusShowDock(p);
+    await p.focusWorkspace?.open(record,{root:true,tab:record.can_thread?'chat':'dashboard'});
   } catch(error){if(agpadActive(p)){p.focusError=error.message;agfocusPaint(p);}}
 }
 
-function agfocusSelect(p,id) {
+// Selecting a card opens the shared record workspace, Chat first on every fresh selection.
+// Clicking the already selected row keeps its tab, dashboard edits and chat draft.
+async function agfocusSelect(p,id) {
   const board=p.focusMount;
-  if(!board?.isConnected || id===p.focusSelected)return;
+  if(!board?.isConnected)return;
   const next=id && p.focusCards.get(id);
   if(id && (!next || next._item?.unavailable))return;
+  if(id===p.focusSelected){if(next?.tabIndex===0)next.focus({preventScroll:true});return;}
   const previous=p.focusCards.get(p.focusSelected);
+  if(!id) {
+    await p.focusWorkspace?.close();
+    return;
+  }
+  const record=rwRecordFromFocusCard(next._item);
+  if(!record)return;
+  agfocusShowDock(p);
+  const opened=await p.focusWorkspace?.open(record,{root:true,tab:record.can_thread?'chat':'dashboard'});
+  if(opened===false){if(!p.focusSelected)agfocusClearSelection(p);return;}
+  if(!agpadActive(p) || p.focusMount!==board || p.focusCards.get(id)!==next)return;
   p.focusSelected=id;
-  if(previous){
-    previous._conversationHost?._conversation?.collapse();
-    previous._region._recordSurface?.close();
-    previous._region.hidden=true;previous.appendChild(previous._region);
-    previous.classList.add('agfocus-collapsed');previous.setAttribute('aria-expanded','false');
-  }
-  const dock=$('.agfocus-dock',board);
-  dock.hidden=!next;$('.agfocus-layout',board).classList.toggle('agfocus-thread-open',!!next);
-  agfocusOverlayClose(p);
-  if(next){
-    agfocusOverlayOpen(p,board,dock);
-    agfocusText($('[data-focus-thread-title]',dock),next._item.display_name?.trim() || next._item.label);
-    $('.agfocus-dock-content',dock).appendChild(next._region);next._region.hidden=false;
-    next.classList.remove('agfocus-collapsed');next.setAttribute('aria-expanded','true');
-    agfocusThreadHeight(p);
-    next._conversationHost._conversation?.expand();
-    agfocusLoadThreadContext(p,next);
-    if(next._item.source?.type==='task' && (agfocusTaskRecord(next._item).task_type!=='story' || p.focusWork?.get(next._item.id)?.expanded!==false))agfocusExpandWork(p,next._item);
-  }
-}
-
-async function agfocusLoadThreadContext(p,node) {
-  const item=node._item,source=item.resolved_source || item.source || item.context;
-  const target=node._region.querySelector('.agfocus-task-details');
-  if(!source || source.type!=='task' || !target)return;
-  const request={};node._contextRequest=request;
-  target.textContent='Loading details…';
-  const biz=source.business_slug || item.context_business_slug;
-  try {
-    const data=coreData(await post(biz?`/biz/${encodeURIComponent(biz)}/operations/tasks_get`:`/root/operations/tasks_get`,
-      {task_id:source.id}));
-    if(node._contextRequest!==request || node._item.unavailable || p.focusSelected!==item.id)return;
-    const task=data.task;
-    const details=[task.task_type && task.task_type!=='task' && TASK_TYPE_LABELS[task.task_type],customerStateText(task),task.status && (T_LABEL[task.status] || task.status),task.due && `Due ${task.due}`,
-      ...(task.tags || []),...Object.entries(task.fields || {}).map(([key,value])=>`${key}: ${String(value)}`)].filter(Boolean);
-    target.textContent=details.join(' · ');
-    if(task.overview){const overview=document.createElement('p');overview.className='task-overview-text';overview.textContent=task.overview;target.appendChild(overview);}
-    if(task.email_conversation_id){const button=document.createElement('button');button.type='button';button.className='quiet';button.textContent='Historical email reference';button.onclick=()=>taskEmailOpen(task,biz);target.appendChild(button);}
-    const links=document.createElement('div');target.appendChild(links);
-    taskLinksMount(links,biz,task,{open:link=>agfocusOpenItem(p,{type:'task',id:link.task_id,business_id:link.business_id,business_slug:link.business_slug})});
-    if(task.title)agfocusText(node._region.querySelector('.agfocus-source-title'),task.title);
-  } catch(error) {
-    if(node._contextRequest===request && p.focusSelected===item.id)target.textContent='Details unavailable. '+error.message;
-  }
+  if(previous && previous!==next){previous.classList.add('agfocus-collapsed');previous.setAttribute('aria-expanded','false');}
+  next.classList.remove('agfocus-collapsed');next.setAttribute('aria-expanded','true');
+  agfocusThreadHeight(p);
+  const source=next._item.resolved_source || next._item.source;
+  // An ordinary Task still opens its existing hierarchy; a Project only expands through its chevron.
+  if(source?.type==='task' && (agfocusTaskRecord(next._item).task_type!=='story' || p.focusWork?.get(next._item.id)?.expanded!==false))void agfocusExpandWork(p,next._item);
 }
 
 function agfocusRefreshThreads(p) {
   if(!p.focusRefreshThreads)return;
   p.focusRefreshThreads=false;
-  // Only the open conversation is read; collapsed rows load when selected.
-  if(p.focusSelected)p.focusCards.get(p.focusSelected)?._conversationHost?._conversation?.refresh();
+  // Only the open record's Chat is refreshed; the dashboard is not polled.
+  p.focusWorkspace?.refresh?.();
 }
 
 function agfocusThreadHeight(p,height) {
@@ -926,11 +979,11 @@ function agfocusThreadResizeMount(p,board,body) {
 }
 
 function agfocusTaskRecord(item) {
-  const source=item.resolved_source || item.source;
-  return taskStateObserve(source.business_slug || null, {id:source.id,status:item.state || source.state || 'open',revision:item.source_revision,...(source.task_type?{task_type:source.task_type}:{})});
+  const source=item.resolved_source || item.source || item.conversation || {};
+  return taskStateObserve(source.business_slug || item.context_business_slug || null, {id:source.id,status:item.state || source.state || 'open',revision:item.source_revision,...(source.task_type?{task_type:source.task_type}:{})});
 }
 function agfocusTaskState(p,item,button) {
-  const source=item.resolved_source || item.source,task=agfocusTaskRecord(item);
+  const source=item.resolved_source || item.source || item.conversation || {},task=agfocusTaskRecord(item);
   if(!taskShowsState(task))return;
   const status=tNext(task.status);
   return taskStateSet(source.business_slug || null,task,status);
@@ -942,9 +995,12 @@ function agfocusContext(node,item) {
   const biz=source.business_slug || item.context_business_slug;
   const businessId=source.business_id ?? item.source?.business_id ?? item.context?.business_id;
   const scope=node.querySelector('.agfocus-scope');
-  scope.hidden=!!item._workParent && item.source?.type==='task' && item._workBusinessId!=null && businessId===item._workBusinessId;
-  const businessName=source.business_name || (state.bizs || []).find(b=>b.slug===biz)?.name || 'Project';
-  agfocusHtml(node.querySelector('.agfocus-scope'),businessId || biz
+  // A Project card already carries its exact Project name as its title: no same-name scope badge.
+  const project=source.type==='project';
+  scope.hidden=project || (!!item._workParent && (item.source?.type==='task' || item.source?.type==='project') && item._workBusinessId!=null && businessId===item._workBusinessId);
+  if(project){scope.replaceChildren();delete scope._html;return;}
+  const businessName=source.business_name || (state.bizs || []).find(b=>b.slug===biz)?.name || (source.type==='task'?'Project':'Project');
+  agfocusHtml(scope,businessId || biz
     ? `<span class="agfocus-scope-chip" aria-label="${esc(businessName)}">${esc(businessName)}</span>`
     : '<span class="agfocus-scope-chip agfocus-global-chip" role="img" aria-label="Global"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg></span>');
 }
@@ -1155,82 +1211,27 @@ function agfocusDesktopMount(p, ctx = null) {
   });
 }
 
-function agfocusDetail(p,title) {
-  agfocusSelect(p,null);
-  p.focusDetail?.dispose?.();
-  const body=$('#agpad-body',p.el),board=$('.agfocus',body),scroll=body.scrollTop;
-  const restore=document.activeElement;
-  p.focusCards?.get(p.focusSelected)?._conversationHost?._conversation?.collapse();
-  board.hidden=true;
-  const shell=document.createElement('section');shell.className='agfocus-detail';
-  shell.innerHTML='<header class="agfocus-detail-header"><button type="button" class="quiet" aria-label="Back to Focus">← Focus</button><span></span></header><div class="agfocus-detail-body"></div>';
-  shell.querySelector('header span').textContent=title || '';
-  body.appendChild(shell);body.scrollTop=0;
-  let cleanup;
-  const detail={host:shell.querySelector('.agfocus-detail-body'),current:()=>p.focusDetail===detail && shell.isConnected && p.view==='focus',
-    dispose:()=>{cleanup?.();shell.remove();},
-    onDispose:fn=>{cleanup=fn;},
-    back:()=>{if(!detail.current())return;detail.dispose();p.focusDetail=null;board.hidden=false;body.scrollTop=scroll;agfocusPaint(p);p.focusCards?.get(p.focusSelected)?._conversationHost?._conversation?.expand();if(restore?.isConnected)restore.focus({preventScroll:true});}};
-  p.focusDetail=detail;shell.querySelector('button').onclick=detail.back;
-  shell.querySelector('button').focus({preventScroll:true});
-  return detail;
-}
-
-async function agfocusOpenItem(p,item,providedDetail=null) {
-  if(!item || item.unavailable)throw new Error('This item is no longer available.');
-  if(!agpadActive(p))return;
-  const detail=providedDetail || agfocusDetail(p,item.label || item.title || '');
-  detail.host.innerHTML='<p class="muted" role="status">Loading…</p>';
-  try {
-    if(item.url) {
-      const url=agfocusURL(item.url);
-      if(!url)throw new Error('This reference URL is unavailable.');
-      detail.host.innerHTML=`<iframe class="agfocus-reference-frame" aria-label="${esc(item.label || 'Reference')}" src="${esc(url)}" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads" allow="clipboard-read; clipboard-write; fullscreen"></iframe><p class="muted agfocus-reference-help">If this site prevents embedding, <a href="${esc(url)}" target="_blank" rel="noopener noreferrer">open it in a new tab</a>.</p>`;
-      return;
-    }
-    if(item.type==='email') {
-      historicalEmailMount(detail.host);return;
-    }
-    if(item.type==='task') {
-      if(!item.business_id){globalTasksMount(detail.host,{initialTaskId:item.id,onBack:detail.back});return;}
-      const task=await tFetchTask(item.business_slug,item.id);
-      if(detail.current())tDetail(task,{host:detail.host,onClose:detail.back});
-      return;
-    }
-    if(item.type==='signoff') {
-      detail.host.classList.add('agfocus-signoff');
-      const view=sgCreateView({active:detail.current,body:()=>detail.host,
-        workspace:()=>item.business_slug || 'scope:global',global:!item.business_id,category:item.category,
-        item:()=>({id:item.id,businessId:item.business_id}),waitingOnly:false,execution:true});
-      detail.onDispose(()=>view.dispose());view.paint();return;
-    }
-    if(item.resource_type==='data_tables'){await tablesOpen(item.business_slug,item.id);return;}
-    if(item.resource_type==='documents') {
-      const {document:doc}=coreData(await api(agfocusPath(p)+'/documents/'+encodeURIComponent(item.id)));
-      if(detail.current())detail.host.innerHTML=`<div class="work-source">${esc(doc.body || 'No text preview available.')}</div>`;
-      return;
-    }
-    detail.host.innerHTML=`<div class="work-source">${esc(item.summary || 'No preview available.')}</div>`;
-  } catch(error) {
-    if(detail.current())detail.host.innerHTML=`<p class="ferr" role="alert">${esc(error.message)}</p>`;
-  }
-}
-
-
 // One atomic create-and-present call; a retry keeps the exact request and key.
 function agfocusAdd(p) {
   let submission=null, pending=false, typeEditor;
   const text=agfocusTextHost(),textReady=!!text && !!p.agentId && text.ready(p);
-  const kinds=text && p.agentId?`<div class="focus-add-kind" role="radiogroup" aria-label="What to add"><label><input type="radio" name="kind" value="item" checked> Task or link</label><label><input type="radio" name="kind" value="text"${textReady?'':' disabled'}> Text or space</label></div>${textReady?'':`<p class="muted">${esc(text.unavailable(p))}</p>`}`:'';
-  modal({title:'Add to Focus', body:`<form id="focus-add-form">${kinds}<div data-add-item><label>Title<input class="inp" name="title" required maxlength="200" autocomplete="off"></label><label>Link <span class="muted">(optional)</span><input class="inp" name="link" type="url" placeholder="https://…"></label><p class="muted">Leave the link empty to create a task.</p>${taskTypeFields()}</div><div data-add-text hidden><label>Text <span class="muted">(optional)</span><textarea class="inp" name="text" rows="5" maxlength="8000" placeholder="A heading, a note, or leave empty for blank space"></textarea></label><p class="muted">Saved on this agent's Focus only. Agents never read it.</p></div><p role="alert" class="bad" hidden></p></form>`,
+  const projects=(state.bizs || []);
+  const kinds=`<div class="focus-add-kind" role="radiogroup" aria-label="What to add"><label><input type="radio" name="kind" value="item" checked> Task or link</label><label><input type="radio" name="kind" value="project"> Existing Project</label>${text && p.agentId?`<label><input type="radio" name="kind" value="text"${textReady?'':' disabled'}> Text or space</label>`:''}</div>${text && p.agentId && !textReady?`<p class="muted">${esc(text.unavailable(p))}</p>`:''}`;
+  modal({title:'Add to Focus', body:`<form id="focus-add-form">${kinds}<div data-add-item><label>Title<input class="inp" name="title" required maxlength="200" autocomplete="off"></label><label>Link <span class="muted">(optional)</span><input class="inp" name="link" type="url" placeholder="https://…"></label><p class="muted">Leave the link empty to create a task.</p>${taskTypeFields()}</div><div data-add-project hidden><label>Project<select class="inp" name="project">${projects.map(biz=>`<option value="${esc(biz.business_id||biz.id)}">${esc(biz.name||biz.slug)}${biz.archived?' (archived)':''}</option>`).join('')}</select></label><p class="muted">${projects.length?'Pins the actual accessible Project. Pinning never creates a Project or a new conversation.':'No accessible Projects.'}</p></div><div data-add-text hidden><label>Text <span class="muted">(optional)</span><textarea class="inp" name="text" rows="5" maxlength="8000" placeholder="A heading, a note, or leave empty for blank space"></textarea></label><p class="muted">Saved on this agent's Focus only. Agents never read it.</p></div><p role="alert" class="bad" hidden></p></form>`,
     actions:[{label:'Cancel',onClick:close=>close()}, {label:'Add', primary:true, onClick:async(close,el)=>{
       if(pending)return;
       const form=el.querySelector('form'), error=form.querySelector('[role="alert"]');
-      if(form.elements.kind?.value==='text') {
+      const mode=form.elements.kind?.value || 'item';
+      if(mode==='text') {
         if(!text.add(p,form.elements.text.value)){error.textContent=text.unavailable(p) || 'Could not add the text block.';error.hidden=false;return;}
         close();return;
       }
-      if(!submission) {
+      if(mode==='project') {
+        const projectId=form.elements.project.value;
+        if(!projectId){error.textContent='Choose a Project.';error.hidden=false;return;}
+        const key=newRequestId();
+        if(!submission)submission={operation:'focus_present',args:{scope:'global',source:{type:'project',id:projectId,business_id:projectId},idempotency_key:key}};
+      } else if(!submission) {
         if(!form.reportValidity())return;
         const title=form.elements.title.value.trim(),link=form.elements.link.value.trim();
         if(!title)return;
@@ -1255,10 +1256,11 @@ function agfocusAdd(p) {
       typeEditor=taskTypeMount(el,null);
       el.querySelector('[name=link]').oninput=e=>{el.querySelector('.task-type-editor').hidden=!!e.target.value.trim();};
       for(const radio of form.querySelectorAll('[name=kind]'))radio.onchange=()=>{
-        const asText=form.elements.kind.value==='text';
-        el.querySelector('[data-add-item]').hidden=asText;el.querySelector('[data-add-text]').hidden=!asText;
-        form.elements.title.required=!asText;
-        (asText?form.elements.text:form.elements.title).focus();
+        const mode=form.elements.kind.value;
+        el.querySelector('[data-add-item]').hidden=mode!=='item';el.querySelector('[data-add-project]').hidden=mode!=='project';el.querySelector('[data-add-text]').hidden=mode!=='text';
+        form.elements.title.required=mode==='item';
+        const target=mode==='project'?el.querySelector('[name=project]'):mode==='text'?el.querySelector('[name=text]'):form.elements.title;
+        target.focus();
       };
       form.elements.title.focus();
       form.onsubmit=event=>{event.preventDefault();el.querySelector('.mfoot button:last-child')?.click();};
@@ -1270,30 +1272,20 @@ function agfocusOverlayClose(p) {
   if(!p.focusOverlay)return;
   p.focusOverlay.dispose();p.focusOverlay=null;
 }
-function agfocusOverlayOpen(p,board,dock,onClose=()=>agfocusSelect(p,null)) {
+function agfocusOverlayOpen(p,board,dock,onClose=()=>{void p.focusWorkspace?.close();}) {
+  // The selected Record pane stays one overlay: re-selecting a row re-fits the existing one
+  // instead of stacking a second inert/escape scope on the native Chat surface.
+  if(p.focusOverlay){p.focusOverlay.fit?.();return;}
   const terminal=p.el.closest('.agsplit')?.querySelector('.global-agent-session, #chat');
   if(!terminal || terminal.getBoundingClientRect().width<240)return;
   const layout=board.querySelector('.agfocus-layout'),wasInert=terminal.inert;
   const fit=()=>{const rect=terminal.getBoundingClientRect();Object.assign(dock.style,{left:rect.left+'px',top:rect.top+'px',width:rect.width+'px',height:rect.height+'px'});};
   dock.classList.add('agfocus-chat-overlay');layout.classList.add('agfocus-overlay-open');
-  dock.setAttribute('role','dialog');dock.setAttribute('aria-label','Task conversation');
+  dock.setAttribute('role','dialog');dock.setAttribute('aria-label','Record workspace');
   terminal.inert=true;
   const escape=event=>{if(event.key==='Escape' && !document.querySelector('.overlay')){event.preventDefault();event.stopPropagation();onClose();}};
   const observer=new ResizeObserver(fit);observer.observe(terminal);
   window.addEventListener('resize',fit);document.addEventListener('keydown',escape);
-  p.focusOverlay={fit,dispose:()=>{observer.disconnect();window.removeEventListener('resize',fit);document.removeEventListener('keydown',escape);terminal.inert=wasInert;dock.classList.remove('agfocus-chat-overlay');layout.classList.remove('agfocus-overlay-open');dock.removeAttribute('role');dock.setAttribute('aria-label','Selected conversation');for(const key of ['left','top','width','height'])dock.style[key]='';}};
+  p.focusOverlay={fit,dispose:()=>{observer.disconnect();window.removeEventListener('resize',fit);document.removeEventListener('keydown',escape);terminal.inert=wasInert;dock.classList.remove('agfocus-chat-overlay');layout.classList.remove('agfocus-overlay-open');dock.removeAttribute('role');dock.setAttribute('aria-label','Selected record');for(const key of ['left','top','width','height'])dock.style[key]='';}};
   fit();
-}
-
-// One thread header for Focus and Threads: the title, a Details control for the source record and close.
-function agfocusThreadHeading() {
-  return '<header class="agfocus-thread-heading"><span data-focus-thread-title></span><button type="button" class="quiet agfocus-thread-details" data-manage>Details</button><button type="button" class="quiet" data-focus-thread-close aria-label="Close thread"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>';
-}
-
-// Opens a record's existing reader in a modal, so inspecting it never replaces the selected thread or its draft.
-function agfocusOpenRecord(p,item) {
-  let cleanup,host;
-  return modal({title:esc(item.label || 'Related record'),width:740,stack:true,body:'<div class="agfocus-detail-body"></div>',
-    onOpen:el=>{host=el.querySelector('.agfocus-detail-body');agfocusOpenItem(p,item,{host,current:()=>host.isConnected && agpadActive(p),onDispose:fn=>{cleanup=fn;},back:()=>{}}).catch(error=>{if(host.isConnected)host.textContent=error.message;});},
-    onClose:()=>cleanup?.()});
 }
