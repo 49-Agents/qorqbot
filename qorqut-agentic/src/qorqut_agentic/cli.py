@@ -176,9 +176,17 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, TypeError, RecursionError):
         output, exit_code = b'{"ok":false,"error":{"code":"internal_error","message":"result is not JSON","details":{}}}', 1
     if len(output) > MAX_OUTPUT_BYTES:
-        output = json.dumps({"ok": False, "error": {"code": "limit_exceeded",
-            "message": "JSON result exceeds the byte limit; use narrower reads", "details": {
-                "limit": MAX_OUTPUT_BYTES, "operation_completed": True}}}).encode()
+        if envelope["ok"]:
+            error = {"code": "limit_exceeded",
+                     "message": "JSON result exceeds the byte limit; use narrower reads",
+                     "details": {"limit": MAX_OUTPUT_BYTES, "operation_completed": True}}
+        else:
+            original = envelope["error"]
+            details = {key: value for key, value in original["details"].items()
+                       if key in ("operation_completed", "attempt_recorded") and isinstance(value, bool)}
+            error = {"code": original["code"], "message": original["message"][:2000],
+                     "details": {**details, "truncated": True, "limit": MAX_OUTPUT_BYTES}}
+        output = json.dumps({"ok": False, "error": error}, ensure_ascii=False).encode("utf-8")
         exit_code = 1
     sys.stdout.buffer.write(output + b"\n")
     return exit_code

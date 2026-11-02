@@ -305,10 +305,6 @@ class History:
             }
         with self.ctx.store.lock(exclusive=True):
             self.ctx.require_no_recovery()
-            branch = self.git.run(["symbolic-ref", "--quiet", "--short", "HEAD"], check=False)
-            if branch.returncode != 0 or branch.stdout.strip() in (b"main", b"master"):
-                raise InvalidRequestError("commits require a non-protected, attached authoring branch",
-                                          details={"branch": branch.stdout.decode().strip() or None})
             if author is None:
                 for key in ("user.name", "user.email"):
                     completed = self.git.run(["config", "--local", "--get", key], check=False)
