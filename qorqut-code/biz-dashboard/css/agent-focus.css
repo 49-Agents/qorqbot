@@ -283,3 +283,5 @@
 [data-attention-board] .agfocus-notification .task-workers{display:inline-flex;flex-flow:row nowrap;align-items:center;gap:0;margin:0 0 0 auto;padding:2px;min-height:26px;max-width:44px;border:0;background:none}
 [data-attention-board] .agfocus-notification .task-user-needed{display:none}
 [data-attention-board] .agfocus-row{grid-template-columns:56px 30px clamp(28px,20%,132px) minmax(0,1fr) auto}
+
+[data-attention-board] .agfocus-card:not(:hover):not(:focus-within) .task-workers:not(:has(.identity-avatar)){opacity:0;pointer-events:none}
