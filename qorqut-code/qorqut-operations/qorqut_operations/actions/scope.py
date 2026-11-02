@@ -32,7 +32,7 @@ def reader_scope(ctx, uow) -> dict:
         return {"kind": "owner", "businesses": frozenset(ctx.allowed_business_ids), "global_storage": True}
     if ctx.principal_kind == "agent" and "read_global_context" in ctx.global_capabilities:
         return {"kind": "ecosystem", "businesses": frozenset(ctx.allowed_business_ids), "global_storage": True}
-    raise DomainError("forbidden", "Actions require an owner, a business member or an authorized global agent")
+    raise DomainError("forbidden", "Actions require an owner, a project member or an authorized global agent")
 
 
 def action_namespace(ctx, args) -> str:
@@ -101,9 +101,9 @@ def classify(ctx, uow, category, business_ids, *, owner_category_optional=True):
     home = ctx.business_id if action_namespace(ctx, {}) != "global" else None
     if home is not None:
         if category not in (None, "business-operational"):
-            raise DomainError("forbidden", "Business actions are business-operational for the selected business")
+            raise DomainError("forbidden", "Project actions are business-operational for the selected project")
         if requested and requested != [home]:
-            raise DomainError("forbidden", "Business-stored actions cannot select other or additional businesses")
+            raise DomainError("forbidden", "Business-stored actions cannot select other or additional projects")
         return "business-operational", [home]
     if ctx.principal_kind == "agent":
         if category is None:
@@ -115,14 +115,14 @@ def classify(ctx, uow, category, business_ids, *, owner_category_optional=True):
         raise DomainError("forbidden", "Actions are recorded by the owner or registered agents")
     if category == "business-operational":
         if not requested:
-            raise DomainError("validation_error", "Business-operational actions need at least one business",
+            raise DomainError("validation_error", "Business-operational actions need at least one project",
                               field_errors={"business_ids": "required"})
         active = active_business_ids(uow.connection)
         if any(business not in ctx.allowed_business_ids or business not in active for business in requested):
-            raise DomainError("forbidden", "Every selected business must be currently authorized and active")
+            raise DomainError("forbidden", "Every selected project must be currently authorized and active")
         return category, requested
     if requested:
-        raise DomainError("validation_error", "Only business-operational actions name businesses",
+        raise DomainError("validation_error", "Only business-operational actions name projects",
                           field_errors={"business_ids": "not allowed for this category"})
     return category, []
 

@@ -2,7 +2,7 @@
 
 Everything here is the deployed v1 flow with its operation ids, authority metadata, revisions, cursor binding, errors
 and result shapes unchanged. The only things it does not know are the host's: the role vocabulary, the Material and
-archive adapters, the navigation counts, the business-setup edge guard and the reviewable edit operations arrive
+archive adapters, the navigation counts and the reviewable edit operations arrive
 through ``RelationshipPorts``, and items are resolved through the frozen ``ItemResolver``.
 
 Construction is inert. The descriptors go into a frozen catalog through ``contribution()`` and the application calls
@@ -79,7 +79,7 @@ class RelationshipOperations:
             "context_items_list": ({**PAGE, **plain(materials.filters), "type": item["properties"]["type"], "query": filters["query"], "include_archived": filters["include_archived"], "include_sources": {"type": "boolean"}}, (), "Find existing context items before linking them. Filter Materials by material_type, origin or tag. Raw uploads and archived items are excluded by default."),
             "context_items_get": ({"item": item}, ("item",), "Resolve a context item to its current title, subtype, archive state and domain resource identity."),
             "context_navigation_get": ({}, (), "Read authorized table, product and people counts without loading the graph."),
-            "context_graph_get": ({"item": item, "include_archived": filters["include_archived"]}, (), "Read the business context map, or one item's immediate neighborhood. Original uploads and generated projections are never map nodes. Reading does not acknowledge context."),
+            "context_graph_get": ({"item": item, "include_archived": filters["include_archived"]}, (), "Read the project context map, or one item's immediate neighborhood. Original uploads and generated projections are never map nodes. Reading does not acknowledge context."),
         }
         descriptors = []
         for name, (properties, required, description) in reads.items():
@@ -97,11 +97,11 @@ class RelationshipOperations:
                 **GLOBAL_SCOPE, prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, options, uow),
                 apply=self.apply, validate_targets=self.validate_prepared))
         descriptors.append(OperationDescriptor("context_items_archive", schema({"item": item, "archived": {"type": "boolean"}}, ("item", "archived")),
-            description="Archive or restore an item without deleting its content or relationships. Does not cascade. Requires the item's expected_revision. Agent retirement and business membership use their dedicated administration tools.",
+            description="Archive or restore an item without deleting its content or relationships. Does not cascade. Requires the item's expected_revision. Agent retirement and project membership use their dedicated administration tools.",
             prepare=self.ports.archive.prepare, apply=self.ports.archive.apply))
         descriptors.append(OperationDescriptor("materials_update", schema({"material_id": UUID,
             "changes": {**schema({"material_type": {"enum": list(materials.material_types)}, "tags": plain(materials.tags)}), "minProperties": 1}}, ("material_id", "changes")),
-            description="Classify a business Material or replace its descriptive tags, using expected_revision. Never edits its body, origin, relationships or permissions. Email stays conversation; raw uploads stay mixed. Personal/agent notes and plans use their own tools.",
+            description="Classify a project Material or replace its descriptive tags, using expected_revision. Never edits its body, origin, relationships or permissions. Email stays conversation; raw uploads stay mixed. Personal/agent notes and plans use their own tools.",
             prepare=materials.prepare, apply=materials.apply))
         descriptors.extend(self.reviews.descriptors())
         return tuple(descriptors)
@@ -217,7 +217,6 @@ class RelationshipOperations:
         if before:
             require_revision(before, options.expected_revision)
             self.generic_role(before["role"])
-            self.ports.protected_edges.check(ctx, uow, before)
             for item in endpoints(before):
                 self.items.resolve(ctx, item, uow, builder)
         if operation == "relationships_remove":
@@ -242,8 +241,6 @@ class RelationshipOperations:
             if change.resource.resource_type != "relationships":
                 continue
             before = uow.repository("relationships", business_id=ctx.business_id).get(change.resource.resource_id)
-            if before:
-                self.ports.protected_edges.check(ctx, uow, before)
             for edge in (before, {**(before or {}), **plain(change.values)}):
                 if not edge:
                     continue

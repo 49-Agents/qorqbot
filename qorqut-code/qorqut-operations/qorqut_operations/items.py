@@ -159,7 +159,7 @@ class ItemResolver:
     def _lookup(self, item) -> ItemLookup:
         lookup = self._lookups.get(item["type"])
         if lookup is None:
-            raise DomainError("not_found", "Context item does not exist in this business")
+            raise DomainError("not_found", "Context item does not exist in this project")
         return lookup
 
     def authorize(self, ctx, operation: str, uow) -> None:

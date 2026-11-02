@@ -14,7 +14,13 @@ script is run from an unrelated working directory with a clean ``sys.path``. The
   applied once, through typed ``SignoffPorts``) and a registered-program slice (a manual routine run executes a
   synthetic program whose frozen output is applied under its worker identity), again with no ``bazarlyk``,
 * a third script runs one neutral-item/relationship slice over two synthetic item kinds: an authorized link versus
-  a denied endpoint, a read that acknowledges nothing, and an explicit review committed with a same-item edit.
+  a denied endpoint, a read that acknowledges nothing, and an explicit review committed with a same-item edit,
+* a fourth script runs the ``create_directory_tree`` file effect through the installed ``Application`` and prepared
+  file executor: an empty layout is published once under its receipt, the same key replays, and an existing
+  directory, even an identical empty tree, is never adopted.
+
+The Signoff slice acts as an active global agent (a supported role, an ecosystem scope, no home project): its project
+access is the active project directory, never a membership row, exactly as the engine requires of every agent.
 
 The build needs ``setuptools`` and ``wheel`` available to ``pip`` (pip fetches them into the isolated build
 environment) and a package index for ``jsonschema``.
@@ -108,7 +114,9 @@ from qorqut_operations.application import (Application, CatalogContribution, Cat
 from qorqut_operations.application.plans import PlanBuilder, apply_records
 from qorqut_operations.background import BackgroundAuthority, BackgroundService, Program, ProgramRegistry, ProgramResult
 from qorqut_operations.contracts import InvocationContext, Principal
+from qorqut_operations.global_agents import effective_business_ids
 from qorqut_operations.policy import AgentPolicyBasis, PolicyResolver, PolicyRules
+from qorqut_operations.roles import GLOBAL_WORKER_ROLE
 from qorqut_operations.routines import RoutineOperations
 from qorqut_operations.signoffs import ABSENT, ReferenceTarget, SignoffPorts, SignoffService
 from qorqut_operations.storage import (AssemblyBuilder, Database, FileEffectContribution, LockPaths,
@@ -138,12 +146,13 @@ class References:
     targets = {"thing": ReferenceTarget("things_get", "thing_id")}
     def task_namespace(self, ctx, args): return "business:" + (ctx.business_id or "")
 class Agents:
+    # A current global agent: no home project, and every project active in this transaction is in its scope.
     def refresh_invocation_context(self, ctx, uow):
-        row = uow.connection.execute("SELECT home_business_id, revision FROM agent_profiles WHERE agent_id=?",
-                                     (ctx.principal_id,)).fetchone()
-        return replace(ctx, home_business_id=row[0], profile_revision=row[1], allowed_business_ids=frozenset({row[0]}))
+        row = uow.connection.execute("SELECT revision FROM agent_profiles WHERE agent_id=?", (ctx.principal_id,)).fetchone()
+        return replace(ctx, home_business_id=None, profile_revision=row[0],
+                       allowed_business_ids=effective_business_ids(uow.connection, ctx.principal_id))
     def policy_basis(self, ctx, uow):
-        return AgentPolicyBasis({"things_create": "signoff"}, {}, {"id": "role-a", "version": "1"}, 1)
+        return AgentPolicyBasis({"things_create": "signoff"}, {}, {"id": GLOBAL_WORKER_ROLE, "version": "1"}, 1)
     def plugin_declares(self, ctx, basis, descriptor, uow): return True
 
 THINGS = ("CREATE TABLE things (business_id TEXT NOT NULL REFERENCES businesses(id), id TEXT NOT NULL, "
@@ -210,16 +219,16 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-slice-") as directory:
         uow.repository("businesses").insert({"id": BUSINESS, "slug": "p", "name": "p", "workspace": directory + "/w",
                                              "hq_path": directory + "/w/hq"})
         uow.repository("business_memberships", business_id=BUSINESS).insert({"principal_id": HUMAN, "is_owner": True})
-        uow.repository("business_memberships", business_id=BUSINESS).insert({"principal_id": AGENT})
         uow.repository("installation").insert({"id": "service", "installation_id": INSTALLATION, "owner_principal_id": HUMAN})
         uow.connection.execute("INSERT INTO agent_profiles(agent_id, principal_id, home_business_id, namespace, name, "
-            "workspace, profile_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?, 'now', 'now')",
-            (AGENT, AGENT, BUSINESS, BUSINESS, "proposer", directory + "/agent",
-             json.dumps({"role": {"id": "role-a"}, "scope": {"kind": "business"}})))
+            "workspace, profile_json, created_at, updated_at) VALUES (?,?,NULL,'ecosystem',?,?,?, 'now', 'now')",
+            (AGENT, AGENT, "proposer", directory + "/agent",
+             json.dumps({"status": "active", "role": {"id": GLOBAL_WORKER_ROLE}, "scope": {"kind": "ecosystem"}})))
         workers = authority.register_workers(uow, [BUSINESS])
 
-    # Signoff slice: a restricted agent stages, the owner approves the reviewed binding, the engine applies once.
-    agent = InvocationContext(Principal(AGENT, "agent"), business_id=BUSINESS, home_business_id=BUSINESS,
+    # Signoff slice: a restricted global agent selects the project and stages, the owner approves the reviewed binding,
+    # the engine applies once.
+    agent = InvocationContext(Principal(AGENT, "agent"), business_id=BUSINESS,
         allowed_business_ids=frozenset({BUSINESS}), profile_revision=1, source="mcp")
     owner = InvocationContext(Principal(HUMAN, "human"), business_id=BUSINESS,
         allowed_business_ids=frozenset({BUSINESS}), source="dashboard")
@@ -334,8 +343,6 @@ class Unused:
     def apply(ctx, plan, uow): raise DomainError("validation_error", "not used in this slice")
     @staticmethod
     def read(ctx, args, uow): return {"counts": {}}
-    @staticmethod
-    def check(ctx, uow, edge): pass
 
 def note_update(ctx, args, options, uow):
     row = uow.repository("notes", business_id=ctx.business_id).get(args["note_id"], required=True)
@@ -368,7 +375,7 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-neutral-") as directory:
                          candidates=Candidates())
     unused = Unused()
     ports = RelationshipPorts(roles={"related_to": ("Related to", "Related from")}, workflow_roles={}, materials=unused,
-        archive=unused, navigation=unused, protected_edges=unused, review_edits={"notes_update": ReviewEdit("note", "note_id")})
+        archive=unused, navigation=unused, review_edits={"notes_update": ReviewEdit("note", "note_id")})
     relationships = RelationshipOperations(items, ports)
     get = lambda name, key: OperationDescriptor(name, {"type": "object", "properties": {key: {"type": "string"}},
         "required": [key], "additionalProperties": False}, effect_kind="read", supports_signoff=False,
@@ -437,6 +444,94 @@ print(json.dumps({"items": ["note", "task"], "link": "authorized-vs-denied", "re
 '''
 
 
+DIRECTORY = r'''
+import importlib.util, json, sys, tempfile
+from pathlib import Path
+
+assert importlib.util.find_spec("bazarlyk") is None, "bazarlyk must not be importable"
+import qorqut_operations.storage.directories as directories
+from qorqut_operations.application import Application, OperationDescriptor, OperationRegistry
+from qorqut_operations.contracts import (ChangePreview, ChangeSet, ExpectedTarget, FieldChange, InvocationContext, PolicyDecision,
+                                         PreparedChange, Principal, PreviewResource, ResourceRef, StructuredPreview)
+from qorqut_operations.storage import (AssemblyBuilder, Database, DIRECTORY_ACTION, FileApplier, FileEffectContribution, LockPaths,
+                                       RecordEffectContribution, RegisteredDirectoryTarget, directory_values, observe_directory)
+from qorqut_operations.storage.executor import PreparedFileExecutor
+
+assert "site-packages" in Path(directories.__file__).resolve().parts, directories.__file__
+HUMAN, TYPE, LAYOUT = "00000000-0000-4000-8000-000000000001", "project_directories", ("code", "hq")
+
+class History:
+    def capture_receipt(self, uow, receipt, plan): pass
+class Hooks:
+    tracked_tables = frozenset()
+    def apply_effect(self, *args): return None
+    def force_revision(self, plan, change): return False
+    def record_applied(self, uow, plan, table, before, after, *, actor_id=None): pass
+class Allow:
+    def resolve(self, ctx, operation, targets, uow): return PolicyDecision("allow", "probe")
+
+with tempfile.TemporaryDirectory(prefix="qops-wheel-directory-") as directory:
+    root = Path(directory)
+    operations, staging = root / "operations", root / "runtime" / "staging"
+    operations.mkdir()
+    assembly = (AssemblyBuilder(target_name="wheel-directory", target_version=1)
+        .add(FileEffectContribution("probe", receipt_history=History()))
+        .add(RecordEffectContribution("probe", Hooks())).freeze())
+    database = Database(root / "directory.sqlite3", assembly=assembly).initialize_target()
+    with database.transaction() as uow:
+        uow.repository("principals").insert({"id": HUMAN, "kind": "human"})
+
+    def target(resource):
+        return RegisteredDirectoryTarget(operations, "projects/" + resource.resource_id, staging)
+    def observed(ctx, resource, uow):
+        digest = observe_directory(target(resource))
+        return {"content_hash": digest} if digest else None
+    def prepare(ctx, args, options, uow):
+        resource, label = ResourceRef(TYPE, args["slug"], None, "global"), PreviewResource(TYPE, args["slug"], args["slug"])
+        return ChangeSet("projects_make", 1, ctx.principal_id, "global", args, {"kind": "global"},
+            (ExpectedTarget(resource, exists=False),),
+            (PreparedChange("file", resource, DIRECTORY_ACTION, directory_values(LAYOUT)),),
+            ChangePreview("Make project folder", "", {"kind": "global"}, (label,),
+                          (StructuredPreview(label, (FieldChange("directories", None, list(LAYOUT)),)),)))
+
+    registry = OperationRegistry()
+    registry.register(OperationDescriptor("projects_make", {"type": "object", "required": ["slug"],
+        "properties": {"slug": {"type": "string"}}}, effect_kind="files", prepare=prepare,
+        apply=lambda ctx, plan, uow: {"slug": plan.arguments["slug"]}, scope_kinds=frozenset({"global"}),
+        global_capability="coordinate_businesses"))
+    caller = InvocationContext(Principal(HUMAN, "human"), source="dashboard", global_capabilities=frozenset({"coordinate_businesses"}))
+    applier = FileApplier(database, target, locks=LockPaths.under(root / "locks"))
+    app = Application(database, registry, policy=Allow(),
+                      file_executor=PreparedFileExecutor(database, applier, context_loader=lambda plan, uow: caller))
+    app.register_target_resolver(TYPE, observed)
+
+    def tree(path):
+        return sorted(item.relative_to(path).as_posix() for item in path.rglob("*")) if path.is_dir() else None
+    made = app.invoke(caller, "projects_make", {"slug": "alpha"}, {"idempotency_key": "one"})
+    assert made.status == "ok", made
+    alpha = operations / "projects" / "alpha"
+    assert tree(alpha) == ["code", "hq"] and not any(staging.iterdir()), tree(alpha)
+    identity = alpha.stat().st_ino
+    # The same key replays the saved result; another key for the now occupied name conflicts and adopts nothing.
+    assert app.invoke(caller, "projects_make", {"slug": "alpha"}, {"idempotency_key": "one"}).data == made.data
+    occupied = app.invoke(caller, "projects_make", {"slug": "alpha"}, {"idempotency_key": "two"})
+    assert occupied.status == "error" and occupied.error["code"] == "revision_conflict", occupied
+    assert alpha.stat().st_ino == identity
+    # An identical empty tree made by someone else carries the same layout hash and is still never adopted.
+    (operations / "projects" / "beta" / "code").mkdir(parents=True)
+    (operations / "projects" / "beta" / "hq").mkdir()
+    theirs = app.invoke(caller, "projects_make", {"slug": "beta"}, {"idempotency_key": "three"})
+    assert theirs.status == "error" and theirs.error["code"] == "revision_conflict", theirs
+    with database.read() as uow:
+        assert uow.connection.execute("SELECT count(*) FROM resource_claims").fetchone()[0] == 0
+        assert [row[0] for row in uow.connection.execute(
+            "SELECT state FROM apply_receipts WHERE operation_name='projects_make' ORDER BY created_at")].count("applied") == 1
+    database.close()
+assert not any(name == "bazarlyk" or name.startswith("bazarlyk.") for name in sys.modules)
+print(json.dumps({"directory": "published-once", "replay": "same-key", "foreign-tree": "never-adopted"}))
+'''
+
+
 def run(command, **kwargs):
     result = subprocess.run(command, capture_output=True, text=True, **kwargs)
     if result.returncode:
@@ -457,7 +552,7 @@ def main(argv: list[str]) -> None:
     python = environment / "bin" / "python"
     run([str(python), "-m", "pip", "install", "--quiet", str(wheels[0])])
     # -I: ignore PYTHON* variables and the user site; the cwd is an empty directory, not the checkout.
-    for script in (PROBE, SLICE, NEUTRAL):
+    for script in (PROBE, SLICE, NEUTRAL, DIRECTORY):
         output = run([str(python), "-I", "-c", script], cwd=elsewhere)
         print(output.strip())
 

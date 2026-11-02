@@ -13,6 +13,8 @@ import time
 from uuid import UUID
 
 from qorqut_operations.contracts import ChangeSet, DomainError
+from .directories import DirectoryEffects, RegisteredDirectoryTarget, UNTOUCHED, STAGED, PUBLISHED, observe_directory
+from .directory_layout import ACTION as DIRECTORY_ACTION
 from .locks import LockPaths
 from .receipts import ApplyReceipts
 from . import safe_io
@@ -56,12 +58,47 @@ def file_hash(path: Path):
 class FileApplier:
     """Finish exact file effects; the caller commits domain rows and finish together."""
 
-    def __init__(self, database, resolve_target, *, locks: LockPaths, after_replace=None):
+    def __init__(self, database, resolve_target, *, locks: LockPaths, after_replace=None, after_phase=None):
         if not isinstance(locks, LockPaths):
             raise TypeError("File application needs explicit LockPaths")
         self.database, self.resolve_target = database, resolve_target
         self.locks = locks
         self.after_replace = after_replace
+        # Called as (resource, phase) after each durable step of a directory-tree effect: intent, built, staged, renamed,
+        # published, abandoned. A deployment sets none; a fault check raises here to stand for a crash at that boundary.
+        self.after_phase = after_phase
+        self.directories = DirectoryEffects(database, self._phase)
+
+    def _phase(self, resource, phase):
+        if self.after_phase is not None:
+            self.after_phase(resource, phase)
+
+    def _directory_target(self, change):
+        target = self.resolve_target(change.resource)
+        if not isinstance(target, RegisteredDirectoryTarget):
+            raise TypeError("A directory effect needs a registered directory target")
+        return target
+
+    def observed_hash(self, change):
+        """What exists at a prepared effect's target now, as its ``before_hash``/``after_hash`` kind of value."""
+        if change.action == DIRECTORY_ACTION:
+            return observe_directory(self._directory_target(change))
+        return file_hash(self.resolve_target(change.resource).resolve())
+
+    def effect_state(self, receipt_id, change):
+        """``(unchanged, recognized)`` for one prepared file effect: whether nothing of it was applied, and whether what exists
+        is exactly the before or the receipt-proven after state. A directory with the prepared layout is never recognized
+        by its hash alone."""
+        if change.action == DIRECTORY_ACTION:
+            condition = self.directories.condition(receipt_id, change, self._directory_target(change))
+            return condition in (UNTOUCHED, STAGED), condition in (UNTOUCHED, STAGED, PUBLISHED)
+        actual = file_hash(self.resolve_target(change.resource).resolve())
+        return actual == change.values["before_hash"], actual in (change.values["before_hash"], change.values["after_hash"])
+
+    def verify_directory(self, change, progress):
+        """Re-prove, from the receipt's recorded identity, that a published directory is still exactly the one this
+        application made. The Application calls this again before it commits the domain rows."""
+        self.directories.verify(self._directory_target(change), progress)
 
     def apply(self, receipt_id):
         with self.receipt_lock(receipt_id):
@@ -101,6 +138,11 @@ class FileApplier:
             verified_before = {}
             for change in plan.changes:
                 if change.kind == "file":
+                    if change.action == DIRECTORY_ACTION:
+                        # Nothing of this receipt may remain; a proven unpublished staging tree is removed first.
+                        self.directories.release(receipt_id, change, self._directory_target(change))
+                        verified_before[ApplyReceipts.progress_key(change.resource)] = None
+                        continue
                     actual = file_hash(self.resolve_target(change.resource).resolve())
                     if actual != change.values["before_hash"]:
                         raise DomainError("apply_incomplete", "Application has file effects; claims must remain for recovery")
@@ -117,6 +159,9 @@ class FileApplier:
         try:
             for change in plan.changes:
                 if change.kind != "file":
+                    continue
+                if change.action == DIRECTORY_ACTION:
+                    self.directories.apply(receipt_id, change, self._directory_target(change))
                     continue
                 target = self.resolve_target(change.resource)
                 if not isinstance(target, RegisteredFileTarget):

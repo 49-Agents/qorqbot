@@ -84,5 +84,5 @@ def review_scope(context, plan, exceptions=()):
         target = change.resource
         if target.business_id and business is None:
             if not any(exception.permits(context, plan, target) for exception in exceptions):
-                raise DomainError("invalid_plan", "Business content requires a separate business-owned proposal")
+                raise DomainError("invalid_plan", "Project content requires a separate business-owned proposal")
     return scope

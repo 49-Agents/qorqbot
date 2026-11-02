@@ -6,7 +6,7 @@ states, one shared ``snoozed_until``, a parent Task, labels from the shared cata
 (``thread_messages``) for comments, summaries, typed references and the system entries that describe a change. Events
 are written by the operation that changed the Task, in its own transaction; see ``events``.
 
-Host-specific behaviour (who may be assigned, setup guards, Focus presentation, the incident link, host note
+Host-specific behaviour (who may be assigned, Focus presentation, the incident link, host note
 references, owner-work routing) arrives through ``TaskPorts``."""
 
 from __future__ import annotations
@@ -87,8 +87,8 @@ class TaskOperations:
         refs = self.note_references().schema
         common = dict(scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
                       resolve_namespace=task_namespace,
-                      description="Manage tasks in the selected business, or use scope=global for Global-only work. Global tasks are "
-                                  "not inherited by businesses; only the owner and granted global agents have access.")
+                      description="Manage tasks in the selected project, or use scope=global for Global-only work. Global tasks are "
+                                  "not inherited by projects; only the owner and granted global agents have access.")
         reads = {
             "tasks_list": {**PAGE, "assignee_id": {"anyOf": [UUID, {"type": "null"}]}, "include_archived": {"type": "boolean"},
                            "task_type": {"enum": list(TYPES)},
@@ -193,7 +193,7 @@ class TaskOperations:
             return
         member = uow.repository("business_memberships", business_id=ctx.business_id).get(identity)
         if not member or not member["active"] or not actor or not actor["active"] or actor["kind"] != "human":
-            raise DomainError("invalid_assignee", "Assignee must be an active global agent or human member of this business")
+            raise DomainError("invalid_assignee", "Assignee must be an active global agent or human member of this project")
         if builder:
             builder.expect(ref("business_memberships", identity, ctx.business_id), member)
             builder.expect(ref("principals", identity, ctx.business_id), actor)
@@ -298,7 +298,6 @@ class TaskOperations:
             task = self.detail(ctx, repository.get(arguments["task_id"], required=True), uow, configuration["fields"], now)
             task.update(links.read(self, ctx, repository.get(arguments["task_id"], required=True), uow, arguments.get("related_cursor")))
             if ctx.business_id:
-                task["setup"] = self.ports.setup.view(uow, ctx.business_id, task["id"])
                 task["campaign"] = self.ports.campaigns.view(uow, ctx.business_id, task["id"], task["tags"])
             return {"task": task}
         return self.list_tasks(ctx, arguments, uow, configuration, now)
@@ -445,8 +444,6 @@ class TaskOperations:
             values = {key: value for key, value in values.items() if key not in {"created_at", "created_by"} and before.get(key) != value}
         else:
             builder.record("tasks", identity, None, values, label=current["title"])
-        if not creating and ctx.business_id is not None:
-            self.ports.setup.guard(ctx, uow, before, current, assignees, builder=builder)
         if assignees is not None and operation not in {"tasks_assign", "tasks_create"}:
             builder.policy_effect(resource, "tasks_assign", "Changes the responsible assignees")
         if assignees is not None:
@@ -490,8 +487,6 @@ class TaskOperations:
     def prepare_config(self, ctx, arguments, options, uow, builder, config_row):
         require_revision(config_row, options.expected_revision)
         fields = validate_config(arguments["config"])
-        if ctx.business_id:
-            self.ports.setup.config_guard(ctx, uow, arguments["config"])
         for task in rows(uow, "tasks", ctx.business_id):
             validate_task(task, fields)
             builder.expect(ref("tasks", task["id"], ctx.business_id), task)
@@ -528,18 +523,6 @@ class TaskOperations:
             links.resolve(self, ctx, link_edit, uow)
         if attributes(proposed)["email_conversation_id"] != attributes(current)["email_conversation_id"]:
             self.email_reference(ctx, proposed, uow)
-        assigned = {edge["to_id"] for edge in related_rows(uow, ctx.business_id, source={"type": "task", "id": task_id}, role="assigned_to")}
-        touched = False
-        for change in plan.changes:
-            if change.resource.resource_type == "relationships":
-                edge = (uow.repository("relationships", business_id=ctx.business_id).get(change.resource.resource_id)
-                        if change.action == "delete" else change.values)
-                if edge and edge["role"] == "assigned_to" and edge["from_id"] == task_id:
-                    touched = True
-                    (assigned.discard if change.action == "delete" else assigned.add)(edge["to_id"])
-        if current and ctx.business_id is not None:
-            planned = {change.resource.resource_id for change in plan.changes if change.resource.resource_type == "tasks"}
-            self.ports.setup.guard(ctx, uow, current, proposed, sorted(assigned) if touched else None, planned=planned)
         parents = self.parents(ctx, uow)
         parents[task_id] = proposed.get("parent_id")
         validate_parent(task_id, proposed.get("parent_id"), parents)

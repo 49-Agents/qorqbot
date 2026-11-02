@@ -58,7 +58,7 @@ class BackgroundAuthority:
         if business_id:
             member = uow.repository("business_memberships", business_id=business_id).get(principal_id)
             if not member or not member["active"]:
-                raise DomainError("forbidden", "Worker is not registered for this business")
+                raise DomainError("forbidden", "Worker is not registered for this project")
 
     def worker_profiles(self, principal_id, uow):
         for program in self.programs:
@@ -104,7 +104,7 @@ class BackgroundAuthority:
             # belongs to, so declaring action_logs covers it without changing frozen digests.
             membership = resource.resource_type == "action_businesses" and "action_logs" in program.resource_types
             if resource.business_id != row["business_id"] or (resource.resource_type not in program.resource_types and not membership):
-                raise DomainError("forbidden", "Job output exceeds its declared resource kinds or business")
+                raise DomainError("forbidden", "Job output exceeds its declared resource kinds or project")
         return {"job_id": row["id"], "definition_digest": program.definition["digest"]}
 
     def validate_plan(self, context, descriptor, plan, uow):
@@ -114,7 +114,7 @@ class BackgroundAuthority:
         if descriptor.name in program.discretionary:
             return
         if descriptor.name not in program.outputs:
-            raise DomainError("forbidden", "Program cannot originate this business operation")
+            raise DomainError("forbidden", "Program cannot originate this project operation")
         matches = [output for output in outputs if output["operation"] == descriptor.name
                    and canonical_hash(output["arguments"]) == canonical_hash(plan.arguments)]
         if not matches:

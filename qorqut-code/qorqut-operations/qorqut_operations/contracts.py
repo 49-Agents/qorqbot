@@ -204,7 +204,7 @@ class InvocationContext:
     def select_business(self, business_id: str | None) -> InvocationContext:
         target = business_id if business_id is not None else self.business_id
         if target is not None and target not in self.allowed_business_ids:
-            raise DomainError("forbidden", "Business is outside the principal's scope")
+            raise DomainError("forbidden", "Project is outside the principal's scope")
         return replace(self, business_id=target)
 
 

@@ -136,7 +136,7 @@ class RoutineOperations:
         for change in preview["changes"]:
             change["resource"]["label"] = routine["name"]
         if builder.operation in {"routines_create", "routines_update"}:
-            target = {"root": "Global workspace", "each-business": "Each authorized business", "business": "This business"}[routine["target"]]
+            target = {"root": "Global workspace", "each-business": "Each authorized project", "business": "This project"}[routine["target"]]
             preview["effects"] = [f"{routine['job_kind']} · {routine['schedule']} ({routine['timezone']}) · {target} · {routine['status']}"]
         plan = replace(plan, preview=preview)
         if builder.namespace == "global":
@@ -233,7 +233,7 @@ class RoutineOperations:
                 builder.expect(ref("routines", key, business), row)
                 targets = self.targets(ctx, row, uow)
                 if not targets:
-                    raise DomainError("forbidden", "Routine has no authorized business targets")
+                    raise DomainError("forbidden", "Routine has no authorized project targets")
                 group_id = new_id()
                 for target in targets:
                     active = uow.connection.execute("SELECT 1 FROM jobs WHERE json_extract(definition_ref_json,'$.routine_id')=? "

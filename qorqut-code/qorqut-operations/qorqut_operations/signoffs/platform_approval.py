@@ -33,7 +33,7 @@ class PlatformApproval(Rejection):
     def target(self, ctx, args, uow):
         row = super().target(ctx, args, uow)
         if row['review_business_id'] is None or row['category'] != 'platform_action':
-            raise DomainError('forbidden', 'Delegated approval requires an eligible business platform action')
+            raise DomainError('forbidden', 'Delegated approval requires an eligible project platform action')
         submission = self.service.ports.require('platform', PLATFORM_UNAVAILABLE).view(row, uow)['submission']
         if ((submission['plugin_id'], submission['tool']) not in self.allowed
                 or not row['proposer_agent_id'] or row['proposer_agent_id'] == ctx.principal_id):

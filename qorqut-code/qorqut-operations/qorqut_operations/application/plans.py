@@ -55,7 +55,7 @@ def require_revision(row, expected):
 def rows(uow, table, business_id, *, where="", parameters=(), maximum=20000):
     spec = uow.database.assembly.tables[table]
     if not spec.scope_column:
-        raise ValueError("Domain collection reads must be business scoped")
+        raise ValueError("Domain collection reads must be project scoped")
     clause = f'"{spec.scope_column}" = ?' if business_id is not None else f'"{spec.scope_column}" IS NULL'
     values = [business_id] if business_id is not None else []
     if where:
@@ -114,8 +114,10 @@ def record_key(resource, *, tables=None):
 
 class PlanBuilder:
     def __init__(self, ctx, operation, arguments, title, *, clock=utc_clock, namespace=None, affected_scope=None,
-                 tables=None):
+                 tables=None, version=1):
         self.ctx, self.operation, self.arguments, self.title = ctx, operation, arguments, title
+        # The registered descriptor's version: an operation whose input or effect contract changed incompatibly declares a higher one.
+        self.version = version
         # Without an explicit catalog a builder uses the running unit's, so it must be made inside prepare.
         self.tables = active_tables(tables)
         # A Global context (no selected business) defaults to the Global namespace.
@@ -162,7 +164,7 @@ class PlanBuilder:
         for resource in self.resources:
             value = plain(resource)
             resources.setdefault((value["resource_type"], value["resource_id"]), resource)
-        return ChangeSet(self.operation, 1, self.ctx.principal_id, self.namespace, self.arguments, scope,
+        return ChangeSet(self.operation, self.version, self.ctx.principal_id, self.namespace, self.arguments, scope,
             tuple(self.targets.values()), tuple(self.changes), ChangePreview(self.title, self.arguments.get("rationale", ""), scope,
                 tuple(resources.values()), tuple(self.previews), tuple(self.effects)),
             review_business_id=self.ctx.review_business_id, proposer_agent_id=self.ctx.agent_id)

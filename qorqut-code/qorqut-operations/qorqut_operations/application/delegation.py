@@ -122,9 +122,9 @@ def authorize_delegation(provider, context, descriptor, targets, uow, *, namespa
         if worker_control:
             if (assignment["business_id"] not in context.allowed_business_ids
                     or namespace not in {"global", "business:" + assignment["business_id"]}):
-                raise DomainError("forbidden", "Worker control operation is outside its assigned business")
+                raise DomainError("forbidden", "Worker control operation is outside its assigned project")
         elif namespace != "business:" + assignment["business_id"] or context.business_id != assignment["business_id"]:
-            raise DomainError("forbidden", "Delegated operation is outside its exact business scope")
+            raise DomainError("forbidden", "Delegated operation is outside its exact project scope")
     elif namespace != "global":
         business_id = namespace.removeprefix("business:") if isinstance(namespace, str) else None
         agent_config_scope = (operation_name == "agent_config_get"
@@ -133,9 +133,9 @@ def authorize_delegation(provider, context, descriptor, targets, uow, *, namespa
                 or not namespace.startswith("business:")
                 or business_id not in scope.get("allowed_business_ids", ())
                 or business_id not in context.allowed_business_ids):
-            raise DomainError("forbidden", "Delegated operation is outside its approved global business scope")
+            raise DomainError("forbidden", "Delegated operation is outside its approved global project scope")
     if namespace == "global" and scope["kind"] != "global" and not worker_control:
-        raise DomainError("forbidden", "Business assignments cannot access global operations")
+        raise DomainError("forbidden", "Project assignments cannot access global operations")
     record_ids = scope.get("record_ids", {})
     # Only a complete creation group of the trusted assembly skips the record-ID membership below; every check above and the
     # business boundary of each target still apply to it.
@@ -151,7 +151,7 @@ def authorize_delegation(provider, context, descriptor, targets, uow, *, namespa
             allowed_businesses = ({assignment["business_id"]} if assignment["business_id"] else
                 set(scope.get("allowed_business_ids", ())) & set(context.allowed_business_ids))
             if resource.business_id not in allowed_businesses:
-                raise DomainError("forbidden", "Prepared target is outside the assignment business scope")
+                raise DomainError("forbidden", "Prepared target is outside the assignment project scope")
         if new_group:
             continue
         permitted = record_ids.get(resource.resource_type)
@@ -179,7 +179,7 @@ def authorize_delegation(provider, context, descriptor, targets, uow, *, namespa
                                 and requested_business in context.allowed_business_ids)
                 if (not in_scope or (isinstance(namespace, str) and namespace.startswith("business:")
                                      and namespace != "business:" + requested_business)):
-                    raise DomainError("forbidden", "Agent configuration business is outside the assignment scope")
+                    raise DomainError("forbidden", "Agent configuration project is outside the assignment scope")
         links = assignment["links_json"]
         linked_threads = set(links.get("message_threads", ()))
         message_threads = set(record_ids.get("message_threads", ())) | linked_threads

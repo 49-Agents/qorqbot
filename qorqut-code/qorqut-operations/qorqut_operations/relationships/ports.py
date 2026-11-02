@@ -3,7 +3,7 @@
 The generic relationship flow (the read, list, graph and CRUD operations, workflow-role refusal, revision and cursor
 rules, the explicit review decisions) is the engine's. Exactly the host knowledge v1 kept beside it comes in through
 ``RelationshipPorts``: the role vocabulary, the Material classification and archive adapters over the host's domains,
-the navigation counts, the business-setup edge guard and the operations a review may compose. Every port is
+the navigation counts and the operations a review may compose. Every port is
 required: there are no permissive production defaults and nothing is discovered by attribute or module.
 
 A port supplies vocabulary or a domain adapter; it cannot replace application policy. Descriptor lookup, argument
@@ -60,13 +60,6 @@ class ContextNavigation(Protocol):
     def read(self, ctx: InvocationContext, args: Mapping[str, Any], uow) -> Mapping[str, Any]: ...
 
 
-class ProtectedEdges(Protocol):
-    """The business-setup membership protection (v1 ``protected_edge``). ``check(ctx, uow, edge)`` raises when the
-    stored edge may not be changed or removed; it is called at v1's prepare and application-validation points."""
-
-    def check(self, ctx: InvocationContext, uow, edge: Mapping[str, Any]) -> None: ...
-
-
 @dataclass(frozen=True)
 class ReviewEdit:
     """One operation a review decision may compose atomically with itself (v1 ``EDITS``).
@@ -118,7 +111,6 @@ class RelationshipPorts:
     materials: MaterialClassification
     archive: ItemArchive
     navigation: ContextNavigation
-    protected_edges: ProtectedEdges
     review_edits: Mapping[str, ReviewEdit]
 
     def __post_init__(self):
@@ -143,7 +135,6 @@ class RelationshipPorts:
             raise AssemblyError("Relationship port materials must provide filter and tag schemas and the type enum")
         _need(self.archive, "archive", ("prepare", "apply"))
         _need(self.navigation, "navigation", ("read",))
-        _need(self.protected_edges, "protected_edges", ("check",))
         if not isinstance(self.review_edits, Mapping) or not self.review_edits:
             raise AssemblyError("Required relationship port missing: review_edits")
         edits = dict(self.review_edits)

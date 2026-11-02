@@ -17,7 +17,6 @@ from qorqut_operations.contracts import (ChangeSet, DomainError, InvocationOptio
 from qorqut_operations.departments import profile_department
 from qorqut_operations.storage.assembly import AssemblyError, StorageContribution
 from qorqut_operations.storage.executor import application_claim
-from qorqut_operations.storage.files import file_hash
 from qorqut_operations.storage.locks import LockPaths
 from qorqut_operations.storage.receipts import ApplyReceipts, IdempotencyReceipts
 from qorqut_operations.storage.repositories import decode_row
@@ -122,7 +121,7 @@ class SignoffService:
             OperationDescriptor("signoffs_get", {"type": "object",
                 "required": ["signoff_id"], "properties": {**common, "signoff_id": {"type": "string", "minLength": 1, "maxLength": 200}}},
                 **scopes, effect_kind="read", supports_signoff=False, read=self._get_operation,
-                description="Read a proposal and owner feedback in the selected business, or with explicit scope=global and global rights."),
+                description="Read a proposal and owner feedback in the selected project, or with explicit scope=global and global rights."),
             OperationDescriptor("signoffs_list", {"type": "object", "properties": {
                 **common, "responded": {"type": "boolean"}, "include_managed": {"type": "boolean"}, "category": {"enum": list(CATEGORIES)}, "campaign_id": UUID_SCHEMA,
                 "execution_states": {"type": "array", "items": {"enum": list(self.ports.execution.execution_states)}, "uniqueItems": True},
@@ -132,7 +131,7 @@ class SignoffService:
                 "cursor": {"type": "string", "maxLength": 4096},
                 "updated_after": {"oneOf": [{"const": 0}, {"type": "string", "maxLength": 4096}]} }},
                 **scopes, effect_kind="read", supports_signoff=False, read=self._list_operation,
-                description="List visible proposals in the selected business, or scope=global. Ownership fixes the review destination."),
+                description="List visible proposals in the selected project, or scope=global. Ownership fixes the review destination."),
             *self.notes.descriptors(), *self.inputs.descriptors(), *self.rejection.descriptors())
 
     def contribution(self) -> CatalogContribution:
@@ -153,12 +152,12 @@ class SignoffService:
                 raise DomainError("forbidden", "Owner decisions are unavailable through agent MCP")
             return context
         if business not in context.allowed_business_ids:
-            raise DomainError("forbidden", "Select an authorized review business")
+            raise DomainError("forbidden", "Select an authorized review project")
         if owner or context.principal_kind == "human":
             member = uow.repository("business_memberships", business_id=business).get(context.principal_id)
             if (context.principal_kind != "human" or not member or not member["active"]
                     or (owner and not member["is_owner"])):
-                raise DomainError("forbidden", "This decision requires the current business owner")
+                raise DomainError("forbidden", "This decision requires the current project owner")
         if owner and context.source not in ("dashboard", "worker"):
             raise DomainError("forbidden", "Owner decisions are unavailable through agent MCP")
         return context
@@ -275,7 +274,7 @@ class SignoffService:
     @staticmethod
     def _review_selector(context, arguments):
         if arguments.get("review_business_id", context.business_id) != context.business_id:
-            raise DomainError("forbidden", "Review selector differs from the selected business")
+            raise DomainError("forbidden", "Review selector differs from the selected project")
 
     @staticmethod
     def _cursor(kind, binding, position):
@@ -292,7 +291,7 @@ class SignoffService:
                 raise ValueError
             return value["position"]
         except (ValueError, TypeError, KeyError) as exc:
-            raise DomainError("validation_error", "Cursor does not match this caller, review business, or query") from exc
+            raise DomainError("validation_error", "Cursor does not match this caller, review project, or query") from exc
 
     def _list_operation(self, context, arguments, options, uow):
         if arguments.get("scope") == "global":
@@ -306,7 +305,7 @@ class SignoffService:
             clause += ' AND NOT ('+self.ports.management.managed_input_sql+')'
         if arguments.get("campaign_id"):
             if context.business_id is None:
-                raise DomainError("validation_error", "Campaign filters require a business workspace")
+                raise DomainError("validation_error", "Campaign filters require a project workspace")
             campaigns = self.ports.require("campaigns", "Campaign filtering is not installed")
             self.app.authorize(context, self.app.registry.get(campaigns.authorizing_operation), (), uow)
             narrowing, narrowing_params = campaigns.narrow(context, arguments["campaign_id"], uow)
@@ -441,7 +440,7 @@ class SignoffService:
             "supersedes_id": old["id"] if old else None, "created_at": self.clock(), "updated_at": self.clock()})
         if descriptor.name == "business_archive":
             self.inputs.attention(row["id"], {"notify": True, "urgent": True, "blocking": False,
-                "reason": "Business archival requires the owner’s decision", "deadline": None}, uow, actor_id=context.principal_id)
+                "reason": "Project archival requires the owner’s decision", "deadline": None}, uow, actor_id=context.principal_id)
         if descriptor.signoff_category == "platform_action":
             self.ports.platform.staged(context, row, plan, old, uow)
         if old:
@@ -496,7 +495,7 @@ class SignoffService:
             return
         plan = ChangeSet.from_bytes(row["change_set"], expected_hash=row["payload_hash"])
         context = self._proposer_context(plan, uow)
-        changed = DomainError("forbidden", "Marketing business execution authority changed")
+        changed = DomainError("forbidden", "Marketing project execution authority changed")
         if (context.principal_kind != "agent" or context.delegation_assignment_id is not None
                 or context.business_id is None or not self.ports.peers.marketing_peer(uow, context.principal_id)):
             raise changed
@@ -531,7 +530,7 @@ class SignoffService:
             if self.file_applier is None:
                 raise DomainError("operation_unavailable", "Managed file executor is not installed")
             for change in plan.changes:
-                if change.kind == "file" and file_hash(self.file_applier.resolve_target(change.resource).resolve()) != change.values["before_hash"]:
+                if change.kind == "file" and self.file_applier.observed_hash(change) != change.values["before_hash"]:
                     raise DomainError("revision_conflict", "Managed file changed since preparation")
         return context, plan
 
@@ -630,7 +629,7 @@ class SignoffService:
                         except DomainError as exc:
                             if decision != "retry" and exc.code in CONFLICTS:
                                 row = self._update(row, {"state": "conflicted", "error_json": exc.to_dict()}, uow)
-                                # The owner sees why, for example a changed setup coordinator.
+                                # The owner sees why, for example a changed assignee or membership.
                                 stale = self._stale(context, row, uow, "Prepared targets or authority changed: " + exc.message,
                                                     cause=exc.to_dict())
                                 result = OperationResult.failure(stale, request_id=context.request_id)
@@ -703,9 +702,9 @@ class SignoffService:
         recognized = unchanged
         if file_changes and self.file_applier:
             try:
-                hashes = [file_hash(self.file_applier.resolve_target(x.resource).resolve()) for x in file_changes]
-                unchanged = all(actual == x.values["before_hash"] for actual, x in zip(hashes, file_changes))
-                recognized = all(actual in (x.values["before_hash"], x.values["after_hash"]) for actual, x in zip(hashes, file_changes))
+                states = [self.file_applier.effect_state(signoff_id, x) for x in file_changes]
+                unchanged = all(state[0] for state in states)
+                recognized = all(state[1] for state in states)
             except (OSError, DomainError):
                 unchanged = recognized = False
             if unchanged:

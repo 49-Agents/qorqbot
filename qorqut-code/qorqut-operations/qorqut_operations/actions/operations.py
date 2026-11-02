@@ -57,15 +57,15 @@ RECORD_DESCRIPTION = (
     "required. Omitted real_time means now; supplied real_time is always San Juan (America/Puerto_Rico) time, "
     "YYYY-MM-DD or YYYY-MM-DDTHH. Agents holding read_global_context record in Global: category is required "
     "(global-operational or business-operational); business-operational needs business_ids of currently authorized, "
-    "active businesses, and one inaccessible business rejects the whole call. An agent without read_global_context "
-    "records only with a business selected: text only; the action is business-operational for that business. "
+    "active projects, and one inaccessible project rejects the whole call. An agent without read_global_context "
+    "records only with a project selected: text only; the action is business-operational for that project. "
     "Tags come from the shared tag catalog (tags_list); a new label is created by using it, and a tag grants no access. "
     "related_objects are optional suggestions of Context objects the result concerns. Every accepted record is queued for "
     "Context as revision 1. You are the performer and recorder of your own work; never record another actor's work as "
     "yours or duplicate system receipts. " + models.SHARING)
 DELEGATION_DESCRIPTION = (
     "Optional: record the result of your own COMPLETED delegated assignment. The server verifies that you own the "
-    "assignment, that it completed with a recorded result and that the businesses are within its scope; the performer "
+    "assignment, that it completed with a recorded result and that the projects are within its scope; the performer "
     "is then unknown, you are the recorder and the assignment is kept as provenance. Each assignment's result is "
     "recorded once, and not at all when its worker already recorded its actions.")
 CORRECT_DESCRIPTION = (
@@ -78,12 +78,12 @@ WITHDRAW_DESCRIPTION = (
     "Action and its history stay readable, marked withdrawn; the withdrawal is queued for Context as a removal and the "
     "Action accepts no later change.")
 LIST_DESCRIPTION = ("List authorized completed actions by occurrence (newest first) with date (San Juan), category, "
-                    "business, performer and tag filters; withdrawn actions are omitted unless requested. With a business "
-                    "selected you see the actions linked to that business; without one, agents holding read_global_context "
+                    "business, performer and tag filters; withdrawn actions are omitted unless requested. With a project "
+                    "selected you see the actions linked to that project; without one, agents holding read_global_context "
                     "see global-operational and their accessible business-operational actions. " + models.SHARING)
 THREAD_DESCRIPTION = (
     "Read one bounded page of an authorized action's discussion (oldest first within the page; next_cursor continues to older "
-    "messages). Authorized exactly like actions_get: unauthorized or unknown actions are not found, and a business that can read a "
+    "messages). Authorized exactly like actions_get: unauthorized or unknown actions are not found, and a project that can read a "
     "shared action reads its discussion. Reading never follows the action. " + models.SHARING)
 COMMENT_DESCRIPTION = (
     "Add a comment to an action's discussion (it changes neither the action nor its revisions, and queues nothing for Context). "
@@ -183,7 +183,7 @@ class ActionOperations:
         scope = assignment["scope_json"]
         allowed = {assignment["business_id"]} if scope.get("kind") == "business" else set(scope.get("allowed_business_ids", []))
         if (scope.get("kind") == "business" and category != "business-operational") or not set(businesses) <= allowed:
-            raise DomainError("forbidden", "The action is outside the delegated assignment's business scope")
+            raise DomainError("forbidden", "The action is outside the delegated assignment's project scope")
         return assignment
 
     @staticmethod
@@ -511,7 +511,7 @@ class ActionOperations:
             return {"action": self.view(ctx, uow, row, scope), **self.time_view()}
         business = args.get("business")
         if business is not None and scope["kind"] != "owner" and business not in scope["businesses"]:
-            raise DomainError("forbidden", "Business is outside your action scope")
+            raise DomainError("forbidden", "Project is outside your action scope")
         binding = ctx.principal_id + ":" + scope["kind"] + ":" + ",".join(sorted(scope["businesses"]))
         binding, after = page_position(args, binding, operation)
         limit = args.get("limit", 50)

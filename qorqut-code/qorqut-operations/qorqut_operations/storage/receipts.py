@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from qorqut_operations.contracts import ChangeSet, DomainError, OperationResult, canonical_hash, new_id, plain
+from .directory_layout import ACTION as DIRECTORY_ACTION
 
 
 class IdempotencyReceipts:
@@ -118,6 +119,9 @@ class ApplyReceipts:
                 progress = row["progress_json"].get(self.progress_key(change.resource), {})
                 if not progress.get("verified") or progress.get("after_hash") != change.values["after_hash"]:
                     raise DomainError("apply_incomplete", "Cannot finalize unverified file effects")
+                if change.action == DIRECTORY_ACTION and (progress.get("phase") != "published" or not progress.get("identity")):
+                    # The layout hash alone is not ownership: a published directory carries its recorded identity proof.
+                    raise DomainError("apply_incomplete", "Cannot finalize a directory without its recorded identity proof")
         # Verified final bytes become shared history in this same finalising transaction.
         self.assembly.receipt_history.capture_receipt(self.uow, row, plan)
         row = self.repo.update(receipt_id, {"state": "applied", "result_json": plain(result), "error_json": None},

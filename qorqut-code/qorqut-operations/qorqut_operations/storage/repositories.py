@@ -31,7 +31,7 @@ class Repository:
         if self.spec.scope_column and inherited is not UNSET and business_id != inherited:
             raise DomainError("forbidden", "Repository scope cannot differ from invocation scope")
         if self.spec.scope_column and business_id is UNSET:
-            raise DomainError("scope_required", "A scoped repository requires an explicit business namespace")
+            raise DomainError("scope_required", "A scoped repository requires an explicit project namespace")
         self.business_id = business_id
 
     def _values(self, values: Mapping[str, Any]) -> dict[str, Any]:

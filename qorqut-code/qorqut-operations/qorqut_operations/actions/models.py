@@ -22,8 +22,8 @@ RELATED_OBJECTS = {"type": "array", "maxItems": 50, "items": {
               "explanation": {"type": "string", "maxLength": 2000}}, ("kind", "id")),
     "description": "A suggested Context object this Action relates to. Pointers are suggestions, never required graph subjects."}}
 SOURCE_NAMESPACE = uuid.UUID("3f0b7c52-5a3c-4f7e-9d6b-2f1a0e8c4b71")
-SHARING = ("A business-operational action names one or more businesses; each named business sees the same shared "
-           "text once, and scoped reads never reveal other businesses or unrelated evidence.")
+SHARING = ("A business-operational action names one or more projects; each named project sees the same shared "
+           "text once, and scoped reads never reveal other projects or unrelated evidence.")
 
 
 def invalid(message, **fields):

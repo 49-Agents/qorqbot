@@ -7,6 +7,8 @@ from .assembly import (Assembly, AssemblyBuilder, AssemblyError, FileEffectContr
                        SchemaTarget, StorageContribution, TransactionContribution)
 from .admission import InstallationRecoveryLock, RecoveryAdmission
 from .database import Database, UnitOfWork
+from .directories import RegisteredDirectoryTarget, observe_directory
+from .directory_layout import ACTION as DIRECTORY_ACTION, directory_values, layout_hash
 from .files import FileApplier, RegisteredFileTarget, file_values
 from .locks import LockPaths
 from .quiescence import (BoundedWriter, DatabaseIdentity, KnownZeroWriters, QuiescenceProof, RecoveryBarrierProof,
@@ -17,7 +19,7 @@ from .repositories import Repository
 from .specs import TableSpec
 
 __all__ = ["Assembly", "AssemblyBuilder", "AssemblyError", "ApplyReceipts", "BoundedWriter", "Database",
-           "DatabaseIdentity", "DatabaseMaintenanceGate", "FileApplier", "FileEffectContribution", "GateClosure", "IdempotencyReceipts",
+           "DatabaseIdentity", "DatabaseMaintenanceGate", "DIRECTORY_ACTION", "FileApplier", "FileEffectContribution", "GateClosure", "IdempotencyReceipts",
            "InstallationRecoveryLock", "KnownZeroWriters", "LockPaths", "QuiescenceProof", "RecoveryAdmission",
            "RecoveryBarrierProof", "RecoveryQuiescer", "RecordEffectContribution", "RegisteredFileTarget", "Repository", "SchemaTarget",
-           "StorageContribution", "TableSpec", "TransactionContribution", "UnitOfWork", "UnprovenStop", "file_values", "void_stop"]
+           "StorageContribution", "TableSpec", "TransactionContribution", "UnitOfWork", "UnprovenStop", "directory_values", "file_values", "layout_hash", "observe_directory", "void_stop"]

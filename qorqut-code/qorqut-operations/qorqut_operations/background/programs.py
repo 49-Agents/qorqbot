@@ -130,7 +130,7 @@ class ProgramRegistry:
     def prepare_job(self, builder, uow, kind, arguments, *, definition_extra=None):
         values = self.job_values(builder.ctx, kind, arguments, uow, definition_extra=definition_extra)
         builder.record("jobs", values["id"], None, values)
-        builder.effects.append("Queues a registered background program; never launches a business agent.")
+        builder.effects.append("Queues a registered background program; never launches a project agent.")
         return values["id"]
 
 

@@ -117,7 +117,7 @@ class PolicyResolver:
         if principal.kind != "human":
             context = replace(context, allowed_business_ids=context.allowed_business_ids & active_business_ids(uow.connection))
         if context.review_business_id and context.review_business_id not in context.allowed_business_ids:
-            raise DomainError("forbidden", "Review business is no longer authorized")
+            raise DomainError("forbidden", "Review project is no longer authorized")
         return context.select_business(context.business_id)
 
     def context_for(self, principal_id, *, business_id, review_business_id, uow,

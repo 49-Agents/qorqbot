@@ -9,6 +9,7 @@ import json
 from qorqut_operations.contracts import (ChangeSet, DomainError, InvocationContext, InvocationOptions,
     OperationResult, PolicyDecision, canonical_hash, plain)
 from qorqut_operations.global_agents import effective_business_ids, global_profile
+from qorqut_operations.storage.directory_layout import ACTION as DIRECTORY_ACTION
 from qorqut_operations.storage.receipts import ApplyReceipts, IdempotencyReceipts
 from .delegation import authorize_delegation, creation_groups
 from .registry import OperationRegistry
@@ -101,7 +102,7 @@ class Application:
         if (current.owner_session_business_id is not None
                 and (current.owner_session_business_id not in current.allowed_business_ids
                      or current.business_id not in (None, current.owner_session_business_id))):
-            raise DomainError("invalid_principal", "Owner-session provenance is outside its bound business")
+            raise DomainError("invalid_principal", "Owner-session provenance is outside its bound project")
         trusted_binding = (context.delegation_binding_id, context.delegation_assignment_id,
                            context.delegation_generation)
         refreshed_binding = (current.delegation_binding_id, current.delegation_assignment_id,
@@ -144,7 +145,7 @@ class Application:
         current = context.select_business(options.business_id)
         review = options.review_business_id or current.review_business_id or current.business_id
         if review is not None and review not in current.allowed_business_ids:
-            raise DomainError("forbidden", "Review business is outside the principal's scope")
+            raise DomainError("forbidden", "Review project is outside the principal's scope")
         return replace(current, review_business_id=review)
 
     def namespace(self, context, descriptor, arguments):
@@ -157,7 +158,7 @@ class Application:
         elif "agent_workspace" in descriptor.scope_kinds and context.agent_id:
             namespace = "agent:" + context.agent_id
         else:
-            raise DomainError("scope_required", "Operation requires a selected business")
+            raise DomainError("scope_required", "Operation requires a selected project")
         if namespace == "global":
             if "global" not in descriptor.scope_kinds or not descriptor.global_capability:
                 raise DomainError("forbidden", "Operation has no registered global capability")
@@ -165,12 +166,12 @@ class Application:
                 raise DomainError("forbidden", "Global capability is not granted")
         elif namespace.startswith("business:"):
             if "business" not in descriptor.scope_kinds:
-                raise DomainError("forbidden", "Operation target differs from the selected business")
+                raise DomainError("forbidden", "Operation target differs from the selected project")
             if context.business_id:
                 if namespace != "business:" + context.business_id:
-                    raise DomainError("forbidden", "Operation target differs from the selected business")
+                    raise DomainError("forbidden", "Operation target differs from the selected project")
             elif not (descriptor.resolve_namespace and namespace.removeprefix("business:") in context.allowed_business_ids):
-                raise DomainError("scope_required", "Operation requires a selected business")
+                raise DomainError("scope_required", "Operation requires a selected project")
         elif namespace.startswith("agent:"):
             if "agent_workspace" not in descriptor.scope_kinds or namespace != "agent:" + (context.agent_id or ""):
                 raise DomainError("forbidden", "Agent workspace is outside the principal's scope")
@@ -185,7 +186,7 @@ class Application:
         owner_session_route = (context.owner_session_business_id is not None
                                and getattr(descriptor, "owner_session", False))
         if owner_session_route and context.business_id != context.owner_session_business_id:
-            raise DomainError("forbidden", "Owner-only route is outside the owner-session business")
+            raise DomainError("forbidden", "Owner-only route is outside the owner-session project")
         if context.source not in descriptor.exposure and not owner_session_route:
             raise DomainError("forbidden", "Operation is not exposed to this caller")
         if descriptor.owner_only:
@@ -199,7 +200,7 @@ class Application:
         if context.business_id and context.principal_kind == "human":
             membership = uow.repository("business_memberships", business_id=context.business_id).get(context.principal_id)
             if not membership or not membership["active"]:
-                raise DomainError("forbidden", "Principal is not an active member of this business")
+                raise DomainError("forbidden", "Principal is not an active member of this project")
         if descriptor.plugin_requirement and context.principal_kind == "agent" and namespace != "global":
             if descriptor.plugin_requirement not in {ref.id for ref in context.enabled_plugin_refs}:
                 raise DomainError("forbidden", "Required plugin is not enabled")
@@ -306,19 +307,19 @@ class Application:
                 if (resource.business_id not in context.allowed_business_ids
                         or (resource in written and plan.target_namespace != "global"
                             and resource.business_id != context.business_id)):
-                    raise DomainError("forbidden", "Prepared target is outside the selected business")
+                    raise DomainError("forbidden", "Prepared target is outside the selected project")
                 if resource.namespace not in (None, "business:" + resource.business_id, resource.business_id):
                     raise DomainError("invalid_plan", "Conflicting resource namespace")
             elif resource.namespace == "global":
                 if resource in written and plan.target_namespace != "global":
-                    raise DomainError("forbidden", "Business operations cannot mutate global resources")
+                    raise DomainError("forbidden", "Project operations cannot mutate global resources")
             elif resource.namespace == "ecosystem" and (plan.target_namespace == "global" or resource not in written):
                 pass  # A business plan may pin, never write, an ecosystem record such as a global assignee's profile.
             elif resource.namespace and resource.namespace != plan.target_namespace:
                 raise DomainError("forbidden", "Prepared resource namespace differs from operation scope")
             elif resource.resource_type in tables and tables[resource.resource_type].scope_column:
                 if plan.target_namespace.startswith("business:"):
-                    raise DomainError("invalid_plan", "Business resource references require an explicit business ID")
+                    raise DomainError("invalid_plan", "Project resource references require an explicit project ID")
 
     def _review_scope(self, context, plan):
         return review_scope(context, plan, self.review_exceptions)
@@ -361,6 +362,12 @@ class Application:
         return {target.resource for target in plan.expected_targets
                 if target.resource.resource_type in declared and target.resource not in written}
 
+    def _directory_applier(self):
+        applier = getattr(self.file_executor, "file_applier", None) or getattr(self.signoffs, "file_applier", None)
+        if applier is None or not hasattr(applier, "verify_directory"):
+            raise DomainError("operation_unavailable", "Directory effects need the installed file applier")
+        return applier
+
     def check_targets(self, context, plan, uow, *, receipt_id=None, allow_unverified_files=False):
         files_verified = set()
         recovering_files = {}
@@ -379,6 +386,9 @@ class Application:
                         recovering_files[change.resource] = change.values
                     else:
                         files_verified.add(change.resource)
+                        if change.action == DIRECTORY_ACTION:
+                            # A directory is re-proven from its recorded identity each time it is relied on, never from its hash.
+                            self._directory_applier().verify_directory(change, progress)
         rederived = self._rederived_targets(plan)
         tables = self.database.assembly.tables
         for target in plan.expected_targets:
