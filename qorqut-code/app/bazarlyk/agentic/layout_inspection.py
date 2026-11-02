@@ -462,9 +462,9 @@ def inspect_git(root, *, entire_worktree=False):
                    'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_CONFIG_SYSTEM': '/dev/null',
                    'GIT_NO_REPLACE_OBJECTS': '1', 'GIT_TERMINAL_PROMPT': '0',
                    'GIT_ATTR_NOSYSTEM': '1', 'LC_ALL': 'C'}
-            from bazarlyk.native_paths import environment
+            from bazarlyk.native_paths import environment, executable
             env = environment(env)
-            base = ['git', '--no-optional-locks', '-c', 'core.hooksPath=/dev/null',
+            base = [executable('git'), '--no-optional-locks', '-c', 'core.hooksPath=/dev/null',
                     '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false',
                     '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-C', str(root)]
             def run(args, *, allow_missing=False):

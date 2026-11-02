@@ -152,7 +152,8 @@ def _read_journal(path):
 
 
 def _runner(root, home):
-    return GitRunner('git', root, home)
+    from bazarlyk.native_paths import executable
+    return GitRunner(executable('git'), root, home)
 
 
 def _reject_filters(git):
