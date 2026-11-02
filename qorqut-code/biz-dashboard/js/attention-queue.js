@@ -96,9 +96,8 @@ const attentionQueue=(()=>{
     if(!s)return;
     const mount=signoffMounts.get(event.currentTarget);
     if(mount?.opener){
-      // A configured opener owns selection. It builds the normal shared workspace entry from this canonical
-      // summary; a false result (a cancelled discard, for example) leaves the old pane in place and never falls
-      // through to the unrelated legacy Signoff modal. The opener owns its workspace error surface.
+      // A caller may supply an opener that owns selection. It receives this canonical summary; without one the
+      // queue opens the standard Signoff review modal below from the same source identity.
       const summary={type:'signoff',id:s.id,title:s.title,label:s.title,review_business_id:s.review_business_id??null,
         business_id:s.review_business_id??null,category:s.category,review_scope:s.review_scope,status_revision:s.status_revision};
       void Promise.resolve(mount.opener(summary)).catch(()=>{});

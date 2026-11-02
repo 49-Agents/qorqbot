@@ -656,8 +656,12 @@ function mountGlobalChat(pane, agent, options = {}) {
     clearPairedSource(generation) {
       if (generation != null && generation < pairedGeneration) return false;
       pairedGeneration = generation ?? pairedGeneration + 1;
+      const hadPair = !!(pairedConversation || pairedHost);
       pairedConversation?.dispose?.(); pairedConversation = null; pairedHost = null;
-      if (!disposed) { pane.replaceChildren(root); void load(true); }
+      if (disposed) return true;
+      // Leaving Focus with no paired record open must not disturb the live conversation: nothing needs restoring.
+      if (!hadPair && pane.firstElementChild === root) return true;
+      pane.replaceChildren(root); void load(true);
       return true;
     },
     dispose() {
