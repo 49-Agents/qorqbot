@@ -346,6 +346,31 @@ class Database:
             connection.close()
         return self
 
+    def enable_wal(self):
+        """Prepare a validated store for concurrent runtime readers and writers.
+
+        A standalone backup or offline conversion may use DELETE journaling.
+        The host calls this only after taking exclusive instance ownership and
+        before admitting work. Inspection through ``open_existing`` stays read-only.
+        """
+        self.open_existing()
+        # Validation may have pooled readers opened in the restored journal
+        # mode. Replace those handles before serving; SQLite caches that mode
+        # per connection, even when another connection changes the file.
+        with self._pool_lock:
+            idle, self._pool = list(self._pool), deque()
+        for connection in idle:
+            connection.close()
+        connection = self._connect()
+        try:
+            if connection.execute("PRAGMA journal_mode = WAL").fetchone()[0] != "wal":
+                raise DomainError("storage_configuration", "SQLite WAL mode is unavailable")
+        except sqlite3.Error as exc:
+            raise DomainError("storage_configuration", "Cannot enable SQLite WAL mode") from exc
+        finally:
+            connection.close()
+        return self
+
     @contextmanager
     def _unit(self, *, writable, business_id=UNSET, operation=None):
         if not self._columns:
