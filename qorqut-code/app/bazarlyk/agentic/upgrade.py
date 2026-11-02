@@ -30,7 +30,7 @@ from .plans import apply_import_plan, build_import_plan
 from .support import relative
 from .provisioning import apply as provision_apply, plan as provision_plan
 from .support import canonical
-from bazarlyk.telegram.private_files import fsync_directory, read_private_file, require_private_directory
+from bazarlyk.private_files import fsync_directory, read_private_file, require_private_directory
 
 BINDING_VERSION = 2
 _replace = os.replace

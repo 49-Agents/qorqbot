@@ -47,7 +47,7 @@ from qorqut_operations.contracts import DomainError, InvocationContext, Invocati
 from bazarlyk.bootstrap.history_repository import provision_history_repository
 from bazarlyk.instance_paths import InstancePaths
 from bazarlyk.service.instance_arguments import instance_arguments
-from bazarlyk.telegram.private_files import DIRECTORY_MODE, require_private_directory, write_private_file
+from bazarlyk.private_files import DIRECTORY_MODE, require_private_directory, write_private_file
 
 RECEIPT = "PREPARATION-RECEIPT.json"
 MANIFEST = "SOURCE-MANIFEST.json"

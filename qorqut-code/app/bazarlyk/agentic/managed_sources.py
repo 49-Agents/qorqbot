@@ -4,7 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 
-from bazarlyk.telegram.private_files import read_private_file
+from bazarlyk.private_files import read_private_file
 from .plans import _validate_manifest
 from .support import digest
 from .upgrade import MAX_RECORD, _unique, history_directory, history_snapshot

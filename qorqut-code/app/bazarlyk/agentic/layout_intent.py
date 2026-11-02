@@ -20,7 +20,7 @@ from qorqut_agentic.changes import normalize_attribution
 from qorqut_agentic.store import Store
 from qorqut_operations.contracts import DomainError
 from bazarlyk import source_snapshot
-from bazarlyk.telegram.private_files import fsync_directory, read_private_file, require_private_directory
+from bazarlyk.private_files import fsync_directory, read_private_file, require_private_directory
 from .layout_inspection import read_legacy_tree
 from .support import canonical, digest
 from .upgrade import (MAX_RECORD, _unique, _write_private_temp, history_directory,

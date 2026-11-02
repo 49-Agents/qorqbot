@@ -12,7 +12,7 @@ import stat
 from contextlib import contextmanager
 from pathlib import Path
 
-from bazarlyk.telegram.private_files import read_private_file, require_private_directory
+from bazarlyk.private_files import read_private_file, require_private_directory
 from qorqut_agentic.changes import Changes, event_dict, normalize_attribution
 from qorqut_agentic.core import LayerContext
 from qorqut_agentic.store import Store, _verify_layout

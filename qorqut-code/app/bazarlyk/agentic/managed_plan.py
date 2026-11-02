@@ -16,7 +16,7 @@ from .installation import OVERSEER_REFS, _validated_installed_binding, prepare_i
 from .layout_inspection import inspect_git, inspect_runtime, read_legacy_tree, catalog_issues, load_memory_catalog
 from .plans import _desired, _validate_manifest
 from .provisioning import plan as provision_plan
-from bazarlyk.telegram.private_files import read_private_file
+from bazarlyk.private_files import read_private_file
 from .support import digest
 from .upgrade import (read_binding, history_directory, history_snapshot, _installed_selection,
                       _requested_selection, _missing_selected_components, _profile_grants)

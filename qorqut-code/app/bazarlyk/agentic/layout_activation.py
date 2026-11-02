@@ -14,7 +14,7 @@ from qorqut_agentic.files import split_path
 from qorqut_agentic.errors import UnsafePathError
 from qorqut_agentic.store import Store
 from qorqut_operations.contracts import DomainError
-from bazarlyk.telegram.private_files import fsync_directory, read_private_file, require_private_directory
+from bazarlyk.private_files import fsync_directory, read_private_file, require_private_directory
 from . import layout_binding, layout_files, layout_git, layout_intent, layout_runtime
 from .layout_intent import _conflict
 from .support import canonical, digest, relative

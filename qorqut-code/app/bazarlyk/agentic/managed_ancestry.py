@@ -6,7 +6,7 @@ import json
 import os
 import re
 
-from bazarlyk.telegram.private_files import read_private_file
+from bazarlyk.private_files import read_private_file
 from qorqut_agentic.store import Store, _verify_layout
 from qorqut_agentic.changes import package_ids_of
 from . import managed_binding, managed_feed, managed_files, managed_git, managed_intent, managed_journal

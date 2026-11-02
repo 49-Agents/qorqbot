@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import re
 
-from bazarlyk.telegram.private_files import read_private_file, require_private_directory
+from bazarlyk.private_files import read_private_file, require_private_directory
 from .layout_files import _journal_write
 from .layout_intent import MAX_INTENT_BYTES, _conflict
 from .support import canonical, digest, relative

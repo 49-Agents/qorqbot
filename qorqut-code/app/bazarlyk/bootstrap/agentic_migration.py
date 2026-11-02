@@ -55,7 +55,7 @@ from bazarlyk.instance_paths import InstancePathError, InstancePaths
 from bazarlyk.service.changes import ChangeFeed
 from bazarlyk.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from bazarlyk.service.ownership import LOCK_NAME, InstanceOwnership
-from bazarlyk.telegram.private_files import fsync_directory, read_private_file, require_private_directory, write_private_file
+from bazarlyk.private_files import fsync_directory, read_private_file, require_private_directory, write_private_file
 
 TRANSITION_ID = "v1.3-agentic-overseer-1"
 PLAN_FORMAT = 1

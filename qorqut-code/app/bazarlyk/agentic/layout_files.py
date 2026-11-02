@@ -14,7 +14,7 @@ import stat
 from qorqut_agentic.changes import normalize_attribution
 from qorqut_agentic.store import Store
 from qorqut_operations.contracts import DomainError
-from bazarlyk.telegram.private_files import fsync_directory, read_private_file, require_private_directory
+from bazarlyk.private_files import fsync_directory, read_private_file, require_private_directory
 from .layout_inspection import inspect_git, inspect_runtime, read_legacy_tree, validate_catalog
 from .layout_intent import _conflict, _read_index, _safe_ancestors, incomplete_intents
 from .support import canonical, digest, relative

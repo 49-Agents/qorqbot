@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import re
 
-from bazarlyk.telegram.private_files import read_private_file
+from bazarlyk.private_files import read_private_file
 from qorqut_agentic.changes import normalize_attribution
 from qorqut_agentic.store import Store, _verify_layout
 from qorqut_agentic.util import iso, new_id

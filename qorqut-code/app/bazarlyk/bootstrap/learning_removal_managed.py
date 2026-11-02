@@ -14,7 +14,7 @@ import sqlite3
 import tempfile
 
 from qorqut_operations.contracts import DomainError
-from bazarlyk.telegram.private_files import read_private_file
+from bazarlyk.private_files import read_private_file
 
 
 def _refuse(message, **details):

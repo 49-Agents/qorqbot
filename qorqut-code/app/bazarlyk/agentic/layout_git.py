@@ -23,7 +23,7 @@ from qorqut_agentic.changes import normalize_attribution
 from qorqut_agentic.history import GitRunner, _GIT_OPTIONS
 from qorqut_agentic.store import Store
 from qorqut_operations.contracts import DomainError
-from bazarlyk.telegram.private_files import read_private_file, require_private_directory
+from bazarlyk.private_files import read_private_file, require_private_directory
 from . import layout_files as files
 from .layout_inspection import validate_catalog
 from .layout_intent import _conflict, incomplete_intents

@@ -7,7 +7,7 @@ import json
 import hashlib
 import re
 
-from bazarlyk.telegram.private_files import read_private_file
+from bazarlyk.private_files import read_private_file
 from qorqut_agentic.changes import normalize_attribution
 from . import layout_git, layout_intent
 from .layout_inspection import transform_legacy, transform_inventory, validate_catalog

@@ -184,7 +184,7 @@ def main(argv=None):
         from bazarlyk.extensions import installed_selection
         from bazarlyk.installation import extensions_configuration
         from bazarlyk.service.changes import ChangeFeed
-        from bazarlyk.telegram.private_files import read_private_file
+        from bazarlyk.private_files import read_private_file
         # The owner's startup selection of installed extensions is fixed for this process; the store must match it.
         selection = installed_selection() if args.extensions_config is None else installed_selection(extensions_configuration(args.extensions_config))
         token = args.token

@@ -16,7 +16,7 @@ import stat
 
 from qorqut_agentic.changes import normalize_attribution, package_ids_of
 from qorqut_agentic.store import Store
-from bazarlyk.telegram.private_files import fsync_directory, read_private_file, require_private_directory
+from bazarlyk.private_files import fsync_directory, read_private_file, require_private_directory
 from . import (layout_activation, layout_files, layout_git, layout_intent, managed_ancestry, managed_binding,
                managed_feed, managed_files, managed_git, managed_intent, managed_journal, managed_plan,
                managed_runtime_evidence, provisioning)
