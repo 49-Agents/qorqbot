@@ -435,6 +435,16 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
+            if parts == ["root", "calendar-statuses"] and request.method in {"GET", "POST"}:
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "Calendar statuses are for the owner's dashboard")
+                from bazarlyk.calendar.preferences import statuses
+                context, _ = self.context(actor)
+                body = await read_json(request, limit=131072) if request.method == "POST" else None
+                data = await anyio.to_thread.run_sync(partial(statuses, self.runtime, context, body))
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
             from bazarlyk.native_chat import http as native_chat_http
             if native_chat_http.matches(parts) and self.runtime.native_chat is not None:
                 return await native_chat_http.route(self.runtime, request, actor.principal.id, parts, request_id)
