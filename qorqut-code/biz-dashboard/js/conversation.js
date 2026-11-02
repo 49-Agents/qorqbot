@@ -420,12 +420,18 @@ function conversationMount(host,source,adapter={}) {
           channels[peer.key]=conversationState(source,peer.key,peer.agent_id);
         }
         if(!tab && conversationIsPeer(peer.key)) {
-          const profile=typeof globalAgentProfile==='function'?globalAgentProfile(peer.agent_id):null;
           tab=document.createElement('button');tab.type='button';tab.className='quiet conversation-channel';tab.dataset.channel=peer.key;tab.id=tabId(peer.key);tab.setAttribute('role','tab');tab.setAttribute('aria-controls',panelId);
-          tab.innerHTML=`<span class="conversation-channel-icon">${typeof agentGlyph==='function'?agentGlyph(profile || {role:{id:peer.role}},18):esc(peer.name.slice(0,2))}</span><span class="conversation-unread" data-peer-unread hidden></span>`;
+          tab.innerHTML=`<span class="conversation-channel-icon"></span><span class="conversation-unread" data-peer-unread hidden></span>`;
           tablist.insertBefore(tab,tablist.querySelector('[data-channel="team"]'));
         }
-        if(tab){tab.dataset.agentId=peer.agent_id;const label=(typeof globalAgentProfile==='function'?globalAgentProfile(peer.agent_id)?.display_name:null) || peer.name;tab.title=label;tab.setAttribute('aria-label','Private with '+label+(peer.unread?', unread messages':''));tab.querySelector('[data-peer-unread]').hidden=!peer.unread;}
+        // The glyph and name follow the agent's current profile on every refresh; the tab node and its state stay.
+        const profile=typeof globalAgentProfile==='function'?globalAgentProfile(peer.agent_id):null;
+        if(tab && conversationIsPeer(peer.key)) {
+          const glyph=typeof agentGlyph==='function'?agentGlyph(profile || {role:{id:peer.role}},18):esc(peer.name.slice(0,2));
+          const iconHost=tab.querySelector('.conversation-channel-icon');
+          if(iconHost.dataset.glyph!==glyph){iconHost.dataset.glyph=glyph;iconHost.innerHTML=glyph;}
+        }
+        if(tab){tab.dataset.agentId=peer.agent_id;const label=profile?.display_name || peer.name;tab.title=label;tab.setAttribute('aria-label','Private with '+label+(peer.unread?', unread messages':''));tab.querySelector('[data-peer-unread]').hidden=!peer.unread;}
       }
       for(const [key,s] of Object.entries(channels))if(conversationIsPeer(key)) {
         const tab=tablist.querySelector(`[data-channel="${CSS.escape(key)}"]`);
