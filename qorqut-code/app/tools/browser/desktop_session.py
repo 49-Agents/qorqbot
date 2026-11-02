@@ -16,6 +16,7 @@ Commands:
 
 import argparse
 from dataclasses import dataclass
+import hashlib
 import ipaddress
 import json
 import os
@@ -403,8 +404,9 @@ class Supervisor:
             native = Path(binaries.native_root)
             installation = native.parent.parent.resolve()
             home = Path(session.user_data_dir).parent
+            socket_home = installation / ".run/d" / hashlib.sha256(session.name.encode()).hexdigest()[:12]
             defaults = {"HOME": home, "XDG_CONFIG_HOME": home / "config", "XDG_CACHE_HOME": home / "cache",
-                        "XDG_DATA_HOME": home / "data", "XDG_RUNTIME_DIR": home / "run"}
+                        "XDG_DATA_HOME": home / "data", "XDG_RUNTIME_DIR": socket_home}
             for key, value in defaults.items():
                 directory = Path(session.environment.get(key, value))
                 if not directory.resolve().is_relative_to(installation):
