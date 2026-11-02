@@ -87,9 +87,23 @@ class HostVisibility:
             return set()
         granted: set[int] = set()
         email_access_cache = {}
+        source_visibility = {}
         for row in events:
             try:
-                if self.inbox.event_visible(ctx, row, uow, email_access_cache=email_access_cache):
+                # These notices follow current source access, except deletion notices
+                # also use their historical kind. Reuse only within this batch and
+                # recipient; later reads must observe changed grants and sources.
+                # Other event kinds can have event-specific authorization.
+                key = ((row['business_id'], row['source_type'], row['source_id'],
+                        row['event_type'], row['visibility_json'])
+                       if row['source_type'] in {'tasks', 'documents', 'email_conversations'} else None)
+                if key is None or key not in source_visibility:
+                    visible = self.inbox.event_visible(ctx, row, uow, email_access_cache=email_access_cache)
+                    if key is not None:
+                        source_visibility[key] = visible
+                else:
+                    visible = source_visibility[key]
+                if visible:
                     granted.add(row["id"])
             except DomainError:
                 LOG.debug("Inbox event %s is not provably visible to %s", row["id"], agent_id, exc_info=True)
