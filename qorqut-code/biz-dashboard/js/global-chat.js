@@ -8,7 +8,7 @@ const GLOBAL_CHAT_SENDS = new Map();            // scope -> {text, key, pin}: th
 const GLOBAL_CHAT_INFLIGHT = new Map();         // scope -> {text, promise} of a send still waiting for its response
 const GLOBAL_CHAT_RESENDS = new Map();          // undelivered input id -> {key, pin}: identity of an explicit resend
 const GLOBAL_CHAT_HIDDEN = new Set();           // settled inputs the owner dismissed or already resent
-// Exact provider + conversation identity of a captured conversation; the one key for drafts, sends, queries and the selector.
+// Exact provider + conversation identity of a captured conversation; the one key for drafts, sends and history queries.
 const globalChatKey = target => target?.conversation_id ? `${target.provider || ''}\n${target.conversation_id}` : null;
 const globalChatScope = (agentId, target) => globalChatKey(target) ? `${agentId}\n${globalChatKey(target)}` : null;
 const globalChatQuery = target => target ? `&conversation=${encodeURIComponent(target.conversation_id)}&provider=${encodeURIComponent(target.provider || '')}` : '';
@@ -237,7 +237,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   const entries = new Map();                     // entry id -> entry
   const nodes = new Map();                       // entry id -> element
   const inputNodes = new Map();                  // input id -> element
-  let session = null, conversation = null, conversations = [], inputs = [], older = null, shown, selected = null, switching = false, clears = 0;
+  let session = null, conversation = null, inputs = [], older = null, shown, clears = 0;
   let cursor = 0, lastRead = 0, composerScope = null;
   let stream = null, retryTimer = null, retryDelay = 1000, readTimer = null, streamDown = false;
   let disposed = false, loading = false, again = false, generation = 0, atBottom = true, unseen = 0, finished = false, reading = 0;
@@ -250,7 +250,6 @@ function mountGlobalChat(pane, agent, options = {}) {
     </header>
     ${options.openTerminal ? `<div class="gchat-session-switch">${globalChatViewToggle()}</div>` : ''}
     <div class="gchat-banner" role="status" hidden></div>
-    <div class="gchat-conversations" hidden><select aria-label="Conversation"></select><button type="button" class="quiet" data-current-conversation>Back to current</button></div>
     <div class="gchat-scroll" tabindex="-1"><button type="button" class="quiet gchat-older" hidden>Load older messages</button>
       <div class="gchat-log" role="log" aria-live="polite" aria-label="Conversation with ${esc(label)}"></div>
       <div class="gchat-pending-list"></div>
@@ -272,7 +271,6 @@ function mountGlobalChat(pane, agent, options = {}) {
   const scroller = $q('.gchat-scroll'), log = $q('.gchat-log'), pendingHost = $q('.gchat-pending-list'), emptyNote = $q('.gchat-empty');
   const olderButton = $q('.gchat-older'), jump = $q('.gchat-jump'), form = $q('.gchat-composer');
   const sessionLine = $q('.gchat-session'), sessionText = $q('.gchat-session-text');
-  const convBar = $q('.gchat-conversations'), convSelect = convBar.querySelector('select');
   const input = form.querySelector('textarea'), send = form.querySelector('.gchat-send');
 
   const live = () => !disposed && root.isConnected;
@@ -411,7 +409,6 @@ function mountGlobalChat(pane, agent, options = {}) {
   // The live session's exact binding; a conversation is sendable only when it is the one displayed.
   const liveBinding = () => session?.binding || null;
   const viewingLive = () => !!liveBinding() && globalChatKey(liveBinding()) === viewedKey();
-  const defaultConversation = () => conversations.find(item => item.current) || null;
   // A receipt belongs to the exact provider/conversation of its own binding; one without a binding is shown nowhere.
   function inputVisible(item, noticeIds) {
     if (item.state === 'submitted' || GLOBAL_CHAT_HIDDEN.has(item.id) || noticeIds.has(item.id)) return false;
@@ -432,16 +429,16 @@ function mountGlobalChat(pane, agent, options = {}) {
       node.className = `gchat-msg gchat-pending ${system ? 'gchat-notice' : 'gchat-user'}`;
       node.dataset.inputId = item.id; node.dataset.state = item.state; node.dataset.inputType = item.input_type;
       const definite = ownerChat(item) && ['failed', 'undelivered'].includes(item.state) && !!item.body;
-      const resendable = definite && viewingLive(), reusable = definite && !viewingLive() && !!defaultConversation();
+      const resendable = definite && viewingLive();
       const dismissable = ['uncertain', 'failed', 'undelivered'].includes(item.state);
-      const signature = JSON.stringify([item.state, item.body, kind, resendable, reusable, dismissable, canSend()]);
+      const signature = JSON.stringify([item.state, item.body, kind, resendable, dismissable, canSend()]);
       node.dataset.resendable = String(resendable);
       if (node.chatSignature !== signature) {
         node.chatSignature = signature;
         const text = globalChatMarkerOnly(item.input_type) ? '' : item.body ?? (item.input_type === 'telegram' ? 'Private message' : '');
         node.innerHTML = `<div class="gchat-body">${kind ? `<span class="gchat-marker">${esc(kind)}</span>` : ''}${text ? `<span class="gchat-text">${esc(text)}</span>` : ''}</div>
           <span class="gchat-state" data-state="${esc(item.state)}">${esc(GLOBAL_CHAT_INPUT_STATE[item.state])}</span>
-          ${resendable || reusable || dismissable ? `<span class="gchat-pending-actions">${resendable ? `<button type="button" class="quiet" data-resend="${esc(item.id)}" ${canSend() ? '' : 'disabled'}>Resend</button>` : ''}${reusable ? `<button type="button" class="quiet" data-reuse="${esc(item.id)}">Use in current chat</button>` : ''}${dismissable ? `<button type="button" class="quiet" data-dismiss="${esc(item.id)}">Dismiss</button>` : ''}</span>` : ''}`;
+          ${resendable || dismissable ? `<span class="gchat-pending-actions">${resendable ? `<button type="button" class="quiet" data-resend="${esc(item.id)}" ${canSend() ? '' : 'disabled'}>Resend</button>` : ''}${dismissable ? `<button type="button" class="quiet" data-dismiss="${esc(item.id)}">Dismiss</button>` : ''}</span>` : ''}`;
       }
     }
     shownInputs.forEach((item, index) => {                                                   // chronological, without re-inserting settled nodes
@@ -452,11 +449,10 @@ function mountGlobalChat(pane, agent, options = {}) {
   }
 
   // ---- session status, composer enablement and the empty state
-  const canSend = () => !!session?.can_send && viewingLive() && !switching && !finished;
+  const canSend = () => !!session?.can_send && viewingLive() && !finished;
   function sessionSummary() {
     if (!session) return {key: 'loading', short: 'Loading…', line: ''};
-    if (switching) return {key: 'loading', short: 'Loading…', line: ''};
-    if (selected || (session.state === 'live' && session.can_send && !viewingLive())) return {key: 'archive', short: 'Earlier conversation', line: 'Messages go only to the live session.'};
+    if (session.state === 'live' && session.can_send && !viewingLive()) return {key: 'starting', short: 'Connecting', line: ''};
     if (session.state === 'live') {
       if (session.reason === 'capture_disabled') return {key: 'disabled', short: 'Chat unavailable', line: ''};
       if (session.reason === 'binding_not_ready') return {key: 'starting', short: 'Connecting', line: ''};
@@ -489,41 +485,20 @@ function mountGlobalChat(pane, agent, options = {}) {
     const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope);
     input.disabled = !enabled;
     send.disabled = !enabled || sending;
-    input.placeholder = enabled ? `Message ${label}…` : !session ? `Message ${label}…` : (selected || !viewingLive()) ? 'Not the live conversation: nothing can be sent here' : 'Not available to send';
+    input.placeholder = enabled || !session ? `Message ${label}…` : 'Not available to send';
     paintEmpty();
     for (const button of pendingHost.querySelectorAll('[data-resend]')) button.disabled = !session?.can_send || GLOBAL_CHAT_RESENDS.get(button.dataset.resend)?.pending === true;
   }
   const showBanner = text => { banner.hidden = !text; banner.textContent = text || ''; delete banner.dataset.reconnect; };
-  function paintConversations() {
-    convBar.hidden = conversations.length < 2;
-    const chosen = selected ? globalChatKey(selected) : globalChatKey(defaultConversation());
-    convSelect.innerHTML = conversations.map(item => {
-      const when = item.updated_at ? ` · ${GLOBAL_CHAT_TIME.format(new Date(item.updated_at))}` : '';
-      return `<option value="${esc(globalChatKey(item))}"${globalChatKey(item) === chosen ? ' selected' : ''}>${esc(`${item.provider || 'Conversation'}${when}${item.current ? ' (current)' : ''}`)}</option>`;
-    }).join('');
-    convBar.querySelector('[data-current-conversation]').hidden = !selected;
-  }
   listen(root, 'click', event => {
     const chip = event.target.closest('[data-preview-href]');
     if (chip) { openPreview(chip); return; }
     if (event.target.closest('[data-preview-close]')) { closePreview(); return; }
     if (event.target.closest('[data-terminal]')) { options.openTerminal?.(); return; }
-    if (event.target.closest('[data-current-conversation]')) { chooseConversation(null); return; }
-    const resend = event.target.closest('[data-resend]'), dismiss = event.target.closest('[data-dismiss]'), reuse = event.target.closest('[data-reuse]');
+    const resend = event.target.closest('[data-resend]'), dismiss = event.target.closest('[data-dismiss]');
     if (resend) void resendInput(resend.dataset.resend);
-    else if (reuse) useInCurrentChat(reuse.dataset.reuse);
     else if (dismiss) { GLOBAL_CHAT_HIDDEN.add(dismiss.dataset.dismiss); paintInputs(); }
   });
-  listen(convSelect, 'change', () => chooseConversation(convSelect.value));
-  function chooseConversation(key) {
-    const item = key ? conversations.find(row => globalChatKey(row) === key) : null;
-    const next = item && !item.current ? {provider: item.provider, conversation_id: item.conversation_id} : null;
-    if (globalChatKey(next) === globalChatKey(selected)) { paintConversations(); return; }
-    selected = next; generation++; loading = false; again = false;
-    switching = true;                                   // until a successful state for this selection arrives
-    invalidatePage();
-    void load();
-  }
   // Drops the displayed page and its session so nothing stale can be read, sent or acknowledged until a fresh successful state
   // arrives. The unsent draft stays in its conversation-specific store.
   function invalidatePage() {
@@ -620,17 +595,9 @@ function mountGlobalChat(pane, agent, options = {}) {
     } finally { if (live()) paintSession(); }
   }
 
-  // From an archive the undelivered text is only copied into the current conversation's draft; sending stays a separate action.
-  function useInCurrentChat(id) {
-    const item = inputs.find(row => row.id === id), target = defaultConversation();
-    if (!item?.body || !ownerChat(item) || !['failed', 'undelivered'].includes(item.state) || !target) return;
-    const key = globalChatScope(agentId, target), existing = GLOBAL_CHAT_DRAFTS.get(key);
-    GLOBAL_CHAT_DRAFTS.set(key, existing && !existing.includes(item.body) ? `${existing}\n\n${item.body}` : existing || item.body);
-    showBanner('Copied to the current conversation’s draft. Switch back to review and send it.');
-  }
-
   // ---- loading: a state fetch is idempotent, so every "changed" event just reads it again (coalesced)
-  const stateUrl = () => `${base}?limit=${GLOBAL_CHAT_PAGE}${globalChatQuery(selected)}`;
+  // Terminal owns conversation selection; Chat always follows the backend's current conversation.
+  const stateUrl = () => `${base}?limit=${GLOBAL_CHAT_PAGE}`;
   async function load(reset = false) {
     if (loading) { again = true; return; }
     loading = true;
@@ -644,14 +611,14 @@ function mountGlobalChat(pane, agent, options = {}) {
       const gap = data.older != null && page.length && page[0].position > newestPosition() && entries.size > 0;
       const fresh = reset || shown === undefined || id !== shown || gap;
       if (fresh) { clearEntries(); older = data.older; }
-      shown = id; session = data.session; conversation = data.conversation; conversations = data.conversations || [];
+      shown = id; session = data.session; conversation = data.conversation;
       inputs = data.inputs || []; lastRead = Math.max(fresh && reset ? 0 : lastRead, data.last_read_sequence || 0);
       cursor = fresh && reset ? data.cursor || 0 : Math.max(cursor, data.cursor || 0);
       let grew = false;
       page.forEach(entry => { if (placeEntry(entry) && entry.speaker === 'agent') grew = true; });
-      switching = false; bindComposer();
+      bindComposer();
       olderButton.hidden = older == null;
-      paintConversations(); paintInputs(); paintSession();
+      paintInputs(); paintSession();
       if (fresh) { showBanner(''); toBottom(); } else afterChange(grew);
       if (!stream) connect();
     } catch (problem) {
