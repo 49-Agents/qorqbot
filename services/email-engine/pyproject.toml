@@ -11,14 +11,8 @@ description = "Fastmail JMAP synchronization and approved account email executio
 requires-python = ">=3.12"
 dependencies = ["httpx>=0.28,<1", "pydantic>=2.13,<3", "starlette>=1,<2", "uvicorn>=0.52,<1", "cryptography>=46,<51"]
 
-[project.optional-dependencies]
-test = ["pytest>=8"]
-
 [tool.setuptools.packages.find]
 include = ["engine_email*"]
 
 [tool.setuptools.package-data]
 engine_email = ["*.mjs", "package.json", "package-lock.json"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]

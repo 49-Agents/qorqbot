@@ -21,7 +21,6 @@ cp -R "$source_dir/GO-MODULE-METADATA/." "$build_dir/modules/cache/download/"
 export GOCACHE="$build_dir/cache" GOMODCACHE="$build_dir/modules"
 export CGO_ENABLED=1 GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local GOWORK=off
 cd "$source_dir"
-go test -race ./...
 go mod verify
 go build -trimpath -buildvcs=false -o "$build_dir/whatsapp-personal" .
 go version -m "$build_dir/whatsapp-personal"
@@ -36,9 +35,9 @@ own licenses and notices. The separate Qorqbot Python adapter/UI uses Apache 2.0
 it is not required to build or run this executable.
 
 This archive includes the exact helper sources, go.mod/go.sum, all 29 linked Go
-module source trees, their module metadata/checksums, and the build script. Tests
-and development files are intentionally present in this source archive and are
-not required in the runtime download. SOURCE-MANIFEST.json records the matching
+module source trees, their module metadata/checksums, and the build script.
+First-party developer tests are excluded; upstream module source is preserved.
+SOURCE-MANIFEST.json records the matching
 binary hash, build settings and source-file hashes. The standard Go/C toolchains
 and system libraries are external build prerequisites.
 
@@ -50,7 +49,7 @@ build directory for each rebuild (Go module source cache files are read-only). R
     ./build.sh ../whatsapp-build
 
 The script copies the bundled module source into a local module cache, verifies
-modules, runs tests with the race detector, and builds with CGO_ENABLED=1,
+modules and builds with CGO_ENABLED=1,
 -trimpath and -buildvcs=false. No account credentials or service connection is
 needed. It disables Go network/module downloads and automatic toolchain updates.
 

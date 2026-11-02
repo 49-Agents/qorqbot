@@ -3,7 +3,11 @@
 Use a focused change with a concise explanation and the checks that demonstrate
 its behavior. Include documentation when a user-visible operation changes.
 Keep credentials, personal records, local configuration and machine paths out of
-code, examples, screenshots and test fixtures. Use synthetic test data.
+code, examples and screenshots. Use synthetic examples.
+
+Developer tests and fixtures are retained privately and excluded from this
+publication repository. Release workflows check package builds, contents and
+lifecycle behavior.
 
 ## Rights and license
 

@@ -16,9 +16,6 @@ dependencies = [
     "psutil>=6.0; sys_platform == 'darwin'",
 ]
 
-[project.optional-dependencies]
-test = ["pytest>=8"]
-
 [project.scripts]
 qorqut-agentic = "qorqut_agentic.cli:main"
 
@@ -27,8 +24,3 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 qorqut_agentic = ["py.typed", "resources/**/*", "resources/defaults/plugins/.gitkeep"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
-addopts = "-q"
