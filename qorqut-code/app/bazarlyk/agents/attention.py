@@ -168,16 +168,35 @@ class Attention:
         return self.runtime.focus.resolve(ctx, ref, uow)
 
     def board_mode(self, uow, agent_id):
+        # Timer checks run inside write transactions. Do not hydrate task threads,
+        # relationships and worker projections just to inspect lifecycle state.
+        from qorqut_operations.tasks.scope import task_context
         try: ctx = self.app.policy.context_for(agent_id, business_id=None, review_business_id=None, uow=uow)
         except DomainError: return 'empty'
+        scopes = {}
         states = set()
         for row in uow.connection.execute('SELECT * FROM attention_memberships WHERE agent_id=?', (agent_id,)):
+            business_id = row['task_business_id']
             try:
-                task = self.task(ctx, {'type':'task','id':row['task_id'],'business_id':row['task_business_id']}, uow)
-                if not task.get('archived') and task.get('created_at') == row['task_created_at']: states.add(task['status'])
+                if business_id not in scopes:
+                    scopes[business_id] = None
+                    selected = self.app.current_context(replace(ctx, business_id=business_id, review_business_id=business_id), uow)
+                    descriptor = self.app.registry.get('tasks_get')
+                    if business_id is not None: descriptor = replace(descriptor, global_capability=None)
+                    self.app.authorize(selected, descriptor, (), uow, namespace='business:'+business_id if business_id else 'global')
+                    selected = task_context(selected, {'scope': 'global'} if business_id is None else {}, uow)
+                    scopes[business_id] = uow.repository('tasks', business_id=selected.business_id)
+                repository = scopes[business_id]
+                if repository is None:
+                    continue
+                task = repository.get(row['task_id'])
+                if task and not task.get('archived') and task.get('created_at') == row['task_created_at']:
+                    if task['status'] in {'open', 'working'}:
+                        return 'normal'
+                    states.add(task['status'])
             except DomainError as error:
                 if error.code not in UNREADABLE: raise
-        return 'normal' if states & {'open','working'} else 'reassess' if states & {'blocked','waiting'} else 'empty'
+        return 'reassess' if states & {'blocked','waiting'} else 'empty'
 
     def reminder_eligible(self, uow, agent_id, *, consumer_id, binding_generation, focus_generation, kind):
         """Recheck current identity, binding and source authority before delivery."""
