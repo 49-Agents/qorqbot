@@ -25,6 +25,7 @@ function workflowPanelMount(composer, agentId) {
   panel.append(head, list);
   composer.before(panel);
   let open = true, disposed = false, busy = false, token = 0, last = 0, dirty = false, trailing = null, summary = null;
+  const reads = new AbortController();
 
   const paint = () => {
     const hidden = !summary || summary.unavailable || !summary.steps?.length;
@@ -67,7 +68,7 @@ function workflowPanelMount(composer, agentId) {
     busy = true; last = Date.now();
     const mine = ++token;
     try {
-      const data = coreData(await post('/root/operations/attention_get', {scope: 'global', agent_id: agentId, limit: 1}));
+      const data = coreData(await post('/root/operations/attention_get', {scope: 'global', agent_id: agentId, limit: 1}, {signal: reads.signal}));
       if (disposed || mine !== token) return;
       summary = data?.agent_id === agentId && data.attention?.focus?.type === 'workflow' ? data.attention.workflow || null : null;
     } catch (_) {
@@ -84,6 +85,6 @@ function workflowPanelMount(composer, agentId) {
   document.addEventListener('visibilitychange', onVisible);
   return {
     refresh,
-    dispose() { disposed = true; token++; clearTimeout(trailing); document.removeEventListener('visibilitychange', onVisible); panel.remove(); },
+    dispose() { disposed = true; token++; reads.abort(); clearTimeout(trailing); document.removeEventListener('visibilitychange', onVisible); panel.remove(); },
   };
 }

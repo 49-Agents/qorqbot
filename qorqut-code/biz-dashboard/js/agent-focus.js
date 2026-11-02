@@ -728,6 +728,11 @@ function agfocusPaint(p) {
   $('[data-focus-retry-move]',host).hidden=!p.focusMoveSubmission || p.focusOrderPending;
   agfocusTextHost()?.paintStatus(p);
   if (!data) {
+    const list = $('.agfocus-items',host);
+    list?.replaceChildren(); if (list) delete list.dataset.signature;
+    p.focusCards?.clear();
+    agfocusOverlayClose(p);
+    const dock = $('.agfocus-dock',host); if (dock) dock.hidden = true;
     const empty=$('.agfocus-empty',host);empty.hidden=false;
     agfocusText(empty,p.focusError?'':'Loading Pinned…');
     $('[data-focus-more]',host).hidden=true;$('[data-focus-previous]',host).hidden=true;$('[data-focus-page]',host).textContent='';

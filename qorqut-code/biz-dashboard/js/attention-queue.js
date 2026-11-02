@@ -84,6 +84,7 @@ const attentionQueue=(()=>{
   // One read at a time; an explicit call in flight records a single trailing read.
   // `ordinary` is a mount: it reuses an in-flight read or a recent success and never records a trailing read.
   function refreshSignoffs(ordinary=false){
+    if(!ordinary)signoffOkAt=0;
     if(!signoffMounts.size)return Promise.resolve();
     if(ordinary && signoffPromise)return signoffPromise;
     if(ordinary && !signoffsError && Date.now()-signoffOkAt<60000){
@@ -118,7 +119,7 @@ const attentionQueue=(()=>{
     catch(e){if(request===generation){error=e.message;if(accessLost(e)){items=[];queueOkAt=0;}}}
     finally{loading=false;paintAll();}
   }
-  // One read at a time. Explicit triggers (mount, focus, reply change, retry) arriving in flight
+  // One read at a time. Explicit triggers (focus, reply change, retry) arriving in flight
   // record a single trailing read and resolve after it; the poll timer never does.
   // `ordinary` is a mount: it reuses an in-flight read or a recent success and never records a trailing read.
   function refresh(ordinary=false){

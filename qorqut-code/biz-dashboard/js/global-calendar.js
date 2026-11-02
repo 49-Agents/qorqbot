@@ -297,7 +297,10 @@ function calendarTodayLoad(force = false) {
             start:day.toISOString(),end:calendarAddDays(day,1).toISOString(),limit:200,...(cursor ? {cursor} : {})});
           events.push(...page.events); cursor = page.next_cursor;
         } while (cursor);
-      } catch (error) { errors.push(`${calendar.name}: ${error.message}`); }
+      } catch (error) {
+        if (accessLost(error)) { calendarTodayShared = null; throw error; }
+        errors.push(`${calendar.name}: ${error.message}`);
+      }
     }));
     const visibleEvents = events.filter(event => event.status !== 'cancelled');
     visibleEvents.sort((a,b) => {
@@ -315,7 +318,7 @@ function calendarTodayMount(host) {
   host.setAttribute('aria-label', "Today's calendar");
   host.innerHTML = `<p class="calendar-status" role="status">Loading calendar…</p><ul class="calendar-today-queue" aria-label="Today's events" hidden></ul>`;
   const status = $('.calendar-status',host), queue = $('.calendar-today-queue',host);
-  let active = true, pending = false, loadedDay, snapshot, timer, data = null, refreshError = '';
+  let active = true, pending = false, refreshAgain = false, loadedDay, snapshot, timer, data = null, refreshError = '';
   const current = () => active && host.isConnected;
   // Paints from the last provider read, so a status change never needs another provider call.
   const paintQueue = () => {
@@ -341,7 +344,8 @@ function calendarTodayMount(host) {
     }
   };
   const refresh = async force => {
-    if (!current() || pending) return;
+    if (!current()) return;
+    if (pending) { if (force !== false) refreshAgain = true; return; }
     pending = true;
     const statuses = calendarStatuses.refresh();
     try {
@@ -357,7 +361,7 @@ function calendarTodayMount(host) {
       if (data && !accessLost(error)) { refreshError = error.message; paintQueue(); }
       else { data = null; snapshot = undefined; refreshError = ''; queue.replaceChildren(); queue.hidden = true; status.textContent = error.message; }
     }
-    finally { pending = false; }
+    finally { pending = false; if (refreshAgain && current()) { refreshAgain = false; void refresh(); } }
   };
   const unsubscribe = calendarStatuses.subscribe(paintQueue);
   const dispose = () => { active = false; unsubscribe(); clearInterval(timer); document.removeEventListener('visibilitychange',visible); };

@@ -183,6 +183,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   let bannerText = '', reconnecting = false, olderBusy = false, view = null;
   let pairedHost = null, pairedConversation = null, pairedGeneration = 0;
   const cleanups = [];
+  const reads = new AbortController();
 
   // Native shell: header, view switch and the session line stay here; every message, composer and preview is the shared view.
   pane.innerHTML = `<div class="gchat" data-global-chat="${esc(agentId)}">
@@ -550,7 +551,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     loading = true;
     const mine = generation;
     try {
-      const data = coreData(await api(stateUrl()));
+      const data = coreData(await api(stateUrl(), {signal: reads.signal}));
       if (!live() || mine !== generation) return;
       const id = globalChatKey(data.conversation);
       const page = data.entries || [];
@@ -579,7 +580,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (before == null || !target || olderBusy) return;
     olderBusy = true; paint();
     try {
-      const data = coreData(await api(`${base}/history?before=${before}&limit=${GLOBAL_CHAT_PAGE}${globalChatQuery(target)}`));
+      const data = coreData(await api(`${base}/history?before=${before}&limit=${GLOBAL_CHAT_PAGE}${globalChatQuery(target)}`, {signal: reads.signal}));
       // Applied only to the exact provider/conversation it asked for, even if the live conversation changed on its own.
       if (!live() || mine !== generation || epoch !== clears || viewedKey() !== requested) return;
       (data.entries || []).forEach(entry => { if (!entries.has(entry.id)) entries.set(entry.id, entry); });
@@ -666,6 +667,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     },
     dispose() {
       disposed = true; generation++;
+      reads.abort();
       const pairedNode=pairedHost;
       pairedConversation?.dispose?.(); pairedConversation = null; pairedHost = null;
       closeStream(); clearTimeout(retryTimer); clearTimeout(readTimer);
