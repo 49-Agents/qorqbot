@@ -249,7 +249,7 @@ class FastmailCalendar(Provider):
         return self.xml("PROPFIND", url, f'<d:propfind xmlns:d="DAV:" xmlns:c="{CAL}"><d:prop>{prop}</d:prop></d:propfind>', depth)
 
     def calendars(self):
-        root = self.propfind(FASTMAIL + "/", "<d:current-user-principal/>")
+        root = self.propfind(FASTMAIL + "/dav/", "<d:current-user-principal/>")
         principal = root.findtext(f".//{{{DAV}}}current-user-principal/{{{DAV}}}href")
         if not principal:
             raise DomainError("calendar_provider_error", "Fastmail did not return a calendar principal")
