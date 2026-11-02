@@ -7,6 +7,7 @@ from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.storage.structured import parse_yaml
 from qorqut_operations.application.plans import schema
 from .models import REFERENCE_SCHEMA
+from .resolver import INTERNAL_ONLY_OPERATIONS
 
 # Repair-ticket removal, phase 1: the repair interface no longer carries the retired ticket tools.
 DIAGNOSTIC_OPERATIONS = frozenset({'agent_runtime_get', 'operations_describe'})
@@ -44,7 +45,7 @@ class AgentDiagnostics:
         return self
 
     def describe(self, ctx, args, options, uow):
-        from bazarlyk.transport.mcp import INTERNAL_ONLY_OPERATIONS, tool_schema
+        from bazarlyk.transport.mcp import tool_schema
         owner_route = ctx.owner_session_business_id is not None
         tools = []
         for name in args['names']:

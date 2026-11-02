@@ -32,6 +32,11 @@ from .roles import RETIRED_PLUGIN_IDS, SUPPORTED_GLOBAL_ROLES
 PROFILE_CACHE_LIMIT = 128
 # Private account capabilities: an operation declaring one is available only to a profile holding it.
 EXPLICIT_CAPABILITY_OPERATIONS = frozenset({"manage_calendar", "manage_fastmail"})
+# Repair-ticket removal, phase 1: these readers stay installed and keep their internal standing grant because
+# surviving Task, Signoff and Project references resolve through them, but they are not agent tools. This one
+# definition filters effective configuration, briefings, generated native permissions and the MCP inventory;
+# the MCP caller also refuses them in dispatch. Phase 2 removes the readers with the feature and its data.
+INTERNAL_ONLY_OPERATIONS = frozenset({"dev_tickets_get"})
 
 
 def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, packages=()) -> list[dict]:
@@ -44,6 +49,8 @@ def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, pa
     visible = {p.id: visible_plugin_tools(p) for p in packages if p.kind == "plugin"}
     tools = []
     for metadata in registry.entries():
+        if metadata.name in INTERNAL_ONLY_OPERATIONS:
+            continue  # Retained internal reader; never part of an agent's effective configuration.
         decision = resolve_operation_policy(metadata.name, defaults, overrides, registry, role_id=profile.data["role"]["id"])
         modes = None
         if (metadata.name in GLOBAL_DISCOVERY_OPERATIONS and profile.scope.kind == "ecosystem"

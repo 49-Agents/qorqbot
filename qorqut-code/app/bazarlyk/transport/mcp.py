@@ -18,6 +18,9 @@ from starlette.requests import Request
 from qorqut_operations.contracts import DomainError, InvocationOptions, OperationResult, new_id, plain
 from qorqut_operations.application.batches import NAME as BATCH_NAME
 from bazarlyk.agents.diagnostics import DIAGNOSTIC_OPERATIONS
+# Repair-ticket removal, phase 1: the resolver owns the one list of retained internal readers. Discovery and
+# dispatch refuse them here too, including operations_batch entries and tool names a client cached before removal.
+from bazarlyk.agents.resolver import INTERNAL_ONLY_OPERATIONS
 from bazarlyk.browser.operations import BROWSER_OPERATION
 from .results import failure
 from . import batches, mcp_presentation, mcp_reads
@@ -35,10 +38,6 @@ OVERSEER_SESSION_OPERATIONS = frozenset({
 
 ATTENTION_SESSION_OPERATIONS = frozenset({'attention_get', 'attention_add', 'attention_remove',
     'attention_focus_set', 'attention_focus_clear', 'attention_workflow_update'})
-# Repair-ticket removal, phase 1: these retained internal readers resolve surviving Task, Signoff and Project
-# references, so they stay installed and granted. Agent discovery and dispatch refuse them here, including
-# operations_batch entries and tool names a native client cached before the removal.
-INTERNAL_ONLY_OPERATIONS = frozenset({'dev_tickets_get'})
 
 
 def attention_binding(headers):
