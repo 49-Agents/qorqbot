@@ -139,37 +139,21 @@ function mountAgentView(pane, agent, opts) {
     const mine = chat;
     watcher = setInterval(() => { if (!pane.isConnected || chat !== mine) { clearInterval(watcher); if (chat === mine) stop(); } }, 2000);
   };
-  // The default Terminal is the view of the agent's ONE selected native conversation (attached, or reconnectable by the owner).
-  // `diagnostic` is the separate, explicitly labelled surface for starting a new conversation with the client's own controls:
-  // nothing there is the selected conversation until the owner chooses it ("Use this conversation").
-  const renderTerminal = diagnostic => {
+  // One terminal view. Chat follows its current native conversation automatically.
+  const showTerminal = () => {
     if (disposed) return;
     stop();
     const label = agent.display_name || agent.name;
-    const newConversation = `<button type="button" class="ttab gchat-new" data-new-conversation aria-pressed="${diagnostic}" aria-label="${diagnostic ? 'Back to the selected conversation' : 'New conversation'}" title="${diagnostic ? 'Back to the selected conversation' : 'New conversation: open a diagnostic terminal'}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>`;
-    pane.innerHTML = `<div class="gchat-diagnostic"><div class="gchat-top"><span class="gchat-name">${esc(label)}</span><span class="gchat-status">${diagnostic ? 'Diagnostic terminal' : 'Terminal'}</span></div><div class="gchat-session-switch">${newConversation}${globalChatViewToggle(true)}</div><div class="gchat-diagnostic-host"></div></div>`;
+    pane.innerHTML = `<div class="gchat-terminal"><div class="gchat-top"><span class="gchat-name">${esc(label)}</span><span class="gchat-status">Terminal</span></div><div class="gchat-session-switch">${globalChatViewToggle(true)}</div><div class="gchat-terminal-host"></div></div>`;
     const current = () => !opts.isCurrent || opts.isCurrent();
     pane.querySelector('[data-chat-return]').onclick = () => { if (current()) showChat(); };
-    pane.querySelector('[data-agent-refresh]').onclick = () => { if (current()) renderTerminal(diagnostic); };
-    pane.querySelector('[data-new-conversation]').onclick = () => { if (current()) renderTerminal(!diagnostic); };
+    pane.querySelector('[data-agent-refresh]').onclick = () => { if (current()) showTerminal(); };
     const shellStatus = pane.querySelector('.gchat-status');
-    let streamStatus = null, attachLabel = diagnostic ? 'Diagnostic terminal' : 'Terminal';
-    const paintStatus = () => {
-      shellStatus.textContent = streamStatus === 'ended' ? 'Terminal exited' : streamStatus === 'disconnected' ? 'Terminal disconnected'
-        : streamStatus === 'live' && !agent.agent_id ? 'Terminal connected' : attachLabel;
-    };
-    closeTerminal = mountTerminal(opts.terminal.key, pane.querySelector('.gchat-diagnostic-host'), status => {
-      streamStatus = status;
-      paintStatus();
+    closeTerminal = mountTerminal(opts.terminal.key, pane.querySelector('.gchat-terminal-host'), status => {
+      shellStatus.textContent = status === 'ended' ? 'Terminal exited' : status === 'disconnected' ? 'Terminal disconnected' : 'Terminal';
       opts.onTerminalStatus?.(status);
-    }, opts.terminal.base, null, agent.agent_id ? {
-      attachment: {agentId: agent.agent_id, mode: diagnostic ? 'diagnostic' : 'selected',
-        onSelected: () => { if (current()) renderTerminal(false); },
-        onDiagnostic: () => { if (current()) renderTerminal(true); }},
-      onAttachment: view => { attachLabel = terminalAttachmentLabel(view, diagnostic); paintStatus(); },
-    } : {});
+    }, opts.terminal.base);
   };
-  const showTerminal = () => renderTerminal(false);
   const view = {showChat, showTerminal,
     selectPairedSource(source, generation, onUnavailable, onReference) {
       if (disposed || !chat || !opts.isCurrent?.()) return false;
@@ -369,8 +353,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (session.reason === 'capture_not_ready') return {key: 'starting', line: ''};
       return {key: session.working ? 'working' : 'live', line: ''};
     }
-    const direction = session.reason === 'other_conversation' ? `Another conversation is running for ${label}. Open Terminal to use it, or resume the selected one.`
-      : session.reason === 'selection_required' ? `No conversation is selected for ${label}. Open Terminal to start or choose one.`
+    const direction = ['other_conversation', 'selection_required', 'registering'].includes(session.reason) ? 'Connecting to the conversation in Terminal…' 
       : `Start or resume ${label} in Terminal to send.`;
     if (session.reason === 'capture_disabled') return {key: 'disabled', line: ''};
     if (session.reason === 'unsupported_runtime') return {key: 'offline', line: ''};
