@@ -18,6 +18,7 @@ from collections.abc import Mapping
 from pathlib import PurePosixPath
 from typing import Any, Protocol
 
+from qorqut_operations.actions.models import one_line
 from qorqut_operations.actions.writeback import linked_action
 from qorqut_operations.application.plans import ref
 from qorqut_operations.contracts import DomainError, InvocationOptions
@@ -115,11 +116,16 @@ class RelatedResources:
         special = self.host.project_special(kind, row)
         if special is not None:
             return special
-        fallback = PurePosixPath(row["path"]).stem.replace("-", " ").replace("_", " ").title() if row.get("path") else identity
-        label = (row.get("title") or row.get("summary") or row.get("subject") or metadata.get("title")
-                 or metadata.get("name") or metadata.get("filename") or row.get("payload_json", {}).get("subject") or row.get("payload_json", {}).get("title")
-                 or row.get("profile_json", {}).get("display_name") or row.get("name")
-                 or fallback)
+        if kind == "action_logs":
+            # The Action's ordinary bounded display summary. The full text remains the detail reader's authority;
+            # a denied Action never reaches this point, so no label can leak through identity fallbacks.
+            label = one_line(row["action_text"])
+        else:
+            fallback = PurePosixPath(row["path"]).stem.replace("-", " ").replace("_", " ").title() if row.get("path") else identity
+            label = (row.get("title") or row.get("summary") or row.get("subject") or metadata.get("title")
+                     or metadata.get("name") or metadata.get("filename") or row.get("payload_json", {}).get("subject") or row.get("payload_json", {}).get("title")
+                     or row.get("profile_json", {}).get("display_name") or row.get("name")
+                     or fallback)
         return {**(_task_projection(row) if kind == "tasks" else {}),
                 "label": label, "state": row.get("status", row.get("state", metadata.get("status"))), "path": row.get("path"),
                 "kind": row.get("kind"), "revision": row.get("revision")}
