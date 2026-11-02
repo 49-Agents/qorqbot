@@ -229,7 +229,7 @@ function chatViewFit(width, height, displayWidth, displayHeight) {
   return {width: displayWidth * scale, height: displayHeight * scale};
 }
 const chatViewTypedRoute = ref => JSON.stringify([ref.type, ref.business_id || null, ref.business_slug || null, ref.type === 'browser' ? ref.viewer_url : null]);
-const chatViewTypedSignature = ref => JSON.stringify([ref.type, ref.business_id || null, ref.id, ref.available !== false, ref.label, ref.state, ref.viewer_url, ref.business_slug || null, ref.width, ref.height, ref.role, ref.presentation]);
+const chatViewTypedSignature = ref => JSON.stringify([ref.type, ref.business_id || null, ref.id, ref.available !== false, ref.label, ref.state, ref.viewer_url, ref.business_slug || null, ref.width, ref.height, ref.role, ref.presentation, ref.type === 'task' ? ref : null]);
 function chatViewTypedChip(ref, cls) {
   const chip = document.createElement('span');
   chip.className = `gchat-reference ${cls}`;
@@ -253,8 +253,10 @@ function chatViewTypedChip(ref, cls) {
   }
   const label = document.createElement('span'); label.textContent = ref.label || '';
   chip.append(label);
+  // The status ball already shows the state; keep its word only as clipped text for the accessible name, never as a visible label.
   if (ref.type === 'task' && ref.available !== false && ref.state) {
-    const state = document.createElement('small'); state.textContent = CHAT_VIEW_TASK_STATES[ref.state] || String(ref.state); chip.append(state);
+    const state = document.createElement('small'); state.className = 'gchat-reference-state-hidden';
+    state.textContent = CHAT_VIEW_TASK_STATES[ref.state] || String(ref.state); chip.append(state);
   }
   return chip;
 }
@@ -308,7 +310,7 @@ function chatViewBrowserCard(ref, url) {
   }};
 }
 
-function chatViewTypedMount(ref, host, options) {
+function chatViewTypedMount(ref, host, options, entryKey) {
   const unavailable = () => {
     const item = {el: chatViewTypedChip({...ref, label: ref.label || 'Unavailable reference'}, 'gchat-reference-unavailable'), dispose() { item.el.remove(); }};
     item.update = next => next.available === false && (item.el.replaceChildren(...chatViewTypedChip({...next, label: next.label || 'Unavailable reference'}, 'gchat-reference-unavailable').childNodes), true);
@@ -321,8 +323,16 @@ function chatViewTypedMount(ref, host, options) {
     return item;
   }
   if (ref.type === 'task') {
-    const item = {el: chatViewTypedChip(ref, 'gchat-task-reference'), dispose() { item.el.remove(); }};
-    item.update = next => { item.el.replaceChildren(...chatViewTypedChip(next, 'gchat-task-reference').childNodes); return true; };
+    let current = ref;
+    const opener = options.onTask === undefined ? options.onReference : options.onTask;
+    let chip = chatViewTypedChip(ref, 'gchat-task-reference');
+    if (typeof opener === 'function') {
+      const button = document.createElement('button'); button.type = 'button'; button.className = chip.className;
+      button.append(...chip.childNodes); chip = button;
+      button.onclick = () => { const selected = current; Promise.resolve().then(() => opener(selected, entryKey)).catch(() => toast(uiFailure(new Error('Couldn’t open this Task.')))); };
+    }
+    const item = {el: chip, dispose() { chip.remove(); }};
+    item.update = next => { current = next; chip.replaceChildren(...chatViewTypedChip(next, 'gchat-task-reference').childNodes); return true; };
     return item;
   }
   // A Project is a valid typed reference in an existing message; the chip never creates a channel.
@@ -397,7 +407,7 @@ function mountChatView(host, options = {}) {
     attach.setAttribute('aria-label', 'Attach files'); attach.title = 'Attach files';
     attach.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7 .1l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7-.1l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>';
     picker = document.createElement('input'); picker.type = 'file'; picker.multiple = true; picker.hidden = true;
-    form.append(attach, picker);
+    form.insertBefore(attach, form.querySelector('.gchat-send')); form.append(picker);
   }
   const $q = selector => root.querySelector(selector);
   const banner = $q('.gchat-banner'), scroller = $q('.gchat-scroll'), log = $q('.gchat-log'), pendingHost = $q('.gchat-pending-list'), emptyNote = $q('.gchat-empty');
@@ -532,11 +542,11 @@ function mountChatView(host, options = {}) {
   listen(preview, 'keydown', event => { if (event.key === 'Escape') { event.stopPropagation(); closePreview(); } });
 
   // ---- entries
-  const entrySignature = entry => JSON.stringify([entry.speaker, entry.text, entry.partial === true, entry.timestamp, entry.title, entry.showAuthor,
+  const entrySignature = entry => JSON.stringify([entry.speaker, entry.text, entry.partial === true, entry.timestamp, entry.title, entry.showAuthor, entry.showAuthorName,
     entry.author?.name, entry.author?.avatarHtml, entry.notice, entry.collapsedSource, entry.referenceOnly === true,
     (entry.references || []).map(ref => [ref.key, ref.label, !!ref.disabled]), (entry.typedReferences || []).map(chatViewTypedSignature), (entry.actions || []).map(action => [action.key, action.label, !!action.disabled])]);
   const authorHtml = entry => entry.author && entry.showAuthor !== false
-    ? `<div class="gchat-author">${entry.author.avatarHtml ? `<span class="gchat-avatar" aria-hidden="true">${entry.author.avatarHtml}</span>` : ''}<small class="gchat-author-name">${esc(entry.author.name || '')}</small></div>` : '';
+    ? `<div class="gchat-author">${entry.author.avatarHtml ? `<span class="gchat-avatar" aria-hidden="true">${entry.author.avatarHtml}</span>` : ''}<small class="gchat-author-name${entry.showAuthorName === false ? ' gchat-author-name-hidden' : ''}">${esc(entry.author.name || '')}</small></div>` : '';
   const titleHtml = entry => entry.title ? `<strong class="gchat-title">${esc(entry.title)}</strong>` : '';
   const markerHtml = notice => {
     if (!notice?.label) return '';
@@ -664,7 +674,7 @@ function mountChatView(host, options = {}) {
         if (item.update?.(ref)) item.signature = signature; else { item.dispose(); item = null; }
       }
       if (!item) {
-        item = chatViewTypedMount(ref, node._typedHost, options);
+        item = chatViewTypedMount(ref, node._typedHost, options, entry.key);
         item.signature = signature; item.available = available; item.route = route;
       }
       next.set(key, item);

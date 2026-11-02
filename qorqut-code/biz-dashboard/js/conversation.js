@@ -83,6 +83,7 @@ function conversationEntries(notes,adapter) {
     if(!system && !owner){
       entry.author={name:conversationPersonName(note),avatarHtml:conversationGlyph(note,31)};
       entry.showAuthor=previous!==sender;
+      entry.showAuthorName=false;
     }
     previous=sender;
     return entry;
@@ -115,8 +116,7 @@ function conversationRecordEntry(record) {
     // The chip stays informational. An explicit action opens the Project reader without inventing a private channel.
     if(typed.available)entry.references.push({key:'open',label:'Open Project',value});
   } else if(record.type==='task'){
-    entry.typedReferences.push(typed);
-    if(typed.available)entry.references.push({key:'open',label:'Open task',value});
+    entry.typedReferences.push({...value,...typed});
   } else entry.references.push({key:'open',label:record.label || 'Related item',disabled:!!record.unavailable,value});
   return entry;
 }
@@ -355,6 +355,8 @@ function conversationMount(host,source,adapter={}) {
       signoffViews.add(card);
       return {dispose:()=>{signoffViews.delete(card);card.dispose();}};
     },
+    // Only a record-pane host can supply Task navigation; other references keep their existing handler.
+    onTask:adapter.openReference ? ref=>adapter.openReference(ref) : null,
     onReference:ref=>{
       if(ref)Promise.resolve(adapter.openReference?adapter.openReference(ref):taskProgressOpenReference(ref.business_slug ?? source.biz,ref)).catch(()=>setError(CONVERSATION_TEXT.load));
     },
