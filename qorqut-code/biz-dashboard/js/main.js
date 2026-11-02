@@ -40,7 +40,7 @@ connectEvents();
 
   const blocked = () => {
     const a = document.activeElement;
-    if (a && a.closest && a.closest(".sg, .ac, #taskspanel .ttabs, #thandle")) return true;
+    if (a && a.closest && a.closest(".sg, .ac, #taskspanel .ttabs")) return true;
     if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return true;
     if (a && a.isContentEditable) return true;
     if (document.querySelector(".overlay") || document.querySelector(".menu")) return true;
