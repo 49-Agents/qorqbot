@@ -38,3 +38,8 @@ def item_deliveries(uow, request):
 
 def item_subscriptions(uow, request):
     return request.select(uow, f"source_type IN ({MARKS})", ITEM_SOURCES)
+
+
+def failed_routine_runs(uow, request):
+    """Successful and in-progress execution bookkeeping stays in SQLite only."""
+    return request.select(uow, "state = ?", ("failed",))
