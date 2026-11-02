@@ -137,7 +137,7 @@ def open_database(paths: InstancePaths, assembly: Assembly) -> Database:
 
 
 def initialize_empty_target(paths: InstancePaths, assembly: Assembly, extensions=NO_EXTENSIONS) -> Database:
-    """Explicitly create an empty target store at ``paths.database`` (isolated synthetic instances and tests only)."""
+    """Explicitly create an empty target store at ``paths.database`` (isolated synthetic instances and tests, and ``bazarlyk.bootstrap.initialize``, the one fresh-instance initializer)."""
     database = Database(paths.database, assembly=assembly).initialize_target()
     from bazarlyk.operations_history.composition import history_for
     history_for(database, paths, extensions.history()).initialize()

@@ -472,8 +472,8 @@ Example to drop: "requests are immutable, you supersede them." Example to keep a
 delta: "requests should be immutable, change bizreq so editing is impossible."
 
 4. Tags, one of fact, decision, rule, idea, question. A fact is something that is
-simply true of the world and does not tell anyone to do anything: "our Reddit
-account is two months old." A decision is a choice the owner made between real
+simply true of the world and does not tell anyone to do anything: "our staging
+server is two months old." A decision is a choice the owner made between real
 options, and you keep the reason in the text: "we ship the free self-host build
 first rather than the cloud tier, because it is what the open-source audience
 wants." A rule is an instruction with always or never force, addressed at how work
@@ -489,11 +489,11 @@ is never a question item.
 
 5. Scope, one of biz, agent, agent_kind, global, and it applies to delta items.
 agent means this one agent in this one business; use it when the instruction is
-about this agent's own beat ("in your marketing notes, keep the draft and the final
+about this agent's own beat ("in your release notes, keep the draft and the final
 side by side"). biz means every agent of this business ("all work here goes through
 a task before a commit"). agent_kind means every agent of the same plugin kind in
-every business, so a rule about how marketing agents behave anywhere ("marketing
-agents never post a link in the body of a Reddit post"). global means every agent
+every business, so a rule about how that kind of agent behaves anywhere ("release
+agents never tag a build from an unreviewed branch"). global means every agent
 everywhere, a rule about the way of working itself ("never rebase from inside a
 session"). Propose the scope you actually believe, including global; the owner
 confirms it or moves it, so do not shrink a genuinely wide rule to be safe. agent is
@@ -502,7 +502,7 @@ instruction would make no sense addressed to a different agent. If the rule is a
 a tool, a file or a step that every agent of this business shares, it is biz and not
 agent, even when only one agent happened to be in the room when the owner said it.
 That only one agent was present is never a reason for scope agent. Example: the
-owner tells the marketing agent to mark a task doing while working on it; that is
+owner tells the release agent to mark a task doing while working on it; that is
 biz, because every agent of the business keeps tasks the same way. Every
 context item is scope biz, always, because context belongs to one business. Give
 scope_reason as one plain sentence saying why that level and not the one below it.
@@ -542,7 +542,7 @@ rule that follows from it.
 
 9. Directing the work at hand is not a learning. Most of what an owner says in a
 session steers the current task: edit this, move that element, rename the file, drop
-this paragraph, post it in that subreddit, make the button the same colour, create
+this paragraph, post it in that channel, make the button the same colour, create
 the repo, write the handoff. None of that is an item, however firmly it is said,
 because it is spent the moment the work is done. An instruction is a rule only when
 it is meant to hold next time as well: the owner says always, never, from now on, in
@@ -591,19 +591,19 @@ marked durable.
 
 {"review": [
   {"turn": "T1", "owner": "asked for the weekly post draft", "durable": false},
-  {"turn": "T7", "owner": "corrected where the link goes in a Reddit post", "durable": true}
+  {"turn": "T7", "owner": "corrected where the link goes in a release note", "durable": true}
 ],
  "items": [
   {"bucket": "delta",
    "tag": "rule",
    "scope": "agent_kind",
-   "scope_reason": "It is about how any marketing agent writes a Reddit post, not about this business.",
-   "text": "Marketing agents never put the product link in the body of a Reddit post; it goes in a comment.",
+   "scope_reason": "It is about how any release agent writes a release note, not about this business.",
+   "text": "Release agents never put the download link in the body of a release note; it goes in the footer.",
    "said_by": "owner",
    "from_correction": true,
    "confidence": 0.9,
    "evidence": {"turns": ["T7"],
-                "owner_quote": "no link in the post body, put it in a comment",
+                "owner_quote": "no link in the note body, put it in the footer",
                 "agent_quote": null}}
 ]}
 

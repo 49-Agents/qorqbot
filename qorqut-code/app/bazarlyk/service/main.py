@@ -170,6 +170,9 @@ def main(argv=None):
     parser.add_argument("--origin", action="append", default=[])
     parser.add_argument("--service-url", default=os.environ.get("BAZARLYK_MCP_URL"))
     parser.add_argument("--token", default=os.environ.get("BIZ_DASH_TOKEN", ""))
+    parser.add_argument("--token-file", type=Path, help="Private (0600) file holding the owner bootstrap token, instead of --token")
+    parser.add_argument("--extensions-config", type=Path, help="JSON file of the trusted extension selection "
+                        "({\"extensions\": [...]}); without it the process's own installation configuration decides")
     parser.add_argument("--prepare-agent", nargs=2, metavar=("BUSINESS_SLUG", "AGENT"))
     parser.add_argument("--claude-version")
     parser.add_argument("--codex-version")
@@ -184,9 +187,18 @@ def main(argv=None):
         # The one operational database of the instance; the engine validates its stored target identity and exact schema.
         from bazarlyk.composition.assembly import host_assembly, open_database
         from bazarlyk.extensions import installed_selection
+        from bazarlyk.installation import extensions_configuration
         from bazarlyk.service.changes import ChangeFeed
+        from bazarlyk.telegram.private_files import read_private_file
         # The owner's startup selection of installed extensions is fixed for this process; the store must match it.
-        selection = installed_selection()
+        selection = installed_selection() if args.extensions_config is None else installed_selection(extensions_configuration(args.extensions_config))
+        token = args.token
+        if args.token_file is not None:
+            if token:
+                raise DomainError("invalid_configuration", "Give the owner token once: --token-file replaces --token and BIZ_DASH_TOKEN")
+            token = read_private_file(args.token_file, max_bytes=512).decode().strip()
+            if not token:
+                raise DomainError("invalid_configuration", "The token file is empty")
         database = open_database(paths, host_assembly(ChangeFeed(), selection))
         if args.biz:
             with database.read() as uow:
@@ -203,7 +215,7 @@ def main(argv=None):
         if args.context_config is not None:
             from bazarlyk.shared_context.service import ContextSettings, runner_config_from_file
             context_settings = ContextSettings(config=runner_config_from_file(args.context_config))
-        app = assemble(args.workspace, paths=paths, origins=origins, endpoint=endpoint, bootstrap_token=args.token,
+        app = assemble(args.workspace, paths=paths, origins=origins, endpoint=endpoint, bootstrap_token=token,
             shell=os.environ.get("SHELL", "/bin/bash"), database=database, terminal_workspace=args.terminal_workspace,
             recovery_config=args.recovery_config, context=context_settings, extensions=selection)
         if args.prepare_agent:

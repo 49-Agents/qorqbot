@@ -5,6 +5,7 @@ from functools import lru_cache
 import json
 import os
 from pathlib import Path
+import stat
 
 from qorqut_operations.contracts import DomainError
 from bazarlyk.instance_paths import InstancePaths
@@ -46,6 +47,23 @@ def installation_config():
         return value
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise DomainError("invalid_installation", "Installation configuration is unavailable") from exc
+
+
+def extensions_configuration(path):
+    """The explicit extension-selection file of a launch (``--extensions-config``): a JSON object holding only the
+    ``extensions`` list in the trusted factory format. Read once, never through a link; ``installed_selection`` is still the
+    one place that validates, imports and builds the selection."""
+    try:
+        with os.fdopen(os.open(Path(path), os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC), "rb") as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                raise ValueError
+            data = stream.read(65537)
+        value = json.loads(data) if len(data) <= 65536 else None
+        if not isinstance(value, dict) or set(value) != {"extensions"}:
+            raise ValueError
+        return value
+    except (OSError, ValueError, TypeError) as exc:
+        raise DomainError("invalid_installation", "The extensions configuration is unavailable or is not an object with an extensions list") from exc
 
 
 def helper_launcher():
