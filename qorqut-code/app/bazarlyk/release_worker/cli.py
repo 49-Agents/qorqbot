@@ -48,6 +48,12 @@ def build_parser() -> argparse.ArgumentParser:
     v12.add_argument("--destination", type=Path, required=True)
     v12_verify = commands.add_parser("v12-verify", help="verify an already prepared v1.2 release")
     v12_verify.add_argument("--release", type=Path, required=True)
+    whatsapp_prepare = commands.add_parser("v12-whatsapp-prepare", help="build the personal read receiver from exact integrated source")
+    whatsapp_prepare.add_argument("--selection", type=Path, required=True)
+    for name, flag in (("deploy", "deploy"), ("connect", "connect")):
+        command = commands.add_parser("v12-whatsapp-" + name, help="explicit personal WhatsApp " + name)
+        command.add_argument("--release", type=Path, required=True)
+        command.add_argument("--confirm-" + flag, action="store_true")
     dashboard_prepare = commands.add_parser("v12-dashboard-prepare", help="prepare a dashboard-only update of the completed v1.2 installation")
     dashboard_prepare.add_argument("--selection", type=Path, required=True)
     dashboard_prepare.add_argument("--destination", type=Path, required=True)
@@ -120,6 +126,15 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command.startswith("v12-whatsapp-"):
+            from . import whatsapp
+            if args.command == "v12-whatsapp-prepare":
+                _json(whatsapp.prepare(args.selection))
+            elif args.command == "v12-whatsapp-deploy":
+                _json(whatsapp.deploy(args.release, confirm=args.confirm_deploy))
+            else:
+                _json(whatsapp.connect(args.release, confirm=args.confirm_connect))
+            return 0
         if args.command == "v12-helper-activate":
             from .v12_helpers import activate
             _json(activate(args.selection, confirm=args.confirm_adopt))
