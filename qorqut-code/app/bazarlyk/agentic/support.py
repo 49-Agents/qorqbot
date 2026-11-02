@@ -121,12 +121,18 @@ def read_yaml(data):
 class Source:
     """Reads only an explicitly supplied root; never follows filesystem links."""
 
-    def __init__(self, source_id, root, owner, enabled, diagnostics):
+    def __init__(self, source_id, root, owner, enabled, diagnostics, *, export_component=None, manifest_digest=None):
         self.id, self.root = identifier(source_id), absolute(root)
         self.owner, self.enabled, self.diagnostics = owner, enabled, diagnostics
         self.used, self.classified = {}, set()
         self.commit = self.repo_prefix = None
         self.clean = None
+        self.export_component, self.manifest_digest = export_component, manifest_digest
+        if export_component is not None:
+            self.commit = export_component["commit"]
+            self.repo_prefix = ""
+            self._git_root, self._git_filters = None, None
+            return
         self._git_root = next((parent for parent in (self.root, *self.root.parents)
                                if (parent / ".git").exists()), None)
         self._git_filters = None
@@ -314,6 +320,9 @@ class Source:
         return sorted(found)
 
     def record(self):
-        return dict(id=self.id, owner=self.owner, enabled=self.enabled, commit=self.commit, root=str(self.root),
+        export = (dict(provenance_kind="committed_export", tree=self.export_component["tree"],
+                       snapshot_sha256=self.export_component["snapshot_sha256"], source_manifest_sha256=self.manifest_digest)
+                  if self.export_component is not None else {})
+        return dict(id=self.id, owner=self.owner, enabled=self.enabled, commit=self.commit, root=str(self.root), **export,
                     repository_prefix=self.repo_prefix, clean=self.clean,
                     files=dict(sorted(self.used.items())), snapshot_digest=digest(self.used))

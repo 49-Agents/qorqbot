@@ -23,6 +23,7 @@ any. It runs no behavioral test: the installed behavior is accepted by the final
 
 from __future__ import annotations
 
+import importlib.util
 import argparse
 from datetime import datetime, timezone
 import hashlib
@@ -35,10 +36,14 @@ import sys
 import tempfile
 import zipfile
 
+_spec = importlib.util.spec_from_file_location("qorqut_source_snapshot", Path(__file__).resolve().parents[1] / "bazarlyk/source_snapshot.py")
+_snapshot = importlib.util.module_from_spec(_spec)
+exec(compile(Path(_spec.origin).read_bytes(), _spec.origin, "exec"), _snapshot.__dict__)
+
 PROBE = Path(__file__).with_name("installed_host_probe.py")
 HEX40 = re.compile(r"[0-9a-f]{40}")
 # The wheels every preparation builds, and the ones added by each selected extension (prepare-local.py's receipt keys).
-BASE_WHEELS = ("qorqut-operations", "qorqut-context", "document-history", "learning-library", "host")
+BASE_WHEELS = ("qorqut-agentic", "qorqut-operations", "qorqut-context", "document-history", "learning-library", "host")
 SELECTED_WHEELS = {"paper": ("paper-service", "qorqut-paper"), "content": ("content-library", "qorqut-content"),
                    "fastmail": ("email-engine", "qorqut-fastmail")}
 BASE_ENVIRONMENTS = ("venv",)
@@ -84,6 +89,13 @@ class Verifier:
         receipt = self.read_json(self.prepared / "PREPARATION-RECEIPT.json", "PREPARATION-RECEIPT.json")
         manifest = self.read_json(self.prepared / "src" / "SOURCE-MANIFEST.json", "src/SOURCE-MANIFEST.json")
         if receipt is None or manifest is None:
+            return False
+        try:
+            verified, manifest_digest = _snapshot.validate_export(self.prepared / "src")
+            if manifest_digest != receipt.get("source_manifest_sha256") or verified != manifest:
+                raise ValueError("source manifest digest differs from preparation")
+        except (OSError, ValueError) as exc:
+            self.fail(str(exc))
             return False
         self.receipt = receipt
         if receipt.get("state") != "prepared-not-configured":

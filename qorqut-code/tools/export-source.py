@@ -16,6 +16,7 @@ The export is built in a sibling staging directory and renamed into place only w
 """
 from __future__ import annotations
 
+import importlib.util
 import argparse
 import json
 import os
@@ -26,6 +27,11 @@ import sys
 import tarfile
 import tempfile
 from pathlib import Path, PurePosixPath
+
+# Load the exact pure helper shipped in the host; no installed runtime is needed.
+_spec = importlib.util.spec_from_file_location("qorqut_source_snapshot", Path(__file__).resolve().parents[1] / "app/bazarlyk/source_snapshot.py")
+_snapshot = importlib.util.module_from_spec(_spec)
+exec(compile(Path(_spec.origin).read_bytes(), _spec.origin, "exec"), _snapshot.__dict__)
 
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 COMMIT = re.compile(r"[0-9a-fA-F]{40}\Z")
@@ -247,7 +253,9 @@ def export(manifest_path, output):
             root = ensure_directory(staging, component["destination"].split("/"))
             extract(component, located[component["name"]], root)
         verify_links(staging, components)
-        public = {"format": 1, "components": [{key: component[key] for key in ("name", "destination", "commit", "tree")}
+        for component in components:
+            component["snapshot_sha256"] = _snapshot.component_digest(staging, component, components)
+        public = {"format": 1, "components": [{key: component[key] for key in ("name", "destination", "commit", "tree", "snapshot_sha256")}
                                               for component in components]}
         text = json.dumps(public, indent=2) + "\n"
         if any(str(path) in text for path in located.values()):
@@ -269,7 +277,7 @@ def main(argv=None):
     arguments = parser.parse_args(argv)
     try:
         public = export(arguments.manifest, arguments.output)
-    except ExportError as exc:
+    except (ExportError, _snapshot.SnapshotError, OSError, ValueError) as exc:
         print(f"export-source: error: {exc}", file=sys.stderr)
         return 2
     for component in public["components"]:

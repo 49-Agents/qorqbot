@@ -26,7 +26,7 @@ def dispatch(request, *, root=None, state=None):
         raise ImportFailure("invalid_request", "Expected {operation, arguments}")
     op, args = request["operation"], request["arguments"]
     contracts = {
-        "inventory_sources": ({"source_roots", "selected_extensions"}, {"custom_sources", "email_guidance_root"}),
+        "inventory_sources": ({"source_roots", "selected_extensions"}, {"custom_sources", "email_guidance_root", "export_root"}),
         "build_import_plan": ({"inventory"}, {"existing_files", "previous_import"}),
         "apply_import_plan": ({"plan", "attribution"}, set()),
     }

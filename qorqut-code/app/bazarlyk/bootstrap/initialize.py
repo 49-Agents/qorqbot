@@ -101,11 +101,17 @@ def load_prepared(prepared: Path):
     """The preparation receipt and the source manifest of its copy, which must describe the same components, and the five
     component locations they give (absolute, existing directories)."""
     receipt, receipt_digest = _read_json(prepared / RECEIPT, "The preparation receipt")
-    manifest, manifest_digest = _read_json(prepared / "src" / MANIFEST, "The source manifest")
+    from bazarlyk.source_snapshot import validate_export
+    try:
+        manifest, manifest_digest = validate_export(prepared / "src")
+    except (OSError, ValueError) as exc:
+        raise InitializationError(str(exc)) from exc
     if not isinstance(receipt, dict) or receipt.get("format") != 1 or receipt.get("state") != "prepared-not-configured":
         raise InitializationError("The preparation receipt is not a prepared-not-configured receipt (format 1)")
     if not isinstance(manifest, dict) or manifest.get("format") != 1 or manifest.get("components") != receipt.get("source_components"):
         raise InitializationError("The source manifest does not match the preparation receipt")
+    if receipt.get("source_manifest_sha256") != manifest_digest:
+        raise InitializationError("The prepared source manifest digest does not match its receipt; re-export and prepare again")
     sources = {item["name"]: item["destination"] for item in manifest["components"]}
     components = {}
     for name, (source, subdirectory) in COMPONENT_SOURCES.items():
@@ -133,7 +139,7 @@ def require_installed(prepared: Path, receipt, factories):
     if sys.prefix == sys.base_prefix or prefix != (prepared / "venv").resolve():
         raise InitializationError("The initializer must run in the prepared host environment (prepared/venv), not another interpreter")
     owners, source = metadata.packages_distributions(), (prepared / "src").resolve()
-    for module in ("bazarlyk", *dict.fromkeys(factory.partition(":")[0].partition(".")[0] for factory in factories)):
+    for module in ("bazarlyk", "qorqut_agentic", *dict.fromkeys(factory.partition(":")[0].partition(".")[0] for factory in factories)):
         if not {_canonical(name) for name in owners.get(module, ())} & set(first_party):
             raise InitializationError(f"The package {module} is not installed from the prepared environment at its recorded version")
     for name in first_party:
@@ -285,6 +291,8 @@ def initialize(prepared_root, instance_root, *, owner_name="Owner", extensions_c
     require_installed(prepared, receipt, factories)
     check_destination(instance, prepared)
     workspace = prepared / "src"
+    from bazarlyk.agentic.installation import initialize_installation, prepare_installation
+    agentic_prepared = prepare_installation(workspace, selection.ids)
     paths = InstancePaths(instance, components)                # validates the component overlaps; writes nothing
 
     # The first write: every check above has passed. A later failure leaves this directory for inspection. The umask keeps
@@ -297,10 +305,12 @@ def initialize(prepared_root, instance_root, *, owner_name="Owner", extensions_c
         config = require_private_directory(instance / "config", create=True)
         write_private_file(config, "extensions.json", json.dumps(configuration, indent=2, sort_keys=True).encode() + b"\n")
         write_private_file(config, "owner-token", secrets.token_urlsafe(32).encode())
+        agentic = initialize_installation(paths, agentic_prepared)
         created = seed_instance(paths, workspace, selection, owner_name.strip())
         history = provision_history_repository(paths.operations)     # the one explicit creation of the operations-root repository
         _make_private(instance)
         record = {"format": 1, "state": "initialized", "initialized_at": utc_now(), "owner_name": owner_name.strip(), **created,
+                  "agentic_layer": agentic,
                   "extensions": list(selection.ids), "instance_root": str(instance), "workspace": str(workspace),
                   "history_repository": {"path": str(history.path), "created": history.created, "branch": history.branch,
                                          "bootstrap_commit": history.commit},

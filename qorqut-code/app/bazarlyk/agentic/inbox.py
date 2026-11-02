@@ -161,7 +161,7 @@ def attach_agentic_inbox(runtime, layer, inbox):
     """Bind an installed layer to HostInbox and compose the existing nudge hook once.
 
     ``inbox`` is the host InboxService (or its HostInbox adapter). Call explicitly
-    after installation; this helper is not called by current host startup.
+    after the actual InboxService and NudgeBackend exist.
     """
     host = getattr(inbox, "host", inbox)
     backend = getattr(runtime, "inbox_nudges", None)
@@ -184,6 +184,7 @@ def attach_agentic_inbox(runtime, layer, inbox):
         connection = uow.connection
         connection.execute("SAVEPOINT agentic_inbox_drain")
         try:
+            layer.changes.scan()
             result = bridge.reconcile(uow)
         except Exception as error:
             connection.execute("ROLLBACK TO SAVEPOINT agentic_inbox_drain")

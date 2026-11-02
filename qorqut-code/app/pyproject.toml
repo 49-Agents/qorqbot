@@ -12,7 +12,7 @@ requires-python = ">=3.12"
 # installed by exact name and version; nothing resolves a first-party package from a Git URL or a private registry.
 # The host imports qorqut_context.integration at startup (shared Context graph reads, filing and edit driver and the Context
 # service); the integration extra is what pulls qorqut-operations into the Context package.
-dependencies = ["qorqut-operations==1.3.0.dev0", "qorqut-context[integration]==0.1.0", "PyJWT[crypto]>=2.8,<3", "jsonschema>=4.26,<5", "PyYAML>=6,<7", "pydantic>=2.13,<3", "markdown-it-py>=3,<5", "tomli-w>=1.2,<2",
+dependencies = ["qorqut-agentic==0.1.0", "qorqut-operations==1.3.0.dev0", "qorqut-context[integration]==0.1.0", "PyJWT[crypto]>=2.8,<3", "jsonschema>=4.26,<5", "PyYAML>=6,<7", "pydantic>=2.13,<3", "markdown-it-py>=3,<5", "tomli-w>=1.2,<2",
     # Bounded JPEG/PNG decoding that validates outbound Telegram photos (bazarlyk/telegram/media_validation.py).
     "Pillow>=12.3,<13",
     # Shared document history (docs/DOCUMENT-HISTORY.md).
@@ -33,6 +33,7 @@ where = ["."]
 include = ["bazarlyk*"]
 
 [tool.setuptools.package-data]
+"bazarlyk.agentic" = ["assets/*.md", "assets/index.json"]
 "bazarlyk.agents" = ["skills/role/SKILL.md", "skills/cleanup/SKILL.md"]
 "bazarlyk.bootstrap" = ["browser_init.cjs", "instructions/*.md", "instructions/operating/*.md"]
 "bazarlyk.sandbox" = ["browser-seccomp-moby-29.1.3.json"]
