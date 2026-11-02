@@ -116,7 +116,9 @@ class WorkspaceService:
             resolve_namespace=lambda ctx, args: "business:" + (ctx.business_id or args.get("business_id"))
                 if (ctx.business_id or args.get("business_id")) else "global")
         registry.register(OperationDescriptor("workspace_types",
-            schema({"role_id": {"type": "string", "maxLength": 64}}), effect_kind="read", **common,
+            schema({"role_id": {"type": "string", "maxLength": 64}}), effect_kind="read",
+            **{**common, "scope_kinds": frozenset({"business", "global"}),
+               "global_capability": "read_global_context"},
             description="Read the installed workspace types with each type's supported roles, renderer and "
                 "presentation actions. A small registry, not an arbitrary UI builder.",
             read=lambda ctx, args, options, uow: self.read_types(ctx, args, uow)))
