@@ -112,6 +112,10 @@
 .sg-inline .sg-rationale { margin:0 0 6px; }
 .sg-inline .sg-rationale h3 { display:none; }
 .sg-inline .sg-rationale p { font-size:12px; color:var(--fg-2); margin:0; }
+.sg-inline .sg-choices > div { display:flex; flex-wrap:wrap; gap:6px; }
+.sg-inline .sg .sg-choice { display:inline-flex; justify-content:center; width:auto; max-width:100%; height:auto; min-height:30px; padding:4px 10px; border-color:var(--line-2); }
+.sg-inline .sg-choice-name { font-size:12px; line-height:20px; }
+.sg-inline .sg .sg-choice[aria-checked="true"] { background:var(--accent); border-color:var(--accent); color:var(--accent-fg); }
 .sg-inline .sg .sg-feedback { min-height:56px; }
 .sg-inline .sg-feedbackwrap { margin-top:10px; }
 .sg-inline .sg-row:not(.sg-open) .sg-impact, .sg-inline .sg-row:not(.sg-open) .sg-effects, .sg-inline .sg-row:not(.sg-open) .sg-attention-meta,
