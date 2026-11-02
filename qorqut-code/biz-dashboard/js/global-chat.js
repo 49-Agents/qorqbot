@@ -316,8 +316,8 @@ function mountGlobalChat(pane, agent, options = {}) {
       });
       if (echo) { held.consumed.add(echo.id); record.entry = echo.id; }
     }
-    // Submitted receipts no longer need a temporary bubble, even if their transcript entry is outside the loaded page.
-    held.records = held.records.filter(record => !record.entry && record.state !== 'submitted');
+    // Delivery confirmation can precede transcript capture. Keep the accepted message until its exact echo is loaded.
+    held.records = held.records.filter(record => !record.entry);
     return held.records.filter(record => !GLOBAL_CHAT_HIDDEN.has(record.id) && !visibleIds.has(record.id)).map(record => ({sequence: record.sequence, model: {
       key: record.id, speaker: 'user', state: record.state, stateLabel: GLOBAL_CHAT_INPUT_STATE[record.state], inputType: 'chat', resendable: false,
       collapsedSource: null, text: record.text, actions: [],
