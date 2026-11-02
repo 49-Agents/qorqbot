@@ -4,7 +4,7 @@ Every accepted change appends exactly one ``action_revisions`` row in the same p
 describes. ``settle`` then runs in the applying transaction, after the records are written and before it commits: it
 hands each new revision (the exact stored row, never a later read of the Action) to the required ``on_revision`` port
 and announces the change to the Action's followers. Any operation that writes Actions through ``new_action`` must settle
-its plan with the composition's one ``on_revision``; the Action operations and the host's platform writebacks do.
+its plan with the composition's one ``on_revision``; the Action operations do, and so must any host caller of ``ActionWriteback``.
 """
 
 from __future__ import annotations
