@@ -8,8 +8,8 @@ is typed. After the checkpoint every outcome other than an explicit ``deferred``
 
 * ``TerminalAdapter`` types into the agent's one registered tmux pane for Claude Code or Codex through the existing verified
   composer path (bracketed paste, a single Enter, three composer observations, no input into a modal or non-empty composer).
-* ``CodexQueueAdapter`` queues into one conversation of a shared Codex desktop server through ``codex queue --thread``; it
-  never starts or resumes a client.
+* ``CodexQueueAdapter`` uses explicit turn/steer (busy) or turn/start (idle) for steering inputs on the verified
+  shared server. Non-steering producers retain codex queue. It never starts or resumes a client.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from bazarlyk.bootstrap import codex_session
 from bazarlyk.transport.agent_terminal_control import OwnerInputOutcome
 
 from .contracts import PROVIDER_RUNTIMES
+from . import codex_control
 
 CODEX_QUEUE_TIMEOUT = 30
 SUBMITTED = "submitted"
@@ -65,13 +66,16 @@ class CodexQueueAdapter:
 
     name = "codex_queue"
 
-    def __init__(self, *, run=subprocess.run, alive=codex_session.owner_alive, executable="codex"):
+    def __init__(self, *, run=subprocess.run, alive=codex_session.owner_alive, executable="codex", steering=codex_control.submit):
         self._run, self._alive, self._executable = run, alive, executable
+        self._steering = steering
 
     def submit(self, profile: dict, session: dict, text: str, *, steer: bool, echo: bool, checkpoint) -> OwnerInputOutcome:
         owner = session.get("owner")
         if not owner or not self._alive(owner):
             return OwnerInputOutcome(DEFERRED, "codex_session_closed")
+        if steer:
+            return self._steering(session, text, checkpoint, alive=self._alive)
         try:
             checkpoint()
         except Exception:

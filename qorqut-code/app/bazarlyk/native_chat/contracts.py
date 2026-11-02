@@ -107,7 +107,8 @@ class InputRequest:
     messages, nudges) attempts it once now and reports ``deferred`` when the session is not ready. ``body`` is what the
     owner sees for it; ``text`` is what is typed when it differs (private payloads are never stored: a sensitive input
     carries only ``text`` and no durable body). ``steer`` lets the text be typed while the native turn is still running, where the
-    client's composer accepts it (the client then queues or steers it as if the owner typed it); otherwise it waits for an idle
+    client's composer accepts it; shared Codex servers receive explicit turn/steer while busy and turn/start while idle.
+    Terminal-only clients follow their native submit behavior; otherwise input waits for an idle
     composer. ``expected_binding`` pins a session the producer already observed: a different
     live session rejects the request instead of typing into it.
     """
