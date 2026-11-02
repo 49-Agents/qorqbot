@@ -440,6 +440,39 @@ class CaptureJournal:
                 "ORDER BY c.sequence LIMIT 1001", (snapshot, found[3])).fetchall()
         truncated = len(candidates) > 1000
         candidates = candidates[:1000]
+        aliases = {"parent_task": "task", "task": "task", "signoff": "signoff", "action": "action",
+                   "document": "document", "supersedes_id": "signoff", "superseded_by_id": "signoff"}
+
+        def related_episodes(row):
+            ref = json.loads(row[1])
+            for relation in json.loads(row[3]):
+                if not isinstance(relation, dict):
+                    continue
+                kind = aliases.get(relation.get("kind") or relation.get("type"))
+                identity = relation.get("record_id") or relation.get("id")
+                if not kind or not isinstance(identity, str):
+                    continue
+                namespace = ref["namespace"]
+                if relation.get("business_id") is not None:
+                    namespace = {"kind": "business", "business_id": relation["business_id"]}
+                yield _episode(namespace, kind, identity)
+
+        # Private captured metadata identifies a conservative set of possible relatives.
+        # Do not perform source reads for every unrelated episode in the frontier.
+        # This is only a prefilter: authorization and the graph of permitted sources
+        # below still decide what can be returned, including revoked links/bridges.
+        possible_graph = {}
+        for row in candidates:
+            for other in related_episodes(row):
+                possible_graph.setdefault(row[5], set()).add(other)
+                possible_graph.setdefault(other, set()).add(row[5])
+        possible, queue = {episode_ref["id"]}, [episode_ref["id"]]
+        while queue:
+            for other in possible_graph.get(queue.pop(), ()):
+                if other not in possible:
+                    possible.add(other)
+                    queue.append(other)
+        candidates = [row for row in candidates if row[5] in possible]
         permitted, denied_episodes = [], set()
         for row in candidates:
             ref = json.loads(row[1])
@@ -452,21 +485,9 @@ class CaptureJournal:
                 continue
         graph, missing = {}, set()
         known = {row[5] for row in permitted}
-        aliases = {"parent_task": "task", "task": "task", "signoff": "signoff", "action": "action",
-                   "document": "document", "supersedes_id": "signoff", "superseded_by_id": "signoff"}
         for row in permitted:
-            ref, start = json.loads(row[1]), row[5]
-            for relation in json.loads(row[3]):
-                if not isinstance(relation, dict):
-                    continue
-                kind = aliases.get(relation.get("kind") or relation.get("type"))
-                identity = relation.get("record_id") or relation.get("id")
-                if not kind or not isinstance(identity, str):
-                    continue
-                namespace = ref["namespace"]
-                if relation.get("business_id") is not None:
-                    namespace = {"kind": "business", "business_id": relation["business_id"]}
-                other = _episode(namespace, kind, identity)
+            start = row[5]
+            for other in related_episodes(row):
                 if other not in known:
                     missing.add(start)
                     continue
