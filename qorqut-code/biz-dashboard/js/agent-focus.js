@@ -940,6 +940,28 @@ async function agfocusOpenTarget(p,target,{root=true}={}) {
   agfocusShowDock(p);
   return p.focusWorkspace?.open(record,{root,tab:record.can_thread?'chat':'dashboard'});
 }
+// A resolved Task reference in native Chat opens that exact Task's own record and Chat thread in the currently open
+// agent pane's Focus workspace. The reference keeps its exact namespace: a non-null business id always resolves to its
+// own Project and is never routed to Global; an async read never lands in a pane that switched agent or was disposed.
+async function agfocusOpenChatTask(agentId, reference) {
+  const pane = typeof _agpad === 'undefined' ? null : _agpad;
+  if (!pane || String(pane.agentId ?? '') !== String(agentId ?? '')) throw new Error('This agent is no longer open.');
+  if (!agpadFocusSurfaces(pane)) throw new Error('This agent has no Focus view.');
+  if (!reference || reference.id == null) throw new Error('This Task is no longer available.');
+  const source = {type: 'task', id: reference.id, business_id: reference.business_id ?? null,
+    business_slug: reference.business_slug || null, label: reference.label || null,
+    task_type: reference.task_type || null, state: reference.state || null};
+  const record = rwRecordFromItem({source, can_thread: true}, {can_thread: true});
+  if (!record) throw new Error('This Task is no longer available.');
+  if (record.scopeMissing) throw new Error('That Task belongs to a Project that is not available here.');
+  if (pane.view !== 'focus' || pane.surface) await agpadSetView(pane, 'focus');
+  if (pane.view !== 'focus' || !pane.focusMount?.isConnected) throw new Error('Focus is unavailable for this agent.');
+  const opened = await agfocusOpenTarget(pane, {source, can_thread: true}, {root: true});
+  if (typeof _agpad === 'undefined' || _agpad !== pane || String(pane.agentId ?? '') !== String(agentId ?? ''))
+    throw new Error('This agent is no longer open.');
+  if (!pane.focusWorkspace?.isOpen?.()) throw new Error('This Task could not be opened.');
+  return opened;
+}
 function agfocusShowDock(p) {
   const board=p.focusMount;if(!board?.isConnected)return null;
   if(!p.focusWorkspace?.alive?.())p.focusWorkspace=recordWorkspaceMount($('.agfocus-dock-content',board),agfocusWorkspaceOptions(p));

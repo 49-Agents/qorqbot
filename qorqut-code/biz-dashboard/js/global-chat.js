@@ -467,6 +467,11 @@ function mountGlobalChat(pane, agent, options = {}) {
       GLOBAL_CHAT_SENDS.delete(composerScope); paintSession();
     },
     onOlder: () => loadOlder(),
+    // A resolved Task reference opens that Task's own record thread in the current agent pane's Focus workspace.
+    onTask: reference => {
+      if (typeof agfocusOpenChatTask !== 'function') throw new Error('This Task cannot be opened here.');
+      return agfocusOpenChatTask(agentId, reference);
+    },
     // A Signoff reference is the existing single-item Signoff view: the owner session, exact proposal and decisions stay its own.
     mountSignoff: (ref, host) => sgChatMount(ref, host, {active: () => !disposed}),
     onViewportChange: scheduleRead,
