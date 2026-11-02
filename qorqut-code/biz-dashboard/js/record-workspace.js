@@ -1,4 +1,4 @@
-// One record workspace shared by Focus and Threads. A selected record shows exactly one
+// The shared record workspace. A selected record shows exactly one
 // full-width pane: its dashboard or its existing Ordubashy conversation. The header keeps
 // Back (in-pane related navigation), the record title, the record-type and Chat icon tabs,
 // and Close. Entries stay mounted in a bounded navigation stack so tab changes and Back
@@ -161,7 +161,6 @@ function rwConfirmDiscard(entry) {
 // host receives the workspace. options:
 //   visible(): whether the workspace is on screen for unread acknowledgment
 //   onClose(): hide the surrounding pane after the record was closed by the owner
-//   entry: 'focus' | 'threads' (presentation only)
 //   onRead(source), onUnread(source), onTitleChange(record)
 function recordWorkspaceMount(host, options = {}) {
   if (!host) return null;
@@ -174,7 +173,6 @@ function recordWorkspaceMount(host, options = {}) {
     open, navigate, back, close, dispose, current, refresh, hasUnsaved, updateTitle, isOpen: () => stack.length > 0,
     entry, root: () => stack[0] || null, alive: () => !disposed,
   };
-  if (options.entry === 'threads') host.classList.add('rw-in-threads');
   return api;
 
   function entry() { return stack[stack.length - 1] || null; }
@@ -270,7 +268,7 @@ function recordWorkspaceMount(host, options = {}) {
         if (tab) selectTab(last, tab);
         return true;
       }
-      // A different Focus/Threads selection starts a fresh Chat-first root path even when that
+      // A different Focus selection starts a fresh Chat-first root path even when that
       // record already exists deeper in the old path. Its edits are guarded by discardAny().
       if (!await discardAny()) return false;
       if (disposed) return false;
@@ -650,7 +648,7 @@ function recordWorkspaceMount(host, options = {}) {
     const host = item.conversationHost;
     item.chat = conversationMount(host, binding, {
       inlineComposer: true, related: true, dismissOnOutside: false,
-      // Focus and Threads are Global projections; the canonical source names the owning Project.
+      // Focus is a Global projection; the canonical source names the owning Project.
       privateGlobal: true, privateSource,
       isVisible: () => item.alive && item.tab === 'chat' && !item.chatHost.hidden && !document.hidden
         && options.visible?.() !== false && item.recordEl.isConnected && !item.recordEl.hidden,
@@ -1811,7 +1809,7 @@ function rwProjectLinkDialog(project, onLinked) {
 }
 
 // ---------------------------------------------------------------- small shared helpers for entry points
-// A Focus/Threads item reports unread in the same shape the row already uses.
+// A Focus item reports unread in the same shape the row already uses.
 function rwRecordFromFocusCard(item) {
   const record = rwRecordFromItem(item, {can_thread: !item.unavailable && RW_THREAD_TYPES.has((item.resolved_source || item.source || item.conversation || {}).type)});
   // Focus may carry a presentation-only name. A Project never uses it; other records keep their

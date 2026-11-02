@@ -1,4 +1,4 @@
-/* The shared Focus/Threads record workspace: one full-width dashboard or existing chat.
+/* The shared record workspace: one full-width dashboard or existing chat.
    Header order: optional Back, title, flexible space, type icon tab, Chat icon tab, close. */
 .rw{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;box-sizing:border-box}
 .rw-records{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}

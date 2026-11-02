@@ -11,7 +11,6 @@ let _agpad = null;
 // declaration keeps Focus available when that read is unavailable.
 const WORKSPACE_BASE_VIEWS = new Set(["tasks", "inbox", "activity", "status", "globalTasks"]);
 const WORKSPACE_SEED = [
-  {key:"threads",display_name:"Threads",supported_roles:["ordubashy"],renderer:"threads",presentation_actions:[]},
   { key: "focus", display_name: "Focus", supported_roles: ["ordubashy", "global-worker"], renderer: "focus_board",
     presentation_actions: ["focus_show", "focus_clear", "focus_browser_input", "focus_present", "focus_edit",
       "focus_move", "focus_set_archived", "focus_reply"] },
@@ -94,13 +93,14 @@ function extensionsLoad() {
 let workspaceDeclaration = null, workspaceDeclarationAsked = false, workspaceDeclarationPending = null;
 
 function normalizeWorkspaceType(value) {
-  if (!value || typeof value !== "object" || typeof value.key !== "string" || !value.key) return null;
+  if (!value || typeof value !== "object" || typeof value.key !== "string" || !value.key
+      || value.key === "threads" || value.renderer === "threads") return null;
   const strings = list => Array.isArray(list) ? list.filter(item => typeof item === "string") : [];
   return { key: value.key, display_name: typeof value.display_name === "string" ? value.display_name : value.key,
     supported_roles: strings(value.supported_roles), renderer: typeof value.renderer === "string" ? value.renderer : "",
     presentation_actions: strings(value.presentation_actions) };
 }
-function workspaceTypes() { return workspaceDeclaration || WORKSPACE_SEED; }
+function workspaceTypes() { return (workspaceDeclaration || WORKSPACE_SEED).filter(type => type.key !== "threads" && type.renderer !== "threads"); }
 function workspaceType(key) { return workspaceTypes().find(type => type.key === key) || null; }
 function workspaceRenderer(type) { return type && WORKSPACE_RENDERERS.get(type.renderer)?.mount || null; }
 function workspaceViewsFor(roleId) { return roleId ? workspaceTypes().filter(type => type.supported_roles.includes(roleId)) : []; }
@@ -110,7 +110,10 @@ function agpadWorkspaceView(view) { return !WORKSPACE_BASE_VIEWS.has(view); }
 
 // Browser appears for any agent with a configured browser binding; the full
 // Desktop remains Ordubashy's alone (core also enforces this on the binding).
-// Viewbox is offered to any registered agent (the owner-only board is keyed by its id), after the general views.
+// Viewbox is offered to registered agents except Learning Applier (the owner-only board is keyed by agent id).
+function agentPaneViewAllowed(roleId, view) {
+  return view !== "threads" && !(view === "viewbox" && roleId === "learning-applier");
+}
 function agentPaneViews(scope, roleId, base = [], browser = false, agentId = null) {
   const leading = [], trailing = [];
   for (const type of workspaceViewsFor(roleId)) (WORKSPACE_RENDERERS.get(type.renderer)?.leading ? leading : trailing).push(type.key);
@@ -119,13 +122,12 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   leading.unshift(...own);
   // Business follows Focus where the agent has it, otherwise the agent's own views.
   if (personal.includes('business')) leading.splice(leading.includes('focus') ? leading.indexOf('focus') + 1 : own.length, 0, 'business');
-  // Threads is permanently adjacent to Focus regardless of registry ordering.
-  if(leading.includes('threads')){leading.splice(leading.indexOf('threads'),1);leading.splice(Math.max(0,leading.indexOf('focus')),0,'threads');}
   // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer.
   if (roleId === "learning-applier") leading.push("changes");
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
-  return [...new Set([...leading, ...base, ...(agentId ? ["viewbox"] : []), ...trailing, "status"])];
+  return [...new Set([...leading, ...base, ...(agentId ? ["viewbox"] : []), ...trailing, "status"])]
+    .filter(view => agentPaneViewAllowed(roleId, view));
 }
 // The workspace preview groups the existing Activity and Inbox renderers behind
 // one header entry. Their internal view keys keep polling and deep links intact.
@@ -219,6 +221,7 @@ function agpadWorkspaceViewsSync(p) {
 }
 
 function agpadWorkspaceMount(p, view) {
+  if (!agentPaneViewAllowed(p.workspaceRole, view)) return;
   if (view === "changes" && p.workspaceRole === "learning-applier") { overseerMount(p); return; }
   if (typeof agentWorkspaceMount === 'function' && agentWorkspaceMount(p, view)) return;
   if (view === "desktop" && p.workspaceRole === "ordubashy") { agfocusDesktopMount(p); return; }
@@ -267,6 +270,7 @@ function agTakeLinkedWorkspace(hash) {
 // honored only if it turns out to be installed and the owner has not moved elsewhere. Anything else is ignored.
 function agpadRequestView(p, view) {
   if (typeof view !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(view)) return false;
+  if (!agentPaneViewAllowed(p.workspaceRole, view)) return false;
   // Calendar and Tables live in the shared drawer: retired keys never add a tab (links translate first).
   if (view === "calendar" || view === "tables") return false;
   // The retired System Dev keys likewise never add a tab.
@@ -478,7 +482,7 @@ function agpadRememberView(p, view) {
 }
 
 function agpadSetView(p, view, leaveChecked = false) {
-  if (_agpad !== p || !p.views.includes(view)) return;
+  if (_agpad !== p || !p.views.includes(view) || !agentPaneViewAllowed(p.workspaceRole, view)) return;
   if (agpadFocusSurfaces(p)) {
     // Browser, Desktop and Viewbox items open inside the mounted Focus shell; Focus itself closes them.
     if (AGPAD_FOCUS_SURFACES.has(view)) return agpadSurfaceRequest(p, view, leaveChecked);
@@ -550,6 +554,7 @@ function agpadSetView(p, view, leaveChecked = false) {
 function agpadShownView(p) { return p.surface ? p.surface.kind : p.view; }
 
 function agpadSurfaceRequest(p, kind, leaveChecked) {
+  if (!AGPAD_FOCUS_SURFACES.has(kind) || !p.views.includes(kind) || !agentPaneViewAllowed(p.workspaceRole, kind)) return;
   const open = () => { if (_agpad === p && p.view === "focus" && p.focusMount?.isConnected) agpadSurfaceOpen(p, kind); };
   if (p.view === "focus" && p.focusMount?.isConnected) { open(); return; }
   const moved = agpadSetView(p, "focus", leaveChecked);
@@ -558,6 +563,7 @@ function agpadSurfaceRequest(p, kind, leaveChecked) {
 }
 
 function agpadSurfaceOpen(p, kind) {
+  if (!AGPAD_FOCUS_SURFACES.has(kind) || !p.views.includes(kind) || !agentPaneViewAllowed(p.workspaceRole, kind)) return;
   const board = p.focusMount, host = board?.querySelector(":scope > .agfocus-surface");
   if (!host || (kind === "desktop" && p.workspaceRole !== "ordubashy")) return;
   p.focusDetail?.back?.();

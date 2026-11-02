@@ -289,7 +289,7 @@ function agfocusMount(p) {
     board.querySelector('.attention-queue').after(signoffQueue);
   }
   const disposeSignoffs=typeof attentionQueue!=='undefined'?attentionQueue.mountSignoffs(signoffQueue,id=>p.focus?.items.find(item=>item.source?.type==='signoff' && item.source.id===id)?.display_name,summary=>agfocusOpenSignoff(p,summary)):()=>{};
-  // Focus and Threads share one record workspace. Its header owns Back, the type and
+  // Focus uses the shared record workspace. Its header owns Back, the type and
   // Chat icon tabs and Close; selecting a row no longer mounts a conversation inside it.
   p.focusWorkspace=recordWorkspaceMount($('.agfocus-dock-content',board),{
     entry:'focus',
