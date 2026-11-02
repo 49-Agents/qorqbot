@@ -28,6 +28,8 @@ from typing import Callable, Mapping
 
 from qorqut_operations.contracts import DomainError
 
+from bazarlyk.inbox.owner_forwarding import forward_owner_message
+
 from . import store
 from .contracts import (INPUT_TYPES, MAX_TEXT_CHARS, ORIGIN_SYSTEM, RESULT_DEFERRED, RESULT_REJECTED, STATE_FAILED,
                         STATE_SUBMITTED, STATE_SUBMITTING, STATE_UNCERTAIN, STATE_UNDELIVERED, STATE_WAITING, TYPE_CHAT,
@@ -133,6 +135,11 @@ class InputArbiter:
                     self.runtime.application.ensure_writes_open(uow)
                     row = store.insert_input(uow.connection, session, request, digest, state=STATE_WAITING, marker=marker,
                                              attempt=attempt)
+                    if request.input_type == TYPE_CHAT:
+                        # The message is accepted here, whether or not its delivery is later delayed; a worker's owner message
+                        # is noted to Ordubashy in this same transaction and never from the scrubbed input.
+                        forward_owner_message(uow, kind="chat", source_id=row["id"], sender_id=request.principal_id,
+                                              worker_id=request.agent_id, body=request.text, accepted_at=row["created_at"])
                 self.wake()
                 return self._result(row)
             return self._attempt(profile, session, request, digest, attempt, marker, on_checkpoint)

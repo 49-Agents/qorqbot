@@ -1,10 +1,11 @@
-"""Isolated owner conversations with the global peers.
+"""Isolated owner conversations with Ordubashy and with individual workers.
 
-The default preserves the original owner/Ordubashy source key. Marketing threads
-bind an exact peer_agent_id and use a separate key, delivery, cursor and history.
+The default preserves the original owner/Ordubashy source key. Worker threads
+bind an exact peer_agent_id and use a separate key, delivery, cursor and history;
+the converted Marketing agent keeps its stored keys and history under its UUID.
 The optional agent_id/peer_role selector never grants access: every source and
 participant is reauthorized. Team notes and private account mail are unchanged.
-A global peer takes part in an active business through its effective scope, never
+A worker takes part in an active business through its effective scope, never
 a membership row. Business-home identities are historical: their stored channels
 are history, never an executable peer.
 """
@@ -18,6 +19,8 @@ from qorqut_operations.conversations import SUMMARY, author, normalize_summary, 
 from bazarlyk.agents.global_scope import active_business_participant
 from bazarlyk.management.identity import installation_owner, private_participants
 
+from .owner_forwarding import forward_owner_message
+
 AUDIENCE = 'owner_ordubashy'
 EVENT_SOURCE = 'owner_conversations'
 EVENT_SUMMARY = 'Private message from the owner'
@@ -25,7 +28,7 @@ BUSINESS_ONLY = {'email'}
 SOURCE = schema({'type': {'enum': ['task', 'signoff', 'email', 'reference']},
                  'id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
                  'business_id': {'type': ['string', 'null']}}, ('type', 'id'))
-FIELDS = {'agent_id': {'type': 'string', 'format': 'uuid'}, 'peer_role': {'enum': ['ordubashy', 'global-marketing']}, 'scope': {'enum': ['business', 'global']}, 'source': SOURCE}
+FIELDS = {'agent_id': {'type': 'string', 'format': 'uuid'}, 'peer_role': {'enum': ['ordubashy', 'global-worker']}, 'scope': {'enum': ['business', 'global']}, 'source': SOURCE}
 # Every refusal that means "this coordinator cannot read that source now".
 # `context_refresh_required` belongs here: one stale card must not abort the
 # whole inbox page that lists it.
@@ -33,6 +36,12 @@ UNAVAILABLE = {'forbidden', 'not_found', 'policy_denied', 'validation_error', 'o
                'management_unavailable', 'busy', 'document_unavailable', 'context_refresh_required'}
 EMAIL_READERS = ('email_conversation_get', 'email_conversations_list',
                  'business_email_conversation_get', 'business_email_conversations_list')
+
+
+def worker_peer(uow, identity):
+    """Whether this identity is an active registered worker, the only agent with a private owner channel besides Ordubashy."""
+    from bazarlyk.agents.worker_access import is_worker
+    return is_worker(uow.connection, identity)
 
 
 def source_key(kind, business_id, identity, peer_agent_id=None):
@@ -73,23 +82,22 @@ def private_index(ctx, bindings, uow, service=None):
     still pass a fresh channel read, so counters never outlive that authority
     and never fall back to the legacy Ordubashy key.
     """
-    from bazarlyk.agents.global_peers import marketing_peer
     canonical = {source_key(b['type'], b.get('business_id'), b['id']): b for b in bindings}
     if not canonical:
         return {}
     owner = installation_owner(uow)
     reader = owner if owner and ctx.principal_kind == 'human' and ctx.principal_id == owner else None
     mapping = {}
-    # A Marketing agent that lost its peer authority must not read the legacy channel's counts instead.
+    # A worker that lost its eligibility must not read the legacy channel's counts instead.
     if reader or ctx.principal_id == private_participants(uow)[1]:
         mapping.update({key: (key, None) for key in canonical})
-    peers = [ctx.principal_id] if marketing_peer(uow, ctx.principal_id) else []
+    peers = [ctx.principal_id] if worker_peer(uow, ctx.principal_id) else []
     if reader:
         # A revoked or inactive peer's channel is unreadable, so it cannot leave
         # an unread marker the owner has no way to clear.
         peers = [r[0] for r in uow.connection.execute(
             "SELECT DISTINCT peer_agent_id FROM owner_conversations WHERE peer_agent_id IS NOT NULL")
-            if marketing_peer(uow, r[0])]
+            if worker_peer(uow, r[0])]
     for peer in peers:
         mapping.update({'peer:' + peer + ':' + key: (key, peer) for key in canonical})
     if not mapping:
@@ -149,7 +157,7 @@ class PrivateConversations:
         registry.register(OperationDescriptor('owner_conversation_get', schema({**FIELDS,
             'before': {'type': 'integer', 'minimum': 1}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}}, ('source',)),
             **common, effect_kind='read', read=lambda c, a, o, u: self.read(c, a, u),
-            description='Read your private owner conversation on one object. Marketing defaults to its own isolated channel. The owner may select peer_role or agent_id; omission preserves the Ordubashy channel.'))
+            description='Read your private owner conversation on one object. A worker defaults to its own isolated channel. The owner selects a worker by agent_id (peer_role global-worker requires it); omission preserves the Ordubashy channel.'))
         registry.register(OperationDescriptor('owner_conversation_send', schema({**FIELDS,
             'text': {'type': 'string', 'minLength': 1, 'maxLength': 20000}, 'summary': SUMMARY,
             'expected_conversation_revision': {'type': 'integer', 'minimum': 1}}, ('source', 'text')),
@@ -169,30 +177,20 @@ class PrivateConversations:
     # ----- identity and canonical binding -------------------------------------
 
     def participants(self, uow, ctx=None, args=None):
-        from bazarlyk.agents.global_peers import marketing_peer
         owner, coordinator = private_participants(uow)
         args = args or {}
         selected = args.get('agent_id')
-        if args.get('peer_role') == 'global-marketing' and not selected and ctx and ctx.principal_kind == 'agent' \
-                and marketing_peer(uow, ctx.principal_id):
+        agent = ctx is not None and ctx.principal_kind == 'agent'
+        if selected is None and agent and worker_peer(uow, ctx.principal_id):
             selected = ctx.principal_id
-        if args.get('peer_role') == 'global-marketing' and not selected:
-            candidates = [r[0] for r in uow.connection.execute(
-                "SELECT agent_id FROM agent_profiles WHERE status='active' AND home_business_id IS NULL")
-                if marketing_peer(uow, r[0])]
-            if len(candidates) != 1:
-                raise DomainError('validation_error', 'Select one active Marketing peer by agent_id')
-            selected = candidates[0]
-        if selected is None and ctx and ctx.principal_kind == 'agent' and marketing_peer(uow, ctx.principal_id):
-            selected = ctx.principal_id
+        if args.get('peer_role') == 'global-worker' and not selected:
+            raise DomainError('validation_error', 'Select one active worker by agent_id')
         selected = selected or coordinator
         if args.get('peer_role') == 'ordubashy' and selected != coordinator:
             raise DomainError('forbidden', 'Selected peer does not match this channel')
-        if args.get('peer_role') == 'global-marketing' and not marketing_peer(uow, selected):
-            raise DomainError('forbidden', 'Selected peer does not match this channel')
-        if selected != coordinator and not marketing_peer(uow, selected):
-            raise DomainError('forbidden', 'Select an active authorized peer for this source')
-        if ctx and ctx.principal_kind == 'agent' and ctx.principal_id != selected:
+        if selected != coordinator and not worker_peer(uow, selected):
+            raise DomainError('forbidden', 'Select an active worker for this source')
+        if agent and ctx.principal_id != selected:
             raise DomainError('forbidden', 'A peer may access only its own private owner conversation')
         return owner, selected
 
@@ -205,7 +203,6 @@ class PrivateConversations:
         raise DomainError('forbidden', 'Private conversations belong to the owner and the selected agent')
 
     def peer_binding(self, ctx, args, uow):
-        from bazarlyk.agents.global_peers import marketing_peer
         _, peer = self.participants(uow, ctx, args)
         return peer if peer != private_participants(uow)[1] else None
 
@@ -334,8 +331,7 @@ class PrivateConversations:
             return False
         _, coordinator = private_participants(uow)
         coordinator = row['peer_agent_id'] or coordinator
-        from bazarlyk.agents.global_peers import marketing_peer
-        if row['peer_agent_id'] and not marketing_peer(uow, coordinator):
+        if row['peer_agent_id'] and not worker_peer(uow, coordinator):
             return False
         if not coordinator or ctx.principal_kind != 'agent' or ctx.principal_id != coordinator:
             return False
@@ -356,9 +352,8 @@ class PrivateConversations:
     # ----- operations ---------------------------------------------------------
 
     def view(self, row, source, uow, peer=None):
-        from bazarlyk.agents.global_peers import marketing_role
         bound = row['peer_agent_id'] if row is not None else peer
-        audience = ('owner_marketing' if marketing_role(uow, bound) else 'owner_agent') if bound else AUDIENCE
+        audience = 'owner_agent' if bound else AUDIENCE
         return {'id': row['id'] if row else None, 'source': source, 'audience': audience,
                 'agent_id': row['peer_agent_id'] if row is not None else peer,
                 'revision': row['revision'] if row else 0,
@@ -379,7 +374,6 @@ class PrivateConversations:
         owner, coordinator = private_participants(uow)
         if ctx.principal_kind != 'human' or ctx.principal_id != owner:
             raise DomainError('forbidden', 'Only the owner can list private peers')
-        from bazarlyk.agents.global_peers import marketing_peer
         source = dict(args['source'])
         business = self.effective_business(ctx, source)
         source['business_id'] = business
@@ -388,14 +382,14 @@ class PrivateConversations:
         result = []
         for row in uow.connection.execute("SELECT agent_id,profile_json FROM agent_profiles WHERE status='active'"):
             identity = row['agent_id']
-            if identity != coordinator and not marketing_peer(uow,identity):
+            if identity != coordinator and not worker_peer(uow, identity):
                 continue
             if not self.channel_available(ctx, source, identity, uow):
                 continue
             profile = json.loads(row['profile_json'])
             stored = conversation_row(uow, source_key(source['type'], business, source['id'], None if identity == coordinator else identity))
             result.append({'agent_id': identity, 'name': profile.get('display_name') or profile.get('name') or identity,
-                'role': profile['role'], 'channel': 'private' if identity == coordinator else 'marketing',
+                'role': profile['role'], 'channel': 'private' if identity == coordinator else 'worker',
                 'unread': bool(stored and has_unread(uow,stored['id'],read_cursor(uow,stored['id'],owner)))})
         return {'peers': result}
 
@@ -489,6 +483,9 @@ class PrivateConversations:
                                'WHERE id=?', (sequence, now, row['id']))
         if role == 'owner':
             self.deliver(ctx, row, source, sequence, now, uow)
+            if peer:
+                forward_owner_message(uow, kind='private_conversation', source_id=message['id'], sender_id=ctx.principal_id,
+                                      worker_id=peer, body=args['text'], accepted_at=now)
         message.pop('conversation_id')
         return {'message': author({**message, 'sequence': sequence}, uow),
                 'conversation': {'id': row['id'], 'agent_id': peer, 'revision': row['revision'] + 1,
