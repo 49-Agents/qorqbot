@@ -1,0 +1,5 @@
+channel: email
+approval: owner_input
+# owner_input is the guidance policy for access methods without a native sending tool.
+# An installed native sending tool that supplies an editable exact-message Signoff whose approval queues
+# the send enforces that Signoff itself; guidance follows it and adds no second approval.

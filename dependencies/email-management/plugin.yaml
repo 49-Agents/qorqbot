@@ -1,0 +1,11 @@
+schema_version: 1
+id: email-management
+version: 3.2.0
+description: Instruction-only email guidance. Starts every email task from the owner's editable local instructions for accounts, connector or browser access, sender choice and outgoing-mail approval. Adds no tool, mailbox registration or credential.
+scope_kinds: [ecosystem]
+config_schema: schemas/config.schema.json
+tools: tools.yaml
+rules: rules.yaml
+skills:
+  - id: email-management
+    path: skills/email-management/SKILL.md
