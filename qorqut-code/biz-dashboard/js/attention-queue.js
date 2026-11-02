@@ -3,6 +3,7 @@ const attentionQueue=(()=>{
   const visibleLimit=6;
   let items=[],loading=false,error='',timer,loadPromise=null,loadAgain=false,generation=0,saving=0,refreshAfterSave=false,writes=Promise.resolve();
   const mounts=new Set(),lists=new Set(),acknowledged=new Set(),signoffMounts=new Map();
+  let queueOkAt=0,signoffOkAt=0;
   let signoffs=[],signoffsLoading=false,signoffsError='',signoffTimer,signoffPromise=null,signoffAgain=false;
   const viewedIds=item=>item.viewed_ids?.length?item.viewed_ids:[item.id];
   const remaining=()=>items.filter(item=>!viewedIds(item).every(id=>acknowledged.has(id)));
@@ -76,13 +77,19 @@ const attentionQueue=(()=>{
         if(cursor && seen.has(cursor))throw new Error('Repeated signoff page');
         seen.add(cursor);
       }while(cursor);
-      signoffs=[...new Map(rows.filter(s=>s.state==='pending').map(s=>[s.id,s])).values()];signoffsError='';
-    }catch(e){signoffsError=e.message;}
+      signoffs=[...new Map(rows.filter(s=>s.state==='pending').map(s=>[s.id,s])).values()];signoffsError='';signoffOkAt=Date.now();
+    }catch(e){signoffsError=e.message;if(accessLost(e)){signoffs=[];signoffOkAt=0;}}
     finally{signoffsLoading=false;paintSignoffs();}
   }
   // One read at a time; an explicit call in flight records a single trailing read.
-  function refreshSignoffs(){
+  // `ordinary` is a mount: it reuses an in-flight read or a recent success and never records a trailing read.
+  function refreshSignoffs(ordinary=false){
     if(!signoffMounts.size)return Promise.resolve();
+    if(ordinary && signoffPromise)return signoffPromise;
+    if(ordinary && !signoffsError && Date.now()-signoffOkAt<60000){
+      clearTimeout(signoffTimer);signoffTimer=setTimeout(()=>{void (signoffPromise||refreshSignoffs());},60000-(Date.now()-signoffOkAt));
+      return Promise.resolve();
+    }
     if(signoffPromise){signoffAgain=true;return signoffPromise;}
     signoffPromise=(async()=>{
       try{do{signoffAgain=false;await loadSignoffs();}while(signoffAgain && signoffMounts.size);}
@@ -107,13 +114,21 @@ const attentionQueue=(()=>{
   }
   async function loadQueue(){
     loading=true;const request=++generation;
-    try{const data=coreData(await api('/root/attention-queue'));if(request===generation){items=distinctDestinations(data.items || []);error='';}}
-    catch(e){if(request===generation)error=e.message;}
+    try{const data=coreData(await api('/root/attention-queue'));if(request===generation){items=distinctDestinations(data.items || []);error='';queueOkAt=Date.now();}}
+    catch(e){if(request===generation){error=e.message;if(accessLost(e)){items=[];queueOkAt=0;}}}
     finally{loading=false;paintAll();}
   }
   // One read at a time. Explicit triggers (mount, focus, reply change, retry) arriving in flight
   // record a single trailing read and resolve after it; the poll timer never does.
-  function refresh(){
+  // `ordinary` is a mount: it reuses an in-flight read or a recent success and never records a trailing read.
+  function refresh(ordinary=false){
+    if(ordinary && !saving){
+      if(loadPromise)return loadPromise;
+      if(!error && Date.now()-queueOkAt<10000){
+        clearTimeout(timer);timer=setTimeout(()=>{void (loadPromise||refresh());},10000-(Date.now()-queueOkAt));
+        return Promise.resolve();
+      }
+    }
     // During a save the caller gets the write chain: the deferred read starts after it settles and is not awaited.
     if(saving){refreshAfterSave=true;return writes;}
     if(loadPromise){loadAgain=true;return loadPromise;}
@@ -137,7 +152,7 @@ const attentionQueue=(()=>{
       const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
       try{
         const data=coreData(await post('/root/attention-queue',{viewed:keys},{signal:controller.signal}));
-        items=distinctDestinations(data.items || []);error='';paintAll();
+        items=distinctDestinations(data.items || []);error='';queueOkAt=Date.now();paintAll();
       }catch(e){keys.forEach(id=>acknowledged.delete(id));paintAll();toast('Could not clear attention: '+(e.name==='AbortError'?'Save timed out. Right-click again to retry.':e.message));}
       finally{
         clearTimeout(timeout);
@@ -210,8 +225,8 @@ const attentionQueue=(()=>{
   window.addEventListener('focus',()=>{if(mounts.size)void refresh();void refreshSignoffs();});
   if(typeof onChange==='function')onChange(['signoffs'],null,()=>{void refreshSignoffs();});
   return {signoffViewed,viewboxViewed,refresh,refreshSignoffs,paintSignoffs,
-    mountSignoffs(host,name,opener){signoffMounts.set(host,{name,opener});host.addEventListener('click',signoffClick);paintSignoffs();void refreshSignoffs();
+    mountSignoffs(host,name,opener){signoffMounts.set(host,{name,opener});host.addEventListener('click',signoffClick);paintSignoffs();void refreshSignoffs(true);
       return ()=>{signoffMounts.delete(host);host.removeEventListener('click',signoffClick);if(!signoffMounts.size)clearTimeout(signoffTimer);};},
-    mount(host){mounts.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);paint(host);void refresh();
+    mount(host){mounts.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);paint(host);void refresh(true);
     return ()=>{mounts.delete(host);host.removeEventListener('click',clicks);host.removeEventListener('contextmenu',dismiss);if(!mounts.size)clearTimeout(timer);};}};
 })();

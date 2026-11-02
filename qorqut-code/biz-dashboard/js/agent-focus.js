@@ -412,6 +412,7 @@ async function agfocusRefresh(p) {
       };
       await Promise.all(agfocusVisibleItems(p,data.items).filter(row=>!row._workParent && agfocusRestorable(p,row)).map(restore));
     } catch (error) {
+      if (accessLost(error) && pageKey===agfocusPageKey(p)) { p.focus = null; p.focusPageKey = null; }
       if (agpadActive(p) && pageKey===agfocusPageKey(p) && (!focusMount || p.focusMount===focusMount)) p.focusError = 'Could not refresh Pinned. ' + error.message;
       else if(agpadActive(p) && p.view==='focus')p.focusRefreshAgain=true;
     } finally {

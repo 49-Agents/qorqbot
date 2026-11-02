@@ -279,6 +279,37 @@ function calendarPaintGrid(page, dates, allEvents, eventButton, hourHeight = 64)
 }
 
 // Compact event queue above Focus attention; the Calendar tab keeps its time grid.
+// Today's provider read is shared by every mounted Today excerpt. A mount paints the last same-day read and only reads again once it is older than the
+// fresh window; concurrent ordinary reads join one flight, while an explicit refresh (after a change) always follows a read that started before it.
+const CALENDAR_TODAY_FRESH_MS = 30000;
+let calendarTodayShared = null, calendarTodayFlight = null;
+function calendarTodayLoad(force = false) {
+  if (calendarTodayFlight) return force ? calendarTodayFlight.catch(() => {}).then(() => calendarTodayLoad()) : calendarTodayFlight;
+  const flight = calendarTodayFlight = (async () => {
+    const now = new Date(), day = new Date(now.getFullYear(),now.getMonth(),now.getDate()), key = calendarDateString(day);
+    const result = await calendarCall('calendar_calendars_list');
+    const calendars = result.calendars, events = [], errors = result.errors.map(e => `${e.connection_id}: ${e.message}`);
+    await Promise.all(calendars.map(async calendar => {
+      let cursor;
+      try {
+        do {
+          const page = await calendarCall('calendar_events_list',{connection_id:calendar.connection_id,calendar_id:calendar.id,
+            start:day.toISOString(),end:calendarAddDays(day,1).toISOString(),limit:200,...(cursor ? {cursor} : {})});
+          events.push(...page.events); cursor = page.next_cursor;
+        } while (cursor);
+      } catch (error) { errors.push(`${calendar.name}: ${error.message}`); }
+    }));
+    const visibleEvents = events.filter(event => event.status !== 'cancelled');
+    visibleEvents.sort((a,b) => {
+      const allDayA = a.start.length === 10, allDayB = b.start.length === 10;
+      return Number(allDayB)-Number(allDayA) || (allDayA ? a.start.localeCompare(b.start) : new Date(a.start)-new Date(b.start)) || a.id.localeCompare(b.id);
+    });
+    return calendarTodayShared = {key,calendars,visibleEvents,configured:result.configured,errors,at:Date.now()};
+  })();
+  const clear = () => { if (calendarTodayFlight === flight) calendarTodayFlight = null; };
+  flight.then(clear, clear);
+  return flight;
+}
 function calendarTodayMount(host) {
   host.className = 'calendar-page calendar-today';
   host.setAttribute('aria-label', "Today's calendar");
@@ -309,36 +340,18 @@ function calendarTodayMount(host) {
       loadedDay = key; snapshot = nextSnapshot;
     }
   };
-  const refresh = async () => {
+  const refresh = async force => {
     if (!current() || pending) return;
     pending = true;
-    const now = new Date(), day = new Date(now.getFullYear(),now.getMonth(),now.getDate()), key = calendarDateString(day);
     const statuses = calendarStatuses.refresh();
     try {
-      const result = await calendarCall('calendar_calendars_list');
+      const shared = await calendarTodayLoad(force !== false);
       if (!current()) return;
-      const calendars = result.calendars, events = [], errors = result.errors.map(e => `${e.connection_id}: ${e.message}`);
-      await Promise.all(calendars.map(async calendar => {
-        let cursor;
-        try {
-          do {
-            const page = await calendarCall('calendar_events_list',{connection_id:calendar.connection_id,calendar_id:calendar.id,
-              start:day.toISOString(),end:calendarAddDays(day,1).toISOString(),limit:200,...(cursor ? {cursor} : {})});
-            if (!current()) return;
-            events.push(...page.events); cursor = page.next_cursor;
-          } while (cursor);
-        } catch (error) { errors.push(`${calendar.name}: ${error.message}`); }
-      }));
-      if (!current()) return;
-      const visibleEvents = events.filter(event => event.status !== 'cancelled');
-      visibleEvents.sort((a,b) => {
-        const allDayA = a.start.length === 10, allDayB = b.start.length === 10;
-        return Number(allDayB)-Number(allDayA) || (allDayA ? a.start.localeCompare(b.start) : new Date(a.start)-new Date(b.start)) || a.id.localeCompare(b.id);
-      });
-      data = {key,calendars,visibleEvents,configured:result.configured,errors}; refreshError = '';
+      data = shared; refreshError = '';
       await statuses;
       paintQueue();
     } catch (error) {
+      if (accessLost(error)) calendarTodayShared = null;
       if (!current()) return;
       // A transient provider failure keeps the last loaded queue so a label save can still repaint it.
       if (data && !accessLost(error)) { refreshError = error.message; paintQueue(); }
@@ -348,10 +361,12 @@ function calendarTodayMount(host) {
   };
   const unsubscribe = calendarStatuses.subscribe(paintQueue);
   const dispose = () => { active = false; unsubscribe(); clearInterval(timer); document.removeEventListener('visibilitychange',visible); };
-  timer = setInterval(() => { if (!current()) dispose(); else if (!document.hidden) void refresh(); },60000);
-  const visible = () => { if (!document.hidden) void refresh(); };
+  timer = setInterval(() => { if (!current()) dispose(); else if (!document.hidden) void refresh(false); },60000);
+  const visible = () => { if (!document.hidden) void refresh(false); };
   document.addEventListener('visibilitychange',visible);
-  void refresh();
+  const seed = calendarTodayShared;
+  if (seed && seed.key === calendarDateString(new Date())) { data = seed; paintQueue(); }
+  if (!seed || seed.key !== calendarDateString(new Date()) || Date.now() - seed.at >= CALENDAR_TODAY_FRESH_MS) void refresh(false);
   return {refresh,dispose};
 }
 
