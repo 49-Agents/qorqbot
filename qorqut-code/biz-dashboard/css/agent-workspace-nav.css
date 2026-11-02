@@ -38,7 +38,7 @@
 
 /* Agent roster: the selected agent and an unread reply read clearly in the slim rail without changing its size or order. */
 .agent-workspace-app .global-agents .item.agent { position:relative; }
-.agent-workspace-app .global-agents .item.agent.on { background:var(--hover); color:var(--fg); box-shadow:inset 2px 0 0 var(--fg); }
+.agent-workspace-app .global-agents .item.agent.on { background:var(--hover); color:var(--fg); }
 .agent-workspace-app .global-agents .item.agent:focus-visible { outline:1px solid var(--fg-2); outline-offset:-1px; }
 .agent-workspace-app .global-agents .nm > .chat-unread-dot { width:7px; height:7px; }
 @media (prefers-reduced-motion: reduce) { .agent-workspace-app .global-agents .item.agent { transition:none; } }
