@@ -48,15 +48,19 @@ def unfinished_work(connection):
                                       WHERE a.status='verifying' ORDER BY a.run_id,a.operation_id"""):
             conflicts.append({'code': 'unresolved_verification', **dict(row)})
     if 'overseer_operations' in tables:
-        for row in bounded('SELECT operation_id,CASE WHEN length(result)<=1048576 THEN result ELSE NULL END AS result FROM overseer_operations ORDER BY operation_id'):
-            try:
-                result = json.loads(row['result'])
-            except (TypeError, ValueError):
+        # Only the receipt's validity and its top-level `_state` decide here, so SQLite reads just those: a large but valid
+        # saved result (bounded by the connection's own length limit) is not mistaken for a malformed one.
+        for row in bounded("""SELECT operation_id, json_valid(result) AS valid,
+                                     CASE WHEN json_valid(result) AND json_type(result) = 'object'
+                                               AND json_type(result, '$._state') = 'text'
+                                          THEN substr(json_extract(result, '$._state'), 1, 256) END AS state
+                              FROM overseer_operations ORDER BY operation_id"""):
+            if not row['valid']:
                 conflicts.append({'code': 'malformed_operation', 'operation_id': row['operation_id']})
                 continue
-            if isinstance(result, dict) and result.get('_state') in ('check_running', 'candidate_reserved'):
+            if row['state'] in ('check_running', 'candidate_reserved'):
                 conflicts.append({'code': 'unfinished_check', 'operation_id': row['operation_id'],
-                                  'state': result['_state']})
+                                  'state': row['state']})
     return conflicts
 
 
