@@ -20,6 +20,10 @@ RUNTIME_CLIENTS = {'claude-code':'claude', 'codex':'codex'}
 CLIENT_NAMES = {'claude':'Claude Code', 'codex':'Codex'}
 NATIVE_ONLY = 'Terminal control currently requires native host execution'
 MAX_OWNER_INPUT_CHARS = 17000
+# A busy CLI can take several frames to display a bracketed paste. Re-read only:
+# never paste twice, clear the composer, or submit without the existing checks.
+PASTE_VERIFY_ATTEMPTS = 10
+PASTE_VERIFY_INTERVAL = .2
 # ``receipt`` names what was observed once input was attempted (client, a hash of the terminal identity, the composer
 # fingerprint); it never carries screen text or the typed text.
 OwnerInputOutcome = namedtuple('OwnerInputOutcome', 'status reason receipt', defaults=(None,))
@@ -331,7 +335,8 @@ class AgentTerminalBackend:
             return OwnerInputOutcome('deferred', 'screen_changing')
         receipt = {'client': client, 'composer': first.fingerprint,
                    'target': hashlib.sha256(json.dumps(snap, sort_keys=True, default=str).encode()).hexdigest()}
-        return self._type(row, client, broker, snap, first, text, workdir, require_paste_echo, allow_busy)._replace(receipt=receipt)
+        outcome = self._type(row, client, broker, snap, first, text, workdir, require_paste_echo, allow_busy)
+        return outcome._replace(receipt={**receipt, **(outcome.receipt or {})})
 
     def _type(self, row, client, broker, snap, first, text, workdir, require_paste_echo=True, allow_busy=False):
         """Everything from the first input on. Any outcome here may follow a write, so it is never replayed."""
@@ -343,16 +348,25 @@ class AgentTerminalBackend:
         # Chat owns this successful paste into a verified empty composer. Long
         # text may be clipped or collapsed by the CLI; visible echo is optional.
         # Identity/mode checks still run before sending exactly one Enter.
-        try:
-            _, seen, pasted = self._observe(row, client, expect=text, allow_busy=allow_busy)
-        except OwnerInputDeferred:
-            return OwnerInputOutcome('uncertain', 'paste_unverified')
-        # The exact pasted text (or the client's placeholder for it) occupies the composer, on the same unchanged client, with
-        # no running turn unless ``allow_busy`` (a running turn is then expected, and is not by itself a doubt). Wording on
-        # screen is never read as a dialog here: a dialog would not show this text as the composer.
-        if seen != snap or pasted.reason == 'enter_interrupts' \
-                or (require_paste_echo and (pasted.state != 'pasted' or pasted.fingerprint == first.fingerprint)):
-            return OwnerInputOutcome('uncertain', 'paste_unverified')
+        for attempt in range(1, PASTE_VERIFY_ATTEMPTS + 1):
+            try:
+                _, seen, pasted = self._observe(row, client, expect=text, allow_busy=allow_busy)
+            except OwnerInputDeferred as exc:
+                return OwnerInputOutcome('uncertain', 'paste_unverified',
+                                         {'paste_check': exc.reason, 'paste_checks': attempt})
+            # Loss of identity or an interrupting submit key is final, even if a later frame looks valid.
+            if seen != snap or pasted.reason == 'enter_interrupts':
+                return OwnerInputOutcome('uncertain', 'paste_unverified',
+                                         {'paste_check': 'session_changed' if seen != snap else pasted.reason,
+                                          'paste_checks': attempt})
+            if not require_paste_echo or (pasted.state == 'pasted' and pasted.fingerprint != first.fingerprint):
+                break
+            # Only the echo may still be rendering. Each observation re-verifies the client, pane and mode;
+            # a partial or different message never authorizes Enter. Waiting cannot resend any input.
+            if attempt == PASTE_VERIFY_ATTEMPTS:
+                return OwnerInputOutcome('uncertain', 'paste_unverified',
+                                         {'paste_check': pasted.reason, 'paste_checks': attempt})
+            self.sleep(PASTE_VERIFY_INTERVAL)
         code, _ = broker.tmux('send-keys', '-t', pane, 'Enter')
         if code:
             return OwnerInputOutcome('uncertain', 'submit_failed')
