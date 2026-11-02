@@ -28,8 +28,8 @@
       }
       tabHeld=true;chordAllowed=!blocked && !event.shiftKey;return;
     }
-    if(tabHeld && chordAllowed && !event.shiftKey && ['o','m'].includes(event.key.toLowerCase())) {
-      event.preventDefault();event.stopImmediatePropagation();const role=event.key.toLowerCase()==='o'?'ordubashy':'global-marketing';reset();void jump(role);
+    if(tabHeld && chordAllowed && !event.shiftKey && event.key.toLowerCase()==='o') {
+      event.preventDefault();event.stopImmediatePropagation();reset();void jump('ordubashy');
     }
   },true);
   document.addEventListener('keyup',event=>{if(event.key==='Tab')reset();},true);
