@@ -17,7 +17,7 @@ CAPS = {"context": 6, "blocked": 5, "active": 6, "paused": 3, "groups": 5, "rout
         "signoffs": 5, "owner_tasks": 4, "done": 4, "agents": 6, "work": 3, "notes": 4, "email": 3}
 DESCRIPTION = ("One bounded snapshot of a project: the shared published Context's revision and most connected nodes, "
     "open and blocked tasks, parent-Task work groups, routines and failed jobs, what waits on the owner, work done in the last 14 days, agent "
-    "activity, strategy/marketing note headlines, KPIs and email attention. Call it first when you start work "
+    "activity, project note headlines, KPIs and email attention. Call it first when you start work "
     "on a project; Global agents pass business_id. Sections you cannot read are marked unavailable; each "
     "section names the tool for details. Read-only; it never acknowledges inbox events.")
 
@@ -323,14 +323,11 @@ class _Briefing:
         return {"items": [view(row) for row in rows[:CAPS["agents"]]], "more": "agents_activity_list"}
 
     def notes(self):
-        result = {}
-        for category in ("strategy-notes", "marketing-notes", "engineering-decisions"):
-            rows = self.call("notes_list", {"category": category, "limit": 50})["items"]
-            rows = sorted(rows, key=lambda row: row.get("updated_at") or "", reverse=True)
-            result[category] = [{"id": row["id"], "title": clip((row.get("metadata") or {}).get("title"), 80),
-                                 "updated": when(row.get("updated_at"))} for row in rows[:CAPS["notes"]]]
-        result["more"] = 'notes_list(category=...); notes_get(document_id)'
-        return result
+        rows = self.call("notes_list", {"target_business_id": self.ctx.business_id, "limit": 50})["items"]
+        rows = sorted(rows, key=lambda row: row.get("updated_at") or "", reverse=True)
+        return {"items": [{"id": row["id"], "title": clip((row.get("metadata") or {}).get("title"), 80),
+                           "updated": when(row.get("updated_at"))} for row in rows[:CAPS["notes"]]],
+                "more": "notes_list(target_business_id=..., tag=...); notes_get(document_id)"}
 
     def email(self):
         unassigned = self.call("business_email_conversations_list", {"unassigned": True, "limit": 200})

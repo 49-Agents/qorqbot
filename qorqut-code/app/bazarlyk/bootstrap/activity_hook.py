@@ -56,7 +56,7 @@ def substantive(tool, arguments=None, reads=frozenset()):
     operation = tool.replace('.', '__').rsplit('__', 1)[-1]
     if not operation or tool in CLAUDE_READS or operation in reads or operation.endswith(('_get', '_list', '_describe')):
         return False
-    if operation == 'notes_create' and isinstance(arguments, dict) and {'target_agent_id', 'category'} & set(arguments):
+    if operation == 'notes_create' and isinstance(arguments, dict) and {'target_agent_id', 'target_business_id'} & set(arguments):
         return True  # Only the agent's own notes are bookkeeping.
     return operation not in BOOKKEEPING
 

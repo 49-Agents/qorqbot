@@ -150,21 +150,17 @@ class FocusService:
             'updated_at': row['updated_at'], 'stale': bool(row['updated_at'] and (not session_owner
                 or session_owner['consumer_id'] != row['consumer_id']))}
 
-    def owner_context(self, owner, agent_id, uow, *, shared=False):
+    def owner_context(self, owner, agent_id, uow):
         owner = self.app.current_context(replace(owner, business_id=None, review_business_id=None), uow)
         installation = uow.repository('installation').get('service')
         if owner.principal_kind != 'human' or not installation or installation['owner_principal_id'] != owner.principal_id:
             raise DomainError('forbidden', 'Only the installation owner can read or respond to Focus')
         agent = self.app.policy.context_for(agent_id, business_id=None, review_business_id=None, uow=uow)
-        if shared:
-            from bazarlyk.agents.global_peers import marketing_peer
-            if marketing_peer(uow, agent_id):
-                return owner, self.board.context(agent, uow)
         return owner, self.context(agent, uow)
 
     def owner_snapshot(self, owner, agent_id):
         with self.app.database.read() as uow:
-            owner, ctx = self.owner_context(owner, agent_id, uow, shared=True)
+            owner, ctx = self.owner_context(owner, agent_id, uow)
             from .attention import AttentionBoard
             return AttentionBoard(self).read(owner, {}, uow)
 
@@ -193,7 +189,7 @@ class FocusService:
 
     def owner_document(self, owner, agent_id, document_id):
         with self.app.database.read() as uow:
-            owner, ctx = self.owner_context(owner, agent_id, uow, shared=True)
+            owner, ctx = self.owner_context(owner, agent_id, uow)
             items=list(self.row(ctx,uow)['items_json'])
             from .attention import decode
             for stored in uow.connection.execute('SELECT * FROM focus_cards'):

@@ -188,7 +188,7 @@ def instruction_block(business: dict, endpoint: str, owner_name=None) -> str:
         "",
         "- Start by calling the `owner_session_bootstrap` tool for project orientation and context pointers.",
         "- Fetch deeper context on demand with `context_list`, `context_search` and `context_get`; project",
-        "  strategy and marketing notes are listed with `notes_list` and read with `notes_get`.",
+        "  notes are listed with `notes_list` (target_business_id) and read with `notes_get`.",
         "- Project direction belongs to the owner with Ordubashy, who coordinates execution through the permanent",
         "  workers. Projects have no resident agents.",
         "- Use `agents_message_recipients`, `agents_message_send` and `agents_messages_list` for direct",

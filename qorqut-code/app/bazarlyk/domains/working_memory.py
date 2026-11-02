@@ -291,7 +291,7 @@ class WorkingMemory:
             configuration, _ = TaskOperations.configuration(ctx, uow)
             closed = [s['name'] for s in configuration['states'] if s['kind'] == 'closed']
             role = ctx.role_artifact_ref.id if ctx.role_artifact_ref else None
-            manager = role in {roles.BUSINESS_AGENT_ROLE, roles.ORDUBASHY_ROLE}
+            manager = role == roles.ORDUBASHY_ROLE
             query = "SELECT t.id,t.title,t.status,t.revision FROM tasks t WHERE t.business_id IS ? AND t.archived=0 AND " + ACTIVE_SQL
             params = [ctx.business_id, timestamp(self.clock)]
             if closed:

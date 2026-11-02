@@ -43,10 +43,7 @@ class HostDelegationProvider:
         return supports_durable_delegation_version(role.version, role.id)
 
     def required_capabilities(self, role):
-        required = {"manage_delegated_assignments"}
-        if role.id == "global-marketing":
-            required.add("coordinate_businesses")
-        return frozenset(required)
+        return frozenset({"manage_delegated_assignments"})
 
     def selector_kinds(self, operation_name):
         selectors = dict(SELECTORS)

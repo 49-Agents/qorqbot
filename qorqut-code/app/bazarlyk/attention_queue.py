@@ -74,7 +74,7 @@ def queue(runtime, ctx, change=None):
             profile = uow.connection.execute('SELECT profile_json FROM agent_profiles WHERE agent_id=?', (item.get('agent_id'),)).fetchone()
             if profile:
                 data = json.loads(profile[0])
-                item['presentation'] = {k: data[k] for k in ('role', 'department', 'icon', 'name', 'scope') if k in data}
+                item['presentation'] = {k: data[k] for k in ('role', 'icon', 'name', 'scope') if k in data}
         _, _, signoffs = runtime.signoffs.notifications._rows(ctx, uow)
     for row in signoffs:
         candidates.append({'id': signoff_key(row), 'kind': 'signoff', 'signoff_id': row['id'],

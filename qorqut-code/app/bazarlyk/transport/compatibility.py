@@ -15,8 +15,6 @@ from starlette.responses import JSONResponse, Response
 import yaml
 
 from bazarlyk.composition.locations import business_hq
-from bazarlyk.agents.roles import BUSINESS_AGENT_ROLE, FOUNDER_ROLE
-from qorqut_operations.departments import department as department_info, profile_department, department_id, BY_ID
 from qorqut_operations.contracts import DomainError, InvocationOptions, new_id, plain
 from qorqut_operations.team_channel import is_installation_owner
 from qorqut_operations.storage.repositories import decode_row
@@ -25,6 +23,8 @@ from .results import response
 from .routine_views import recent_runs, run_view, hourly_runs
 
 OPTIONS = {"expected_revision", "idempotency_key", "supersedes_signoff_id", "expected_superseded_status_revision"}
+# What the dashboard draws for an agent whose profile chose no icon or color.
+DEFAULT_AGENT_ICON, DEFAULT_AGENT_COLOR = "bot", "#949BA5"
 
 
 def integer_parameter(value, name, minimum, maximum):
@@ -76,14 +76,8 @@ class DashboardCompatibility:
     @staticmethod
     def appearance(profile):
         presentation = profile.get("presentation", {})
-        department = profile_department(profile)
-        look = department_info(department)
-        icon, color = look["icon"], look["color"]
-        if profile.get("role", {}).get("id") == FOUNDER_ROLE:
-            icon = "lightbulb"
-        elif profile.get("role", {}).get("id") == BUSINESS_AGENT_ROLE:
-            icon = "business"  # the dashboard draws the business's own letter avatar
-        return {"department": department, "icon": presentation.get("icon", icon), "color": color, "kind": profile.get("role", {}).get("id", "")}
+        return {"icon": presentation.get("icon", DEFAULT_AGENT_ICON), "color": presentation.get("color", DEFAULT_AGENT_COLOR),
+                "kind": profile.get("role", {}).get("id", "")}
 
     def registered_agent(self, context, selector, *, include_inactive=False):
         with self.runtime.database.read() as uow:
@@ -161,9 +155,6 @@ class DashboardCompatibility:
             if request.method == "GET":
                 return await anyio.to_thread.run_sync(lambda: self.business_get(request, context, None, tail))
             raise DomainError("not_found", "Endpoint is not registered")
-        if len(parts) == 3 and parts[:2] == ["root", "desktop-servers"] and request.method == "GET":
-            data = await anyio.to_thread.run_sync(lambda: self.local_files.desktop_server(context, parts[2]))
-            return JSONResponse(data, headers={"Cache-Control": "no-store"})
         if parts == ["root", "env"]:
             if request.method == "GET":
                 data = await anyio.to_thread.run_sync(lambda: self.local_files.environment_settings(context))
@@ -307,7 +298,6 @@ class DashboardCompatibility:
                 items = self.collection(context, "learnings_list")
                 from bazarlyk.domains.learnings.work import STATES
                 counts = {state: sum(row["state"] == state for row in items) for state in STATES}
-                counts["open_by_tag"] = {tag: sum(row["state"] == "open" and department_id(row.get("tag")) == tag for row in items) for tag in BY_ID}
                 return JSONResponse({"items": items, "counts": counts})
             return revalidated(request, self.runtime.changes, {"learnings"}, context.business_id, produce)
         if len(tail) == 2 and tail[0] == "learnings":
@@ -381,17 +371,15 @@ class DashboardCompatibility:
             result = self.invoke(context, operation, args, self.options(body, revision=current["revision"]))
             return response(result) if result.status != "ok" else JSONResponse({"task": self.task_view(context, plain(result.data["task"]))})
         if tail == ["agent"]:
-            checked_fields(body, {"name", "display_name", "role", "assignment_brief", "department", "kind", "plugins", "presentation"} | OPTIONS,
+            checked_fields(body, {"name", "display_name", "role", "assignment_brief", "kind", "plugins", "presentation"} | OPTIONS,
                 {"role"})
             # A business agent's name is allocated; agents_create rejects a chosen one.
             args = {key: body[key] for key in ("name", "display_name", "role", "assignment_brief", "plugins", "presentation") if key in body}
-            if "department" in body:
-                args["presentation"] = {**args.get("presentation", {}), "department": body["department"]}
             return response(self.invoke(context, "agents_create", args, self.options(body)), created=True)
         if len(tail) == 3 and tail[0] == "agent" and tail[2] == "meta":
-            checked_fields(body, {"department", "icon"} | OPTIONS)
+            checked_fields(body, {"icon"} | OPTIONS)
             profile = self.registered_agent(context, tail[1])
-            presentation = {**profile["presentation"], **{key: body[key] for key in ("department", "icon") if key in body}}
+            presentation = {**profile["presentation"], **{key: body[key] for key in ("icon",) if key in body}}
             result = self.invoke(context, "agents_update", {"agent_id": profile["agent_id"], "changes": {"presentation": presentation}}, self.options(body, revision=profile["profile_revision"]))
             return response(result) if result.status != "ok" else JSONResponse({"ok": True, **self.appearance({**profile, "presentation": presentation})})
         return self.document_post(request, context, business, tail, body)
@@ -442,17 +430,27 @@ class DashboardCompatibility:
             "changedSinceUpload": bool(meta.get("upload_id")) and meta.get("upload_snapshot_hash") != snapshot_hash(document.get("body", ""), meta),
             "title": meta.get("title", ""), "content": document.get("body", ""),
             "ordubashyVisible": meta.get("ordubashy_visible", True) is True,
-            "category": meta.get("category", ""), "authorId": meta.get("author_id", ""),
+            "tags": list(meta.get("tags", [])), "authorId": meta.get("author_id", ""),
             "date": meta.get("date", document.get("created_at", "")[:10]), "pinned": meta.get("pinned") in (True, "true"),
             "statuses": meta.get("statuses", {}), "createdAt": meta.get("created", document.get("created_at", "")),
             "updatedAt": meta.get("updated", document.get("updated_at", "")),
             "uploaded": meta.get("uploaded", ""), "uploadId": meta.get("upload_id", "")}
 
-    def document_selector(self, context, selector, operation="context_list", *, prefix=None, kinds=None):
+    @staticmethod
+    def project_target(context, supplied):
+        """The explicit Project UUID a Project-note request carries, forwarded unchanged. The route slug only selects the route; the
+        operation compares this value with the selected Project and the stored note owner. A Project route without it is refused."""
+        if supplied is not None:
+            return {"target_business_id": supplied}
+        if context.business_id is not None and context.agent_id is None:
+            raise DomainError("validation_error", "Project notes require target_business_id")
+        return {}
+
+    def document_selector(self, context, selector, operation="context_list", *, prefix=None, kinds=None, arguments=None):
         if not isinstance(selector, str) or not selector or "\\" in selector or ".." in PurePosixPath(selector).parts or selector.startswith("/"):
             raise DomainError("validation_error", "A registered document selector is required")
         path = prefix + "/" + selector if prefix else selector
-        documents = self.collection(context, operation)
+        documents = self.collection(context, operation, arguments)
         matches = [row for row in documents if (kinds is None or row["kind"] in kinds) and
             (row["id"] == selector or row["path"] == path or (prefix is None and PurePosixPath(row["path"]).stem == selector))]
         if len(matches) != 1:
@@ -596,8 +594,9 @@ class DashboardCompatibility:
     def document_get(self, request, context, business, tail):
         if tail == ["notes"]:
             def produce():
-                category = request.query_params.get("category")
-                rows = self.collection(context, tail[0] + "_list", {"category": category} if category else None)
+                tag = request.query_params.get("tag")
+                target = self.project_target(context, request.query_params.get("target_business_id"))
+                rows = self.collection(context, tail[0] + "_list", {**({"tag": tag} if tag else {}), **target})
                 with self.runtime.database.read() as uow:
                     return JSONResponse([self.page_view(row, uow, context) for row in rows])
             # page_view()'s filing status reads the Context queue's rows (coarse, global-only context_queue) and `jobs` directly
@@ -695,19 +694,16 @@ class DashboardCompatibility:
     def document_post(self, request, context, business, tail, body):
         if tail[:1] == ["notes"]:
             domain = tail[0]
-            checked_fields(body, {"title", "content", "pinned", "date", "statuses", "ordubashy_visible", "expected_content_hash", "task_ids", "category"} | OPTIONS)
-            # The business in the route is the explicit target of a business-owned note.
-            target = {"target_business_id": context.business_id} if context.business_id else {}
+            checked_fields(body, {"title", "content", "pinned", "date", "statuses", "ordubashy_visible", "expected_content_hash", "task_ids", "tags",
+                                  "target_business_id"} | OPTIONS)
+            target = self.project_target(context, body.get("target_business_id"))
             if len(tail) == 1:
                 args = {"title": body.get("title") or "Daily", "body": body.get("content", "")}
-                args.update({key: body[key] for key in ("pinned", "date", "task_ids", "category") if key in body})
-                if "category" in body:
-                    args.update(target)
+                args.update({key: body[key] for key in ("pinned", "date", "task_ids", "tags") if key in body})
+                args.update(target)
                 operation, revision = domain + "_create", None
             else:
-                doc = self.document_selector(context, tail[1], domain + "_list")
-                if "category" in body and body["category"] != doc["metadata"].get("category"):
-                    raise DomainError("validation_error", "A note's category cannot be changed")
+                doc = self.document_selector(context, tail[1], domain + "_list", arguments=target)
                 revision = doc["revision"]
                 args = {"document_id": doc["id"], "expected_content_hash": body.get("expected_content_hash", doc["content_hash"]),
                         **(target if doc["kind"] == "business_owned_note" else {})}
@@ -715,7 +711,7 @@ class DashboardCompatibility:
                     operation = domain + "_update"
                     if "content" in body:
                         args["body"] = body["content"]
-                    args["metadata"] = {key: body[key] for key in ("title", "pinned", "statuses", "ordubashy_visible") if key in body}
+                    args["metadata"] = {key: body[key] for key in ("title", "pinned", "tags", "statuses", "ordubashy_visible") if key in body}
                 elif len(tail) == 3 and tail[2] in {"delete", "upload"}:
                     operation = ("journal_upload_to_filer" if context.business_id is None and tail[2] == "upload"
                                  else domain + "_" + tail[2])

@@ -59,7 +59,7 @@ class WorkspaceType:
 # Focus keeps its own operations and authorization; the registry only records
 # that the host knows how to render it and which role it belongs to.
 WORKSPACE_TYPES = (
-    WorkspaceType("focus", "Focus", frozenset({"ordubashy", roles.GLOBAL_MARKETING_ROLE, roles.GLOBAL_WORKER_ROLE}), "focus_board",
+    WorkspaceType("focus", "Focus", frozenset({roles.ORDUBASHY_ROLE, roles.GLOBAL_WORKER_ROLE}), "focus_board",
         ("focus_show", "focus_clear", "focus_browser_input", "focus_present", "focus_edit",
          "focus_move", "focus_set_archived", "focus_reply"),
         "Shared owner board for Ordubashy and global workers. Ordering remains owner-only."),

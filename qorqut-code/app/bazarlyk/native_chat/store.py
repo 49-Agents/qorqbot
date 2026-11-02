@@ -444,10 +444,8 @@ def _recipient(row: dict) -> dict:
     if isinstance(role, dict) and isinstance(role.get("id"), str):
         recipient["role"] = {"id": role["id"]}
     presentation = data.get("presentation")
-    shown = {name: presentation[name] for name in ("department", "icon")
-             if isinstance(presentation, dict) and isinstance(presentation.get(name), str)}
-    if shown:
-        recipient["presentation"] = shown
+    if isinstance(presentation, dict) and isinstance(presentation.get("icon"), str):
+        recipient["presentation"] = {"icon": presentation["icon"]}
     return recipient
 
 

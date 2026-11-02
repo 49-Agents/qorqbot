@@ -246,8 +246,6 @@ def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
             "/api/agent/delegation/claim",
             "/api/agent/delegation/poll", "/api/agent/delegation/fail",
             "/api/agent/delegation/browser"]
-        if getattr(authentication, "business_id", None) and runtime.provider_tokens is not None:
-            agent_paths.append("/api/agent/provider-token")
         routes = [Route(path, agent_request, methods=["POST"]) for path in agent_paths]
     else:
         routes = [Route("/", index), Route("/tables/view", tables_view), Route("/app.css", app_css), Route(FILE_VIEWER_PATH, file_viewer_page),

@@ -99,8 +99,6 @@ class TerminalControl:
         if row['home_business_id'] is not None or active_global(uow.connection, identity) is None:
             raise DomainError('forbidden', 'Select an active global agent; business-home identities are historical')
         if control:
-            from .global_peers import protect_peer_control
-            protect_peer_control(ctx, identity, uow)
             # Every prepare, apply and queued dispatch rechecks the current actor.
             require_protected_control(uow, ctx.principal_id, ctx.principal_kind, [identity], allow_coordinators=True)
         if ctx.principal_kind == 'agent':

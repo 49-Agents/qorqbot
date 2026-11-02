@@ -65,7 +65,7 @@ def load_terminal_broker(paths):
 def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="/bin/bash",
              model_client_factory=None, broker=None, database=None, signing_key=None,
              nightly_maintenance=_DEFAULT_MAINTENANCE, capture_transcripts=None, terminal_workspace=None,
-             execution_provider=None, sandbox_factory=None, recovery_config=None, github_app_config=None,
+             execution_provider=None, sandbox_factory=None, recovery_config=None,
              learning_engine=None, context=None, extensions=None):
     from bazarlyk.background.integration import attach_background
     from qorqut_operations.background.programs import ProgramRegistry
@@ -74,11 +74,6 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
     programs = ProgramRegistry()
     runtime = build_runtime(workspace, paths=paths, database=database, job_programs=programs, context=context,
                             extensions=extensions)
-    if github_app_config is not None:
-        from bazarlyk.sandbox.github_app import GitHubAppConfig, GitHubAppTokenProvider
-        from bazarlyk.sandbox.provider_tokens import BusinessProviderTokens
-        selected = GitHubAppConfig.read(github_app_config, operations_root=paths.operations)
-        runtime.provider_tokens = BusinessProviderTokens(runtime, GitHubAppTokenProvider(selected))
     if nightly_maintenance is _DEFAULT_MAINTENANCE:
         from bazarlyk.storage.versioning import NightlyMaintenance
         nightly_maintenance = NightlyMaintenance(runtime.database, runtime.paths, locks=runtime.locks, git_enabled=True)
@@ -181,9 +176,6 @@ def main(argv=None):
     parser.add_argument("--recovery-config", type=Path, help="Private external host configuration for local encrypted recovery")
     parser.add_argument("--context-config", type=Path, help="Explicit JSON file of Context RunnerConfig fields (model, effort, limits); "
                         "the library defaults apply without it")
-    parser.add_argument("--github-app-config", type=Path,
-                        default=os.environ.get("QORQUT_GITHUB_APP_CONFIG") or None,
-                        help="Private external host configuration for project GitHub access (or QORQUT_GITHUB_APP_CONFIG)")
     args = parser.parse_args(argv)
     try:
         if args.workspace is None:
@@ -213,8 +205,7 @@ def main(argv=None):
             context_settings = ContextSettings(config=runner_config_from_file(args.context_config))
         app = assemble(args.workspace, paths=paths, origins=origins, endpoint=endpoint, bootstrap_token=args.token,
             shell=os.environ.get("SHELL", "/bin/bash"), database=database, terminal_workspace=args.terminal_workspace,
-            recovery_config=args.recovery_config, github_app_config=args.github_app_config, context=context_settings,
-            extensions=selection)
+            recovery_config=args.recovery_config, context=context_settings, extensions=selection)
         if args.prepare_agent:
             # Preparing an agent writes its bootstrap material, so only the backend that owns the instance may do it:
             # ownership, target validation and mutation admission for the preparation alone, and no service is started.

@@ -13,10 +13,10 @@ from bazarlyk.catalog.packages import ID, VERSION, validate_policy
 from .roles import RETIRED_ROLE_IDS
 
 
-GLOBAL_CAPABILITIES = frozenset({"coordinate_businesses", "write_business_strategy", "read_global_context", "manage_fastmail", "manage_calendar", "manage_shared_instructions", "publish_roles", "publish_plugins", "manage_global_routines", "manage_ecosystem_agents", "manage_delegated_assignments"})
+GLOBAL_CAPABILITIES = frozenset({"coordinate_businesses", "read_global_context", "manage_fastmail", "manage_calendar", "manage_shared_instructions", "publish_roles", "publish_plugins", "manage_global_routines", "manage_ecosystem_agents", "manage_delegated_assignments"})
 # Historical grant names that a saved profile may still carry. They authorize nothing, can never be granted, and a stored
 # or inactive record that holds one still parses unchanged.
-RETIRED_GLOBAL_CAPABILITIES = frozenset({"manage_ideas", "manage_business_setup", "read_personal_context", "manage_personal_context"})
+RETIRED_GLOBAL_CAPABILITIES = frozenset({"manage_ideas", "manage_business_setup", "read_personal_context", "manage_personal_context", "write_business_strategy"})
 REFERENCE_SCHEMA = {"type": "object", "additionalProperties": False,
     "required": ["id", "version", "digest"], "properties": {
         "id": ID, "version": VERSION, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}}
@@ -54,10 +54,14 @@ PROFILE_SCHEMA = {"type": "object", "additionalProperties": False,
         "tool_policy": {"type": "object", "additionalProperties": False, "required": ["overrides"],
             "properties": {"overrides": {"type": "object", "additionalProperties": {"enum": ["allow", "signoff", "deny"]}}}},
         "presentation": {"type": "object", "additionalProperties": False, "properties": {
-            "department": {"type": "string", "maxLength": 50}, "icon": {"type": "string", "maxLength": 50},
-            "color": {"type": "string", "maxLength": 50}}},
+            "icon": {"type": "string", "maxLength": 50}, "color": {"type": "string", "maxLength": 50},
+            # Retired free-text label: inert imported metadata that nothing reads and no write can set (agents_create and
+            # agents_update take EDITABLE_PRESENTATION); a saved profile keeps it until its presentation is replaced.
+            "department": {"type": "string", "maxLength": 50}}},
         "created_at": {"type": "string", "format": "date-time"},
     }}
+EDITABLE_PRESENTATION = {**PROFILE_SCHEMA["properties"]["presentation"], "properties": {
+    key: value for key, value in PROFILE_SCHEMA["properties"]["presentation"]["properties"].items() if key != "department"}}
 STORED_PROFILE_SCHEMA = {**PROFILE_SCHEMA, "properties": {**PROFILE_SCHEMA["properties"], "scope": STORED_SCOPE_SCHEMA}}
 
 

@@ -37,7 +37,7 @@ RECEIPT = ROOT / "docs" / "v1.2" / "HOST_FOUNDATION_SOURCE_RECEIPT.json"
 PROBE = Path(__file__).with_name("installed_host_probe.py")
 OPERATIONS, CONTEXT, DASHBOARD = "qorqut-operations", "qorqut-context", "biz-dashboard"
 # The role sources the focused checks publish and register (host_foundation_support.SUPPORTED_GLOBAL_ROLES).
-REQUIRED_ROLES = ("ordubashy", "global-marketing", "learning-applier")
+REQUIRED_ROLES = ("ordubashy", "learning-applier")
 INSTRUCTIONS = "bazarlyk/bootstrap/instructions"
 INSTRUCTION_RESOURCES = {"agent-foundation.md", "ecosystem.md", "operating/ecosystem-agent.md"}
 

@@ -198,7 +198,7 @@ def supports_durable_delegation_version(version, role_id="ordubashy"):
         parts = tuple(int(part) for part in version.split("."))
     except (AttributeError, TypeError, ValueError):
         return False
-    return role_id in {"ordubashy", "global-marketing"} and (parts + (0, 0, 0))[:3] >= ((1, 11, 0) if role_id == "global-marketing" else (1, 34, 0))
+    return role_id == "ordubashy" and (parts + (0, 0, 0))[:3] >= (1, 34, 0)
 
 
 class OperationalDelegation:
@@ -1145,8 +1145,7 @@ class OperationalDelegationOperations:
     def _require_parent(self, context):
         ref = context.role_artifact_ref
         if (ref is None or not supports_durable_delegation_version(ref.version, ref.id)
-                or self.CAPABILITY not in context.global_capabilities
-                or (ref.id == "global-marketing" and "coordinate_businesses" not in context.global_capabilities)):
+                or self.CAPABILITY not in context.global_capabilities):
             raise DomainError("forbidden", "Durable assignments require a compatible global peer role and explicit capabilities")
         if context.delegation_assignment_id is not None:
             raise DomainError("forbidden", "A delegated worker cannot create or control assignments")

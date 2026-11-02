@@ -38,10 +38,9 @@ MAX_INDEX_ITEMS = 50
 GUIDANCE = (
     "Deeper context is fetched on demand: start with context_home, search context_find, then read"
     " context_object and context_expand. This orientation is an index, not the whole graph.",
-    "Project direction (strategy, positioning, offers, budgets, marketing direction) belongs to the owner with"
-    " Ordubashy, who delegates bounded work to the permanent workers; the business-owned strategy and marketing"
-    " notes are listed with notes_list and read with notes_get. Projects have no resident agents: Ordubashy"
-    " coordinates execution across projects and the global agents work here when the owner directs them.",
+    "Project direction belongs to the owner with Ordubashy, who delegates bounded work to the permanent workers;"
+    " the project's notes are listed with notes_list (target_business_id) and read with notes_get. Projects have no"
+    " resident agents: Ordubashy coordinates execution across projects and the global agents work here when the owner directs them.",
     "Direct coordination uses agents_message_recipients, agents_message_send and agents_messages_list"
     " within this project; create and assign same-business tasks when work needs durable follow-up. These"
     " messages are distinct from the owner_conversation private discussion attached to a task,"
@@ -54,8 +53,6 @@ GUIDANCE = (
     " state transitions and excluded operations still apply.",
 )
 OWNER_FALLBACK = "the installation owner"
-# Historical business peers never operate; the entries keep the orientation shape.
-RETIRED_PEER = {"agent_id": None, "name": None, "available": False, "reason": "retired"}
 
 
 class OwnerSessionBootstrap:
@@ -121,8 +118,7 @@ class OwnerSessionBootstrap:
         else:
             reason = "not_configured"
         return {"coordinator_id": identity, "coordinator_name": principal["display_name"] if principal else None,
-                "available": available, "reason": reason, "operations": operations,
-                "business_agent": RETIRED_PEER, "dev": RETIRED_PEER}
+                "available": available, "reason": reason, "operations": operations}
 
     @staticmethod
     def _peer_line():

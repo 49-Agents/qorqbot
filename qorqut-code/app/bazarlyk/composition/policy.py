@@ -21,7 +21,7 @@ from __future__ import annotations
 from qorqut_operations.contracts import PolicyDecision
 from qorqut_operations.policy.rules import PolicyRules, resolve_operation_policy as evaluate
 
-from bazarlyk.agents.roles import BUSINESS_AGENT_ROLE, GLOBAL_MARKETING_ROLE, LEARNING_APPLIER_ROLE, ORDUBASHY_ROLE
+from bazarlyk.agents.roles import LEARNING_APPLIER_ROLE, ORDUBASHY_ROLE
 from bazarlyk.domains.email.contract import DEFAULT_APPROVAL as EMAIL_DEFAULTS, LEGACY_ALIAS_TARGETS as EMAIL_LEGACY
 from bazarlyk.inbox.defaults import INBOX_OPERATIONS
 
@@ -31,7 +31,7 @@ TELEGRAM_AGENT_OPERATIONS = frozenset({"telegram_send", "telegram_send_file", "t
 TELEGRAM_ROLES = frozenset({ORDUBASHY_ROLE})
 # Global tables are a separate namespace from every business. The same eight operations (plus
 # archive) serve both; these roles alone may use the Global one, whatever their business defaults.
-GLOBAL_TABLE_ROLES = frozenset({GLOBAL_MARKETING_ROLE, ORDUBASHY_ROLE})
+GLOBAL_TABLE_ROLES = frozenset({ORDUBASHY_ROLE})
 GLOBAL_TABLE_OPERATIONS = frozenset({"tables_list", "tables_get", "tables_rows_list", "tables_history", "tables_create",
                                      "tables_update", "tables_rows_write", "tables_history_retry", "tables_archive"})
 # Operations whose Global rule differs from the business one, so effective-configuration discovery evaluates both scopes.
@@ -143,16 +143,6 @@ def _email_alias_overrides(name, defaults, overrides, registry, *, role_id, scop
         return PolicyDecision(mode, "agent_override")
 
 
-def _marketing_business_mail(name, defaults, overrides, registry, *, role_id, scope, resolve):
-    canonical_email = EMAIL_LEGACY.get(name, name)
-    if (role_id == GLOBAL_MARKETING_ROLE and scope == "business"
-            and canonical_email in EMAIL_DEFAULTS
-            and canonical_email not in {"email_vacation_set", "email_masked_email_set"}):
-        # Owner standing business-mail authority. Plugin, active membership and
-        # mailbox ownership remain mandatory; private account scope is gated separately.
-        return PolicyDecision("allow", "core_default")
-
-
 def _standing_defaults(name, defaults, overrides, registry, *, role_id, scope, resolve):
     if name == "viewbox_place":
         # Every active registered agent may place on its own board; the handler derives the board from the
@@ -161,8 +151,7 @@ def _standing_defaults(name, defaults, overrides, registry, *, role_id, scope, r
     if name in DEV_AND_INCIDENT_READS:
         return PolicyDecision("allow", "core_default")
     if name == "plugins_enable_delegated":
-        return PolicyDecision("allow" if role_id in {BUSINESS_AGENT_ROLE, ORDUBASHY_ROLE} else "deny",
-                              "exact_mailbox_delegation")
+        return PolicyDecision("allow" if role_id == ORDUBASHY_ROLE else "deny", "exact_mailbox_delegation")
     if name == "signoffs_input_answer_delegated":
         return PolicyDecision("allow" if role_id == "ordubashy" else "deny", "management_delegated_input")
     if name in INBOX_OPERATIONS:
@@ -193,8 +182,6 @@ def _fallback_defaults(name, defaults, overrides, registry, *, role_id, scope, r
     if name == "tags_list":
         # Listing the shared tag catalog follows the Task read grant; a tag never grants access to anything.
         return resolve("tasks_get")
-    if name == "business_readiness_get":
-        return resolve("business_config_get")
     if name == "agents_icons_list":
         # Static metadata for choosing a worker icon; whoever may list agents may list the icons, with no role republish.
         return resolve("agents_list")
@@ -205,7 +192,7 @@ def _fallback_defaults(name, defaults, overrides, registry, *, role_id, scope, r
 HOST_POLICY_RULES = PolicyRules(
     before_override=(_telegram, _user_input, _global_tables, _owner_approvals, _learning_applier, _context_questions,
                      _email_alias_overrides),
-    after_override=(_marketing_business_mail, _standing_defaults),
+    after_override=(_standing_defaults,),
     after_default=(_fallback_defaults,),
 )
 

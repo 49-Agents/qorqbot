@@ -6,7 +6,6 @@ active supported global that reaches that business now, with no agent membership
 reach is not a permission, and the direct-message contact rules still decide who may be addressed. An agent sender acts,
 manages and delivers only while it is itself an active supported global.
 """
-from bazarlyk.agents.global_peers import marketing_peer
 from datetime import datetime, timedelta, timezone
 import json
 from threading import Event, Thread
@@ -86,7 +85,7 @@ class Broadcasts:
         self.inbox.messages.peer(selected, recipient, uow)
         if owner_directed_target(selected, recipient, uow): raise DomainError("not_found", "Recipient is owner-directed")
         # Cross-business coordination is reserved for Ordubashy and humans.
-        if ctx.principal_kind == "agent" and business_id != ctx.business_id and self._role(ctx.principal_id, uow) != "ordubashy" and not marketing_peer(uow, ctx.principal_id):
+        if ctx.principal_kind == "agent" and business_id != ctx.business_id and self._role(ctx.principal_id, uow) != "ordubashy":
             raise DomainError("forbidden", "Cross-business broadcasts require global peer authority")
         return {"agent_id": recipient, "business_id": business_id}
 
@@ -163,9 +162,6 @@ class Broadcasts:
             installation = uow.repository("installation").get("service")
             member = uow.repository("business_memberships", business_id=business).get(ctx.principal_id) if business else None
             if installation and installation["owner_principal_id"] == ctx.principal_id or member and member["active"] and member["is_owner"]: return row
-        from bazarlyk.agents.global_peers import protect_peer_control
-        protect_peer_control(ctx, row["sender_id"], uow)
-        protect_peer_control(ctx, row["created_by"], uow)
         role = self._role(ctx.principal_id, uow) if ctx.principal_kind == "agent" else None
         if role == "ordubashy" and (business is None or business in ctx.allowed_business_ids):
             if all(target['business_id'] is None or target['business_id'] in ctx.allowed_business_ids

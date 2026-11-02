@@ -13,7 +13,6 @@ from qorqut_operations.tasks import TaskPorts
 from qorqut_operations.tasks.scope import task_namespace
 
 from bazarlyk.agents.contact import owner_directed_target
-from bazarlyk.agents.global_peers import protect_peer_control
 from bazarlyk.domains.dev_tickets import DevTickets
 from bazarlyk.inbox import attention
 from bazarlyk.inbox.owner_tasks import ordubashies, tasks as owner_task_rows
@@ -28,10 +27,13 @@ TASK_NOTE_REF_TYPES = (*NOTE_REF_TYPES, "material")
 
 
 class HostAssignees:
-    """Peer-control protection and the owner-only target (Learning Applier), both retained from v1."""
+    """The owner-only target (Learning Applier) retained from v1, plus the engine's peer-protection hook.
+
+    The engine's assignees port still names ``protect``; no peer roles remain to protect from each other, so it refuses nothing.
+    """
 
     def protect(self, ctx, identity, uow):
-        protect_peer_control(ctx, identity, uow)
+        return None
 
     def owner_directed(self, ctx, identity, uow):
         return owner_directed_target(ctx, identity, uow)

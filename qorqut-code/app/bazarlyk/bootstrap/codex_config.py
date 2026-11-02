@@ -14,7 +14,6 @@ from bazarlyk.agents.context import MAX_CONTEXT_CHARACTERS
 # Owner-chosen Codex startup defaults: (model, reasoning effort) by supported global role.
 ROLE_MODEL_DEFAULTS = {
     "ordubashy": (LUNA_MODEL, "high"),
-    "global-marketing": ("gpt-6-astra", "low"),
     "learning-applier": ("gpt-6-astra", "low"),
 }
 

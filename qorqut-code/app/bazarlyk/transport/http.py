@@ -14,7 +14,6 @@ import anyio
 from starlette.background import BackgroundTask
 from starlette.responses import JSONResponse, Response, StreamingResponse
 
-from qorqut_operations.departments import registry as department_registry
 from qorqut_operations.contracts import (DomainError, InvocationContext, InvocationOptions, OperationResult,
                                          canonical_bytes, canonical_hash, new_id, plain)
 from qorqut_operations.storage.database import REQUEST_TIMING, RequestTiming
@@ -250,12 +249,12 @@ class HTTPAPI:
         parts = request.path_params.get("path", "").strip("/").split("/")
         if parts[:1] == ["agent"]:
             return "agent." + parts[1] if len(parts) > 1 and parts[1] in {
-                "readiness", "bootstrap", "browser", "focus", "provider-token", "inbox", "checkpoint", "technical-observation"} else "agent"
+                "readiness", "bootstrap", "browser", "focus", "inbox", "checkpoint", "technical-observation"} else "agent"
         if parts[:2] == ["root", "operations"]:
             return "root.operation"
         if parts[:1] == ["biz"]:
             return "business.operation" if "operations" in parts[2:] else "business"
-        return parts[0] if parts and parts[0] in {"departments", "session", "me", "root"} else "request"
+        return parts[0] if parts and parts[0] in {"session", "me", "root"} else "request"
 
     # Every generated record id (tasks, learnings, jobs, signoffs, documents,
     # routines, ...) is a uuid4 from contracts.new_id(), so `_UUID_RE`
@@ -353,8 +352,6 @@ class HTTPAPI:
             actor = await anyio.to_thread.run_sync(lambda: AuthenticatedPrincipal(self.authentication.installation_owner()[0]))
             if request.method not in {"GET", "HEAD"}:
                 self.origins.validate(request, mutation=True)
-            if parts == ["departments"] and request.method == "GET":
-                return response(OperationResult.ok(department_registry(), request_id=request_id))
             if parts == ["session"] and request.method in {"GET", "POST"}:
                 return response(OperationResult.ok(self.session_data(actor), request_id=request_id))
             await anyio.to_thread.run_sync(self.runtime.require_authority)
@@ -1058,18 +1055,6 @@ class HTTPAPI:
             if turn:
                 data = {**data, "browser_turn": turn}
             return response(OperationResult.ok(data, request_id=new_id()))
-        if request.method == "POST" and parts == ["agent", "provider-token"]:
-            if getattr(self.authentication, "business_id", None) is None:
-                raise DomainError("forbidden", "Provider credentials require the private project listener")
-            if self.runtime.provider_tokens is None:
-                raise DomainError("configuration_missing", "Project provider credentials are not configured")
-            body = await read_json(request, limit=8192)
-            checked_fields(body, {"registration_id", "provider"}, {"registration_id", "provider"})
-            data = await anyio.to_thread.run_sync(partial(self.runtime.provider_tokens.issue,
-                self.authentication, request.headers.get("authorization"), body["registration_id"], body["provider"]))
-            result = response(OperationResult.ok(data, request_id=new_id()))
-            result.headers["Cache-Control"] = "no-store"
-            return result
         if request.method == "POST" and parts == ["agent", "readiness"]:
             # Readiness validates the prepared registration without creating a
             # session, inbox lease, delivery receipt, or other mutation.

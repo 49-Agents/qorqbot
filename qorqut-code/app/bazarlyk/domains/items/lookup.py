@@ -15,7 +15,6 @@ resolve as archived, so the ``include_archived`` contract keeps them out of norm
 from qorqut_operations.application.plans import ref, rows
 from qorqut_operations.business_lifecycle import active_business_ids
 from qorqut_operations.contracts import DomainError, ExpectedTarget, canonical_hash
-from qorqut_operations.departments import ALIASES, normalize_departments, profile_department
 from qorqut_operations.items import authorize_item_read, item_revision
 from qorqut_operations.tags import item_labels
 
@@ -49,13 +48,6 @@ def stored_profile(row):
     """The decoded stored profile, or an empty one when it is malformed (it then reads only as archived history)."""
     profile = row.get("profile_json")
     return profile if isinstance(profile, dict) else {}
-
-
-def agent_departments(row):
-    try:
-        return [profile_department(stored_profile(row))]
-    except (AttributeError, TypeError):
-        return []
 
 
 class HostItems:
@@ -142,13 +134,7 @@ class HostItems:
                     builder.expect(ref("business_memberships", item["id"], ctx.business_id), member)
             person.update({key: metadata.get(key, "") for key in ("name", "role", "org", "about")})
             person["aka"] = metadata.get("aka", [])
-        tags = row.get("tags_json", [])
-        if table in LABELLED:
-            # Task and Action labels are the shared catalog's, stored apart from the row.
-            tags = item_labels(uow, row["business_id"], LABELLED[table], row["id"])
-        departments = normalize_departments(tags.get("departments", [])) if isinstance(tags, dict) else normalize_departments([tag for tag in tags if tag in ALIASES])
-        if table == "agent_profiles": departments = agent_departments(row)
-        return {**view, **item, **material, "departments": departments, "revision": revision, "resource_type": table, "resource_id": item["id"], "subtype": subtype,
+        return {**view, **item, **material, "revision": revision, "resource_type": table, "resource_id": item["id"], "subtype": subtype,
                 "archived": archived, "raw_source": bool(metadata.get("raw_source") or row.get("kind") in RAW_KINDS),
                 "summary": metadata.get("filer_summary") or metadata.get("summary", ""), "created_at": row.get("created_at"), "updated_at": row.get("updated_at"), **person}
 

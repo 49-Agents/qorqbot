@@ -91,11 +91,9 @@ FOCUS_ASSIGNEE_KINDS = {'email_conversations': 'material'}
 
 
 def focus_reader(uow, agent):
-    """Whether the agent currently passes the Focus board's own reader gate (the active configured coordinator, or an active
-    authorized Marketing peer holding coordinate_businesses)."""
-    from bazarlyk.agents.global_peers import marketing_peer
+    """Whether the agent currently passes the Focus board's own reader gate (the active configured coordinator)."""
     from bazarlyk.management.identity import configured_ordubashy
-    return bool(agent) and (agent == configured_ordubashy(uow, require_codex=True) or bool(marketing_peer(uow, agent)))
+    return bool(agent) and agent == configured_ordubashy(uow, require_codex=True)
 
 
 def focus_edit_targets(uow, data, actor):

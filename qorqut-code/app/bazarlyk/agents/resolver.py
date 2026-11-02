@@ -26,7 +26,7 @@ from . import cleanup_workflow
 from .context import MAX_CONTEXT_CHARACTERS, ContextSource, compose_context
 from .global_scope import with_effective_scope
 from .models import AgentProfile, EffectiveAgentConfig, RETIRED_ROLE_IDS
-from .roles import LEARNING_APPLIER_ROLE, RETIRED_PLUGIN_IDS, SUPPORTED_GLOBAL_ROLES
+from .roles import RETIRED_PLUGIN_IDS, SUPPORTED_GLOBAL_ROLES
 
 PROFILE_CACHE_LIMIT = 128
 
@@ -319,18 +319,6 @@ class AgentConfigResolver:
                     name, role.manifest["default_tool_policy"], profile.data["tool_policy"]["overrides"],
                     self.registry, role_id=role.id).mode == "allow" for name in reads)
 
-            strategy = []
-            if (selected and profile.data["role"]["id"] != LEARNING_APPLIER_ROLE
-                    and allowed({"notes_list", "notes_get"})):
-                from bazarlyk.domains.documents.business_notes import KIND as BUSINESS_NOTE
-                # The owner's business plan is the pin convention: every active
-                # pinned strategy-notes note of the selected business, never a title.
-                for item in connection.execute(
-                        "SELECT * FROM documents WHERE business_id=? AND kind=? AND archived=0 ORDER BY id",
-                        (selected["id"], BUSINESS_NOTE)):
-                    metadata = json.loads(item["metadata_json"])
-                    if metadata.get("category") == "strategy-notes" and metadata.get("pinned") is True:
-                        strategy.append({**dict(item), "title": metadata.get("title")})
         selected_docs, signatures = {}, []
         # Only global agents run; the retired business-agent instruction source is never required.
         needed = {"foundation", "ecosystem-agent", "ecosystem"}
@@ -355,7 +343,6 @@ class AgentConfigResolver:
             if key in selected_docs:
                 raise DomainError("context_scope_conflict", f"Multiple mandatory sources registered for: {key}")
             selected_docs[key] = located(self.root if global_source else business_hq(self.paths, selected), doc, key)
-        strategy = [located(business_hq(self.paths, selected), doc, "strategy-note:" + doc["id"]) for doc in strategy]
         for artifact in artifacts:
             path = Path(artifact["stored_path"])
             signatures.append((artifact["kind"], artifact["digest"], str(path),
@@ -363,13 +350,11 @@ class AgentConfigResolver:
         fingerprint = canonical_hash({"inbox_instructions": INBOX_INSTRUCTIONS, "role_workflow": role_workflow.fingerprint(), "cleanup_workflow": cleanup_workflow.fingerprint(), "profile": profile.data, "workspace": row["workspace"], "target": target,
             "businesses": businesses, "owners": owner_names,
             "sources": [(key, doc["id"], doc["revision"], doc["content_hash"], doc["availability"]) for key, doc in sorted(selected_docs.items())],
-            "strategy_notes": [(doc["id"], doc["revision"], doc["content_hash"], doc["availability"], doc["path"], doc["title"])
-                               for doc in strategy],
             "artifacts": [(item["kind"], item["artifact_id"], item["version"], item["digest"]) for item in artifacts],
             "operations": [(item.name, item.version, [(alias, self.registry.required_plugin_for(alias)) for alias in item.aliases],
                             item.plugin_requirement) for item in self.registry.installed()]})
         return {"profile": profile, "row": row, "business": selected, "businesses": businesses,
-                "documents": selected_docs, "strategy_notes": strategy, "owner_name": ", ".join(owner_names) or "Owner",
+                "documents": selected_docs, "owner_name": ", ".join(owner_names) or "Owner",
                 "registration": dict(registration) if registration else None, "fingerprint": fingerprint,
                 "cache_key": canonical_hash({"fingerprint": fingerprint, "signatures": signatures})}
 
@@ -434,20 +419,6 @@ class AgentConfigResolver:
         for key, doc in snapshot["documents"].items():
             sources[key] = ContextSource(doc["id"], read(doc).decode("utf-8"), doc["revision"], doc["content_hash"],
                 str(doc["absolute_path"]))
-        strategy = []
-        from bazarlyk.domains.documents.store import split_document
-        for doc in snapshot["strategy_notes"]:
-            try:
-                _, body = split_document(read(doc))
-            except DomainError as exc:
-                if exc.code != "invalid_document":
-                    raise
-                raise DomainError("invalid_context", f"Mandatory source has invalid frontmatter: {doc['id']}") from exc
-            if not body.strip():
-                continue  # an empty optional note delivers nothing; the fingerprint still tracks it
-            # The authored body only; registry metadata stays out of plan prose.
-            strategy.append((" ".join(str(doc["title"] or "Untitled").split()),
-                             ContextSource(doc["id"], body, doc["revision"], doc["content_hash"], str(doc["absolute_path"]))))
         skills = [role_workflow.skill_metadata(), cleanup_workflow.skill_metadata()]
         for package in packages:
             for skill in package.skills:
@@ -462,8 +433,7 @@ class AgentConfigResolver:
             workspace=snapshot["row"]["workspace"], business=snapshot["business"],
             allowed_businesses=tuple(snapshot["businesses"]), owner_name=snapshot["owner_name"],
             available_operations=frozenset(tool["canonical_operation"] for tool in tools if tool["available"]),
-            context_home=context_home,
-            strategy_notes=tuple(strategy))
+            context_home=context_home)
         visible_scope = plain(profile.to_dict()["scope"])
         if profile.scope.kind == "ecosystem":
             visible_scope["allowed_business_ids"] = [row["id"] for row in snapshot["businesses"]]
