@@ -466,6 +466,7 @@ class Authoring:
         attr = normalize_attribution(attribution, trust=ctx.attribution_source)
         with ctx.store.lock(exclusive=True):
             ctx.require_no_recovery()
+            ctx.require_no_check_mutation()
             base = DiskSource(ctx.tree)
             before_catalog = load_catalog(base)
             batch = build(BuildContext(base=base, catalog=before_catalog))

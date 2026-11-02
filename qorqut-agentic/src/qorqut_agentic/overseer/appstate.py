@@ -11,6 +11,8 @@ def _application(row):
     for key in ('acceptance_ref', 'invocation_ref', 'agreement_ref', 'waiting_input_ref', 'external_tasks', 'merge', 'checks', 'satisfaction_evidence'):
         if data[key] is not None:
             data[key] = json.loads(data[key])
+    data['refresh'] = ({'required': True, 'state': 'unknown', 'detail': 'Native consumers have not been verified against this merged revision.'}
+                       if data['merge'] is not None else {'required': False, 'state': 'not_required', 'detail': None})
     data['schema_version'] = 1
     return data
 
@@ -103,6 +105,8 @@ class ApplicationState:
                 v.invalid('external_requirement')
             seen_requirements.add(requirement['id'])
         v.array(plan['checks'], 'checks')
+        if len(plan['checks']) > 100:
+            v.invalid('checks', 'must contain at most 100 definitions')
         seen_checks = set()
         for check in plan['checks']:
             v.obj(check, 'check', ('id', 'phase', 'kind', 'arguments'))

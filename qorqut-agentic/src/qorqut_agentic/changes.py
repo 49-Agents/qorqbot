@@ -275,6 +275,7 @@ class Changes:
         )
         with self.ctx.store.lock(exclusive=True):
             self.ctx.require_no_recovery()
+            self.ctx.require_no_check_mutation()
             return self.scan_locked(attr)
 
     def scan_locked(self, attribution: dict[str, Any], paths: set[str] | None = None) -> dict[str, Any]:

@@ -53,6 +53,7 @@ class CatalogReader:
         if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
             raise InvalidRequestError("offset must be a non-negative integer")
         with self.ctx.store.lock(exclusive=False):
+            self.ctx.require_no_recovery(publications_only=True)
             catalog = self._load()
             found = catalog.search(
                 chosen, query=query, kinds=kinds, package_ids=package_ids,
@@ -83,6 +84,7 @@ class CatalogReader:
             raise InvalidRequestError("ref must be package-id/entry-id", details={"field": "ref"})
         chosen = Selection.from_value(selection)
         with self.ctx.store.lock(exclusive=False):
+            self.ctx.require_no_recovery(publications_only=True)
             catalog = self._load()
             entry = catalog.get(ref)
             if entry is None:
@@ -140,6 +142,7 @@ class CatalogReader:
                                             "diagnostics": [f"package {package_id!r} is not enabled for this selection"]})
         root_path = f"packages/{package_id}/{path}"
         with self.ctx.store.lock(exclusive=False):
+            self.ctx.require_no_recovery(publications_only=True)
             data = self.ctx.tree.read(root_path, max_bytes=max_bytes)
         if data is None:
             raise NotFoundError(f"no such resource {path!r} in package {package_id!r}",
@@ -156,6 +159,7 @@ class CatalogReader:
         if package_ids is not None and (not isinstance(package_ids, list) or not all(is_id(v) for v in package_ids)):
             raise InvalidRequestError("package_ids must be a list of valid IDs")
         with self.ctx.store.lock(exclusive=False):
+            self.ctx.require_no_recovery(publications_only=True)
             catalog = self._load()
         wanted = set(package_ids) if package_ids else None
         issues = [i for i in catalog.issues if wanted is None or i.package_id in wanted]

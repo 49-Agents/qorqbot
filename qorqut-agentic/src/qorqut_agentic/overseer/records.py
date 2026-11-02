@@ -22,7 +22,24 @@ def mutate(ctx, operation_id, operation, payload, fn):
     if operation_id.lower().startswith('run:'):
         raise InvalidRequestError('operation ID uses the reserved invocation namespace')
     fingerprint = hashlib.sha256(canonical({'operation': operation, 'payload': payload}).encode()).hexdigest()
-    with ctx.store.transaction() as conn:
+    with ctx.store.lock(exclusive=True), ctx.store.transaction() as conn:
+        app_id = payload.get('application_id') if isinstance(payload, dict) else None
+        delta_id = payload.get('delta_id') if isinstance(payload, dict) else None
+        run_id = payload.get('run_id') if isinstance(payload, dict) else None
+        record = payload.get('record', payload) if isinstance(payload, dict) else {}
+        if isinstance(record, dict):
+            targets = record.get('targets') or {}
+            app_id = app_id or targets.get('application_id')
+            delta_id = delta_id or targets.get('delta_id') or record.get('delta_id')
+            run_id = run_id or record.get('run_id')
+        if operation in ('proposals.record', 'materials.record', 'coverage.record', 'review.save_batch'):
+            app_id = delta_id = run_id = None
+        if operation == 'owner_response':
+            binding = conn.execute('SELECT record FROM overseer_inputs WHERE id=?', (payload.get('binding_id'),)).fetchone()
+            if binding:
+                target = json.loads(binding['record'])['targets']
+                app_id, delta_id = target.get('application_id'), target.get('delta_id')
+        ctx.guard_overseer_admission(conn, application_id=app_id, delta_id=delta_id, run_id=run_id)
         old = conn.execute('SELECT fingerprint, result FROM overseer_operations WHERE operation_id=?', (operation_id,)).fetchone()
         if old:
             if old['fingerprint'] != fingerprint:

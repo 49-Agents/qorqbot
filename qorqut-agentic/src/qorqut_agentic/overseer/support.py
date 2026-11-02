@@ -102,7 +102,16 @@ def validate_binding(record):
         v.uuid(input_id, 'resolves_input_ids')
     if len(set(resolutions)) != len(resolutions) or record['id'] in resolutions:
         v.invalid('resolves_input_ids')
+    if record['purpose'] == 'failure':
+        failure = record.get('failure_evidence')
+        v.obj(failure, 'failure_evidence', ('check_run_id', 'phase', 'uncertain'))
+        v.uuid(failure['check_run_id'], 'failure_evidence.check_run_id')
+        if failure['phase'] not in ('pre_merge', 'post_merge') or type(failure['uncertain']) is not bool:
+            v.invalid('failure_evidence')
+        if failure['phase'] == 'pre_merge' and 'revert' in record['choice_actions'].values():
+            v.invalid('choice_actions', 'revert is unavailable before merge')
     if record['purpose'] == 'close_satisfied':
+        v.uuid(record.get('satisfaction_inspection_id'), 'satisfaction_inspection_id')
         evidence = record.get('satisfaction_evidence')
         v.obj(evidence, 'satisfaction_evidence', ('observed_at', 'active_commit', 'resource_hashes', 'source_refs', 'check_receipt_refs', 'explanation'))
         v.string(evidence['observed_at'], 'satisfaction_evidence.observed_at')
@@ -157,6 +166,34 @@ class Inputs:
                     if old_target != new_target:
                         raise AgenticError('input resolution target differs', code='invalid_transition')
             targets = record['targets']
+            if record['purpose'] == 'close_satisfied':
+                from .satisfaction import load_inspection
+                observation = load_inspection(conn, record['satisfaction_inspection_id'])['inspection']
+                if (observation['application_id'] != targets['application_id']
+                    or observation['application_revision'] != targets['application_revision']
+                    or observation['delta_id'] != targets['delta_id']
+                    or observation['accepted_revision'] != targets['delta_revision']
+                    or observation['evidence'] != record['satisfaction_evidence']):
+                    raise AgenticError('satisfaction inspection does not match binding', code='stale_revision')
+            if record['purpose'] == 'failure':
+                failure = record['failure_evidence']
+                found = None
+                for event_row in conn.execute('SELECT record FROM overseer_application_events WHERE application_id=?', (targets['application_id'],)):
+                    event = json.loads(event_row['record'])
+                    run = event.get('check_run', {})
+                    if event.get('type') == 'check_run' and run.get('id') == failure['check_run_id']:
+                        found = event
+                        break
+                keys = {record['request_key']}
+                for old_id in record.get('resolves_input_ids', []):
+                    old_row = conn.execute('SELECT record FROM overseer_inputs WHERE id=?', (old_id,)).fetchone()
+                    if old_row:
+                        keys.add(json.loads(old_row['record'])['request_key'])
+                if (not found or not found.get('required_input') or found['required_input']['request_key'] not in keys
+                    or found['check_run']['plan_revision'] != targets['plan_revision']
+                    or found['check_run']['phase'] != failure['phase']
+                    or (found['check_run']['state'] == 'uncertain') != failure['uncertain']):
+                    raise AgenticError('failure evidence does not match check attempt', code='stale_revision')
             if targets['delta_id'] is not None:
                 row = _delta(conn, targets['delta_id'])
                 if targets['delta_revision'] != row['current_revision']:

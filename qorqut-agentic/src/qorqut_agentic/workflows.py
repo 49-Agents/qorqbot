@@ -268,7 +268,8 @@ class Workflows:
         revision, snapshot = self._snapshot(ref, chosen)
         records = self._argument_records(snapshot, arguments, actor, defaults=True)
         run_id, now = new_id("run"), self.ctx.now()
-        with self.ctx.store.transaction() as conn:
+        self.ctx.require_no_check_mutation()
+        with self.ctx.store.lock(exclusive=True), self.ctx.store.transaction() as conn:
             existing = self._op(conn, "start", operation_id, fingerprint)
             if existing is not None:
                 return loads(existing["result"])
@@ -300,7 +301,8 @@ class Workflows:
     def _control(self, run_id, actor, operation_id, action):
         actor = normalize_actor(actor)
         fingerprint = self._fingerprint(action, actor, run_id=run_id)
-        with self.ctx.store.transaction() as conn:
+        with self.ctx.store.lock(exclusive=True), self.ctx.store.transaction() as conn:
+            self.ctx.guard_overseer_admission(conn, run_id=run_id, allow_uncertain_control=True)
             run = self._run(conn, run_id)
             op = self._op(conn, run_id, operation_id, fingerprint)
             if op is not None:
@@ -327,7 +329,8 @@ class Workflows:
     def supply_arguments(self, run_id, arguments, actor, operation_id):
         actor = normalize_actor(actor)
         fingerprint = self._fingerprint("supply_arguments", actor, run_id=run_id, arguments=arguments)
-        with self.ctx.store.transaction() as conn:
+        with self.ctx.store.lock(exclusive=True), self.ctx.store.transaction() as conn:
+            self.ctx.guard_overseer_admission(conn, run_id=run_id)
             run = self._run(conn, run_id)
             op = self._op(conn, run_id, operation_id, fingerprint)
             if op is not None:
@@ -368,7 +371,8 @@ class Workflows:
     def start_step(self, run_id, step_id, actor, operation_id):
         actor = normalize_actor(actor)
         fingerprint = self._fingerprint("start_step", actor, run_id=run_id, step_id=step_id)
-        with self.ctx.store.transaction() as conn:
+        with self.ctx.store.lock(exclusive=True), self.ctx.store.transaction() as conn:
+            self.ctx.guard_overseer_admission(conn, run_id=run_id)
             self._run(conn, run_id)
             op = self._op(conn, run_id, operation_id, fingerprint)
             if op is not None:
@@ -404,7 +408,8 @@ class Workflows:
             raise InvalidRequestError("completion_note must be a string")
         fingerprint = self._fingerprint("complete_step", actor, run_id=run_id, step_id=step_id,
                                         completion_note=completion_note, output=output)
-        with self.ctx.store.transaction() as conn:
+        with self.ctx.store.lock(exclusive=True), self.ctx.store.transaction() as conn:
+            self.ctx.guard_overseer_admission(conn, run_id=run_id)
             run = self._run(conn, run_id)
             op = self._op(conn, run_id, operation_id, fingerprint)
             if op is not None:
@@ -481,7 +486,8 @@ class Workflows:
             self._event(conn, run_id, "completed", actor, {})
 
     def _finish_verification(self, run_id, step_id, actor, operation_id, receipt, error):
-        with self.ctx.store.transaction() as conn:
+        with self.ctx.store.lock(exclusive=True), self.ctx.store.transaction() as conn:
+            self.ctx.guard_overseer_admission(conn, run_id=run_id)
             run = self._run(conn, run_id)
             op = conn.execute("SELECT * FROM workflow_ops WHERE scope = ? AND operation_id = ?",
                               (run_id, operation_id)).fetchone()

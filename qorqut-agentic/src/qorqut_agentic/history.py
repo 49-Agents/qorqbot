@@ -319,6 +319,7 @@ class History:
             }
         with self.ctx.store.lock(exclusive=True):
             self.ctx.require_no_recovery()
+            self.ctx.require_no_check_mutation()
             if author is None:
                 for key in ("user.name", "user.email"):
                     completed = self.git.run(["config", "--local", "--get", key], check=False)

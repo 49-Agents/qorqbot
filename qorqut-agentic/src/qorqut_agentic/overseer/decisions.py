@@ -2,6 +2,7 @@
 import hashlib
 import json
 from uuid import uuid4
+from functools import wraps
 
 from ..errors import AgenticError, NotFoundError
 from . import validation as v
@@ -65,7 +66,7 @@ def _canonical_response(binding, response, gateway):
     return result
 
 
-def _transition(conn, binding, result, action, now):
+def _transition(conn, binding, result, action, now, satisfaction_error=None):
     targets = binding['targets']
     delta_id, delta_revision = targets['delta_id'], targets['delta_revision']
     app_id, plan_revision = targets['application_id'], targets['plan_revision']
@@ -107,6 +108,10 @@ def _transition(conn, binding, result, action, now):
     elif purpose == 'plan' and action == 'proceed':
         if not app or delta['decision'] != 'accepted' or app['phase'] not in ('queued', 'planning'):
             return {'status': 'invalid_transition', 'action': None}
+        for event in conn.execute('SELECT record FROM overseer_application_events WHERE application_id=? ORDER BY rowid DESC', (app_id,)):
+            item = json.loads(event['record'])
+            if item.get('type') == 'replan' and item.get('plan_revision') == plan_revision:
+                return {'status': 'invalid_transition', 'action': None}
         saved = conn.execute('SELECT record FROM overseer_plan_revisions WHERE application_id=? AND revision=?', (app_id, plan_revision)).fetchone()
         if saved is None or json.loads(saved['record'])['delta_revision'] != delta_revision:
             return {'status': 'stale_revision', 'action': None}
@@ -135,7 +140,49 @@ def _transition(conn, binding, result, action, now):
         conn.execute("UPDATE delta_applications SET run_id=?, invocation_ref=?, phase='planning', revision=revision+1, updated_at=? WHERE id=?",
                      (binding['run_id'], canonical(run['invocation']['reference']), now, selected))
         return {'status': 'applied', 'action': action, 'application_id': selected}
+    elif purpose == 'clarify' and action == 'clarify' and app and app['waiting_input_ref']:
+        waiting = json.loads(app['waiting_input_ref'])
+        if waiting.get('binding_id') == binding['id'] or waiting.get('binding_id') in binding.get('resolves_input_ids', []):
+            conn.execute('UPDATE delta_applications SET waiting_input_ref=NULL, revision=revision+1, updated_at=? WHERE id=?',
+                         (now, app_id))
+    elif purpose == 'failure':
+        evidence = binding['failure_evidence']
+        expected_phase = 'prepared' if evidence['phase'] == 'pre_merge' else 'merged'
+        if not app or app['phase'] != expected_phase or not app['waiting_input_ref']:
+            return {'status': 'invalid_transition', 'action': None}
+        if evidence['phase'] == 'pre_merge' and action == 'revert':
+            return {'status': 'invalid_transition', 'action': None}
+        waiting = json.loads(app['waiting_input_ref'])
+        same = waiting.get('binding_id') == binding['id'] and waiting.get('request_ref') == binding['request_ref']
+        replacement = waiting.get('binding_id') in binding.get('resolves_input_ids', [])
+        if not same and not replacement:
+            return {'status': 'invalid_transition', 'action': None}
+        matching = None
+        for event_row in conn.execute('SELECT record FROM overseer_application_events WHERE application_id=?', (app_id,)):
+            event = json.loads(event_row['record'])
+            attempt = event.get('check_run', {})
+            if event.get('type') == 'check_run' and attempt.get('id') == evidence['check_run_id']:
+                matching = attempt
+                break
+        if (not matching or matching['phase'] != evidence['phase'] or matching['plan_revision'] != plan_revision
+            or (matching['state'] == 'uncertain') != evidence['uncertain'] or matching['state'] == 'passed'):
+            return {'status': 'stale_revision', 'action': None}
+        record = {'type': 'failure_response', 'binding_id': binding['id'], 'action': action,
+                  'owner_response': reference, 'failure_evidence': evidence}
+        conn.execute('INSERT INTO overseer_application_events VALUES (?, ?, ?, ?)',
+                     (str(uuid4()), app_id, canonical(record), now))
+        disposition = ('owner_authorized_retry' if action == 'retry_checks' else
+                       'owner_authorized_replan' if action == 'repair' and evidence['phase'] == 'pre_merge' else None)
+        if disposition:
+            conn.execute('INSERT INTO overseer_application_events VALUES (?, ?, ?, ?)',
+                         (str(uuid4()), app_id, canonical({'type': disposition, 'check_run_id': evidence['check_run_id'],
+                          'plan_revision': plan_revision, 'response_key': result['response_key'],
+                          'uncertain': evidence['uncertain']}), now))
+        conn.execute('UPDATE delta_applications SET waiting_input_ref=NULL, revision=revision+1, updated_at=? WHERE id=?',
+                     (now, app_id))
     elif purpose == 'close_satisfied' and action == 'close_satisfied':
+        if satisfaction_error is not None:
+            return {'status': satisfaction_error, 'action': None}
         if not app or delta['decision'] != 'accepted' or app['accepted_revision'] != delta_revision or app['merge'] is not None or app['phase'] not in ('queued', 'planning'):
             return {'status': 'invalid_transition', 'action': None}
         conn.execute("UPDATE delta_applications SET phase='complete', outcome='already_satisfied', satisfaction_evidence=?, revision=revision+1, updated_at=? WHERE id=?",
@@ -143,6 +190,15 @@ def _transition(conn, binding, result, action, now):
     return {'status': 'applied', 'action': action, 'delta': _read(conn, delta_id) if delta_id else None}
 
 
+def _under_authoring_lock(fn):
+    @wraps(fn)
+    def guarded(ctx, *args, **kwargs):
+        with ctx.store.lock(exclusive=True):
+            return fn(ctx, *args, **kwargs)
+    return guarded
+
+
+@_under_authoring_lock
 def apply(ctx, binding_id, response, *, operation_id, gateway=None):
     if gateway is None:
         raise AgenticError('trusted owner input gateway is required', code='owner_input_required')
@@ -156,6 +212,20 @@ def apply(ctx, binding_id, response, *, operation_id, gateway=None):
     interpretation = response['interpretation']
     digest = hashlib.sha256(canonical(result).encode()).hexdigest()
     full = {'canonical': result, 'interpretation': interpretation}
+    satisfaction_error = None
+    if binding['purpose'] == 'close_satisfied' and _response_action(binding, result, interpretation) == 'close_satisfied':
+        from .satisfaction import inspect_current, load_inspection
+        try:
+            with ctx.store.reader() as conn:
+                saved = load_inspection(conn, binding['satisfaction_inspection_id'])
+                app = conn.execute('SELECT * FROM delta_applications WHERE id=?', (binding['targets']['application_id'],)).fetchone()
+            inspection = saved['inspection']
+            evidence = inspection['evidence']
+            subjects = {'resource_paths': list(evidence['resource_hashes']), 'source_refs': evidence['source_refs'],
+                        'check_receipt_refs': evidence['check_receipt_refs']}
+            inspect_current(ctx, app, subjects, observations={'evidence': evidence, 'resolved': saved['resolved']})
+        except AgenticError as exc:
+            satisfaction_error = 'evidence_unavailable' if exc.code == 'evidence_unavailable' else 'stale_revision'
     def write(conn):
         old = conn.execute('SELECT binding_id, digest, record, result FROM overseer_owner_responses WHERE response_key=?', (result['response_key'],)).fetchone()
         if old:
@@ -168,7 +238,7 @@ def apply(ctx, binding_id, response, *, operation_id, gateway=None):
         if not current or json.loads(current['record']) != binding:
             raise AgenticError('binding changed during response reconciliation', code='stale_revision')
         action = _response_action(binding, result, interpretation)
-        outcome = _transition(conn, binding, result, action, ctx.now())
+        outcome = _transition(conn, binding, result, action, ctx.now(), satisfaction_error)
         conn.execute('INSERT INTO overseer_owner_responses VALUES (?, ?, ?, ?, ?)',
                      (result['response_key'], binding_id, digest, canonical(full), canonical(outcome)))
         if outcome['status'] == 'applied' and outcome['action'] not in (None, 'later', 'revise'):
@@ -177,6 +247,6 @@ def apply(ctx, binding_id, response, *, operation_id, gateway=None):
                              (old_id, binding_id, result['response_key']))
         return outcome
     outcome = mutate(ctx, operation_id, 'owner_response', {'binding_id': binding_id, 'response': response, 'canonical_digest': digest}, write)
-    if outcome['status'] in ('stale_revision', 'invalid_transition'):
+    if outcome['status'] in ('stale_revision', 'invalid_transition', 'evidence_unavailable'):
         raise AgenticError('owner response cannot change current state', code=outcome['status'])
     return outcome

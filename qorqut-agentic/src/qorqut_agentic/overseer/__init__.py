@@ -4,7 +4,7 @@ from .records import Proposals
 from .deltas import Deltas
 from .support import ImmutableRecords, Inputs, Review
 from .decisions import apply
-from .appstate import ApplicationState
+from .applications import Applications
 from .runs import start
 from .coverage import Coverage
 
@@ -19,7 +19,7 @@ class Overseer:
         self.materials = ImmutableRecords(ctx, 'overseer_materials', 'materials')
         self.inputs = Inputs(ctx)
         self.review = Review(ctx)
-        self.applications = ApplicationState(ctx)
+        self.applications = Applications(ctx)
 
     def apply_owner_response(self, binding_id, response, *, operation_id, gateway=None):
         return apply(self._ctx, binding_id, response, operation_id=operation_id, gateway=gateway)

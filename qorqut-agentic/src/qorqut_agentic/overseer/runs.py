@@ -62,7 +62,8 @@ def start(ctx, workflows, kind, invocation, *, operation_id, gateway=None, argum
     key = 'run:' + identity
     runner_op = 'overseer-run-' + identity
     fingerprint = hashlib.sha256(canonical({'kind': kind, 'gateway': resolved}).encode()).hexdigest()
-    with ctx.store.transaction() as conn:
+    with ctx.store.lock(exclusive=True), ctx.store.transaction() as conn:
+        ctx.guard_overseer_admission(conn, application_id=app_id)
         for op in (operation_id, key):
             row = conn.execute('SELECT fingerprint FROM overseer_operations WHERE operation_id=?', (op,)).fetchone()
             if row and row['fingerprint'] != fingerprint:
@@ -81,7 +82,8 @@ def start(ctx, workflows, kind, invocation, *, operation_id, gateway=None, argum
     runner_args = {name: {'value': value, 'source': 'admitted_invocation'} for name, value in argument_values.items()}
     run = workflows.start(_REFS[kind], resolved['executor'], arguments=runner_args, operation_id=runner_op)['run']
     ctx.hook('overseer_after_run_start', run_id=run['run_id'])
-    with ctx.store.transaction() as conn:
+    with ctx.store.lock(exclusive=True), ctx.store.transaction() as conn:
+        ctx.guard_overseer_admission(conn, application_id=app_id)
         old = json.loads(conn.execute('SELECT result FROM overseer_operations WHERE operation_id=?', (key,)).fetchone()['result'])
         if old['state'] == 'linked':
             reservation = old
