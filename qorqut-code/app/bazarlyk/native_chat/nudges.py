@@ -1,13 +1,15 @@
 """The inbox nudge backend: an advisory to a running native session that it has pending, authorized inbox events.
 
-The engine (``qorqut_operations.inbox_nudges``) keeps the durable need, the immutable attempts and the rearm rule. This module
-is the host side of it and nothing else:
+The engine (``qorqut_operations.inbox_nudges``) keeps the durable need, the immutable attempts and the event coverage: which
+pending events were already announced (or possibly announced) to one native conversation. This module is the host side of it
+and nothing else:
 
 * ``HostVisibility`` answers, from the inbox's own current authorization, which events an agent may see right now.
 * ``NudgeBackend`` is one bounded thread, independent of any Chat view. Each pass it finds the agents that have pending events,
-  turns the verified native binding and the progress the host has really seen into the engine's typed values, reserves at most
-  one notice per agent, sends it through the one input arbiter (``admit_nudge``: system origin, ``inbox_nudge`` marker, the
-  reserved exact binding) and settles the attempt with exactly what the transport reported.
+  turns the verified native binding into the engine's typed value, reserves at most one notice per agent, sends it through the
+  one input arbiter (``admit_nudge``: system origin, ``inbox_nudge`` marker, the reserved exact binding) and settles the attempt
+  with exactly what the transport reported. Chat inputs, replies and the native work/user counters neither rearm nor hold back a
+  notice: only an event not yet announced to the conversation makes one due. The ``Observation`` it passes is diagnostic only.
 
 Nothing here starts, resumes or stops an agent, acknowledges an event, or changes a Task, Action, Signoff or routine. An offline
 agent keeps its pending need and is nudged only after someone starts a session by hand. ``submitted`` is the transport's report,
@@ -27,8 +29,7 @@ import time
 from typing import Callable
 
 from qorqut_operations.contracts import DomainError, Principal
-from qorqut_operations.inbox_nudges import (Binding, InboxNudges, Observation as Progress, Outcome, Reservation, Waiting,
-                                            source_key)
+from qorqut_operations.inbox_nudges import Binding, InboxNudges, Observation, Outcome, Reservation, Waiting, source_key
 
 from . import store
 from .arbiter import StaleSession
@@ -44,8 +45,9 @@ UNAVAILABLE_REASONS = frozenset({"unsupported_transport", "unsupported_target", 
                                  "terminal_unavailable"})
 # A session that changed or an agent that is no longer registered: the reservation is stale, not a failed delivery.
 STALE_REASONS = frozenset({"stale_session", "agent_unavailable"})
-# Waiting verdicts that cannot change until the pending set, the binding or a progress counter changes.
-STEADY = frozenset({"coalesced", "awaiting_progress", "uncertain_unreconciled", "offline"})
+# Waiting verdicts that cannot change until the pending set or the binding changes (``coalesced``: every pending authorized event
+# is already announced or possibly announced to this conversation). Any other reason is asked again on the next pass.
+STEADY = frozenset({"coalesced", "offline"})
 RECOVERY_TEXT = ("The session helper has refreshed your instructions. The trusted hook delivers them with this notice. "
                  "Continue the owner's authorized work using the hook's current status; no startup command or status reply is needed.")
 RECOVERY_KIND = "bootstrap_recovery"
@@ -265,11 +267,12 @@ class NudgeBackend:
     # ----- one agent -------------------------------------------------------------------------------------------------
 
     def _fingerprint(self, conn, agent_id: str):
+        """What can make a held-back notice due: the live binding and the pending set. Chat inputs, replies and the native work
+        and user counters are deliberately not part of it."""
         session = store.live_session(conn, agent_id)
-        counters = store.counters(conn, agent_id)
         pending = conn.execute("SELECT COUNT(*),COALESCE(MAX(event_id),0) FROM inbox_deliveries WHERE agent_id=? AND acknowledged_at IS NULL",
                                (agent_id,)).fetchone()
-        return (session["id"] if session else None, counters["work_sequence"], counters["user_sequence"], pending[0], pending[1]), session, counters
+        return (session["id"] if session else None, pending[0], pending[1]), session
 
     def _quiet(self, agent_id: str, fingerprint) -> bool:
         memo = self._memo.get(agent_id)
@@ -285,7 +288,7 @@ class NudgeBackend:
         agent_id = profile["agent_id"]
         with self.locks(agent_id):
             with self.database.read() as uow:
-                fingerprint, session, counters = self._fingerprint(uow.connection, agent_id)
+                fingerprint, session = self._fingerprint(uow.connection, agent_id)
                 chat_waiting = bool(store.waiting_inputs(uow.connection, agent_id))
             if chat_waiting:
                 return "chat_input_first"  # a direct Chat input is ahead of any advisory; user work keeps its priority
@@ -298,8 +301,9 @@ class NudgeBackend:
                 if reconciled.session is not None and reconciled.live:
                     session, binding = reconciled.session, binding_of(reconciled.session)
                     working = bool(observed.observation and observed.observation.working)
-            progress = Progress(work=counters["work_sequence"], user=counters["user_sequence"], working=working)
-            verdict = self.engine.prepare(agent_id, binding, progress)
+            # Diagnostic only: whether a turn was running when the notice was reserved. No counter is passed, so nothing the
+            # agent or the owner does in Chat can make an unchanged backlog due again or hold a new event back.
+            verdict = self.engine.prepare(agent_id, binding, Observation(working=working))
             if isinstance(verdict, Waiting):
                 self._memo[agent_id] = (fingerprint, verdict.reason, self._monotonic(),
                                         _moment(verdict.not_before) if verdict.not_before else None)
@@ -334,8 +338,8 @@ class NudgeBackend:
     def recovery_notice(self, agent_id: str, episode_id: str, *, consumer_id: str) -> dict:
         """The retained bootstrap context-recovery wake, through the same arbiter, as its own system input type
         (``bootstrap_recovery``, never ``inbox_nudge``). It is unrelated to inbox events: it covers none, acknowledges nothing and
-        neither spends nor rearms an inbox notice allowance. The episode id makes it idempotent: a repeat returns the saved result
-        and never types twice.
+        neither announces an event nor makes an announced one due again. The episode id makes it idempotent: a repeat returns the
+        saved result and never types twice.
 
         ``consumer_id`` is required. It is the native conversation of the hook that asked: the wake is pinned to the live session
         that holds exactly that conversation, and any other session (or none) leaves it ``deferred`` for the caller to ask again.
@@ -354,13 +358,19 @@ class NudgeBackend:
     # ----- diagnostics -----------------------------------------------------------------------------------------------
 
     def status(self, agent_id: str) -> dict:
-        """The operator view: idle, pending, deferred, submitted, uncertain, stale or unavailable, never 'read'. A pending need of
-        an agent with no live native session says it is offline and waits for a manual start."""
-        view = self.engine.status(agent_id)
+        """The operator view: idle, pending, deferred, submitted, uncertain, stale or unavailable, never 'read'.
+
+        Coverage is read for the live native conversation, so a fresh conversation that has not had a notice yet is ``pending``,
+        not ``submitted`` because an earlier conversation was told. An agent with no live native session and anything
+        authorized pending is ``pending``/``offline`` and waits for a manual start, whatever an earlier conversation was told;
+        with nothing pending it stays ``idle``."""
         with self.database.read() as uow:
             live = store.live_session(uow.connection, agent_id)
-        if view["state"] == "pending" and live is None:
-            view = {**view, "reason": "offline"}
+        if live is not None:
+            return self.engine.status(agent_id, binding=binding_of(live))
+        view = self.engine.status(agent_id)
+        if view["state"] != "idle":
+            view = {**view, "state": "pending", "reason": "offline"}
         return view
 
 
