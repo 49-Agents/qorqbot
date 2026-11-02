@@ -57,7 +57,7 @@ function extensionAssets(entry, kind) {
   const list = entry.assets && entry.assets[kind];
   if (list === undefined) return [];
   if (!Array.isArray(list)) throw new Error("Extension asset list is malformed.");
-  return list.map(path => {
+  return [...new Set(list)].map(path => {
     const match = typeof path === "string" && !path.includes("..") ? EXTENSION_ASSET.exec(path) : null;
     if (!match || match[1] !== entry.id || match[2] !== ext) throw new Error(`Extension asset ${path} is not allowed.`);
     return path;
