@@ -77,9 +77,14 @@ function attentionBoardMount(p) {
     }
   });
   const boardState=p.attentionBoard;
+  const repliesChanged=()=>board.querySelectorAll('[data-attention-reference]').forEach(row=>{
+    agfocusUnread(p,row,row._attentionReference);
+  });
+  document.addEventListener('reply-notifications-changed',repliesChanged);
   p.workspaceDispose = () => {
     const layout=board.querySelector('.agfocus-layout');
     if (layout) cache.scroll=layout.scrollTop;
+    document.removeEventListener('reply-notifications-changed',repliesChanged);
     unsubscribe(); disposeQueue(); agfocusOverlayClose(p); clearTimeout(boardState.repaint); boardState.workspace.dispose(); p.attentionBoard = null;
   };
   // Paint the cached snapshot synchronously and restore the scroll position, then refresh only if it is stale.
@@ -205,7 +210,16 @@ function attentionReferenceRow(p, source, task = null) {
   const flag=row.querySelector('.agfocus-flag');
   const stateLabel=task ? customerStateText(task) : '';
   flag.textContent=stateLabel; flag.hidden=!stateLabel;
-  row.tabIndex=0; row.setAttribute('role','group'); row.setAttribute('aria-label',label);
+  row.tabIndex=0; row.setAttribute('role','group');
+  row.dataset.attentionReference='';
+  row._attentionReference={source,label};
+  agfocusUnread(p,row,row._attentionReference);
+  const leading=row.querySelector('.agfocus-notification');
+  leading.removeAttribute('aria-hidden');
+  if (task && !(source.business_id != null && !scope)) {
+    taskWorkerMount(leading,scope,task,p.agentId);
+    leading.append(leading.querySelector('[data-task-workers]'));
+  }
   const open=()=>{p.attentionBoard.selected=row.dataset.attentionMember;void attentionBoardOpen(p,source);};
   row.onclick=event=>{if(!event.target.closest('button,a,input,textarea,select'))open();};
   row.onkeydown=event=>{if(event.target===row && ['Enter',' '].includes(event.key)){event.preventDefault();open();}};
@@ -267,12 +281,11 @@ function attentionBoardPaint(p) {
   for (const status of ATTENTION_GROUPS) {
     const items=data.items.filter(item=>(attentionBoardTask(item.task_ref,item.task).status || 'open')===status);
     for (const item of items) {
-      const ref=item.task_ref, scope=attentionBoardScope(ref,item.task), unavailable=ref.business_id != null && !scope, task=attentionBoardTask(ref,item.task);
+      const ref=item.task_ref, scope=attentionBoardScope(ref,item.task), task=attentionBoardTask(ref,item.task);
       const row=attentionReferenceRow(p,{...ref,business_slug:scope,label:task.title,state:task.status,task_type:task.task_type,revision:task.revision},task);
       row.dataset.attentionMember=item.membership_id;
       if(status==='done' && item===items[0] && rows.childElementCount)row.classList.add('attention-completed-start');
       const actions=row.querySelector('.agfocus-actions');
-      if (!unavailable && (task.workers?.length || task.user_needed)) taskWorkerMount(actions,scope,task,p.agentId);
       const remove=document.createElement('button'); remove.type='button'; remove.className='quiet'; remove.innerHTML=SVG_X; remove.setAttribute('aria-label','Remove '+(task.title || 'task')+' from Attention board');
       remove.onclick=async()=>{remove.disabled=true; try { coreData(await post('/root/operations/attention_remove',{scope:'global',membership_id:item.membership_id,expected_membership_revision:item.membership_revision,idempotency_key:newRequestId()})); await attentionBoardForget(p,item.membership_id); } catch(error) {toast(error.message); remove.disabled=false;}};
       actions.append(remove); rows.append(row);
