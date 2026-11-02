@@ -219,7 +219,7 @@ def main(argv=None):
             local_host = "[" + local_host.strip("[]") + "]"
         origins = args.origin + [value for value in os.environ.get("BIZ_SERVICE_ORIGINS", "").split(",") if value]
         origins += [f"http://{local_host}:{args.port}", f"http://localhost:{args.port}"]
-        endpoint = args.service_url or f"http://127.0.0.1:{args.port}/mcp"
+        endpoint = args.service_url or f"http://{local_host}:{args.port}/mcp"
         context_settings = None
         if args.context_config is not None:
             from bazarlyk.shared_context.service import ContextSettings, runner_config_from_file
