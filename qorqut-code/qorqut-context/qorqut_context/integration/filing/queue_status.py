@@ -1,6 +1,6 @@
 """The read-only Context queue summary of one namespace, for the existing process views.
 
-It counts the Operations Context queue's own rows and nothing else: exact unfinished input states of this namespace, the
+It counts the Context queue's own rows and nothing else: exact unfinished input states of this namespace, the
 published filings whose terminal receipt is not applied yet, and the single shared fact that something ahead of every later input
 is blocked. It never counts generic job activity (a deferred Context job is not a model that is running), never fabricates a
 pending completion for a graph or Action publication that has no filing, and starts, initializes and writes nothing.
