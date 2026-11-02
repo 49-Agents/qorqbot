@@ -208,6 +208,23 @@ def ensure_capture(conn, session: dict) -> dict:
     return get_capture(conn, session["agent_id"], session["provider"], session["conversation_id"])
 
 
+def capture_changes(capture: dict, **values) -> dict:
+    """The part of ``values`` that is not already the stored state of ``capture``. The cursor state is compared as data, not as
+    text, so a re-serialisation of the same state is no change. Nothing is written here."""
+    changed = {}
+    for name, value in values.items():
+        if name == "index_state_json":
+            try:
+                same = json.loads(capture[name]) == json.loads(value)
+            except ValueError:
+                same = False
+        else:
+            same = capture[name] == value
+        if not same:
+            changed[name] = value
+    return changed
+
+
 def update_capture(conn, capture: dict, **values) -> None:
     values["updated_at"] = utc_now()
     names = list(values)

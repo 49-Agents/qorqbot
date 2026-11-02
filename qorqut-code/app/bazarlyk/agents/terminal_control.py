@@ -270,7 +270,15 @@ class TerminalControl:
         admission = self.app.writer_admission
         with admission.writer() if admission else nullcontext():
             self.runtime.require_authority()
+            # An idle controller holds no write unit: only a visible queued action enters the transaction below, which
+            # selects again and repeats every authorization, binding and uncertain-before-effect step.
+            if not self._has_queued():
+                return False
             return self._tick()
+
+    def _has_queued(self):
+        with self.runtime.database.read() as uow:
+            return uow.connection.execute("SELECT 1 FROM terminal_actions WHERE state='queued' LIMIT 1").fetchone() is not None
 
     def _tick(self):
         with self.runtime.database.transaction() as uow:

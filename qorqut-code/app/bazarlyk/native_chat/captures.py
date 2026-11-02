@@ -7,6 +7,10 @@ One ``step`` is bounded. It captures the source only when the file changed (or a
 batch of records from the saved cursor in one transaction with the completions it found. A larger backlog continues on the next
 step from the same cursor, so a restart, a crash between the archive and the database, or a rebuild resumes without
 re-notifying or skipping a reply.
+
+A step that finds nothing to record writes nothing. The existing capture row is read without a write transaction, the proposed
+cursor state is computed outside any write unit, and a write unit opens only when that state differs from the stored row (a new
+cursor, receipt, binding, error repair, completion or finalization); it then writes only the columns that actually differ.
 """
 
 from __future__ import annotations
@@ -101,9 +105,7 @@ class Indexer:
     def step(self, profile: dict, session: dict, *, final: bool = False) -> StepResult:
         key = (session["agent_id"], session["provider"], session["conversation_id"])
         archive = self.archive(profile)
-        with self.database.transaction(operation="native_chat.capture_cursor") as uow:
-            self.runtime.application.ensure_writes_open(uow)
-            capture = store.ensure_capture(uow.connection, session)
+        capture = self._cursor(session)
         result = StepResult()
         receipt = None
         if capture["receipt_id"]:
@@ -144,11 +146,28 @@ class Indexer:
                                             _aware(session["ended_at"]))
         return archive.capture(binding, final_evidence=evidence)
 
+    def _cursor(self, session: dict) -> dict:
+        """The capture row of this binding's conversation. An existing row is read without a write transaction; a missing one is
+        created by the guarded, idempotent write, which checks again that no other step created it in the meantime."""
+        identity = (session["agent_id"], session["provider"], session["conversation_id"])
+        with self.database.read() as uow:
+            # Closed writes (maintenance) stop the step here, before anything is archived.
+            self.runtime.application.ensure_writes_open(uow)
+            capture = store.get_capture(uow.connection, *identity)
+        if capture is None:
+            with self.database.transaction(operation="native_chat.capture_cursor") as uow:
+                self.runtime.application.ensure_writes_open(uow)
+                capture = store.get_capture(uow.connection, *identity) or store.ensure_capture(uow.connection, session)
+        return capture
+
     def _failed(self, capture, code, retryable, result):
         result.error, result.retryable = code, retryable
         if capture["error_code"] != code:
             with self.database.transaction(operation="native_chat.capture_error") as uow:
-                store.update_capture(uow.connection, capture, error_code=code)
+                fresh = store.get_capture(uow.connection, capture["agent_id"], capture["provider"], capture["conversation_id"])
+                changes = store.capture_changes(fresh, error_code=code)
+                if changes:
+                    store.update_capture(uow.connection, fresh, **changes)
         return result
 
     # ----- reply index -----------------------------------------------------------------------------------------------
@@ -172,6 +191,15 @@ class Indexer:
                         break
         result.more = consumed < receipt.record_boundary
         finalized = bool(final and receipt.final is not None and not result.more)
+        state = json.dumps(projector.state.dump(), separators=(",", ":"))
+        # A conversation resumed by a later binding is already finalized on its capture row; the binding's own end still has to be
+        # recorded once.
+        unmarked = finalized and session.get("final_captured_at") is None
+        if not completions and not unmarked and not store.capture_changes(
+                capture, **self._proposal(capture, session, receipt, consumed, state, finalized)):
+            # Nothing to record: the row already holds exactly the state this step would write.
+            result.finalized = finalized
+            return
         with self.database.transaction(operation="native_chat.index") as uow:
             self.runtime.application.ensure_writes_open(uow)
             conn, now = uow.connection, utc_now()
@@ -188,17 +216,23 @@ class Indexer:
                                          preview=completion.preview, origin=completion.origin, user_work=completion.user_work)
                 result.completions += 1 if row else 0
             grew = receipt.sequence != fresh["receipt_sequence"] or consumed != start
-            store.update_capture(conn, fresh, session_id=session["id"], receipt_id=receipt.receipt_id,
-                                 receipt_sequence=max(receipt.sequence, fresh["receipt_sequence"]),
-                                 captured_length=max(receipt.length, fresh["captured_length"]), indexed_offset=consumed,
-                                 index_state_json=json.dumps(projector.state.dump(), separators=(",", ":")),
-                                 complete=1 if receipt.complete else 0, error_code=None,
-                                 finalized=1 if finalized or fresh["finalized"] else 0)
+            changes = store.capture_changes(fresh, **self._proposal(fresh, session, receipt, consumed, state, finalized))
+            if changes:
+                store.update_capture(conn, fresh, **changes)
             if finalized:
                 store.mark_final_captured(conn, session["id"], now)
-            if grew:
+            if grew and (changes or result.completions):
                 store.bump(conn, session["agent_id"])
             result.finalized = finalized
+
+    @staticmethod
+    def _proposal(row, session, receipt, consumed, state, finalized) -> dict:
+        """The capture state this step would leave, given the stored ``row`` (a cursor and a length only move forward)."""
+        return {"session_id": session["id"], "receipt_id": receipt.receipt_id,
+                "receipt_sequence": max(receipt.sequence, row["receipt_sequence"]),
+                "captured_length": max(receipt.length, row["captured_length"]), "indexed_offset": consumed,
+                "index_state_json": state, "complete": 1 if receipt.complete else 0, "error_code": None,
+                "finalized": 1 if finalized or row["finalized"] else 0}
 
     def _resolver(self, session: dict):
         """What proves a leading marker was typed by the application: an input receipt this very conversation holds, of the

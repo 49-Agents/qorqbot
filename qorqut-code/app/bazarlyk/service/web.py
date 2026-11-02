@@ -96,6 +96,11 @@ class ServiceBoundary:
                             f"db;dur={scope.get('bazarlyk.db_ms', 0.0):.1f}",
                             f"units;dur={scope.get('bazarlyk.units', 0)}",
                             f"body;dur={scope.get('bazarlyk.response_bytes', 0)}",
+                            # Sums over the request's storage units, in ms; units can nest or overlap, so they are
+                            # neither SQL time nor a share of `total`.
+                            f"db_wait;dur={scope.get('bazarlyk.db_wait_ms', 0.0):.1f}",
+                            f"db_read;dur={scope.get('bazarlyk.db_read_ms', 0.0):.1f}",
+                            f"db_write;dur={scope.get('bazarlyk.db_write_ms', 0.0):.1f}",
                             *([f"etag;desc={etag_desc}"] if etag_desc else ())))
                         message["headers"].append((b"server-timing", timing.encode("ascii")))
             await send(message)

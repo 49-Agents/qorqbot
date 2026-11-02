@@ -28,6 +28,8 @@ from .models import AgentProfile, EffectiveAgentConfig, RETIRED_ROLE_IDS
 from .roles import LEARNING_APPLIER_ROLE, RETIRED_PLUGIN_IDS
 from .ordubashy import require_complete_scope
 
+PROFILE_CACHE_LIMIT = 128
+
 
 def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, packages=()) -> list[dict]:
     from bazarlyk.composition.policy import GLOBAL_TABLE_OPERATIONS, resolve_operation_policy
@@ -129,6 +131,39 @@ class AgentConfigResolver:
         self.plugin_handlers = dict(plugin_handlers or {})
         self._cache: OrderedDict[str, EffectiveAgentConfig] = OrderedDict()
         self._lock = RLock()
+        self._profiles: OrderedDict[tuple[str, str], AgentProfile] = OrderedDict()
+        self._profiles_registry: Any = None
+        self._profiles_lock = RLock()
+
+    def _parsed_profile(self, principal_id: str, profile_json: str) -> AgentProfile:
+        """Parse and schema/policy-validate one stored profile, reusing the result for identical bytes.
+
+        ``AgentProfile.from_dict`` is a pure function of the stored text and the registry's authority metadata, and the
+        result is recursively frozen. Once the registry is frozen that metadata can no longer change, so a successful
+        result is reusable for the exact same ``(principal, profile_json)``. While assembly can still mutate the registry
+        nothing is cached. The cache is bound to the registry instance by reference: a different registry empties it.
+        Only the parse is reused: ``profile`` still reads the current rows and repeats every identity, scope, role and
+        consistency check on each call. Failures are never cached."""
+        registry = self.registry
+        if getattr(registry, "frozen", False) is not True or not isinstance(profile_json, str):
+            return AgentProfile.from_dict(json.loads(profile_json), registry)
+        key = (principal_id, profile_json)
+        with self._profiles_lock:
+            if self._profiles_registry is not registry:
+                self._profiles.clear()
+                self._profiles_registry = registry
+            cached = self._profiles.get(key)
+            if cached is not None:
+                self._profiles.move_to_end(key)
+                return cached
+        profile = AgentProfile.from_dict(json.loads(profile_json), registry)
+        with self._profiles_lock:
+            if self._profiles_registry is registry:
+                self._profiles[key] = profile
+                self._profiles.move_to_end(key)
+                while len(self._profiles) > PROFILE_CACHE_LIMIT:
+                    self._profiles.popitem(last=False)
+        return profile
 
     def profile(self, principal: Principal, *, connection=None) -> tuple[AgentProfile, dict]:
         if not isinstance(principal, Principal) or principal.kind != "agent":
@@ -142,7 +177,7 @@ class AgentConfigResolver:
             raise DomainError("inactive_agent", "Agent identity is missing or inactive; read current configuration after preparation")
         from qorqut_operations.business_lifecycle import require_active_business
         require_active_business(connection, row["home_business_id"])
-        profile = AgentProfile.from_dict(json.loads(row["profile_json"]), self.registry)
+        profile = self._parsed_profile(principal.id, row["profile_json"])
         if profile.role.id in RETIRED_ROLE_IDS:
             raise DomainError("inactive_agent", "Agent uses a retired role and cannot operate")
         require_complete_scope(profile, connection)
