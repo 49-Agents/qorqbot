@@ -8,6 +8,9 @@ from qorqut_operations.contracts import DomainError, InvocationOptions, Principa
 from qorqut_operations.discussion import emit_event
 from bazarlyk.management.identity import configured_ordubashy, is_active_installation_owner
 
+BOARD_TRANSITION_HINT = ('Make sure everything on your Attention board reflects reality: what you’re doing, '
+                         'each task’s state, and who must act next.')
+
 ID = {'type': 'string', 'minLength': 1, 'maxLength': 200}
 REF = schema({'type': ID, 'id': ID, 'business_id': {'type': ['string', 'null']}}, ('type', 'id', 'business_id'))
 TASK = schema({'type': {'const': 'task'}, 'id': ID, 'business_id': {'type': ['string', 'null']}}, ('type', 'id', 'business_id'))
@@ -341,11 +344,34 @@ class Attention:
             for ref in args.get('related_refs', []): self.resolve(ctx, agent, ref, uow)
         return ctx, agent, state
 
+    def task_update_hint(self, ctx, args, operation):
+        """Advisory only: never mutate the board or require Attention session ownership."""
+        if ctx.principal_kind != 'agent':
+            return None
+        status = (args.get('status', 'done') if operation == 'tasks_complete'
+                  else args.get('changes', {}).get('status'))
+        if status == 'waiting':
+            return 'Waiting is for an external party. Otherwise, check state and Workers.'
+        if status not in ('working', 'done'):
+            return None
+        with self.runtime.database.read() as uow:
+            agent = configured_ordubashy(uow, require_codex=False)
+            if ctx.principal_id != agent:
+                return None
+            if status == 'working':
+                return BOARD_TRANSITION_HINT
+            state = self.state(uow, agent)
+            ref = {'type': 'task', 'id': args.get('task_id'), 'business_id': ctx.business_id}
+            if state['focus_json'] and ref in (state['focus_json'], state['work_task_json']):
+                return 'Clear or change your focus.'
+        return None
+
     def add_result(self, ctx, task, uow):
         result = self.read(ctx, {}, uow)
-        if ctx.principal_kind == 'agent' and not task.get('worker_ids'):
-            result['agent_hint'] = ('Set Workers to whoever must act next: you, another agent, and/or the user. '
-                                    'Sending an assignment message does not update Workers.')
+        if ctx.principal_kind == 'agent':
+            result['agent_hint'] = BOARD_TRANSITION_HINT
+            if not task.get('worker_ids'):
+                result['agent_hint'] += ' Set who must act next.'
         return result
 
     def apply(self, ctx, plan, uow):
@@ -387,7 +413,12 @@ class Attention:
             else:
                 self.ensure(uow,agent)
                 uow.connection.execute('UPDATE agent_attention SET revision=revision+1,updated_at=? WHERE agent_id=?',(now,agent))
-        return self.add_result(ctx,task,uow) if op == 'attention_add' else self.read(ctx,{},uow)
+        if op == 'attention_add':
+            return self.add_result(ctx,task,uow)
+        result = self.read(ctx,{},uow)
+        if op == 'attention_focus_set' and ctx.principal_kind == 'agent':
+            result['agent_hint'] = BOARD_TRANSITION_HINT
+        return result
 
 
 def register_attention(runtime):

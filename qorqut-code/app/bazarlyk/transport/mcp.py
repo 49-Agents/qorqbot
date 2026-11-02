@@ -409,11 +409,15 @@ class MCPTransport:
             result = await anyio.to_thread.run_sync(invoke)
             presented = mcp_presentation.present(canonical_name, result.to_dict(), detail,
                 tool_names=tool_names, sections=sections, arguments=args)
-            if (canonical_name == "tasks_update" and result.status == "ok"
-                    and args.get("changes", {}).get("status") == "waiting"):
-                presented = {**presented, "agent_hint": (
-                    "Waiting means an external party must act. If the user must act, add the user to Workers. "
-                    "Use blocked if no work can proceed; otherwise keep working with the relevant workers listed.")}
+            if canonical_name in {"tasks_update", "tasks_complete"} and result.status == "ok":
+                # A failed advisory read must not turn a committed task update into a tool error.
+                try:
+                    hint = await anyio.to_thread.run_sync(
+                        self.runtime.application.ordubashy_attention.task_update_hint, context, args, canonical_name)
+                except Exception:
+                    hint = None
+                if hint:
+                    presented = {**presented, "agent_hint": hint}
             if read_token is not None and result.status == "ok":
                 # Authentication, argument binding, scope and policy checks, and
                 # the domain read have ALL completed before token comparison.
