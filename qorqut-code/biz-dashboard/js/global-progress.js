@@ -1,11 +1,11 @@
 // Period switches share one owner-scoped daily activity snapshot.
 const globalProgressCache = new Map();
-function globalProgressMount(host) {
+function globalProgressMount(host, {signal = pageReads.signal, active = () => true} = {}) {
   const metrics = [['tasks_done','Tasks done','gp-tasks'],['emails_sent','Emails sent','gp-emails'],['inbox_messages','Inbox messages','gp-inbox'],['learnings_accepted','Accepted learnings','gp-learnings'],['new_tickets','New tickets','gp-tickets'],['cold_outreach_emails_sent','Cold outreach sent','gp-cold-outreach']];
   let days = 30, rows = null;
   host.innerHTML = `<section class="global-progress" aria-label="Business activity"><header><div class="global-progress-periods" role="group" aria-label="Chart period">${[30,120,365].map(n=>`<button type="button" data-days="${n}" aria-pressed="${n===days}">${n} days</button>`).join('')}</div><div class="global-progress-legend">${metrics.map(([,label,cls])=>`<span class="${cls}">${label}</span>`).join('')}</div></header><div class="global-progress-plot" role="status">Loading activity…</div></section>`;
   const plot = host.querySelector('.global-progress-plot');
-  const current = () => host.isConnected;
+  const current = () => host.isConnected && !signal.aborted && active();
   const dateLabel = date => sjDayLabel(date);   // server dates are San Juan calendar days
   function draw() {
     if (!current() || !rows) return;
@@ -46,7 +46,7 @@ function globalProgressMount(host) {
     try {
       let entry=globalProgressCache.get('global');
       if (!entry || entry.signal?.aborted || entry.day!==today || Date.now()-entry.at>60000) {
-        entry={day:today,at:Date.now(),signal:pageReads.signal,promise:pageReadPost('/root/operations/global_progress_get',{days:365}).then(coreData)};
+        entry={day:today,at:Date.now(),signal,promise:pageReadPost('/root/operations/global_progress_get',{days:365},signal).then(coreData)};
         globalProgressCache.set('global',entry);
         entry.promise.then(()=>{entry.signal=null;},()=>{});
         entry.promise.catch(()=>{if(globalProgressCache.get('global')===entry)globalProgressCache.delete('global');});

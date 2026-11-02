@@ -1,4 +1,4 @@
-// Owner restore of archived businesses in Global Overview. Restore returns the
+// Owner restore of archived businesses (Charts in the shared drawer). Restore returns the
 // business and its resources; no agent is restored or started.
 const businessRestoreKeys = new Map();   // business id -> idempotency key kept until success
 
@@ -8,7 +8,7 @@ function businessRestoreRows(data) {
   return items.map(item => ({...item, id: item.business_id || item.id})).filter(item => item.id);
 }
 
-async function businessRestoreMount(host) {
+async function businessRestoreMount(host, restored) {
   if (!host) return;
   host.hidden = true;
   if (state.session?.is_owner === false) return;
@@ -30,11 +30,11 @@ async function businessRestoreMount(host) {
     <span class="global-archived-name"><strong>${esc(row.name || row.slug)}</strong><span class="muted small">${esc(row.slug || '')}${row.archived_at ? ' · archived ' + esc(String(row.archived_at).slice(0, 10)) : ''}</span></span>
     <button class="btn" type="button" data-restore-business="${esc(row.id)}">Restore</button></li>`).join('')}</ul>`;
   host.querySelectorAll('[data-restore-business]').forEach(button => {
-    button.onclick = () => businessRestoreConfirm(rows.find(row => row.id === button.dataset.restoreBusiness), host);
+    button.onclick = () => businessRestoreConfirm(rows.find(row => row.id === button.dataset.restoreBusiness), host, restored);
   });
 }
 
-function businessRestoreConfirm(row, host) {
+function businessRestoreConfirm(row, host, restored) {
   if (!row) return;
   const name = row.name || row.slug;
   let busy = false;
@@ -59,7 +59,7 @@ function businessRestoreConfirm(row, host) {
           close();
           toast(`${name} restored`);
           await loadBiz({preserveNavigation: true});
-          if (state.scope === 'global' && state.globalTab === 'overview') renderTab();
+          if (restored) restored();
           else if (host.isConnected) businessRestoreMount(host);
         } catch (failure) {
           // A changed business needs a fresh read and a new attempt.
