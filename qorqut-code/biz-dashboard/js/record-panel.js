@@ -195,6 +195,7 @@ async function recordOpenContext(ctx, other, options = {}) {
     if (host) {
       host.replaceChildren(recordNode('p', 'muted', message || 'This item is unavailable. It may have been removed, or you may not have access to it.'));
       host.firstChild.dataset.recordUnavailable = '';
+      options.onUnavailable?.();
       return {dirty: () => false, dispose() { host.replaceChildren(); }};
     }
     return recordUnavailable(title, message);
@@ -258,6 +259,7 @@ function recordOpenDocument(ctx, other, item, options = {}) {
     const unavailable = () => {
       box.replaceChildren(recordNode('p', 'muted', 'This item is unavailable. It may have been removed, or you may not have access to it.'));
       box.firstChild.dataset.recordUnavailable = '';
+      if (options.host) options.onUnavailable?.();
     };
     const gone = failure => ['not_found', 'forbidden', 'policy_denied'].includes(failure.code);
     let text = null, loaded = 0, hash = null;
@@ -273,6 +275,7 @@ function recordOpenDocument(ctx, other, item, options = {}) {
         if (mine !== own || !alive()) return;
         if (gone(failure)) return unavailable();
         if (more && failure.code === 'validation_error') return conflict();
+        if (options.host && (typeof accessLost === 'function' && accessLost(failure) || typeof sourceGone === 'function' && sourceGone(failure))) return unavailable();
         return recordRetry(box, uiFailure(failure, {load: true}), () => read(more, cursor));
       }
       if (mine !== own || !alive()) return;

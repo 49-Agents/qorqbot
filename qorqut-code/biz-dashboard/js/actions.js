@@ -364,7 +364,8 @@ const acDiscussions = new Set();
 function acDiscussionsDispose({ detachedOnly = false } = {}) {
   for (const handle of [...acDiscussions]) if (!detachedOnly || !handle.host.isConnected) handle.dispose();
 }
-function acDiscussionMount(host, action) {
+function acDiscussionMount(host, action, options = {}) {
+  const op = options.op || acOp;
   if (host._acDiscussion) return host._acDiscussion;
   acDiscussionsDispose({ detachedOnly: true });
   const data = { messages: [], participants: [], cursor: null, loading: false };
@@ -401,7 +402,7 @@ function acDiscussionMount(host, action) {
     data.loading = true; const mine = ++seq;
     if (more) paint("preserve");
     try {
-      const result = await acOp("actions_thread_get", { action_id: action.action_id, limit: 20, ...(more && data.cursor ? { cursor: data.cursor } : {}) });
+      const result = await op("actions_thread_get", { action_id: action.action_id, limit: 20, ...(more && data.cursor ? { cursor: data.cursor } : {}) });
       if (!alive || mine !== seq) return;
       const merged = new Map((more ? [...result.messages, ...data.messages] : result.messages).map(m => [m.id, m]));
       data.messages = [...merged.values()]; data.participants = result.participants || data.participants; data.cursor = result.next_cursor; error.hidden = true;
@@ -414,12 +415,12 @@ function acDiscussionMount(host, action) {
   host.querySelector("select").onchange = async event => {
     const out = host.querySelector(".ac-revision-text"), revision = Number(event.target.value);
     try {
-      const result = await acOp("actions_get", { action_id: action.action_id, revision });
+      const result = await op("actions_get", { action_id: action.action_id, revision });
       if (alive) out.textContent = result.action.text;
     } catch (e) { if (alive) out.textContent = ""; fail(e, true); }
   };
   host.querySelectorAll("[data-follow]").forEach(button => button.onclick = async () => {
-    try { await acOp("actions_follow", { action_id: action.action_id, following: button.dataset.follow === "true", idempotency_key: newRequestId() }); toast(button.dataset.follow === "true" ? "Following this action." : "Unfollowed this action."); if (alive) error.hidden = true; }
+    try { await op("actions_follow", { action_id: action.action_id, following: button.dataset.follow === "true", idempotency_key: newRequestId() }); toast(button.dataset.follow === "true" ? "Following this action." : "Unfollowed this action."); if (alive) error.hidden = true; }
     catch (e) { fail(e); }
   });
   const handle = { host, layout: () => { if (alive) chat.layout(); },
@@ -429,6 +430,28 @@ function acDiscussionMount(host, action) {
   load();
   return handle;
 }
+// The one Action content reader: both the Activity row renderer and the record workspace use
+// acRowHtml plus the existing revision/discussion reader, so source text and metadata cannot diverge.
+function acActionReader(host, action, options = {}) {
+  if (!host) return null;
+  const row = document.createElement('article');
+  row.className = 'ac-row ac-action-reader';
+  const value = {...action, action_id: action.action_id || action.id};
+  row.innerHTML = acRowHtml(value, 0);
+  const text = row.querySelector('.ac-row-text');
+  if (text) text.classList.add('rw-action-text');
+  row.querySelector('[data-ac-edit]')?.remove();
+  host.replaceChildren(row);
+  let discussion = null;
+  const details = row.querySelector('[data-ac-discussion]');
+  if (details) {
+    details.open = true;
+    discussion = acDiscussionMount(details.querySelector('.ac-discussion-body'), value, {op: options.op});
+  }
+  return {dirty: () => false, hasUnsaved: () => false, el: row,
+    dispose() { discussion?.dispose?.(); host.replaceChildren(); }};
+}
+
 function acListPaint() {
   if (typeof tView === "undefined" || tView !== "activity") return;
   const body = $("#tbody"); if (!body) return;

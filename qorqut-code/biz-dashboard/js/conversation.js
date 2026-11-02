@@ -365,7 +365,10 @@ function conversationMount(host,source,adapter={}) {
   chat.setDraft(s.text);
   view=host._conversation={
     dismissOnOutside:adapter.dismissOnOutside!==false,
-    refresh:()=>{if(expanded){for(const view of signoffViews)void view.refresh();return load(false);}},
+    // Refresh must also revalidate a retained but hidden Chat: a source denial there has to
+    // reach the host even though the pane is collapsed. load() itself never acknowledges a
+    // hidden conversation; only expand() asks it to acknowledge.
+    refresh:()=>{if(expanded){for(const view of signoffViews)void view.refresh();}return load(false);},
     isExpanded:()=>expanded,expand:()=>expand(true),collapse:()=>expand(false),
     setUnread,
     hasDraft:()=>!!(s.text || s.files.length),

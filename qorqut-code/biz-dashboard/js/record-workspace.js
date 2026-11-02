@@ -48,6 +48,10 @@ function rwTypeLabel(record) {
   if (source.type === 'reference') return 'Reference';
   if (source.type === 'action') return 'Action';
   if (source.type === 'job') return 'Job';
+  if (source.type === 'material') return 'Material';
+  if (source.type === 'person') return 'Person';
+  if (source.type === 'topic') return 'Topic';
+  if (source.type === 'dev_ticket') return 'System Dev report';
   return ({data_tables: 'Table', documents: 'Document', action_logs: 'Action', agent_profiles: 'Agent', context_entities: 'Reference',
     owner_reminders: 'Reminder', routines: 'Routine', routine_runs: 'Routine run', jobs: 'Job'}
     [record.resource_type] || 'Record');
@@ -263,31 +267,36 @@ function recordWorkspaceMount(host, options = {}) {
       clearEntries();
     } else if (!root) {
       const existing = stack.find(item => rwRecordKey(item.record) === key);
-      if (existing) {
-        const above = [];
-        while (stack.length && entry() !== existing) above.push(entry());
-        if (above.length && !await confirmDiscardEntries(above)) return false;
-        if (disposed || !existing.alive) return false;
-        while (stack.length && entry() !== existing) removeEntry(stack.pop());
-        reveal();
-        return true;
-      }
+      if (existing) return finishExistingNavigation(existing, tab);
     }
     return pushEntry(record, tab);
   }
   async function navigate(record, {tab = null} = {}) {
     if (disposed || !record) return false;
     const existing = stack.find(item => rwRecordKey(item.record) === rwRecordKey(record));
-    if (existing) {
-      const above = [];
-      while (stack.length && entry() !== existing) above.push(entry());
-      if (above.length && !await confirmDiscardEntries(above)) return false;
-      if (disposed || !existing.alive) return false;
-      while (stack.length && entry() !== existing) removeEntry(stack.pop());
-      reveal();
-      return true;
-    }
+    if (existing) return finishExistingNavigation(existing, tab);
     return pushEntry(record, tab);
+  }
+  // Returning to an earlier record pops only the finite slice above it. Collect that slice
+  // once (never loop on an unchanged stack), guard it, then recheck the stack before removal.
+  async function finishExistingNavigation(existing, tab = null) {
+    const index = stack.indexOf(existing);
+    if (index < 0) return false;
+    const above = stack.slice(index + 1);
+    if (above.length && !await confirmDiscardEntries(above)) return false;
+    if (disposed || !existing.alive) return false;
+    const now = stack.indexOf(existing);
+    if (now < 0) return false;
+    const currentAbove = stack.slice(now + 1);
+    if (currentAbove.length !== above.length || currentAbove.some((item, i) => item !== above[i])) {
+      reveal();
+      return false;
+    }
+    for (const item of currentAbove) removeEntry(item);
+    stack.splice(now + 1);
+    if (tab) existing.tab = existing.record.can_thread ? tab : 'dashboard';
+    reveal();
+    return true;
   }
   async function pushEntry(record, tab) {
     if (disposed) return false;
@@ -381,7 +390,7 @@ function recordWorkspaceMount(host, options = {}) {
     for (const item of stack.splice(0)) removeEntry(item);
   }
   function captureScroll(item) {
-    if (!item?.recordEl) return;
+    if (!item?.recordEl || item.recordEl.hidden || item.dashHost?.hidden) return;
     item.scroll = item.dashHost?.scrollTop || 0;
   }
   function restoreScroll(item) {
@@ -460,6 +469,7 @@ function recordWorkspaceMount(host, options = {}) {
   function selectTab(item, tab, {initial = false, restore = false} = {}) {
     if (!item?.alive) return;
     if (tab === 'chat' && !item.record.can_thread) tab = 'dashboard';
+    // A hidden dashboard is at scrollTop 0; never let the return toggle overwrite its saved position.
     if (!restore) captureScroll(item);
     const previous = item.tab;
     item.tab = tab;
@@ -492,21 +502,37 @@ function recordWorkspaceMount(host, options = {}) {
 
   // -------------------------------------------------------------- dashboard mount
   function mountDashboard(item) {
-    if (!item?.alive || item.dashboardLoaded) return;
-    item.dashboardLoaded = true;
+    if (!item?.alive || item.dashboardLoaded || item.dashboardMounting) return;
+    item.dashboardMounting = true;
+    const attempt = (item.dashboardGeneration = (item.dashboardGeneration || 0) + 1);
     const host = item.dashHost;
     host.innerHTML = '<p class="muted rw-status" role="status">Loading…</p>';
-    const alive = () => item.alive && host.isConnected && item.dashHost === host;
+    const alive = () => item.alive && attempt === item.dashboardGeneration && host.isConnected && item.dashHost === host;
     const workspace = api;
     const record = item.record;
     const navigate = target => {
       if (!target) return;
       void workspace.navigate(target);
     };
+    const revalidateProject = async () => {
+      if (!record.project_id) return true;
+      try {
+        const check = await coreData(await post('/root/operations/project_item_get', {scope: 'global', project_id: record.project_id,
+          item: {type: record.source.type, id: record.source.id, business_id: record.source.business_id ?? null}}));
+        if (!alive()) return false;
+        if (!check.item) throw Object.assign(new Error('This record is no longer in this Project.'), {code: 'not_found'});
+        return true;
+      } catch (failure) {
+        if (!alive()) return false;
+        if (accessLost(failure) || sourceGone(failure)) { void rwRecordUnavailable(item); return false; }
+        return true;
+      }
+    };
     (async () => {
       try {
         const dashboard = await rwDashboardMount(host, record, {
           alive, navigate, workspace, entry: item, options,
+          unavailable: () => rwRecordUnavailable(item), revalidateProject,
           // The Project's real name and the task's own source title can differ from the card label.
           title(next) {
             if (!alive() || !next) return;
@@ -519,16 +545,22 @@ function recordWorkspaceMount(host, options = {}) {
         });
         if (!alive()) { try { dashboard?.dispose?.(); } catch (_) { /* late */ } return; }
         item.dashboard = dashboard || {};
+        item.dashboardLoaded = true;
       } catch (failure) {
         if (!alive()) return;
-        host.replaceChildren();
         if (accessLost(failure) || sourceGone(failure)) {
-          host.append(rwNode('p', 'muted rw-unavailable', 'This record is unavailable. It may have been removed, or you may not have access to it.'));
-        } else {
-          const message = rwNode('p', 'ferr', uiFailure(failure, {load: true}));
-          message.setAttribute('role', 'alert');
-          host.append(message);
+          void rwRecordUnavailable(item);
+          return;
         }
+        host.replaceChildren();
+        const message = rwNode('p', 'ferr', uiFailure(failure, {load: true}));
+        message.setAttribute('role', 'alert');
+        const retry = rwNode('button', 'quiet', 'Retry'); retry.type = 'button';
+        retry.onclick = () => { if (!item.alive) return; host.replaceChildren(); item.dashboardLoaded = false; mountDashboard(item); };
+        host.append(message, retry);
+        item.dashboardLoaded = false;
+      } finally {
+        if (attempt === item.dashboardGeneration) item.dashboardMounting = false;
       }
     })();
   }
@@ -554,7 +586,7 @@ function recordWorkspaceMount(host, options = {}) {
       onSent: () => options.onSent?.(source),
       onUnavailable: () => {
         if (!item.alive) return;
-        if (entry() === item) void rwRecordUnavailable(item);
+        void rwRecordUnavailable(item);
       },
     });
     // A record thread has one composer: its own pane. No second Comment toggle is drawn.
@@ -568,19 +600,55 @@ function recordWorkspaceMount(host, options = {}) {
     else if (!item.chatHost.hidden) showChat(item);
   }
   async function rwRecordUnavailable(item) {
-    // The source is gone: drop the mounted content instead of leaving stale private text behind.
+    // Authorization is entry-wide, not pane-wide. A denial reached through a hidden Chat or a
+    // retained dashboard invalidates the whole retained entry: no stale text, no Back replay.
+    if (!item?.alive) return;
     const index = stack.indexOf(item);
     if (index < 0) return;
+    const wasTop = index === stack.length - 1;
+    if (item.record) {
+      item.record.project_item_prefetched = null;
+      item.record.url = null;
+      item.record.opening_target = null;
+      item.record.summary = null;
+    }
     stack.splice(index, 1);
     removeEntry(item);
+    // Drop every cached source view so a stale detached body cannot be read or resurrected.
+    try { item.dashHost?.replaceChildren(); } catch (_) {}
+    try { item.conversationHost?.replaceChildren(); } catch (_) {}
+    item.record = null;
     if (!stack.length) { dispose(); options.onClose?.(); return; }
-    reveal();
+    if (wasTop) reveal();
+    else paintBack();
   }
   async function rwOpenChatReference(item, ref) {
     if (!ref) return;
-    const target = ref.resource_type === 'email_conversations' || ref.type === 'email'
-      ? rwRecordFromItem({source: {type: 'email', id: ref.id, business_id: ref.business_id ?? null, business_slug: ref.business_slug, label: ref.label}}, {can_thread: false})
-      : rwRecordFromItem({source: {type: ref.type, id: ref.id, business_id: ref.business_id ?? null, business_slug: ref.business_slug, business_name: ref.business_name, label: ref.label, state: ref.state, resource_type: ref.resource_type}}, {can_thread: ref.type === 'task' || ref.type === 'signoff' || ref.type === 'project'});
+    if (ref.resource_type === 'email_conversations' || ref.type === 'email') {
+      const target = rwRecordFromItem({source: {type: 'email', id: ref.id, business_id: ref.business_id ?? null, business_slug: ref.business_slug, label: ref.label}}, {can_thread: false});
+      if (target) void navigate(target);
+      return;
+    }
+    // A typed chat reference may name a Focus Reference. Its Chat availability comes from
+    // the authorized current Focus DTO (the conversation binding), not from the type name.
+    let dto = null, canThread = ref.can_thread;
+    if (ref.type === 'reference') {
+      try {
+        const data = await coreData(await post('/root/operations/focus_get', {scope: 'global', item_id: ref.id}));
+        if (!item.alive) return;
+        dto = data.item || null;
+        if (dto) canThread = !!(dto.conversation && (dto.conversation.type || dto.conversation.id));
+      } catch (failure) {
+        if (!item.alive) return;
+        if (accessLost(failure) || sourceGone(failure)) return;
+      }
+    }
+    const source = ref.type === 'reference' && dto
+      ? {type: 'reference', id: ref.id, business_id: dto.conversation?.business_id ?? dto.source?.business_id ?? ref.business_id ?? null}
+      : {type: ref.type, id: ref.id, business_id: ref.business_id ?? null, business_slug: ref.business_slug, business_name: ref.business_name, label: ref.label, state: ref.state, resource_type: ref.resource_type};
+    const target = dto && ref.type === 'reference'
+      ? rwRecordFromItem({...dto, source: dto.resolved_source || dto.source || source, conversation: dto.conversation}, {can_thread: canThread})
+      : rwRecordFromItem({source}, {can_thread: canThread ?? (ref.type === 'task' || ref.type === 'signoff' || ref.type === 'project')});
     if (target) void navigate(target);
   }
 }
@@ -625,6 +693,21 @@ async function rwTaskDashboard(host, record, ctx, call) {
   // A related item may arrive with only its identifier; the authoritative Task title fills the header.
   if (task.title && (!record.label || record.label === 'Record' || record.label === record.source.id)) ctx.title?.({label: task.title});
   const type = task.task_type || 'task';
+  // A retained Task dashboard rechecks its authoritative source on every reveal. A denial
+  // invalidates the whole entry; a transient failure keeps the current content and edits.
+  const revalidateTask = async () => {
+    if (!(await ctx.revalidateProject?.() ?? true)) return false;
+    try {
+      const fresh = await call('tasks_get', {task_id: record.source.id});
+      if (!ctx.alive()) return false;
+      if (!fresh.task) throw Object.assign(new Error('Task is no longer available.'), {code: 'not_found'});
+      return true;
+    } catch (failure) {
+      if (!ctx.alive()) return false;
+      if (accessLost(failure) || sourceGone(failure)) { await ctx.unavailable?.(); return false; }
+      return true;
+    }
+  };
   if (TASK_SPECIAL_TYPES.includes(type) && typeof RECORD_RENDERERS === 'object' && RECORD_RENDERERS[type]) {
     const local = {task, ...task};
     let controller = null;
@@ -646,7 +729,10 @@ async function rwTaskDashboard(host, record, ctx, call) {
       navigate: link => ctx.navigate(link),
     });
     controller = dashboard;
-    return controller;
+    const onShow = controller?.onShow;
+    return {...controller,
+      async onShow() { if (!await revalidateTask()) return; if (onShow) await onShow.call(controller); },
+    };
   }
   const navigate = target => ctx.navigate(rwRecordFromItem({source: {
     type: target.type, id: target.id, business_id: target.business_id ?? null, business_slug: target.business_slug ?? null,
@@ -655,10 +741,23 @@ async function rwTaskDashboard(host, record, ctx, call) {
   const relatedMount = (relatedHost, fresh) => rwTaskRelatedMount(relatedHost, record, fresh, ctx);
   if (record.source.business_id == null && typeof globalTasksMount === 'function') {
     const token = globalTasksMount(host, {initialTaskId: task.id, onBack: () => {}, embedded: true, onNavigate: navigate, renderRelated: relatedMount});
-    return {dirty: () => !!token?.dirty?.(), hasUnsaved: () => !!token?.dirty?.(), dispose() { token?.dispose?.(); host.replaceChildren(); }};
+    return {dirty: () => !!token?.dirty?.(), hasUnsaved: () => !!token?.dirty?.(), onShow: revalidateTask,
+      dispose() { token?.dispose?.(); host.replaceChildren(); }};
   }
-  const mounted = tDetail(task, {host, onClose: () => {}, embedded: true, navigate, relatedMount});
-  return {dirty: () => !!mounted?.dirty?.(), hasUnsaved: () => !!mounted?.dirty?.(), dispose() { mounted?.close?.(); host.replaceChildren(); }};
+  // tDetail repaints itself after a successful write. Keep one stable adapter and point it at
+  // the newest controller, so Close/dirty checks never consult a torn-down type editor.
+  let live = null;
+  const adapter = {
+    get el() { return live?.el || null; },
+    dirty: () => !!live?.dirty?.(),
+    hasUnsaved: () => !!live?.dirty?.(),
+    close: () => live?.close?.(),
+    onShow: revalidateTask,
+    dispose() { live?.close?.(); host.replaceChildren(); },
+  };
+  const mounted = tDetail(task, {host, onClose: () => {}, embedded: true, navigate, relatedMount, onMount: next => { live = next; }});
+  live = mounted;
+  return adapter;
 }
 
 // The Task dashboard and global-task editor share one direct related-record reader. It never opens
@@ -724,28 +823,22 @@ function rwSignoffDashboard(host, record, ctx) {
     // The workspace Chat tab is this Signoff's own channel: the card's nested copy would be a second composer.
     omitConversationFor: conversationKey({type: 'signoff', id: record.source.id, biz: record.biz || null}),
     dropOnDenied: true,
+    onUnavailable: () => { void ctx.unavailable?.(); },
   });
   queueMicrotask(() => { if (ctx.alive() && host.isConnected) view.paint(); });
   return {dirty: () => view.hasUnsaved(), hasUnsaved: () => view.hasUnsaved(), save: () => view.save(),
+    onShow: async () => { if (!(await ctx.revalidateProject?.() ?? true)) return; await view.refresh(); },
     dispose() { view.dispose(); host.replaceChildren(); }};
 }
 
 // ---------------------------------------------------------------- Action
-function rwActionContent(host, action) {
-  const when = action.occurred?.instant || action.occurred?.date || action.occurred_at || '';
-  const person = action.performed_by?.name || action.recorded_by?.name || '';
-  host.innerHTML = `<section class="rw-reader rw-action"><h3>Action</h3>
-    <p class="rw-action-text">${esc(action.text || 'No action text available.')}</p>
-    <dl class="rw-action-meta">
-      <div><dt>Category</dt><dd>${esc(action.category || 'Unclassified')}</dd></div>
-      <div><dt>When</dt><dd>${esc(when ? rwFormatTime(when) : 'Undated')}</dd></div>
-      ${person ? `<div><dt>Recorded by</dt><dd>${esc(person)}</dd></div>` : ''}
-      <div><dt>Revision</dt><dd>${esc(String(action.revision ?? '—'))}</dd></div>
-    </dl>
-    ${action.withdrawn ? '<p class="rw-reader-note">This Action was withdrawn.</p>' : ''}
-    ${action.detail ? `<section class="rw-reader-section"><h4>Details</h4><p>${esc(action.detail)}</p></section>` : ''}
-    ${action.refs && Object.keys(action.refs).length ? `<section class="rw-reader-section"><h4>References</h4>${Object.entries(action.refs).map(([key, value]) => `<div class="rw-action-ref"><span class="muted">${esc(key)}</span> ${esc(String(value))}</div>`).join('')}</section>` : ''}
-  </section>`;
+// One Action reader for Activity and the record pane. It reuses the existing row content
+// (text, category, occurred time, attribution, details, refs) and the existing revision
+// and discussion controller; this module does not define a second Action rendering.
+function rwActionContent(host, action, call = null) {
+  if (typeof acActionReader !== 'function') throw new Error('The Action reader is unavailable.');
+  const op = call ? (name, body) => call(name, body) : null;
+  return acActionReader(host, action, op ? {op} : {});
 }
 async function rwActionDashboard(host, record, ctx, call) {
   host.classList.add('record-panel');
@@ -753,13 +846,20 @@ async function rwActionDashboard(host, record, ctx, call) {
   if (!ctx.alive()) return null;
   const action = data.action;
   if (!action) throw new Error('Action is no longer available.');
-  rwActionContent(host, action);
+  let reader = rwActionContent(host, action, call);
   return {dirty: () => false, onShow: async () => {
     try {
       const next = await call('actions_get', {action_id: record.source.id});
-      if (ctx.alive() && next.action) rwActionContent(host, next.action);
-    } catch (_) { /* the existing authorized read remains until a new one succeeds */ }
-  }, dispose() { host.replaceChildren(); }};
+      if (!ctx.alive()) return;
+      if (!next.action) throw Object.assign(new Error('Action is no longer available.'), {code: 'not_found'});
+      reader?.dispose?.();
+      reader = rwActionContent(host, next.action, call);
+    } catch (failure) {
+      if (!ctx.alive()) return;
+      if (accessLost(failure) || sourceGone(failure)) { await ctx.unavailable?.(); return; }
+      // A transient failure keeps the last authorized read.
+    }
+  }, dispose() { reader?.dispose?.(); host.replaceChildren(); }};
 }
 
 // ---------------------------------------------------------------- reminder / routine / job readers
@@ -912,8 +1012,9 @@ async function rwReferenceDashboard(host, record, ctx, call) {
         if (!ctx.alive()) return;
         if (!check.item) throw Object.assign(new Error('Unavailable'), {code: 'not_found'});
       } catch (failure) {
-        if (!ctx.alive() || !(accessLost(failure) || sourceGone(failure))) return;
-        host.replaceChildren(rwNode('p', 'muted rw-unavailable', 'This record is unavailable. It may have been removed, or you may not have access to it.'));
+        if (!ctx.alive()) return;
+        if (accessLost(failure) || sourceGone(failure)) { await ctx.unavailable?.(); return; }
+        // A transient failure leaves the last authorized reader in place.
       }
     };
   }
@@ -931,13 +1032,13 @@ async function rwReferenceDashboard(host, record, ctx, call) {
     || !record.project_id && ['documents', 'context_entities'].includes(record.resource_type)) {
     const refCtx = {...ctx, biz: record.biz || null, current: () => ctx.alive()};
     const reader = await recordOpenContext(refCtx, {type: ['documents', 'context_entities'].includes(record.source.type) ? (record.source.type === 'documents' ? 'document' : 'entity') : record.source.type,
-      id: record.source.id, label: record.label, resource_type: record.resource_type}, {host, alive: () => ctx.alive()});
+      id: record.source.id, label: record.label, resource_type: record.resource_type}, {host, alive: () => ctx.alive(), onUnavailable: () => { void ctx.unavailable?.(); }});
     return reader || {dirty: () => false, dispose() { host.replaceChildren(); }};
   }
   // Project inventory envelopes: these are the per-family records, never a flat preview blob.
   if (content.action) {
-    rwActionContent(host, content.action);
-    return {dirty: () => false, onShow: revalidate, dispose() { host.replaceChildren(); }};
+    const actionReader = rwActionContent(host, content.action, call);
+    return {dirty: () => false, onShow: revalidate, dispose() { actionReader?.dispose?.(); host.replaceChildren(); }};
   }
   if (content.document || content.note) {
     const doc = content.document || content.note;
@@ -948,7 +1049,7 @@ async function rwReferenceDashboard(host, record, ctx, call) {
       return {dirty: () => false, onShow: revalidate, dispose() { host.replaceChildren(); }};
     }
     const reader = await recordOpenDocument({...ctx, biz: record.biz || null, current: () => ctx.alive()}, record,
-      {label: record.label, ...doc}, {host, alive: () => ctx.alive()});
+      {label: record.label, ...doc}, {host, alive: () => ctx.alive(), onUnavailable: () => { void ctx.unavailable?.(); }});
     return reader || {dirty: () => false, dispose() { host.replaceChildren(); }};
   }
   if (content.table) {
@@ -956,7 +1057,19 @@ async function rwReferenceDashboard(host, record, ctx, call) {
     box.append(rwNode('h3', '', content.table.title || item.label || record.label || 'Table'));
     host.append(box);
     const controller = await rwTableBody(box, record, ctx, call);
-    return {dirty: () => false, onShow: revalidate, dispose() { controller?.dispose?.(); host.replaceChildren(); }};
+    return {dirty: () => false, onShow: async () => { if (!await revalidate()) return; await controller?.onShow?.(); },
+      dispose() { controller?.dispose?.(); host.replaceChildren(); }};
+  }
+  if (content.ticket) {
+    // System Dev reports are retired destinations in this client and have no canonical
+    // ticket reader to mount. Do not substitute item metadata or raw JSON for the content.
+    const box = rwNode('section', 'rw-reader');
+    box.append(rwNode('h3', '', item.label || record.label || 'System Dev report'));
+    const notice = rwNode('p', 'muted', 'This System Dev report has no reader in this client.');
+    notice.dataset.recordUnavailable = '';
+    box.append(notice);
+    host.append(box);
+    return {dirty: () => false, onShow: revalidate, dispose() { host.replaceChildren(); }};
   }
   if (content.asset || content.entity || content.person) {
     const nested = content.asset || content.entity || content.person;
@@ -995,7 +1108,8 @@ async function rwReferenceDashboard(host, record, ctx, call) {
     box.append(rwNode('h3', '', item.label || record.label || 'Table'));
     host.append(box);
     const controller = await rwTableBody(box, record, ctx, call);
-    return {dirty: () => false, hasUnsaved: () => false, onShow: revalidate, dispose() { controller?.dispose?.(); host.replaceChildren(); }};
+    return {dirty: () => false, hasUnsaved: () => false, onShow: async () => { if (await revalidate?.()) await controller?.onShow?.(); },
+      dispose() { controller?.dispose?.(); host.replaceChildren(); }};
   }
   if (authorized) {
     if (content.reminder) { const reader = rwReminderReader(host, record, item, content.reminder); if (revalidate) reader.onShow = revalidate; return reader; }
@@ -1079,14 +1193,25 @@ async function rwTableBody(host, record, ctx, call) {
         rows = [...rows, ...(next.items || [])]; cursor = next.next_cursor || null; paint(); more.hidden = !cursor;
       } catch (failure) {
         if (!ctx.alive()) return;
+        if (accessLost(failure) || sourceGone(failure)) { await ctx.unavailable?.(); return; }
         status.textContent = uiFailure(failure, {load: true});
       } finally { more.disabled = false; }
     };
   } catch (failure) {
     if (!ctx.alive()) return null;
+    if (accessLost(failure) || sourceGone(failure)) { await ctx.unavailable?.(); return null; }
     status.textContent = uiFailure(failure, {load: true});
   }
-  return {dirty: () => false, hasUnsaved: () => false, dispose() { host.replaceChildren(); }};
+  const controller = {dirty: () => false, hasUnsaved: () => false,
+    async onShow() {
+      try {
+        await call('tables_get', {table_id: id, ...(record.biz ? {} : {scope: 'global'})});
+        if (!ctx.alive()) return;
+      } catch (failure) {
+        if (ctx.alive() && (accessLost(failure) || sourceGone(failure))) await ctx.unavailable?.();
+      }
+    }, dispose() { host.replaceChildren(); }};
+  return controller;
 }
 async function rwTableDashboard(host, record, ctx, call) {
   host.classList.add('record-panel');
@@ -1298,9 +1423,10 @@ async function rwProjectDashboard(host, record, ctx) {
       await load(activeSection, false, true);
     } catch (failure) {
       if (disposed) return;
+      if (accessLost(failure) || sourceGone(failure)) { await ctx.unavailable?.(); return; }
       stateFor(activeSection).items = []; stateFor(activeSection).cursor = null;
       list.replaceChildren();
-      errorBox.replaceChildren(rwNode('span', '', accessLost(failure) || sourceGone(failure) ? 'This project inventory is unavailable.' : uiFailure(failure, {load: true})));
+      errorBox.replaceChildren(rwNode('span', '', uiFailure(failure, {load: true})));
       errorBox.hidden = false;
       paint(activeSection);
     }
@@ -1317,7 +1443,7 @@ function rwProjectLinkDialog(project, onLinked) {
   const scopeOptions = `<option value="">Global</option>${projects.map(biz => `<option value="${esc(biz.business_id || biz.id)}" ${(biz.business_id || biz.id) === project.id ? 'selected' : ''}>${esc(biz.name || biz.slug)}${biz.archived ? ' (archived)' : ''}</option>`).join('')}`;
   modal({title: 'Link an existing item', width: 640, stack: true,
     body: `<div class="rw-link-dialog"><label>Scope<select class="inp" data-link-scope>${scopeOptions}</select></label>
-      <label>Kind<select class="inp" data-link-type><option value="">Any kind</option><option value="task">Work</option><option value="signoff">Signoff</option><option value="action">Action</option><option value="document">Document</option><option value="table">Table</option><option value="reminder">Reminder</option><option value="routine">Routine</option><option value="project">Project</option></select></label>
+      <label>Kind<select class="inp" data-link-type><option value="">Any kind</option><option value="task">Work</option><option value="signoff">Signoff</option><option value="action">Action</option><option value="material">Material</option><option value="person">Person</option><option value="topic">Topic</option><option value="table">Table</option><option value="reminder">Reminder</option><option value="routine">Routine</option><option value="project">Project</option></select></label>
       <label>Search<input class="inp" type="search" data-link-search placeholder="Search the selected scope…" maxlength="200"></label>
       <div class="rw-link-results" role="list"></div><p class="muted rw-link-empty" hidden>No matching records.</p>
       <button type="button" class="quiet" data-link-more hidden>More</button><p class="ferr" role="alert" data-link-error hidden></p></div>`,
