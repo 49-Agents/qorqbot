@@ -208,7 +208,6 @@ function chatViewOwnerReferences(body) {
 // options.mountSignoff(ref, host) and returns its disposer. The view never decides, fetches or trusts a model-supplied URL.
 const CHAT_VIEW_ICONS = {
   browser: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>',
-  task: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>',
 };
 const CHAT_VIEW_TASK_STATES = {open: 'Open', working: 'Working', waiting: 'Waiting', done: 'Done', cancelled: 'Cancelled'};
 const chatViewTypedKey = ref => `${ref.type}:${ref.business_id || ''}:${ref.id}`;
@@ -232,7 +231,13 @@ const chatViewTypedSignature = ref => JSON.stringify([ref.type, ref.business_id 
 function chatViewTypedChip(ref, cls) {
   const chip = document.createElement('span');
   chip.className = `gchat-reference ${cls}`;
-  if (ref.type === 'task' && ref.available !== false) chip.insertAdjacentHTML('beforeend', CHAT_VIEW_ICONS.task);
+  if (ref.type === 'task' && ref.available !== false) {
+    const dot = document.createElement('span');
+    dot.className = 'ball gchat-task-state' + (Object.hasOwn(CHAT_VIEW_TASK_STATES, ref.state) ? ' ' + ref.state : '');
+    dot.setAttribute('aria-hidden', 'true');
+    dot.append(Object.assign(document.createElement('span'), {className: 'core'}));
+    chip.append(dot);
+  }
   // Agent: the shared identity glyph (Tiny Spirit) before the current display name; informational, like native Chat's recipients.
   if (ref.type === 'agent' && ref.available !== false && typeof agentGlyph === 'function') {
     const icon = document.createElement('span'); icon.className = 'gchat-agent-icon'; icon.setAttribute('aria-hidden', 'true');

@@ -147,6 +147,10 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 .gchat-typed { display:flex; flex-direction:column; align-items:flex-start; gap:7px; max-width:100%; padding:3px 0 8px; box-sizing:border-box; }
 .gchat-typed:empty { display:none; }
 .gchat-task-reference, .gchat-agent-reference { cursor:default; }
+/* Reuse Focus's state palette, with a fixed dot and no state-control behavior. */
+.gchat-reference>.gchat-task-state { display:inline-flex; align-items:center; justify-content:center; flex:none; width:16px; height:16px; overflow:visible; pointer-events:none; }
+.gchat-task-state.ball .core { width:10px; height:10px; transform:none; transition:none; }
+
 .gchat-reference>.gchat-agent-icon { display:inline-flex; flex:none; overflow:visible; }
 .gchat-reference-unavailable { color:var(--fg-2); }
 .gchat-signoff-reference { width:100%; max-width:520px; min-width:0; }
