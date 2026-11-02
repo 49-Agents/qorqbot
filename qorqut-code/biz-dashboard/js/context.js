@@ -12,8 +12,6 @@ const SVG_BRAIN = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" s
 const SVG_PEOPLE = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
 const SVG_HOME = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/></svg>`;
 const SVG_INBOX = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`;
-const titleCase = s => String(s || "").replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-const fmtAgo = t => { const s = Math.max(0, Math.round(Date.now() / 1000 - t)); return s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)}m` : `${Math.round(s / 3600)}h`; };
 const isTopic = p => p != null && !p.endsWith(".md");           // state.ctx is a topic path ("" = root) or a file path
 const ctxFind = (node, path) => { if (!node) return null; if ((node.path || "") === path) return node; for (const c of node.children || []) { const h = ctxFind(c, path); if (h) return h; } return null; };
 const PERSON_VIEW_RE = /^_people\/([a-z][a-z0-9-]{1,63})$/;     // "_people/<slug>" (no .md) is the person view, not a raw file
@@ -301,11 +299,6 @@ function wireCrumbs(v) { v.querySelectorAll(".crumbs a").forEach(a => a.onclick 
 const mdInline = text => esc(text).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 const mdLines = text => `<div class="sum">${text.split("\n").map(l => l.trim()).filter(Boolean).map(l => (/^#{1,6} /.test(l)) ? `<h3>${mdInline(l.replace(/^#{1,6} /, ""))}</h3>` : l.startsWith("- ") ? `<div class="li">${mdInline(l.slice(2))}</div>` : `<p>${mdInline(l)}</p>`).join("")}</div>`;
 
-// --- context base helpers ---
-const refName = ref => String(ref || "").replace(/^<object>|<\/object>$/g, "").replace(/_/g, " ");
-const objChip = (ref, name) => ref ? `<span class="chip go" data-ref="${esc(ref)}">${esc(name || refName(ref))}</span>` : "";
-const day = t => esc(String(t || "").slice(0, 10));
-// --- end context base rendering ---
 
 function openHome() {
   const v = $("#ctxview");

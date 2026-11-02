@@ -30,7 +30,6 @@
 .agfocus-reference-frame{display:block;width:100%;height:calc(100vh - 210px);min-height:350px;box-sizing:border-box;border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--surface)}
 .agfocus-desktop-frame{width:100%;height:auto;min-height:0;max-width:100%;margin-inline:auto}
 .agfocus-reference-help{font-size:11px}.agfocus-reference-help a{text-decoration:underline}
-.agfocus-detail-body .work-back{display:none}
 
 .agfocus-detail-body [data-task-back],.agfocus-detail-body .global-task-editor-heading [data-back]{display:none}
 .agfocus-detail-body .task-inline-actions{display:flex;justify-content:flex-end;margin-bottom:12px}

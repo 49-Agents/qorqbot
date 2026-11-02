@@ -17,11 +17,6 @@ function sgAttentionPaint() {
   const b = sgAttention.businesses.find(b => b.slug === (state.scope === 'global' ? null : state.biz));
   const count = state.scope === 'global' ? sgAttention.businesses.reduce((sum, row) => sum + (row.signoffs || 0), 0) : b?.signoffs ?? 0;
   const scopeUrgent = state.scope === 'global' ? urgent : !!b?.urgent;
-  document.querySelectorAll('.workspace-menu .mi[data-business-id]').forEach(row => {
-    const business = sgAttention.businesses.find(b => b.id === row.dataset.businessId);
-    row.querySelector('.sg-attention-badge')?.remove();
-    if (business) row.querySelector('.workspace-name')?.insertAdjacentHTML('afterend', sgAttentionBadge(business.slug));
-  });
   const tab = document.querySelector('#taskspanel .ttab[data-v="signoffs"]');
   if (tab) {
     tab.querySelector('.sg-signoff-count')?.remove();

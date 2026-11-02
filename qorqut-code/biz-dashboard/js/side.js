@@ -19,12 +19,9 @@ async function refreshSide() {
   const [log, live] = results.map(result => result.value);
   if (state.biz !== biz) return;
   const rows = Array.isArray(log) ? log.slice(0, LOG_N) : [];
-  const logEl = $("#log");                                   // no log on screen right now; the rows are parked in logHtml()
-  if (logEl) { logEl.innerHTML = rows.length ? logHtml(rows) : `<div class="empty">Nothing logged yet.</div>`; logTips(logEl, rows); }
   logToasts(biz, rows);
   if (live && live.since) _liveSince[biz] = live.since;
   if (typeof rtFailureToasts === "function") rtFailureToasts(live && live.routine_failures);
-  if (typeof lnLivePaint === "function") lnLivePaint(live);   // learnings_open → the Context rail badge
   if (typeof sgLivePaint === "function") sgLivePaint(biz, live);
   } catch (_) { /* Keep the last good sidebar snapshot. */ } finally { sidePending = false; }
 }

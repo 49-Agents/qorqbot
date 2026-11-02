@@ -20,12 +20,11 @@
 .ntfaint-pad { padding: 16px 12px; font-size: 12.5px; }
 
 /* -- detail: two-pane -- (one rule set for Notes AND Journal; writing.css only points here) */
-.nted, .jred { display: flex; flex-direction: row; width: 100%; height: 100%; min-height: 0; }
-.jrrail { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 16px 12px 16px 28px; border-right: 1px solid var(--line); }
-.ntside, .jrside { flex: none; width: 300px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; transition: width .2s ease; }
-.ntside.off, .jrside.off { width: 0; }
-.ntsidectrl, .jrsidectrl { flex: none; display: flex; align-items: center; gap: 8px; padding: 16px; }
-.ntsidectrl .btn, .jrsidectrl .btn { flex: 1; }
+.nted { display: flex; flex-direction: row; width: 100%; height: 100%; min-height: 0; }
+.ntside { flex: none; width: 300px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; transition: width .2s ease; }
+.ntside.off { width: 0; }
+.ntsidectrl { flex: none; display: flex; align-items: center; gap: 8px; padding: 16px; }
+.ntsidectrl .btn { flex: 1; }
 .nticon, .jricon {
   flex: none; width: 32px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 14px;
   background: rgba(255,255,255,.015); color: var(--fg-2); display: inline-flex; align-items: center; justify-content: center;
@@ -34,18 +33,18 @@
 .nticon:hover, .jricon:hover { background: var(--hover); color: var(--fg); border-color: var(--line-2); transform: none; }
 .nticon svg, .jricon svg { width: 15px; height: 15px; }
 .nticon.danger:hover, .jricon.danger:hover { color: #FF6B5E; }
-.ntsearchwrap, .jrsearchwrap { flex: none; padding: 0 16px; }
-.ntsearch-in, .jrsearch-in {
+.ntsearchwrap { flex: none; padding: 0 16px; }
+.ntsearch-in {
   width: 100%; height: 36px; padding: 0 12px; box-sizing: border-box; border: 0; border-radius: var(--r-lg);
   background: rgba(255,255,255,.04); color: var(--fg); font: 13px var(--sans); outline: none;
   transition: box-shadow .15s ease;
 }
 /* quiet inset shadow only — app.css's global `input:focus` ring (border-color + outer box-shadow)
    would otherwise layer on top of this, since it's a plain `input` and matches that selector too */
-.ntsearch-in:focus, .jrsearch-in:focus { border-color: transparent; box-shadow: inset 0 0 0 1px var(--line-2); }
-.ntsearch-in::placeholder, .jrsearch-in::placeholder { color: var(--fg-3); }
-.ntdivider, .jrdivider { flex: none; height: 1px; margin: 16px 24px; background: var(--line); }
-.ntlist, .jrlist { flex: 1; min-height: 0; overflow-y: auto; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 1px; }
+.ntsearch-in:focus { border-color: transparent; box-shadow: inset 0 0 0 1px var(--line-2); }
+.ntsearch-in::placeholder { color: var(--fg-3); }
+.ntdivider { flex: none; height: 1px; margin: 16px 24px; background: var(--line); }
+.ntlist { flex: 1; min-height: 0; overflow-y: auto; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 1px; }
 .nteyebrow.ntsm { padding: 4px 12px 6px; margin-bottom: 0; }
 .ntrow { position: relative; display: flex; flex-direction: column; gap: 4px; border-radius: 16px; padding: 10px 12px; cursor: pointer; transition: background .15s ease; }
 .ntrow:hover { background: rgba(255,255,255,.03); }
@@ -70,28 +69,28 @@
 /* -- editor: one rule set for Notes AND Journal (writing.css only points here), so a new page and a new
    memo put their headline, controls and meta line on exactly the same spot. Layout is the journal's
    (900px column, 64px top), look is Notes'. */
-.nteditor, .jreditor { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; border-left: 1px solid var(--line); }
-.ntedinner, .jredinner { max-width: 900px; margin: 0 auto; padding: 64px 40px 128px; }
+.nteditor { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; border-left: 1px solid var(--line); }
+.ntedinner { max-width: 900px; margin: 0 auto; padding: 64px 40px 128px; }
 
-.ntedhead, .jredhead { display: flex; align-items: flex-start; gap: 12px; }
+.ntedhead { display: flex; align-items: flex-start; gap: 12px; }
 
 
-.nttitlein, .jrtitlein {
+.nttitlein {
   flex: 1; min-width: 120px; resize: none; overflow: hidden; border: 0; background: none; outline: none; box-shadow: none;
   font: 600 26px/1.5 var(--sans); letter-spacing: -.02em; color: var(--fg); padding: 4px 0;
 }
-.nttitlein::placeholder, .jrtitlein::placeholder { color: var(--fg-3); }
+.nttitlein::placeholder { color: var(--fg-3); }
 /* chromeless: the global textarea:focus ring (app.css) would otherwise put a border/box-shadow on focus */
-.nttitlein:focus, .jrtitlein:focus { border: 0; box-shadow: none; background: none; }
-.ntedctrls, .jredctrls { flex: none; display: flex; align-items: center; gap: 8px; padding-top: 5px; }
+.nttitlein:focus { border: 0; box-shadow: none; background: none; }
+.ntedctrls { flex: none; display: flex; align-items: center; gap: 8px; padding-top: 5px; }
 /* every button in this header (Upload to context, Discard, Save) is app.css's one pill — the same
    `.btn`/`button.primary` used elsewhere. Nothing is restyled here. */
-.ntedctrls .btn, .jredctrls .btn { flex: none; }
-.ntsavewrap, .jrsavewrap { display: inline-flex; align-items: center; }
-.ntsavepill.busy, .jrsavepill.busy { cursor: default; }
-.ntring, .jrring { flex: none; }
+.ntedctrls .btn { flex: none; }
+.ntsavewrap { display: inline-flex; align-items: center; }
+.ntsavepill.busy { cursor: default; }
+.ntring { flex: none; }
 /* the line under the title: same family, weight and tracking as the title input, just smaller */
-.ntmeta, .jrmeta { margin-top: 16px; padding: 0 0 7px 4px; font: 600 12.5px/1.5 var(--sans); letter-spacing: -.02em; color: var(--fg-2); }
+.ntmeta { margin-top: 16px; padding: 0 0 7px 4px; font: 600 12.5px/1.5 var(--sans); letter-spacing: -.02em; color: var(--fg-2); }
 .ntmeta .sep { margin: 0 6px; color: var(--fg-3); opacity: .55; }
 .nthr, .jrhr { height: 1px; background: var(--line); margin: 0 0 48px; }
 
@@ -139,9 +138,6 @@
 #ntfiling:has(.ntfilingrow)::before { content: none; }
 #ntfiling .ntfilingrow { display: flex; flex: 1 1 100%; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 #ntfiling .ntfilingstatus { overflow-wrap: anywhere; }
-#ntfiling .ntfilingresult { flex: 0 1 auto; }
-#ntfiling .ntfilingresult summary { cursor: pointer; }
-#ntfiling .ntfilingresult pre { max-width: min(80ch, 90vw); overflow: auto; white-space: pre-wrap; }
 #ntfiling .ntmetalink {
   display: inline; width: auto; height: auto; min-height: 0; padding: 0;
   border: 0; border-radius: 0; background: none; box-shadow: none;

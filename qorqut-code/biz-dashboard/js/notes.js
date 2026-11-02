@@ -38,7 +38,7 @@ let ntListOff = ls("ntlistoff") === "1";   // sidebar collapsed, persisted
 let ntEditState = null;             // { id, biz, title0, lines0[], statuses0(json), lines[], statuses{}, dirty, saving, countdown }
 let ntIdleT = null, ntTickT = null; // autosave idle/countdown timers
 
-// icons (notes-local; the generic ICO_PIN/ICO_PENCIL/ICO_TRASH used in the context menu below come
+// icons (notes-local; the generic ICO_PIN/ICO_PENCIL used in the context menu below come
 // from js/agents.js, same as journal's).
 const NT_ICO_PIN_TINY = `<svg class="ntpt" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
 const NT_ICO_PINOFF = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M15 9.34V6a2 2 0 0 0 0-4H9.55"/><path d="M9 9.35V6a2 2 0 0 1 2-2h1.53"/><path d="m2 2 20 20"/><path d="M9.51 9.51 5 15.24V16a1 1 0 0 0 1 1h9.53"/></svg>`;
@@ -436,14 +436,6 @@ function ntParseRaw(raw) {
   return { marker, meta, display: (lead + rest).replaceAll(NT_SOFT_BREAK, "\n") };
 }
 const ntBuildMetaToken = meta => meta.bold ? "⁣b⁣ " : "";
-// Map a display-space edit back to the raw line; typing "-" at the start auto-converts to a task.
-function ntToRaw(es, v, i) {
-  v = v.replaceAll("\n", NT_SOFT_BREAK);
-  const meta = ntBuildMetaToken(ntParseRaw(es.lines[i]).meta);
-  if (ntIsTaskLine(es.lines[i])) return v === "" ? "" : `- ${meta}${v}`;
-  if (v.startsWith("-")) return `- ${meta}${v.slice(1).replace(/^\s/, "")}`;
-  return v === "" ? "" : `${meta}${v}`;
-}
 const ntDisp = (es, i) => ntParseRaw(es.lines[i]).display;
 const ntIsRuleAt = (es, i) => (es.lines[i] || "").trim() === NT_DIVIDER;
 

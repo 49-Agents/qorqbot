@@ -17,7 +17,7 @@ if (upstream.protocol !== 'http:') throw new Error('Use the installation HTTP or
 const root = await realpath(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
 const types = {'.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.svg':'image/svg+xml', '.png':'image/png', '.woff2':'font/woff2', '.ico':'image/x-icon'};
 const local = path => ({'/':'index.html', '/index.html':'index.html', '/files/view':'file-viewer.html', '/tables/view':'tables-view.html', '/app.css':'app.css'}[path]
-  || (/^\/(js|css|assets)\//.test(path) ? path.slice(1) : null));
+  || (/^\/(js|css|assets|icons\/task-types)\//.test(path) ? path.slice(1) : null));
 const headers = request => ({...request.headers, host: upstream.host,
   ...(request.headers.origin ? {origin: upstream.origin} : {})});
 

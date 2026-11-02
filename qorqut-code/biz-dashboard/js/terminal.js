@@ -167,26 +167,3 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
 
   return dispose;
 }
-
-// Terminal tab (legacy — the Agents tab now mounts terminals directly). Kept so the tab keeps
-// working wherever it is still wired. Pick an agent, open its terminal in the right pane.
-function renderTerminals(content) {
-  teardownTerm();
-  content.innerHTML = `<div class="split">
-    <div class="listcol" id="termlist"><div class="empty">loading…</div></div>
-    <div class="chat termmode" id="termpane"><div class="empty">Pick an agent to open its terminal.</div></div>
-  </div>`;
-  const listEl = $("#termlist", content);
-  api(`/biz/${state.biz}/agents`).then(agents => {
-    state.agents = Array.isArray(agents) ? agents : [];
-    if (!state.agents.length) { listEl.innerHTML = `<div class="empty">No agents in this project.</div>`; return; }
-    listEl.innerHTML = state.agents.map(a =>
-      `<div class="item" data-agent="${esc(a.name)}">${agentGlyph(a, 16)}<span>${esc(a.name)}</span></div>`).join("");
-    listEl.querySelectorAll(".item").forEach(el => el.onclick = () => openTerm(el.dataset.agent, listEl));
-  });
-}
-
-function openTerm(agent, listEl) {
-  if (listEl) listEl.querySelectorAll(".item").forEach(x => x.classList.toggle("on", x.dataset.agent === agent));
-  mountTerminal(agent, $("#termpane"));
-}

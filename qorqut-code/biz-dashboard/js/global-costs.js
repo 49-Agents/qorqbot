@@ -14,7 +14,6 @@ function costsMoney(value) {
   const abs = Math.abs(number);
   return (number < 0 ? '−$' : '$') + abs.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:abs > 0 && abs < 1 ? 4 : 2});
 }
-const costsDay = (date, options = {year:'numeric'}) => new Date(date + 'T00:00:00Z').toLocaleDateString(undefined, {month:'short', day:'numeric', timeZone:'UTC', ...options});
 
 // `life` is the shared drawer's mount lifecycle ({signal, active}); the embedded page passes none and follows the global route.
 const costsPageActive = life => life ? life.active() : state.scope === 'global' && state.globalTab === 'costs';

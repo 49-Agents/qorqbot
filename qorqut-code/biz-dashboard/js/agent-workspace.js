@@ -76,8 +76,6 @@ async function agentWorkspaceRedirect(destination) {
   history.replaceState({...(history.state || {}), agentPane: agentWorkspaceRequest}, '', location.pathname + location.search + '#/global/agents');
   return true;
 }
-// The role of the agent pane that hosts an embedded page, for the few page controls that belong to one role.
-function agentWorkspaceActiveRole() { return _agpad?.workspaceRole || null; }
 function agentWorkspaceTakeRequest() { const request = agentWorkspaceRequest; agentWorkspaceRequest = null; return request; }
 function agentWorkspaceStore(descriptor) {
   if (embeddedAgentPane || location.hash !== '#/global/agents') return;

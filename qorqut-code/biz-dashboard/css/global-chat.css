@@ -30,12 +30,10 @@
 @keyframes gchat-working-pulse { 0%, 65%, 100% { opacity:.3; box-shadow:none; } 30% { opacity:1; box-shadow:0 0 4px currentColor; } }
 @media (prefers-reduced-motion:reduce) { .gchat-working-dots i { animation:none; opacity:.65; } }
 .gchat-diagnostic { position:relative; display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; }
-.gchat-diagnostic-bar { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; font-size: 12px; flex: none; }
 .gchat-diagnostic-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* Unread marker for a global agent's main chat: the navigation tab and the agent's roster row. */
 .chat-unread-dot { display: inline-block; width: 8px; height: 8px; margin-left: 6px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.45); flex: none; vertical-align: middle; }
 .chat-unread-dot[hidden] { display: none; }
-.ritem .chat-unread-dot { position: absolute; top: 6px; right: 6px; margin: 0; }
 .gchat-view-toggle { display: inline-flex; flex: none; gap: 4px; }
 .gchat-view-toggle button, .gchat-refresh { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; min-height: 30px; padding: 6px; border: 0; border-radius: 6px; transform: none; }
 .gchat-view-toggle svg, .gchat-refresh svg { width: 18px; height: 18px; }

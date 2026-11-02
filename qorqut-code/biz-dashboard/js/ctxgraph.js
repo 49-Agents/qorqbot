@@ -1,43 +1,5 @@
-// Context Map uses only stored directional relationships. Upload outlines use ctxmap.js.
+// Context Map uses only stored directional relationships. Shared SVG helpers live in ctxmap.js.
 const ctxGraphHash = s => Array.from(String(s)).reduce((h, c) => ((h * 31) + c.codePointAt(0)) >>> 0, 0);
-
-// context_find cursors bind both the query and scope snapshot. Keep each list in
-// a private accumulator and return it only after the server confirms completion;
-// callers never render a partial first page as if it were the whole graph.
-async function ctxFindAllPages(readPage, {query = "", limit = 500} = {}) {
-  if (typeof readPage !== "function" || !Number.isInteger(limit) || limit < 1 || limit > 500)
-    throw new Error("Invalid context page reader");
-  const items = [], cursors = new Set(), refs = new Set();
-  let cursor = null, total = null, pages = 0;
-  for (;;) {
-    const page = await readPage({query, limit, ...(cursor ? {cursor} : {})});
-    if (!page || !Array.isArray(page.items) || !Number.isSafeInteger(page.total) || page.total < 0 ||
-        typeof page.complete !== "boolean" || !(page.next_cursor === null || typeof page.next_cursor === "string"))
-      throw new Error("Context search returned an incomplete page response");
-    if (total !== null && page.total !== total)
-      throw new Error("Context search snapshot changed while loading; reload to try again");
-    total = page.total;
-    for (const item of page.items) {
-      const ref = item && typeof item === "object" && !Array.isArray(item) ? item.ref : null;
-      if (typeof ref !== "string" || !/^<object>[^<>]+<\/object>$/.test(ref) || refs.has(ref))
-        throw new Error("Context search returned a malformed or repeated canonical reference; reload to try again");
-      refs.add(ref);
-    }
-    items.push(...page.items);
-    pages++;
-    if (items.length > total)
-      throw new Error("Context search returned more items than its snapshot contains");
-    if (page.complete) {
-      if (page.next_cursor !== null || items.length !== total)
-        throw new Error("Context search marked an incomplete snapshot complete; reload to try again");
-      return {items, total, complete: true, pages};
-    }
-    if (!page.items.length || !page.next_cursor || cursors.has(page.next_cursor))
-      throw new Error("Context search is incomplete and has no usable continuation; reload to try again");
-    cursors.add(page.next_cursor);
-    cursor = page.next_cursor;
-  }
-}
 
 function ctxGraphData(d, scope, isRoot) {
   return ctxRelationshipGraph(d.graph, isRoot ? null : scope.document_id);

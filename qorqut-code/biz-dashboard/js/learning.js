@@ -110,36 +110,20 @@ function lnMatch(item, q, people, draft) {
   return words.every(w => hay.includes(w));
 }
 
-// ---------------------------------------------------------------- fetch, badge, status pane
+// ---------------------------------------------------------------- fetch, status pane
 async function lnFetch() {
   const workspace = lnWorkspace();
   if (!workspace) return null;
   const d = await api(lnBase());
   if (workspace !== lnWorkspace()) return null;
-  if (!d || d.error || !Array.isArray(d.items)) { lnItemsBadge([]); lnBadgePaint(0); return d; }
+  if (!d || d.error || !Array.isArray(d.items)) return d;
   _ln.biz = lnWorkspace(); _ln.items = d.items; _ln.counts = d.counts || null;
   // a reverted decision hands its note back as the draft, unless the owner already typed a new one
   for (const it of d.items) if (lnOpenItem(it) && _ln.notes[it.id] === undefined) {
     const note = (it.reopened && it.reopened.note) || lnNote(it);
     if (note) _ln.notes[it.id] = note;
   }
-  lnItemsBadge(d.items);
   return d;
-}
-// the Context rail badge, same span and class as the other rail badges
-function lnBadgePaint(n) {
-  const el = $("#ctxbadge"); if (!el) return;
-  const k = Number(n) || 0;
-  el.hidden = !k;
-  el.textContent = k > 9 ? "9+" : String(k);
-}
-// the /live poll owns the badge whenever the owner is not standing on the page (which paints it itself)
-function lnLivePaint(live) {
-  if (state.tab === "context" && state.ctx === "_learning") return;
-  lnBadgePaint((live && live.learnings_open) || 0);
-}
-function lnItemsBadge(items) {
-  lnBadgePaint(Object.values(lnCountsByTag(items)).reduce((a,b)=>a+b,0));
 }
 
 // ---------------------------------------------------------------- the page
@@ -324,14 +308,14 @@ function lnDecide(it, st, note) {
   it.decision = { state: st, note: note || "", actor: "human:owner", created: new Date().toISOString() };
   delete it.reopened;
   delete _ln.notes[it.id]; delete _ln.noteOpen[it.id]; lnDraftsSave();
-  lnPaintCols(); lnItemsBadge(_ln.items);
+  lnPaintCols();
 }
 function lnUndecide(it) {
   const note = lnNote(it);
   it.reopened = { state: "open", note, created: new Date().toISOString() };
   delete it.state; delete it.decision;
   if (note && !_ln.notes[it.id]) { _ln.notes[it.id] = note; lnDraftsSave(); }
-  lnPaintCols(); lnItemsBadge(_ln.items);
+  lnPaintCols();
 }
 async function lnRefetch() { const d = await lnFetch(); if (d && !d.error && lnActive()) lnPaintCols(); }
 // Context decisions share an index: commit one review at a time, without blocking card interaction.
@@ -378,7 +362,6 @@ async function lnSend(it, st, note, apply, label) {
       Object.assign(current, r.item);
       if (st === "open" && lnNote(current)) { model.notes[id] = lnNote(current); lnDraftsSave(); }
       if (r.item.filing?.upload_id) model.items = model.items.filter(item => item.id !== id);
-      lnItemsBadge(model.items);
     } else { apply(); }
     toast(label.toLowerCase());
   } finally {

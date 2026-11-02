@@ -4,7 +4,6 @@
 // other selector separately.
 const conversationStates = new Map();
 let conversationMountId = 0;
-const CONVERSATION_CHANGED = 'The conversation changed or is no longer available.';
 // Inline Focus conversations dismiss on outside clicks, while their contents stay interactive.
 document.addEventListener('click',event=>{
   // composedPath() is frozen at dispatch time: a reactive re-render can leave

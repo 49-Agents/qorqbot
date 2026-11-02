@@ -1,7 +1,6 @@
 /* The workspace shell is deliberately neutral. Task status colours continue to
    come from tasks.css, including white/blue/red/green and the hollow open state. */
 .agent-workspace-app .app { padding:0; }
-#rail { display:none; }
 .workspace-back { flex:none; padding:8px 14px 0; }
 .workspace-back[hidden] { display:none; }
 .workspace-back button { height:32px; padding:0 10px; border:0; border-radius:6px; font-size:13px; color:var(--fg-2); }
@@ -122,7 +121,7 @@
 
 /* Same-origin embedded native screens; the main application is untouched. */
 .agent-pane-embedded .app { padding:0; height:100vh; }
-.agent-pane-embedded > .rail, .agent-pane-embedded > .ac-capture,
+.agent-pane-embedded > .ac-capture,
 .agent-pane-embedded .workspace-composer { display:none; }
 .agent-pane-embedded #content { display:flex; flex-direction:column; overflow:auto; padding:8px 20px 24px; width:100%; min-width:0; }
 .agent-pane-embedded .global-content, .agent-pane-embedded .business-progress-page { padding:0; max-width:none; width:100%; }
@@ -140,7 +139,6 @@
 .agent-pane-embedded .global-context .ctxview { padding:10px 0 0; flex:1; min-height:300px; }
 .agent-pane-embedded .global-context #global-context-upload { display:flex; width:32px; height:32px; padding:8px; }
 .agent-pane-embedded .data-workspace { padding:0; }
-.agent-pane-embedded .agent-workspace-empty { font-size:12.6px; margin:12px 0; }
 @media (min-width:701px) {
   .agent-workspace-app .global-agents:not(.pad-off) > .agent-pane-divider { display:block; }
 }

@@ -39,7 +39,7 @@ const dataCopyLink = async (text, button) => {
   button.title = button.ariaLabel = 'Link copied';
   setTimeout(() => { button.title = button.ariaLabel = 'Copy link'; }, 1500);
 };
-const dataSettingsIcon = document.querySelector('.ritem[data-tab="settings"] svg').outerHTML;
+const dataSettingsIcon = NAV_SETTINGS_ICON;
 
 async function renderTables(container) {
   const biz = dataTarget(), scope = biz === null ? 'global' : 'business', generation = ++_dataGeneration;

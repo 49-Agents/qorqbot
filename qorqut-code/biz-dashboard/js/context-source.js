@@ -15,7 +15,6 @@ const srcOpPath = (scope, op) => scope.kind === 'root' ? `/root/operations/${op}
 const SRC_RAW_READS = new Set(['context_get', 'context_list', 'context_search']);
 const srcRead = (scope, op, args, signal = pageReads.signal) =>
   pageReadPost(srcOpPath(scope, op), SRC_RAW_READS.has(op) ? {scope: scope.kind === 'root' ? 'shared' : 'business', ...args} : args, signal).then(coreData);
-const srcSourceRoute = (scope, id) => scope.kind === 'root' ? `#/global/context/library/${encodeURIComponent(id)}` : `_source/${id}`;
 const SRC_COPY = {loadFailed: "Couldn't load. Retry", saveFailed: "Couldn't save. Try again", changed: 'Changed since you opened it. Refresh', unconfirmed: "Couldn't confirm. Try again"};
 
 // ------------------------------------------------------------- filing presentation
