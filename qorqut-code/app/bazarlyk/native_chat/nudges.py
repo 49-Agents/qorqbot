@@ -65,7 +65,10 @@ class HostVisibility:
             return cached[2]
         inbox = self.inbox
         try:
-            ctx = inbox.context(inbox.resolver.invocation_context(Principal(agent_id, "agent")), uow)
+            # Delivery needs current identity and policy, not the full native
+            # bootstrap (instructions, tools, context and authored files).
+            # event_visible still checks each source under current authority.
+            ctx = inbox.context(inbox.resolver.runtime_context(Principal(agent_id, "agent")), uow)
             descriptor = inbox.app.registry.get("inbox_list")
             if ctx.business_id is not None:
                 descriptor = replace(descriptor, global_capability=None)

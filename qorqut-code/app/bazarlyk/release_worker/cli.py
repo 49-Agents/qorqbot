@@ -60,6 +60,9 @@ def build_parser() -> argparse.ArgumentParser:
     repair = commands.add_parser("v12-repair", help="apply a compatible host repair before any fresh native sessions")
     repair.add_argument("--selection", type=Path, required=True)
     repair.add_argument("--confirm-repair", action="store_true")
+    host_update = commands.add_parser("v12-host-deploy", help="apply a same-schema host update preserving native sessions and pinned helpers")
+    host_update.add_argument("--selection", type=Path, required=True)
+    host_update.add_argument("--confirm-deploy", action="store_true")
     projection_preview = commands.add_parser("v12-agent-projection-preview", help="read-only preview of stale generated agent setup copied into fresh agent workspaces")
     projection_preview.add_argument("--selection", type=Path, required=True)
     projection_preview.add_argument("--destination", type=Path, required=True)
@@ -111,6 +114,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "v12-host-deploy":
+            from .v12_repair import host_deploy
+            _json(host_deploy(args.selection, confirm=args.confirm_deploy))
+            return 0
         if args.command == "v12-repair":
             from .v12_repair import repair
             _json(repair(args.selection, confirm=args.confirm_repair))
