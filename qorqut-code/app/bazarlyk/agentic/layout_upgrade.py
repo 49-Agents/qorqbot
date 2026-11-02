@@ -14,7 +14,7 @@ from qorqut_operations.contracts import DomainError
 
 from .layout_inspection import (inspect_git, inspect_runtime, read_legacy_tree,
                                 transform_inventory, transform_legacy, validate_catalog, legacy_destination,
-                                load_memory_catalog)
+                                load_memory_catalog, retained_layout_inventory)
 from .support import digest, ImportFailure
 
 
@@ -135,7 +135,7 @@ def prepare_layout(paths, record, record_sha256, prepared):
                 if path not in legacy:
                     conflicts.append({'code': 'missing_required_native_manifest', 'path': path,
                                       'native_id': binding.get('native_id')})
-        for asset in inventory.get('assets', []):
+        for asset in retained_layout_inventory(inventory, mapped).get('assets', []):
             path = asset.get('destination')
             if (asset.get('enabled') and asset.get('kind') in ('instruction', 'skill', 'manifest', 'metadata')
                     and isinstance(path, str) and path not in legacy):

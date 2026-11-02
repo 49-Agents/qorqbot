@@ -517,11 +517,39 @@ def inspect_git(root, *, entire_worktree=False):
     return result
 
 
+def retained_layout_inventory(inventory, mapping):
+    """Exclude the retired learning-work entry only when its authored file and ref are absent.
+
+    The original inventory/import receipt remains in the migration's retained provenance.
+    Other missing entries still fail normal completeness validation.
+    """
+    from copy import deepcopy
+    ref = 'imported-host-builtins/learning-work'
+    relative_path = 'native/app/bazarlyk/agentic/assets/learning-work.md'
+    path = 'packages/imported-host-builtins/' + relative_path
+    if ref in mapping['ref_map'] or path in mapping['path_map']:
+        return inventory
+    result = deepcopy(inventory)
+    for package in result.get('packages', []):
+        if package['id'] == 'imported-host-builtins':
+            package['entries'] = [entry for entry in package['entries']
+                                  if not (entry['id'] == 'learning-work' and entry['path'] == relative_path)]
+            package['files'].pop(relative_path, None)
+    result['assets'] = [asset for asset in result['assets'] if asset['destination'] != path]
+    for binding in result['bindings']:
+        binding['entry_refs'] = [value for value in binding['entry_refs'] if value != ref]
+        if 'skills' in binding:
+            binding['skills'] = [skill for skill in binding['skills'] if skill['canonical_entry'] != ref]
+    result['coverage']['asset_count'] = len(result['assets'])
+    return result
+
+
 def transform_inventory(inventory, mapping):
     """Relocate inventory destinations while retaining supplier records and hashes."""
     from copy import deepcopy
     from .support import relative
 
+    inventory = retained_layout_inventory(inventory, mapping)
     result = deepcopy(inventory)
     conflicts = []
     packages, owners = {}, {}
