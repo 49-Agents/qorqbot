@@ -134,6 +134,13 @@ class Indexer:
             self._deliveries.step(archive, session, receipt)
         except CaptureError as error:
             return self._failed(capture, error.code, error.retryable, result)
+        retention = getattr(self.runtime, 'overseer_retention', None)
+        if retention is not None:
+            try:
+                retention.queue_capture(profile, session, receipt)
+            except Exception:
+                # The source is already durable; the next observer pass retries the metadata event.
+                LOG.warning('Overseer capture observation remains pending')
         return result
 
     # ----- archive ---------------------------------------------------------------------------------------------------

@@ -449,63 +449,41 @@ agent writes "I will post weekly on Tuesdays" and the owner replies "yes, Tuesda
 that is an item with said_by agent_confirmed_by_owner. The same agent sentence with
 no owner reply is nothing.
 
-2. Bucket first, then tag. Every item is bucket context or bucket delta, and you
-decide the bucket before anything else. context is about the world: the business,
-its product, its customers, its money, the owner, people, events, plans and
-strategy. delta is a change to how the system works: code, agent behaviour, rules,
-workflows, tooling. The test is one question: is this something to remember about
-the world outside the software, or is it an instruction that would change how an
-agent or its tooling behaves next time? The first is context, the second is delta.
-Example
-of context: "we charge nothing for the self-host build; the cloud tier will be
-paid." Example of delta: "never open a pull request without running the tests
+2. This route retains factual Context only. Every item has bucket "context", and
+there is no other bucket: do not record procedural changes to code, agent
+behaviour, rules, workflows or tooling here. Those belong to the separate Overseer
+review, which owns them. context is about the world: the business, its product, its
+customers, its money, the owner, people, events, plans and strategy. The test is
+one question: is this something to remember about the world outside the software?
+If it is instead an instruction that would change how an agent or its tooling
+behaves next time, drop it, however clear and durable it sounds.
+Example of context: "we charge nothing for the self-host build; the cloud tier will
+be paid." Example to drop: "never open a pull request without running the tests
 first."
 
 3. Facts about the system itself are not items. How bazarlyk works, what biztask
 does, what a request is, how the dashboard behaves, where a CLI stores its files:
-none of that is context and none of it is delta. It is the machinery you are
-standing inside, and it is already documented in the repo. There are two exceptions,
-both delta. One: the owner is asking for that machinery to change. Two: the owner is
-telling an agent how or when it must use that machinery. Describing what a tool does
-is never an item; being told when to reach for it always is.
-Example to drop: "requests are immutable, you supersede them." Example to keep as
-delta: "requests should be immutable, change bizreq so editing is impossible."
+none of that is context. It is the machinery you are standing inside, and it is
+already documented in the repo. Requests for that machinery to change, and
+instructions about when an agent must use it, are also not items on this route:
+they are procedural and the Overseer route owns them.
+Example to drop: "requests are immutable, you supersede them." Example to drop too:
+"requests should be immutable, change bizreq so editing is impossible."
 
-4. Tags, one of fact, decision, rule, idea, question. A fact is something that is
-simply true of the world and does not tell anyone to do anything: "our staging
-server is two months old." A decision is a choice the owner made between real
-options, and you keep the reason in the text: "we ship the free self-host build
+4. Tags, one of fact, decision, idea, question on this route. A fact is something
+that is simply true of the world and does not tell anyone to do anything: "our
+staging server is two months old." A decision is a choice the owner made between
+real options, and you keep the reason in the text: "we ship the free self-host build
 first rather than the cloud tier, because it is what the open-source audience
-wants." A rule is an instruction with always or never force, addressed at how work
-is done and meant to hold beyond the piece of work in front of you: "always write
-the commit message before pushing." Preferences and corrections of a habit are
-rules; set from_correction true when the agent had just done the opposite and the
-owner is putting it right. An idea is something not yet decided:
-in bucket context it is strategy ("we could sponsor a newsletter"), in bucket delta
-it is something to build ("a command that shows the week's posts in one table"). A
-question is the owner's own open question, unresolved when the session ended: "how
-many of our installs are actually on Linux?" A clarifying question the agent asked
-is never a question item.
+wants." An idea is something not yet decided, about the world: "we could sponsor a
+newsletter." A question is the owner's own open question, unresolved when the
+session ended: "how many of our installs are actually on Linux?" A clarifying
+question the agent asked is never a question item. A standing instruction about how
+work is done is not a context item: drop it.
 
-5. Scope, one of biz, agent, agent_kind, global, and it applies to delta items.
-agent means this one agent in this one business; use it when the instruction is
-about this agent's own beat ("in your release notes, keep the draft and the final
-side by side"). biz means every agent of this business ("all work here goes through
-a task before a commit"). agent_kind means every agent of the same plugin kind in
-every business, so a rule about how that kind of agent behaves anywhere ("release
-agents never tag a build from an unreviewed branch"). global means every agent
-everywhere, a rule about the way of working itself ("never rebase from inside a
-session"). Propose the scope you actually believe, including global; the owner
-confirms it or moves it, so do not shrink a genuinely wide rule to be safe. agent is
-the narrowest level and the one you must justify hardest: use it only when the
-instruction would make no sense addressed to a different agent. If the rule is about
-a tool, a file or a step that every agent of this business shares, it is biz and not
-agent, even when only one agent happened to be in the room when the owner said it.
-That only one agent was present is never a reason for scope agent. Example: the
-owner tells the release agent to mark a task doing while working on it; that is
-biz, because every agent of the business keeps tasks the same way. Every
-context item is scope biz, always, because context belongs to one business. Give
-scope_reason as one plain sentence saying why that level and not the one below it.
+5. Scope is always biz for a business contribution and global for a Global one,
+matching the contribution's own source. Do not invent agent or agent_kind scope on
+this route.
 
 6. Evidence is mandatory. Every item carries exactly one verbatim owner quote, and
 turns lists only the ids of the blocks your quotes were copied from, nothing else.
@@ -574,7 +552,7 @@ cannot put it in one of these two, it is not an item.
 ## confidence
 
 A number from 0 to 1 on one axis only: how sure you are that the owner meant this to
-hold after the session ends. Doubt about bucket, tag or scope belongs in scope_reason
+hold after the session ends. Doubt about tag or scope belongs in scope_reason
 and never in this number. 0.9 and up when the owner said it plainly and unmistakably
 meant it to hold next time. Around 0.5 when they said it plainly but it may have been
 about this one piece of work only. Below 0.4 you do not have an item: drop it instead
@@ -594,16 +572,16 @@ marked durable.
   {"turn": "T7", "owner": "corrected where the link goes in a release note", "durable": true}
 ],
  "items": [
-  {"bucket": "delta",
-   "tag": "rule",
-   "scope": "agent_kind",
-   "scope_reason": "It is about how any release agent writes a release note, not about this business.",
-   "text": "Release agents never put the download link in the body of a release note; it goes in the footer.",
+  {"bucket": "context",
+   "tag": "decision",
+   "scope": "biz",
+   "scope_reason": "It is what this business sells.",
+   "text": "We charge nothing for the self-host build and the cloud tier stays paid.",
    "said_by": "owner",
-   "from_correction": true,
+   "from_correction": false,
    "confidence": 0.9,
    "evidence": {"turns": ["T7"],
-                "owner_quote": "no link in the note body, put it in the footer",
+                "owner_quote": "self-host stays free, the cloud tier is paid",
                 "agent_quote": null}}
 ]}
 

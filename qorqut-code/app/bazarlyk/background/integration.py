@@ -43,9 +43,11 @@ def register_programs(programs, *, models=None, transcript_source=None,
         ("learning_candidates", "learning_decisions", "learning_scan_state", "learning_runs", "learning_history"), timeout_seconds=7200,
         scope_kinds=("global",), global_capabilities=("read_global_context",))
     from . import learning_engine as engine
+    # Retired in this target: the program and its identifiers stay registered for inspection and history, but no
+    # configuration can run the standalone procedural engine or write new engine issues.
     add(engine.PROGRAM, engine.ARGUMENTS, engine.EngineProgram(learning, learning_engine).run if learning_engine is not None else None,
         (engine.OPERATION,), engine.RESOURCES, timeout_seconds=7200, scope_kinds=("global",),
-        global_capabilities=("read_global_context",), unavailable_reason=None if learning_engine is not None else engine.UNAVAILABLE)
+        global_capabilities=("read_global_context",), unavailable_reason=engine.RETIRED)
     from .backups import ARGUMENTS as BACKUP_ARGUMENTS, BackupPullProgram
     pull = BackupPullProgram(backup_downloader).run
     add("backups.pull", BACKUP_ARGUMENTS, pull, timeout_seconds=900, external=True, recover=pull)
@@ -149,6 +151,10 @@ def attach_background(runtime, programs, *, model_client_factory=None, transcrip
     runtime.policy.worker_profiles = authority.worker_profiles
     runtime.policy.job_consequence_verifier = authority.verify_consequence
     runtime.policy.job_plan_validator = authority.validate_plan
+    # The bounded, model-free Global scheduled-extraction program: it records one due occurrence per scheduled job and
+    # never starts, resumes or consults a native conversation (P07/A018).
+    from bazarlyk.overseer.due import register_program as register_overseer_due
+    register_overseer_due(runtime, programs)
     routines, learnings = register_operations(runtime, programs, authority, clock=clock)
     # The host's incident reporter observes every job result after its own commit; it cannot change the outcome.
     background = BackgroundService(runtime.application, programs, authority, locks=runtime.locks,

@@ -183,6 +183,11 @@ class InstancePaths:
         return self._checked(self._operations / ".runtime" / "agentic")
 
     @property
+    def overseer_archive(self) -> Path:
+        """The explicitly provisioned private Overseer archive; resolution creates nothing."""
+        return self._checked(self._operations / ".runtime" / "overseer" / "archive")
+
+    @property
     def context_questions(self) -> Path:
         """The host-owned question store file: outside the published Context, its runtime and any Context capture."""
         return self._checked(self._operations / ".runtime" / "context-questions.sqlite3")

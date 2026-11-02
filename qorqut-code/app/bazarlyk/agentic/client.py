@@ -31,6 +31,17 @@ _HISTORICAL_TOOLS = frozenset({"tools.receipt", "tools.reconcile"})
 _CONTROL_AFTER_REVOCATION = frozenset({"workflows.pause", "workflows.cancel"})
 _HISTORICAL_WORKFLOWS = _CONTROL_AFTER_REVOCATION | {"workflows.get", "workflows.list"}
 _ATTRIBUTED = frozenset(name for name in OPERATIONS if name.startswith("authoring.")) | {"history.restore"}
+# Portable Overseer reads never write; every other allowlisted Overseer operation
+# is a local mutation and must be reported as an uncertain effect if its reply is lost.
+_OVERSEER_OPERATIONS = frozenset(name for name in OPERATIONS if name.startswith("overseer."))
+_OVERSEER_READS = frozenset({
+    "overseer.proposals.get", "overseer.proposals.list",
+    "overseer.deltas.get", "overseer.deltas.list",
+    "overseer.coverage.get", "overseer.materials.get",
+    "overseer.inputs.get", "overseer.review.get_batch",
+    "overseer.applications.get", "overseer.applications.list",
+})
+_OVERSEER_MUTATIONS = _OVERSEER_OPERATIONS - _OVERSEER_READS
 _SAFE_CODE = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
 
 
@@ -176,7 +187,12 @@ class NativeClient:
                 raise InvalidRequestError("management attribution requires reason and optional source_refs")
             arguments["attribution"] = {**attribution, **actor}
         component, method = OPERATIONS[operation]
-        target = getattr(getattr(layer, component) if component else layer, method)
+        target = layer
+        if component is not None:
+            # Allowlisted components may be nested groups (overseer.proposals).
+            for part in component.split("."):
+                target = getattr(target, part)
+        target = getattr(target, method)
         parameters = inspect.signature(target).parameters
         if "actor" in parameters:
             arguments["actor"] = actor
@@ -188,7 +204,8 @@ class NativeClient:
         self.local_effect_started = (operation.startswith(("authoring.", "tools.", "workflows."))
                                      and operation not in {"tools.receipt", "workflows.get", "workflows.list"}
                                      or operation in {"history.commit", "history.restore", "changes.scan",
-                                                      "changes.advance_cursor", "lifecycle.recover"})
+                                                      "changes.advance_cursor", "lifecycle.recover"}
+                                     or operation in _OVERSEER_MUTATIONS)
         result = dispatch(layer, {"operation": operation, "arguments": arguments})
         if operation == "catalog.list":
             # The module's catalog issues describe the entire tree. Return only

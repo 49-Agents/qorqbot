@@ -7,7 +7,6 @@ from uuid import UUID
 
 from qorqut_operations.contracts import DomainError, new_id, utc_now
 from bazarlyk.domains.learnings import analysis, sources, verification
-from bazarlyk.domains.learnings.issues import enrolled_ids
 from bazarlyk.domains.learnings.scope import require_global
 from qorqut_operations.application.plans import rows
 from bazarlyk.composition.locations import business_hq
@@ -41,10 +40,6 @@ class BusinessBrief:
 class LearningProgram:
     def __init__(self, models, transcripts, engine=None):
         self.models, self.transcripts, self.engine = models, transcripts, engine
-
-    def engine_agents(self, uow, business_id):
-        """Agents whose saved sessions the configured learning engine owns; never also extracted by this program."""
-        return enrolled_ids(uow, business_id, self.engine.engine_id) if self.engine is not None else frozenset()
 
     def snapshots(self, control, agent_id=None, limit=100, seen=None, exclude=frozenset(), listed=None, only=None, limits=None):
         """Saved snapshots not already ``seen`` at their current hash, at most ``limit`` and ``MAX_PASS_BYTES`` of them.
@@ -124,9 +119,6 @@ class LearningProgram:
                                 str(business_hq(control.service.paths, business)) if control.business_id else "")
             scan = {row['session_id']: row for row in rows(uow, 'learning_scan_state', control.business_id)}
             seen = {key: row['transcript_hash'] for key, row in scan.items() if sources.counted(row['state_json'], args.get('retry_failed'))}
-            engine_agents = self.engine_agents(uow, control.business_id)
-            if args.get("agent_id") in engine_agents:
-                raise DomainError("forbidden", "This agent's saved sessions are processed by the learning engine")
             decisions = {row["candidate_id"]: row for row in
                 rows(uow, "learning_decisions", control.business_id)}
             existing = []
@@ -134,6 +126,8 @@ class LearningProgram:
                 decision = decisions.get(row["id"])
                 if row["candidate_json"].get("engine"):
                     continue  # Engine review items carry typed evidence this program cannot compare or supersede.
+                if row["candidate_json"].get("bucket") == "delta":
+                    continue  # Retired procedural history is readable but never a Context extraction counterpart.
                 if not row["candidate_json"].get("reconciled_into") and (decision is None or decision["state"] in {"open", "accepted"}):
                     existing.append({**row["candidate_json"], **(decision["changes_json"] if decision else {}),
                         "state": row.get("work_state") or (decision["state"] if decision else "open"),
@@ -175,7 +169,9 @@ class LearningProgram:
                 except DomainError as exc:
                     errors.append({'source': packet['key'], 'error': exc.message})
         def transcripts():
-            for source in self.snapshots(control, args.get("agent_id"), args.get("max_sessions", 100), seen, engine_agents):
+            # The retired engine no longer owns any session: its enrollment rows are history and must not suppress
+            # authorized Context input on the factual route.
+            for source in self.snapshots(control, args.get("agent_id"), args.get("max_sessions", 100), seen):
                 core = analysis.build_core(source, biz, source["agent_id"], source["agent_kind"], source.get("subagents", []))
                 core["header"]["session"] = source["session_id"]
                 core["source"] = {key: source[key] for key in ("session_id", "source_id", "transcript_hash", "agent_id")}
@@ -239,7 +235,9 @@ class LearningProgram:
             except analysis.LearnError as exc:
                 failed(str(exc))
                 continue
-            fresh.extend(items)
+            # This route retains factual Context only; procedural deltas are Overseer's and are dropped before output.
+            from bazarlyk.domains.learnings import legacy
+            fresh.extend(legacy.context_only_items(items))
             errors.extend({"source": identity, "error": issue} for issue in issues)
             # Partial or invalid extraction must be retried, not silently consumed.
             if not issues:

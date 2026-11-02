@@ -13,7 +13,7 @@ from bazarlyk.catalog.packages import ID, VERSION, validate_policy
 from .roles import RETIRED_ROLE_IDS
 
 
-GLOBAL_CAPABILITIES = frozenset({"coordinate_businesses", "read_global_context", "manage_fastmail", "manage_calendar", "manage_shared_instructions", "publish_roles", "publish_plugins", "manage_global_routines", "manage_ecosystem_agents", "manage_delegated_assignments", "manage_agentic_layer"})
+GLOBAL_CAPABILITIES = frozenset({"coordinate_businesses", "read_global_context", "read_agent_experience", "manage_fastmail", "manage_calendar", "manage_shared_instructions", "publish_roles", "publish_plugins", "manage_global_routines", "manage_ecosystem_agents", "manage_delegated_assignments", "manage_agentic_layer"})
 # Historical grant names that a saved profile may still carry. They authorize nothing, can never be granted, and a stored
 # or inactive record that holds one still parses unchanged.
 RETIRED_GLOBAL_CAPABILITIES = frozenset({"manage_ideas", "manage_business_setup", "read_personal_context", "manage_personal_context", "write_business_strategy"})

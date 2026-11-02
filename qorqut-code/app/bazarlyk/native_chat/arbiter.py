@@ -135,6 +135,9 @@ class InputArbiter:
                     self.runtime.application.ensure_writes_open(uow)
                     row = store.insert_input(uow.connection, session, request, digest, state=STATE_WAITING, marker=marker,
                                              attempt=attempt)
+                    retention = getattr(self.runtime, 'overseer_retention', None)
+                    if retention is not None:
+                        retention.capture_owner_input(uow, session, request, row)
                     if request.input_type == TYPE_CHAT:
                         # The message is accepted here, whether or not its delivery is later delayed; a worker's owner message
                         # is noted to Ordubashy in this same transaction and never from the scrubbed input.
@@ -197,6 +200,9 @@ class InputArbiter:
                 self.runtime.application.ensure_writes_open(uow)
                 claimed["row"] = store.insert_input(uow.connection, session, request, digest, state=STATE_SUBMITTING,
                                                     marker=marker, reason="claimed", attempt=attempt)
+                retention = getattr(self.runtime, 'overseer_retention', None)
+                if retention is not None:
+                    retention.capture_owner_input(uow, session, request, claimed['row'])
 
         text = self._typed(request.origin, marker, request.input_type, request.text)
         outcome, adapter = self._run(profile, session, text, request.steer, request.input_type, checkpoint, claimed)

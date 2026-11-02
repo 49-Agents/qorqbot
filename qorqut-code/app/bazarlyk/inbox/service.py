@@ -85,6 +85,11 @@ class HostInbox:
                 return IncidentOperations.visible(selected,row['source_id'],uow)
             except DomainError:
                 return False
+        if row['source_type'] == 'overseer_extraction_due':
+            # The stored request, current role/capability/policy and saved conversation decide; a nudge read needs no
+            # MCP registration, and an actual tool invocation still requires it.
+            from bazarlyk.overseer.due import request_visible
+            return request_visible(app, ctx, row['source_id'], uow)
         if row['source_type'] == 'context_inputs':
             # A Context input notice goes to the registered coordinator alone; the input must still exist.
             installation = uow.repository('installation').get('service')
@@ -101,6 +106,11 @@ class HostInbox:
         if row['source_type'] == 'owner_conversations':
             # Event columns and the bound source only; never a body.
             item['source'] = json.loads(row['visibility_json'] or '{}').get('source')
+        if row['source_type'] == 'overseer_extraction_due':
+            from bazarlyk.overseer.due import request_reference
+            reference = request_reference(self.inbox.app, ctx, row['source_id'], uow)
+            if reference is not None:
+                item['overseer_extraction_due'] = reference
 
     def decorate_after_extensions(self, ctx, row, item, uow):
         if row['source_type'] == 'operational_assignments':

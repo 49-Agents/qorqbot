@@ -5,7 +5,7 @@ resolver interleaved these per-domain rules with the generic precedence steps, s
 phases of ``PolicyRules`` exactly where v1 evaluated them:
 
 * ``before_override``: rules that decide before an agent's explicit override is consulted, either because they
-  refuse it (Telegram roles, the Ordubashy-only user-input presentation, Global table archive, Project archive, terminal control, owner-action
+  refuse it (Telegram roles, the restricted user-input presentation, Global table archive, Project archive, terminal control, owner-action
   proposals, ``learning-applier`` only operations, the Learning Applier-only Context question tools that follow the caller's current
   ``context_edit`` decision);
 * ``after_override``: standing core defaults that sit between the explicit override and the role default;
@@ -62,9 +62,9 @@ def _telegram(name, defaults, overrides, registry, *, role_id, scope, resolve):
 
 
 def _user_input(name, defaults, overrides, registry, *, role_id, scope, resolve):
-    # The presentation tool belongs to Ordubashy alone; the role is necessary, and the operation also requires the exact configured
-    # active agent. A role default or an explicit grant is still required, and an explicit deny wins.
-    if name == "request_user_input" and role_id != ORDUBASHY_ROLE:
+    # Eligible roles are necessary, never sufficient: the handler checks the exact active identity.
+    # A role default or explicit grant remains required, and an explicit deny wins.
+    if name == "request_user_input" and role_id not in (ORDUBASHY_ROLE, LEARNING_APPLIER_ROLE):
         return PolicyDecision("deny", "user_input_ordubashy_only")
 
 

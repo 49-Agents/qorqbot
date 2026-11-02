@@ -104,6 +104,9 @@ class NativeBackend:
             except Exception:
                 LOG.debug("Native Chat observation deferred for %s", profile["agent_id"], exc_info=True)
         self.finish_ended()
+        retention = getattr(self.runtime, 'overseer_retention', None)
+        if retention is not None:
+            retention.drain.step()
 
     def undeliver_ineligible(self) -> None:
         """Settle the waiting inputs of every recipient that is no longer an operating supported global as ``undelivered``

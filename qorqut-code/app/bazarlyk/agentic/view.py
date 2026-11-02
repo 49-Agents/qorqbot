@@ -15,10 +15,23 @@ import posixpath
 from qorqut_agentic.errors import AgenticError
 from qorqut_operations.contracts import DomainError
 
+from bazarlyk.agents.roles import LEARNING_APPLIER_ROLE
+
 from .support import MAX_FILE_BYTES, ImportFailure, decoded, digest, identifier, relative
 
 
 CONSISTENCY_ATTEMPTS = 3
+# The host-seeded Overseer package belongs only to the identity that serves
+# Overseer. The general shared procedural catalog keeps every other package.
+OVERSEER_PACKAGE = "overseer"
+OVERSEER_ROLE = LEARNING_APPLIER_ROLE
+
+
+def _role_id(profile):
+    role = profile.get("role") if isinstance(profile, dict) else getattr(profile, "role", None)
+    if isinstance(role, dict):
+        return role.get("id")
+    return getattr(role, "id", None)
 
 
 def _invalid(message):
@@ -126,7 +139,10 @@ class HostAgenticView:
         """Shared procedural catalog routing; never a native operational grant.
 
         The caller authorizes the project using the current registered profile.
-        Native projection independently uses its validated role/plugin pins.
+        Native projection independently uses its validated role/plugin pins. The
+        host-seeded Overseer package is eligible only to the current validated
+        role that serves Overseer; every other shared package keeps the general
+        routing rule.
         """
         for key, value in (("project_id", project_id), ("work_type", work_type)):
             if value is not None and not isinstance(value, str):
@@ -134,11 +150,14 @@ class HostAgenticView:
 
         def read():
             report = self.layer.catalog.validate()
+            role_id = _role_id(profile)
             candidates = []
             for package in report["packages"]:
                 package_id = package["id"]
                 known = self._packages.get(package_id)
                 if known is not None and not known["native"]["enabled"]:
+                    continue
+                if package_id == OVERSEER_PACKAGE and role_id != OVERSEER_ROLE:
                     continue
                 if not report["valid"] and not self.layer.catalog.validate(package_ids=[package_id])["valid"]:
                     continue

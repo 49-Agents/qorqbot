@@ -406,6 +406,12 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
+            from bazarlyk.overseer import http as overseer_http
+            if overseer_http.matches(parts):
+                if request.headers.get('authorization') is not None:
+                    raise DomainError('forbidden', 'Overseer reads require the owner dashboard identity')
+                context, _ = self.context(actor)
+                return await overseer_http.route(self.runtime, request, context, parts, request_id)
             from bazarlyk.native_chat import http as native_chat_http
             if native_chat_http.matches(parts) and self.runtime.native_chat is not None:
                 return await native_chat_http.route(self.runtime, request, actor.principal.id, parts, request_id)

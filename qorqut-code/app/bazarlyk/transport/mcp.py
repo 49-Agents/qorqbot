@@ -288,7 +288,9 @@ class MCPTransport:
             descriptor = self.runtime.registry.get(name)
             if not self.caller.exposes(descriptor):
                 raise DomainError("forbidden", "This operation is not exposed to agent MCP")
-            if descriptor.transport_only:
+            from bazarlyk.overseer.operations import WRITE as OVERSEER_WRITES
+            bridge_operation = descriptor.transport_only and descriptor.name in OVERSEER_WRITES
+            if descriptor.transport_only and not bridge_operation:
                 raise DomainError("validation_error", "Nested transport operations are not supported")
             canonical_name = descriptor.name
             self.caller.check_operation(canonical_name)
@@ -314,6 +316,17 @@ class MCPTransport:
                 # Bind application observation to this transport call's
                 # correlation ID after trusted context resolution.
                 context = replace(context, request_id=request_id)
+                if bridge_operation:
+                    from qorqut_agentic.errors import AgenticError
+                    self.runtime.registry.bind_arguments(canonical_name, args)
+                    with self.runtime.database.read() as uow:
+                        current = self.runtime.application.current_context(context, uow)
+                        self.runtime.application.authorize(current, descriptor, (), uow, namespace='global')
+                    try:
+                        value = self.runtime.overseer.mutate(canonical_name, context, args)
+                    except AgenticError as error:
+                        raise DomainError(error.code, str(error), details=error.details) from error
+                    return OperationResult.ok(value, request_id=request_id)
                 if canonical_name == BROWSER_OPERATION:
                     self.runtime.registry.bind_arguments(canonical_name, args)
                     namespace = self.runtime.application.namespace(context, descriptor, args)

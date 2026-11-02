@@ -1,10 +1,14 @@
 """Learning candidates, owner triage and frozen extraction outputs in SQLite."""
 
 from dataclasses import replace
+import json
 
 from qorqut_operations.application.registry import OperationDescriptor
-from qorqut_operations.contracts import DomainError, plain
-from qorqut_operations.application.plans import IDENTITY, PAGE, TEXT, UUID, apply_records, page, prepare_job, require_revision, rows, schema
+from qorqut_operations.contracts import DomainError, canonical_bytes, plain
+import base64
+
+from qorqut_operations.application.plans import (IDENTITY, PAGE, TEXT, UUID, apply_records, page, page_position,
+                                                   prepare_job, require_revision, rows, schema)
 from .analysis import BUCKETS, SCOPES, TAGS, LearnError, validate_edit, validate_item
 from .scope import PlanBuilder, SCOPE, namespace, require_global
 from .work import LearningWork, STATES, record_history
@@ -12,6 +16,7 @@ from .review import LearningReview
 from .issue_reads import VIEW, LearningIssueReads, in_view
 from .issues import LearningIssues, summary as issue_summary
 from .intake import snapshot as intake_snapshot
+from . import legacy
 
 EXTRACT_ARGUMENTS = schema({"max_usd": {"type": "number", "exclusiveMinimum": 0, "maximum": 100},
     "supersession_mode": {"enum": ["preview", "apply"], "description": "Preview cross-day unresolved replacements, or automatically reject evidence-backed superseded findings. Omission preserves legacy reconciliation."},
@@ -40,6 +45,50 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
         if row.get("work_state"):
             value["state"] = row["work_state"]
         return value
+
+    def legacy_pending(self, ctx, args, options, uow):
+        effective = ("COALESCE(json_extract(d.changes_json,'$.{0}'),json_extract(c.candidate_json,'$.{0}'))"
+                     .format)
+        bucket = effective("bucket")
+        created = effective("created")
+        filters = "c.business_id IS ? AND " + bucket + "='delta'"
+        parameters = [ctx.business_id]
+        binding, after = page_position(args, ctx.business_id, "learnings_legacy_pending")
+        clause = filters
+        page_parameters = list(parameters)
+        if after is not None:
+            clause += " AND (" + created + ",c.id) < (?,?)"
+            page_parameters.extend(after)
+        rows_found = [dict(row) for row in uow.connection.execute(
+            "SELECT c.id AS learning_id," + ",".join(
+                effective(key) + " AS " + key for key in ("scope", "tag", "text", "created")) +
+            ",c.work_state AS work_state,c.filing_json AS filing_json,d.state AS decision_state "
+            "FROM learning_candidates c LEFT JOIN learning_decisions d ON d.business_id IS c.business_id "
+            "AND d.candidate_id=c.id WHERE " + clause +
+            " ORDER BY " + created + " DESC,c.id DESC LIMIT ?", [*page_parameters, args.get("limit", 50) + 1])]
+        total = uow.connection.execute(
+            "SELECT COUNT(*) FROM learning_candidates c LEFT JOIN learning_decisions d ON d.business_id IS c.business_id "
+            "AND d.candidate_id=c.id WHERE " + filters, parameters).fetchone()[0]
+        more = len(rows_found) > args.get("limit", 50)
+        items = []
+        for row in rows_found[:args.get("limit", 50)]:
+            filing = json.loads(row.pop("filing_json") or "{}")
+            decision_state = row.pop("decision_state")
+            row["text"] = str(row.get("text") or "")[:500]
+            row["decision"] = decision_state
+            row["state"] = row.get("work_state") or decision_state or "open"
+            row["filed"] = isinstance(filing, dict) and bool(filing)
+            items.append(row)
+        cursor = None
+        if more:
+            last = rows_found[args.get("limit", 50) - 1]
+            cursor = base64.urlsafe_b64encode(canonical_bytes({"binding": binding, "after": [last["created"],
+                                                                                          last["learning_id"]]})).decode()
+        return {"schema_version": 1, "items": items, "next_cursor": cursor, "count": total,
+                "read_only": True,
+                "statement": "These are historical records, not an active queue, and each needs the owner's explicit "
+                             "disposition. This target writes none and proposes no automatic migration, conversion, "
+                             "import or deletion."}
 
     def list(self, ctx, args, options, uow):
         decisions = {x["candidate_id"]: x for x in rows(uow, "learning_decisions", ctx.business_id)}
@@ -97,6 +146,8 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
     def prepare_keep_both(self, ctx, args, options, uow):
         row = uow.repository('learning_candidates', business_id=ctx.business_id).get(args['learning_id'], required=True)
         require_revision(row, options.expected_revision)
+        current = self.item(row, uow.repository('learning_decisions', business_id=ctx.business_id).get(row['id']))
+        legacy.require_context(current)
         value = plain(row['candidate_json'])
         builder = PlanBuilder(ctx, 'learnings_keep_both', args, 'Keep related learning candidates separately')
         changed = False
@@ -105,7 +156,9 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
                 continue
             old = relation['earlier']
             existing = uow.repository('learning_candidates', business_id=ctx.business_id).get(old['id'])
+            existing_decision = uow.repository('learning_decisions', business_id=ctx.business_id).get(old['id']) if existing else None
             if existing:
+                legacy.require_context(self.item(existing, existing_decision))
                 restored = plain(existing['candidate_json'])
                 if relation.get('supersession'):
                     decision = uow.repository('learning_decisions', business_id=ctx.business_id).get(old['id'])
@@ -120,6 +173,7 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
                 restored.pop('reconciled_into', None)
             else:
                 restored = {k:v for k,v in old.items() if k not in {'reviewed','revision','state'}}
+                legacy.require_context(restored)
                 stored = uow.repository('learning_runs', business_id=ctx.business_id).get(old['run'], required=True)
                 core = stored['result_json']['cores'][old['evidence']['session']]
                 validate_item(restored, core.get('markdown'), source_core=core)
@@ -162,6 +216,8 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
         previous = uow.repository("learning_decisions", business_id=ctx.business_id).get(row["id"])
         changes = plain(previous["changes_json"]) if previous else {}
         current = self.item(row, previous)
+        # The effective state, not only the original extraction bucket, decides whether this route is retired.
+        legacy.require_context(current)
         if delegated:
             require_revision(row, options.expected_revision)
             if current["state"] != "open" or current["filing"]:
@@ -192,6 +248,7 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
                 validate_edit(current, args["changes"])
             except LearnError as exc:
                 raise DomainError("validation_error", str(exc)) from exc
+            legacy.require_context({**current, **plain(args["changes"])})
             changes.update(args["changes"])
             candidate["edits"] = list(candidate.get("edits", [])) + [{"set": args["changes"], "actor": ctx.principal_id}]
         else:
@@ -277,6 +334,24 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
         builder = PlanBuilder(ctx, "learnings_record_batch", args, "Record verified learning extraction")
         run = args["run"]
         cores = run.get("cores", {})
+
+        def lookup(identity):
+            if identity is None:
+                return None
+            batch = next((item for item in args["items"] if item.get("id") == identity), None)
+            if batch is not None:
+                return batch
+            row = uow.repository("learning_candidates", business_id=ctx.business_id).get(identity)
+            if not row:
+                return None
+            value = plain(row["candidate_json"])
+            decision = uow.repository("learning_decisions", business_id=ctx.business_id).get(identity)
+            if decision:
+                value.update(plain(decision["changes_json"]))
+            return value
+
+        # One atomic refusal: a mixed context/procedural batch or one relation to a retired delta writes nothing.
+        legacy.guard_batch(args["items"], args.get("evidence", []), lookup)
         for item in args["items"]:
             core = cores.get((item.get("evidence") or {}).get("session"))
             if not isinstance(core, dict):
@@ -400,6 +475,10 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
             **SCOPE, effect_kind="read", supports_signoff=False, read=self.list))
         registry.register(OperationDescriptor("learnings_get", schema({"learning_id": IDENTITY}, ["learning_id"]),
             **SCOPE, effect_kind="read", supports_signoff=False, read=self.get))
+        registry.register(OperationDescriptor("learnings_legacy_pending", schema({**PAGE}),
+            **SCOPE, effect_kind="read", supports_signoff=False, read=self.legacy_pending,
+            description="Read-only inventory of retained procedural (bucket delta) learning records for a later owner "
+                        "migration decision. This target writes none and proposes no conversion, import or deletion."))
         registry.register(OperationDescriptor('learnings_keep_both', schema({'learning_id':IDENTITY}, ['learning_id']),
             **SCOPE, owner_only=True, supports_signoff=False, exposure={'dashboard'},
             prepare=self.prepare_keep_both, apply=self.apply))

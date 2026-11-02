@@ -58,7 +58,11 @@ COMPONENT_SOURCES = {"app": ("qorqut-code", "app"), "operations_engine": ("qorqu
 # The authored role sources published into the catalog; only the first and last are registered as agents.
 ROLES = ("ordubashy", "global-worker", "learning-applier")
 AGENTS = (("ordubashy", "ordubashy", "Ordubashy", "Coordinate the owner's work across projects and register workers when asked."),
-          ("learning-applier", "learning-applier", "Learning Applier", "Review learning proposals with the owner and apply the accepted ones."))
+          ("learning-applier", "learning-applier", "Learning Applier", "Extract evidence-backed agentic proposals, review them with the owner and apply the accepted ones."))
+# The shipped profile grants: the Overseer additionally reads its dedicated experience sources, which the ordinary
+# global read does not imply. No other role is broadened.
+AGENT_CAPABILITIES = {"ordubashy": ["read_global_context", "manage_agentic_layer"],
+                      "learning-applier": ["read_global_context", "read_agent_experience", "manage_agentic_layer"]}
 
 
 class InitializationError(Exception):
@@ -254,11 +258,20 @@ def seed_instance(paths: InstancePaths, workspace: Path, selection, owner_name: 
                 data = _ok(runtime.application.invoke(context, "agents_create", {
                     "role": pins[role], "plugins": [], "name": name, "display_name": display_name, "assignment_brief": brief,
                     "scope": {"kind": "ecosystem", "allowed_business_ids": [],
-                              "global_capabilities": ["read_global_context", "manage_agentic_layer"]}},
+                              "global_capabilities": AGENT_CAPABILITIES[role]}},
                     InvocationOptions(idempotency_key=f"initialize-{role}")), f"Registering {display_name}")
                 created[role] = data["agent_id"]
             _ok(runtime.application.invoke(context, "management_coordinator_set", {"coordinator_id": created["ordubashy"]},
                                            InvocationOptions(idempotency_key="initialize-coordinator")), "Selecting the coordinator")
+            # The explicit installation prerequisite for background programs, including the scheduled Overseer due
+            # program. Register their definitions in this installation runtime, then create missing system workers
+            # only; no business membership is created and no disabled identity or membership is reactivated.
+            from bazarlyk.background.integration import register_programs
+            from bazarlyk.overseer.due import register_program as register_overseer_due
+            register_programs(runtime.programs, tables=runtime.domains.tables)
+            register_overseer_due(runtime, runtime.programs)
+            with database.transaction() as uow:
+                runtime.authority.register_workers(uow, [])
         return {"installation_id": installation, "owner_principal_id": owner, "agents": created,
                 "coordinator_id": created["ordubashy"], "role_pins": pins}
     finally:
@@ -307,6 +320,10 @@ def initialize(prepared_root, instance_root, *, owner_name="Owner", extensions_c
         write_private_file(config, "owner-token", secrets.token_urlsafe(32).encode())
         agentic = initialize_installation(paths, agentic_prepared)
         created = seed_instance(paths, workspace, selection, owner_name.strip())
+        # Explicit offline provisioning of the private Overseer archive and application-executor roots. Open, chat
+        # admission, reads and scheduled jobs never create them.
+        from bazarlyk.agentic.provisioning import apply as provision_private_roots
+        provision_private_roots(paths)
         history = provision_history_repository(paths.operations)     # the one explicit creation of the operations-root repository
         _make_private(instance)
         record = {"format": 1, "state": "initialized", "initialized_at": utc_now(), "owner_name": owner_name.strip(), **created,

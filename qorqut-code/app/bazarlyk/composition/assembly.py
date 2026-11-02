@@ -26,6 +26,7 @@ from bazarlyk.extensions import NO_EXTENSIONS
 from bazarlyk.agentic.inbox_schema import storage_contribution as agentic_inbox_storage
 from bazarlyk.instance_paths import InstancePaths
 from bazarlyk.native_chat.schema import storage_contribution as native_chat_storage
+from bazarlyk.overseer.schema import storage_contribution as overseer_storage
 from bazarlyk.storage import history
 from bazarlyk.telegram.media_schema import storage_contribution as telegram_media_storage
 from .agent_work import storage_contribution as agent_work_storage
@@ -73,8 +74,8 @@ def host_contributions(change_feed, extensions=NO_EXTENSIONS):
     ``inbox_deliveries``. A worker's one current assignment (``agent_current_work``) is its own host table beside the
     generated ``agent_activity`` observations. The sealed-snapshot metadata of outbound
     Telegram files (``telegram_file_payloads``) is the host's own table beside the generated ``telegram`` tables it references."""
-    return (*storage_contributions(), signoff_storage(), project_links_storage(), background_storage(), native_chat_storage(), inbox_nudges_storage(),
-            agent_work_storage(), telegram_media_storage(), agentic_inbox_storage(),
+    return (*storage_contributions(), signoff_storage(), project_links_storage(), background_storage(), native_chat_storage(),
+            inbox_nudges_storage(), agent_work_storage(), telegram_media_storage(), agentic_inbox_storage(), overseer_storage(),
             FileEffectContribution("documents", {DOCUMENTS: DocumentLifecycle()}, history.RECEIPTS),
             RecordEffectContribution("records", HostRecordEffects()),
             TransactionContribution("inbox", finalizers=inbox_finalizers(extensions.sources)),

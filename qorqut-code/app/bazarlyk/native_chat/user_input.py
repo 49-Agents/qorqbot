@@ -1,4 +1,4 @@
-"""``request_user_input``: Ordubashy's presentation of a message with existing records below it in Chat.
+"""``request_user_input``: an authorized agent's presentation of existing records in Chat.
 
 The tool is a read that returns at once. It validates the message and each reference through the existing read authorization and
 returns the normalized, identity-only presentation; that successful tool result in the agent's native transcript is the one source Chat
@@ -25,13 +25,13 @@ from . import store
 
 NAME = "request_user_input"
 DESCRIPTION = (
-    "Ordubashy only. Show the owner a message in your Chat with existing records right below it: pending Signoffs (decided there by "
+    "Ordubashy or the current Overseer. Show the owner a message in your Chat with existing records right below it: pending Signoffs (decided there by "
     "the owner), configured browsers (a live view the owner can use to log in or act), Tasks (title and state only) and registered agents "
     "(name only). Returns at once; it asks nothing, creates no request, waits for no answer and grants no approval. references are "
-    "{type: task|signoff|browser|agent|project, id, business_id}: a task, signoff, agent or Project by its UUID, a browser by the id from "
-    "browser_turn action=list, a Project by its actual UUID with business_id equal to that same UUID, and business_id the "
+    "{type: task|signoff|browser|agent|project|delta, id, business_id}: a task, signoff, agent, project or delta by its UUID, a browser by the "
+    "id from browser_turn action=list, a Project by its actual UUID with business_id equal to that same UUID, and business_id the "
     "record's owning business (null or omitted for Global and always for an agent; a business browser and a project always "
-    "need their exact scope). At most 8 references; the message is at most 4000 characters. Read the "
+    "need their exact scope; a delta has no business_id). At most 8 references; the message is at most 4000 characters. Read the "
     "record first and reuse the exact ids; an unknown or unreadable one is refused.")
 SCHEMA = schema({
     "message": {"type": "string", "minLength": 1, "maxLength": refs.MAX_MESSAGE_CHARS},
@@ -57,12 +57,16 @@ class UserInput:
     # ----- the tool ------------------------------------------------------------------------------------------------------
 
     def caller(self, ctx, uow):
-        """The configured active Ordubashy agent itself. The role grant is necessary, never sufficient."""
+        """The configured Ordubashy or currently registered and capable Overseer."""
         ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
         if ctx.principal_kind != "agent" or ctx.delegation_assignment_id is not None:
             raise DomainError("forbidden", "request_user_input is limited to the configured Ordubashy agent")
         if configured_ordubashy(uow, require_codex=False) != ctx.principal_id:
-            raise DomainError("forbidden", "request_user_input is limited to the configured active Ordubashy")
+            from bazarlyk.overseer.authority import current_overseer
+            ctx, _ = current_overseer(self.runtime, ctx, uow, capability='manage_agentic_layer')
+            session = store.live_session(uow.connection, ctx.principal_id)
+            if session is None or not session['provider'] or not session['conversation_id']:
+                raise DomainError('forbidden', 'The current Overseer conversation is unavailable')
         return ctx
 
     def read(self, ctx, args, options, uow):
@@ -92,6 +96,19 @@ class UserInput:
             return self.agent(ctx, identity, uow)
         if kind == refs.TYPE_BROWSER:
             return self.runtime.browser_access.targets.resolve(uow, ctx.principal_id, identity, business, viewer=viewer)
+        if kind == refs.TYPE_DELTA:
+            from qorqut_agentic.errors import AgenticError
+            from bazarlyk.overseer.access import EvidenceAccess, OwnerEvidenceAccess
+            gate = OwnerEvidenceAccess(self.runtime, ctx) if ctx.principal_kind == 'human' else EvidenceAccess(self.runtime, ctx)
+            try:
+                delta = self.runtime.agentic_layer.overseer.deltas.get(identity)
+                for proposal_id in delta['revision']['proposal_ids']:
+                    proposal = self.runtime.agentic_layer.overseer.proposals.get(proposal_id)
+                    for source in proposal['sources']:
+                        gate.authorize_source(source['ref'])
+                return {'label': delta['revision']['summary'], 'business_slug': None}
+            except AgenticError as error:
+                raise DomainError(error.code, str(error), details=error.details) from error
         card = self.runtime.focus.resolve(ctx, {"type": kind, "id": identity, "business_id": business}, uow)
         found = {"label": card["label"], "business_slug": card["business_slug"]}
         if kind == refs.TYPE_TASK:
