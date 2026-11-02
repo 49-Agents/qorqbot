@@ -125,9 +125,12 @@ def _transition(conn, binding, result, action, now):
             return {'status': 'needs_clarification', 'action': None}
         selected = targets_by_choice[choices[0]].get('application_id')
         run = admitted_run(conn, binding['run_id'], 'application')
+        runner = conn.execute('SELECT workflow_ref, control FROM runs WHERE run_id=?', (binding['run_id'],)).fetchone()
         app = conn.execute('''SELECT a.*, d.decision, d.accepted_revision AS delta_accepted_revision
                               FROM delta_applications a JOIN deltas d ON d.id=a.delta_id WHERE a.id=?''', (selected,)).fetchone()
-        if run is None or app is None or app['phase'] != 'queued' or app['run_id'] is not None or app['decision'] != 'accepted' or app['accepted_revision'] != app['delta_accepted_revision']:
+        if (run is None or runner is None or runner['workflow_ref'] != 'overseer/apply' or runner['control'] != 'running'
+            or app is None or app['phase'] != 'queued' or app['run_id'] is not None
+            or app['decision'] != 'accepted' or app['accepted_revision'] != app['delta_accepted_revision']):
             return {'status': 'invalid_transition', 'action': None}
         conn.execute("UPDATE delta_applications SET run_id=?, invocation_ref=?, phase='planning', revision=revision+1, updated_at=? WHERE id=?",
                      (binding['run_id'], canonical(run['invocation']['reference']), now, selected))

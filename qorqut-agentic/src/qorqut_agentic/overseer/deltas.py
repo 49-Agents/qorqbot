@@ -106,6 +106,9 @@ class Deltas:
             if row['decision'] == 'rejected':
                 if any(record[k] != previous[k] for k in ('summary', 'change_direction', 'scope', 'target_refs')):
                     _error('invalid_transition', 'rejected meaning cannot change before reopening')
+            if conn.execute("SELECT 1 FROM delta_applications WHERE delta_id=? AND phase='complete' LIMIT 1", (record['delta_id'],)).fetchone():
+                if any(record[k] != previous[k] for k in ('summary', 'change_direction', 'scope', 'target_refs')):
+                    _error('invalid_transition', 'completed delta meaning cannot change; create a new delta')
             _validate_members(conn, record)
             _insert_revision(conn, record)
             conn.execute('UPDATE deltas SET current_revision=?, updated_at=? WHERE id=?',
