@@ -10,10 +10,10 @@ from __future__ import annotations
 import re
 
 from qorqut_operations.background.programs import ProgramPending, ProgramResult
-from qorqut_operations.contracts import DomainError, plain
+from qorqut_operations.contracts import DomainError, canonical_hash, plain
 
 from .client import action_digest
-from .operations import ACTIONS, MUTATIONS, PROGRAM, native_payload
+from .operations import ACTIONS, MUTATIONS, PROGRAM, forward_source, native_payload
 
 MAX_ATTEMPTS = 8
 RETRY_SECONDS = 15
@@ -21,6 +21,7 @@ RETRY_SECONDS = 15
 PENDING_CODES = frozenset({"operation_unavailable", "email_unavailable", "provider_unavailable"})
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["scope", "account_id", "operation", "arguments"],
           "properties": {"scope": {"const": "global"}, "account_id": {"type": "string", "minLength": 1, "maxLength": 200},
+                         "source_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
                          "operation": {"enum": sorted(MUTATIONS)}, "arguments": {"type": "object"}}}
 
 
@@ -77,6 +78,8 @@ class FastmailMutationProgram:
                 intent = control.saved("dispatch_intent") or {}
                 self._validate_receipt(receipt, control.job["id"], action, intent.get("account_id", account_id), expected_digest)
                 return self._receipt_result(control, operation, receipt)
+            if operation == 'fastmail_forward' and args.get('source_digest') != canonical_hash(forward_source(client, payload['forward_message_id'])):
+                raise DomainError('invalid_plan', 'The forwarded message differs from the approved content')
             with control.service.database.transaction() as uow:
                 control.checkpoint("dispatch_intent", {"operation": operation, "action": action, "account_id": account_id,
                                                        "digest": expected_digest}, uow=uow)
@@ -105,6 +108,12 @@ class FastmailMutationProgram:
         app.authorize(ctx, app.registry.get(operation), (), uow, namespace="global")
         app.registry.bind_arguments(operation, payload)
         app.fastmail.access(ctx, uow)
+        from .operations import SENDING
+        if operation in SENDING:
+            from bazarlyk.background.approved_send import approved_send_plan
+            plan = approved_send_plan(control.job, args, operation, uow)
+            if plain(plan.arguments) != plain(payload):
+                raise DomainError('forbidden', 'Email payload differs from the owner-approved draft')
 
     @staticmethod
     def _pending(control, message):

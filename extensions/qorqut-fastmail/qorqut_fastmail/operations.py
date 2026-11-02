@@ -5,9 +5,9 @@ account it means; sending and drafting name a real provider identity (``identity
 is checked against the account's own identity list before a job exists and again by the engine before anything is sent. An
 alias is simply an identity of the account: what an alias is for lives in the owner's Email Management instructions.
 
-Mutations are not staged for exact-change Signoff (``supports_signoff=False``): the owner's instruction package decides when to
-ask the owner first (the ``owner_input`` model), while the agent's actual tool grants, the Global capability and the account
-authority below still decide who may call them. A mutation queues one named background job; the job id is the request id of
+Sending, replying and forwarding require exact owner Signoff. Subject and body can be revised through the shared message
+editor; recipients, sender and attachments stay frozen. Other account mutations retain their existing policy. The caller's
+tool grants, Global capability and account authority still decide who may call them. A mutation queues one named background job; the job id is the request id of
 the engine's idempotent ledger, so the outcome is read with ``fastmail_receipt_get`` (``jobs_get`` needs a routine grant)."""
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import json
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import TEXT, PlanBuilder, apply_records, prepare_job, schema
 from qorqut_operations.application.registry import CatalogEntry
-from qorqut_operations.contracts import DomainError, FieldChange, PreviewResource, StructuredPreview, plain
+from qorqut_operations.contracts import DomainError, FieldChange, PreviewResource, StructuredPreview, canonical_hash, plain
 
 CAPABILITY = "manage_fastmail"
 PROGRAM = "fastmail.account_mutation"
@@ -116,6 +116,7 @@ MUTATIONS = {
     "fastmail_masked_email_set": (schema({"account_id": _ACCOUNT, "masked_email": _MASKED_EMAIL}, ("account_id", "masked_email")),
                                   "masked_email_set", "Create or update a masked email, if the account advertises it."),
 }
+SENDING = frozenset({"fastmail_send", "fastmail_reply", "fastmail_forward"})
 COMPOSING = frozenset({"fastmail_draft_create", "fastmail_draft_update", "fastmail_send", "fastmail_reply", "fastmail_forward"})
 ACTIONS = {name: entry[1] for name, entry in MUTATIONS.items()}      # operation -> engine action
 EXPOSURE = frozenset({"mcp", "dashboard", "worker"})
@@ -124,7 +125,7 @@ EXPOSURE = frozenset({"mcp", "dashboard", "worker"})
 def catalog_entries() -> tuple[CatalogEntry, ...]:
     """Operation metadata, declared before the registry opens (the descriptors themselves are built at install)."""
     return (*(CatalogEntry(name, False, "read", EXPOSURE, False) for name in READS),
-            *(CatalogEntry(name, False, "compound", EXPOSURE, False) for name in MUTATIONS))
+            *(CatalogEntry(name, name in SENDING, "compound", EXPOSURE, False) for name in MUTATIONS))
 
 
 def native_payload(operation: str, payload: dict) -> dict:
@@ -135,6 +136,20 @@ def native_payload(operation: str, payload: dict) -> dict:
         result["attachments"] = [{**{key: value for key, value in item.items() if key != "content_base64"},
                                   "data_base64": item["content_base64"]} for item in result["attachments"]]
     return result
+
+
+def forward_source(client, message_id):
+    """Capture only immutable provider message content; folder/read flags do not affect approval."""
+    response = client.message(message_id)
+    message = response.get('message') if isinstance(response, dict) else None
+    if (not isinstance(message, dict) or not isinstance(message.get('body'), dict)
+            or not isinstance(message.get('from'), dict) or not isinstance(message['from'].get('emailAddress'), dict)
+            or not isinstance(message.get('subject'), str) or message.get('id') != message_id or message.get('bodyTruncated') is not False
+            or not isinstance(message.get('body', {}).get('content'), str)
+            or not isinstance(message.get('attachments'), list)
+            or any(not isinstance(item, dict) or not isinstance(item.get('name'), str) for item in message['attachments'])):
+        raise DomainError('invalid_plan', 'The complete forwarded message is unavailable')
+    return {key: message.get(key) for key in ('id', 'from', 'subject', 'body', 'attachments')}
 
 
 def account_authority(ctx, uow, resolver):
@@ -228,12 +243,16 @@ class FastmailOperations:
                 read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
         for name, (arguments, _, text) in MUTATIONS.items():
             registry.register(OperationDescriptor(
-                name, arguments, effect_kind="compound", supports_signoff=False, scope_kinds={"global"},
-                resolve_namespace=lambda c, a: "global", global_capability=CAPABILITY, default_mode="allow",
+                name, arguments, effect_kind="compound", supports_signoff=name in SENDING, scope_kinds={"global"},
+                resolve_namespace=lambda c, a: "global", global_capability=CAPABILITY, default_mode="signoff" if name in SENDING else "allow",
+                editable_fields=("subject", "body") if name in SENDING else (),
+                revise=self.revise if name in SENDING else None,
                 description=text + " Queues one named job for the engine; read the outcome with fastmail_receipt_get (jobs_get needs a different grant). "
-                            "Whether to ask the owner first follows the Email Management instructions.",
+                            + ("Sending requires owner approval of the exact recipients, subject, body and attachments. "
+                             "Use this operation instead of a generic input request. Save edits only revises the proposal; Approve queues sending."
+                             if name in SENDING else "This mutation does not send email."),
                 prepare=lambda ctx, args, options, uow, op=name: self.builder(op, ctx, args, options, uow).build(),
-                apply=self.apply, validate_targets=lambda c, p, u: self.access(c, u)))
+                apply=self.apply, validate_targets=self.validate_targets))
 
     # -- reads -----------------------------------------------------------------------------------------------------
     def read(self, op, ctx, args, uow):
@@ -307,9 +326,14 @@ class FastmailOperations:
     # -- mutations -------------------------------------------------------------------------------------------------
     def builder(self, op, ctx, args, options, uow):
         self.access(ctx, uow)
+        if op in SENDING and ctx.principal_kind != "agent":
+            raise DomainError("forbidden", "Ask an authorized agent to propose the email, then approve its Signoff")
         if args.get("reply_message_id") and args.get("forward_message_id"):
             raise DomainError("validation_error", "A compose action cannot be both a reply and a forward")
         check_attachments(args.get("attachments"))
+        if op in SENDING and ('\x00' in args['body'] or not args['body'].strip()
+                or not args['subject'].strip() or any(c in args['subject'] for c in '\r\n\x00')):
+            raise DomainError('validation_error', 'Email requires a single-line subject and a nonempty body')
         client = self.client()
         capabilities = self.account(client, args["account_id"])
         advertised = capabilities.get("actions")
@@ -318,18 +342,51 @@ class FastmailOperations:
             raise DomainError("operation_unavailable", "This Fastmail account does not advertise the requested capability")
         if op in COMPOSING:
             check_sender(capabilities.get("identities") or [], args["identity_id"], args["from_address"])
-        builder = PlanBuilder(ctx, op, args, op.replace("_", " ").title(), namespace="global", affected_scope={"kind": "global"})
+        title = {'fastmail_send': 'Send email', 'fastmail_reply': 'Reply by email', 'fastmail_forward': 'Forward email'}.get(op, op.replace('_', ' ').title())
+        builder = PlanBuilder(ctx, op, args, title, namespace="global", affected_scope={"kind": "global"})
         label = PreviewResource("fastmail_account", args["account_id"], op)
         builder.resources.append(label)
-        shown = {key: value for key, value in plain(args).items() if key not in {"body", "attachments", "vacation", "masked_email"}}
+        shown = {key: value for key, value in plain(args).items() if key not in {"attachments", "vacation", "masked_email"} and (op in SENDING or key != "body")}
         if "attachments" in args:
             shown["attachments"] = [{key: item[key] for key in ("filename", "content_type", "sha256")} for item in args["attachments"]]
         builder.previews.append(StructuredPreview(label, tuple(FieldChange(key, None, value) for key, value in shown.items())))
         job = {"scope": "global", "account_id": args["account_id"], "operation": op, "arguments": plain(args)}
+        if op == 'fastmail_forward':
+            source = forward_source(client, args['forward_message_id'])
+            job['source_digest'] = canonical_hash(source)
+            sender = (source.get('from') or {}).get('emailAddress', {}).get('address', '')
+            builder.effects.extend([
+                'Source body:\n' + f"From: {sender}\nSubject: {source.get('subject') or ''}\n\n" + source['body']['content'],
+                'Source attachments: ' + (', '.join(item.get('name', 'attachment') for item in source['attachments']) or 'None')])
+        shown_lengths = (len(builder.resources), len(builder.previews), len(builder.effects))
         prepare_job(builder, uow, PROGRAM, job, programs=self.programs, definition_extra={"fastmail_operation": op})
-        builder.effects.append("The email engine receives one named, idempotent account action after current authorization is "
+        if op in SENDING:
+            # Keep the queued job in the frozen plan, without exposing its machinery as a second email preview.
+            del builder.resources[shown_lengths[0]:], builder.previews[shown_lengths[1]:], builder.effects[shown_lengths[2]:]
+        builder.effects.append("Approving queues this email for sending. Saving edits does not send it." if op in SENDING else
+                               "The email engine receives one named, idempotent account action after current authorization is "
                                "rechecked; an uncertain outcome is recovered from its receipt, never by sending again.")
         return builder
+
+    def validate_targets(self, ctx, plan, uow):
+        self.access(ctx, uow)
+        if plan.operation_name in SENDING:
+            args = plain(plan.arguments)
+            self.runtime.registry.bind_arguments(plan.operation_name, args)
+            capabilities = self.account(self.client(), args['account_id'])
+            check_sender(capabilities.get('identities') or [], args['identity_id'], args['from_address'])
+            jobs = [c for c in plan.changes if c.resource.resource_type == 'jobs']
+            expected = {'scope': 'global', 'account_id': args['account_id'], 'operation': plan.operation_name, 'arguments': args}
+            if plan.operation_name == 'fastmail_forward':
+                expected['source_digest'] = canonical_hash(forward_source(self.client(), args['forward_message_id']))
+            if len(jobs) != 1 or plain(jobs[0].values.get('arguments_json')) != expected:
+                raise DomainError('invalid_plan', 'Email job differs from the reviewed content')
+
+    def revise(self, ctx, original, changes, uow):
+        self.validate_targets(ctx, original, uow)
+        args = {**plain(original.arguments), **changes}
+        self.runtime.registry.bind_arguments(original.operation_name, args)
+        return self.builder(original.operation_name, ctx, args, None, uow).build()
 
     @staticmethod
     def apply(ctx, plan, uow):
