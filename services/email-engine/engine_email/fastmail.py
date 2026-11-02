@@ -33,9 +33,12 @@ HISTORY_BODY_FIELDS = ["partId", "blobId", "size", "name", "type", "charset", "d
     "cid", "language", "location", "headers"]
 ACCOUNT_READ_BODY_BYTES = 128 * 1024
 ACCOUNT_MAX_RESULTS = 100
-# RFC 5322 wire form for composed account mail: CRLF line ends (section 2.1), no raw 8-bit octets in headers or body
-# (section 2.1.1 / RFC 2045 quoted-printable or base64) and the 998-octet line ceiling, so a long References or
-# Message-ID token is never RFC 2047 encoded.
+# Wire form for composed account mail. CRLF line ends are required by RFC 5322 (section 2.1) and are what the earlier
+# serialization lacked; JMAP Email/import refuses a message that is not valid RFC 5322 (RFC 8621 section 4.8,
+# ``invalidEmail``). The remaining choices are conservative interoperability hardening, not requirements: RFC 8621 allows
+# internationalized headers and RFC 5322 only recommends a Message-ID, so 7-bit output (non-ASCII text goes through
+# RFC 2047 / quoted-printable or base64) and the 998-octet line ceiling (a long References or Message-ID token is never
+# RFC 2047 encoded) simply keep the bytes acceptable to the strictest reader.
 ACCOUNT_MIME_POLICY = SMTP.clone(max_line_length=998, cte_type="7bit")
 DIAGNOSTIC_TEXT_LIMIT = 300
 DIAGNOSTIC_PROPERTIES_LIMIT = 10
@@ -491,8 +494,9 @@ class Fastmail:
         return identity
 
     def account_mime(self, action, body, attachments, *, message_id, in_reply_to=None, references=()):
-        """Serialize the approved account message as RFC 5322 bytes (CRLF, 7-bit, Message-ID and Date), then prove the
-        bytes carry exactly the approved sender, recipients, subject, body and attachments before anything is uploaded."""
+        """Serialize the approved account message as RFC 5322 bytes (CRLF line ends, 7-bit, plus a stable Message-ID and a
+        consistent Date for correlation and interoperability), then prove the bytes carry exactly the approved sender,
+        recipients, subject, body and attachments before anything is uploaded."""
         mail = EmailMessage(policy=ACCOUNT_MIME_POLICY)
         sent_at = self.clock()
         mail["From"] = formataddr((action.from_name, action.from_address))
