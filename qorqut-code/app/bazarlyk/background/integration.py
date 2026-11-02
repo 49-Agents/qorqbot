@@ -17,7 +17,6 @@ from .context_filing import FilingPrograms
 from .email import EmailProgram
 from .account_email import AccountEmailProgram
 from .whatsapp_send import WhatsAppSendProgram
-from .metrics import MetricCollectionProgram
 from .learnings import LearningProgram
 from .models import ModelCalls
 from qorqut_operations.background.programs import Program
@@ -37,8 +36,8 @@ def _report_completed(runtime, row):
 
 
 def register_programs(programs, *, models=None, transcript_source=None,
-                      platform_actions=None, file_applier=None, reddit_adapter=None, maintenance=None, email=None, tables=None, metric_collector=None,
-                      backup_downloader=None, stripe_revenue=None, daily_reports=None, learning_engine=None, whatsapp_send=None):
+                      platform_actions=None, file_applier=None, maintenance=None, email=None, tables=None,
+                      backup_downloader=None, daily_reports=None, learning_engine=None, whatsapp_send=None):
     models = models or ModelCalls(None)
     learning = LearningProgram(models, transcript_source, learning_engine)
 
@@ -60,15 +59,10 @@ def register_programs(programs, *, models=None, transcript_source=None,
     add(engine.PROGRAM, engine.ARGUMENTS, engine.EngineProgram(learning, learning_engine).run if learning_engine is not None else None,
         (engine.OPERATION,), engine.RESOURCES, timeout_seconds=7200, scope_kinds=("global",),
         global_capabilities=("read_global_context",), unavailable_reason=None if learning_engine is not None else engine.UNAVAILABLE)
-    from qorqut_operations.application.plans import DATE
-    add("metrics.sync", schema({"source_id": IDENTITY, "date": DATE}, ("source_id",)), MetricCollectionProgram(metric_collector).run,
-        ("metrics_collection_apply",), ("business_configs", "data_tables", "data_rows", "table_versions", "jobs"), timeout_seconds=120)
     from .backups import ARGUMENTS as BACKUP_ARGUMENTS, BackupPullProgram
     pull = BackupPullProgram(backup_downloader).run
     add("backups.pull", BACKUP_ARGUMENTS, pull, timeout_seconds=900, external=True, recover=pull)
     add("repository.status", schema({}), repository_status)
-    from .stripe_revenue import PROGRAM as STRIPE_REVENUE, StripeRevenueProgram
-    add(STRIPE_REVENUE, schema({}), (stripe_revenue or StripeRevenueProgram()).run, scope_kinds=("global",), timeout_seconds=300)
     if daily_reports is not None:
         programs.register(daily_reports.definition())
     if tables is not None:
@@ -116,7 +110,7 @@ def register_programs(programs, *, models=None, transcript_source=None,
     add("learnings.apply_accepted", schema({}), None, unavailable_reason=
         "The preserved learn-apply routine references a program that was never implemented.", scope_kinds=("global",))
     if platform_actions is not None:
-        PlatformPrograms(platform_actions, file_applier, reddit_adapter).register(programs)
+        PlatformPrograms(platform_actions, file_applier).register(programs)
     if maintenance is not None:
         add("maintenance.nightly", schema({}), maintenance.run, timeout_seconds=1800,
             scope_kinds=("global",), external=True, recover=maintenance.run)
@@ -220,17 +214,16 @@ def register_operations(runtime, programs, authority, *, clock=None):
 
 
 def attach_background(runtime, programs, *, model_client_factory=None, transcript_source=None,
-                      reddit_adapter=None, clock=None, maintenance=None, metric_collector=None,
-                      backup_downloader=None, stripe_revenue=None, daily_reports=None, learning_engine=None):
+                      clock=None, maintenance=None, backup_downloader=None, daily_reports=None, learning_engine=None):
     if runtime.background is not None:
         raise ValueError("Background service is already attached")
     if programs is not runtime.programs:
         raise ValueError("Background attachment uses the runtime's one program registry")
     register_programs(programs, models=ModelCalls(model_client_factory),
         transcript_source=transcript_source, platform_actions=runtime.domains.platform_actions,
-        file_applier=runtime.file_applier, reddit_adapter=reddit_adapter,
-        maintenance=maintenance, email=runtime.domains.email, tables=runtime.domains.tables, metric_collector=metric_collector,
-        backup_downloader=backup_downloader, stripe_revenue=stripe_revenue,
+        file_applier=runtime.file_applier,
+        maintenance=maintenance, email=runtime.domains.email, tables=runtime.domains.tables,
+        backup_downloader=backup_downloader,
         daily_reports=daily_reports or DailyReportProgram(paths=lambda: runtime.paths, on_completed=lambda row: _report_completed(runtime, row)),
         learning_engine=learning_engine, whatsapp_send=getattr(runtime.application, "whatsapp_send", None))
     authority = runtime.authority

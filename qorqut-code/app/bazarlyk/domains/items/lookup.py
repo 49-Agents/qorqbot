@@ -111,9 +111,6 @@ class HostItems:
         elif table == "context_entities":
             self.authorize(ctx, "context_items_get", uow)
             view = {"label": row["label"], "url": row["url"], "revision": row["revision"]}
-        elif table == "products":
-            self.authorize(ctx, "products_get", uow)
-            view = {"label": row["name"], "revision": row["revision"]}
         elif table in {"principals", "agent_profiles"}:
             self.authorize(ctx, "assignees_list" if table == "principals" else "agents_get", uow)
             view = {"label": row.get("display_name") or stored_profile(row).get("display_name") or row.get("name"), "revision": row["revision"]}
@@ -155,7 +152,7 @@ class HostItems:
         if table == "agent_profiles": departments = agent_departments(row)
         return {**view, **item, **material, "departments": departments, "revision": revision, "resource_type": table, "resource_id": item["id"], "subtype": subtype,
                 "archived": archived, "raw_source": bool(metadata.get("raw_source") or row.get("kind") in RAW_KINDS),
-                "summary": row["attributes_json"].get("one_liner", "") if table == "products" else metadata.get("filer_summary") or metadata.get("summary", ""), "created_at": row.get("created_at"), "updated_at": row.get("updated_at"), **person}
+                "summary": metadata.get("filer_summary") or metadata.get("summary", ""), "created_at": row.get("created_at"), "updated_at": row.get("updated_at"), **person}
 
     def relationship_item(self, ctx, item, uow):
         table, row = self.resource(ctx, item, uow)

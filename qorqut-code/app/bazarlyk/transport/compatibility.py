@@ -821,8 +821,7 @@ class DashboardCompatibility:
             item = {"kind": "note", "id": relative, "document_id": document["id"], "date": meta.get("date", document.get("created_at", "")[:10]),
                 "ts": document.get("created_at", ""), "platform": meta.get("platform", relative.split("/")[0]), "channel": meta.get("channel", ""),
                 "target": meta.get("target", ""), "title": meta.get("title", ""), "kindTag": meta.get("kind", ""), "url": meta.get("url", ""),
-                "signoff_id": document.get("signoff_id"), "campaign_id": document.get("campaign_id"),
-                "campaign_title": document.get("campaign_title"), "by": meta.get("by", ""),
+                "signoff_id": document.get("signoff_id"), "by": meta.get("by", ""),
                 "actor": meta.get("filed_by", meta.get("by", "")), "log": "", "logId": "", "logSummary": "", "logDetail": "",
                 "labels": [], "preview": " ".join(document["body"].split())[:160], "_body": document["body"]}
             items.append(item)
@@ -837,16 +836,10 @@ class DashboardCompatibility:
                 items.append({"kind": "log", "id": entry["id"], "date": entry.get("occurred_date") or entry["occurred_at"][:10], "ts": entry["occurred_at"],
                     "platform": refs.get("channel", "").split("-")[0], "channel": refs.get("channel", ""), "target": refs.get("target", ""),
                     "title": entry["summary"], "kindTag": refs.get("kind", ""), "url": refs.get("url", ""), "signoff_id": refs.get("signoff_id", ""),
-                    "campaign_id": None, "campaign_title": None, "by": entry["actor_id"], "actor": entry["actor_id"], "log": entry["id"][-7:],
+                    "by": entry["actor_id"], "actor": entry["actor_id"], "log": entry["id"][-7:],
                     "logId": entry["id"], "logSummary": entry["summary"], "logDetail": entry["detail"], "labels": entry["labels"], "preview": "", "_body": ""})
-        campaigns = sorted({item["campaign_id"]: {"value": item["campaign_id"], "label": item["campaign_title"]}
-            for item in items if item["campaign_id"]}.values(), key=lambda item: (item["label"], item["value"]))
-        names = [item["label"] for item in campaigns]
-        for item in campaigns:
-            if names.count(item["label"]) > 1:
-                item["label"] += " · " + item["value"][:8]
         labels = sorted({label for item in items for label in item["labels"]})
-        filters = {key: set(query.get(key, "").split(",")) - {""} for key in ("platform", "channel", "kind", "campaign_id", "label")}
+        filters = {key: set(query.get(key, "").split(",")) - {""} for key in ("platform", "channel", "kind", "label")}
         needle = query.get("q", "").strip().casefold()
         out = []
         for item in items:
@@ -857,7 +850,7 @@ class DashboardCompatibility:
             if needle and needle not in (item["title"] + " " + item["target"] + " " + item["_body"]).casefold():
                 continue
             out.append({key: value for key, value in item.items() if key != "_body"})
-        return {"items": sorted(out, key=lambda item: (item["date"], item["ts"]), reverse=True), "campaigns": campaigns, "labels": labels,
+        return {"items": sorted(out, key=lambda item: (item["date"], item["ts"]), reverse=True), "labels": labels,
             "kinds": ["post", "comment", "reply", "dm", "email", "ad", "video", "image", "launch", "decision"]}
 
     def select_business(self, context, selector):

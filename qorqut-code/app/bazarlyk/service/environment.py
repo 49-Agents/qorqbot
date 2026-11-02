@@ -86,7 +86,7 @@ def register_environment(runtime):
             "Optional names checks specific bindings; origin:null means absent or unavailable to your role. "
             "Project overrides, including empty overrides, win over Global. Follow next_cursor. "
             "Configured does not prove credentials are valid or that a tool can use them. "
-            "Pass variable names to supported operations such as metrics source endpoint_env/token_env; "
+            "Pass variable names to supported operations such as backups.pull endpoint_env/token_env; "
             "the existing runtime resolves values. This tool does not grant script execution or secret access."))
 
 

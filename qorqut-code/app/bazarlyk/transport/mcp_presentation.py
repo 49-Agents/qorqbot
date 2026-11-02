@@ -14,14 +14,13 @@ import yaml
 from qorqut_operations.contracts import DomainError
 
 
-TASK_WRITES = frozenset({"tasks_create", "tasks_update", "tasks_assign", "tasks_complete", "tasks_comment",
-    "campaign_responsible_set"})
+TASK_WRITES = frozenset({"tasks_create", "tasks_update", "tasks_assign", "tasks_complete", "tasks_comment"})
 # Card writes return the touched card's identity/revision; focus_reply keeps its
 # note-thread payload because the new note is the receipt. The legacy
 # focus_show/focus_clear/focus_browser_input trio always answers upgrade_required
 # and is deliberately not projected.
 FOCUS_CARD_WRITES = frozenset({"focus_present", "focus_edit", "focus_move", "focus_set_archived"})
-SIGNOFF_COMPLETION_WRITES = frozenset({"signoffs_reddit_approve", "signoffs_email_approve",
+SIGNOFF_COMPLETION_WRITES = frozenset({"signoffs_email_approve",
     "signoffs_reject", "signoffs_input_cancel", "signoffs_input_answer_delegated"})
 RECEIPT_WRITES = frozenset({"agents_message_send", "signoffs_input_create"}) | FOCUS_CARD_WRITES
 INDEX_READS = frozenset({"signoffs_list", "signoffs_get", "inbox_list", "agents_activity_list",
@@ -62,10 +61,10 @@ SECTIONS_SCHEMA = {"type": "array", "minItems": 1, "maxItems": 20, "uniqueItems"
     "items": {"type": "string", "minLength": 1, "maxLength": 120},
     "description": "context only: return exactly these '## ' sections of the mandatory rules, with a hash manifest of every omitted section. Omit for the full rendered bundle."}
 TASK_FIELDS = ("id", "revision", "title", "status", "due", "follow_up", "snoozed_until", "snoozed", "assignee_ids", "blocked_by",
-    "unresolved_blockers", "blocks", "parent", "kind", "closed", "paused", "archived", "tags", "campaign", "created_by", "updated_at")
+    "unresolved_blockers", "blocks", "parent", "kind", "closed", "paused", "archived", "tags", "created_by", "updated_at")
 SIGNOFF_FIELDS = ("id", "review_business_id", "review_scope", "proposal_revision", "payload_hash", "status_revision",
     "state", "decision_state", "actionable", "execution_state", "category", "operation_name", "operation_version",
-    "title", "proposer_principal_id", "proposer_agent_id", "proposer_display_name", "proposer_department",
+    "title", "proposer_principal_id", "proposer_agent_id", "proposer_display_name",
     "initiated_by_principal_id", "initiated_by_display_name", "attention", "job_id",
     "created_at", "updated_at", "updated_sequence", "supersedes_id", "superseded_by_id", "legacy_review_routing")
 MESSAGE_RECEIPT_FIELDS = ("id", "event_id", "thread_id", "created_at", "recipient_id", "recipient_name", "terminal_delivery")
@@ -75,7 +74,7 @@ FOCUS_ITEM_FIELDS = ("id", "revision", "archived", "unavailable")
 # are read through the full-detail escape hatch or the record's own read tool.
 SIGNOFF_INDEX_FIELDS = ("id", "review_scope", "proposal_revision", "status_revision", "state",
     "decision_state", "actionable", "execution_state", "category", "operation_name", "title",
-    "proposer_agent_id", "proposer_display_name", "proposer_department", "initiated_by_display_name",
+    "proposer_agent_id", "proposer_display_name", "initiated_by_display_name",
     "attention", "job_id", "outcome", "created_at", "updated_at", "supersedes_id", "superseded_by_id")
 INBOX_EVENT_FIELDS = ("id", "source_type", "source_id", "event_type", "summary", "created_at",
     "business_id", "business_slug", "actor_name", "message", "source")
@@ -599,7 +598,7 @@ def present(name, value, detail="compact", *, tool_names=None, sections=None, ar
     elif name == "tables_rows_write" and isinstance(data.get("rows"), list):
         data["rows"] = [select(row, ("id", "table_id", "revision", "created_by", "updated_by")) for row in data["rows"]]
         if isinstance(data.get("table"), dict):
-            data["table"] = select(data["table"], ("id", "revision", "title", "purpose", "archived"))
+            data["table"] = select(data["table"], ("id", "revision", "title", "archived"))
     elif name == "agent_config_get" and isinstance(data.get("effective_config"), dict):
         config = data["effective_config"]
         # effective_config_id always equals configuration_revision; one spelling.

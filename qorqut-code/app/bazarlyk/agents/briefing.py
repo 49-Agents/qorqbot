@@ -21,7 +21,6 @@ UNAVAILABLE = {"forbidden", "policy_denied", "not_found", "operation_unavailable
 
 GUIDANCE = (
     ("Tasks", ("tasks_list", "tasks_get", "tasks_create", "tasks_update", "tasks_assign", "tasks_comment", "tasks_complete")),
-    ("Campaigns", ("campaign_responsible_set", "campaign_attribution_set")),
     ("Shared Context", ("context_home", "context_object", "context_expand", "context_find")),
     ("Materials", ("context_items_list", "context_items_get", "materials_update", "context_upload", "content_list", "content_get", "context_items_archive")),
     ("Tables", ("tables_list", "tables_get", "tables_rows_list", "tables_create", "tables_update", "tables_rows_write")),
@@ -109,7 +108,7 @@ class _Briefing:
         if not row or not self.active(kind, row):
             return
         fields = ("id", "title", "revision", "updated_at", "status", "state", "closed", "archived",
-                  "description", "instructions", "details", "parent", "campaign",
+                  "description", "instructions", "details", "parent",
                   "due", "follow_up", "assignee_ids", "blocked_by", "unresolved_blockers", "tags", "fields", "notes")
         self.add("Current Work", kind.title() + ": " + row["title"], select(row, fields),
                  reason=reason, read=f"{operation}({kind}_id={identity})")

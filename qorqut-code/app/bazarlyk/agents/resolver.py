@@ -23,7 +23,7 @@ from bazarlyk.inbox.defaults import INBOX_INSTRUCTIONS, legacy_inbox_skill
 from bazarlyk.instance_paths import InstancePaths
 from . import role_workflow
 from . import cleanup_workflow
-from .context import MAX_CONTEXT_CHARACTERS, PRODUCT_STARTUP_LIMIT, ContextSource, compose_context
+from .context import MAX_CONTEXT_CHARACTERS, ContextSource, compose_context
 from .global_scope import with_effective_scope
 from .models import AgentProfile, EffectiveAgentConfig, RETIRED_ROLE_IDS
 from .roles import LEARNING_APPLIER_ROLE, RETIRED_PLUGIN_IDS, SUPPORTED_GLOBAL_ROLES
@@ -317,15 +317,6 @@ class AgentConfigResolver:
                     name, role.manifest["default_tool_policy"], profile.data["tool_policy"]["overrides"],
                     self.registry, role_id=role.id).mode == "allow" for name in reads)
 
-            products = None
-            if selected and allowed({"products_list", "products_get"}):
-                # Scope and grants are checked before reading. Do not load
-                # descriptions, assets or platform overrides into bootstrap.
-                found = [dict(item) for item in connection.execute(
-                    "SELECT id, name, coalesce(json_extract(attributes_json, '$.one_liner'), '') AS one_liner, revision "
-                    "FROM products WHERE business_id=? AND archived=0 ORDER BY name COLLATE NOCASE, id LIMIT ?",
-                    (selected["id"], PRODUCT_STARTUP_LIMIT + 1))]
-                products = {"items": found[:PRODUCT_STARTUP_LIMIT], "has_more": len(found) > PRODUCT_STARTUP_LIMIT}
             strategy = []
             if (selected and profile.data["role"]["id"] != LEARNING_APPLIER_ROLE
                     and allowed({"notes_list", "notes_get"})):
@@ -368,14 +359,14 @@ class AgentConfigResolver:
             signatures.append((artifact["kind"], artifact["digest"], str(path),
                 [(item.relative_to(path).as_posix(), _stat(item)) for item in sorted(path.rglob("*"))]))
         fingerprint = canonical_hash({"inbox_instructions": INBOX_INSTRUCTIONS, "role_workflow": role_workflow.fingerprint(), "cleanup_workflow": cleanup_workflow.fingerprint(), "profile": profile.data, "workspace": row["workspace"], "target": target,
-            "businesses": businesses, "owners": owner_names, "products": products,
+            "businesses": businesses, "owners": owner_names,
             "sources": [(key, doc["id"], doc["revision"], doc["content_hash"], doc["availability"]) for key, doc in sorted(selected_docs.items())],
             "strategy_notes": [(doc["id"], doc["revision"], doc["content_hash"], doc["availability"], doc["path"], doc["title"])
                                for doc in strategy],
             "artifacts": [(item["kind"], item["artifact_id"], item["version"], item["digest"]) for item in artifacts],
             "operations": [(item.name, item.version, [(alias, self.registry.required_plugin_for(alias)) for alias in item.aliases],
                             item.plugin_requirement) for item in self.registry.installed()]})
-        return {"profile": profile, "row": row, "business": selected, "businesses": businesses, "products": products,
+        return {"profile": profile, "row": row, "business": selected, "businesses": businesses,
                 "documents": selected_docs, "strategy_notes": strategy, "owner_name": ", ".join(owner_names) or "Owner",
                 "registration": dict(registration) if registration else None, "fingerprint": fingerprint,
                 "cache_key": canonical_hash({"fingerprint": fingerprint, "signatures": signatures})}
@@ -469,7 +460,7 @@ class AgentConfigResolver:
             workspace=snapshot["row"]["workspace"], business=snapshot["business"],
             allowed_businesses=tuple(snapshot["businesses"]), owner_name=snapshot["owner_name"],
             available_operations=frozenset(tool["canonical_operation"] for tool in tools if tool["available"]),
-            context_home=context_home, products=snapshot["products"],
+            context_home=context_home,
             strategy_notes=tuple(strategy))
         visible_scope = plain(profile.to_dict()["scope"])
         if profile.scope.kind == "ecosystem":

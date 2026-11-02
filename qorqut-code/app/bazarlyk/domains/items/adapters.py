@@ -29,10 +29,7 @@ ROLES = {
     "extracted_from": ("Extracted from", "Source for"),
     "related_to": ("Related to", "Related from"),
 }
-ROLES["campaign_responsible"] = ("Campaign responsible agent", "Responsible for campaign")
-ROLES["campaign_content_of"] = ("Campaign output of", "Campaign output")
-WORKFLOW_ROLES = {"assigned_to": "tasks_assign or email assignment tools", "blocked_by": "tasks_update",
-    "campaign_responsible": "campaign_responsible_set", "campaign_content_of": "campaign_attribution_set"}
+WORKFLOW_ROLES = {"assigned_to": "tasks_assign or email assignment tools", "blocked_by": "tasks_update"}
 # The operations a review may compose with its decision, keyed by operation: the edited item must be the reviewed one.
 REVIEW_EDITS = {
     "tasks_update": ReviewEdit("task", "task_id"),
@@ -41,7 +38,6 @@ REVIEW_EDITS = {
     "context_document_update": ReviewEdit(None, "document_id", resource_type="documents"),
     "context_people_update": ReviewEdit("person", "document_id"),
     "notes_update": ReviewEdit("material", "document_id"),
-    "products_update": ReviewEdit("product", "product_id"),
 }
 
 
@@ -95,13 +91,11 @@ class HostArchive:
         self.items.resolve(ctx, args["item"], uow)
         table, row = self.items.resource(ctx, args["item"], uow)
         require_revision(row, options.expected_revision)
-        adapters = {"tasks": ("tasks_update", "task_id"), "data_tables": ("tables_update", "table_id"),
-                    "products": ("products_archive", "product_id")}
+        adapters = {"tasks": ("tasks_update", "task_id"), "data_tables": ("tables_update", "table_id")}
         if table in adapters:
             operation, key = adapters[table]
             # Composed changes keep the domain operation's own policy, including Signoff floors.
-            changes = {"archived": args["archived"]} if table == "products" else {"changes": {"archived": args["archived"]}}
-            plan = self.items.application.registry.get(operation).prepare(ctx, {key: args["item"]["id"], **changes}, options, uow)
+            plan = self.items.application.registry.get(operation).prepare(ctx, {key: args["item"]["id"], "changes": {"archived": args["archived"]}}, options, uow)
             return replace(plan, operation_name="context_items_archive", arguments=args,
                 changes=tuple(replace(change, operation_name=change.operation_name or operation) for change in plan.changes))
         builder = PlanBuilder(ctx, "context_items_archive", args, "Archive context item" if args["archived"] else "Restore context item", clock=self.clock)
@@ -128,14 +122,14 @@ class HostArchive:
 
 
 class HostNavigation:
-    """``context_navigation_get``: authorized table and product counts plus the shared Context's person count.
+    """``context_navigation_get``: authorized table counts plus the shared Context's person count.
 
     The person count comes only from the published graph's ``basic_entity_type=["person"]`` nodes; the graph is one shared
     set, so it does not depend on the business. There is no fallback to the operational people items or the old document
     store: when the graph cannot be read ``counts.person`` is ``null`` (unknown) and ``context`` says why. ``count=0`` is
     reserved for a ready graph that genuinely has no matching node. The result is::
 
-        {"navigation_only": true, "counts": {table, product: int, person: int | null},
+        {"navigation_only": true, "counts": {table: int, person: int | null},
          "context": {"status": "ready" | "not_initialized" | "unavailable", "reason": null | {code, message},
                      "revision": <published revision read> | null}}
 
@@ -146,7 +140,7 @@ class HostNavigation:
 
     def read(self, ctx, args, uow):
         counts = {}
-        for kind in ('table', 'product'):
+        for kind in ('table',):
             count = 0
             for item in self.items.candidates(ctx, uow, kind=kind):
                 try: value = self.items.resolve(ctx, item, uow)

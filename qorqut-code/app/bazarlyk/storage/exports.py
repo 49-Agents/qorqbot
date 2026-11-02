@@ -18,12 +18,12 @@ from bazarlyk.composition.locations import business_hq
 # The engine's operational-record tables (Tasks, threads, tags, Actions, the Context queue) are specified by their owners.
 TABLES = {**CORE_TABLES, **TABLE_SPECS, **{name: spec for part in record_contributions() for name, spec in part.tables.items()}}
 EXPORT_VERSION = 1
-BUSINESS_TABLES = ("relationships", "context_reviews", "context_review_states", "context_entities", "data_tables", "data_rows", "table_versions", "products", "business_configs", "agent_profiles", "tasks", "thread_messages", "item_tags",
+BUSINESS_TABLES = ("relationships", "context_reviews", "context_review_states", "context_entities", "data_tables", "data_rows", "table_versions", "business_configs", "agent_profiles", "tasks", "thread_messages", "item_tags",
     "documents", "action_logs", "action_revisions", "requests",
     "learning_candidates", "learning_decisions", "learning_history", "learning_runs",
     "learning_issues", "learning_issue_candidates", "learning_issue_actions", "learning_issue_links", "learning_engine_packages",
     "routines", "routine_runs", "email_mailboxes", "email_conversations")
-GLOBAL_TABLES = ("dev_tickets", "dev_ticket_events", "tasks", "thread_messages", "item_tags", "relationships", "business_configs", "global_subscriptions", "agent_profiles", "documents", "routines", "routine_runs",
+GLOBAL_TABLES = ("dev_tickets", "dev_ticket_events", "tasks", "thread_messages", "item_tags", "relationships", "business_configs", "agent_profiles", "documents", "routines", "routine_runs",
                  "learning_candidates", "learning_decisions", "learning_history", "learning_runs",
                  "learning_issues", "learning_issue_candidates", "learning_issue_actions", "learning_issue_links",
                  "learning_engine_packages",

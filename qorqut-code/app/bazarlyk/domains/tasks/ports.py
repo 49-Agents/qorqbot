@@ -130,9 +130,9 @@ class HostRouting:
         return sorted(required)
 
 
-def task_ports(application, campaigns) -> TaskPorts:
+def task_ports(application) -> TaskPorts:
     return TaskPorts(assignees=HostAssignees(), focus=HostFocus(application), incidents=HostIncidents(),
-                     references=HostNoteReferences(application), campaigns=campaigns, routing=HostRouting())
+                     references=HostNoteReferences(application), routing=HostRouting())
 
 
 __all__ = ["HostAssignees", "HostFocus", "HostIncidents", "HostNoteReferences", "HostRouting", "NOTE_REFS",

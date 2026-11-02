@@ -9,19 +9,16 @@ and no port here can grant authority.
 ``signoff_ports`` is called once by trusted assembly. The Signoff service is constructed before the Application that
 names it as stager, and the retained domains are constructed from that Application, so the domain-backed ports resolve
 their domain through ``SignoffDomains`` at call time; each is bound exactly once by trusted assembly before traffic.
-Every optional domain the host retains gets a real implementation; ``ABSENT`` is used only where a domain is genuinely
-not installed in the composition."""
+Every optional domain the host retains gets a real implementation."""
 
 from __future__ import annotations
 
 from qorqut_operations.signoffs import ReferenceTarget, SignoffPorts
 from qorqut_operations.storage.assembly import AssemblyError
 
-from bazarlyk.agents.global_peers import marketing_peer
 from bazarlyk.domains import account_email_outcome
 from bazarlyk.domains.email.decisions import email_context
 from bazarlyk.domains.platform_actions.proposals import EXECUTION_STATES, execution_sql, execution_state
-from bazarlyk.domains.campaigns.attribution import campaign
 from bazarlyk.domains.tasks import ACTIVE_SQL
 from qorqut_operations.tasks import CLOSED_STATES
 from qorqut_operations.tasks.scope import task_namespace
@@ -86,15 +83,11 @@ class HostExecution:
 
 
 class HostPeers:
-    """v1 ``management.identity`` and ``agents.global_peers``: the current coordinator and Marketing peer."""
+    """v1 ``management.identity``: the current coordinator, the one principal with standing mail authority."""
 
     @staticmethod
     def configured_ordubashy(uow, *, require_codex):
         return configured_ordubashy(uow, require_codex=require_codex)
-
-    @staticmethod
-    def marketing_peer(uow, principal_id):
-        return marketing_peer(uow, principal_id)
 
 
 class HostTasks:
@@ -144,9 +137,6 @@ class HostPlatform:
     def view(self, row, uow=None):
         return self.domains.platform_actions.view(row, uow)
 
-    def enqueue_binding(self, plan):
-        return self.domains.platform_actions.enqueue_binding(plan)
-
     def is_email_submission(self, plan):
         return self.domains.platform_actions.is_email_submission(plan)
 
@@ -163,21 +153,6 @@ class HostEmailDecisions:
     @staticmethod
     def email_context(row, uow):
         return email_context(row, uow)
-
-
-class HostCampaigns:
-    """Campaign filtering of ``signoffs_list``: the campaign grouping Task must exist and carry the campaign label, and the
-    Signoff must be attributed to it. The engine first authorizes ``tasks_get`` for the caller and wraps this predicate in
-    its own parentheses."""
-
-    authorizing_operation = 'tasks_get'
-
-    @staticmethod
-    def narrow(context, campaign_id, uow):
-        campaign(context, campaign_id, uow)
-        return ("s.category='platform_action' AND EXISTS (SELECT 1 FROM relationships r "
-                "WHERE r.business_id=s.review_business_id AND r.from_type='signoff' AND r.from_id=s.id "
-                "AND r.role='campaign_content_of' AND r.to_type='task' AND r.to_id=?)", [campaign_id])
 
 
 class HostManagement:
@@ -247,5 +222,5 @@ def signoff_ports(domains: SignoffDomains) -> SignoffPorts:
     """The one ``SignoffPorts`` of this host: every retained optional integration is enabled with its real domain."""
     return SignoffPorts(execution=HostExecution(), peers=HostPeers(), tasks=HostTasks(), references=HostReferences(),
                         platform=HostPlatform(domains), email=HostEmailDecisions(domains),
-                        campaigns=HostCampaigns(), management=HostManagement(domains), focus=HostFocus(domains),
+                        management=HostManagement(domains), focus=HostFocus(domains),
                         narrowing=HostWhatsAppVisibility(domains))

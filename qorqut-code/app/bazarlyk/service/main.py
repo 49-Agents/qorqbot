@@ -17,7 +17,6 @@ from bazarlyk.sandbox.terminal import SandboxTerminalProvider
 from .local import LocalFiles
 from .egress import BusinessEgress
 from .instance_arguments import add_instance_arguments, instance_paths_from_arguments
-from .remote import fleet_factory
 from .runtime import build_runtime
 from .web import create_app
 
@@ -64,7 +63,7 @@ def load_terminal_broker(paths):
 
 
 def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="/bin/bash",
-             model_client_factory=None, broker=None, database=None, signing_key=None, reddit_adapter=None,
+             model_client_factory=None, broker=None, database=None, signing_key=None,
              nightly_maintenance=_DEFAULT_MAINTENANCE, capture_transcripts=None, terminal_workspace=None,
              execution_provider=None, sandbox_factory=None, recovery_config=None, github_app_config=None,
              integrations=None, learning_engine=None, context=None):
@@ -147,21 +146,15 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
     from bazarlyk.inbox.broadcasts import BroadcastDispatcher
     runtime.broadcast_dispatcher = BroadcastDispatcher(runtime, runtime.broadcasts, terminals)
     egress = BusinessEgress(local, runtime.sandbox)
-    if reddit_adapter is None:
-        defaults = {key: os.environ[key] for key in ("BIZ_SERVICE_URL", "BIZ_SERVICE_TOKEN") if key in os.environ}
-        reddit_adapter = fleet_factory(local, defaults, egress=egress)
     if model_client_factory is None:
         service_provider = {key: os.environ[key] for key in ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "BIZ_BACKGROUND_MODEL") if key in os.environ}
         model_client_factory = background_model_factory(local, runtime.sandbox, service_provider)
 
     from bazarlyk.background.backups import BackupDownloader
-    from bazarlyk.background.metrics import DailyJSONClient
-    from bazarlyk.background.stripe_revenue import Key as StripeRevenueKey, StripeRevenueProgram
     attach_background(runtime, programs, model_client_factory=model_client_factory, transcript_source=local.iter_transcripts,
-        reddit_adapter=reddit_adapter, maintenance=nightly_maintenance,
-        metric_collector=DailyJSONClient(egress.metrics_environment, proxy_resolver=runtime.sandbox.account_proxy),
-        backup_downloader=BackupDownloader(egress.metrics_environment, proxy_resolver=runtime.sandbox.account_proxy),
-        stripe_revenue=StripeRevenueProgram(StripeRevenueKey(workspace, runtime.root), local), learning_engine=learning_engine)
+        maintenance=nightly_maintenance,
+        backup_downloader=BackupDownloader(egress.provider_environment, proxy_resolver=runtime.sandbox.account_proxy),
+        learning_engine=learning_engine)
     if nightly_maintenance is not None:
         runtime.maintenance_capture = nightly_maintenance.bind_runtime(runtime)
     if recovery_config is not None:

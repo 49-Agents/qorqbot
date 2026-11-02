@@ -11,7 +11,7 @@ from qorqut_operations import (actions, context_filing, context_graph_edits, con
                                tasks)
 from qorqut_operations.storage.assembly import AssemblyError, StorageContribution
 
-from . import campaigns, capture, schema_ddl, tables
+from . import capture, schema_ddl, tables
 from .documents import RESOURCE_TYPE as DOCUMENTS
 
 # Document availability is tracked beside every file receipt (v1), so the documents owner requires its lifecycle.
@@ -52,4 +52,4 @@ def storage_contributions() -> tuple[StorageContribution, ...]:
             owner, specs, {name: fields for name, fields in tables.IMMUTABLE_FIELDS.items() if name in specs},
             schema_ddl.OWNER_SCHEMA[owner], required_lifecycles=REQUIRED_LIFECYCLES.get(owner, frozenset())))
     # The change-feed capture for the engine's record tables comes last: its triggers write into the host's ``inbox_changes``.
-    return (*record_contributions(), *contributions, capture.capture_contribution(), campaigns.campaign_contribution())
+    return (*record_contributions(), *contributions, capture.capture_contribution())

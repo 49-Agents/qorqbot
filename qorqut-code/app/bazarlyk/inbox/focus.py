@@ -13,8 +13,7 @@ from qorqut_operations.items import UNAVAILABLE
 
 UUID = {'type': 'string', 'format': 'uuid'}
 TEXT = {'type': 'string', 'minLength': 1, 'maxLength': 2000}
-# Products are not a Focus item type.
-ITEM = schema({'type': {'enum': [kind for kind in ITEM_TYPES if kind != 'product']}, 'id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
+ITEM = schema({'type': {'enum': list(ITEM_TYPES)}, 'id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
     'business_id': {'anyOf': [UUID, {'type': 'null'}]}, 'reason': TEXT, 'needs_input': {'type': 'boolean'}},
     ('type', 'id', 'business_id', 'reason'))
 

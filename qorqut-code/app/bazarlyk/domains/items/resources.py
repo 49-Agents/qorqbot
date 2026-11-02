@@ -1,7 +1,7 @@
 """The host's related-resource resolver: authorized reads of the retained domains' resources by table.
 
 This is the shared resource lookup that deployed v1 kept inside ``StoryOperations.related``. It is constructed from the
-actual ``Application`` and document service and nothing else, so item lookups, Tasks, campaigns, documents and Focus all
+actual ``Application`` and document service and nothing else, so item lookups, Tasks, documents and Focus all
 read through it without any of them constructing another domain's service. Every read keeps the domain's own checks: document
 availability (``allow_busy`` then reads the last committed metadata only), the email and Signoff domains' read
 handlers, the canonical read-only global Action reference, the active supported global's reach (never an agent
@@ -24,7 +24,7 @@ DOCUMENT_TYPES = {"notes": {"business_note", "agent_note", "journal", "business_
 # The read operation that authorizes each resource table (documents are chosen by their stored kind below).
 READ_OPERATIONS = {"tasks": "tasks_get", "action_logs": "actions_get", "agent_profiles": "agents_get",
                    "documents": "context_get", "signoffs": "signoffs_get", "email_conversations": "email_conversation_get",
-                   "email_messages": "email_attachments_list", "data_tables": "tables_get", "products": "products_get"}
+                   "email_messages": "email_attachments_list", "data_tables": "tables_get"}
 DOCUMENT_READS = {"business_note": "notes_get", "agent_note": "notes_get", "journal": "notes_get",
                   "business_owned_note": "notes_get", "plan": "plans_get", "content": "content_get",
                   "asset": "assets_get", "data_upload": "data_uploads_get"}

@@ -13,14 +13,10 @@ from bazarlyk.context_questions import ContextQuestionOperations, QuestionStore
 from .email import EmailOperations
 from .account_email import AccountEmailOperations
 from .whatsapp_send import WhatsAppSendOperations
-from .ledger import LedgerOperations
-from .metrics import MetricOperations
 from .platform_actions.operations import PlatformActions
 from .tasks import task_ports
 from .tables import TableOperations
 from .tables.uploads import DataUploadOperations
-from .campaigns import CampaignResponsibility, CampaignRules
-from .products import ProductOperations
 from qorqut_operations.actions import ActionOperations
 from qorqut_operations.context_filing import FilingOutcomes
 from qorqut_operations.context_graph_edits import ExecutionFacts
@@ -36,7 +32,6 @@ from bazarlyk.composition.catalog import install_contribution
 from bazarlyk.shared_context import SharedContextReader, shared_context_contribution
 from .business_creation import BusinessCreationOperations
 from .personal_context import PersonalContextOperations
-from .subscriptions import SubscriptionOperations
 from .costs import CostOperations
 from bazarlyk.context_usage import ContextUsageOperations
 from .working_memory import WorkingMemory
@@ -51,8 +46,6 @@ from bazarlyk.incidents import IncidentOperations
 @dataclass(frozen=True)
 class BusinessDomains:
     tasks: TaskOperations
-    ledger: LedgerOperations
-    metrics: MetricOperations
     activity: ActionWriteback
     documents: DocumentOperations
     assets: AssetOperations
@@ -66,7 +59,6 @@ class BusinessDomains:
     reviews: ContextReviews
     business_creation: BusinessCreationOperations
     personal_context: PersonalContextOperations
-    subscriptions: SubscriptionOperations
     working_memory: WorkingMemory
     archive: BusinessArchive
     context_sources: ContextSourceOperations = None
@@ -86,15 +78,13 @@ class BusinessDomains:
 def register_business_domains(registry, application, paths, *, catalog, agent_resolver, clock=utc_clock, job_programs=None, filing=None,
                               graph_edits=None, queue=None):
     tables = TableOperations(application.database, paths, clock=clock, job_programs=job_programs)
-    ledger = LedgerOperations(tables=tables, clock=clock, job_programs=job_programs)
-    metrics = MetricOperations(tables=tables, clock=clock, job_programs=job_programs)
-    activity = ActionWriteback(ledger=ledger, clock=clock)
+    activity = ActionWriteback(clock=clock)
     documents = DocumentOperations(application.database, paths, clock=clock, job_programs=job_programs, filing=filing)
     assets = AssetOperations(documents.store, clock=clock)
     data_uploads = DataUploadOperations(documents.store, clock=clock)
     email = EmailOperations(application=application, resolver=agent_resolver, documents=documents, clock=clock, programs=job_programs)
     account_email = AccountEmailOperations(email, job_programs)
-    # The Task service is built once the neutral items exist; reply routing is handed it below.
+    # The Task service is built once the neutral items exist.
     platform_actions = PlatformActions(application=application, catalog=catalog, agent_resolver=agent_resolver, documents=documents, tasks=None, activity=activity, clock=clock, job_programs=job_programs, email=email)
     DevTickets().register(registry)
     viewbox = AgentViewbox(application, clock=clock).register(registry)
@@ -102,9 +92,7 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     MilestoneOperations(clock=clock).register(registry)
     BusinessProgress(clock=clock).register(registry)
     BusinessBriefing(application, clock=clock).register(registry)
-    tables.register(registry, application)
-    ledger.register(registry)
-    metrics.register(registry)
+    tables.register(registry)
     documents.register(registry, application)
     context_sources = ContextSourceOperations(documents, job_programs=job_programs, graph_edits=graph_edits).register(registry)
     context_questions = ContextQuestionOperations(application, lambda: QuestionStore(paths.context_questions)).register(registry)
@@ -130,9 +118,8 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     neutral = build_neutral_items(application, documents=documents, email=email, clock=clock)
     # The engine's operational records: the shared tag catalog, Tasks (over the neutral items and the host's ports),
     # Actions and the Context input queue. Their handlers install here.
-    campaign_rules = CampaignRules()
     tags = TagOperations(clock=clock)
-    tasks = TaskOperations(application, neutral.items, task_ports(application, campaign_rules), clock=clock)
+    tasks = TaskOperations(application, neutral.items, task_ports(application), clock=clock)
     actions = ActionOperations(application, tasks.note_references(), clock=clock)
     # The caller that wires ``filing`` or ``graph_edits`` hands in the one queue those ports and the driver share; otherwise a
     # queue with its own outcome and execution facts is built here.
@@ -141,10 +128,7 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     for contribution in (tags.contribution(), tasks.contribution(), actions.contribution(), queue.contribution()):
         install_contribution(registry, contribution)
     platform_actions.tasks = tasks
-    campaign_rules.bind(tasks, neutral.related)
-    CampaignResponsibility(tasks, neutral.related, clock=clock).register(registry)
     OwnerActions(paths, clock=clock).register(registry)
-    ProductOperations(application, clock=clock).register(registry)
     install_contribution(registry, neutral.relationships.contribution())
     archive = BusinessArchive(application)
     archive.resolver = agent_resolver
@@ -153,12 +137,10 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     business_creation.register(registry)
     personal_context = PersonalContextOperations(documents)
     personal_context.register(registry)
-    subscriptions = SubscriptionOperations()
-    subscriptions.register(registry)
     CostOperations(clock=clock).register(registry)
     memory = WorkingMemory(application, documents, email, agent_resolver, clock=clock)
     memory.register(registry)
     if agent_resolver is not None:
         agent_resolver.working_memory = memory
     documents.working_memory = memory
-    return BusinessDomains(tasks, ledger, metrics, activity, documents, assets, platform_actions, email, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, business_creation, personal_context, subscriptions, memory, archive, context_sources=context_sources, context_questions=context_questions, shared_context=shared_context, viewbox=viewbox, actions=actions, tags=tags, queue=queue)
+    return BusinessDomains(tasks, activity, documents, assets, platform_actions, email, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, business_creation, personal_context, memory, archive, context_sources=context_sources, context_questions=context_questions, shared_context=shared_context, viewbox=viewbox, actions=actions, tags=tags, queue=queue)

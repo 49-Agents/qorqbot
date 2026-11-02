@@ -298,7 +298,7 @@ class WorkingMemory:
                 query += ' AND t.status NOT IN (' + ','.join('?' for _ in closed) + ')'
                 params += closed
             if not manager:
-                query += " AND EXISTS (SELECT 1 FROM relationships r WHERE r.business_id IS t.business_id AND r.from_type='task' AND r.from_id=t.id AND r.role IN ('assigned_to','campaign_responsible') AND r.to_id=?)"
+                query += " AND EXISTS (SELECT 1 FROM relationships r WHERE r.business_id IS t.business_id AND r.from_type='task' AND r.from_id=t.id AND r.role='assigned_to' AND r.to_id=?)"
                 params.append(identity)
             candidates = uow.connection.execute(query + ' ORDER BY t.updated_at DESC,t.id LIMIT 11', params).fetchall()
             for task in candidates[:10]:
