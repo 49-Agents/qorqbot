@@ -923,7 +923,7 @@ function agfocusContext(node,item) {
   const businessId=source.business_id ?? item.source?.business_id ?? item.context?.business_id;
   const scope=node.querySelector('.agfocus-scope');
   scope.hidden=!!item._workParent && item.source?.type==='task' && item._workBusinessId!=null && businessId===item._workBusinessId;
-  const businessName=source.business_name || (state.bizs || []).find(b=>b.slug===biz)?.name || 'Business';
+  const businessName=source.business_name || (state.bizs || []).find(b=>b.slug===biz)?.name || 'Project';
   agfocusHtml(node.querySelector('.agfocus-scope'),businessId || biz
     ? `<span class="agfocus-scope-chip" aria-label="${esc(businessName)}">${esc(businessName)}</span>`
     : '<span class="agfocus-scope-chip agfocus-global-chip" role="img" aria-label="Global"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg></span>');
