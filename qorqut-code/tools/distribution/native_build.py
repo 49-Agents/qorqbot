@@ -15,6 +15,7 @@ import importlib.util
 import io
 import re
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -99,7 +100,17 @@ def main(argv=None):
     runtime = output / 'qorqbot/runtime'
     runtime.mkdir(parents=True)
     shutil.copytree(source, runtime / 'src', symlinks=True)
-    shutil.copytree(native, runtime / 'native', symlinks=True,
+    copied_inodes = {}
+    def copy_native(source, destination):
+        stat = os.stat(source)
+        key = (stat.st_dev, stat.st_ino)
+        if key in copied_inodes:
+            os.link(copied_inodes[key], destination)
+        else:
+            shutil.copy2(source, destination)
+            copied_inodes[key] = destination
+        return destination
+    shutil.copytree(native, runtime / 'native', symlinks=True, copy_function=copy_native,
                     ignore=lambda directory, names: [n for n in names if n in DEV or n in {'build_runtime.py', '.package-lock.json'}])
     shutil.copytree(prepared / 'wheels', runtime / 'wheels')
     shutil.copy2(prepared / 'PREPARATION-RECEIPT.json', runtime / 'PREPARATION-RECEIPT.json')
@@ -122,12 +133,17 @@ def main(argv=None):
     (runtime / 'wheelhouse').mkdir()
     wheel_records = [strip_wheel(w, runtime / 'wheelhouse' / w.name) for w in sorted(downloads.glob('*.whl'))]
     shutil.copy2(Path(__file__).with_name('native_launch.py'), runtime / 'launch.py')
+    shutil.copy2(Path(__file__).with_name('native_update.py'), runtime / 'update.py')
     launcher = output / 'qorqbot/qorqbot'
     launcher.write_text('''#!/bin/sh
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 export LD_LIBRARY_PATH="$root/runtime/native/lib"
 unset PYTHONHOME PYTHONPATH
+if [ "${1-}" = update ]; then
+    shift
+    exec "$root/runtime/native/bin/python3.12" -I "$root/runtime/update.py" "$@"
+fi
 exec "$root/runtime/native/bin/python3.12" -I "$root/runtime/launch.py" "$@"
 ''')
     launcher.chmod(0o755)
@@ -152,7 +168,12 @@ extension distribution and release qualification must be completed separately.
             if not path.resolve().is_relative_to(runtime):
                 raise ValueError('Runtime symlink escapes package: ' + str(path))
             files[str(path.relative_to(runtime))] = sha(path)
-    (runtime / 'PAYLOAD.json').write_text(json.dumps({'format': 1, 'version': args.version, 'files': files}, indent=2) + '\n')
+    schema_code = ('import json;from bazarlyk.composition.assembly import host_assembly;'
+                   'from bazarlyk.service.changes import ChangeFeed;'
+                   't=host_assembly(ChangeFeed()).target;print(json.dumps([t.name,t.version,t.digest]))')
+    schema_target = json.loads(subprocess.check_output([python, '-I', '-c', schema_code], text=True))
+    (runtime / 'PAYLOAD.json').write_text(json.dumps({'format': 1, 'version': args.version,
+         'schema_target': schema_target, 'files': files}, indent=2) + '\n')
     archive = output / ('qorqbot-' + args.version + '-ubuntu24-x86_64.tar.gz')
     with tarfile.open(archive, 'w:gz') as tar:
         tar.add(output / 'qorqbot', arcname='qorqbot')

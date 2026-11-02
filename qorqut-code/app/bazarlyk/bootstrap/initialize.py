@@ -249,14 +249,20 @@ def seed_instance(paths: InstancePaths, workspace: Path, selection, owner_name: 
         with runtime.owned_preparation():
             register_context_sources(database, paths)
             pins = {}
-            for role in ROLES:
+            email_pin = None
+            for kind, source in [('role', role) for role in ROLES] + [('plugin', 'email-management')]:
                 with database.read() as uow:
-                    plan = runtime.publisher.prepare(context, {"source_id": role}, InvocationOptions(idempotency_key=f"seed-{role}"), uow, "role")
-                pins[role] = apply_initial_plan(database, context, plan, runtime.publisher, runtime.publisher.resolve_file_target,
-                                                runtime.locks)["artifact"]
+                    plan = runtime.publisher.prepare(context, {"source_id": source}, InvocationOptions(idempotency_key=f"seed-{source}"), uow, kind)
+                pin = apply_initial_plan(database, context, plan, runtime.publisher, runtime.publisher.resolve_file_target,
+                                         runtime.locks)["artifact"]
+                if kind == 'role':
+                    pins[source] = pin
+                else:
+                    email_pin = pin
             for role, name, display_name, brief in AGENTS:
                 data = _ok(runtime.application.invoke(context, "agents_create", {
-                    "role": pins[role], "plugins": [], "name": name, "display_name": display_name, "assignment_brief": brief,
+                    "role": pins[role], "plugins": [{**email_pin, "config": {}}] if role == 'ordubashy' else [],
+                    "name": name, "display_name": display_name, "assignment_brief": brief,
                     "scope": {"kind": "ecosystem", "allowed_business_ids": [],
                               "global_capabilities": AGENT_CAPABILITIES[role]}},
                     InvocationOptions(idempotency_key=f"initialize-{role}")), f"Registering {display_name}")
