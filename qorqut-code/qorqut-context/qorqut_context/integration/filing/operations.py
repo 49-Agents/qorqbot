@@ -1,7 +1,7 @@
 """Context filing workflows over registered source documents: uploads, note and journal snapshots, retry, retract, completion.
 
 The Operations source service owns the source documents; the shared Context filing queue (``filing.ContextFiling``) owns what
-is frozen and queued from them. This module is the one real host adapter between the two until Context filing moves to Context:
+is frozen and queued from them. This module is the one real adapter between the two:
 it prepares the filing operations in the source service's plan builder, passing that one service and its store explicitly, so a
 filed source is written exactly once, in one prepared plan, one unit of work and one receipt, under the original operation names
 and versions. It also owns the automatic filing trigger of accepted learnings (``prepare_learning_intake``); ordinary document

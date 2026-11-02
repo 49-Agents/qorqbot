@@ -1,7 +1,7 @@
 """Controlled deterministic graph edits as metadata for the one Context queue (not another queue or input mode).
 
 ``schema`` is the immutable companion binding and its database invariants; ``binding`` admits one edit (the binding, then
-its GENERAL input) as part of a host adapter's prepared operation and reads a verified binding back; ``ExecutionFacts`` is the
+its GENERAL input) as part of an adapter's prepared operation and reads a verified binding back; ``ExecutionFacts`` is the
 queue's ``executions`` contribution, so every read of an edit's input exposes the same execution facts."""
 
 from qorqut_context.integration.graph_edits import binding, schema

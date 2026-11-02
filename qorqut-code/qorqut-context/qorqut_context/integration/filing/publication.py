@@ -1,10 +1,9 @@
 """The Context publication of source documents: the filing fields composed over an upload read.
 
-Source documents (``qorqut_operations.documents``) know nothing of Context filing. This host adapter holds the one current-source
+Source documents (``qorqut_operations.documents``) know nothing of Context filing. This module holds the one current-source
 filing projection and applies it to a readable upload in the two places a read is composed: an unscoped read of the source
 service (``present_view``) and an item of the scoped source library (``present_item``). Every reader of an upload's filing takes
-it from here, so there is no second interpretation of the queue, publication or completion. Context filing moves to Context in a
-later phase; this module is the adapter that stays behind to name it."""
+it from here, so there is no second interpretation of the queue, publication or completion."""
 
 from __future__ import annotations
 

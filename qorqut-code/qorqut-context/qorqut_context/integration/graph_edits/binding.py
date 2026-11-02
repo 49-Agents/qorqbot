@@ -1,6 +1,6 @@
 """Admission and reads of the graph-edit binding.
 
-A trusted host adapter (the host's ``context_edit`` operation) calls ``admit`` from ``prepare``. Nothing is written
+A trusted adapter (the ``context_edit`` operation, ``qorqut_context.integration.filing.source_operations``) calls ``admit`` from ``prepare``. Nothing is written
 here: the companion binding and the GENERAL queue input are two prepared records of the adapter's plan, applied in that
 order in one transaction. The engine imports no Context library and does not interpret the edit: the host supplies the
 validated primitive plan, its canonical source text and digest, the reserved event ID, the original caller's attribution
