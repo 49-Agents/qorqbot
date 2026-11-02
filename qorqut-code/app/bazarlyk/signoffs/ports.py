@@ -67,6 +67,11 @@ class HostExecution:
     execution_states = EXECUTION_STATES
 
     @staticmethod
+    def outcome(row, uow, *, detail=False):
+        from .email_outcome import email_outcome
+        return email_outcome(row, uow, detail=detail)
+
+    @staticmethod
     def execution_state(row, uow=None):
         return execution_state(row, uow)
 

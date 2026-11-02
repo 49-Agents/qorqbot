@@ -55,7 +55,7 @@ CRM_PREREQUISITES = {
 TABLE_PREREQUISITE_OPERATIONS = frozenset(name for name, base in CRM_PREREQUISITES.items() if base in GLOBAL_TABLE_OPERATIONS)
 STRENGTH = {"allow": 0, "signoff": 1, "deny": 2}
 # Operations whose Global rule differs from the business one, so effective-configuration discovery evaluates both scopes.
-GLOBAL_DISCOVERY_OPERATIONS = GLOBAL_TABLE_OPERATIONS | TABLE_PREREQUISITE_OPERATIONS | {"whatsapp_send"}
+GLOBAL_DISCOVERY_OPERATIONS = GLOBAL_TABLE_OPERATIONS | TABLE_PREREQUISITE_OPERATIONS | {"whatsapp_send", "fastmail_send", "fastmail_reply", "fastmail_forward"}
 DEV_AND_INCIDENT_READS = frozenset({"dev_tickets_create", "dev_tickets_agent_list", "dev_tickets_get",
                                     "dev_tickets_follow_up", "dev_tickets_resolve", "system_incidents_agent_list",
                                     "system_incidents_agent_get"})
@@ -114,6 +114,10 @@ def _owner_approvals(name, defaults, overrides, registry, *, role_id, scope, res
             return PolicyDecision("deny", "terminal_control_role")
         # Owner standing authority: Ordubashy's lifecycle actions on workers need no Signoff.
         return PolicyDecision("allow", "terminal_control_owner_authority")
+    if name in {"fastmail_send", "fastmail_reply", "fastmail_forward"}:
+        # Native outbound email now uses exact-content owner review; an allow override cannot skip it.
+        denied = overrides.get(name, defaults.get(name)) == "deny"
+        return PolicyDecision("deny" if denied or scope != "global" else "signoff", "email_owner_approval")
     if name == "whatsapp_send":
         # A proposal for the owner's Signoff, never a send. Like owner_action_propose it needs a grant (override or role
         # default), a deny anywhere wins, only the global Ordubashy qualifies, and an 'allow' cannot remove the approval.
