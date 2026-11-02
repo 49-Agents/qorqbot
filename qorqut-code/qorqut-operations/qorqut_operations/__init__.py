@@ -5,4 +5,4 @@ two service endpoints (``SignoffService`` and ``BackgroundService``) whose worke
 explicitly invokes them. The trusted host composes the schema, catalog, policy rules and ports and owns every
 transport."""
 
-__version__ = "1.2.0.dev0"
+__version__ = "1.3.0.dev0"
