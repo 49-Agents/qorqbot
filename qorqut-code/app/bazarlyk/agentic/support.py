@@ -3,15 +3,37 @@
 from __future__ import annotations
 
 import base64
+from contextlib import contextmanager
+import errno
 import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+from posixpath import join as posix_join
 import re
+import selectors
+import shutil
+import signal
 import stat
 import subprocess
+import time
 
 import yaml
+
+
+MAX_FILE_BYTES = 16 * 1024 * 1024
+MAX_GIT_OUTPUT_BYTES = 4 * 1024 * 1024
+GIT_TIMEOUT_SECONDS = 15
+ROOT_RESOURCE_EXCLUDES = frozenset({
+    ".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", ".cache",
+    ".claude", ".agents", ".codex", ".credentials", "runtime", "sessions", "credentials",
+    "secrets", "credentials.json", "secrets.json",
+})
+
+
+def private_resource(name):
+    return (name in ROOT_RESOURCE_EXCLUDES or name.startswith(".env")
+            or name.endswith((".pem", ".key", ".token", ".sqlite", ".sqlite3", ".db", ".log")))
 
 
 class ImportFailure(ValueError):
@@ -105,6 +127,9 @@ class Source:
         self.used, self.classified = {}, set()
         self.commit = self.repo_prefix = None
         self.clean = None
+        self._git_root = next((parent for parent in (self.root, *self.root.parents)
+                               if (parent / ".git").exists()), None)
+        self._git_filters = None
         try:
             self.commit = self.git("rev-parse", "HEAD").strip()
             self.repo_prefix = self.git("rev-parse", "--show-prefix").strip()
@@ -117,54 +142,175 @@ class Source:
                        severity="info" if self.id.startswith("custom-") else "error")
 
     def git(self, *args):
-        result = subprocess.run(["git", "-C", str(self.root), *args], check=True,
-                                capture_output=True, text=True, timeout=15,
-                                env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
-        return result.stdout
+        if self._git_root is None:
+            raise FileNotFoundError("No source Git repository")
+        if self._git_filters is None:
+            # Reading config does not execute a filter. Collect every effective driver,
+            # including source-local includes, then override all executable settings.
+            names = self._git_run("config", "--null", "--name-only", "--get-regexp",
+                                  r"^filter\..*\.(clean|smudge|process|required)$", allowed=(0, 1))
+            drivers = sorted({name.rsplit(".", 1)[0] for name in names.split("\0") if name})
+            self._git_filters = [(f"{driver}.{key}", value) for driver in drivers for key, value in (
+                ("clean", ""), ("smudge", ""), ("process", ""), ("required", "false"))]
+        return self._git_run(*args)
+
+    def _git_run(self, *args, allowed=(0,)):
+        executable = shutil.which("git", path=os.defpath)
+        if executable is None:
+            raise FileNotFoundError("Git is unavailable")
+        # No inherited GIT_DIR/WORK_TREE/INDEX/CONFIG/OBJECT_DIRECTORY or PATH.
+        environment = {"PATH": os.defpath, "HOME": os.devnull, "XDG_CONFIG_HOME": os.devnull,
+                       "LC_ALL": "C", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_SYSTEM": os.devnull,
+                       "GIT_CONFIG_GLOBAL": os.devnull, "GIT_ATTR_NOSYSTEM": "1",
+                       "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0", "GIT_NO_REPLACE_OBJECTS": "1"}
+        # Separate key/value environment fields preserve even unusual valid driver names.
+        environment["GIT_CONFIG_COUNT"] = str(len(self._git_filters or []))
+        for index, (key, value) in enumerate(self._git_filters or []):
+            environment[f"GIT_CONFIG_KEY_{index}"] = key
+            environment[f"GIT_CONFIG_VALUE_{index}"] = value
+        command = [executable, "--no-pager", "-c", f"core.hooksPath={os.devnull}",
+                   "-c", "core.fsmonitor=false", "-c", f"core.attributesFile={os.devnull}",
+                   "-c", "diff.external=",
+                   "-C", str(self.root), f"--work-tree={self._git_root}", *args]
+        chunks, total = {"stdout": [], "stderr": []}, 0
+        with subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              env=environment, start_new_session=True) as process:
+            deadline = time.monotonic() + GIT_TIMEOUT_SECONDS
+            try:
+                with selectors.DefaultSelector() as selector:
+                    for name, pipe in (("stdout", process.stdout), ("stderr", process.stderr)):
+                        selector.register(pipe, selectors.EVENT_READ, name)
+                    while selector.get_map():
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise ImportFailure("source_git_timeout", "Source Git inspection timed out")
+                        for key, _ in selector.select(remaining):
+                            chunk = os.read(key.fileobj.fileno(), min(65536, MAX_GIT_OUTPUT_BYTES - total + 1))
+                            if not chunk:
+                                selector.unregister(key.fileobj)
+                                continue
+                            total += len(chunk)
+                            if total > MAX_GIT_OUTPUT_BYTES:
+                                raise ImportFailure("source_git_output_limit", "Source Git output exceeds its limit")
+                            chunks[key.data].append(chunk)
+                try:
+                    process.wait(timeout=max(0.001, deadline - time.monotonic()))
+                except subprocess.TimeoutExpired as exc:
+                    raise ImportFailure("source_git_timeout", "Source Git inspection timed out") from exc
+            except BaseException:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait()
+                raise
+            if process.returncode not in allowed:
+                raise subprocess.CalledProcessError(process.returncode, command)
+        return b"".join(chunks["stdout"]).decode("utf-8", "surrogateescape")
 
     def issue(self, code, message, path=None, severity="error", **extra):
         self.diagnostics.append(dict(code=code, message=message, source_id=self.id,
                                      path=path, severity=severity, **extra))
 
-    def path(self, rel):
-        relative(rel)
-        current = self.root
-        for part in rel.split("/"):
-            current = current / part
-            if current.is_symlink():
-                raise ImportFailure("unsafe_path", "Source symlinks are not allowed", path=rel)
-        return current
-
     def exists(self, rel):
-        return self.path(rel).exists()
+        relative(rel)
+        parts = rel.split("/")
+        try:
+            with self._directory(parts[:-1]) as parent:
+                info = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
+                if stat.S_ISLNK(info.st_mode):
+                    raise ImportFailure("unsafe_path", "Source symlinks are not allowed", path=rel)
+                return True
+        except FileNotFoundError:
+            return False
+
+    @contextmanager
+    def _directory(self, parts=()):
+        """Open the root and descendants component by component, never following links."""
+        descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            for component in (*self.root.parts[1:], *parts):
+                child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                dir_fd=descriptor)
+                os.close(descriptor)
+                descriptor = child
+            yield descriptor
+        except OSError as exc:
+            if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+                raise ImportFailure("unsafe_path", "Source directory is a symlink or not a directory") from exc
+            raise
+        finally:
+            os.close(descriptor)
 
     def read(self, rel):
-        path = self.path(rel)
-        if not path.is_file() or not stat.S_ISREG(path.stat().st_mode):
-            raise ImportFailure("missing_resource", "Required source file is missing", path=rel)
-        if path.stat().st_size > 16 * 1024 * 1024:
-            raise ImportFailure("oversized_resource", "Source file exceeds 16 MiB", path=rel)
-        data = path.read_bytes()
+        parts = relative(rel).split("/")
+        try:
+            with self._directory(parts[:-1]) as parent:
+                descriptor = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK,
+                                     dir_fd=parent)
+                try:
+                    before = os.fstat(descriptor)
+                    if not stat.S_ISREG(before.st_mode):
+                        raise ImportFailure("unsafe_path", "Source asset is not a regular file", path=rel)
+                    if before.st_size > MAX_FILE_BYTES:
+                        raise ImportFailure("oversized_resource", "Source file exceeds the byte limit", path=rel)
+                    chunks, size = [], 0
+                    while chunk := os.read(descriptor, min(65536, MAX_FILE_BYTES - size + 1)):
+                        size += len(chunk)
+                        if size > MAX_FILE_BYTES:
+                            raise ImportFailure("oversized_resource", "Source file exceeds the byte limit", path=rel)
+                        chunks.append(chunk)
+                    after = os.fstat(descriptor)
+                    signature = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+                    if signature(before) != signature(after) or size != after.st_size:
+                        raise ImportFailure("source_changed", "Source file changed while reading", path=rel)
+                    data = b"".join(chunks)
+                finally:
+                    os.close(descriptor)
+        except FileNotFoundError as exc:
+            raise ImportFailure("missing_resource", "Required source file is missing", path=rel) from exc
+        except OSError as exc:
+            if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+                raise ImportFailure("unsafe_path", "Source symlinks are not allowed", path=rel) from exc
+            raise
         self.used[rel] = digest(data)
         self.classified.add(rel)
         return data
 
-    def tree(self, rel):
-        start = self.path(rel)
-        if not start.is_dir():
-            raise ImportFailure("missing_resource", "Required source directory is missing", path=rel)
+    def tree(self, rel, *, root_resources=False):
+        if rel:
+            relative(rel)
+        elif not root_resources:
+            raise ImportFailure("unsafe_path", "An empty tree path requires an explicit resource root")
         found = []
-        for base, dirs, files in os.walk(start, followlinks=False):
-            for name in sorted(dirs + files):
-                path = Path(base) / name
-                item = path.relative_to(self.root).as_posix()
-                relative(item)
-                if path.is_symlink():
-                    raise ImportFailure("unsafe_path", "Source symlinks are not allowed", path=item)
-                if path.is_file():
+
+        def walk(descriptor, prefix):
+            for name in sorted(os.listdir(descriptor)):
+                if root_resources and private_resource(name):
+                    continue
+                item = relative(posix_join(prefix, name))
+                info = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+                if stat.S_ISREG(info.st_mode):
                     found.append(item)
-                elif not path.is_dir():
-                    raise ImportFailure("unsafe_path", "Source assets must be ordinary files", path=item)
+                elif stat.S_ISDIR(info.st_mode):
+                    child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                    dir_fd=descriptor)
+                    try:
+                        walk(child, item)
+                    finally:
+                        os.close(child)
+                else:
+                    raise ImportFailure("unsafe_path", "Source assets must be ordinary files or directories", path=item)
+
+        try:
+            with self._directory(rel.split("/") if rel else ()) as descriptor:
+                walk(descriptor, rel)
+        except FileNotFoundError as exc:
+            raise ImportFailure("missing_resource", "Required source directory is missing", path=rel) from exc
+        except OSError as exc:
+            if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+                raise ImportFailure("unsafe_path", "Source directory changed to a symlink", path=rel) from exc
+            raise
         return sorted(found)
 
     def record(self):
