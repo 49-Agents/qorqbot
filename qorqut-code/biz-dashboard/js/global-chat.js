@@ -538,6 +538,9 @@ function mountGlobalChat(pane, agent, options = {}) {
     onEmptyAction: action => { if (action === 'terminal') options.openTerminal?.(); },
   });
   paint();
+  // Ordubashy's current workflow Focus appears above the composer; it refreshes with this chat's own loads (no extra timer).
+  const workflowPanel = (agent.role?.id || agent.role_id) === 'ordubashy' && view.elements?.composer ? workflowPanelMount(view.elements.composer, agentId) : null;
+  if (workflowPanel) cleanups.push(() => workflowPanel.dispose());
 
   // ---- loading: a state fetch is idempotent, so every "changed" event just reads it again (coalesced)
   // Terminal owns conversation selection; Chat always follows the backend's current conversation.
@@ -562,6 +565,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       bindComposer();
       if (fresh) showBanner('');
       paintEntries(fresh ? 'bottom' : 'auto');
+      void workflowPanel?.refresh(fresh);
       if (!stream) connect();
     } catch (problem) {
       if (live() && mine === generation) { paintSession(); showBanner("Couldn't load. Retry"); retry(() => load()); }
