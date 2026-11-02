@@ -63,6 +63,9 @@ def build_parser() -> argparse.ArgumentParser:
     host_update = commands.add_parser("v12-host-deploy", help="apply a same-schema host update preserving native sessions and pinned helpers")
     host_update.add_argument("--selection", type=Path, required=True)
     host_update.add_argument("--confirm-deploy", action="store_true")
+    helper_update = commands.add_parser("v12-helper-activate", help="activate explicitly selected same-protocol native helpers without restarting sessions")
+    helper_update.add_argument("--selection", type=Path, required=True)
+    helper_update.add_argument("--confirm-adopt", action="store_true")
     projection_preview = commands.add_parser("v12-agent-projection-preview", help="read-only preview of stale generated agent setup copied into fresh agent workspaces")
     projection_preview.add_argument("--selection", type=Path, required=True)
     projection_preview.add_argument("--destination", type=Path, required=True)
@@ -114,6 +117,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "v12-helper-activate":
+            from .v12_helpers import activate
+            _json(activate(args.selection, confirm=args.confirm_adopt))
+            return 0
         if args.command == "v12-host-deploy":
             from .v12_repair import host_deploy
             _json(host_deploy(args.selection, confirm=args.confirm_deploy))
