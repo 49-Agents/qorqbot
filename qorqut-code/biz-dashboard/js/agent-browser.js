@@ -157,37 +157,3 @@ async function agbrowserMount(p, reconnect = false, ctx = null) {
   const saved = ls(agbrowserSelectionKey(surfaces.agentId));
   agbrowserShow(p, body, surfaces, surfaces.browsers.find(item => item.id === saved) || surfaces.browsers[0], ctx);
 }
-
-// Business Browser: the selected business's one browser. Read on entry or Reconnect, never
-// polled. The response must name this business and hold at most one browser; anything else is
-// refused, and no other business's, agent's or global browser is ever substituted.
-const businessBrowser = {request: 0};
-function businessBrowserDispose() { businessBrowser.request++; businessBrowser.browserFrameDispose?.(); }
-
-async function businessBrowserRead(business) {
-  const id = business && (business.id || business.business_id);
-  const data = await api(`/biz/${encodeURIComponent(business.slug)}/browser-surfaces`);
-  if (!id || !data || data.business_id !== id || !Array.isArray(data.browsers) || data.browsers.length > 1) throw new Error('Project browser mismatch');
-  const surface = data.browsers.length ? agbrowserSurface(data.browsers[0], 'browser') : null;
-  return surface && {...surface, label: business.name || business.slug};
-}
-
-async function renderBusinessBrowser(c) {
-  businessBrowserDispose();
-  const request = businessBrowser.request, biz = state.biz;
-  const business = (state.bizs || []).find(b => b.slug === biz);
-  c.innerHTML = `<section class="pane business-browser agfocus-desktop-view agbrowser" data-business-browser aria-label="Browser">
-    <div class="agfocus-desktop-help agbrowser-bar"><h1>Browser</h1><span class="agbrowser-actions">${agbrowserReconnectButton('data-browser-reconnect')}</span></div>
-    <div class="agbrowser-stage"><p class="muted" role="status">Loading browser…</p></div></section>`;
-  const host = $('[data-business-browser]', c), stage = $('.agbrowser-stage', host);
-  $('[data-browser-reconnect]', host).onclick = () => renderBusinessBrowser(c);
-  const current = () => request === businessBrowser.request && host.isConnected && state.biz === biz && state.tab === 'browser';
-  let surface;
-  try { surface = await businessBrowserRead(business); } catch (_) {
-    if (current()) stage.innerHTML = '<p class="ferr" role="alert">Couldn\'t load. Retry</p>';
-    return;
-  }
-  if (!current()) return;
-  if (!surface) { stage.innerHTML = '<p class="muted" role="status">Browser unavailable.</p>'; return; }
-  agbrowserFrame(businessBrowser, host, surface, agfocusDesktopFrameFit);
-}
