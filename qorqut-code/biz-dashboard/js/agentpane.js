@@ -392,7 +392,7 @@ function agpadMount(name, el, options = {}) {
   };
   // A linked view is honored only when it is a usable key; anything else leaves
   // the pane on its normal first view instead of an empty pane.
-  if (!initialView || !agpadRequestView(p, initialView)) agpadSetView(p, p.views[0]);
+  if (!initialView || !agpadRequestView(p, initialView)) agpadSetView(p, (typeof agentWorkspaceFallback === 'function' && agentWorkspaceFallback(p)) || p.views[0]);
 }
 
 // Browser/Desktop is remembered per registered agent, never shared between agents.

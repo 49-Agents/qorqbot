@@ -133,7 +133,9 @@ function agentWorkspaceUnavailable(c, tab) {
   $('#agent-pane-retry', c).onclick = () => { globalAgentProfilesRequest = undefined; goGlobalTab(tab); };
 }
 // Embedded pages cannot change the surrounding app; they ask it to open an agent or a business view.
-async function agentWorkspaceEscape({agent, business, table}) {
+async function agentWorkspaceEscape({agent, business, table, signoffs}) {
+  // An embedded page's own drawer is invisible: Signoffs open in the surrounding app's drawer, leaving the pane's project and section as they are.
+  if (signoffs) { openTasks(true); await tSetView('signoffs'); return; }
   if (agent) return globalAgentsNavigate(agent);
   if (table) { globalThis.ovOpen?.('tables', {scope: table.scope, id: table.id, mode: table.mode, ...table.filters}); return; }
   if (!state.bizs.some(b => b.slug === business)) { toast('This project is unavailable.'); return; }
@@ -143,17 +145,26 @@ async function agentWorkspaceEscape({agent, business, table}) {
   await agpadSetView(_agpad, 'business');
 }
 
-// Ordubashy (Focus) and Learning Applier (Context) have no Business management; no other global role is offered one.
+// Project management is the owner's core dashboard placement for Ordubashy and general workers; Learning Applier keeps Context.
+// This offers a pane, not an agent tool grant. Backend authorization is unchanged.
 function agentWorkspaceViews(scope, role) {
   if (scope !== 'global') return [];
-  if (role === 'ordubashy') return [];
+  if (role === 'ordubashy' || role === 'global-worker') return ['business'];
   if (role === 'learning-applier') return ['global_context'];
   return [];
 }
+// Ordubashy opens Focus and Learning Applier Context; a general worker opens its saved allowed browser choice or inbox/status.
 function agentWorkspaceDefault(p) {
   if (p.workspaceScope !== 'global') return null;
   if (p.workspaceRole === 'ordubashy') return 'focus';
+  if (p.workspaceRole === 'global-worker') return null;
   return agentWorkspaceViews(p.workspaceScope, p.workspaceRole)[0] || null;
+}
+
+// A general worker's first view is its inbox/status, not Project management, when no saved choice applies.
+function agentWorkspaceFallback(p) {
+  if (p.workspaceScope !== 'global' || p.workspaceRole !== 'global-worker') return null;
+  return p.views.find(view => view === 'inbox') || p.views.find(view => view === 'status') || null;
 }
 
 let agentWorkspaceDocument = null;
