@@ -34,6 +34,19 @@ def sha(path):
 DEV = {'tests', 'test', '__tests__', '__pycache__', '.github', '.git', '.gitlab', '.pytest_cache'}
 
 
+def native_exclusions(directory, names):
+    directory = Path(directory)
+    interpreter_examples = ('_test', '_ctypes_test.', '_xxtestfuzz.', 'xxlimited.', 'xxlimited_35.', 'xxsubtype.')
+    return [name for name in names if name in DEV or name in {'build_runtime.py', '.package-lock.json', 'sdk-tools.d.ts'}
+            or directory.name == 'lib-dynload' and name.startswith(interpreter_examples)
+            or directory.name == 'node_modules' and name == 'corepack'
+            or directory.name == '@anthropic-ai' and name == 'claude-code-linux-x64-musl'
+            or directory.name == 'bin' and directory.parent.name == 'agent-browser'
+               and name.startswith('agent-browser-') and name != 'agent-browser-linux-x64'
+            or directory.name == 'node' and name == 'CHANGELOG.md'
+            or directory.name == 'hooks' and directory.parent.name == 'templates' and name.endswith('.sample')]
+
+
 def strip_wheel(source, target):
     """Strip third-party test/development trees and regenerate the wheel RECORD.
 
@@ -111,7 +124,7 @@ def main(argv=None):
             copied_inodes[key] = destination
         return destination
     shutil.copytree(native, runtime / 'native', symlinks=True, copy_function=copy_native,
-                    ignore=lambda directory, names: [n for n in names if n in DEV or n in {'build_runtime.py', '.package-lock.json'}])
+                    ignore=native_exclusions)
     shutil.copytree(prepared / 'wheels', runtime / 'wheels')
     shutil.copy2(prepared / 'PREPARATION-RECEIPT.json', runtime / 'PREPARATION-RECEIPT.json')
     for row in receipt['wheels']:
@@ -197,7 +210,7 @@ extension distribution and release qualification must be completed separately.
         member.mtime = 0
         member.pax_headers = {}
         return member
-    with tarfile.open(archive, 'w:gz') as tar:
+    with tarfile.open(archive, 'w:gz', compresslevel=6) as tar:
         tar.add(output / 'qorqbot', arcname='qorqbot', filter=public_header)
     record = {'format': 1, 'version': args.version, 'qualified': False, 'archive': str(archive),
               'sha256': sha(archive), 'third_party_wheels': wheel_records, 'source_audit': audit}
