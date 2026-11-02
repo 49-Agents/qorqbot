@@ -1,3 +1,8 @@
+// Shared row structure for Pinned/Focus and Attention. All visual rules stay in the Focus stylesheet.
+function agfocusRowHtml(actions = '') {
+  return `<div class="trow agfocus-row"><span class="agfocus-notification" aria-hidden="true"><span class="agfocus-unread" hidden></span></span><span class="agfocus-marker"></span><span class="task-business-column agfocus-scope"></span><div class="task-headline"><p class="ttl"></p><span class="agfocus-flag" hidden></span></div><div class="agfocus-actions">${actions}</div></div>`;
+}
+
 // Owner Focus presentation; source state and conversations retain their existing writers.
 const AGFOCUS_POLL_MS = 60000;
 const AGFOCUS_THREAD_HEIGHT_KEY = 'ag:focus-thread-height:v1';
@@ -771,7 +776,7 @@ function agfocusPaint(p) {
     if(!node) {
       node=document.createElement('article');node.className='agfocus-card';node.dataset.cardId=item.id;
       // The card is only a row: the selected record's dashboard or chat lives in the shared workspace dock.
-      node.innerHTML='<div class="trow agfocus-row"><span class="agfocus-notification" aria-hidden="true"><span class="agfocus-unread" hidden></span></span><span class="agfocus-marker"></span><span class="task-business-column agfocus-scope"></span><div class="task-headline"><p class="ttl"></p><span class="agfocus-flag" hidden></span></div><div class="agfocus-actions"><button type="button" class="quiet" data-focus-snooze aria-label="Snooze Pinned item" aria-haspopup="dialog" aria-expanded="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg></button></div></div>';
+      node.innerHTML=agfocusRowHtml('<button type="button" class="quiet" data-focus-snooze aria-label="Snooze Pinned item" aria-haspopup="dialog" aria-expanded="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg></button>');
       p.focusCards.set(item.id,node);
       list.appendChild(node);
     }

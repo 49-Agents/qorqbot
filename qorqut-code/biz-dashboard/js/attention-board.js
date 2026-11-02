@@ -55,17 +55,22 @@ function attentionBoardTask(ref, task) {
 }
 function attentionBoardMount(p) {
   const body = $('#agpad-body', p.el);
-  body.innerHTML = '<section class="attention-board"><header><div class="global-eyebrow">Attention board</div><div data-attention-focus></div><p data-attention-error role="alert" hidden></p></header><div data-attention-list></div><aside data-attention-record hidden></aside></section>';
+  body.innerHTML = '<section class="agfocus" data-attention-board><header><div class="agfocus-heading"><div class="global-eyebrow">Attention board</div></div><div class="agfocus-framing" data-attention-focus></div><p class="agfocus-error" data-attention-error role="alert" hidden></p></header><div class="agfocus-layout"><div data-attention-list></div><aside class="agfocus-dock" data-attention-record hidden><div class="agfocus-dock-content"></div></aside></div></section>';
   const board = body.firstElementChild, dock = board.querySelector('[data-attention-record]');
-  const workspace = recordWorkspaceMount(dock, {entry:'focus', paired:false, visible:()=>agpadActive(p) && p.view === 'attentionBoard', onClose:()=>{dock.hidden=true;}});
-  p.attentionBoard = {board, workspace, next:0, busy:false, data:null};
+  const mountWorkspace = () => recordWorkspaceMount(dock.firstElementChild, {entry:'focus', paired:false, visible:()=>agpadActive(p) && p.view === 'attentionBoard', onClose:()=>{
+    dock.hidden=true;
+    board.querySelector('.agfocus-layout').classList.remove('agfocus-paired-workspace');
+    board.querySelector('header').hidden=false;
+    board.querySelector(`[data-attention-member="${p.attentionBoard?.selected || ''}"]`)?.focus({preventScroll:true});
+  }});
+  p.attentionBoard = {board, workspace:mountWorkspace(), mountWorkspace, next:0, busy:false, data:null};
   const unsubscribe=taskStateSubscribe((scope,id,snapshot)=>{
     if (!snapshot.pending && p.attentionBoard === boardState && boardState.data?.items.some(item => item.task_ref.id === id && attentionBoardScope(item.task_ref,item.task) === scope)) {
       clearTimeout(boardState.repaint); boardState.repaint=setTimeout(()=>{if(p.attentionBoard === boardState) attentionBoardPaint(p);},0);
     }
   });
   const boardState=p.attentionBoard;
-  p.workspaceDispose = () => {unsubscribe(); clearTimeout(boardState.repaint); workspace.dispose(); p.attentionBoard = null;};
+  p.workspaceDispose = () => {unsubscribe(); clearTimeout(boardState.repaint); boardState.workspace.dispose(); p.attentionBoard = null;};
   attentionBoardTick(p);
 }
 function attentionBoardTick(p) {
@@ -92,58 +97,86 @@ async function attentionBoardRefresh(p) {
     if (p.attentionBoard === board) { const el = board.board.querySelector('[data-attention-error]'); el.hidden=false; el.textContent='Could not load Attention board. ' + error.message; }
   } finally { board.busy=false; board.next=Date.now()+12000; }
 }
-function attentionBoardOpen(p, source) {
+async function attentionBoardOpen(p, source) {
   const b=p.attentionBoard, record=rwRecordFromItem({source});
   if (!record) return;
   if (record.scopeMissing) { toast('This project is unavailable.'); return; }
-  const dock=b.board.querySelector('[data-attention-record]'); dock.hidden=false;
-  b.workspace.open(record,{root:true,tab:record.can_thread?'chat':'dashboard'});
+  if(!b.workspace.alive?.())b.workspace=b.mountWorkspace();
+  const dock=b.board.querySelector('[data-attention-record]');
+  dock.hidden=false;
+  b.board.querySelector('header').hidden=true;
+  b.board.querySelector('.agfocus-layout').classList.add('agfocus-paired-workspace');
+  try { await b.workspace.open(record,{root:true,tab:record.can_thread?'chat':'dashboard'}); }
+  catch(error) {toast(error.message);}
+}
+// Attention owns membership and intent; the row structure, markers and scope badges are shared.
+function attentionReferenceRow(p, source, task = null) {
+  const row=document.createElement('article'); row.className='agfocus-card agfocus-collapsed';
+  row.innerHTML=agfocusRowHtml();
+  const label=source.label || task?.title || 'Record';
+  row.querySelector('.ttl').textContent=label;
+  agfocusContext(row,{source,resolved_source:source});
+  const marker=row.querySelector('.agfocus-marker');
+  marker.innerHTML=task && !taskShowsState(task) ? tBall(task)
+    : `<span class="task-type-marker">${source.type === 'table' ? RW_TABLE_ICON : rwTypeIcon(rwRecordFromItem({source}) || {source})}</span>`;
+  const flag=row.querySelector('.agfocus-flag');
+  const stateLabel=task ? customerStateText(task) : '';
+  flag.textContent=stateLabel; flag.hidden=!stateLabel;
+  row.tabIndex=0; row.setAttribute('role','group'); row.setAttribute('aria-label',label);
+  const open=()=>{p.attentionBoard.selected=row.dataset.attentionMember;void attentionBoardOpen(p,source);};
+  row.onclick=event=>{if(!event.target.closest('button,a,input,textarea,select'))open();};
+  row.onkeydown=event=>{if(event.target===row && ['Enter',' '].includes(event.key)){event.preventDefault();open();}};
+  return row;
 }
 function attentionBoardPaint(p) {
   const b=p.attentionBoard, data=b.data, board=b.board, header=board.querySelector('[data-attention-focus]'), list=board.querySelector('[data-attention-list]');
   board.querySelector('[data-attention-error]').hidden=true;
   const attention=data.attention;
   header.replaceChildren();
-  if (attention.state !== 'focused' || !attention.focus) header.textContent='Unfocused';
+  const current=document.createElement('section');header.append(current);
+  if (attention.state !== 'focused' || !attention.focus) {const text=document.createElement('p');text.textContent='Unfocused';current.append(text);}
   else {
-    const line=document.createElement('div'); line.append('Focused on: ');
-    if (attention.focus.type === 'workflow') {
-      line.append(document.createTextNode(attention.focus.label || attention.focus.id));
-      header.append(line);
-      if (attention.task) {
-        const work=data.items.find(item=>item.task_ref.id === attention.task.id && item.task_ref.business_id === attention.task.business_id);
-        const workLine=document.createElement('div'), link=document.createElement('button'); link.type='button'; link.className='quiet';
-        link.textContent=work?.task?.title || attention.task.id;
-        link.onclick=()=>attentionBoardOpen(p,{...attention.task, business_slug:work ? attentionBoardScope(work.task_ref,work.task) : null, label:work?.task?.title || 'Task', task_type:work?.task?.task_type, revision:work?.task?.revision});
-        workLine.append('Work task: ',link); header.append(workLine);
-      }
-    } else {
-      const link=document.createElement('button'); link.type='button'; link.className='quiet'; link.textContent=attention.focus.label || attention.focus.id;
-      link.onclick=()=>attentionBoardOpen(p,attention.focus); line.append(link); header.append(line);
-    }
-    const intent=document.createElement('p'); intent.textContent='Intent: '+attention.intent; header.append(intent);
+    const label=document.createElement('p'); label.textContent='Focused on';current.append(label);
+    const focus=attention.focus;
+    const workFor=ref=>data.items.find(item=>item.task_ref.id===ref.id && item.task_ref.business_id===ref.business_id);
+    const reference=ref=>{
+      const work=workFor(ref),task=work ? attentionBoardTask(work.task_ref,work.task) : null;
+      const rows=document.createElement('div');rows.className='agfocus-items';
+      rows.append(attentionReferenceRow(p,{...ref,business_slug:work ? attentionBoardScope(work.task_ref,work.task) : ref.business_slug,label:ref.label || task?.title || 'Task',task_type:task?.task_type || ref.task_type,revision:task?.revision},task));
+      current.append(rows);
+    };
+    if (focus.type === 'workflow') {
+      const text=document.createElement('p');text.textContent=focus.label || focus.id;current.append(text);
+      if(attention.task)reference(attention.task);
+    } else reference(focus);
+    const intent=document.createElement('p');intent.textContent='Intent: '+attention.intent;current.append(intent);
   }
   list.replaceChildren();
   for (const status of ATTENTION_GROUPS) {
     const items=data.items.filter(item=>(attentionBoardTask(item.task_ref,item.task).status || 'open')===status);
     if (!items.length) continue;
-    const group=document.createElement('section'); group.className='attention-group';
-    const title=document.createElement('h3'); title.textContent=T_LABEL[status]; group.append(title);
+    const group=document.createElement('section'); group.dataset.attentionStatus=status;
+    const title=document.createElement('h2'); title.textContent=T_LABEL[status]; group.append(title);
+    const rows=document.createElement('div');rows.className='agfocus-items';group.append(rows);
     for (const item of items) {
       const ref=item.task_ref, scope=attentionBoardScope(ref,item.task), unavailable=ref.business_id != null && !scope, task=attentionBoardTask(ref,item.task);
-      const row=document.createElement('div'); row.className='trow attention-task';
-      const ball=document.createElement('button'); ball.type='button'; ball.className='ball agfocus-task-state'; ball.innerHTML='<span class="core"></span>'; row.append(ball);
-      if (!unavailable) taskStateBind(ball,scope,task,()=>{}); else {ball.disabled=true; ball.setAttribute('aria-label','Task project unavailable');} ball.onclick=()=>{if (ref.business_id != null && !scope) return toast('This project is unavailable.'); taskStateSet(scope,task,tNext(task.status));};
-      ball.oncontextmenu=event=>{event.preventDefault(); if(ref.business_id == null || scope) taskBoardStateMenu(ball,scope,task);};
-      const name=document.createElement('button'); name.type='button'; name.className='quiet attention-task-name'; name.textContent=task.title || 'Task'; name.onclick=()=>attentionBoardOpen(p,{...ref,business_slug:scope,label:task.title,state:task.status,task_type:task.task_type,revision:task.revision}); row.append(name);
-      const actions=document.createElement('div'); actions.className='attention-task-actions'; row.append(actions);
-      const stateMenu=document.createElement('button'); stateMenu.type='button'; stateMenu.className='quiet'; stateMenu.textContent='State'; stateMenu.setAttribute('aria-label','Change state of '+(task.title || 'task')); stateMenu.disabled=unavailable; stateMenu.onclick=()=>{if(!unavailable) taskBoardStateMenu(stateMenu,scope,task);}; actions.append(stateMenu);
-      if (ref.business_id == null || scope) taskWorkerMount(actions,scope,task,p.agentId);
-      const remove=document.createElement('button'); remove.type='button'; remove.className='quiet'; remove.textContent='Remove'; remove.setAttribute('aria-label','Remove '+(task.title || 'task')+' from Attention board');
+      const row=attentionReferenceRow(p,{...ref,business_slug:scope,label:task.title,state:task.status,task_type:task.task_type,revision:task.revision},task);
+      row.dataset.attentionMember=item.membership_id;
+      if(taskShowsState(task)) {
+        const marker=row.querySelector('.agfocus-marker');
+        marker.innerHTML='<button type="button" class="ball agfocus-task-state"><span class="core"></span></button>';
+        const ball=marker.firstElementChild;
+        if (!unavailable) taskStateBind(ball,scope,task,()=>{}); else {ball.disabled=true; ball.setAttribute('aria-label','Task project unavailable');}
+        ball.onclick=event=>{event.stopPropagation();if(!unavailable)taskStateSet(scope,task,tNext(task.status));};
+        ball.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();if(!unavailable)taskBoardStateMenu(ball,scope,task);};
+      }
+      const actions=row.querySelector('.agfocus-actions');
+      if (!unavailable && (task.workers?.length || task.user_needed)) taskWorkerMount(actions,scope,task,p.agentId);
+      const remove=document.createElement('button'); remove.type='button'; remove.className='quiet'; remove.innerHTML=SVG_X; remove.setAttribute('aria-label','Remove '+(task.title || 'task')+' from Attention board');
       remove.onclick=async()=>{remove.disabled=true; try { coreData(await post('/root/operations/attention_remove',{scope:'global',membership_id:item.membership_id,expected_membership_revision:item.membership_revision,idempotency_key:newRequestId()})); await attentionBoardRefresh(p); } catch(error) {toast(error.message); remove.disabled=false;}};
-      actions.append(remove); group.append(row);
+      actions.append(remove); rows.append(row);
     }
     list.append(group);
   }
-  if (!data.items.length) list.textContent='No tasks on Attention board.';
+  if (!data.items.length) {const empty=document.createElement('p');empty.className='attention-empty';empty.textContent='No tasks on Attention board.';list.append(empty);}
 }
