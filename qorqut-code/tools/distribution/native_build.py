@@ -170,6 +170,11 @@ instance/operations; settings, logs and profiles also stay inside this folder.
 Keep this folder at the same location after first launch. Back it up while the
 application and its agents are stopped. Deleting the folder deletes its data.
 
+Ubuntu 24.04 may restrict Chrome's sandbox at an arbitrary extraction path.
+The core app works independently; browser automation requires a host-approved
+sandbox configuration. This package does not alter AppArmor or disable Chrome's
+sandbox. See the distribution documentation for this platform prerequisite.
+
 This candidate is private and unqualified for publication. License selection,
 extension distribution and release qualification must be completed separately.
 ''')
