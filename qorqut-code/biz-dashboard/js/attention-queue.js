@@ -58,7 +58,7 @@ const attentionQueue=(()=>{
   function paintSignoffs(){
     for(const [host,name] of signoffMounts){
       if(!host.isConnected){signoffMounts.delete(host);continue;}
-      const markup=signoffs.map(s=>{const title=name?.(s.id)||s.title;return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" aria-label="Review ${esc(title)}" title="${esc(s.title)}">${signoffIcon(s)}<span>${esc(title)}</span></button>`;}).join('');
+      const markup=signoffs.map(s=>{const title=name?.(s.id)||s.title;return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" aria-label="Review ${esc(title)}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
       const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'');
       if(host._signoffHTML!==html){host.innerHTML=html;host._signoffHTML=html;}
       host.hidden=!signoffs.length&&!signoffsError;

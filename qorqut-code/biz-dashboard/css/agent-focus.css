@@ -222,15 +222,13 @@
 
 .focus-signoff-queue{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 14px;min-width:0}
 .focus-signoff-queue[hidden]{display:none}
-.agfocus .focus-signoff-queue .focus-signoff-chip{display:flex;align-items:center;gap:6px;max-width:100%;min-height:30px;margin:0;padding:4px 8px;border:0;border-radius:5px;background:var(--hover);color:var(--fg-2);font-size:11px;text-align:left}
-.focus-signoff-chip>span:last-child{text-transform:lowercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.focus-signoff-chip .attention-signoff{width:13px;height:13px;border:0;border-radius:0}
-.focus-signoff-chip svg{width:13px;height:13px}
+.agfocus .focus-signoff-queue .focus-signoff-chip{display:flex;align-items:center;justify-content:center;flex:none;width:40px;max-width:100%;min-height:40px;margin:0;padding:8px;border:0;border-radius:5px;background:var(--hover);color:var(--fg-2);font-size:11px;text-align:left}
+.focus-signoff-chip .attention-signoff{width:18px;height:18px;border:0;border-radius:0}
+.focus-signoff-chip svg{width:18px;height:18px}
 .agfocus .agfocus-thread-context [data-manage]{font-size:11px;padding:0;border:0;background:none;margin:0 0 6px;color:var(--fg-2)}
 
 /* Fixed Browser/Desktop pair, a quiet divider, then the scrolling Signoff queue. */
 .agfocus-surfaces > .focus-signoff-queue{flex-wrap:nowrap;margin:0}
-.agfocus .agfocus-surfaces > .focus-signoff-queue .focus-signoff-chip{flex:0 0 auto;max-width:min(220px,100%)}
 .agfocus-surfaces:has(> .focus-signoff-queue[hidden]) .agfocus-divider{display:none}
 .agfocus-fixed{display:flex;align-items:center;gap:6px;flex:none}
 .agfocus-divider{flex:none;align-self:center;width:1px;height:30px;margin:0 2px;background:var(--line-2);pointer-events:none}
