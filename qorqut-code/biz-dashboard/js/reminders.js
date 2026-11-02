@@ -140,16 +140,24 @@ function remindersDetailMount(host, initial, opts = {}) {
     if (!Number.isFinite(date.getTime()) || date.getTime() <= Date.now()) { error = 'Choose a future date and time.'; paint(); return; }
     void run('reminders_snooze', {at: remOffsetISO(remInputOf(date))});
   }
+  // One authorized read repaints the mounted view with the refreshed reminder. Losing access or the source removes the actions
+  // at once; any other failure is transient, so the last content stays with the failure shown. Resolves true when refreshed.
   async function reload() {
+    let data;
     try {
-      const data = await remCall(current, 'reminders_get', {reminder_id: remId(current)}, opts.biz);
-      if (!alive()) return;
-      if (data.reminder) current = remNormalize(data.reminder);
-      opts.onChange?.(current, 'reminders_get');
+      data = await remCall(current, 'reminders_get', {reminder_id: remId(current)}, opts.biz);
     } catch (failure) {
-      if (!alive()) return;
-      if (accessLost(failure) || sourceGone(failure)) { gone = true; opts.onChange?.(null, 'reminders_get'); }
+      if (!alive()) return false;
+      if (accessLost(failure) || sourceGone(failure)) { gone = true; paint(); opts.onChange?.(null, 'reminders_get'); }
+      else { error = uiFailure(failure, {load: true}); paint(); }
+      return false;
     }
+    if (!alive()) return false;
+    const refreshed = !!data.reminder;
+    if (refreshed) { current = remNormalize(data.reminder); gone = false; error = ''; }
+    paint();
+    opts.onChange?.(current, 'reminders_get');
+    return refreshed;
   }
   // The key is reused only to retry the identical failed-in-transit request.
   async function run(op, extra) {
@@ -167,7 +175,7 @@ function remindersDetailMount(host, initial, opts = {}) {
       retry = transient ? {signature, key} : null;
       if (alive()) {
         if (accessLost(failure) || sourceGone(failure)) { gone = true; opts.onChange?.(null, op); }
-        else if (remFail(failure)) { await reload(); error = 'This reminder changed since you opened it. It was refreshed; check and try again.'; }
+        else if (remFail(failure)) { if (await reload()) error = 'This reminder changed since you opened it. It was refreshed; check and try again.'; }
         else error = uiFailure(failure);
       }
     } finally { busy = false; if (alive()) paint(); }
