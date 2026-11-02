@@ -22,7 +22,7 @@ from qorqut_operations.tasks.scope import task_namespace
 
 from .access import RecordAccess
 from .activity import Activity
-from .entries import Entries
+from .entries import MAX_UPDATES, Entries
 from .exports import CLASSIFICATIONS
 from .refs import EVENT_KINDS, EVENT_KEY_LIMIT, RECORD_REF, SOURCE
 from .schema import IMMUTABLE_FIELDS, SCHEMA, TABLE_NAMES, TABLES, storage_contribution
@@ -66,6 +66,7 @@ class CRMOperations:
         create = {key: value for key, value in plain(next(d for d in self.tasks.descriptors() if d.name == "tasks_create")
                                                      .input_schema)["properties"].items() if key not in NOT_CREATE}
         cells = {"cells": CELLS, "stage_id": STAGE}
+        changes = {**schema(cells), "minProperties": 1}
         refs = self.tasks.note_references().schema
         reads = {
             "crm_entries_list": ({"table_id": UUID, "query": TEXT, "stage_id": KEY, "include_archived": {"type": "boolean"},
@@ -92,10 +93,19 @@ class CRMOperations:
                                 "by tasks_create in the same atomic change). cells hold local values only; shared fields are edited "
                                 "on the Task with tasks_update. Adding a removed entry restores it with its data; adding an active "
                                 "one returns it unchanged unless different values conflict.", ("tables_rows_write",)),
-            "crm_entries_update": ({"table_id": UUID, "entry_id": UUID, "changes": {**schema(cells), "minProperties": 1}},
-                                   ("table_id", "entry_id", "changes"),
+            "crm_entries_update": ({"table_id": UUID, "entry_id": UUID, "changes": changes, "updates": {
+                                       "type": "array", "minItems": 1, "maxItems": MAX_UPDATES,
+                                       "items": schema({"entry_id": UUID, "changes": changes}, ("entry_id", "changes"))}},
+                                   ("table_id",),
                                    "Change an entry's local cells (omitted keys are kept, null clears) and/or its stage (null "
-                                   "clears) with the table's expected_revision. Shared Task fields are never written here.",
+                                   "clears) with the table's expected_revision. Shared Task fields are never written here. Name "
+                                   "either entry_id with changes (one entry), or updates: a list of 1-100 {entry_id, changes} "
+                                   "items, never both. To change several entries of the same table, send ONE call with updates "
+                                   "instead of repeating this call or batching it: all rows share the one starting "
+                                   "expected_revision, succeed or fail together, take one table revision and snapshot, and "
+                                   "return a compact {table_id, table_revision, entries: [{entry_id, revision, changed}], "
+                                   "job_id?} instead of each entry. Each entry may appear once. After a lost response retry the "
+                                   "exact same whole request with the same idempotency_key.",
                                    ("tables_rows_write",)),
             "crm_entries_remove": ({"table_id": UUID, "entry_id": UUID}, ("table_id", "entry_id"),
                                    "Remove an entry from a CRM table with the table's expected_revision. This is a soft removal "

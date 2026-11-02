@@ -21,6 +21,9 @@ from .access import ScopeCache
 from .refs import namespace_of, record_ref
 
 PAGE_MAXIMUM = 100
+# Entries one ``crm_entries_update`` may change together, and the only fields such a change may write.
+MAX_UPDATES = 100
+UPDATE_FIELDS = frozenset({"cells_json", "stage_id", "updated_by", "updated_at"})
 # What belongs to the Table's side of a composed plan; everything else is the new Task's own effects.
 TABLE_SIDE = frozenset({"data_tables", "crm_entries", "table_versions", "jobs"})
 
@@ -284,12 +287,30 @@ class Entries:
         builder.policy_effect(created, "tasks_create", "Creates the Task of the new entry")
         return task_id
 
+    @staticmethod
+    def update_items(args):
+        """``[(entry_id, changes)]`` of an update: exactly one entry (``entry_id`` + ``changes``) or ``updates``, each entry once."""
+        if "updates" not in args:
+            if "entry_id" not in args or "changes" not in args:
+                raise DomainError("validation_error", "Name entry_id with changes, or updates")
+            return [(args["entry_id"], args["changes"])]
+        if "entry_id" in args or "changes" in args:
+            raise DomainError("validation_error", "Name either entry_id with changes or updates, not both")
+        identities = [item["entry_id"] for item in args["updates"]]
+        repeated = sorted({identity for identity in identities if identities.count(identity) > 1})
+        if repeated:
+            raise DomainError("validation_error", "Each entry can appear only once in updates", details={"entry_ids": repeated})
+        return [(item["entry_id"], item["changes"]) for item in args["updates"]]
+
     def prepare_update(self, ctx, builder, table, args, uow):
-        entry = self.find(ctx, table["id"], args["entry_id"], uow)
+        for entry_id, changes in self.update_items(args):
+            self.prepare_entry_update(ctx, builder, table, entry_id, changes, uow)
+
+    def prepare_entry_update(self, ctx, builder, table, entry_id, changes, uow):
+        entry = self.find(ctx, table["id"], entry_id, uow)
         if entry["removed"]:
             raise DomainError("validation_error", "This entry was removed; add the record again to restore it")
         self.crm.access.require(ctx, self.reference(entry), uow, builder)  # editing needs the caller to read the Task
-        changes = args["changes"]
         cells = {**entry["cells_json"], **self.cells_for_write(table, changes.get("cells", {}))}
         stage = (crm_model.stage_checked(table["crm_config_json"], changes["stage_id"], current=entry["stage_id"])
                  if "stage_id" in changes else entry["stage_id"])
@@ -346,11 +367,29 @@ class Entries:
                                           reference["id"], reference["business_id"]):
                 raise DomainError("invalid_plan", "The entry must point at the Task the request names")
             return
+        if "updates" in args:
+            self.validate_updates(ctx, plan, table, table_changes, uow)
+            return
         current = self.find(ctx, table["id"], args["entry_id"], uow)
         if entry is not None and entry.resource.resource_id != current["id"]:
             raise DomainError("invalid_plan", "The change must edit the entry the request names")
         if plan.operation_name == "crm_entries_update":
             self.crm.access.require(ctx, self.reference(current), uow)
+
+    def validate_updates(self, ctx, plan, table, table_changes, uow):
+        """Every entry the request names is judged again from current state; no other entry or field may change."""
+        requested = {}
+        for entry_id, _ in self.update_items(plan.arguments):
+            requested[entry_id] = self.find(ctx, table["id"], entry_id, uow)
+        for current in requested.values():
+            if current["removed"]:
+                raise DomainError("validation_error", "This entry was removed; add the record again to restore it")
+            self.crm.access.require(ctx, self.reference(current), uow)
+        changed = [change for change in table_changes if change.resource.resource_type == "crm_entries"]
+        if (len({change.resource.resource_id for change in changed}) != len(changed)
+                or any(change.action != "update" or change.resource.resource_id not in requested
+                       or set(change.values) - UPDATE_FIELDS for change in changed)):
+            raise DomainError("invalid_plan", "The change must only edit the entries the request names")
 
     def validate_replay(self, operation, ctx, args, replay, uow):
         """A saved receipt is returned only while the caller may still have what it describes.
@@ -361,7 +400,12 @@ class Entries:
             return  # a staged proposal is only a reference
         ctx = table_context(ctx, args, uow)
         self.crm.recheck(ctx, operation, table_namespace(ctx, args), uow, *(("tasks_create",) if "create" in args else ()))
-        self.table(ctx, args["table_id"], uow)
+        table = self.table(ctx, args["table_id"], uow)
+        if "updates" in args:
+            # The compact receipt names no Task, so each requested entry's Task is judged again from the request itself.
+            for entry_id, _ in self.update_items(args):
+                self.crm.access.require(ctx, self.reference(self.find(ctx, table["id"], entry_id, uow)), uow)
+            return
         entry = (plain(replay.data) or {}).get("entry")
         if entry is not None and not entry.get("unavailable"):
             self.crm.access.require(ctx, entry["record_ref"], uow)
@@ -369,6 +413,8 @@ class Entries:
     def apply(self, ctx, plan, uow):
         ctx = table_context(ctx, plan.arguments, uow)
         args, operation = plan.arguments, plan.operation_name
+        if "updates" in args:
+            return self.apply_updates(ctx, plan, uow)
         table_changes, task_changes = self.split(plan)
         entry_change = next((c for c in table_changes if c.resource.resource_type == "crm_entries"), None)
         before = uow.repository("crm_entries", business_id=ctx.business_id).get(entry_change.resource.resource_id) if (
@@ -394,3 +440,22 @@ class Entries:
         entry = uow.repository("crm_entries", business_id=ctx.business_id).get(entry_id)
         view = self.view(ctx, table, entry, uow, ScopeCache())
         return {**result, "entry": view, **({"created_record": created} if operation == "crm_entries_add" else {})}
+
+    def apply_updates(self, ctx, plan, uow):
+        """Several entries of one Table in this transaction: one revision, one snapshot and job, one development per changed entry."""
+        table_changes, _ = self.split(plan)
+        entries = uow.repository("crm_entries", business_id=ctx.business_id)
+        changed = [change.resource.resource_id for change in table_changes
+                   if change.resource.resource_type == "crm_entries" and change.action == "update"]
+        before = {identity: entries.get(identity) for identity in changed}
+        table_plan = replace(plan, changes=table_changes)
+        applied = apply_records(ctx, replace(table_plan, changes=tuple(c for c in table_changes if c.action != "capture_table_version")), uow)
+        captured = self.crm.tables.capture_all(ctx, table_plan, applied, uow)
+        for identity in changed:
+            self.crm.threads.record_membership(ctx, uow, before[identity], entries.get(identity))
+        table = captured[0][0] if captured else self.crm.tables.table(ctx, plan.arguments["table_id"], uow)
+        # Compact on purpose: no Task record, no table view; the entries' own revisions say what moved.
+        return {"table_id": table["id"], "table_revision": table["revision"],
+                "entries": [{"entry_id": entry_id, "revision": entries.get(entry_id)["revision"], "changed": entry_id in changed}
+                            for entry_id, _ in self.update_items(plan.arguments)],
+                **({"job_id": captured[0][1]["id"]} if captured else {})}
