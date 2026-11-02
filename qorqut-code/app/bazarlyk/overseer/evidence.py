@@ -159,6 +159,15 @@ def resolve_selection(access, selection):
     return dict(result)
 
 
+def _admit_inventory_scope(access, selection):
+    """Recheck a frozen inventory scope without expanding it to newly granted projects."""
+    current = resolve_selection(access, selection)
+    allowed = {tuple(sorted(ns.items())) for ns in current["namespaces"]}
+    if any(tuple(sorted(ns.items())) not in allowed for ns in selection["namespaces"]):
+        raise DomainError("forbidden", "Saved inventory scope includes a namespace that is no longer authorized")
+    return dict(selection)
+
+
 class AdmittedReaders:
     """Read specific registered captures and history revisions under current admission.
 
@@ -478,13 +487,14 @@ class CaptureJournal:
                        "ON CONFLICT(selection_key,source_key) DO UPDATE SET value=excluded.value",
                        (selection_key, source_key, json.dumps(value) if value is not None else None))
 
-    def frontier(self, selection, selection_key, *, gaps=(), episode_ids=(), source_refs=()):
+    def frontier(self, selection, selection_key, *, gaps=(), episode_ids=(), source_refs=(), frozen_inventory=False):
         """Freeze the observed journal prefix; no cross-provider atomicity is claimed."""
         import json
         import sqlite3
         from uuid import uuid4
         from qorqut_operations.contracts import utc_now
-        resolved = resolve_selection(self.access, selection)
+        resolved = (_admit_inventory_scope(self.access, selection) if frozen_inventory
+                    else resolve_selection(self.access, selection))
         snapshot_id, at = str(uuid4()), utc_now()
         gaps = list(gaps)
         with sqlite3.connect(self.path) as db:
@@ -1963,6 +1973,41 @@ class EvidenceProvider:
         with sqlite3.connect(self.journal.path) as db:
             db.execute("CREATE TABLE IF NOT EXISTS scan_progress (selection_key TEXT PRIMARY KEY, position TEXT, generation INTEGER NOT NULL)")
 
+    def _inventory_cursor(self, cursor, current):
+        """Recover the server-saved scope of legacy cursors; the cursor never grants access."""
+        import base64
+        import json
+        import sqlite3
+        from .provenance import content_hash
+        try:
+            if not isinstance(cursor, str) or not cursor or len(cursor) > 4096:
+                raise ValueError("cursor size")
+            saved = json.loads(base64.b64decode(cursor.encode("ascii") + b"=" * (-len(cursor) % 4),
+                                               altchars=b"-_", validate=True))
+            if (not isinstance(saved, dict) or set(saved) != {"selection", "provider", "generation", "after"}
+                    or saved["provider"] != "host_inventory" or not isinstance(saved["selection"], str)
+                    or type(saved["generation"]) is not int or saved["generation"] < 1
+                    or type(saved["after"]) is not int or saved["after"] < 0):
+                raise ValueError("cursor fields")
+            with sqlite3.connect(self.journal.path) as db:
+                row = db.execute("SELECT selection FROM frontiers WHERE selection_key=? ORDER BY captured_at DESC LIMIT 1",
+                                 (saved["selection"],)).fetchone()
+            if row is None:
+                raise ValueError("unknown inventory scope")
+            frozen = json.loads(row[0])
+            if content_hash(frozen) != saved["selection"]:
+                raise ValueError("saved scope identity")
+            if frozen != current:
+                # Only changing all_authorized membership is a continuation. A different filter or
+                # explicit scope remains a different scan, even if its namespaces overlap.
+                fields = ("agent_ids", "task_ids", "work_types", "workflow_refs")
+                if (frozen.get("mode") != "all_authorized" or current.get("mode") != "all_authorized"
+                        or any(frozen.get(key, []) != current.get(key, []) for key in fields)):
+                    raise ValueError("wrong selection")
+        except (ValueError, KeyError, TypeError, UnicodeError) as exc:
+            raise DomainError("validation_error", "Cursor does not match this selection") from exc
+        return _admit_inventory_scope(self.access, frozen), saved["selection"], saved["after"]
+
     def list_changes(self, selection, cursor=None, limit=50):
         import base64
         import json
@@ -1975,24 +2020,21 @@ class EvidenceProvider:
         # admission, the frozen frontier and delivery retention under MCP's 60s call.
         limit = min(limit, 20)
         self.scanner.deadline = time.monotonic() + SCAN_SECONDS
-        resolved = resolve_selection(self.access, selection)
+        current = resolved = resolve_selection(self.access, selection)
         selection_key = content_hash(resolved)
         pending_after = 0
         if cursor:
-            try:
-                if not isinstance(cursor, str) or len(cursor) > 4096:
-                    raise ValueError("cursor size")
-                saved = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
-                if saved["selection"] != selection_key or type(saved["after"]) is not int or saved["after"] < 0:
-                    raise ValueError("wrong selection")
-                pending_after = saved["after"]
-            except (ValueError, KeyError, TypeError) as exc:
-                raise DomainError("validation_error", "Cursor does not match this selection") from exc
+            resolved, selection_key, pending_after = self._inventory_cursor(cursor, current)
         with sqlite3.connect(self.journal.path) as db:
             progress = db.execute("SELECT position,generation FROM scan_progress WHERE selection_key=?", (selection_key,)).fetchone()
         position, generation = (json.loads(progress[0]) if progress and progress[0] else None,
                                 progress[1] if progress else 1)
         gaps = []
+        additional = [ns for ns in current["namespaces"] if ns not in resolved["namespaces"]]
+        if additional:
+            gaps.append({"code": "inventory_scope_expanded",
+                         "detail": "Continuing the saved inventory scope. After its cursor drains, scan only additional_selection; do not restart this inventory.",
+                         "additional_selection": {**selection, "mode": "explicit", "namespaces": additional}})
         if resolved.get("task_ids"):
             gaps.append({"code": "task_relation_scope_incomplete"})
         if resolved.get("agent_ids"):
@@ -2024,7 +2066,8 @@ class EvidenceProvider:
         pending = self.journal.pending(selection_key, after=pending_after, limit=limit)
         gaps.extend(pending["gaps"])
         frontier = self.journal.frontier(resolved, selection_key, gaps=gaps,
-                                         episode_ids=[ref["episode_id"] for ref in pending["items"]], source_refs=pending["items"])
+                                         episode_ids=[ref["episode_id"] for ref in pending["items"]], source_refs=pending["items"],
+                                         frozen_inventory=True)
         gaps = frontier["gaps"]
         next_cursor = None
         if more or continuing or pending["next_after"] is not None:
