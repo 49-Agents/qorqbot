@@ -1,4 +1,10 @@
-"""Explicit standalone learning-applier provisioning; never launches a session."""
+"""Explicit standalone learning-applier provisioning; never launches a session.
+
+Learning Applier is a supported global: it reaches every active business through
+derived access, so no explicit business list is selected or saved.
+"""
+
+import json
 
 from qorqut_operations.contracts import DomainError, InvocationOptions, Principal, canonical_hash, plain
 from .preparation import prepare_agent
@@ -7,35 +13,36 @@ CAPABILITIES = ("read_global_context", "manage_shared_instructions", "publish_ro
 ASSIGNMENT = "Work with the owner to select and implement learning deltas across authorized businesses and shared repositories. Maintain work notes and states; commit and push each delta, then guide optional session-end publication."
 
 
-def prepare_learning_applier(runtime, owner_context, *, role_ref, allowed_business_ids, endpoint, claude_version=None, versions=None):
+def prepare_learning_applier(runtime, owner_context, *, role_ref, endpoint, claude_version=None, versions=None):
     if owner_context.principal_kind != "human":
         raise DomainError("forbidden", "Learning-applier preparation requires the owner")
     if role_ref.get("id") != "learning-applier":
         raise DomainError("validation_error", "Select the published learning-applier role")
-    scope = {"kind": "ecosystem", "allowed_business_ids": sorted(set(allowed_business_ids)), "global_capabilities": sorted(CAPABILITIES)}
-    if not scope["allowed_business_ids"] or not set(scope["allowed_business_ids"]) <= owner_context.allowed_business_ids:
-        raise DomainError("forbidden", "Select explicitly authorized businesses")
+    scope = {"kind": "ecosystem", "allowed_business_ids": [], "global_capabilities": sorted(CAPABILITIES)}
     arguments = {"name": "learning-applier", "display_name": "Learning Applier", "role": plain(role_ref),
                  "scope": scope, "assignment_brief": ASSIGNMENT, "plugins": []}
     # Creation is authorized even on retry; preparation never silently changes an
-    # existing profile's pins, permissions or assigned business scope.
+    # existing profile's pins, permissions or capabilities, and never revives an
+    # inactive identity.
     with runtime.database.read() as uow:
         ctx = runtime.application.current_context(owner_context, uow)
-        if not set(scope["allowed_business_ids"]) <= ctx.allowed_business_ids or not set(CAPABILITIES) <= ctx.global_capabilities:
+        if not set(CAPABILITIES) <= ctx.global_capabilities:
             raise DomainError("forbidden", "Learning-applier scope exceeds current owner grants")
         descriptor = runtime.registry.get("agents_create")
         namespace = runtime.application.namespace(ctx, descriptor, arguments)
         runtime.application.authorize(ctx, descriptor, (), uow, namespace=namespace)
-        existing = uow.connection.execute("SELECT * FROM agent_profiles WHERE home_business_id IS NULL AND name='learning-applier'").fetchone()
+        existing = [row for row in uow.connection.execute(
+            "SELECT * FROM agent_profiles WHERE home_business_id IS NULL AND status='active' ORDER BY agent_id")
+            if json.loads(row["profile_json"]).get("role", {}).get("id") == "learning-applier"]
     if existing:
-        from qorqut_operations.storage.repositories import decode_row
-        row = decode_row(existing)
-        profile = row["profile_json"]
-        if (row["status"] != "active" or profile["role"] != plain(role_ref)
-                or profile["scope"] != scope or profile["plugins"] or profile["assignment_brief"] != ASSIGNMENT
+        profile = json.loads(existing[0]["profile_json"])
+        # A saved business list is inert; only the scope kind and capabilities are compared.
+        if (len(existing) > 1 or profile["role"] != plain(role_ref) or profile["scope"]["kind"] != "ecosystem"
+                or sorted(profile["scope"]["global_capabilities"]) != scope["global_capabilities"]
+                or profile["plugins"] or profile["assignment_brief"] != ASSIGNMENT
                 or profile["tool_policy"]["overrides"]):
             raise DomainError("bootstrap_conflict", "Existing learning-applier profile differs; review its configuration explicitly")
-        identity = row["agent_id"]
+        identity = existing[0]["agent_id"]
     else:
         result = runtime.application.invoke_or_raise(owner_context, "agents_create", arguments,
             InvocationOptions(idempotency_key="prepare-learning-applier:" + canonical_hash(arguments)))

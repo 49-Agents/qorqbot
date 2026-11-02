@@ -21,6 +21,40 @@ COOKIE_NAME = "bazarlyk_session"
 SESSION_SECONDS = 12 * 60 * 60
 
 
+_AGENT_CREDENTIAL = ("SELECT c.*, p.kind, p.display_name, p.active principal_active FROM credentials c "
+                     "JOIN principals p ON p.id=c.principal_id WHERE ")
+
+
+def _current_agent_registration(connection, row, now):
+    """The machine registration of a scoped agent credential that is still unrevoked, unexpired and active."""
+    if row is None or row["kind"] != "agent" or not row["principal_active"] or row["revoked_at"]:
+        raise DomainError("unauthenticated", "Scoped agent credential is invalid or revoked")
+    if row["expires_at"]:
+        try:
+            expires = datetime.fromisoformat(row["expires_at"]).astimezone(timezone.utc).timestamp()
+        except (ValueError, TypeError):
+            raise DomainError("unauthenticated", "Scoped credential expiry is invalid") from None
+        if expires <= now:
+            raise DomainError("unauthenticated", "Scoped agent credential has expired")
+    profile = connection.execute("SELECT status FROM agent_profiles WHERE agent_id=?", (row["principal_id"],)).fetchone()
+    if profile is None or profile["status"] != "active":
+        raise DomainError("unauthenticated", "Agent profile is inactive")
+    registration = connection.execute("SELECT id FROM machine_registrations WHERE principal_id=? AND credential_id=?", (row["principal_id"], row["id"])).fetchone()
+    if registration is None:
+        raise DomainError("unauthenticated", "Credential is not bound to a current machine registration")
+    return registration["id"]
+
+
+def current_agent_credential(connection, actor, *, now):
+    """The same credential checks as a bearer request, for an actor's recorded credential and registration."""
+    row = (connection.execute(_AGENT_CREDENTIAL + "c.id=?", (actor.credential_id,)).fetchone()
+           if actor.credential_id else None)
+    if row is not None and row["principal_id"] != actor.principal.id:
+        row = None
+    if _current_agent_registration(connection, row, now) != actor.registration_id:
+        raise DomainError("unauthenticated", "Credential is not bound to this machine registration")
+
+
 def human_global_capabilities(principal_id, uow):
     installation = uow.repository("installation").get("service")
     principal = uow.repository("principals").get(principal_id)
@@ -141,23 +175,9 @@ class Authentication:
                     delegation_assignment_id=binding["assignment_id"],
                     delegation_generation=binding["execution_generation"],
                 )
-            row = uow.connection.execute("SELECT c.*, p.kind, p.display_name, p.active principal_active FROM credentials c JOIN principals p ON p.id=c.principal_id WHERE c.token_hash=?", (digest,)).fetchone()
-            if row is None or row["kind"] != "agent" or not row["principal_active"] or row["revoked_at"]:
-                raise DomainError("unauthenticated", "Scoped agent credential is invalid or revoked")
-            if row["expires_at"]:
-                try:
-                    expires = datetime.fromisoformat(row["expires_at"]).astimezone(timezone.utc).timestamp()
-                except (ValueError, TypeError):
-                    raise DomainError("unauthenticated", "Scoped credential expiry is invalid") from None
-                if expires <= self.clock():
-                    raise DomainError("unauthenticated", "Scoped agent credential has expired")
-            profile = uow.connection.execute("SELECT status FROM agent_profiles WHERE agent_id=?", (row["principal_id"],)).fetchone()
-            if profile is None or profile["status"] != "active":
-                raise DomainError("unauthenticated", "Agent profile is inactive")
-            registration = uow.connection.execute("SELECT id FROM machine_registrations WHERE principal_id=? AND credential_id=?", (row["principal_id"], row["id"])).fetchone()
-            if registration is None:
-                raise DomainError("unauthenticated", "Credential is not bound to a current machine registration")
-            return AuthenticatedPrincipal(Principal(row["principal_id"], "agent", row["display_name"]), row["id"], registration["id"])
+            row = uow.connection.execute(_AGENT_CREDENTIAL + "c.token_hash=?", (digest,)).fetchone()
+            registration = _current_agent_registration(uow.connection, row, self.clock())
+            return AuthenticatedPrincipal(Principal(row["principal_id"], "agent", row["display_name"]), row["id"], registration)
 
     def owner_session(self, authorization):
         """Resolve an explicitly issued owner-session credential to the installation owner.

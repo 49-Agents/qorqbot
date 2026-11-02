@@ -1,8 +1,10 @@
-"""Installation-wide System Dev reports with scoped agent follow-up."""
+"""Installation-wide System Dev reports with scoped agent follow-up.
 
-import json
+Agent tools serve active supported globals only. Their business reach is derived in the reading transaction and
+intersected with the invocation's businesses and selection; no agent membership, saved scope list or business home is
+read. The owner's queue and the system incident reporter keep their own rules."""
 
-from bazarlyk.agents import roles
+from bazarlyk.agents.global_scope import active_global, effective_business_ids, reaches_business
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id
 from qorqut_operations.application.plans import PlanBuilder, apply_records, require_revision, schema, timestamp, utc_clock
@@ -81,17 +83,20 @@ class DevTickets:
     def role(ctx):
         return ctx.role_artifact_ref.id if ctx.role_artifact_ref else None
 
+    @staticmethod
+    def current_agent(ctx, uow):
+        if ctx.principal_kind != "agent" or active_global(uow.connection, ctx.principal_id) is None:
+            raise DomainError("forbidden", "System Dev agent tools require an active global agent")
+
     def in_scope(self, ctx, ticket, uow):
+        if active_global(uow.connection, ctx.principal_id) is None:
+            return False
         business = ticket["business_id"]
         if business is None:
             return ctx.business_id is None and "read_global_context" in ctx.global_capabilities
         if ctx.business_id is not None and business != ctx.business_id:
             return False
-        if business not in ctx.allowed_business_ids:
-            return False
-        return bool(uow.connection.execute(
-            "SELECT 1 FROM business_memberships WHERE business_id=? AND principal_id=? AND active=1",
-            (business, ctx.principal_id)).fetchone())
+        return business in ctx.allowed_business_ids and reaches_business(uow.connection, ctx.principal_id, business)
 
     def agent_access(self, ctx, ticket, uow=None, *, read_only=False):
         if ctx.principal_kind != "agent":
@@ -101,7 +106,7 @@ class DevTickets:
         if ticket["reporter_id"] == ctx.principal_id:
             return True
         # System-origin incidents are visible through an explicit impact link,
-        # while retaining the ordinary membership/scope checks below.
+        # while retaining the ordinary reach/scope checks below.
         if read_only and uow is not None and uow.connection.execute(
                 "SELECT 1 FROM principals p JOIN system_incidents i ON i.ticket_id=? "
                 "JOIN system_incident_impacts x ON x.incident_id=i.id "
@@ -111,11 +116,7 @@ class DevTickets:
                 (ticket["id"], ticket["reporter_id"], ctx.principal_id, ctx.business_id)).fetchone():
             if self.in_scope(ctx, {"business_id": ctx.business_id}, uow):
                 return True
-        role = self.role(ctx)
-        if role in roles.BUSINESS_ROLES:
-            if ctx.business_id is not None and ticket["business_id"] == ctx.business_id:
-                return True
-        elif role == "ordubashy":
+        if self.role(ctx) == "ordubashy":
             if ticket["business_id"] is None:
                 return "read_global_context" in ctx.global_capabilities
             if ticket["business_id"] in ctx.allowed_business_ids:
@@ -155,37 +156,24 @@ class DevTickets:
         return {"items": items[:limit], "next_offset": offset + limit if len(items) > limit else None}
 
     def agent_list(self, ctx, args, opts, uow):
-        if ctx.principal_kind != "agent":
-            raise DomainError("forbidden", "System Dev agent tools require an authenticated agent")
+        self.current_agent(ctx, uow)
         status = args.get("status", "open")
         requested_scope = args.get("scope", "business" if ctx.business_id is not None else "global")
         clauses, params = [], []
         if status != "all":
             clauses.append("status=?")
             params.append(status)
-        role = self.role(ctx)
-        if role in roles.BUSINESS_ROLES:
-            if ctx.business_id is None or requested_scope != "business":
-                raise DomainError("scope_required", "Business agent System Dev reads require its business scope")
-            if not self.in_scope(ctx, {"business_id": ctx.business_id}, uow):
-                raise DomainError("forbidden", "System Dev report is outside your authorized scope")
-            clauses.append("business_id=?")
-            params.append(ctx.business_id)
-        elif role == "ordubashy":
+        if self.role(ctx) == "ordubashy":
             if requested_scope == "business":
                 if ctx.business_id is None or ctx.business_id not in ctx.allowed_business_ids:
                     raise DomainError("scope_required", "Ordubashy business reads require an authorized business scope")
-                if not uow.connection.execute(
-                        "SELECT 1 FROM business_memberships WHERE business_id=? AND principal_id=? AND active=1",
-                        (ctx.business_id, ctx.principal_id)).fetchone():
+                if not self.in_scope(ctx, {"business_id": ctx.business_id}, uow):
                     raise DomainError("forbidden", "System Dev report is outside your authorized scope")
                 scopes = {ctx.business_id}
             else:
                 if ctx.business_id is not None:
                     raise DomainError("scope_required", "Ordubashy Global reads require Global scope")
-                active = {row[0] for row in uow.connection.execute(
-                    "SELECT business_id FROM business_memberships WHERE principal_id=? AND active=1", (ctx.principal_id,))}
-                scopes = set(ctx.allowed_business_ids) & active
+                scopes = set(ctx.allowed_business_ids) & effective_business_ids(uow.connection, ctx.principal_id)
             global_scope = "read_global_context" in ctx.global_capabilities
             scoped = ["business_id IN (" + ",".join("?" for _ in scopes) + ")"] if scopes else []
             if requested_scope == "global" and global_scope:
@@ -220,7 +208,12 @@ class DevTickets:
         return {"ticket": ticket, "events": events, "events_next_offset": next_offset}
 
     def prepare_create(self, ctx, args, opts, uow):
-        business = ctx.business_id or ctx.home_business_id
+        if ctx.principal_kind == "agent":
+            # A report is filed in the selected business (or the agent's own Global workspace), never a business home.
+            self.current_agent(ctx, uow)
+            if ctx.business_id is not None and not self.in_scope(ctx, {"business_id": ctx.business_id}, uow):
+                raise DomainError("forbidden", "System Dev report is outside your authorized scope")
+        business = ctx.business_id
         namespace = "business:" + business if business else "agent:" + ctx.agent_id
         scope = {"kind": "business", "business_id": business} if business else {"kind": "global"}
         builder = PlanBuilder(ctx, "dev_tickets_create", args, "System Dev report", namespace=namespace,
@@ -340,24 +333,12 @@ class DevTickets:
                 "event": "resolved", "resolved_at": ticket["resolved_at"], "resolved_by": ticket["resolved_by"]}
 
     def notify_reporter(self, uow, ticket, ctx, args):
-        reporter = uow.repository("principals").get(ticket["reporter_id"])
-        profile = uow.connection.execute("SELECT home_business_id,profile_json FROM agent_profiles WHERE agent_id=? AND status='active'",
-                                         (ticket["reporter_id"],)).fetchone()
-        if not reporter or not reporter["active"] or reporter["kind"] != "agent" or not profile or reporter["id"] == ctx.principal_id:
+        # Only the actual reporter, when it is an active supported global with current access to the ticket's scope
+        # (derived reach to its active business, or read_global_context for Global), and never the resolving caller.
+        from bazarlyk.incidents import IncidentReporter
+        if ticket["reporter_id"] == ctx.principal_id or not IncidentReporter.recipient_current(
+                uow.connection, ticket["reporter_id"], ticket["business_id"]):
             return
-        if ticket["business_id"] is None:
-            scope = json.loads(profile["profile_json"]).get("scope", {})
-            if scope.get("kind") != "ecosystem" or "read_global_context" not in scope.get("global_capabilities", ()):
-                return
-        else:
-            scope = json.loads(profile["profile_json"]).get("scope", {})
-            if (ticket["business_id"] != profile["home_business_id"]
-                    and ticket["business_id"] not in scope.get("allowed_business_ids", ())):
-                return
-            if not uow.connection.execute(
-                    "SELECT 1 FROM business_memberships WHERE business_id=? AND principal_id=? AND active=1",
-                    (ticket["business_id"], ticket["reporter_id"])).fetchone():
-                return
         now = timestamp(self.clock)
         identity = new_id()
         summary = "System Dev resolved: " + ticket["title"]

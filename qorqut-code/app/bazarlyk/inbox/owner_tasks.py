@@ -1,12 +1,13 @@
 """Derived owner-task following: no subscription writer, backfill or scheduler."""
 
+from bazarlyk.agents.global_scope import active_role_holder
+from bazarlyk.agents.roles import ORDUBASHY_ROLE
+
 
 def ordubashies(uow):
-    return {r[0] for r in uow.connection.execute(
-        "SELECT a.agent_id FROM agent_profiles a JOIN principals p ON p.id=a.agent_id "
-        "WHERE a.status='active' AND p.active=1 AND p.kind='agent' "
-        "AND json_extract(a.profile_json,'$.role.id')='ordubashy' "
-        "AND json_extract(a.profile_json,'$.scope.kind')='ecosystem'")}
+    """The current Ordubashy follower as a set: empty when none is registered; a second holder is a configuration error."""
+    holder = active_role_holder(uow.connection, ORDUBASHY_ROLE)
+    return {holder} if holder else set()
 
 
 ALL_SCOPES = object()
@@ -15,6 +16,7 @@ ALL_SCOPES = object()
 def tasks(uow, *, business=ALL_SCOPES, identity=None):
     # The installation identity is authoritative, not an assignee display name
     # or every business member marked owner. Match final committed assignment.
+    # The membership test belongs to that HUMAN owner, not to any agent.
     where, args = [], []
     if business is not ALL_SCOPES:
         where.append('t.business_id IS ?')

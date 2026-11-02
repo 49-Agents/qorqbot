@@ -9,6 +9,8 @@ names are delivery details: they never widen or narrow who a principal is.
 import json
 
 from qorqut_operations.contracts import DomainError
+from bazarlyk.agents.global_scope import active_global
+from bazarlyk.agents.roles import ORDUBASHY_ROLE
 
 
 def installation_owner(uow):
@@ -18,24 +20,17 @@ def installation_owner(uow):
 
 
 def ordubashy_profile(uow, identity, *, require_codex):
-    """True when `identity` is an active registered Ordubashy agent principal.
+    """True when `identity` is a current supported global holding the Ordubashy role.
 
+    Current means the shared global eligibility (``global_scope.active_global``):
+    an active agent principal with an active, homeless ecosystem profile. A
+    business-home, inactive or malformed registration never qualifies.
     `require_codex` keeps the existing Codex-only management contract. The
     private conversation predicate passes False so that every supported runtime
     of the one registered identity shares its history.
     """
-    if not identity:
-        return False
-    row = uow.connection.execute('SELECT p.active, p.kind, a.status, a.profile_json FROM principals p '
-        'JOIN agent_profiles a ON a.agent_id=p.id WHERE p.id=?', (identity,)).fetchone()
-    if not row or not row['active'] or row['kind'] != 'agent' or row['status'] != 'active':
-        return False
-    try:
-        data = json.loads(row['profile_json'] or '{}')
-    except (TypeError, ValueError):
-        return False
-    role = data.get('role') if isinstance(data, dict) else None
-    if not isinstance(role, dict) or role.get('id') != 'ordubashy':
+    data = active_global(uow.connection, identity)
+    if data is None or data['role']['id'] != ORDUBASHY_ROLE:
         return False
     return not require_codex or data.get('runtime') == 'codex'
 

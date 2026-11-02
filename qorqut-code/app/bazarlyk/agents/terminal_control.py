@@ -9,6 +9,7 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, utc_now, plain
 from qorqut_operations.application.plans import PlanBuilder, UUID, TEXT, schema, apply_records, ref
 from bazarlyk.management.identity import require_protected_control
+from .global_scope import active_global
 
 PLUGIN = 'agent-terminal-control'
 PREFIX = 'agent_terminal_'
@@ -50,21 +51,11 @@ class TerminalControl:
         self.stop_event, self.thread = Event(), None
 
     def message_target(self, ctx, identity, uow):
-        """Recorded direct messages target an existing Dev in the selected business."""
+        """Recorded direct terminal messages targeted a business Dev. Businesses have no resident agents, and a
+        business-home identity is never dispatched to whatever its stored status; inbox delivery remains."""
         if ctx.principal_kind == 'human':
             self.owner(ctx, uow)
-        else:
-            sender = uow.connection.execute("SELECT profile_json FROM agent_profiles WHERE agent_id=? AND status='active'",
-                                            (ctx.principal_id,)).fetchone()
-            if (ctx.principal_kind != 'agent' or not sender or ctx.delegation_assignment_id is not None
-                    or json.loads(sender['profile_json'])['role']['id'] not in {'ordubashy', 'global-marketing'}):
-                raise DomainError('forbidden', 'Direct Dev terminal messages require Ordubashy or Global Marketing')
-        row = uow.connection.execute("SELECT * FROM agent_profiles WHERE agent_id=? AND status='active'", (identity,)).fetchone()
-        if (not row or json.loads(row['profile_json'])['role']['id'] != 'dev'
-                or row['home_business_id'] != ctx.business_id or ctx.business_id not in ctx.allowed_business_ids):
-            raise DomainError('forbidden', 'Choose the active Dev in the selected authorized business')
-        self.app.inbox.messages.peer(ctx, identity, uow)
-        return dict(row)
+        raise DomainError('forbidden', 'Direct terminal messages targeted retired business Dev agents; use inbox delivery')
 
     def queue_message(self, ctx, message, uow):
         target = self.message_target(ctx, message['recipient_id'], uow)
@@ -91,9 +82,8 @@ class TerminalControl:
         if ctx.principal_kind == 'human':
             self.owner(ctx, uow)
             return
-        row = uow.connection.execute('SELECT profile_json FROM agent_profiles WHERE agent_id=? AND status=\'active\'', (ctx.principal_id,)).fetchone()
-        if (ctx.principal_kind != 'agent' or not row
-                or json.loads(row['profile_json'])['role']['id'] not in {'ordubashy', 'global-marketing'}):
+        data = active_global(uow.connection, ctx.principal_id) if ctx.principal_kind == 'agent' else None
+        if data is None or data['role']['id'] not in {'ordubashy', 'global-marketing'}:
             raise DomainError('forbidden', 'Terminal control is reserved for Ordubashy, Global Marketing and the owner')
 
     def target(self, ctx, identity, uow, *, control=True):
@@ -101,6 +91,9 @@ class TerminalControl:
         row = uow.connection.execute("SELECT * FROM agent_profiles WHERE agent_id=? AND status='active'", (identity,)).fetchone()
         if not row or identity == ctx.principal_id:
             raise DomainError('forbidden', 'Select another active registered agent')
+        # A business-home identity is historical and never controlled or dispatched to, whatever its stored status.
+        if row['home_business_id'] is not None or active_global(uow.connection, identity) is None:
+            raise DomainError('forbidden', 'Select an active global agent; business-home identities are historical')
         if control:
             from .global_peers import protect_peer_control
             protect_peer_control(ctx, identity, uow)
@@ -113,13 +106,6 @@ class TerminalControl:
                     and json.loads(row['profile_json'])['role']['id'] != 'dev'
                     and (not marketing_peer(uow, ctx.principal_id) or row['home_business_id'] is None)):
                 raise DomainError('forbidden', 'Global Marketing terminal control targets business Dev agents')
-        business = row['home_business_id']
-        if business is not None:
-            if business not in ctx.allowed_business_ids:
-                raise DomainError('forbidden', 'Agent business is outside current scope')
-            b = uow.repository('businesses').get(business)
-            if not b or b['archived_at'] is not None:
-                raise DomainError('forbidden', 'Agent business is unavailable')
         return dict(row)
 
     def select_targets(self, ctx, args, uow):
@@ -134,11 +120,7 @@ class TerminalControl:
             business = uow.repository('businesses').get(business_id)
             if not business or business['archived_at'] is not None:
                 raise DomainError('forbidden', 'Selected business is unavailable')
-            identities.update(row['agent_id'] for row in uow.connection.execute(
-                "SELECT agent_id FROM agent_profiles WHERE home_business_id=? AND status='active' LIMIT ?",
-                (business_id, MAX_TARGETS + 1)))
-            if len(identities) > MAX_TARGETS:
-                raise DomainError('validation_error', f'Select at most {MAX_TARGETS} agents')
+            # Businesses have no resident agents, so a business selection adds no targets.
         if not identities or len(identities) > MAX_TARGETS:
             raise DomainError('validation_error', f'Select between 1 and {MAX_TARGETS} active agents')
         # Invalid explicit IDs or unauthorized selections reject the whole request.

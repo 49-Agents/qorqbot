@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 from qorqut_operations.contracts import DomainError
+from bazarlyk.agents.global_scope import active_global
 from bazarlyk.management.identity import installation_owner
 from bazarlyk.reply_notifications import replies
 from bazarlyk.domains.viewbox import BOARD_LIMIT, attention_key
@@ -50,17 +51,16 @@ def queue(runtime, ctx, change=None):
             raise DomainError('validation_error', 'Supply viewed attention IDs')
     candidates = [item for item in replies(runtime, ctx)['items'] if not item.get('nav_only')]
     with runtime.database.read() as uow:
-        # Match the visible history of each active agent; listing a board does not mark it read.
+        # Match the visible history of each current supported global; listing a board does not mark it read. Boards of
+        # other registrations stay readable to the owner but raise no attention.
         placements = uow.connection.execute("""SELECT * FROM (
             SELECT v.*, a.profile_json, ROW_NUMBER() OVER (
                 PARTITION BY v.agent_id ORDER BY v.placement_sequence DESC) AS board_rank
             FROM agent_viewbox_items v JOIN agent_profiles a ON a.agent_id=v.agent_id
-            JOIN principals p ON p.id=a.agent_id
-            LEFT JOIN businesses b ON b.id=a.home_business_id
-            WHERE a.status='active' AND p.active=1
-                AND (a.home_business_id IS NULL OR (b.id IS NOT NULL AND b.archived_at IS NULL))
+            WHERE a.status='active' AND a.home_business_id IS NULL
         ) WHERE board_rank<=?""", (BOARD_LIMIT,)).fetchall()
-        for row in placements:
+        current = {agent: active_global(uow.connection, agent) is not None for agent in {row['agent_id'] for row in placements}}
+        for row in (row for row in placements if current[row['agent_id']]):
             profile = json.loads(row['profile_json'])
             candidates.append({'id': attention_key(row), 'kind': 'viewbox', 'agent_id': row['agent_id'],
                 'agent_name': profile.get('display_name') or profile.get('name') or 'Agent',

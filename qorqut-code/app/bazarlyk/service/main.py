@@ -83,7 +83,7 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
         from bazarlyk.bootstrap.preparation import OUTREACH_TOKEN_ROOT
         from bazarlyk.integrations.registrations import OutreachRegistrations
         runtime.outreach_registrations = OutreachRegistrations(runtime.database, integrations,
-            email_client=lambda: runtime.domains.email.client, token_root=OUTREACH_TOKEN_ROOT)
+            email_client=lambda: runtime.domains.email.client, token_root=OUTREACH_TOKEN_ROOT, resolver=runtime.resolver)
     if github_app_config is not None:
         from bazarlyk.sandbox.github_app import GitHubAppConfig, GitHubAppTokenProvider
         from bazarlyk.sandbox.provider_tokens import BusinessProviderTokens
@@ -170,7 +170,6 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
         runtime.recovery_admin = RecoveryAdministration(runtime.database, selected,
             lambda: runtime.recovery_quiescence(timeout=60), background_worker=runtime.background)
     runtime.domains.archive.reset_terminals = terminals.reset_business_for_archive
-    runtime.domains.archive.prepare_agent = terminals.prepare_restored_agent
     compatibility = DashboardCompatibility(runtime, terminals=terminals, background=runtime.background, local_files=local)
     authentication = Authentication(runtime.database, runtime.paths, bootstrap_token=bootstrap_token, signing_key=signing_key)
     from bazarlyk.installation import component

@@ -44,15 +44,17 @@ def register_programs(programs, *, models=None, transcript_source=None,
 
     # The final Context filing programs: completion-only, no model call and no document read of their own.
     FilingPrograms().register(programs)
+    # One Global learning stream (v1.2 G022): the learning programs are Global only, so no business routine, job or worker
+    # membership is created for them and historical business learning is left as it is.
     add("learnings.extract", EXTRACT_ARGUMENTS, learning.run, ("learnings_record_batch",),
         ("learning_candidates", "learning_decisions", "learning_scan_state", "learning_runs", "learning_history"), timeout_seconds=7200,
-        scope_kinds=("business", "global"), global_capabilities=("read_global_context",))
+        scope_kinds=("global",), global_capabilities=("read_global_context",))
     add("learnings.extract_global", EXTRACT_ARGUMENTS, learning.run, ("learnings_record_batch",),
         ("learning_candidates", "learning_decisions", "learning_scan_state", "learning_runs", "learning_history"), timeout_seconds=7200,
         scope_kinds=("global",), global_capabilities=("read_global_context",))
     from . import learning_engine as engine
     add(engine.PROGRAM, engine.ARGUMENTS, engine.EngineProgram(learning, learning_engine).run if learning_engine is not None else None,
-        (engine.OPERATION,), engine.RESOURCES, timeout_seconds=7200, scope_kinds=("business", "global"),
+        (engine.OPERATION,), engine.RESOURCES, timeout_seconds=7200, scope_kinds=("global",),
         global_capabilities=("read_global_context",), unavailable_reason=None if learning_engine is not None else engine.UNAVAILABLE)
     from qorqut_operations.application.plans import DATE
     add("metrics.sync", schema({"source_id": IDENTITY, "date": DATE}, ("source_id",)), MetricCollectionProgram(metric_collector).run,
@@ -101,7 +103,7 @@ def register_programs(programs, *, models=None, transcript_source=None,
     add("email.attachment", schema({"message_id": UUID, "attachment_id": IDENTITY}, ("message_id", "attachment_id")),
         EmailProgram(email).attachment, ("assets_upload",), ("documents", "managed_document_files"))
     add("learnings.apply_accepted", schema({}), None, unavailable_reason=
-        "The preserved learn-apply routine references a program that was never implemented.", scope_kinds=("global", "business"))
+        "The preserved learn-apply routine references a program that was never implemented.", scope_kinds=("global",))
     if platform_actions is not None:
         PlatformPrograms(platform_actions, file_applier, reddit_adapter).register(programs)
     if maintenance is not None:

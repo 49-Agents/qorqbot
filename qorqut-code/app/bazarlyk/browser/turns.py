@@ -14,6 +14,7 @@ import json
 import re
 
 from qorqut_operations.contracts import DomainError, new_id, utc_now
+from qorqut_operations.global_agents import global_profile
 
 
 _BROWSER_KEY = re.compile(r"^[A-Za-z0-9:_-]{1,200}$")
@@ -169,6 +170,15 @@ class BrowserTurnQueue:
                     # keep this FIFO row reserved and prevent a later request
                     # from taking the browser in the gap.
                     return None
+            elif candidate["requester_kind"] == "agent" \
+                    and global_profile(uow.connection, candidate["parent_principal_id"]) is None:
+                # Only a current active Global agent may newly own a browser. The canonical parent identity decides,
+                # never the requester label; the row is blocked so the next entry can advance.
+                uow.connection.execute(
+                    "UPDATE browser_turns SET state='blocked',reason=?,updated_at=?,released_at=?,revision=revision+1 "
+                    "WHERE id=? AND state='queued'",
+                    ("requesting agent is not an active Global agent", now_text, now_text, candidate["id"]))
+                continue
             lease_id = new_id()
             until = (now + timedelta(seconds=self.lease_seconds)).isoformat(timespec="microseconds").replace("+00:00", "Z")
             updated = uow.connection.execute(
@@ -234,7 +244,9 @@ class BrowserTurnQueue:
         else:
             row = existing
         promoted = self._promote(uow, browser_key, now_dt)
-        selected = promoted if promoted and promoted["id"] == row["id"] else row
+        # Report the row as stored now: promotion may have just blocked it (an agent that is not an active Global agent).
+        selected = promoted if promoted and promoted["id"] == row["id"] else \
+            uow.connection.execute("SELECT * FROM browser_turns WHERE id=?", (row["id"],)).fetchone()
         return self._compact(uow, selected)
 
     def wait(self, uow, turn_id, *, parent_principal_id, requester_id, generation,
@@ -268,8 +280,8 @@ class BrowserTurnQueue:
 
     def begin_action(self, uow, turn_id, *, parent_principal_id, requester_id, generation, lease_id,
                      action_id, command, now=None):
-        self._owned(uow, turn_id, parent_principal_id=parent_principal_id, requester_id=requester_id,
-                    generation=generation, lease_id=lease_id, now=now)
+        turn = self._owned(uow, turn_id, parent_principal_id=parent_principal_id, requester_id=requester_id,
+                           generation=generation, lease_id=lease_id, now=now)
         if not isinstance(action_id, str) or not action_id or len(action_id) > 200:
             raise DomainError("validation_error", "action_id is required")
         if not isinstance(command, list) or not command or any(not isinstance(item, str) for item in command):
@@ -280,6 +292,10 @@ class BrowserTurnQueue:
             if existing["turn_id"] != turn_id or existing["command_json"] != encoded:
                 raise DomainError("idempotency_conflict", "Browser action identity was already used differently")
             return dict(existing), False
+        # A recorded intent above is only replayed; a new one is admitted only while the owning agent is still a
+        # current active Global agent. Reconciliation of earlier intents never comes through here.
+        if turn["requester_kind"] == "agent" and global_profile(uow.connection, turn["parent_principal_id"]) is None:
+            raise DomainError("forbidden", "New browser actions are limited to active Global agents")
         now_dt = _now(now or self.clock())
         now_text = now_dt.isoformat(timespec="microseconds").replace("+00:00", "Z")
         command_until = (_now(now or self.clock()) + timedelta(seconds=60)).isoformat(

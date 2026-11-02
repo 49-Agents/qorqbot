@@ -6,7 +6,7 @@ from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.application.plans import IDENTITY, PAGE, TEXT, UUID, apply_records, page, prepare_job, require_revision, rows, schema
 from .analysis import BUCKETS, SCOPES, TAGS, LearnError, validate_edit, validate_item
-from .scope import PlanBuilder, SCOPE, namespace
+from .scope import PlanBuilder, SCOPE, namespace, require_global
 from .work import LearningWork, STATES, record_history
 from .review import LearningReview
 from .issue_reads import VIEW, LearningIssueReads, in_view
@@ -140,15 +140,12 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
         return builder.build()
 
     def prepare_extract(self, ctx, args, options, uow):
+        require_global(ctx.business_id)
         if args.get('supersession_mode') == 'apply' and ctx.principal_kind != 'human':
             raise DomainError('forbidden', 'Only the owner may enable automatic supersession for an extraction')
         if args.get("agent_id"):
-            if ctx.business_id is not None:
-                member = uow.repository('business_memberships', business_id=ctx.business_id).get(args['agent_id'])
-                if not member or not member['active']:
-                    raise DomainError('forbidden', 'Selected transcript agent is outside this business')
-            profile = uow.repository('agent_profiles', business_id=ctx.business_id).get(args['agent_id'])
-            if not profile or (ctx.business_id is None and profile['profile_json'].get('role', {}).get('id') == 'learning-applier'):
+            profile = uow.repository('agent_profiles', business_id=None).get(args['agent_id'])
+            if not profile or profile['profile_json'].get('role', {}).get('id') == 'learning-applier':
                 raise DomainError('forbidden', 'Selected transcript agent is outside this learning workspace or excluded')
         builder = PlanBuilder(ctx, "learnings_extract", args, "Extract learning candidates")
         prepare_job(builder, uow, "learnings.extract", args, programs=self.programs)
@@ -275,6 +272,8 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
         return self.app.file_executor.resume(self.app, status["pending"]["receipt_id"])
 
     def prepare_batch(self, ctx, args, options, uow):
+        # A business output prepared before the stream became Global-only (or by a stale job) never changes history.
+        require_global(ctx.business_id)
         builder = PlanBuilder(ctx, "learnings_record_batch", args, "Record verified learning extraction")
         run = args["run"]
         cores = run.get("cores", {})

@@ -6,6 +6,7 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp, utc_clock, ref, require_revision
 from qorqut_operations.tasks.scope import task_namespace
+from bazarlyk.agents.global_scope import reaches_business
 from .identity import installation_owner, ordubashy_profile, require_coordinator
 from qorqut_operations.storage.repositories import decode_row
 from dataclasses import replace
@@ -76,7 +77,13 @@ class ManagementService:
                 raise DomainError('forbidden', 'Global management scope is unavailable')
         elif business_id not in ctx.allowed_business_ids:
             raise DomainError('forbidden', 'Management item is outside the selected scope')
-        elif (ctx.business_id is not None and business_id != ctx.business_id) or not uow.connection.execute(
+        elif ctx.business_id is not None and business_id != ctx.business_id:
+            raise DomainError('forbidden','Management source membership is unavailable')
+        elif ctx.principal_kind == 'agent':
+            # An agent reaches a business only as a current supported global; agent membership rows are not consulted.
+            if not reaches_business(uow.connection, ctx.principal_id, business_id):
+                raise DomainError('forbidden', 'Management source business is unavailable')
+        elif not uow.connection.execute(
                 'SELECT 1 FROM business_memberships m JOIN businesses b ON b.id=m.business_id '
                 'WHERE m.principal_id=? AND m.business_id=? AND m.active=1 AND b.archived_at IS NULL',
                 (ctx.principal_id,business_id)).fetchone():

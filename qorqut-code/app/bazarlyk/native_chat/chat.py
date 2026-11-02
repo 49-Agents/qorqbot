@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 
-from qorqut_operations.business_lifecycle import require_active_business
 from qorqut_operations.contracts import DomainError
 from bazarlyk.management.identity import installation_owner
 from bazarlyk.native_archive import CaptureError
@@ -87,20 +86,14 @@ class NativeChat:
     # ----- authorization ---------------------------------------------------------------------------------------------
 
     def _target(self, uow, principal_id: str, agent_id: str) -> dict:
-        """Any active registered agent: its exact saved profile row, never a name or navigation pin. A business agent also
-        needs an unarchived business and the owner's active ownership of it, as for its Terminal."""
+        """Any active supported global agent: its exact saved profile row, never a name or navigation pin. A business-home
+        identity is historical and never a Chat target, whatever its stored status."""
         principal = uow.repository("principals").get(principal_id)
         if not principal or principal["kind"] != "human" or not principal["active"] or installation_owner(uow) != principal_id:
             raise DomainError("forbidden", "Agent chat is for the installation owner")
         profile = store.active_profile(uow.connection, agent_id, self.runtime.paths)
         if profile is None:
             raise DomainError("not_found", "Select an active registered agent")
-        business = profile["home_business_id"]
-        if business is not None:
-            require_active_business(uow.connection, business)
-            if not uow.connection.execute("SELECT 1 FROM business_memberships WHERE business_id=? AND principal_id=? AND active=1 AND is_owner=1",
-                                          (business, principal_id)).fetchone():
-                raise DomainError("forbidden", "Agent chat requires the current business owner")
         return profile
 
     # ----- reads -----------------------------------------------------------------------------------------------------

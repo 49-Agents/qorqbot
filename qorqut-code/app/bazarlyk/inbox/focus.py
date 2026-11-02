@@ -6,6 +6,8 @@ from urllib.parse import urlsplit
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, InvocationOptions, new_id, plain
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp
+from bazarlyk.agents.global_scope import active_global
+from bazarlyk.agents.roles import ORDUBASHY_ROLE
 from bazarlyk.domains.items.vocabulary import ITEM_TYPES
 from qorqut_operations.items import UNAVAILABLE
 
@@ -47,10 +49,8 @@ class FocusService:
 
     def context(self, ctx, uow):
         ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
-        profile = uow.repository('agent_profiles', business_id=None).get(ctx.principal_id)
-        if (ctx.principal_kind != 'agent' or not profile or profile['status'] != 'active'
-                or profile['profile_json']['role']['id'] != 'ordubashy'
-                or profile['profile_json']['scope']['kind'] != 'ecosystem'):
+        profile = active_global(uow.connection, ctx.principal_id) if ctx.principal_kind == 'agent' else None
+        if profile is None or profile['role']['id'] != ORDUBASHY_ROLE:
             raise DomainError('forbidden', 'Focus is available only to active ecosystem Ordubashy')
         return ctx
 

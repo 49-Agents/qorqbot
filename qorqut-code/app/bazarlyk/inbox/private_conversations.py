@@ -1,9 +1,12 @@
-"""Isolated owner conversations with global peers and Task business agents.
+"""Isolated owner conversations with the global peers.
 
 The default preserves the original owner/Ordubashy source key. Marketing threads
 bind an exact peer_agent_id and use a separate key, delivery, cursor and history.
 The optional agent_id/peer_role selector never grants access: every source and
 participant is reauthorized. Team notes and private account mail are unchanged.
+A global peer takes part in an active business through its effective scope, never
+a membership row. Business-home identities are historical: their stored channels
+are history, never an executable peer.
 """
 
 import json
@@ -12,6 +15,7 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp, utc_clock
 from qorqut_operations.conversations import SUMMARY, author, normalize_summary, participants
+from bazarlyk.agents.global_scope import active_business_participant
 from bazarlyk.management.identity import installation_owner, private_participants
 
 AUDIENCE = 'owner_ordubashy'
@@ -29,16 +33,6 @@ UNAVAILABLE = {'forbidden', 'not_found', 'policy_denied', 'validation_error', 'o
                'management_unavailable', 'busy', 'document_unavailable', 'context_refresh_required'}
 EMAIL_READERS = ('email_conversation_get', 'email_conversations_list',
                  'business_email_conversation_get', 'business_email_conversations_list')
-
-
-def business_peer(uow, identity, business):
-    if not business or not identity:
-        return False
-    return bool(uow.connection.execute(
-        "SELECT 1 FROM agent_profiles a JOIN principals p ON p.id=a.agent_id "
-        "JOIN business_memberships m ON m.principal_id=a.agent_id AND m.business_id=a.home_business_id "
-        "WHERE a.agent_id=? AND a.home_business_id=? AND a.status='active' AND p.active=1 AND m.active=1",
-        (identity, business)).fetchone())
 
 
 def source_key(kind, business_id, identity, peer_agent_id=None):
@@ -89,13 +83,13 @@ def private_index(ctx, bindings, uow, service=None):
     # A Marketing agent that lost its peer authority must not read the legacy channel's counts instead.
     if reader or ctx.principal_id == private_participants(uow)[1]:
         mapping.update({key: (key, None) for key in canonical})
-    peers = [ctx.principal_id] if marketing_peer(uow, ctx.principal_id) or any(b.get('type') == 'task' and business_peer(uow,ctx.principal_id,b.get('business_id')) for b in bindings) else []
+    peers = [ctx.principal_id] if marketing_peer(uow, ctx.principal_id) else []
     if reader:
         # A revoked or inactive peer's channel is unreadable, so it cannot leave
         # an unread marker the owner has no way to clear.
         peers = [r[0] for r in uow.connection.execute(
             "SELECT DISTINCT peer_agent_id FROM owner_conversations WHERE peer_agent_id IS NOT NULL")
-            if marketing_peer(uow, r[0]) or any(b.get('type') == 'task' and business_peer(uow,r[0],b.get('business_id')) for b in bindings)]
+            if marketing_peer(uow, r[0])]
     for peer in peers:
         mapping.update({'peer:' + peer + ':' + key: (key, peer) for key in canonical})
     if not mapping:
@@ -179,11 +173,6 @@ class PrivateConversations:
         owner, coordinator = private_participants(uow)
         args = args or {}
         selected = args.get('agent_id')
-        source = args.get('source', {})
-        business = (ctx.business_id or source.get('business_id')) if ctx and source else None
-        local = source.get('type') == 'task'
-        if selected is None and not args.get('peer_role') and ctx and ctx.principal_kind == 'agent' and local and business_peer(uow, ctx.principal_id, business):
-            selected = ctx.principal_id
         if args.get('peer_role') == 'global-marketing' and not selected and ctx and ctx.principal_kind == 'agent' \
                 and marketing_peer(uow, ctx.principal_id):
             selected = ctx.principal_id
@@ -201,7 +190,7 @@ class PrivateConversations:
             raise DomainError('forbidden', 'Selected peer does not match this channel')
         if args.get('peer_role') == 'global-marketing' and not marketing_peer(uow, selected):
             raise DomainError('forbidden', 'Selected peer does not match this channel')
-        if selected != coordinator and not marketing_peer(uow, selected) and not (local and business_peer(uow, selected, business)):
+        if selected != coordinator and not marketing_peer(uow, selected):
             raise DomainError('forbidden', 'Select an active authorized peer for this source')
         if ctx and ctx.principal_kind == 'agent' and ctx.principal_id != selected:
             raise DomainError('forbidden', 'A peer may access only its own private owner conversation')
@@ -242,12 +231,21 @@ class PrivateConversations:
         from dataclasses import replace
         selected = ctx.select_business(business_id) if business_id is not None else replace(ctx, business_id=None)
         selected = replace(selected, review_business_id=business_id)
-        if business_id is not None and not uow.connection.execute(
-                'SELECT 1 FROM business_memberships m JOIN businesses b ON b.id=m.business_id '
-                'WHERE m.principal_id=? AND m.business_id=? AND m.active=1 AND b.archived_at IS NULL',
-                (ctx.principal_id, business_id)).fetchone():
+        if business_id is not None and not self.business_participant(ctx, business_id, uow):
             raise DomainError('forbidden', 'Private conversation source is outside an active business membership')
         return self.app.current_context(selected, uow)
+
+    @staticmethod
+    def business_participant(ctx, business_id, uow):
+        """Read now, in this unit of work: an agent through the effective scope of an active supported global (no
+        membership row, no business home, an active business); a person or system principal through its active
+        membership of the active business. Reach alone never selects a peer channel."""
+        if ctx.principal_kind == 'agent':
+            return active_business_participant(uow.connection, business_id, ctx.principal_id)
+        return bool(uow.connection.execute(
+            'SELECT 1 FROM business_memberships m JOIN businesses b ON b.id=m.business_id '
+            'WHERE m.principal_id=? AND m.business_id=? AND m.active=1 AND b.archived_at IS NULL',
+            (ctx.principal_id, business_id)).fetchone())
 
     def namespace(self, ctx):
         return 'business:' + ctx.business_id if ctx.business_id else 'global'
@@ -337,7 +335,7 @@ class PrivateConversations:
         _, coordinator = private_participants(uow)
         coordinator = row['peer_agent_id'] or coordinator
         from bazarlyk.agents.global_peers import marketing_peer
-        if row['peer_agent_id'] and not marketing_peer(uow, coordinator) and not (row['source_type'] == 'task' and business_peer(uow, coordinator, row['business_id'])):
+        if row['peer_agent_id'] and not marketing_peer(uow, coordinator):
             return False
         if not coordinator or ctx.principal_kind != 'agent' or ctx.principal_id != coordinator:
             return False
@@ -390,14 +388,14 @@ class PrivateConversations:
         result = []
         for row in uow.connection.execute("SELECT agent_id,profile_json FROM agent_profiles WHERE status='active'"):
             identity = row['agent_id']
-            if identity != coordinator and not marketing_peer(uow,identity) and not (source['type'] == 'task' and business_peer(uow,identity,business)):
+            if identity != coordinator and not marketing_peer(uow,identity):
                 continue
             if not self.channel_available(ctx, source, identity, uow):
                 continue
             profile = json.loads(row['profile_json'])
             stored = conversation_row(uow, source_key(source['type'], business, source['id'], None if identity == coordinator else identity))
             result.append({'agent_id': identity, 'name': profile.get('display_name') or profile.get('name') or identity,
-                'role': profile['role'], 'channel': 'private' if identity == coordinator else 'marketing' if marketing_peer(uow,identity) else 'agent:' + identity,
+                'role': profile['role'], 'channel': 'private' if identity == coordinator else 'marketing',
                 'unread': bool(stored and has_unread(uow,stored['id'],read_cursor(uow,stored['id'],owner)))})
         return {'peers': result}
 

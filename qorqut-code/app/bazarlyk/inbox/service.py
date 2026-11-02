@@ -177,8 +177,9 @@ class InboxService:
 
     @staticmethod
     def business_member(ctx, business, uow):
-        return uow.connection.execute('SELECT 1 FROM business_memberships WHERE business_id=? AND principal_id=? AND active=1',
-            (business, ctx.principal_id)).fetchone() is not None
+        """Current business access: a human/system membership, or an active supported global's derived access."""
+        from bazarlyk.agents.global_scope import active_business_participant
+        return active_business_participant(uow.connection, business, ctx.principal_id)
 
     def startup_owned(self, agent_id, consumer, uow):
         return uow.connection.execute(

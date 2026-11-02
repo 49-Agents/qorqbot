@@ -5,13 +5,21 @@ Registering these kinds with the Operations ``ItemResolver`` grants nothing: ``r
 excluded working-memory, Global-mailbox discussion, active-member and active-agent guards, ``resolve`` authorizes the
 domain's own read operation (``authorize_item_read``) at the original read-check points, and ``fingerprint`` first
 performs that same authorized read. The dependencies are explicit; nothing here constructs or reaches the Task
-service, and published shared Context readability grants none of these private operational reads."""
+service, and published shared Context readability grants none of these private operational reads.
+
+An ``agent`` item is a descriptive endpoint, not an assignment. A global's profile has no home and is read in Global and in
+any active selected business; it is current only as an active supported global (``global_scope``). A business-home profile
+is history, read only in its original business. Retired, inactive, unsupported-role, malformed and business-home profiles
+resolve as archived, so the ``include_archived`` contract keeps them out of normal lists."""
 
 from qorqut_operations.application.plans import ref, rows
+from qorqut_operations.business_lifecycle import active_business_ids
 from qorqut_operations.contracts import DomainError, ExpectedTarget, canonical_hash
 from qorqut_operations.departments import ALIASES, normalize_departments, profile_department
 from qorqut_operations.items import authorize_item_read, item_revision
 from qorqut_operations.tags import item_labels
+
+from bazarlyk.agents.global_scope import active_global
 
 from ..activity import linked_action, linked_action_items
 from ..documents.journal_access import JOURNAL_KINDS, is_owner
@@ -21,6 +29,33 @@ from .vocabulary import NOT_CANDIDATES, RAW_KINDS, RESOURCE_TYPES, document_type
 
 # The resource tables whose labels live in the shared tag catalog, with the catalog's item type for each.
 LABELLED = {"tasks": "task", "action_logs": "action"}
+
+
+def agent_row(ctx, uow, identity):
+    """The stored profile an ``agent`` item names in this scope: the business's own historical row, else a global's row
+    (no home) in Global or an active selected business. A business-home row is never read outside its business."""
+    if ctx.business_id is not None:
+        row = uow.repository("agent_profiles", business_id=ctx.business_id).get(identity)
+        if row is not None or ctx.business_id not in active_business_ids(uow.connection):
+            return row
+    return uow.repository("agent_profiles", business_id=None).get(identity)
+
+
+def current_agent(uow, row):
+    return row["home_business_id"] is None and active_global(uow.connection, row["agent_id"]) is not None
+
+
+def stored_profile(row):
+    """The decoded stored profile, or an empty one when it is malformed (it then reads only as archived history)."""
+    profile = row.get("profile_json")
+    return profile if isinstance(profile, dict) else {}
+
+
+def agent_departments(row):
+    try:
+        return [profile_department(stored_profile(row))]
+    except (AttributeError, TypeError):
+        return []
 
 
 class HostItems:
@@ -61,6 +96,9 @@ class HostItems:
                 # Canonical action_id or legacy bare ID, authorized by membership.
                 row = linked_action(ctx, uow, identity)
                 if row: return table, row
+            elif table == "agent_profiles":
+                row = agent_row(ctx, uow, identity)
+                if row: return table, row
             elif table:
                 row = uow.repository(table, business_id=ctx.business_id).get(identity)
                 if row: return table, row
@@ -78,20 +116,25 @@ class HostItems:
             view = {"label": row["name"], "revision": row["revision"]}
         elif table in {"principals", "agent_profiles"}:
             self.authorize(ctx, "assignees_list" if table == "principals" else "agents_get", uow)
-            view = {"label": row.get("display_name") or row.get("profile_json", {}).get("display_name") or row.get("name"), "revision": row["revision"]}
+            view = {"label": row.get("display_name") or stored_profile(row).get("display_name") or row.get("name"), "revision": row["revision"]}
         else:
             view = self.related.get(ctx, uow, table, item["id"], builder, allow_busy=allow_busy)
         if builder:
             if table == "action_logs":
                 # The action's true storage identity; a Global-stored action is a read-only Global reference.
                 builder.expect(ref(table, row["id"], row["business_id"], None if row["business_id"] else "global"), row)
+            elif table == "agent_profiles" and row["home_business_id"] is None:
+                # A global's principal and profile; inside a business plan the profile is a read-only ecosystem pin.
+                builder.expect(ref("principals", item["id"], None), uow.repository("principals").get(item["id"]))
+                builder.expect(ref(table, item["id"], None, "ecosystem" if ctx.business_id else None), row)
             else:
+                # A business-home profile keeps its original home pin.
                 builder.expect(ref(table, item["id"], None if table == "principals" else ctx.business_id), row)
         metadata = row.get("metadata_json", {})
         material = classification(row, table)
         subtype = material.get("material_type") or row.get("kind") or ("message" if table == "email_messages" else None)
         archived = bool(row.get("archived") or metadata.get("archived") or
-                        (table == "agent_profiles" and row["status"] != "active") or
+                        (table == "agent_profiles" and not current_agent(uow, row)) or
                         (table == "principals" and (not row["active"] or not uow.repository("business_memberships", business_id=ctx.business_id).get(item["id"])["active"])))
         person = {}
         revision = item_revision(row)
@@ -109,7 +152,7 @@ class HostItems:
             # Task and Action labels are the shared catalog's, stored apart from the row.
             tags = item_labels(uow, row["business_id"], LABELLED[table], row["id"])
         departments = normalize_departments(tags.get("departments", [])) if isinstance(tags, dict) else normalize_departments([tag for tag in tags if tag in ALIASES])
-        if table == "agent_profiles": departments = [profile_department(row["profile_json"])]
+        if table == "agent_profiles": departments = agent_departments(row)
         return {**view, **item, **material, "departments": departments, "revision": revision, "resource_type": table, "resource_id": item["id"], "subtype": subtype,
                 "archived": archived, "raw_source": bool(metadata.get("raw_source") or row.get("kind") in RAW_KINDS),
                 "summary": row["attributes_json"].get("one_liner", "") if table == "products" else metadata.get("filer_summary") or metadata.get("summary", ""), "created_at": row.get("created_at"), "updated_at": row.get("updated_at"), **person}
@@ -170,6 +213,12 @@ class HostItemCandidates:
             if table == "action_logs":
                 for identity in linked_action_items(ctx, uow):
                     yield {"type": item_type, "id": identity}
+                continue
+            if table == "agent_profiles":
+                # A business's own historical rows, then every global's; resolution says which are current.
+                for business in ([ctx.business_id] if ctx.business_id is None else [ctx.business_id, None]):
+                    for row in rows(uow, table, business):
+                        yield {"type": item_type, "id": row["agent_id"]}
                 continue
             for row in rows(uow, table, ctx.business_id):
                 yield {"type": item_type, "id": row.get("id", row.get("agent_id"))}

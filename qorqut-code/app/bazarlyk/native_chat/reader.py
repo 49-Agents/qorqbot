@@ -35,7 +35,11 @@ class Window:
 
 
 class ConversationReader:
-    """Window reads with a small in-process cache keyed by the exact receipt, so a poll with no growth costs no archive pass."""
+    """Window reads with a small in-process cache, so a poll with no growth costs no archive pass.
+
+    A receipt id names only the provider, conversation and sequence, so it repeats across agents and lineages. The cache key is
+    the receipt's full identity and content (agent, archive, receipt id, record hash), the projection asked for (provider and
+    conversation) and the window (end, limit); a projection that is not the receipt's own is refused before any lookup."""
 
     def __init__(self, *, cache_size: int = 64):
         self._cache: OrderedDict = OrderedDict()
@@ -44,9 +48,12 @@ class ConversationReader:
 
     def window(self, archive, receipt, provider: str, conversation_id: str, *, before: int | None = None,
                limit: int = 50) -> Window:
+        if (provider, conversation_id) != (receipt.provider, receipt.conversation_id):
+            raise CaptureError("receipt_mismatch", "The receipt names another provider or conversation")
         limit = max(1, min(int(limit), PAGE_LIMIT))
         end = receipt.record_boundary if before is None else min(before, receipt.record_boundary)
-        key = (receipt.receipt_id, end, limit)
+        key = (receipt.agent_id, receipt.archive_id, receipt.receipt_id, receipt.record_sha256, provider, conversation_id,
+               end, limit)
         with self._guard:
             cached = self._cache.get(key)
             if cached is not None:

@@ -250,8 +250,6 @@ def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
             "/api/agent/delegation/claim",
             "/api/agent/delegation/poll", "/api/agent/delegation/fail",
             "/api/agent/delegation/browser"]
-        if getattr(authentication, "business_id", None) and runtime.browser_access is not None:
-            agent_paths.append("/api/agent/browser")
         if getattr(authentication, "business_id", None) and runtime.provider_tokens is not None:
             agent_paths.append("/api/agent/provider-token")
         routes = [Route(path, agent_request, methods=["POST"]) for path in agent_paths]
@@ -275,22 +273,6 @@ def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
         def url_path_for(self, name, **path_params):
             from starlette.routing import NoMatchFound
             raise NoMatchFound(name, path_params)
-    class BrowserRoute(BaseRoute):
-        def matches(self, scope):
-            import re
-            business_id = getattr(authentication, "business_id", None)
-            available = (agent_only and business_id and runtime.browser_access is not None
-                         and scope["type"] in {"http", "websocket"}
-                         and re.match(r"^/[a-f0-9]{64}/", scope["path"]))
-            return (Match.FULL, {}) if available else (Match.NONE, {})
-
-        async def handle(self, scope, receive, send):
-            await runtime.browser_access.proxy(authentication.business_id, scope, receive, send)
-
-        def url_path_for(self, name, **path_params):
-            from starlette.routing import NoMatchFound
-            raise NoMatchFound(name, path_params)
-
     mcp_routes = [MCPRoute(mcp, {"/mcp", "/mcp/"})]
     if owner_mcp is not None:
         mcp_routes.append(MCPRoute(owner_mcp, {"/mcp/owner", "/mcp/owner/"}))
@@ -313,7 +295,7 @@ def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
         canvas = ContentCanvas(api)
         content_routes = [Route('/content/sessions/{session_id}/{content_path:path}', canvas.__call__, methods=['GET','HEAD','POST'])]
 
-    application = Starlette(routes=[*mcp_routes, BrowserRoute(), *proxy_routes, *content_routes, *routes], lifespan=lifespan)
+    application = Starlette(routes=[*mcp_routes, *proxy_routes, *content_routes, *routes], lifespan=lifespan)
     application.state.runtime = runtime
     application.state.authentication = authentication
     application.state.mcp = mcp

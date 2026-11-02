@@ -91,9 +91,8 @@ class WorkingMemory:
             if profile.scope.kind != 'ecosystem':
                 raise DomainError('forbidden', 'Business agents have no Global working memory')
         else:
-            member = uow.repository('business_memberships', business_id=ctx.business_id).get(identity)
-            if (ctx.business_id not in profile.scope.businesses or not member or not member['active']
-                    or ctx.business_id not in ctx.allowed_business_ids):
+            # The resolver's profile carries the derived scope (every active business); no membership row.
+            if ctx.business_id not in profile.scope.businesses or ctx.business_id not in ctx.allowed_business_ids:
                 raise DomainError('forbidden', 'Working memory is outside current business scope')
         return identity
 
@@ -345,9 +344,6 @@ class WorkingMemory:
             selected = [i for i in allowed if i > after][:21]
             directory = []
             for business_id in selected[:20]:
-                membership = uow.repository('business_memberships', business_id=business_id).get(identity)
-                if not membership or not membership['active']:
-                    continue
                 biz = uow.repository('businesses').get(business_id)
                 memory = self.row(identity, business_id, uow)
                 directory.append({'business_id': business_id, 'name': biz['name'][:80],

@@ -14,6 +14,7 @@ from urllib.parse import parse_qsl, urlsplit
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id
 from qorqut_operations.application.plans import PlanBuilder, ref, schema, timestamp, utc_clock
+from bazarlyk.agents.global_scope import active_global
 
 MAX_LINK = 4096
 MAX_TITLE = 80
@@ -206,9 +207,8 @@ class AgentViewbox:
     def _agent(ctx, uow):
         if ctx.principal_kind != "agent":
             raise DomainError("forbidden", "Only a registered agent can place Viewbox links")
-        profile = uow.connection.execute("SELECT status FROM agent_profiles WHERE agent_id=?", (ctx.principal_id,)).fetchone()
-        if profile is None or profile["status"] != "active":
-            raise DomainError("inactive_agent", "Agent profile is missing or inactive")
+        if active_global(uow.connection, ctx.principal_id) is None:
+            raise DomainError("inactive_agent", "Agent profile is missing, inactive or not a supported global")
 
     def _checked(self, args):
         link = canonical_link(args["link"], self.app_authorities)

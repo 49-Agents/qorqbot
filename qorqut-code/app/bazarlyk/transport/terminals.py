@@ -14,6 +14,7 @@ from bazarlyk.bootstrap import prepare_agent
 from bazarlyk.bootstrap.preparation import installed_versions
 from bazarlyk.composition.locations import agent_workspace, business_hq
 from qorqut_operations.contracts import DomainError, Principal
+from bazarlyk.agents.global_scope import active_global
 from bazarlyk.management.identity import require_protected_control
 from .http import checked_fields, read_json
 
@@ -203,7 +204,10 @@ class TerminalService:
         if broker is None or not broker.tmux_available():
             return []
         with self.runtime.database.read() as uow:
-            agents = uow.connection.execute("SELECT * FROM agent_profiles WHERE home_business_id IS ? AND status='active' ORDER BY name", (context.business_id,)).fetchall()
+            # Only active supported globals have terminals; a business-home identity is historical and never listed.
+            agents = [row for row in uow.connection.execute(
+                "SELECT * FROM agent_profiles WHERE home_business_id IS NULL AND status='active' ORDER BY name").fetchall()
+                if context.business_id is None and active_global(uow.connection, row["agent_id"]) is not None]
         sessions = set(broker.list_sessions(broker.session_prefix(business["slug"] if business else "global")))
         return [{"agent": row["name"], "agent_id": row["agent_id"], "done": False}
                 for row in agents if self.binding(business, row, broker)[1] in sessions]
@@ -222,7 +226,8 @@ class TerminalService:
             business = uow.repository("businesses").get(business_id) if business_id else None
             row = uow.connection.execute("SELECT * FROM agent_profiles WHERE agent_id=? AND home_business_id IS ? AND status='active'",
                 (agent_id, business_id)).fetchone()
-            if row is None:
+            # A business-home identity is never dispatched to, whatever its stored status.
+            if row is None or row["home_business_id"] is not None or active_global(uow.connection, agent_id) is None:
                 return {"state": "unavailable", "detail": "Agent is unavailable"}
         execution = self.execution(business)
         if execution.target_identity is None and execution.broker is self.broker and key is not None:
@@ -269,10 +274,6 @@ class TerminalService:
         if execution.interpreter_validator is not None:
             kwargs["interpreter_validator"] = execution.interpreter_validator
         self.preparation(self.runtime.resolver, Principal(agent_id, "agent"), **kwargs)
-
-    def prepare_restored_agent(self, business, agent_id):
-        """Trusted restore effect: prepare the business agent's folder without starting a session."""
-        self._prepare(self.execution(business), agent_id)
 
     def reset_business_for_archive(self, business, agents):
         """Trusted approved archive effect: clear only this business's sessions.

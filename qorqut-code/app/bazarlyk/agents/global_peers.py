@@ -1,17 +1,17 @@
 """Explicit global peer authority, independent of private account-mail authority."""
 import json
 from qorqut_operations.contracts import DomainError
+from .global_scope import active_global
+from .roles import GLOBAL_MARKETING_ROLE
 
 CAPABILITY = "coordinate_businesses"
 PEER_ROLES = frozenset({"ordubashy", "global-marketing"})
 
 
 def marketing_peer(uow, identity):
-    row = uow.connection.execute("SELECT p.active,a.status,a.profile_json FROM principals p JOIN agent_profiles a ON a.agent_id=p.id WHERE p.id=? AND p.kind='agent'", (identity,)).fetchone()
-    if not row or not row['active'] or row['status'] != 'active':
-        return False
-    profile = json.loads(row['profile_json'])
-    return (profile['role']['id'] == 'global-marketing' and profile['scope']['kind'] == 'ecosystem'
+    """True for the current supported Global Marketing holding the peer capability."""
+    profile = active_global(uow.connection, identity)
+    return (profile is not None and profile['role']['id'] == GLOBAL_MARKETING_ROLE
             and CAPABILITY in profile['scope'].get('global_capabilities', []))
 
 

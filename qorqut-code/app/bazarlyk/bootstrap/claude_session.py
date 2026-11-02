@@ -15,36 +15,12 @@ from bazarlyk.catalog.packages import content_hash
 from qorqut_operations.contracts import DomainError, utc_now
 from bazarlyk.agents.context import MAX_CONTEXT_CHARACTERS
 from bazarlyk.inbox.defaults import INBOX_SESSION_NOTE
-from bazarlyk.native_chat.projection import leading_marker
 from .client import (BOOTSTRAP_TIMEOUT, REQUEST_TIMEOUT, BootstrapClient,
                      load_registration, path_has_symlink, write_json_private)
 from .transcript_snapshot import run as snapshot_transcript
 from .environment import bootstrap_environment_context
-from . import review_cadence
 
 LIFECYCLE_EVENTS = frozenset({"startup", "resume", "clear", "compact", "fork"})
-
-
-def _review_note(hook, registration, response, runtime, *, owner_input):
-    """Dev's quiet review reminder; a local receipt failure is reported, never blocking owner work."""
-    from .technical_reporting import active, record
-    session_id = hook.get("session_id")
-    try:
-        note = review_cadence.observe(hook, registration, response.get("review"), runtime=runtime, owner_input=owner_input)
-    except (DomainError, OSError, ValueError, TypeError, KeyError) as exc:
-        try:
-            record(registration, session_id, "bootstrap", "review",
-                   exc.code if isinstance(exc, DomainError) else "review_receipt_unavailable",
-                   call_site="bootstrap.review", terminal=True)
-        except Exception:
-            pass
-        return None
-    try:
-        if review_cadence.applies(response.get("review")) and active(registration, "bootstrap", "review", session_id):
-            record(registration, session_id, "bootstrap", "review", "success", call_site="bootstrap.review", recovered=True)
-    except Exception:
-        pass
-    return note
 
 
 def prepare_with_retry(client, body):
@@ -136,15 +112,8 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
         setup = INBOX_SESSION_NOTE
     if response.get('activity_available'):
         setup += f'\nSESSION CURRENT-WORK ID: {session_id}. Use this native UUID with agent_work_update; activity heartbeat is automatic.'
-    # A system input typed by the application (an inbox notice or a recovery wake) starts with its marker and is never owner input.
-    system_input = leading_marker(hook.get("prompt")) is not None
-    owner_input = (event == "UserPromptSubmit" and not system_input
-                   and not review_cadence.is_continuation(registration["workspace"], registration["registration_id"], session_id,hook.get("prompt")))
-    review_note = _review_note(hook, registration, response, runtime, owner_input=owner_input)
     if (event == "UserPromptSubmit" and last_id == config_id and not response.get("refresh_required")
             and not recovery.read(registration,session_id)):
-        if review_note:
-            return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": review_note}}, None, client
         return {}, None, client
     context = response.get("mandatory_context")
     if isinstance(context, dict):
@@ -155,25 +124,21 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     briefing = response.get("work_briefing", {}).get("rendered", "")
     if not isinstance(briefing, str):
         raise DomainError("invalid_bootstrap", "Work briefing must be text")
-    # A due Dev review reminder is reserved ahead of optional memory and environment text.
-    reserve = len(review_note) + 2 if review_note else 0
-    if ((response.get('work_briefing', {}).get('compact') or reserve)
-            and len(context) + len(briefing) + len(setup) + 4 + reserve > MAX_CONTEXT_CHARACTERS):
+    if (response.get('work_briefing', {}).get('compact')
+            and len(context) + len(briefing) + len(setup) + 4 > MAX_CONTEXT_CHARACTERS):
         # Preserve mandatory rules and runtime consumer binding in full. Memory
         # is an optional projection and remains available through its scoped tool.
         briefing = 'Before work, call agent_context_get(inventory=true) and follow next_cursor to completion; agent_context_get reads the saved handoff.'
-        if len(context) + len(briefing) + len(setup) + 4 + reserve > MAX_CONTEXT_CHARACTERS:
+        if len(context) + len(briefing) + len(setup) + 4 > MAX_CONTEXT_CHARACTERS:
             briefing = ''
     if briefing:
         context += "\n\n" + briefing
     if setup:
         context += "\n\n" + setup
     inventory = bootstrap_environment_context(response.get("environment"),
-        max_chars=min(2400, MAX_CONTEXT_CHARACTERS - len(context) - 2 - reserve))
+        max_chars=min(2400, MAX_CONTEXT_CHARACTERS - len(context) - 2))
     if inventory:
         context += "\n\n" + inventory
-    if review_note and len(context) + len(review_note) + 2 <= MAX_CONTEXT_CHARACTERS:
-        context += "\n\n" + review_note
     if len(context) > MAX_CONTEXT_CHARACTERS:
         raise DomainError("invalid_bootstrap", "Combined bootstrap exceeds its character budget")
     output = {"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}}

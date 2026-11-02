@@ -25,6 +25,7 @@ import fcntl
 from threading import Event, Thread
 import time
 import tempfile
+from bazarlyk.agents.global_scope import active_global, effective_business_ids, reaches_business
 from bazarlyk.bootstrap.activity_hook import safe_path
 
 from qorqut_operations.contracts import canonical_bytes, utc_now
@@ -655,14 +656,14 @@ class IncidentReporter:
 
     @staticmethod
     def recipient_current(conn, agent_id, business_id):
-        row = conn.execute('SELECT a.profile_json FROM agent_profiles a JOIN principals p ON p.id=a.agent_id '
-            "WHERE a.agent_id=? AND a.status='active' AND p.active=1 AND p.kind='agent'", (agent_id,)).fetchone()
-        if not row:
+        # Only an active supported global receives current incident work: a business incident needs its derived reach to
+        # that active business (no membership row), a Global one its read_global_context grant.
+        profile = active_global(conn, agent_id)
+        if profile is None:
             return False
         if business_id:
-            return bool(conn.execute('SELECT 1 FROM business_memberships m JOIN businesses b ON b.id=m.business_id '
-                'WHERE m.principal_id=? AND m.business_id=? AND m.active=1 AND b.archived_at IS NULL', (agent_id,business_id)).fetchone())
-        return 'read_global_context' in json.loads(row['profile_json']).get('scope', {}).get('global_capabilities', [])
+            return reaches_business(conn, agent_id, business_id)
+        return 'read_global_context' in profile['scope'].get('global_capabilities', [])
 
     @staticmethod
     def task_recipients(conn, incident_id, business_id):
@@ -850,12 +851,13 @@ class IncidentOperations:
         if ctx.principal_kind != "agent":
             from qorqut_operations.contracts import DomainError
             raise DomainError("forbidden", "Incident reads require an authenticated agent")
-        scopes=[r[0] for r in uow.connection.execute('SELECT m.business_id FROM business_memberships m '
-            'JOIN businesses b ON b.id=m.business_id WHERE m.principal_id=? AND m.active=1 AND b.archived_at IS NULL',
-            (ctx.principal_id,)) if r[0] in ctx.allowed_business_ids and (ctx.business_id is None or r[0]==ctx.business_id)]
+        # Business reach is the active global's derived set, never a membership; any other identity reads nothing.
+        current=active_global(uow.connection,ctx.principal_id) is not None
+        scopes=sorted(b for b in effective_business_ids(uow.connection,ctx.principal_id)
+            if b in ctx.allowed_business_ids and (ctx.business_id is None or b==ctx.business_id))
         clause='x.business_id IN ('+','.join('?' for _ in scopes)+')' if scopes else '0'
         params=list(scopes)
-        if ctx.business_id is None and 'read_global_context' in ctx.global_capabilities:
+        if current and ctx.business_id is None and 'read_global_context' in ctx.global_capabilities:
             if getattr(getattr(ctx,'role_artifact_ref',None),'id',None)=='ordubashy':
                 clause+=' OR x.business_id IS NULL'
             else:

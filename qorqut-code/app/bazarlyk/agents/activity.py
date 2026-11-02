@@ -10,6 +10,7 @@ import threading
 import uuid
 
 from bazarlyk.agents import roles
+from bazarlyk.agents.global_scope import active_global, effective_business_ids, global_profile_data
 from bazarlyk.composition.locations import agent_workspace_of
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, plain
@@ -82,6 +83,13 @@ class AgentActivity:
             return {None, *[r[0] for r in uow.connection.execute(
                 'SELECT b.id FROM businesses b JOIN business_memberships m ON m.business_id=b.id '
                 'WHERE b.archived_at IS NULL AND m.principal_id=? AND m.active=1', (ctx.principal_id,))]}
+        if ctx.principal_kind == 'agent':
+            # An agent's reach is the shared active-global contract within this invocation, never a membership or a
+            # business home; any other agent identity has no scope at all.
+            scopes = set(effective_business_ids(uow.connection, ctx.principal_id) & ctx.allowed_business_ids)
+            if active_global(uow.connection, ctx.principal_id) is not None and 'read_global_context' in ctx.global_capabilities:
+                scopes.add(None)
+            return scopes
         allowed = set(ctx.allowed_business_ids)
         if ctx.home_business_id:
             allowed.add(ctx.home_business_id)
@@ -133,24 +141,6 @@ class AgentActivity:
                 'VALUES(?,?,?,?,?) ON CONFLICT(agent_id,session_id) DO NOTHING',
                 (ctx.principal_id, session_id, registration_id, runtime, timestamp(self.clock)))
         return True
-
-    def review_state(self, ctx, session_id):
-        """Role and this session's last acknowledged review, for the native reminder receipt.
-
-        Derived from the registered profile and activity records on every bootstrap,
-        including cached ones; client role claims are never consulted.
-        """
-        try:
-            session_id = str(uuid.UUID(session_id))
-        except (ValueError, TypeError):
-            session_id = None
-        with self.app.database.read() as u:
-            row = u.connection.execute("SELECT profile_json FROM agent_profiles WHERE agent_id=? AND status='active'",
-                                       (ctx.principal_id,)).fetchone()
-            reviewed = u.connection.execute('SELECT work_reviewed_at FROM agent_activity WHERE agent_id=? AND session_id=?',
-                (ctx.principal_id, session_id)).fetchone() if session_id else None
-        return {'role_id': roles.profile_role(row) if row else None,
-                'work_reviewed_at': reviewed['work_reviewed_at'] if reviewed else None}
 
     def writer(self):
         admission = self.app.writer_admission
@@ -407,17 +397,19 @@ class AgentActivity:
         if args.get('scope') != 'global' and ctx.business_id is not None:
             scopes &= {ctx.business_id}
         candidates = []
-        for raw in uow.connection.execute('SELECT a.agent_id,a.name,a.profile_json,a.home_business_id,b.slug,b.name AS business_name '
-                'FROM agent_profiles a LEFT JOIN businesses b ON b.id=a.home_business_id '
-                "WHERE a.status='active' AND (b.id IS NULL OR b.archived_at IS NULL) ORDER BY COALESCE(b.slug,''),a.name,a.agent_id"):
-            row = dict(raw)
-            requested_agent = ctx.principal_id if session_filter else args.get('agent_id', row['agent_id'])
-            if row['home_business_id'] not in scopes or requested_agent != row['agent_id']:
+        # The current agents are the active supported globals (the native eligibility predicate). A permitted business
+        # view lists them with only that business's work; it never gives them a business residence.
+        for raw in uow.connection.execute('SELECT a.agent_id,a.name,a.profile_json,a.home_business_id,a.status,p.kind,p.active '
+                'FROM agent_profiles a JOIN principals p ON p.id=a.agent_id '
+                "WHERE a.status='active' AND a.home_business_id IS NULL ORDER BY a.name,a.agent_id") if scopes else ():
+            profile = global_profile_data(raw)
+            requested_agent = ctx.principal_id if session_filter else args.get('agent_id', raw['agent_id'])
+            if profile is None or requested_agent != raw['agent_id']:
                 continue
-            profile = json.loads(row.pop('profile_json'))
             if args.get('role_id',profile['role']['id']) != profile['role']['id']:
                 continue
-            candidates.append({**row,'id':row['agent_id'],'display_name':profile['display_name'],'role_id':profile['role']['id']})
+            candidates.append({'agent_id':raw['agent_id'],'name':raw['name'],'home_business_id':None,'slug':None,
+                'business_name':None,'id':raw['agent_id'],'display_name':profile.get('display_name'),'role_id':profile['role']['id']})
         selected,cursor = page(candidates,{'limit':100,**args,'principal_id':ctx.principal_id,'scopes':sorted(s or '' for s in scopes)},
             ctx.business_id,'agents_activity_list',key=lambda r:(r['slug'] or '',r['name'],r['agent_id']),reverse=False)
         now = self.clock()
@@ -475,20 +467,21 @@ class AgentActivity:
         return delivery_view(getattr(self.runtime, 'inbox_nudges', None), agent_id)
 
     def startup(self, principal, config):
-        role=config['role']['id']
-        if role not in {roles.ORDUBASHY_ROLE, roles.BUSINESS_AGENT_ROLE}:
+        # Only Ordubashy starts with the team summary: the other current global agents, never itself.
+        if config['role']['id'] != roles.ORDUBASHY_ROLE:
             return ''
         ctx=self.runtime.resolver.invocation_context(principal)
-        args={'limit':20}
-        if role==roles.ORDUBASHY_ROLE: args.update(scope='global',role_id=roles.BUSINESS_AGENT_ROLE)
         with self.app.database.read() as u:
             try:
                 self.allowed(ctx,ctx.business_id,'agents_activity_list',u)
-                data=self.list(ctx,args,u)
+                data=self.list(ctx,{'limit':20,'scope':'global'},u)
             except DomainError:
                 return 'Team activity unavailable; use agents_activity_list when authorized.'
+        team=[agent for agent in data['agents'] if agent['agent_id']!=principal.id]
+        if not team and not data['next_cursor']:
+            return ''
         lines=['TEAM CURRENT WORK (observed sessions; descriptions are agent-reported):']
-        for agent in data['agents']:
+        for agent in team:
             work=[i['summary'] + (' (blocked)' if i['blocked'] else '') for s in agent['sessions'] for i in s['items']]
             lines.append(f"{agent['business_name']} / {agent['name']} [{agent['agent_id']}]: {agent['state']}; "
                 + ('; '.join(work)[:220] or 'no current work declared') + f"; inbox {agent['inbox']['state']}; last seen {agent['last_seen_at'] or 'never'}"

@@ -9,7 +9,7 @@ import json
 
 from qorqut_operations import local_time
 
-from bazarlyk.agents.roles import BUSINESS_AGENT_ROLE, DEV_ROLE, ORDUBASHY_ROLE
+from bazarlyk.agents.roles import ORDUBASHY_ROLE
 from qorqut_operations.contracts import DomainError, InvocationOptions, utc_now
 from bazarlyk.catalog.packages import content_hash
 from .context import MAX_CONTEXT_CHARACTERS
@@ -158,15 +158,6 @@ class _Briefing:
 
     def build(self):
         scope = {"scope": "global"} if not self.ctx.business_id else {}
-        if self.ctx.role_artifact_ref and self.ctx.role_artifact_ref.id == ORDUBASHY_ROLE:
-            directory = self.read("agents_message_recipients", {**scope, "all_businesses": True, "role_id": BUSINESS_AGENT_ROLE})
-            self.add("Business agent directory", "Business agents", directory,
-                reason="the one business agent of every business in your current authorized scope",
-                read=f'agents_message_recipients(all_businesses=true, role_id="{BUSINESS_AGENT_ROLE}")', limit=12000)
-            developers = self.read("agents_message_recipients", {**scope, "all_businesses": True, "role_id": DEV_ROLE})
-            self.add("Dev directory", "Dev agents", developers,
-                reason="each business's Dev peer for software and design work; message or assign it; authorized coordinators may use registered terminal controls",
-                read=f'agents_message_recipients(all_businesses=true, role_id="{DEV_ROLE}")', limit=12000)
         team = self.read("agents_list", scope).get("agents", [])
         for agent in team:
             self.add("Team", agent.get("display_name", "Agent"), select(agent,
@@ -187,7 +178,7 @@ class _Briefing:
             direct = self.relationships({"type": "agent", "id": self.ctx.agent_id})
             for item in direct:
                 self.evidence(item, "direct association with you; the edge role defines its meaning, not automatic ownership")
-            if self.config["role"]["id"] in {BUSINESS_AGENT_ROLE, ORDUBASHY_ROLE}:
+            if self.config["role"]["id"] == ORDUBASHY_ROLE:
                 for row in self.listing("tasks_list", "tasks", {"include_closed": False}, limit=30):
                     self.load_work("task", row["id"], "business overview for your manager role; check assignee_ids")
             # Task -> related work -> nearby context, bounded to two expansions, never recursive.
@@ -244,7 +235,7 @@ class _Briefing:
         # Reserve room for truthful omissions; never truncate the mandatory configuration.
         remaining = max(0, budget - len(header) - 5000)
         parts, counts, omitted = [header], {}, {}
-        quotas = {"Business agent directory": 12500, "Team": 6500, "Own Plan": 8500, "Current Work": 28000, "Decisions And Outcomes": 6500,
+        quotas = {"Team": 6500, "Own Plan": 8500, "Current Work": 28000, "Decisions And Outcomes": 6500,
                   "Needs Context Review": 5000, "Associations": 6500, "Related Context": 16000}
         selected, deferred = {}, {}
         for section in quotas:

@@ -831,52 +831,6 @@ def run(workspace: Path, args: list[str], *, target=None, instance="", capture=F
             raise BrowserError("Could not execute the installed browser runtime.") from exc
 
 
-def run_business(workspace, args):
-    validate_arguments(args)
-    registration = load_registration(workspace / ".bazarlyk/registration.json")
-    client = BootstrapClient(registration, timeout=15)
-    directory = workspace / "work/browser"
-    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with (directory / "business-command.lock").open("a") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise BrowserError("Another browser command is running in this workspace.") from exc
-        receipt = directory / "business-attachment.json"
-        try:
-            saved = json.loads(receipt.read_text()) if receipt.exists() else {}
-        except (OSError, ValueError) as exc:
-            raise BrowserError("Browser attachment state needs operator recovery.") from exc
-        token = saved.get("token")
-        if not token:
-            if args[0] != "attach":
-                raise BrowserError("Attach to this business browser first.")
-            token = secrets.token_hex(32)
-            # Persist before acquire: a lost HTTP response must not strand an
-            # ownership token that only existed in this short-lived process.
-            saved = {"token": token}
-            write_json_private(receipt, saved)
-        def control(action):
-            return client.post("/api/agent/browser", {"registration_id": registration["registration_id"],
-                "action": action, "token": token})
-        if args[0] == "detach":
-            if saved.get("target"):
-                target = saved["target"]
-                result = run(workspace, args, target=(target["cdp_endpoint"], runtime_executable(target["runtime_dir"])),
-                             instance=target["instance"])
-                if result:
-                    return result  # Do not hand a still-connected CLI to another task.
-            control("release")
-            write_json_private(receipt, {})
-            return 0
-        target = control("acquire" if args[0] == "attach" else "check")
-        if args[0] != "attach" and saved.get("target") != target:
-            raise BrowserError("Business browser changed; attach again before continuing.")
-        write_json_private(receipt, {"token": token, "target": target})
-        return run(workspace, args, target=(target["cdp_endpoint"], runtime_executable(target["runtime_dir"])),
-                   instance=target["instance"])
-
-
 def run_owner(workspace, args):
     # The caller must supply its own native session ID, never a shared latest-session file.
     import uuid
@@ -939,16 +893,15 @@ def run_owner(workspace, args):
             print('Browser: activity update unavailable; inspect the page before retrying any action.', file=sys.stderr)
 
 
-def main(workspace: str, args: list[str] | None = None, *, business=False) -> int:
+def main(workspace: str, args: list[str] | None = None) -> int:
     arguments = sys.argv[1:] if args is None else args
     if arguments == ["--help"]:
         print("Workspace Chrome control. Use only on explicit owner request.\n"
               "Commands: " + " ".join(sorted(COMMANDS)) + "\n"
-              + ("Target: this agent's registered business browser." if business else
-                 "Use --consumer-id <session inbox UUID> <command>. Configure .bazarlyk/browser.json; no target is selected by default."))
+              "Use --consumer-id <session inbox UUID> <command>. Configure .bazarlyk/browser.json; no target is selected by default.")
         return 0
     try:
-        return run_business(Path(workspace), arguments) if business else run_owner(Path(workspace), arguments)
+        return run_owner(Path(workspace), arguments)
     except (BrowserError, DomainError) as exc:
         print(f"Browser: {exc}", file=sys.stderr)
         return 2

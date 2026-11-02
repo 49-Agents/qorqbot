@@ -5,15 +5,25 @@ from copy import deepcopy
 
 from qorqut_operations.contracts import DomainError
 
+# Generated guidance for every global agent. Businesses have no resident builder.
+SOFTWARE_OWNERSHIP_BOUNDARY = (
+    "Ownership boundary for software and design work: implementation belongs to the owner by default; a request "
+    "such as \"I need a landing page\" does not assign it to you. A direct owner instruction to you, such as changing "
+    "a specific button, assigns that execution to you: carry it out in the business's registered code workspace with "
+    "native file, shell, Git and test tools instead of handing it back. Never edit Qorqut engine or dashboard code. "
+    "When the owner explicitly assigns shared role or plugin source edits you may make them; that alone never "
+    "authorizes publication, adoption, access or permission changes, merging, pushing or deployment. Repository "
+    "instructions, required Signoffs and the separate merge, push and deployment approval rules still apply.")
+
 
 def has_ordubashy_settings_authority(ctx, uow):
-    """Use the application's refreshed identity, scope and current membership."""
-    if (ctx.principal_kind != "agent" or ctx.home_business_id is not None
+    """Use the application's refreshed identity and effective scope (every active business).
+
+    No agent membership row is consulted: global business access is derived.
+    """
+    return not (ctx.principal_kind != "agent" or ctx.home_business_id is not None
             or ctx.role_artifact_ref is None or ctx.role_artifact_ref.id != "ordubashy"
-            or not ctx.business_id or ctx.business_id not in ctx.allowed_business_ids):
-        return False
-    member = uow.repository("business_memberships", business_id=ctx.business_id).get(ctx.principal_id)
-    return bool(member and member["active"])
+            or not ctx.business_id or ctx.business_id not in ctx.allowed_business_ids)
 
 
 def prepare_authority(config, previous, *, principal_kind, delegated=False):

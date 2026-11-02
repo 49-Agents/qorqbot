@@ -4,14 +4,17 @@ This is the shared resource lookup that deployed v1 kept inside ``StoryOperation
 actual ``Application`` and document service and nothing else, so item lookups, Tasks, campaigns, documents and Focus all
 read through it without any of them constructing another domain's service. Every read keeps the domain's own checks: document
 availability (``allow_busy`` then reads the last committed metadata only), the email and Signoff domains' read
-handlers, the canonical read-only global Action reference, active-agent membership, and the resource's own read
-operation policy. Resolving a resource grants nothing the caller's policy would not."""
+handlers, the canonical read-only global Action reference, the active supported global's reach (never an agent
+membership), and the resource's own read operation policy. Resolving a resource grants nothing the caller's policy would
+not."""
 
 from pathlib import PurePosixPath
 
 from qorqut_operations.application.plans import ref
 from qorqut_operations.contracts import DomainError, InvocationOptions
 from qorqut_operations.items import authorize_item_read
+
+from bazarlyk.agents.global_scope import active_global, reaches_business
 
 from ..activity import linked_action
 
@@ -69,18 +72,20 @@ class RelatedResources:
             row = linked_action(ctx, uow, identity)
             if row is None:
                 raise DomainError("not_found", "Resource does not exist")
-        else:
-            row = uow.repository(kind, business_id=ctx.business_id).get(identity, required=True)
-        if kind == "agent_profiles":
-            member = uow.repository("business_memberships", business_id=ctx.business_id).get(identity)
+        elif kind == "agent_profiles":
+            # An agent is an active supported global, read without a home: in a selected business it needs only its
+            # derived reach to that active business. Its principal and profile are pinned, never a membership.
+            row = uow.repository(kind, business_id=None).get(identity, required=True)
             principal = uow.repository("principals").get(identity)
-            if row["status"] != "active" or not principal or not principal["active"] or (ctx.business_id is not None and (not member or not member["active"])) or (ctx.business_id is None and row["home_business_id"] is not None):
+            if active_global(uow.connection, identity) is None or (
+                    ctx.business_id is not None and not reaches_business(uow.connection, identity, ctx.business_id)):
                 raise DomainError("invalid_assignee", "Assign an active agent in this business")
             if builder:
-                if member:
-                    builder.expect(ref("business_memberships", identity, ctx.business_id), member)
                 builder.expect(ref("principals", identity, None), principal)
-        if builder:
+                builder.expect(ref(kind, identity, None, "ecosystem" if ctx.business_id else None), row)
+        else:
+            row = uow.repository(kind, business_id=ctx.business_id).get(identity, required=True)
+        if builder and kind != "agent_profiles":
             if kind == "action_logs":
                 # The action's true storage identity; a Global-stored action is a read-only Global reference.
                 builder.expect(ref(kind, row["id"], row["business_id"], None if row["business_id"] else "global"), row)

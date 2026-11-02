@@ -8,6 +8,7 @@ from uuid import UUID
 from qorqut_operations.contracts import DomainError, new_id, utc_now
 from bazarlyk.domains.learnings import analysis, sources, verification
 from bazarlyk.domains.learnings.issues import enrolled_ids
+from bazarlyk.domains.learnings.scope import require_global
 from qorqut_operations.application.plans import rows
 from bazarlyk.composition.locations import business_hq
 from qorqut_operations.background.programs import ProgramResult
@@ -113,15 +114,16 @@ class LearningProgram:
             yield value
 
     def run(self, control, args):
+        # A directly invoked or old persisted business job stops here: no transcript read, model call, cursor, reconciliation
+        # or supersession touches the business's historical learning.
+        require_global(control.business_id)
         with control.service.database.read() as uow:
             business = (uow.repository("businesses").get(control.business_id, required=True) if control.business_id else
                 {"id": None, "slug": "Global", "name": "Global", "stage": "", "config_json": {}})
             biz = BusinessBrief(business, rows(uow, "agent_profiles", control.business_id),
                                 str(business_hq(control.service.paths, business)) if control.business_id else "")
             scan = {row['session_id']: row for row in rows(uow, 'learning_scan_state', control.business_id)}
-            seen = {key: row['transcript_hash'] for key, row in scan.items()
-                    if row['state_json'].get('status') != 'retry'
-                    and not (args.get('retry_failed') and row['state_json'].get('status') == 'needs_attention')}
+            seen = {key: row['transcript_hash'] for key, row in scan.items() if sources.counted(row['state_json'], args.get('retry_failed'))}
             engine_agents = self.engine_agents(uow, control.business_id)
             if args.get("agent_id") in engine_agents:
                 raise DomainError("forbidden", "This agent's saved sessions are processed by the learning engine")
@@ -136,9 +138,20 @@ class LearningProgram:
                     existing.append({**row["candidate_json"], **(decision["changes_json"] if decision else {}),
                         "state": row.get("work_state") or (decision["state"] if decision else "open"),
                         "reviewed": decision is not None or bool(row.get("filing_json")), "revision": row["revision"]})
-            packets = sources.snapshots(uow, control.business_id, seen, limit=50) if not args.get('agent_id') else []
+            # Owner contributions of Global and every active business, under one bound (v1.2 G023).
+            packets = sources.snapshots(uow, seen, retry_failed=bool(args.get('retry_failed')), limit=50) if not args.get('agent_id') else []
         run_id, cores, processed, fresh, errors = new_id(), {}, [], [], []
         recorded, diagnostics = [], []
+        # A migrated note whose v1 progress cannot be proven the same content: paused in Global scan state for the later
+        # migration's reconciliation, never extracted. Its original rows, cursors and evidence stay as they are.
+        for packet in [packet for packet in packets if packet.get('unresolved')]:
+            origin = packet['unresolved']
+            recorded.append({"session_id": packet['key'], "transcript_hash": packet['hash'], "source_id": packet['source']['resource_id'],
+                             "agent_id": None, "source_kind": packet['source']['kind'], "status": "needs_attention",
+                             "last_error": f"{sources.UNRESOLVED}: {origin['source_table']} {origin['source_id']}"})
+            diagnostics.append({"source": packet['key'], "stage": "source_identity", "reason": sources.UNRESOLVED,
+                                "business_id": packet['source']['business_id'], **origin})
+        packets = [packet for packet in packets if not packet.get('unresolved')]
         budget = args.get("max_usd", 1.0)
 
         def chat(system, user, model):

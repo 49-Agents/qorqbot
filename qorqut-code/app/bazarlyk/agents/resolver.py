@@ -24,9 +24,9 @@ from bazarlyk.instance_paths import InstancePaths
 from . import role_workflow
 from . import cleanup_workflow
 from .context import MAX_CONTEXT_CHARACTERS, PRODUCT_STARTUP_LIMIT, ContextSource, compose_context
+from .global_scope import with_effective_scope
 from .models import AgentProfile, EffectiveAgentConfig, RETIRED_ROLE_IDS
-from .roles import LEARNING_APPLIER_ROLE, RETIRED_PLUGIN_IDS
-from .ordubashy import require_complete_scope
+from .roles import LEARNING_APPLIER_ROLE, RETIRED_PLUGIN_IDS, SUPPORTED_GLOBAL_ROLES
 
 PROFILE_CACHE_LIMIT = 128
 
@@ -177,12 +177,15 @@ class AgentConfigResolver:
         row = connection.execute("SELECT * FROM agent_profiles WHERE agent_id=?", (principal.id,)).fetchone()
         if actor is None or actor["kind"] != "agent" or not actor["active"] or row is None or row["status"] != "active":
             raise DomainError("inactive_agent", "Agent identity is missing or inactive; read current configuration after preparation")
-        from qorqut_operations.business_lifecycle import require_active_business
-        require_active_business(connection, row["home_business_id"])
+        if row["home_business_id"] is not None:
+            # Businesses own resources only. A business-home identity is historical
+            # whatever its stored status, and is never revived for execution.
+            raise DomainError("inactive_agent", "Business-home agent identities are historical and cannot operate")
         profile = self._parsed_profile(principal.id, row["profile_json"])
-        if profile.role.id in RETIRED_ROLE_IDS:
-            raise DomainError("inactive_agent", "Agent uses a retired role and cannot operate")
-        require_complete_scope(profile, connection)
+        if profile.role.id in RETIRED_ROLE_IDS or profile.role.id not in SUPPORTED_GLOBAL_ROLES:
+            raise DomainError("inactive_agent", "Agent uses a retired or unsupported role and cannot operate")
+        if profile.scope.kind != "ecosystem":
+            raise DomainError("profile_conflict", "An active agent must hold ecosystem scope")
         if (profile.agent_id != principal.id or row["principal_id"] != principal.id or profile.data["status"] != "active" or profile.revision != row["revision"]
             or profile.data["name"] != row["name"] or profile.scope.business_id != row["home_business_id"]
             or row["namespace"] != (profile.scope.business_id or "ecosystem")):
@@ -192,7 +195,8 @@ class AgentConfigResolver:
         # The registered identity and home scope select the workspace; the stored column must agree, never choose.
         if Path(row["workspace"]) != agent_workspace(self.paths, row["agent_id"], business):
             raise DomainError("registration_conflict", "Agent workspace is not the registered identity's workspace")
-        return profile, dict(row)
+        # Effective access is every active business in this transaction, not the saved list.
+        return with_effective_scope(profile, connection), dict(row)
 
     # -- AgentAuthority: what the Operations policy resolver asks of the agent registry -------------------------
 
@@ -268,6 +272,7 @@ class AgentConfigResolver:
         with self.database.read() as uow:
             connection = uow.connection
             profile, row = proposed or self.profile(principal, connection=connection)
+            profile = with_effective_scope(profile, connection)
             from qorqut_operations.business_lifecycle import require_active_business
             target = business_id or profile.scope.business_id
             require_active_business(connection, target)
@@ -330,8 +335,11 @@ class AgentConfigResolver:
                     if metadata.get("category") == "strategy-notes" and metadata.get("pinned") is True:
                         strategy.append({**dict(item), "title": metadata.get("title")})
         selected_docs, signatures = {}, []
-        needed = {"foundation", "business-agent"} if profile.scope.kind == "business" else {"foundation", "ecosystem-agent", "ecosystem"}
-        if profile.scope.kind == "ecosystem" and "read_global_context" not in profile.scope.global_capabilities:
+        # Only global agents run; the retired business-agent instruction source is never required.
+        needed = {"foundation", "ecosystem-agent", "ecosystem"}
+        if profile.scope.kind != "ecosystem":
+            raise DomainError("invalid_scope", "Only ecosystem agents receive orientation")
+        if "read_global_context" not in profile.scope.global_capabilities:
             raise DomainError("invalid_scope", "Ecosystem orientation requires read_global_context capability")
         def located(base, doc, key):
             path = base / relative_path(doc["path"])
@@ -344,7 +352,7 @@ class AgentConfigResolver:
             key = json.loads(doc["metadata_json"]).get("bootstrap_key")
             if key not in needed:
                 continue
-            global_source = key in {"foundation", "business-agent", "ecosystem-agent", "ecosystem"}
+            global_source = key in {"foundation", "ecosystem-agent", "ecosystem"}
             if (doc["business_id"] is None) != global_source:
                 raise DomainError("context_scope_conflict", f"Mandatory source has the wrong registered scope: {key}")
             if key in selected_docs:
@@ -474,7 +482,6 @@ class AgentConfigResolver:
         if connection is None:
             with self.database.read() as uow:
                 return self.packages_for_profile(profile, connection=uow.connection)
-        require_complete_scope(profile, connection)
         role = self.catalog.get("role", profile.data["role"], connection=connection)
         if profile.scope.kind not in role.manifest["scope_kinds"]:
             raise DomainError("invalid_scope", "Pinned role does not support this agent scope")

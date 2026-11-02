@@ -2,6 +2,7 @@
 import hashlib
 import json
 
+from bazarlyk.agents.global_scope import active_business_participant
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, ExpectedTarget, PreparedChange, ResourceRef
 from qorqut_operations.application.plans import PlanBuilder, schema
@@ -82,9 +83,9 @@ def register_environment_write(runtime):
         if ctx.principal_kind == "human":
             local.require_environment_owner(ctx, uow)
         elif ctx.principal_kind == "agent":
-            member = uow.repository("business_memberships", business_id=ctx.business_id).get(ctx.principal_id)
-            if not member or not member["active"]:
-                raise DomainError("forbidden", "Settings writes require active business membership")
+            # An active supported global reaches every active business; no membership row is consulted.
+            if not active_business_participant(uow.connection, ctx.business_id, ctx.principal_id):
+                raise DomainError("forbidden", "Settings writes require active business access")
         else:
             raise DomainError("forbidden", "Settings writes require a permitted agent or owner")
 

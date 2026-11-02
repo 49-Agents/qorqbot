@@ -8,6 +8,7 @@ of its frozen effects, validation, attribution and approval-time scope checks.
 import json
 
 from bazarlyk.agents.engineering import validate_authority
+from bazarlyk.agents.global_scope import reaches_business
 from qorqut_operations.application import OperationDescriptor
 from bazarlyk.browser.config import prepare_settings, validate_applied
 from qorqut_operations.contracts import DomainError, plain
@@ -53,9 +54,9 @@ class OwnerActions:
                 or ctx.role_artifact_ref is None or ctx.role_artifact_ref.id != "ordubashy"
                 or not ctx.business_id or ctx.business_id not in ctx.allowed_business_ids):
             raise DomainError("forbidden", "Only scoped Global Ordubashy can propose delegated owner actions")
-        member = uow.repository("business_memberships", business_id=ctx.business_id).get(ctx.principal_id)
-        if not member or not member["active"]:
-            raise DomainError("forbidden", "Delegated owner actions require current business membership")
+        # Derived reach of the active global, not an agent membership row.
+        if not reaches_business(uow.connection, ctx.principal_id, ctx.business_id):
+            raise DomainError("forbidden", "Delegated owner actions require current business reach")
         if plan is not None and plan.arguments.get("action") == BROWSER:
             # A Signoff can be approved long after preparation, and another
             # business may have claimed the same proxy IP meanwhile.

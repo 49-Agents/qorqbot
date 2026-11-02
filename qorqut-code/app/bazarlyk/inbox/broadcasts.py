@@ -1,4 +1,11 @@
-"""Durable fan-out messages and a small scheduler that never starts agents."""
+"""Durable fan-out messages and a small scheduler that never starts agents.
+
+A broadcast keeps its owning business (or Global) scope and its timing; its recipients are global identities. Each selected
+agent is addressed in the broadcast's own scope, so one identity means one delivery per occurrence. A recipient must be an
+active supported global that reaches that business now, with no agent membership, saved scope list or business home read;
+reach is not a permission, and the direct-message contact rules still decide who may be addressed. An agent sender acts,
+manages and delivers only while it is itself an active supported global.
+"""
 from bazarlyk.agents.global_peers import marketing_peer
 from datetime import datetime, timedelta, timezone
 import json
@@ -9,7 +16,7 @@ from qorqut_operations.contracts import DomainError, new_id, plain, utc_now
 from qorqut_operations.application.plans import PlanBuilder, apply_records, page, require_revision, schema
 from qorqut_operations.background.schedule import next_slot, zone, parse_cron, RoutineError
 from bazarlyk.agents.contact import owner_directed_target
-from bazarlyk.agents import roles
+from bazarlyk.agents.global_scope import active_global, global_profile_data, reaches_business
 from bazarlyk.management.identity import require_protected_control
 
 UUID = {"type": "string", "format": "uuid"}
@@ -43,8 +50,13 @@ class Broadcasts:
 
     @staticmethod
     def _role(identity, uow):
-        row = uow.connection.execute("SELECT profile_json FROM agent_profiles WHERE agent_id=? AND status='active'", (identity,)).fetchone()
-        return json.loads(row["profile_json"]).get("role", {}).get("id") if row else None
+        data = active_global(uow.connection, identity)
+        return data["role"]["id"] if data else None
+
+    @staticmethod
+    def _current_sender(ctx, uow):
+        if ctx.principal_kind == "agent" and active_global(uow.connection, ctx.principal_id) is None:
+            raise DomainError("forbidden", "Broadcasts require an active global agent")
 
     def _input_allowed(self, ctx, uow):
         return self._sender_can_input(ctx.principal_id, uow)
@@ -59,17 +71,14 @@ class Broadcasts:
         return False  # Agent direct input requires exact terminal-control authorization.
 
     def _authorized_recipient(self, ctx, recipient, business_id, uow, *, allow_self=True):
-        profile = uow.connection.execute("SELECT agent_id,home_business_id,status FROM agent_profiles WHERE agent_id=?", (recipient,)).fetchone()
-        if not profile or profile["status"] != "active": raise DomainError("not_found", "Recipient is unavailable")
-        if profile["home_business_id"] != business_id: raise DomainError("forbidden", "Recipient does not belong to this scope")
+        """``recipient`` addressed in the broadcast's own scope ``business_id`` (None for Global), never its residence."""
+        if active_global(uow.connection, recipient) is None: raise DomainError("not_found", "Recipient is unavailable")
         if business_id is None and "read_global_context" not in ctx.global_capabilities:
             raise DomainError("forbidden", "Global recipient is outside your scope")
         if business_id is not None and business_id not in ctx.allowed_business_ids:
             raise DomainError("forbidden", "Recipient business is outside your scope")
-        if business_id is not None:
-            business = uow.repository("businesses").get(business_id)
-            if not business or business['archived_at'] is not None:
-                raise DomainError("not_found", "Recipient business is unavailable")
+        if business_id is not None and not reaches_business(uow.connection, recipient, business_id):
+            raise DomainError("not_found", "Recipient business is unavailable")
         if recipient == ctx.principal_id and allow_self: return {"agent_id": recipient, "business_id": business_id}
         from dataclasses import replace
         selected = replace(ctx, business_id=business_id)
@@ -82,26 +91,30 @@ class Broadcasts:
         return {"agent_id": recipient, "business_id": business_id}
 
     def _recipients(self, ctx, args, options, uow):
+        """The global agents a broadcast in the selected scope may address, each listed once.
+
+        ``all_businesses`` is still accepted but fans out nothing: there are no business rosters, so every scope offers the
+        same globals. The business fields describe the selected message scope, not where an agent lives."""
         ctx = self.app.current_context(ctx, uow)
-        business_id, _ = self._scope(ctx, args)
-        if args.get("all_businesses"):
-            business_ids = ([None] if business_id is None else []) + sorted(ctx.allowed_business_ids)
-        else: business_ids = [business_id]
+        self._current_sender(ctx, uow)
+        target, _ = self._scope(ctx, args)
+        business = uow.repository("businesses").get(target) if target else None
         values = []
-        for target in business_ids:
-            for row in uow.connection.execute("SELECT agent_id,name,profile_json FROM agent_profiles WHERE status='active' ORDER BY name,agent_id"):
-                profile = json.loads(row['profile_json'])
-                role = profile.get("role", {}).get("id")
-                if args.get("role_id") and role != args["role_id"]: continue
-                try: self._authorized_recipient(ctx, row["agent_id"], target, uow)
-                except DomainError: continue
-                business = uow.repository("businesses").get(target) if target else None
-                values.append({"agent_id": row["agent_id"], "name": row["name"], "role_id": role, "business_id": target,
-                    "display_name": profile.get('display_name', row['name']),
-                    "presentation": profile.get('presentation', {}), "role": {"id": role},
-                    "business_slug": business["slug"] if business else None,
-                    "business_name": business["name"] if business else None,
-                    "group": "Global" if target is None else "Businesses"})
+        for row in uow.connection.execute(
+                "SELECT a.agent_id,a.name,a.home_business_id,a.status,a.profile_json,p.kind,p.active FROM agent_profiles a "
+                "JOIN principals p ON p.id=a.agent_id WHERE a.status='active' AND a.home_business_id IS NULL ORDER BY a.name,a.agent_id"):
+            profile = global_profile_data(row)
+            if profile is None: continue
+            role = profile["role"]["id"]
+            if args.get("role_id") and role != args["role_id"]: continue
+            try: self._authorized_recipient(ctx, row["agent_id"], target, uow)
+            except DomainError: continue
+            values.append({"agent_id": row["agent_id"], "name": row["name"], "role_id": role, "business_id": target,
+                "display_name": profile.get('display_name', row['name']),
+                "presentation": profile.get('presentation', {}), "role": {"id": role},
+                "business_slug": business["slug"] if business else None,
+                "business_name": business["name"] if business else None,
+                "group": "Global"})
         return {"items": values}
 
     def _timing(self, value):
@@ -126,21 +139,15 @@ class Broadcasts:
 
     def _definition(self, ctx, data, uow, *, scope):
         ctx = self.app.current_context(ctx, uow)
+        self._current_sender(ctx, uow)
         if not data['message'].strip() or not data['name'].strip():
             raise DomainError('validation_error', 'Enter a message and name')
         if data["delivery"] == "input" and not self._input_allowed(ctx, uow):
             raise DomainError("forbidden", "Input broadcasts require the installation owner; use authorized terminal-control tools")
         scope_business, _ = self._scope(ctx, {"scope": scope})
-        recipients = []
-        for item in data["recipients"]:
-            profile = uow.connection.execute("SELECT home_business_id FROM agent_profiles WHERE agent_id=? AND status='active'", (item,)).fetchone()
-            if not profile: raise DomainError("not_found", "Recipient is unavailable")
-            target_business = profile["home_business_id"]
-            if scope_business is not None and target_business != scope_business:
-                raise DomainError("forbidden", "Business broadcast recipients must belong to this business")
-            recipients.append(self._authorized_recipient(ctx, item, target_business, uow))
-        # Same agent may be selected in more than one business only if distinct scope rows.
-        if len({(x['agent_id'], x['business_id']) for x in recipients}) != len(recipients): raise DomainError("validation_error", "Recipients must be unique")
+        # Every recipient is bound to the broadcast's own scope: one selected identity, one delivery per occurrence.
+        recipients = [self._authorized_recipient(ctx, item, scope_business, uow) for item in data["recipients"]]
+        if len({x['agent_id'] for x in recipients}) != len(recipients): raise DomainError("validation_error", "Recipients must be unique")
         try:
             timing = self._timing(data['timing'])
         except (ValueError, OverflowError, RoutineError) as exc:
@@ -149,6 +156,7 @@ class Broadcasts:
 
     def _row(self, ctx, args, uow):
         business, _ = self._scope(ctx, args)
+        self._current_sender(ctx, uow)
         row = uow.repository("broadcasts", business_id=business).get(args["broadcast_id"], required=True)
         if ctx.principal_id in (row["sender_id"], row['created_by']): return row
         if ctx.principal_kind == "human":
@@ -163,7 +171,6 @@ class Broadcasts:
             if all(target['business_id'] is None or target['business_id'] in ctx.allowed_business_ids
                    for target in row['recipients_json']):
                 return row
-        if role == roles.BUSINESS_AGENT_ROLE and business == ctx.business_id: return row
         raise DomainError("forbidden", "You cannot manage this broadcast")
 
     def _can_manage(self, ctx, row, uow):
@@ -219,10 +226,13 @@ class Broadcasts:
         return builder.build()
 
     def validate_control(self, ctx, plan, uow):
-        """A prepared change to an existing broadcast is authorized again, from its current authors and roles, when it applies."""
+        """A prepared broadcast change is authorized again when it applies: an agent caller must still be an active global, and
+        a change to an existing broadcast is rechecked from its current authors and roles."""
         args = plain(plan.arguments)
+        ctx = self.app.current_context(ctx, uow)
+        self._current_sender(ctx, uow)
         if args.get("broadcast_id"):
-            self._row(self.app.current_context(ctx, uow), args, uow)
+            self._row(ctx, args, uow)
 
     def apply(self, ctx, plan, uow):
         records = apply_records(ctx, plan, uow)
@@ -247,7 +257,9 @@ class Broadcasts:
     def register(self):
         common = dict(supports_signoff=False, scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
             resolve_namespace=lambda ctx,a: "global" if a.get("scope") == "global" else "business:" + (ctx.business_id or ""))
-        self.app.registry.register(OperationDescriptor("broadcast_recipients", schema({**SCOPE, "all_businesses": {"type":"boolean"}, "role_id": {"type":"string", "maxLength":100}}), effect_kind="read", read=self._recipients, **common))
+        self.app.registry.register(OperationDescriptor("broadcast_recipients", schema({**SCOPE, "all_businesses": {"type":"boolean",
+            "description": "Accepted for existing callers; it adds no per-business rows. The global agents are listed once in the selected scope."},
+            "role_id": {"type":"string", "maxLength":100}}), effect_kind="read", read=self._recipients, **common))
         self.app.registry.register(OperationDescriptor("broadcasts_list", schema({**SCOPE, "cursor":{"type":"string"}, "limit":{"type":"integer","minimum":1,"maximum":200}}), effect_kind="read", read=self.list, **common))
         self.app.registry.register(OperationDescriptor("broadcasts_get", schema({**SCOPE, "broadcast_id": UUID}, ("broadcast_id",)), effect_kind="read", read=self.get, **common))
         for name in ("broadcasts_create", "broadcasts_update", "broadcasts_pause", "broadcasts_resume", "broadcasts_cancel", "broadcasts_send_now"):
@@ -358,6 +370,7 @@ class BroadcastDispatcher:
         decision = app.authorize(ctx, descriptor, [], uow, namespace=namespace)
         if decision.mode != 'allow':
             raise DomainError('forbidden', 'Sender no longer has permission to deliver this broadcast')
+        self.broadcasts._current_sender(ctx, uow)
         self.broadcasts._authorized_recipient(ctx, delivery['recipient_id'], delivery['business_id'], uow)
         if payload['delivery'] == 'input' and not self.broadcasts._input_allowed(ctx, uow):
             raise DomainError('forbidden', 'Sender no longer has Input permission')
@@ -404,7 +417,8 @@ class BroadcastDispatcher:
                     input_reserved = True
             if input_reserved:
                 try:
-                    result = self.terminals.input_existing(delivery['business_id'], delivery['recipient_id'], payload['message'],
+                    # A global's native session is its Global one; the delivery's business stays its authorization and history scope.
+                    result = self.terminals.input_existing(None, delivery['recipient_id'], payload['message'],
                         key=f"broadcast:{delivery['broadcast_id']}:{delivery['occurrence']}:{delivery['recipient_id']}") \
                         if self.terminals else {'state': 'unavailable', 'detail': 'Terminal backend is unavailable'}
                     state = result.get('state', 'uncertain')

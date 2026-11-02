@@ -71,6 +71,9 @@ class CatalogOperations:
         package = load_package(source[1], source[2], kind, self.catalog.registry)
         if kind == "role" and package.id in RETIRED_ROLE_IDS:
             raise DomainError("retired_role", "This role is retired; new role revisions cannot be published")
+        if kind == "role" and "business" in package.manifest["scope_kinds"]:
+            # Businesses own resources only; existing immutable business-role artifacts stay readable.
+            raise DomainError("retired_role", "Business-scoped roles are retired; only global roles are published")
         record_id = canonical_bytes([kind, package.id, package.version]).decode()
         record = ResourceRef("artifacts", record_id, namespace="global")
         current = self.resolve_record(ctx, record, uow)

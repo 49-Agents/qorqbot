@@ -1,8 +1,8 @@
 """Read-only owner reply indicators. Uses stored private cursors and the completed replies indexed from the transcript archive."""
 import json
 
-from qorqut_operations.business_lifecycle import active_business_ids
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.global_agents import global_agent_ids
 from bazarlyk.management.identity import installation_owner, private_participants
 from bazarlyk.native_chat import store as native_store
 
@@ -49,20 +49,18 @@ def replies(runtime, ctx):
                           'text': (row['summary'] or row['body'])[:180], 'created_at': row['message_at'], 'unread': True})
         # Chat replies come only from completed replies the backend indexed from the archive (provider end-of-turn evidence;
         # never partial, tool-only, owner echo or system notice), whether or not Chat was ever opened. A reply is unread while
-        # its per-agent completion sequence is past the owner's read boundary. Business agents contribute nav dots only.
-        live = active_business_ids(uow.connection)
+        # its per-agent completion sequence is past the owner's read boundary. Only current supported globals contribute:
+        # replies of business-home, retired or unsupported registrations remain history, never unread navigation.
         for reply in native_store.unread_replies(uow.connection, ctx.principal_id):
-            home = reply['home_business_id']
-            if home is not None and home not in live:
-                continue
             data = json.loads(reply['profile_json'])
             items.append({'id': 'gchat:' + reply['id'], 'kind': 'global', 'chat': True, 'agent_id': reply['agent_id'],
                           'agent_name': data.get('display_name') or data.get('name') or reply['agent_name'] or 'Agent',
                           'text': reply['preview'][:180], 'created_at': reply['completed_at'], 'unread': True,
-                          'sequence': reply['completion_sequence'], 'nav_only': home is not None})
-        for row in uow.connection.execute("""SELECT m.* FROM telegram_messages m JOIN agent_profiles a ON a.agent_id=m.agent_id
-            WHERE m.direction='outbound' AND m.purpose='reply' AND a.home_business_id IS NULL
-            AND a.status='active' AND m.sensitive=0 AND m.body_redacted=0 ORDER BY m.created_at DESC LIMIT 30"""):
+                          'sequence': reply['completion_sequence'], 'nav_only': False})
+        current = global_agent_ids(uow.connection)
+        for row in uow.connection.execute(f"""SELECT m.* FROM telegram_messages m
+            WHERE m.direction='outbound' AND m.purpose='reply' AND m.agent_id IN ({','.join('?' * len(current))})
+            AND m.sensitive=0 AND m.body_redacted=0 ORDER BY m.created_at DESC LIMIT 30""", current):
             items.append({'id': 'telegram:' + row['id'], 'kind': 'global', 'agent_id': row['agent_id'],
                           'agent_name': row['chat_name'], 'text': (row['body'] or '')[:180], 'created_at': row['created_at']})
     return {'items': sorted(items, key=lambda item: (item['created_at'], item['id']))}

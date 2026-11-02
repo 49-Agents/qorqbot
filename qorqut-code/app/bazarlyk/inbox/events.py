@@ -9,13 +9,17 @@ required/optional deliveries in the applying transaction. The captures below cov
 an edge that touches a Task or an Action is announced by the engine operation that wrote it.
 """
 import json
+import logging
 
-from bazarlyk.agents.roles import BUSINESS_AGENT_ROLE
+from bazarlyk.agents.global_scope import active_global, reaches_business
+from bazarlyk.agents.roles import ORDUBASHY_ROLE
 from bazarlyk.composition.capture import CAPTURED as FEED_ONLY
 from qorqut_operations.contracts import utc_now
 from qorqut_operations.discussion import emit_event
 
 from .related import routed
+
+LOGGER = logging.getLogger(__name__)
 
 ITEM_TYPES = {'signoffs': 'signoff',
               'email_conversations': 'material', 'documents': 'material',
@@ -30,6 +34,18 @@ def assigned(uow, business, kind, identity):
     return {r[0] for r in uow.connection.execute(
         "SELECT to_id FROM relationships WHERE business_id IS ? AND from_type=? AND from_id=? "
         "AND to_type='agent' AND role='assigned_to'", (business, kind, identity))}
+
+
+def intake_coordinator(uow, business, reader):
+    """The configured management coordinator when it is an active supported Ordubashy that reaches this business and may
+    read its email now; otherwise None. No other role holder, the owner or a broadcast stands in."""
+    installation = uow.repository('installation').get('service')
+    coordinator = installation['management_coordinator_id'] if installation else None
+    profile = active_global(uow.connection, coordinator)
+    if (profile is None or profile['role']['id'] != ORDUBASHY_ROLE
+            or not reaches_business(uow.connection, coordinator, business)):
+        return None
+    return coordinator if reader(coordinator, business, uow) else None
 
 
 def row_for(uow, table, business, identity):
@@ -261,30 +277,18 @@ def finalize_events(uow):
                 responsible = bool(message and message.get('origin') != 'baseline' and not outgoing(message, uow))
         for table, record, actor, event_type, direct in targets(uow, capture):
             business = record.get('business_id', record.get('review_business_id'))
-            if (capture['source_type'] == 'email_messages' and responsible
-                    and not assigned(uow, business, 'material', record['id'])):
-                # New unassigned incoming mail goes to the business agent holding that mailbox;
-                # an empty list holds every business mailbox (marketing_plugins.sending_mailboxes).
-                # Scope/activity checks below still apply; reads recheck grants.
-                direct.update(r[0] for r in uow.connection.execute(
-                    "SELECT a.agent_id FROM agent_profiles a, json_each(a.profile_json,'$.plugins') p "
-                    "WHERE a.home_business_id=? AND a.status='active' AND json_extract(a.profile_json,'$.role.id')=? "
-                    "AND json_extract(p.value,'$.id')='email-management' "
-                    "AND (EXISTS (SELECT 1 FROM json_each(p.value,'$.config.mailboxes') m WHERE m.value=?) "
-                    "OR (COALESCE(json_array_length(p.value,'$.config.mailboxes'),0)=0 AND EXISTS (SELECT 1 FROM email_mailboxes b "
-                    "WHERE b.business_id=a.home_business_id AND b.id=? AND b.purpose='business_mail')))",
-                    (business, BUSINESS_AGENT_ROLE, record['mailbox'], record['mailbox'])))
             if capture['source_type']=='email_messages' and responsible:
                 reader=getattr(uow.database,'email_reader',None)
                 handlers=assigned(uow,business,'material',record['id'])
+                # An assignee who can read the mail now keeps it. Otherwise (unassigned, or only historical/denied
+                # assignees) new responsibility goes to the configured coordinator alone; the edges are not rewritten.
                 if reader and not any(reader(agent,business,uow) for agent in handlers):
-                    managers={r[0] for r in uow.connection.execute("SELECT agent_id FROM agent_profiles WHERE home_business_id=? AND status='active' AND json_extract(profile_json,'$.role.id')=?",(business,BUSINESS_AGENT_ROLE))}
-                    managers={agent for agent in managers if reader(agent,business,uow)}
-                    if not managers:
-                        installation=uow.repository('installation').get('service')
-                        coordinator=installation['management_coordinator_id'] if installation else None
-                        if coordinator and reader(coordinator,business,uow):managers.add(coordinator)
-                    direct.update(managers)
+                    coordinator=intake_coordinator(uow,business,reader)
+                    if coordinator:
+                        direct.add(coordinator)
+                    else:
+                        LOGGER.warning('Incoming business email has no eligible intake recipient: business=%s conversation=%s',
+                                       business, record['id'])
             edge = _json(capture['after_json']) or _json(capture['before_json']) or {}
             assignment = capture['source_type'] == 'relationships' and edge.get('role') == 'assigned_to'
             if assignment and (table, business, record['id']) in created:
@@ -346,15 +350,14 @@ def finalize_events(uow):
         recipients.discard(actor)
         active = set()
         for agent in recipients:
-            profile = uow.connection.execute("SELECT a.home_business_id,a.profile_json FROM agent_profiles a JOIN principals p ON p.id=a.agent_id WHERE a.agent_id=? AND a.status='active' AND p.active=1", (agent,)).fetchone()
-            if not profile: continue
-            scope = json.loads(profile['profile_json']).get('scope', {})
+            # Only active supported globals receive deliveries; business-home identities are historical.
+            profile = active_global(uow.connection, agent)
+            if profile is None: continue
             if business is None:
-                allowed = scope.get('kind') == 'ecosystem' and bool(scope.get('global_capabilities'))
+                allowed = bool(profile['scope'].get('global_capabilities'))
             else:
-                allowed = business == profile['home_business_id'] or business in scope.get('allowed_business_ids', [])
-                member = uow.connection.execute('SELECT active FROM business_memberships WHERE business_id=? AND principal_id=?', (business, agent)).fetchone()
-                allowed = allowed and bool(member and member[0])
+                # Derived access: every active business, no agent membership row.
+                allowed = reaches_business(uow.connection, agent, business)
             reader=getattr(uow.database,'email_reader',None)
             if allowed and reader and (table=='email_conversations' or email_link):
                 allowed=reader(agent,business,uow)

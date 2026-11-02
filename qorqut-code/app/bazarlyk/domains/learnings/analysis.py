@@ -775,11 +775,7 @@ def extract(core, biz, run_id, model=MODEL, now=None, passes=EXTRACT_PASSES, *, 
     from .sources import SOURCE_SYSTEM
     system = EXTRACT_SYSTEM + "\nPreserve epistemic status: recommendations remain ideas, not decisions. One-off tests and temporary instructions are not standing rules. Preserve dates on historical or time-sensitive facts. When this source both asks and explicitly answers a question, extract only the answer, not a separate unanswered question.\n"
     if 'evidence_blocks' in core:
-        system += SOURCE_SYSTEM
-        if core['header'].get('biz') is None:
-            system += "\nCURRENT WORKSPACE: Global. EVERY item must use scope=global, including context and delta. This overrides the transcript rule that context uses biz. There is no business or observed agent.\n"
-        else:
-            system += "\nCURRENT WORKSPACE: business. Context items must use scope=biz. Delta items may use biz or global; there is no observed agent.\n"
+        system += SOURCE_SYSTEM                     # contributions are extracted only by the Global pass (v1.2 G022/G023)
     elif core['header'].get('biz') is None:
         system += ("\nCURRENT WORKSPACE: Global agent conversation. Context items must use scope=global, overriding the biz rule. "
                    "Delta items may use agent, agent_kind, or global; never biz. The observed agent and role are in the header. "

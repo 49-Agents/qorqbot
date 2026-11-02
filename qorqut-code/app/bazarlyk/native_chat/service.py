@@ -2,7 +2,8 @@
 
 Each pass, for every registered active agent that has (or had) a native session: verify the session, keep its durable binding,
 capture the bound transcript into the archive and index finished replies, deliver waiting Chat inputs, and run the final
-capture of sessions that ended. Nothing here launches, resumes or stops an agent, and nothing depends on a request.
+capture of sessions that ended. Before observing, waiting inputs of a recipient that no longer qualifies are settled as
+undelivered (maintenance, never delivery). Nothing here launches, resumes or stops an agent, and nothing depends on a request.
 
 The drain is bounded: ``stop_observer`` joins the thread within its timeout and raises ``TimeoutError`` when it survives, keeping
 the reference so a later stop can still prove the drain.
@@ -85,6 +86,7 @@ class NativeBackend:
                 self.runtime.application.ensure_writes_open(uow)
                 store.recover_claimed(uow.connection)
             self._recovered = True
+        self.undeliver_ineligible()
         with self.database.read() as uow:
             agents = store.observed_agents(uow.connection, self.runtime.paths)
             open_agents = {row["agent_id"] for row in store.open_sessions(uow.connection)}
@@ -101,6 +103,25 @@ class NativeBackend:
             except Exception:
                 LOG.debug("Native Chat observation deferred for %s", profile["agent_id"], exc_info=True)
         self.finish_ended()
+
+    def undeliver_ineligible(self) -> None:
+        """Settle the waiting inputs of every recipient that is no longer an operating supported global as ``undelivered``
+        (``agent_inactive``): a waiting input was never typed, and the observer, which sees only eligible agents, would never
+        reach it. This is maintenance, never delivery. Nothing is probed, bound, started, stopped or retargeted; sessions,
+        their final capture and every other input state are left as they are, and inbox events stay pending.
+
+        Eligibility is checked again under the agent's lock inside the write transaction, so a recipient restored meanwhile
+        keeps its queue. Closed writes refuse the transaction, as they refuse startup recovery, and nothing is settled."""
+        with self.database.read() as uow:
+            candidates = [agent for agent in store.waiting_agents(uow.connection)
+                          if store.active_profile(uow.connection, agent) is None]
+        for agent_id in candidates:
+            if self._stop_event.is_set():
+                return
+            with self.locks(agent_id), self.database.transaction(operation="native_chat.undeliver_ineligible") as uow:
+                self.runtime.application.ensure_writes_open(uow)
+                if store.active_profile(uow.connection, agent_id) is None:
+                    store.undeliver_waiting(uow.connection, agent_id, "agent_inactive")
 
     def observe(self, profile: dict) -> None:
         """Bind, capture and index one agent, then deliver its waiting inputs. Safe to repeat."""

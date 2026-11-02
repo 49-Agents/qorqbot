@@ -1,5 +1,6 @@
 """Scoped Settings metadata and separately permissioned private-value reads."""
 
+from bazarlyk.agents.global_scope import active_business_participant
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, canonical_bytes
 from qorqut_operations.application.plans import PAGE, page, schema
@@ -15,10 +16,9 @@ def register_environment(runtime):
             local.require_environment_owner(ctx, uow)
         elif ctx.principal_kind != "agent":
             raise DomainError("forbidden", "Settings values require an authorized agent or owner")
-        if ctx.business_id is not None:
-            member = uow.repository("business_memberships", business_id=ctx.business_id).get(ctx.principal_id)
-            if not member or not member["active"]:
-                raise DomainError("forbidden", "Settings values require active business membership")
+        # Humans keep their membership rule; agents are active supported globals with derived business access.
+        if ctx.business_id is not None and not active_business_participant(uow.connection, ctx.business_id, ctx.principal_id):
+            raise DomainError("forbidden", "Settings values require active business access")
         if args["key"] in IDENTITY_KEYS:
             raise DomainError("forbidden", "Runtime identity bindings are not readable Settings")
         try:
@@ -50,10 +50,8 @@ def register_environment(runtime):
 
     def read(ctx, args, options, uow):
         runtime.require_authority()
-        if ctx.business_id is not None:
-            member = uow.repository("business_memberships", business_id=ctx.business_id).get(ctx.principal_id)
-            if not member or not member["active"]:
-                raise DomainError("forbidden", "Settings metadata requires active business membership")
+        if ctx.business_id is not None and not active_business_participant(uow.connection, ctx.business_id, ctx.principal_id):
+            raise DomainError("forbidden", "Settings metadata requires active business access")
         effective = {}
         try:
             owner_session = ctx.owner_session_business_id is not None

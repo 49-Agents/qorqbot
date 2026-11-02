@@ -85,7 +85,7 @@ INBOX_EVENT_FIELDS = ("id", "source_type", "source_id", "event_type", "summary",
 MESSAGE_ITEM_FIELDS = ("id", "event_id", "thread_id", "reply_to", "sender_id", "sender_name",
     "recipient_id", "recipient_name", "current_sender_id", "current_sender_name", "current_recipient_id",
     "current_recipient_name", "counterpart_id", "body", "summary", "created_at", "acknowledged_at", "outcome",
-    "delegation_attribution", "terminal_delivery")
+    "delegation_attribution", "terminal_delivery", "read_only", "retirement_backlog")
 ACTIVITY_AGENT_FIELDS = ("agent_id", "name", "role_id", "business_id", "business_slug",
     "state", "last_seen_at", "sessions", "inbox")
 ACTIVITY_SESSION_FIELDS = ("session_id", "runtime", "state", "last_seen_at", "work_revision",
