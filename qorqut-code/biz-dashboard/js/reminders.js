@@ -87,9 +87,19 @@ function remindersDetailMount(host, initial, opts = {}) {
     else if (r.at && !next) fields.push(['Scheduled for', remFormatTime(r.at, r.recurrence?.timezone)]);
     fields.push(['Repeat', remRecurrenceText(r.recurrence)], ['For', remWho(r)]);
     if (r.time_critical) fields.push(['Priority', 'Time-critical']);
-    if (r.linked_item) fields.push(['Linked', remLinkText(r.linked_item)]);
     const list = node('dl', 'rem-fields');
     for (const [label, value] of fields) list.append(node('dt', '', label), node('dd', '', value));
+    if (r.linked_item && r.link_available !== false) {
+      const open = typeof agentOpenRecordReference === 'function';
+      const cell = node('dd', '');
+      if (open) {
+        const b = node('button', 'quiet rem-link-open', remLinkText(r.linked_item)); b.type = 'button';
+        b.setAttribute('aria-label', 'Open linked ' + remLinkText(r.linked_item));
+        b.onclick = () => void Promise.resolve(agentOpenRecordReference(r.linked_item)).catch(() => toast('The linked item could not be opened.'));
+        cell.append(b);
+      } else cell.textContent = remLinkText(r.linked_item);
+      list.append(node('dt', '', 'Linked'), cell);
+    } else if (r.link_available === false) list.append(node('dt', '', 'Linked'), node('dd', 'muted', 'Not available to you'));
     box.append(list);
     const message = node('p', 'ferr rem-error', error); message.setAttribute('role', 'alert'); message.hidden = !error;
     box.append(message);
@@ -163,6 +173,8 @@ function remindersDetailMount(host, initial, opts = {}) {
     } finally { busy = false; if (alive()) paint(); }
   }
   paint();
+  // A legacy projection lacks the occurrence and recurrence; read the full reminder at once.
+  if (remId(current)) void reload();
   return {
     reminder: () => current,
     refresh: reload,
@@ -174,7 +186,7 @@ function remindersDetailMount(host, initial, opts = {}) {
 function remindersOpenDetail(reminder, opts = {}) {
   let view;
   modal({title: 'Reminder', width: 520, stack: true, body: '<div class="rem-dialog"></div>',
-    onOpen: el => { view = remindersDetailMount(el.querySelector('.rem-dialog'), reminder, opts); void view.refresh(); },
+    onOpen: el => { view = remindersDetailMount(el.querySelector('.rem-dialog'), reminder, opts); },
     onClose: () => { view?.dispose(); opts.onClose?.(); }});
 }
 
@@ -201,9 +213,12 @@ function remindersEditor(reminder = null, opts = {}) {
     <label data-when="daily weekly custom">Timezone<input class="inp" name="timezone" value="${esc(zone)}" placeholder="America/New_York"></label>
     <label class="rem-check rem-wide"><input type="checkbox" name="critical" ${reminder?.time_critical ? 'checked' : ''}> Time-critical (may interrupt unrelated focus)</label>
     ${link ? `<p class="muted rem-wide">Linked: ${esc(remLinkText(link))}<label class="rem-inline"><input type="checkbox" name="unlink"> Remove link</label></p>`
-      : `<div class="rem-wide rem-link"><label>Link to<select class="inp" name="linktype"><option value="">Nothing</option>${[['task', 'Work'], ['email', 'Email'], ['project', 'Project'], ['table', 'Table']].map(([v, l]) => option(v, l, false)).join('')}</select></label><label>Item ID<input class="inp" name="linkid"></label></div>`}
+      : `<div class="rem-wide rem-link"><label>Link to<select class="inp" name="linktype"><option value="">Nothing</option>${[['task', 'Work'], ['email', 'Email'], ['project', 'Project'], ['table', 'Table']].map(([v, l]) => option(v, l, false)).join('')}</select></label>
+      <label>Project<select class="inp" name="linkscope"><option value="">Global</option>${(state.bizs || []).filter(b => b.id || b.business_id).map(b => option(b.id || b.business_id, b.name || b.slug, false)).join('')}</select></label>
+      <label class="rem-wide">Item ID<input class="inp" name="linkid"></label></div>`}
     <p class="ferr rem-wide" role="alert" hidden></p></form>`;
-  let attempt = null;
+  let attempt = null, initialSchedule = null;
+  const scheduleOf = form => JSON.stringify(['repeat', 'at', 'weekday', 'time', 'cron', 'timezone'].map(name => form.elements[name]?.value ?? ''));
   modal({title: editing ? 'Edit reminder' : 'New reminder', width: 560, stack: true, body, actions: [
     {label: 'Cancel', onClick: close => close()},
     {label: editing ? 'Save' : 'Create reminder', primary: true, onClick: (close, el) => void save(close, el)},
@@ -211,6 +226,7 @@ function remindersEditor(reminder = null, opts = {}) {
     const form = el.querySelector('.rem-form');
     const sync = () => form.querySelectorAll('[data-when]').forEach(label => { label.hidden = !label.dataset.when.split(' ').includes(form.elements.repeat.value); });
     form.elements.repeat.onchange = sync; sync();
+    initialSchedule = scheduleOf(form);
     form.onsubmit = event => event.preventDefault();
     if (manager) void remRecipients().then(people => {
       if (!form.isConnected) return;
@@ -228,12 +244,14 @@ function remindersEditor(reminder = null, opts = {}) {
     message.hidden = true;
     if (!text) return fail('Enter the reminder text.');
     if (text.length > REM_TEXT_MAX) return fail(`Keep the text within ${REM_TEXT_MAX} characters.`);
+    // An edit that leaves the schedule controls alone never sends at/recurrence, so the stored time and calendar are untouched.
+    const reschedule = !editing || scheduleOf(form) !== initialSchedule;
     let at = null, recurrence = null;
-    if (kind === 'once') {
+    if (reschedule && kind === 'once') {
       at = remOffsetISO(f.at.value);
       if (!at) return fail('Choose when to be reminded.');
-      if (new Date(at).getTime() <= Date.now() && !(editing && reminder.state === 'due' && at === remOffsetISO(remLocalInput(reminder.at)))) return fail('Choose a future date and time.');
-    } else {
+      if (new Date(at).getTime() <= Date.now()) return fail('Choose a future date and time.');
+    } else if (reschedule) {
       const timezone = f.timezone.value.trim();
       if (!timezone) return fail('Enter a timezone, for example ' + remZone() + '.');
       let schedule;
@@ -252,16 +270,21 @@ function remindersEditor(reminder = null, opts = {}) {
     else if (f.linktype.value) {
       const id = f.linkid.value.trim();
       if (!id) return fail('Enter the ID of the item to link, or choose Nothing.');
-      linked = {type: f.linktype.value, id, business_id: null};
+      linked = {type: f.linktype.value, id, business_id: f.linkscope.value || null};
     }
     const recipient = f.recipient && !f.recipient.disabled ? f.recipient.value : null;
-    const args = {text, ...(recurrence ? {recurrence} : at ? {at} : {}), time_critical: critical};
+    let args;
     if (editing) {
-      args.reminder_id = remId(reminder); args.revision = reminder.revision;
-      if (!recurrence) args.recurrence = null;
+      args = {reminder_id: remId(reminder), revision: reminder.revision};
+      if (text !== reminder.text) args.text = text;
+      if (critical !== !!reminder.time_critical) args.time_critical = critical;
+      if (recurrence) args.recurrence = recurrence;
+      else if (at) { args.at = at; if (reminder.recurrence) args.recurrence = null; }
       if (linked !== undefined) args.linked_item = linked;
       if (recipient && recipient !== reminder.recipient_id) args.recipient_id = recipient;
+      if (Object.keys(args).length === 2) { close(); return; }
     } else {
+      args = {text, ...(recurrence ? {recurrence} : {at}), time_critical: critical};
       if (recipient && recipient !== remSelf()) args.recipient_id = recipient;
       if (linked) args.linked_item = linked;
     }

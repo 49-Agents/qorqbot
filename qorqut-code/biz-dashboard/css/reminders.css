@@ -25,3 +25,4 @@
 .rem-row:hover,.rem-row:focus-visible{background:var(--hover)}
 .rem-row-text{font:500 13px/20px var(--sans);overflow-wrap:anywhere}
 .rem-row-meta{font-size:11px}
+.rem-link-open{padding:0;border:0;background:none;text-decoration:underline;text-align:left}

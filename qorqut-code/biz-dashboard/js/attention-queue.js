@@ -65,7 +65,7 @@ const attentionQueue=(()=>{
       // Due reminders lead the strip, ahead of Signoff and email chips, until explicitly handled.
       const due=dueReminders.map(r=>`<button type="button" class="focus-signoff-chip focus-reminder-chip" data-reminder-key="${esc(r.reminder_id)}" data-reminder-state="due" aria-label="${esc('Reminder due: '+r.text)}" title="${esc(r.text)}">${reminderIcon}</button>`).join('');
       const button=remindersAvailable?'<button type="button" class="focus-signoff-chip focus-reminders-button" data-reminders-open aria-label="Reminders" title="Reminders">'+reminderIcon+'</button>':'';
-      const markup=button+due+signoffs.map(s=>{const title=mount.name?.(s.id)||s.title;return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" aria-label="Review ${esc(title)}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
+      const markup=due+button+signoffs.map(s=>{const title=mount.name?.(s.id)||s.title;return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" aria-label="Review ${esc(title)}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
       const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'')+(remindersError?'<button type="button" class="quiet" data-reminders-retry>Retry reminders</button>':'');
       if(host._signoffHTML!==html){host.innerHTML=html;host._signoffHTML=html;}
       host.hidden=!markup && !signoffsError && !remindersError;
