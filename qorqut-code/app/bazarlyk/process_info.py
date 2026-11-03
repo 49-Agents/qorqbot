@@ -134,8 +134,22 @@ def cmdline(pid):
     return [arg.decode('utf-8', 'replace') for arg in Path(f'/proc/{int(pid)}/cmdline').read_bytes().split(b'\0') if arg]
 
 
+# Claude Code's native installer runs the client from .../claude/versions/<version>, so macOS names the process after
+# the version ("2.1.317"); Linux reports the title the client sets ("claude"). Report the client name on both.
+CLAUDE_VERSIONED = '/claude/versions/'
+
+
+def _darwin_name(process):
+    value = process.name()
+    try:
+        executable = process.exe()
+    except _psutil().AccessDenied:
+        return value
+    return 'claude' if CLAUDE_VERSIONED in executable and Path(executable).name == value else value
+
+
 def name(pid):
-    return _read(pid, lambda p: p.name()) if darwin() else Path(f'/proc/{int(pid)}/comm').read_text().strip()
+    return _read(pid, _darwin_name) if darwin() else Path(f'/proc/{int(pid)}/comm').read_text().strip()
 
 
 def exe(pid):
@@ -192,11 +206,38 @@ def owns_listener(pid, port, address=None):
     return _read(pid, inspect)
 
 
+def _darwin_signals(pid, root):
+    """Direct ownership evidence for one same-user process (the Linux rule).
+
+    macOS hides the environment (and sometimes the executable) of Apple platform
+    binaries such as Finder, Dock or /bin/sleep, even for the same user. Each
+    unreadable signal is treated as absent, matching the Linux scan, which skips
+    unreadable /proc entries. User-installed tools that Qorqbot launches (venv
+    Python, Homebrew tmux, Node clients) expose both signals. The working
+    directory is deliberately not a signal: an owner's Terminal or the app
+    launcher sitting in the folder must not block updates.
+    """
+    try:
+        if exe(pid).is_relative_to(root):
+            return True
+    except PermissionError:
+        pass
+    try:
+        return environ(pid).get('QORQUT_FOLDER_ROOT') == str(root)
+    except PermissionError:
+        return False
+
+
 def owned(root, *, exclude=()):
-    """Folder executable/marker owners; inaccessible environments remain unverified."""
-    root = str(Path(root).resolve())
+    """Folder executable/marker owners.
+
+    Linux: executable under the folder or the folder marker in the environment.
+    macOS: the same signals, plus an owned ancestor, because platform binaries
+    started by an owned process hide their environment.
+    """
+    root = Path(root).resolve()
     excluded = {os.getpid(), *map(int, exclude)}
-    found = []
+    candidates = {}
     for pid in pids():
         if pid <= 0 or pid in excluded:
             continue
@@ -204,13 +245,30 @@ def owned(root, *, exclude=()):
             if os.geteuid() not in uids(pid) or is_zombie(pid):
                 continue
             before = identity(pid)
-            selected = exe(pid).is_relative_to(root) or environ(pid).get('QORQUT_FOLDER_ROOT') == root
+            if darwin():
+                selected = _darwin_signals(pid, root)
+                parent = parent_pid(pid)
+            else:
+                selected = exe(pid).is_relative_to(root) or environ(pid).get('QORQUT_FOLDER_ROOT') == str(root)
+                parent = None
             if identity(pid) != before:
                 raise OSError('Process identity changed during ownership inspection')
-            if selected:
-                found.append({'pid': pid, 'identity': before})
+            candidates[pid] = {'identity': before, 'selected': selected, 'parent': parent}
         except (ProcessLookupError, FileNotFoundError):
             continue
+        except PermissionError:
+            if not darwin():
+                raise
+            continue
+    found = []
+    for pid, item in candidates.items():
+        selected, seen, parent = item['selected'], {pid}, item['parent']
+        while not selected and parent in candidates and parent not in seen:
+            seen.add(parent)
+            selected = candidates[parent]['selected']
+            parent = candidates[parent]['parent']
+        if selected:
+            found.append({'pid': pid, 'identity': item['identity']})
     return found
 
 
