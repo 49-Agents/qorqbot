@@ -10,7 +10,6 @@ qorqut-code/                   host application
   biz-dashboard/               owner dashboard
   extensions/                  Google Calendar, optional Telegram and WhatsApp
 qorqut-agentic/                agentic engine and bundled role resources
-qorqut-roles/agent-roles/       canonical role source
 extensions/qorqut-fastmail/    optional Fastmail connector
 services/email-engine/        optional Fastmail transport
 dependencies/                document-history and email-management
@@ -87,3 +86,5 @@ Keep SQL schema migrations and the authority and backup/recovery helpers. Before
 deleting any checkout, verify that its remote copy exists, its working tree is clean,
 its commits are pushed and no linked worktrees depend on it. Preserve unresolved work
 rather than deleting it with the checkout.
+
+Default roles and shared role skills are maintained only in `qorqut-agentic/src/qorqut_agentic/resources/defaults/`. The installed Agentic layer owns the active instructions and preferences.

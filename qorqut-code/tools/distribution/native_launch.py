@@ -47,6 +47,17 @@ def environment(root, home):
     env = dict(os.environ)
     user_home = Path(env.get('HOME', str(Path.home())))
     user_path = env.get('PATH', os.defpath)
+    # Preserve the invoking user's CLI configuration separately from app storage.
+    # None means unset, which is different from an empty or synthesized path.
+    native_keys = ('HOME', 'PATH', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME',
+                   'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME',
+                   'XDG_STATE_HOME', 'XDG_RUNTIME_DIR', 'TMPDIR',
+                   'npm_config_cache', 'PIP_CACHE_DIR', 'GIT_CONFIG_NOSYSTEM',
+                   'GIT_CONFIG_GLOBAL', 'PIP_CONFIG_FILE', 'PIP_NO_INDEX')
+    native_env = {key: env.get(key) for key in native_keys}
+    native_env['HOME'] = str(user_home)
+    native_env['PATH'] = user_path
+    env['QORQUT_NATIVE_USER_ENV'] = json.dumps(native_env)
     for key in ('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', 'QORQUT_INSTALLATION_CONFIG',
                 'QORQUT_APP_MANIFEST', 'QORQUT_TELEGRAM_CONFIG_FILE', 'BIZ_DASH_TOKEN',
                 'BAZARLYK_MCP_URL', 'QORQUT_TERMINAL_WORKSPACE', 'PIP_TARGET',

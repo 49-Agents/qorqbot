@@ -7,7 +7,7 @@ is typed. After the checkpoint every outcome other than an explicit ``deferred``
 ``receipt`` names only what was observed (client, a digest of the terminal identity, the composer fingerprint).
 
 * ``TerminalAdapter`` types into the agent's one registered tmux pane for Claude Code or Codex through the existing verified
-  composer path (one paste, verified Enter retries for Claude, no input into a modal or pre-existing draft).
+  composer path (bracketed paste, a single Enter, three composer observations, no input into a modal or non-empty composer).
 * ``CodexQueueAdapter`` uses explicit turn/steer (busy) or turn/start (idle) for steering inputs on the verified
   shared server. Non-steering producers retain codex queue. It never starts or resumes a client.
 """
@@ -54,7 +54,7 @@ class TerminalAdapter:
         delivery = {**profile, "profile_json": json.dumps({**json.loads(profile["profile_json"]),
                                                            "runtime": PROVIDER_RUNTIMES[session["provider"]]})}
         # ``steer`` lets the text coexist with a running turn (the client queues or steers it as if the owner typed it); the
-        # composer must still be verified empty; only the normal submit key is used, with bounded same-text retries for Claude. ``echo`` demands the whole pasted
+        # composer must still be verified empty and the single normal submit is the only key. ``echo`` demands the whole pasted
         # text visible in the composer before it is submitted; Chat and Telegram free-form text may be collapsed by the client
         # and may do without the whole-text echo. A producer without ``steer`` also keeps the idle-only default.
         return backend.owner_input(delivery, text, workdir=workdir, checkpoint=checkpoint,

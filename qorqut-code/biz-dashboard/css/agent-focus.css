@@ -1,5 +1,5 @@
 /* Focus rows (compact, like the Tasks table) and in-pane source navigation. */
-.agfocus .agfocus-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.agfocus .agfocus-heading{display:flex;align-items:center;justify-content:flex-end;gap:10px}
 .agfocus .agfocus-heading .global-eyebrow{margin:0}
 .agfocus .agfocus-icon{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;min-height:28px;padding:5px;border:0;background:transparent}
 .agfocus-icon svg{width:15px;height:15px}
@@ -136,8 +136,6 @@
 .agfocus-snooze-picker{min-width:0;width:min(250px,calc(100vw - 24px))}
 .agfocus-snooze-picker p{margin:0}
 
-#focus-add-form { display: grid; gap: 12px; }
-#focus-add-form label { display: grid; gap: 6px; }
 
 .agfocus-layout.agfocus-overlay-open{grid-template-columns:minmax(0,1fr)}
 .agfocus-dock.agfocus-chat-overlay{position:fixed;z-index:40;box-sizing:border-box;min-height:0;background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(10px);border-radius:12px;box-shadow:0 12px 40px #0005}
@@ -249,8 +247,6 @@
 .agfocus-text-status[hidden]{display:none}
 .agfocus-text-status[data-state=failed],.agfocus-text-status[data-state=conflict],.agfocus-text-status[data-state=load]{color:var(--warn)}
 .agfocus .agfocus-text-status button{min-height:22px;padding:2px 6px;font-size:10px}
-.focus-add-kind{display:flex;gap:16px;margin:0 0 10px}
-.focus-add-kind label{display:flex;align-items:center;gap:6px}
 
 /* Today is a derived task list; normal Focus notes and ordering remain saved. */
 
