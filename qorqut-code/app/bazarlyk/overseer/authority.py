@@ -17,7 +17,7 @@ def current_manager(runtime, context, uow):
             or ctx.delegation_binding_id is not None or ctx.delegation_assignment_id is not None):
         raise DomainError('forbidden', 'A current full manager registration is required')
     profile, row = runtime.resolver.profile(ctx.principal, connection=uow.connection)
-    if (profile.agent_id not in {configured_ordubashy(uow, require_codex=False),
+    if (profile.agent_id not in {configured_ordubashy(uow),
                                 active_role_holder(uow.connection, LEARNING_APPLIER_ROLE)}
             or 'manage_agentic_layer' not in profile.scope.global_capabilities):
         raise DomainError('forbidden', 'Current agentic management authority is required')

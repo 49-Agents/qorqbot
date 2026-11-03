@@ -32,7 +32,7 @@ FOCUS_SOURCE_TABLES = {'signoff': 'signoffs'}
 def focus_reader(uow, agent):
     """Whether the agent currently passes the Focus board's own reader gate (the active configured coordinator)."""
     from bazarlyk.management.identity import configured_ordubashy
-    return bool(agent) and agent == configured_ordubashy(uow, require_codex=True)
+    return bool(agent) and agent == configured_ordubashy(uow)
 
 
 def focus_edit_targets(uow, data, actor):

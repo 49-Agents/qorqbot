@@ -151,7 +151,7 @@ class BrowserAccess:
             if (profile.scope.kind != "ecosystem" or profile.scope.business_id is not None
                     or profile.data["role"]["id"] not in GLOBAL_ROLES):
                 raise DomainError("forbidden", "Browser selection is limited to active Global agents")
-            if configured_ordubashy(uow, require_codex=False) != actor.principal.id:
+            if configured_ordubashy(uow) != actor.principal.id:
                 raise DomainError("forbidden", "Browser selection by id is limited to the configured Ordubashy")
             package = resolver.catalog.get("role", profile.data["role"])
             if SKILL_NAME not in {skill["name"] for skill in package.skills}:

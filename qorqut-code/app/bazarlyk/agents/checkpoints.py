@@ -81,7 +81,7 @@ class AgentCheckpoints:
 
     def _findings(self, ctx, row, native, uow, *, focus_only=False):
         from bazarlyk.management.identity import configured_ordubashy
-        coordinator = ctx.principal_id == configured_ordubashy(uow, require_codex=False)
+        coordinator = ctx.principal_id == configured_ordubashy(uow)
         items = row['items_json']  # Repository rows already decode JSON columns.
         if is_worker(uow.connection, ctx.principal_id):
             # A worker's one shared assignment, not its observed session list, is the work these checks look at.

@@ -74,7 +74,7 @@ The entire command is consumed once, atomically with all its queued actions.
 
 Preflight still requires compatible terminal states for every selected target:
 start requires an absent terminal or idle shell; restart/kill require existing
-terminals; ping requires foreground native Codex clients. A business selection is
+terminals; ping requires the agent's verified foreground client (Codex or Claude Code). A business selection is
 not permission to type into arbitrary shells or to start agents merely to ping them.
 
 ## Execution
@@ -86,10 +86,11 @@ an action receipt. No terminal text is returned by status.
 The native-host adapter fingerprints the tmux server, session, pane and foreground
 process start time. A changed profile or terminal invalidates a proposal/command.
 Start accepts an absent terminal or shell, uses canonical saved-profile preparation,
-clears partial shell input, enters `codex`, waits for the Codex composer, and submits
-`$role` followed by a second Enter. Trust/login/preparation failures stop progression.
+clears partial shell input, enters the profile runtime's client (`codex` or `claude`),
+waits for its composer, and submits the role command (`$role` plus a second Enter
+for Codex, `/role` for Claude Code). Trust/login/preparation failures stop progression.
 Restart kills the bound terminal then starts; kill does not infer dormancy from idle
-status. Direct ping only accepts a foreground Codex client and rejects control
+status. Direct ping only accepts the agent's verified foreground client and rejects control
 characters. Self-control is rejected.
 
 Before an external effect, the receipt becomes `uncertain`. A crash or timeout never

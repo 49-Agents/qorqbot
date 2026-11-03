@@ -322,7 +322,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     with resolver.database.read() as uow:
         # Always-loaded skills are injected only for the configured Ordubashy.
         from bazarlyk.management.identity import configured_ordubashy
-        always_skills = ordubashy and configured_ordubashy(uow, require_codex=False) == data["agent_id"]
+        always_skills = ordubashy and configured_ordubashy(uow) == data["agent_id"]
         # Every active business in the agent's derived scope; no home or membership is assumed.
         businesses = [row for row in uow.connection.execute(
             "SELECT id,slug FROM businesses WHERE archived_at IS NULL ORDER BY id")
@@ -659,8 +659,6 @@ def _prepare_agent_locked(resolver, principal: Principal, *, endpoint: str, vers
     data = config.to_dict()
     if data["role"]["id"] in RETIRED_ROLE_IDS:
         raise DomainError("retired_role", "This role is retired; its profiles may be read or deactivated but not prepared")
-    if data["role"]["id"] == "ordubashy" and data.get("runtime") != "codex":
-        raise DomainError("unsupported_runtime", "Ordubashy preparation requires the Codex runtime")
     workspace = Path(data["workspace"])
     if any(path_has_symlink(workspace / path) for path in (".claude", ".claude/skills", ".codex", ".agents", ".agents/skills", ".bazarlyk", "notes", "work")):
         raise DomainError("projection_conflict", "Prepared project directories cannot follow symlinks")

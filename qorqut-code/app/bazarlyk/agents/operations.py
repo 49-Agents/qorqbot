@@ -69,11 +69,6 @@ class AgentOperations:
             raise DomainError("revision_conflict", "The published plugin defaults changed; prepare agent creation again")
 
     @staticmethod
-    def _validate_role_runtime(profile):
-        if profile.data["role"]["id"] == roles.ORDUBASHY_ROLE and profile.data["runtime"] != "codex":
-            raise DomainError("invalid_profile", "Ordubashy profiles require the Codex runtime")
-
-    @staticmethod
     def _validate_role_lifecycle(operation, profile):
         """Keep retired role references readable while fencing active recreation."""
         role_id = profile.data["role"]["id"]
@@ -123,16 +118,16 @@ class AgentOperations:
         if ctx.principal_kind == "human" and ctx.principal_id == installation_owner(uow):
             return
         if (role_id == roles.GLOBAL_WORKER_ROLE and ctx.principal_kind == "agent"
-                and ctx.principal_id == configured_ordubashy(uow, require_codex=False)):
+                and ctx.principal_id == configured_ordubashy(uow)):
             return
         raise DomainError("forbidden", "Only the owner can establish a missing global agent; Ordubashy adds workers")
 
     @staticmethod
     def _default_runtime(role_id, uow):
-        """Ordubashy runs Codex; a worker starts on the runtime of the configured Ordubashy."""
+        """Ordubashy defaults to Codex; a worker inherits the coordinator's saved runtime."""
         if role_id == roles.ORDUBASHY_ROLE:
             return "codex"
-        manager = active_global(uow.connection, configured_ordubashy(uow, require_codex=False))
+        manager = active_global(uow.connection, configured_ordubashy(uow))
         return manager["runtime"] if role_id == roles.GLOBAL_WORKER_ROLE and manager else "claude-code"
 
     def _require_manager_authority(self, ctx, operation, profile, before, uow):
@@ -432,8 +427,6 @@ class AgentOperations:
         profile = AgentProfile.from_dict(values, self.resolver.registry)
         self._validate_role_lifecycle(operation, profile)
         self._validate_roster(operation, profile, before, uow)
-        if profile.data['status'] == 'active':
-            self._validate_role_runtime(profile)
         self.resolver.packages_for_profile(profile, connection=uow.connection)
         self._require_manager_authority(ctx, operation, profile, before, uow)
         self._validate_icon(profile, before)
@@ -550,7 +543,6 @@ class AgentOperations:
         self._validate_role_lifecycle(plan.operation_name, profile)
         self._validate_initial_defaults(plan, uow)
         self._recheck(ctx, plan, profile, uow)
-        self._validate_role_runtime(profile)
         self.resolver.packages_for_profile(profile, connection=uow.connection)
         for expectation in plan.expected_targets:
             resource = expectation.resource

@@ -146,7 +146,7 @@ class ReminderService:
             return Access(ctx, "owner")
         if ctx.principal_kind != "agent":
             raise DomainError("forbidden", "Only the installation owner and registered agents manage reminders")
-        return Access(ctx, "coordinator" if ctx.principal_id == configured_ordubashy(uow, require_codex=False) else "agent")
+        return Access(ctx, "coordinator" if ctx.principal_id == configured_ordubashy(uow) else "agent")
 
     def authorize_operation(self, ctx, operation, uow):
         """The normal policy decision for ``operation`` in the caller's scope; an explicit deny or a missing grant refuses."""
@@ -221,7 +221,7 @@ class ReminderService:
             return is_active_installation_owner(uow, authority, "human")
         if principal["kind"] != "agent":
             return False
-        if authority != row["recipient_id"] and authority != configured_ordubashy(uow, require_codex=False):
+        if authority != row["recipient_id"] and authority != configured_ordubashy(uow):
             return False
         return self.permitted(uow, authority, row["business_id"], CREATE)
 

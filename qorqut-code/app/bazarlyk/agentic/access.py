@@ -86,7 +86,7 @@ class AgenticAccess:
         if context.get("project_id") is not None and context["project_id"] not in profile.scope.businesses:
             raise DomainError("forbidden", "Project is outside current native access")
         can_manage = CAPABILITY in profile.scope.global_capabilities and profile.agent_id in {
-            configured_ordubashy(uow, require_codex=False),
+            configured_ordubashy(uow),
             active_role_holder(uow.connection, LEARNING_APPLIER_ROLE),
         }
         if operation in MANAGEMENT_OPERATIONS and not can_manage:
@@ -102,4 +102,4 @@ class AgenticAccess:
                 "selection": selection, "root": str(layer.root), "state": str(layer.state),
                 "instance_id": layer.instance_id, "can_manage": can_manage,
                 "profile_revision": profile.revision, "registration_id": registration["id"],
-                "attention_required": profile.agent_id == configured_ordubashy(uow, require_codex=False)}
+                "attention_required": profile.agent_id == configured_ordubashy(uow)}

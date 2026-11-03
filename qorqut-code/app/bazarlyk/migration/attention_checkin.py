@@ -176,7 +176,7 @@ def _installation_identity(runtime):
     """The installation owner, the configured Ordubashy and the owner's Global capabilities."""
     owner, _, _ = Authentication(runtime.database, runtime.root).installation_owner()
     with runtime.database.read() as uow:
-        return owner, configured_ordubashy(uow, require_codex=False), human_global_capabilities(owner.id, uow)
+        return owner, configured_ordubashy(uow), human_global_capabilities(owner.id, uow)
 
 
 def _global_broadcasts(runtime, application, context):

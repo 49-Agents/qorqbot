@@ -279,7 +279,7 @@ class AttentionRuntime:
 
     def reconcile(self, uow):
         from bazarlyk.management.identity import configured_ordubashy
-        agent_id = configured_ordubashy(uow, require_codex=False)
+        agent_id = configured_ordubashy(uow)
         if not agent_id:
             return
         now = self._now()
@@ -375,7 +375,7 @@ class AttentionRuntime:
                 self.hook_settle(agent, receipt['registration_id'], dict(receipt))
             with self.runtime.database.transaction(operation='attention.reconcile_chat') as uow:
                 self.runtime.application.ensure_writes_open(uow)
-                if agent != configured_ordubashy(uow, require_codex=False):
+                if agent != configured_ordubashy(uow):
                     return
                 now = self._now()
                 # Search for definitive receipts in SQL before applying the
