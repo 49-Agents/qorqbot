@@ -28,7 +28,6 @@ CORE = {
     "qorqut-context": "qorqut-code/qorqut-context",
     "biz-dashboard": "qorqut-code/biz-dashboard",
     "qorqut-agentic": "qorqut-agentic",
-    "agent-roles": "qorqut-roles/agent-roles",
     "document-history": "dependencies/document-history",
     "email-management": "dependencies/email-management",
 }

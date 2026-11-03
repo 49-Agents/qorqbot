@@ -12,7 +12,7 @@ from bazarlyk.instance_paths import COMPONENTS, InstancePathError, InstancePaths
 
 def add_instance_arguments(parser):
     parser.add_argument("--instance-root", type=Path, default=None,
-                        help="Absolute instance root holding operations/ and qorqut-roles/")
+                        help="Absolute instance root holding operations/")
     parser.add_argument("--component", action="append", default=[], metavar="NAME=ABSOLUTE_PATH",
                         help=f"Explicit component location; repeatable; names: {', '.join(COMPONENTS)}")
 
