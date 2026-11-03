@@ -1,6 +1,6 @@
 /* Shared reminders: strip chips, detail, editor and upcoming list reuse the app's dialog, button and input styles. */
 .agfocus .focus-signoff-queue .focus-reminder-chip{border:1px solid var(--fg);color:var(--fg)}
-.focus-reminder-chip svg,.focus-reminders-button svg{width:18px;height:18px}
+.focus-reminder-chip svg{width:18px;height:18px}
 .rem-fields{display:grid;grid-template-columns:110px minmax(0,1fr);gap:6px 12px;margin:0 0 14px;font-size:12px}
 .rem-fields dt{color:var(--fg-3)}
 .rem-fields dd{margin:0;min-width:0;overflow-wrap:anywhere}

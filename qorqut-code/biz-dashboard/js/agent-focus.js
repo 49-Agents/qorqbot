@@ -250,14 +250,6 @@ async function agfocusSnooze(p,node,until,popup,retry=false) {
   agfocusPaint(p);
 }
 
-// The workspace keeps the board controls beside its tabs.
-function agfocusWorkspaceTools(p,board) {
-  const head=p.el.querySelector('.thead'),tools=board.querySelector('.agfocus-toolbar');
-  if(!document.body.classList.contains('agent-workspace-app') || !head || !tools)return ()=>{};
-  tools.classList.add('agfocus-head-tools');head.append(tools);
-  return ()=>tools.remove();
-}
-
 // The Browser/Desktop launchers and the owner Signoff queue shared by Focus and the Attention board.
 // `queue` is the .attention-queue section; the returned function releases the strip, subscription and listeners.
 function agfocusQueueMount(p,queue) {
@@ -278,15 +270,14 @@ function agfocusQueueMount(p,queue) {
 function agfocusMount(p) {
   const body = $('#agpad-body', p.el);
   body.innerHTML = `<div class="agfocus"><p class="agfocus-error" role="alert" hidden></p><button type="button" class="quiet" data-focus-retry-move hidden>Retry same move</button><p class="agfocus-sr" data-focus-announcement role="status" aria-live="polite"></p><span class="agfocus-sr" id="agfocus-move-instructions">Use Alt+ArrowUp or Alt+ArrowDown to move one visible row.</span>
-    <header><div class="agfocus-heading"><div class="global-eyebrow">Pinned</div><div class="agfocus-toolbar"><button type="button" class="quiet agfocus-icon" data-focus-add aria-label="Add to Pinned"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div></div><p class="agfocus-empty muted" role="status">Loading Pinned…</p></header>
-    <section class="attention-queue" aria-label="New attention"></section><p class="agfocus-activity muted" hidden></p><section class="agfocus-surface" aria-label="Browser, Desktop or Viewbox" hidden><div class="agfocus-surface-bar"><button type="button" class="quiet" data-surface-back aria-label="Back to Pinned">← Pinned</button></div><div class="agfocus-surface-body"></div></section><div class="agfocus-layout"><div class="agfocus-items"></div><aside class="agfocus-dock" aria-label="Selected record" hidden><div class="agfocus-dock-content"></div><div class="agfocus-thread-resize" role="separator" aria-orientation="horizontal" aria-label="Record pane height" tabindex="0"></div></aside></div><div class="agfocus-retained" hidden></div><nav class="agfocus-pages" aria-label="Pinned pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
+
+    <section class="attention-queue" aria-label="New attention"></section><p class="agfocus-activity muted" hidden></p><section class="agfocus-surface" aria-label="Browser, Desktop or Viewbox" hidden><div class="agfocus-surface-bar"><button type="button" class="quiet" data-surface-back aria-label="Back to Pinned">← Pinned</button></div><div class="agfocus-surface-body"></div></section><header><div class="agfocus-heading"><div class="global-eyebrow">Pinned</div><div class="agfocus-toolbar"><button type="button" class="quiet agfocus-icon" data-focus-add aria-label="Add text to Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div></div><p class="agfocus-empty muted" role="status">Loading Pinned…</p></header><div class="agfocus-layout"><div class="agfocus-items"></div><aside class="agfocus-dock" aria-label="Selected record" hidden><div class="agfocus-dock-content"></div><div class="agfocus-thread-resize" role="separator" aria-orientation="horizontal" aria-label="Record pane height" tabindex="0"></div></aside></div><div class="agfocus-retained" hidden></div><nav class="agfocus-pages" aria-label="Pinned pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
   p.focusDrafts ||= new Map();
   p.focusCards = new Map();
   p.focusWork=agfocusRestoreWork();
   p.focusSelected = null;
   const board = $('.agfocus', body);
   p.focusMount = board;
-  const disposeTools=agfocusWorkspaceTools(p,board);
   let todayCalendar;
   if(p.workspaceScope === 'global' && p.workspaceRole === 'ordubashy') {
     const excerpt=document.createElement('section');
@@ -326,7 +317,6 @@ function agfocusMount(p) {
   document.addEventListener('reply-notifications-changed',repliesChanged);
   p.workspaceDispose=()=>{
     p.el.classList.remove('agfocus-record-selected');
-    disposeTools();
     todayCalendar?.dispose();
     disposeQueue();
     document.removeEventListener('reply-notifications-changed',repliesChanged);
@@ -448,6 +438,7 @@ function agfocusVisibleItems(p,items) {
   function append(item,ancestors=new Set()) {
     // Cached child/related snapshots include history; the board toggle applies at every depth.
     if(item._workParent && item.archived && !p.focusIncludearchived)return;
+    if(item._workParent && agfocusSnoozed(item) && !p.focusIncludedeferred)return;
     const source=item.resolved_source || item.source || null,key=source?agfocusWorkKey(source):null;
     if(item._workParent && key && ancestors.has(key))return;
     result.push(item);
@@ -465,7 +456,7 @@ function agfocusVisibleItems(p,items) {
 function agfocusWorkRow(parent,source,target,kind) {
   const link={type:'task',resource_type:'tasks',task_type:target.task_type,id:target.id,business_id:source.business_id ?? null,business_slug:source.business_slug ?? null,business_name:source.business_name};
   return {id:agfocusWorkId(parent,'task',link),revision:target.revision || 1,label:target.title || target.label || 'Task',source:link,resolved_source:link,
-    state:target.status || target.state,source_revision:target.revision,unavailable:false,archived:!!target.archived,
+    state:target.status || target.state,source_revision:target.revision,unavailable:false,archived:!!target.archived,deferred_until:target.snoozed_until,
     conversation:{type:'task',id:target.id,business_id:source.business_id ?? null},references:[],
     _workParent:parent.id,_workBusinessId:source.business_id,_workKind:kind,_depth:(parent._depth || 0)+1};
 }
@@ -1493,97 +1484,10 @@ function agfocusDesktopMount(p, ctx = null) {
   });
 }
 
-// One atomic create-and-present call; a retry keeps the exact request and key.
+// Focus notes use the existing inline editor and persistence.
 function agfocusAdd(p) {
-  let submission=null, pending=false, typeEditor, tableReady=false;
-  const text=agfocusTextHost(),textReady=!!text && !!p.agentId && text.ready(p);
-  const projects=(state.bizs || []);
-  const kinds=`<div class="focus-add-kind" role="radiogroup" aria-label="What to add"><label><input type="radio" name="kind" value="item" checked> Task or link</label><label><input type="radio" name="kind" value="project"> Existing Project</label><label><input type="radio" name="kind" value="table"> Existing Table or CRM</label>${text && p.agentId?`<label><input type="radio" name="kind" value="text"${textReady?'':' disabled'}> Text or space</label>`:''}</div>${text && p.agentId && !textReady?`<p class="muted">${esc(text.unavailable(p))}</p>`:''}`;
-  modal({title:'Add to Pinned', body:`<form id="focus-add-form">${kinds}<div data-add-item><label>Title<input class="inp" name="title" required maxlength="200" autocomplete="off"></label><label>Link <span class="muted">(optional)</span><input class="inp" name="link" type="url" placeholder="https://…"></label><p class="muted">Leave the link empty to create a task.</p>${taskTypeFields()}</div><div data-add-project hidden><label>Project<select class="inp" name="project">${projects.map(biz=>`<option value="${esc(biz.business_id||biz.id)}">${esc(biz.name||biz.slug)}${biz.archived?' (archived)':''}</option>`).join('')}</select></label><p class="muted">${projects.length?'Pins the actual accessible Project. Pinning never creates a Project or a new conversation.':'No accessible Projects.'}</p></div><div data-add-table hidden><label>Scope<select class="inp" name="table_scope" aria-label="Table scope"><option value="">Global</option>${projects.map(biz=>`<option value="${esc(biz.slug)}">${esc(biz.name||biz.slug)}</option>`).join('')}</select></label><label>Show<select class="inp" name="table_kind" aria-label="Table kind"><option value="">Tables and CRMs</option><option value="general">Tables only</option><option value="crm">CRMs only</option></select></label><label>Table<select class="inp" name="table" aria-label="Table to pin"></select></label><button type="button" class="quiet" data-add-table-more hidden>More tables</button><p class="muted" data-add-table-status role="status"></p><p class="muted">Pins an existing table. Pinning never creates a table and changes nothing about it or its entries.</p></div><div data-add-text hidden><label>Text <span class="muted">(optional)</span><textarea class="inp" name="text" rows="5" maxlength="8000" placeholder="A heading, a note, or leave empty for blank space"></textarea></label><p class="muted">Saved on this agent's Pinned board only. Agents never read it.</p></div><p role="alert" class="bad" hidden></p></form>`,
-    actions:[{label:'Cancel',onClick:close=>close()}, {label:'Add', primary:true, onClick:async(close,el)=>{
-      if(pending)return;
-      const form=el.querySelector('form'), error=form.querySelector('[role="alert"]');
-      const mode=form.elements.kind?.value || 'item';
-      if(mode==='text') {
-        if(!text.add(p,form.elements.text.value)){error.textContent=text.unavailable(p) || 'Could not add the text block.';error.hidden=false;return;}
-        close();return;
-      }
-      if(mode==='table') {
-        const select=form.elements.table,option=select.selectedOptions[0];
-        if(!option || !option.value || !tableReady){error.textContent='Choose a table.';error.hidden=false;return;}
-        // A key is kept only for the exact table it was made for; any other selection starts a new request.
-        const same=submission?.args.source?.id===option.value && (submission.args.source.business_id ?? '')===(option.dataset.businessId || '');
-        if(!same)submission={operation:'focus_present',args:{scope:'global',source:{type:'table',id:option.value,business_id:option.dataset.businessId||null},idempotency_key:newRequestId()}};
-      } else if(mode==='project') {
-        const projectId=form.elements.project.value;
-        if(!projectId){error.textContent='Choose a Project.';error.hidden=false;return;}
-        const key=newRequestId();
-        if(!submission)submission={operation:'focus_present',args:{scope:'global',source:{type:'project',id:projectId,business_id:projectId},idempotency_key:key}};
-      } else if(!submission) {
-        if(!form.reportValidity())return;
-        const title=form.elements.title.value.trim(),link=form.elements.link.value.trim();
-        if(!title)return;
-        if(link && !/^https?:\/\//i.test(link)){error.textContent='Use an HTTP or HTTPS link.';error.hidden=false;return;}
-        let taskFields={};
-        if(!link){try{taskFields=typeEditor.values();}catch(err){error.textContent=err.message;error.hidden=false;return;}}
-        const key=newRequestId();
-        submission=link ? {operation:'focus_present',args:{scope:'global',reference:{key,title,target:{type:'url',url:link}},idempotency_key:key}}
-          : {operation:'tasks_create',args:{title,...taskFields,focus:{display_name:title},idempotency_key:key}};
-      }
-      pending=true;error.hidden=true;
-      form.querySelectorAll('input,select,textarea,button').forEach(input=>input.disabled=true);
-      try {
-        coreData(await post('/root/operations/'+submission.operation,submission.args));
-        close();toast('Added to Pinned');p.focusOffset=0;p.focusPages=[];await agfocusRefresh(p);
-      } catch(err) {
-        error.textContent=err.message;error.hidden=false;
-        if(['validation_error','forbidden','policy_denied','not_found'].includes(err.code)){submission=null;form.querySelectorAll('input,select,textarea,button').forEach(input=>input.disabled=false);}
-      } finally {pending=false;}
-    }}],onOpen:el=>{
-      const form=el.querySelector('form');
-      typeEditor=taskTypeMount(el,null);
-      el.querySelector('[name=link]').oninput=e=>{el.querySelector('.task-type-editor').hidden=!!e.target.value.trim();};
-      for(const radio of form.querySelectorAll('[name=kind]'))radio.onchange=()=>{
-        const mode=form.elements.kind.value;
-        el.querySelector('[data-add-item]').hidden=mode!=='item';el.querySelector('[data-add-project]').hidden=mode!=='project';el.querySelector('[data-add-text]').hidden=mode!=='text';el.querySelector('[data-add-table]').hidden=mode!=='table';
-        form.elements.title.required=mode==='item';
-        if(mode==='table')loadTables();else{tableSeq++;tableReady=false;addButton().disabled=pending;}
-        submission=null;
-        const target=mode==='project'?el.querySelector('[name=project]'):mode==='text'?el.querySelector('[name=text]'):mode==='table'?form.elements.table_scope:form.elements.title;
-        target.focus();
-      };
-      // Existing tables of the chosen scope; the picker lists, it never creates.
-      let tableCursor=null,tableSeq=0;
-      const addButton=()=>el.querySelector('.mfoot .primary');
-      const syncAdd=()=>{if(form.elements.kind.value==='table')addButton().disabled=pending || !tableReady || !form.elements.table.value;};
-      const loadTables=async(more=false)=>{
-        const own=++tableSeq,select=form.elements.table,status=el.querySelector('[data-add-table-status]'),moreButton=el.querySelector('[data-add-table-more]');
-        const slug=form.elements.table_scope.value||null,kind=form.elements.table_kind.value;
-        // A new scope/kind/mode invalidates the previous choices and any frozen request at once; Add stays off until this query succeeds.
-        if(!more){select.replaceChildren();tableCursor=null;moreButton.hidden=true;submission=null;}
-        tableReady=false;syncAdd();
-        status.textContent='Loading tables…';
-        try {
-          const data=await crmCall(slug,'tables_list',{limit:50,...(kind?{table_kind:kind}:{}),...(more&&tableCursor?{cursor:tableCursor}:{})});
-          if(own!==tableSeq || !el.isConnected)return;
-          if(!more)select.replaceChildren();
-          for(const table of data.items || []){
-            const option=new Option(`${table.table_kind==='crm'?'CRM · ':'Table · '}${table.title}${table.archived?' (archived)':''}`,table.id);
-            option.dataset.businessId=table.business_id ?? '';select.append(option);
-          }
-          tableCursor=data.next_cursor || null;moreButton.hidden=!tableCursor;
-          tableReady=true;syncAdd();
-          status.textContent=select.options.length?'':'No tables in this scope.';
-        } catch(failure){
-          if(own===tableSeq && el.isConnected){select.replaceChildren();moreButton.hidden=true;tableReady=false;syncAdd();status.textContent='Could not load tables. '+(accessLost(failure)||sourceGone(failure)?'This scope is unavailable.':uiFailure(failure,{load:true}));}
-        }
-      };
-      form.elements.table_scope.onchange=()=>loadTables();form.elements.table_kind.onchange=()=>loadTables();
-      el.querySelector('[data-add-table-more]').onclick=()=>loadTables(true);
-      form.elements.table.onchange=()=>{submission=null;syncAdd();};
-      form.elements.title.focus();
-      form.onsubmit=event=>{event.preventDefault();el.querySelector('.mfoot button:last-child')?.click();};
-    }});
+  const text = agfocusTextHost();
+  if (!text?.add(p, '')) toast(text?.unavailable(p) || 'Focus notes are unavailable.');
 }
 
 
