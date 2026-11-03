@@ -14,8 +14,13 @@ A release should provide:
 - Separately versioned optional connector packages and their setup instructions.
 - Applicable license notices for the release.
 
-GitHub Releases is the selected first download channel. No public repository or
-download URL is configured yet. A release page can host both the application and separate
+Preview downloads and setup instructions are available at
+[qorqbot.com](https://qorqbot.com/) and
+[49agents.com/qorqbot](https://49agents.com/qorqbot/). The current preview's native
+Mac and Windows host acceptance remains pending, as stated on those pages.
+
+GitHub Releases is the selected channel for future versioned releases. A release
+page can host both the application and separate
 connector assets, with a short index linking to each connector's setup guide.
 This requires no separate marketplace or automatic extension registry. The
 WhatsApp bundle must be accompanied by the exact helper corresponding-source
