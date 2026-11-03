@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'">
+<title>How Qorqbot Works</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <div class="brand">
+    <img src="mark.svg" alt="">
+    <div>
+      <h1>How Qorqbot works</h1>
+      <p class="sub">Version <span id="version"></span></p>
+    </div>
+  </div>
+
+  <h2>Opening and quitting</h2>
+  <div class="card">
+    <table>
+      <tr><td>Open the app</td><td>Starts Qorqbot's local server on this Mac and shows the dashboard in this window.</td></tr>
+      <tr><td>Close the window</td><td>Hides it. Qorqbot keeps running; click the Dock icon to bring it back.</td></tr>
+      <tr><td>Quit (&#8984;Q)</td><td>Stops the local server, then quits. Open the app again to continue where you left off.</td></tr>
+      <tr><td>Server menu</td><td>Shows whether the server is running, and can stop, start or restart it, open logs, or show the install folder.</td></tr>
+      <tr><td>View &rsaquo; Open in Browser</td><td>Opens the same dashboard in your web browser while the app is running.</td></tr>
+    </table>
+  </div>
+
+  <h2>Where things live</h2>
+  <div class="card">
+    <table>
+      <tr><td>Qorqbot and your data</td><td><code id="root"></code><br>Records and work are in its <code>instance</code> folder. Keep this folder where it is.</td></tr>
+      <tr><td>App log</td><td><code id="log"></code></td></tr>
+      <tr><td>Server log</td><td><code id="applog"></code></td></tr>
+      <tr><td>The app itself</td><td>Only carries the installer package. Replacing or deleting it does not touch your data.</td></tr>
+    </table>
+    <p class="actions spaced"><button data-action="reveal-folder">Reveal Install Folder</button><button data-action="show-log">Show App Log</button></p>
+  </div>
+
+  <h2>First launch</h2>
+  <div class="card">
+    <p>The first launch unpacks Qorqbot into the folder above and prepares its Python environment from the files
+      inside the app (no downloads). It takes about a minute. Later launches take a few seconds.</p>
+    <p>Qorqbot uses programs you install yourself: <b>Python 3.12</b>, <b>git</b> and <b>tmux</b>. With
+      <a href="https://brew.sh">Homebrew</a>, run <code>brew install python@3.12 git tmux</code> in Terminal.
+      Agent terminals use your own Codex or Claude Code installation.</p>
+  </div>
+
+  <h2>Updates</h2>
+  <div class="card">
+    <p>When you open a newer Qorqbot app, it offers to update the installed copy. Your records stay in place.
+      Close agent terminals first; the update refuses while they run and leaves the installed version unchanged.</p>
+  </div>
+
+  <h2>"Qorqbot cannot be opened" on another Mac</h2>
+  <div class="card">
+    <p>This build is not notarized by Apple, so a downloaded copy is blocked the first time. Try to open it once,
+      then choose <b>System Settings &rsaquo; Privacy &amp; Security &rsaquo; Open Anyway</b>. After that it opens normally.</p>
+  </div>
+
+  <h2>Removing Qorqbot</h2>
+  <div class="card">
+    <p>Quit Qorqbot, delete the app, then delete the install folder above. Deleting the folder deletes your
+      Qorqbot records; back it up first if you want to keep them. Programs you installed with Homebrew stay installed.</p>
+  </div>
+</main>
+<script src="help.js"></script>
+</body>
+</html>

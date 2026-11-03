@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'">
+<title>Qorqbot</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <div class="brand">
+    <img src="mark.svg" alt="">
+    <div>
+      <h1 id="title">Starting Qorqbot</h1>
+      <p class="sub" id="subtitle">Qorqbot runs on this Mac. Nothing is sent anywhere during set-up.</p>
+    </div>
+  </div>
+
+  <section class="card" id="steps-card">
+    <ol class="steps" id="steps"></ol>
+  </section>
+
+  <section class="card" id="choice-card" hidden>
+    <p class="message" id="choice-message"></p>
+    <div class="actions" id="choice-buttons"></div>
+  </section>
+
+  <section class="card error" id="error-card" hidden>
+    <p class="message" id="error-message"></p>
+    <div id="command-block" hidden>
+      <pre id="command"></pre>
+    </div>
+    <details id="detail-block" hidden><summary>Details</summary><pre id="detail"></pre></details>
+    <div class="actions">
+      <button class="primary" data-action="retry">Try Again</button>
+      <button data-action="copy-command" id="copy-command" hidden>Copy Command</button>
+      <button data-action="open-terminal" id="open-terminal" hidden>Open Terminal</button>
+      <button data-action="copy-details">Copy Details</button>
+      <button data-action="show-log">Show Log</button>
+    </div>
+  </section>
+
+  <section class="card" id="stopped-card" hidden>
+    <p class="message">The local server is stopped. Your records are kept in the install folder.</p>
+    <div class="actions">
+      <button class="primary" data-action="start">Start Qorqbot</button>
+      <button data-action="reveal-folder">Reveal Install Folder</button>
+    </div>
+  </section>
+
+  <section class="card" id="log-card" hidden>
+    <details id="log-details"><summary>Progress log</summary><pre id="log"></pre></details>
+  </section>
+
+  <p class="hint">Quit Qorqbot (&#8984;Q) to stop it. The <b>Server</b> menu can restart it, show logs or open your
+    install folder. <a href="#" data-action="help">How Qorqbot works</a></p>
+</main>
+<script src="status.js"></script>
+</body>
+</html>

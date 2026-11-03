@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'">
+<title>Getting Started</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <div class="brand">
+    <img src="mark.svg" alt="">
+    <div>
+      <h1>Getting started</h1>
+      <p class="sub">Talk to your first agent in four steps</p>
+    </div>
+  </div>
+
+  <h2>How it fits together</h2>
+  <div class="card">
+    <p>Qorqbot does not run an AI model itself. Each agent is a coding CLI that you have installed and signed in to,
+      running inside that agent's own terminal on this Mac. Qorqbot gives the agent its instructions and tools, and
+      the dashboard's chat sends your messages to that running session.</p>
+    <p>No session running in the agent's own terminal means no chat. That is what
+      <b>"Not available to send"</b> means.</p>
+  </div>
+
+  <h2>1. Install an agent CLI once</h2>
+  <div class="card">
+    <p>Every agent, Ordubashy included, runs on either CLI. Install one or both, then run it once in Terminal
+      and sign in:</p>
+    <table>
+      <tr><td>Claude Code</td><td><code>claude</code></td></tr>
+      <tr><td>OpenAI Codex</td><td><code>codex</code></td></tr>
+    </table>
+    <p class="hint spaced">You can mix them: start one agent with Claude Code and another with Codex.</p>
+  </div>
+
+  <h2>2. Open the agent</h2>
+  <div class="card">
+    <p>In the dashboard, go to <b>Global &rsaquo; Agents</b> and select <b>Ordubashy</b>. Its chat opens. At the top are
+      two buttons: the speech bubble shows <b>Chat</b>, and <b>&gt;_</b> shows the agent's own <b>Terminal</b>.</p>
+  </div>
+
+  <h2>3. Start it in its own terminal</h2>
+  <div class="card">
+    <p>Click <b>&gt;_</b>, type <code>claude</code> or <code>codex</code> and press Return. The chat names both while
+      the agent is offline, its usual one first.</p>
+    <p>The first time, the CLI asks whether you trust the agent's folder. Choose <b>Yes, I trust this folder</b>
+      (in Claude Code the highlighted answer is "No, exit", so press the down arrow first). Qorqbot prepared that
+      folder and its tool permissions.</p>
+    <p>Start it in that terminal, not elsewhere. A session started in Terminal.app or another window is not that
+      agent's session, even in the same folder, and the chat will not connect to it.</p>
+    <p>Background helpers Ordubashy hands work to run on the same CLI you started Ordubashy with.</p>
+  </div>
+
+  <h2>4. Chat</h2>
+  <div class="card">
+    <p>Switch back with the speech bubble. The status shows <b>Connecting…</b> for a moment, then the message box
+      unlocks. Messages you send there go into the same session that is running in the terminal, and its replies
+      appear in the chat. You can switch between Chat and Terminal at any time.</p>
+    <p>If the CLI exits (you typed <code>/exit</code> or closed it), the chat goes offline again. Repeat step 3 to start
+      a new session.</p>
+  </div>
+
+  <p class="actions spaced"><button data-action="help">How Qorqbot Works</button></p>
+</main>
+<script src="start.js"></script>
+</body>
+</html>
