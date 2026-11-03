@@ -18,7 +18,7 @@ see the [native distribution guide](../distribution/README.md) for the downloada
   (`operations/.runtime/context/`). `operations/context/` contains authored inputs,
   not the published graph. Runtime files are not source code.
 - Agent UUIDs remain identity; display names and folder labels do not confer authority.
-- Reusable roles live in `agent-roles`; see [repositories](../REPOSITORIES.md).
+- Reusable roles live in the bundled defaults of `qorqut-agentic`; see [repositories](../REPOSITORIES.md).
 - Recovery: [recovery guide](../../app/bazarlyk/storage/RECOVERY.md). Owner API:
   [native API guide](CONTROL_VIA_API.md). Behavior: [contracts](CONTRACTS.md).
 

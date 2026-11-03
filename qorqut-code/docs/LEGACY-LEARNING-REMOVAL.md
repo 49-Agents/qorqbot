@@ -37,7 +37,7 @@ use it only when those are the intended runtime settings. Native preparation sta
 
 The release-reference JSON binds absolute `export`, `manifest`, `selection` paths and their `manifest_sha256` and
 `selection_sha256`. Its `components` maps `app` to `qorqut-code:app`, `operations_engine` to `qorqut-operations`,
-`context_engine` to `qorqut-context`, `dashboard` to `biz-dashboard`, and `roles` to `agent-roles`. Selected extensions also
+`context_engine` to `qorqut-context`, `dashboard` to `biz-dashboard`, and `roles` to `qorqut-agentic/src/qorqut_agentic/resources/defaults`. Selected extensions also
 need `extension_components`, for example `qorqut_paper` to `qorqut-paper`. Loaded factory/package bytes and wheel origins
 are verified independently of those mappings.
 

@@ -35,7 +35,7 @@ from collections import Counter
 POLICY = "qorqbot-native-runtime-v1"
 
 # Default native-core components. Anything else must be an explicitly excluded family or it needs a reviewed decision.
-CORE_COMPONENTS = ("qorqut-code", "qorqut-operations", "qorqut-context", "biz-dashboard", "qorqut-agentic", "agent-roles",
+CORE_COMPONENTS = ("qorqut-code", "qorqut-operations", "qorqut-context", "biz-dashboard", "qorqut-agentic",
                    "document-history", "email-management")
 # Components that never ship in the default payload. Matched by name token so a renamed checkout of one is still recognised.
 EXCLUDED_FAMILIES = (
@@ -71,7 +71,6 @@ HOST_EXCLUDES = (
     "app/tools/browser/build_runtime.py", "app/tools/business_sandbox/native_smoke.py",
 )
 HOST_OPTIONAL_EXTENSIONS = ("extensions/fastmail", "extensions/telegram", "extensions/whatsapp")
-PROVIDER_GUIDANCE = re.compile(r"^optional/(?:telegram|whatsapp|fastmail)(?:/|$)")
 RUNTIME_INIT = b'"""Shared runtime/session helpers; release execution is not included in the download."""\n'
 
 # Initialization, migration, recovery, schema/template, helper, instruction and notice files the runtime cannot do without.
@@ -202,8 +201,6 @@ def exclusion(component, local):
             return "release-executor"
     if component in {"biz-dashboard", "qorqut-operations"} and parts[0] == "tools":
         return "build-tools"
-    if component == "agent-roles" and PROVIDER_GUIDANCE.match(local):
-        return "provider-guidance"
     return None
 
 
