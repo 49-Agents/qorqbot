@@ -26,6 +26,6 @@ def require_worker_manager(ctx, uow, target_agent_id) -> None:
         raise DomainError("forbidden", "Only an active global worker can be managed here")
     if is_active_installation_owner(uow, ctx.principal_id, ctx.principal_kind):
         return
-    if ctx.principal_kind == "agent" and ctx.principal_id == configured_ordubashy(uow, require_codex=False):
+    if ctx.principal_kind == "agent" and ctx.principal_id == configured_ordubashy(uow):
         return
     raise DomainError("forbidden", "Only the installation owner or Ordubashy can manage a global worker")

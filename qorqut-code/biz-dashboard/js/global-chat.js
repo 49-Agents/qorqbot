@@ -353,11 +353,16 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (session.reason === 'capture_not_ready') return {key: 'starting', line: ''};
       return {key: session.working ? 'working' : 'live', line: ''};
     }
-    const direction = ['other_conversation', 'selection_required', 'registering'].includes(session.reason) ? 'Connecting to the conversation in Terminal…' 
-      : `Start or resume ${label} in Terminal to send.`;
+    const direction = ['other_conversation', 'selection_required', 'registering'].includes(session.reason) ? 'Connecting to the conversation in Terminal…'
+      : `${startHint()} to send.`;
     if (session.reason === 'capture_disabled') return {key: 'disabled', line: ''};
     if (session.reason === 'unsupported_runtime') return {key: 'offline', line: ''};
     return {key: 'offline', line: direction};
+  }
+  // Names the programs that connect: any supported CLI started in this agent's own terminal, the agent's default first.
+  function startHint() {
+    const commands = session?.launch_commands || [];
+    return commands.length ? `Open the terminal (>_) and run ${commands.join(' or ')} to start ${label}` : `Start or resume ${label} in Terminal`;
   }
   function emptyState() {
     if (entries.size || shownInputs.length || hasLocal || !session) return {text: '', action: null};
@@ -365,7 +370,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (key === 'live' || key === 'working') return {text: 'Your agent conversation appears here.', action: null};
     if (key === 'starting') return {text: 'Connecting…', action: null};
     if (key === 'disabled') return {text: 'Chat unavailable.', action: null};
-    return {text: `Start or resume ${label} in Terminal. Its conversation will appear here.`, action: options.openTerminal ? {key: 'terminal', label: 'Open terminal'} : null};
+    return {text: `${startHint()}. Its conversation will appear here.`, action: options.openTerminal ? {key: 'terminal', label: 'Open terminal'} : null};
   }
   // One repaint: the native status line, then every presentation field the view displays. `patch` adds fields such as the entries.
   function paint(patch = {}, scroll = 'preserve') {

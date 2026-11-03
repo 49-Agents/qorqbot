@@ -105,7 +105,7 @@ class OwnerSessionBootstrap:
         operations = {"recipients": "agents_message_recipients", "send": "agents_message_send",
                       "history": "agents_messages_list", "create_task": "tasks_create",
                       "assign_task": "tasks_assign"}
-        identity = configured_ordubashy(uow, require_codex=False)
+        identity = configured_ordubashy(uow)
         principal = uow.repository("principals").get(identity) if identity else None
         # Global business access is derived: every active business, no membership row.
         available = bool(principal and principal["active"] and reaches_business(uow.connection, identity, business["id"]))
