@@ -16,6 +16,9 @@ ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 IDENTITY_KEYS = frozenset({"BIZ_ACTOR", "BIZ_AGENT", "BIZLOG_ACTOR", "BIZ_DIR", "BIZTASK_DIR", "BIZLOG_DIR",
     "BIZCTX_DIR", "BIZLEDGER_DIR", "BIZMETRICS_DIR", "BIZREQ_DIR", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"})
 SESSION_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*\.jsonl$")
+# What one capture's archive read can expected-fail with; anything else (cancellation, timeout, service stop, storage or
+# programming faults) is not a property of that capture and propagates.
+SOURCE_READ_ERRORS = frozenset({"payload_too_large", "not_found", "operation_unavailable"})
 
 
 class LocalFiles:
@@ -223,7 +226,10 @@ class LocalFiles:
         return list(self.iter_transcripts(business_id, agent_id))
 
     def iter_transcripts(self, business_id, agent_id=None):
-        """Captured conversations for the learning programs, read from the native transcript archive."""
+        """Captured conversations for the learning programs, read from the native transcript archive.
+
+        A capture whose archive read or decoding expected-fails is yielded as a record carrying its registered identity and a
+        ``source_failure`` (code, reason, provider, receipt) instead of ``content`` and ``transcript_hash``."""
         archive = self.runtime.native_chat.transcripts
         with self.runtime.database.read() as uow:
             repository = uow.repository("agent_profiles", business_id=business_id)
@@ -239,11 +245,22 @@ class LocalFiles:
                 continue
             captures = archive.listing(agent["agent_id"])
             for capture in captures if business_id is None else captures[:20]:
-                content = archive.content(agent["agent_id"], capture)
+                # A capture that cannot be read or decoded is offered as a tagged failure with its registered identity and
+                # no content or hash, so the pass can go on to the agent's later captures.
                 try:
-                    yield archive.source(agent, capture, content)
+                    record = archive.source(agent, capture, archive.content(agent["agent_id"], capture))
+                except DomainError as exc:
+                    if exc.code not in SOURCE_READ_ERRORS:
+                        raise
+                    code, reason = exc.code, exc.message
                 except UnicodeError:
+                    code, reason = "invalid_transcript", "Historical session is not valid UTF-8 text"
+                else:
+                    yield record
                     continue
+                yield {**archive.identity(agent, capture), "source_failure": {
+                    "code": code, "reason": reason[:500], "provider": capture.get("provider"),
+                    "receipt_id": capture.get("receipt_id")}}
 
     def git_recent(self, business_id):
         try:
