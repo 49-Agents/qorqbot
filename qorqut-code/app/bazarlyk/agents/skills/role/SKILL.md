@@ -257,6 +257,8 @@ details and prioritize work that unblocks teammates within owner priorities.
 A new Task or Story `overview` states the originating request or source, the intended outcome
 and the next action or unresolved question. Reuse an existing record instead of duplicating it,
 keep the overview factual, and update it only for a meaningful change; history stays in notes.
+Write it as a brief message to the owner: prefer one or two short sentences, with a soft limit of
+100 words. Use fewer whenever possible; omit headings, repeated status and unnecessary background.
 For email-based work, use the available connector's documented message reference in `note_refs`
 so the owner can open the original conversation. Do not copy the full email chain into a note.
 

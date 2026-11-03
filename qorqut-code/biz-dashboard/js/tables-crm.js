@@ -3,18 +3,25 @@
 // and stage changes save independently. Remove deletes only the membership. Depends on js/crm.js and js/tables.js.
 function crmTableMount(host, {biz, table, onTable, onOpenRecord, draftKey, drafts, isActive, onUnavailable, onAvailable}) {
   let current = table, entries = [], cursor = null, loading = false, generation = 0, alive = true, saving = false, unavailable = false, timer;
-  let error, tbody, empty, metaEpoch = 0, stageUndo = null;
+  let error, tbody, empty, metaEpoch = 0, stageUndo = null, editingCell = null;
   const view = {query: '', order: '', descending: false, archived: false, removed: false};
   const draft = () => drafts.get(draftKey);
   const readonly = () => !!current.archived;
   const stages = () => current.crm_config?.stages || [];
   const activeStages = () => stages().filter(stage => !stage.archived);
-  const columns = () => (current.columns || []).filter(column => {
+  const availableColumns = () => (current.columns || []).filter(column => {
     const id = String(column.id || '');
     const name = String(column.name || '').trim().toLowerCase();
     if (['next_step', 'next-step', 'nextStep'].includes(id) || name === 'next step') return false;
     return column.record_field !== 'title';
   });
+  const columnKey = `crm:leading-columns:${biz || 'global'}:${table.id}`;
+  let leadingColumns = null;
+  try { const saved = JSON.parse(localStorage.getItem(columnKey) || 'null'); if (Array.isArray(saved)) leadingColumns = saved.filter(id => typeof id === 'string').slice(0, 2); } catch (_) {}
+  const columns = () => {
+    const all = availableColumns(), chosen = leadingColumns ?? all.slice(0, 2).map(column => column.id);
+    return [...chosen.map(id => all.find(column => column.id === id)).filter(Boolean), ...all.filter(column => !chosen.includes(column.id))];
+  };
   const $q = selector => host.querySelector(selector);
   const fail = (failure, text) => { error.textContent = text ?? uiFailure(failure); error.hidden = false; };
   const dirty = () => !!draft() && (draft().edits.size > 0);
@@ -28,13 +35,17 @@ function crmTableMount(host, {biz, table, onTable, onOpenRecord, draftKey, draft
 
   const stageLabel = entry => stages().find(stage => stage.id === entry.stage_id)?.name || entry.stage_id || 'No stage';
   const stageButton = entryId => [...host.querySelectorAll('tr[data-entry-id]')].find(row => row.dataset.entryId === entryId)?.querySelector('.crm-stage-cycle');
-  function stageAfter(entry) {
-    const available = activeStages();
-    if (!available.length || entry.removed || entry.unavailable) return null;
-    const index = available.findIndex(stage => stage.id === entry.stage_id);
-    return available[index < 0 ? 0 : (index + 1) % available.length];
+  function chooseStage(button, entry) {
+    if (readonly() || saving || dirty() || editingCell || entry.removed || entry.unavailable) return;
+    const revision = current.revision;
+    const choices = [{value: '', label: 'No stage'}, ...stages().map(stage => ({value: stage.id, label: stage.name, disabled: !!stage.archived}))];
+    dropdown(button, choices, value => {
+      if (!live() || saving || dirty() || editingCell || current.revision !== revision || entry.removed) return;
+      if ((entry.stage_id || '') === value) return;
+      const next = value ? activeStages().find(stage => stage.id === value) : {id: null, name: 'No stage'};
+      if (next) void changeStage(entry, next);
+    }, entry.stage_id || '');
   }
-  const nextStage = entry => readonly() || saving || entry._stageSaving ? null : stageAfter(entry);
   function clearStageUndo(message = '') {
     if (!stageUndo) return;
     stageUndo = null;
@@ -42,8 +53,7 @@ function crmTableMount(host, {biz, table, onTable, onOpenRecord, draftKey, draft
     if (undo) { undo.hidden = true; undo.disabled = true; undo.onclick = null; }
     if (message && alive && !unavailable) $q('[data-crm-status]').textContent = message;
   }
-  async function cycleStage(entry) {
-    const next = nextStage(entry); if (!next) return;
+  async function changeStage(entry, next) {
     const previous = entry.stage_id ?? null;
     const restoreFocus = host.contains(document.activeElement) && document.activeElement.classList.contains('crm-stage-cycle');
     entry._stageSaving = true; saving = true; error.hidden = true; syncDraft(); paint();
@@ -123,11 +133,12 @@ function crmTableMount(host, {biz, table, onTable, onOpenRecord, draftKey, draft
   function syncDraft() {
     if (unavailable) return;
     const pending = dirty();
-    $q('[data-crm-draft]').hidden = !pending;
+    $q('[data-crm-draft]').hidden = !pending && !editingCell;
     const undo = $q('[data-crm-undo]'); undo.hidden = !stageUndo; undo.disabled = pending || saving || !stageUndo;
-    host.querySelectorAll('[data-crm-sort]').forEach(node => { node.disabled = pending || saving; });
-    host.querySelectorAll('[data-crm-remove],[data-crm-restore]').forEach(node => { node.disabled = pending || saving || readonly(); node.title = pending ? 'Save or discard your edits first' : ''; });
-    host.querySelectorAll('[data-crm-query],[data-crm-archived],[data-crm-removed],[data-crm-more]').forEach(node => { node.disabled = pending || saving; });
+    host.querySelectorAll('[data-crm-sort]').forEach(node => { node.disabled = pending || saving || !!editingCell; });
+    host.querySelectorAll('[data-crm-remove],[data-crm-restore]').forEach(node => { node.disabled = pending || saving || !!editingCell || readonly(); node.title = pending ? 'Save or discard your edits first' : ''; });
+    host.querySelectorAll('[data-crm-query],[data-crm-archived],[data-crm-removed],[data-crm-more],[data-crm-leading]').forEach(node => { node.disabled = pending || saving || !!editingCell; });
+    host.querySelectorAll('.crm-stage-cycle').forEach(node => { node.disabled = pending || saving || !!editingCell || readonly(); });
     // The submitted inputs are frozen while a write is pending, so a completing save can never discard a newer edit.
     if (saving) host.querySelectorAll('tbody input,tbody select,tbody textarea').forEach(node => { node.disabled = true; });
     $q('[data-crm-save]').disabled = saving; $q('[data-crm-discard]').disabled = saving;
@@ -136,10 +147,10 @@ function crmTableMount(host, {biz, table, onTable, onOpenRecord, draftKey, draft
   function paintHead() {
     const head = host.querySelector('thead');
     const sortable = column => !column.record_field && ['text', 'number', 'boolean', 'date'].includes(column.type);
-    head.innerHTML = `<tr><th scope="col">Record</th>${columns().map(column => {
+    head.innerHTML = `<tr><th scope="col">Record</th>${stages().length ? '<th scope="col" class="crm-stage">Stage</th>' : ''}${columns().map(column => {
       const active = view.order === column.id, sort = sortable(column);
       return `<th scope="col" class="${column.type === 'number' ? 'crm-numeric' : ''}"${active ? ` aria-sort="${view.descending ? 'descending' : 'ascending'}"` : ''}>${sort ? `<button type="button" class="crm-sort" data-crm-sort="${esc(column.id)}" aria-label="Sort by ${esc(column.name)}">${esc(column.name)}</button>` : esc(column.name)}</th>`;
-    }).join('')}${stages().length ? '<th scope="col">Stage</th>' : ''}<th scope="col">Task state</th><th scope="col"><span class="crm-sr">Actions</span></th></tr>`;
+    }).join('')}<th scope="col" class="crm-actions"><span class="crm-sr">Actions</span></th></tr>`;
     $q('[data-crm-stage-filter]')?.remove();
   }
   function localCell(entry, column) {
@@ -149,6 +160,20 @@ function crmTableMount(host, {biz, table, onTable, onOpenRecord, draftKey, draft
     const original = originalLocal(entry, column);
     const label = `${column.name} for ${entry.record?.title || 'entry'}`;
     td.classList.toggle('data-modified', !!changed);
+    const cellKey = JSON.stringify([entry.id, column.id]);
+    if (editingCell !== cellKey) {
+      const value = changed ? record.cells.get(column.id) : original;
+      const shown = column.type === 'boolean' ? (value == null ? '—' : value ? 'Yes' : 'No') : crmValue(value) || '—';
+      const button = crmButton(`Edit ${label}`, 'data-cell crm-edit-cell', shown);
+      button.disabled = readonly() || saving || !!entry.removed;
+      button.onclick = () => {
+        editingCell = cellKey; paint();
+        const cell = [...tbody.querySelectorAll('tr')].find(row => row.dataset.entryId === entry.id);
+        const target = [...(cell?.querySelectorAll('[data-column]') || [])].find(node => node.dataset.column === column.id);
+        target?.querySelector('input,textarea')?.focus();
+      };
+      td.append(button); return td;
+    }
     if (column.type === 'boolean') {
       const box = crmNode('input'); box.type = 'checkbox'; box.setAttribute('aria-label', label);
       const value = changed ? record.cells.get(column.id) : original;
@@ -175,7 +200,7 @@ function crmTableMount(host, {biz, table, onTable, onOpenRecord, draftKey, draft
     if (entry.unavailable) {
       // An unavailable record shows nothing but its membership position: no cached title, cells, stage or scope.
       tr.classList.add('crm-unavailable');
-      const td = crmNode('td', 'crm-unavailable-cell', 'This record is unavailable.'); td.colSpan = (current.columns || []).length + 1 + (stages().length ? 1 : 0) + 1;
+      const td = crmNode('td', 'crm-unavailable-cell', 'This record is unavailable.'); td.colSpan = columns().length + 1 + (stages().length ? 1 : 0);
       const actions = crmNode('td', 'crm-actions');
       actions.append(...(entry.removed ? [] : [removeButton(entry, 'this unavailable entry')]));
       tr.append(td, actions); return tr;
@@ -185,9 +210,18 @@ function crmTableMount(host, {biz, table, onTable, onOpenRecord, draftKey, draft
     const name = crmNode('td', 'crm-record-cell');
     const open = crmButton(`Open record ${record.title || ''}`, 'data-cell crm-open', record.title || 'Untitled');
     open.onclick = () => openRecord(entry);
-    name.append(open);
+    const marker = crmNode('span', 'crm-record-marker');
+    marker.innerHTML = taskShowsState(record) ? tDotHtml(record.status || 'open') : taskTypeIcon(record.task_type);
+    const identity = crmNode('div', 'crm-record-identity'); identity.append(marker, open); name.append(identity);
     tr.append(name);
     tr.classList.toggle('crm-removed', !!entry.removed);
+    if (stages().length) {
+      const td = crmNode('td', 'crm-stage');
+      const button = crmButton(`Stage for ${record.title || 'entry'}: ${stageLabel(entry)}`, 'data-cell crm-stage-cycle', stageLabel(entry));
+      button.disabled = readonly() || saving || dirty() || !!editingCell || !!entry.removed;
+      button.setAttribute('aria-haspopup', 'listbox');
+      button.onclick = () => chooseStage(button, entry); td.append(button); tr.append(td);
+    }
     for (const column of columns()) {
       if (column.record_field) {
         const td = crmNode('td', `crm-shared${column.type === 'number' ? ' crm-numeric' : ''}`); td.dataset.column = column.id;
@@ -196,15 +230,6 @@ function crmTableMount(host, {biz, table, onTable, onOpenRecord, draftKey, draft
         td.append(button); tr.append(td);
       } else tr.append(localCell(entry, column));
     }
-    if (stages().length) {
-      const td = crmNode('td', 'crm-stage'), target = stageAfter(entry), canCycle = !!nextStage(entry);
-      const reason = !activeStages().length ? 'No active stages' : readonly() ? 'Table is read only' : entry.removed ? 'Removed entry' : 'Save is in progress';
-      const button = crmButton(`Advance stage for ${record.title || 'entry'}${target ? ` to ${target.name}` : ''}`, 'data-cell crm-stage-cycle', stageLabel(entry));
-      button.disabled = !canCycle; button.setAttribute('aria-label', `Stage for ${record.title || 'entry'}: ${stageLabel(entry)}. ${target ? `Advance to ${target.name}` : reason}`);
-      button.onclick = () => cycleStage(entry); td.append(button); tr.append(td);
-    }
-    // Task state is the Task's own; completing it never removes the entry or moves its stage.
-    tr.append(crmNode('td', 'crm-task-state', record.task_type && record.task_type !== 'task' ? TASK_TYPE_LABELS[record.task_type] + (record.status ? ' · ' + (T_LABEL[record.status] || record.status) : '') : T_LABEL[record.status] || record.status || ''));
     const actions = crmNode('td', 'crm-actions');
     if (entry.removed) {
       const restore = crmButton(`Restore ${record.title || 'entry'} to CRM`, 'quiet', 'Restore'); restore.dataset.crmRestore = '';
@@ -223,7 +248,7 @@ function crmTableMount(host, {biz, table, onTable, onOpenRecord, draftKey, draft
     return tr;
   }
   function removeButton(entry, label) {
-    const button = crmButton(`Remove ${label} from CRM`, 'quiet', 'Remove from CRM'); button.dataset.crmRemove = '';
+    const button = crmButton(`Remove ${label} from CRM`, 'quiet', ''); button.innerHTML = SVG_X; button.dataset.crmRemove = '';
     button.title = 'Removes the membership only. The record and its history are unchanged.';
     button.onclick = async () => {
       if (!await taskConfirm({title: 'Remove from this CRM?', message: 'This removes the entry from this table only. The record, its history and its other tables are unchanged.', confirmLabel: 'Remove from CRM'})) return;
@@ -351,7 +376,7 @@ function crmTableMount(host, {biz, table, onTable, onOpenRecord, draftKey, draft
   };
   host.addEventListener('click', sortClick);
   async function save() {
-    const pending = draft(); if (!pending || saving) return;
+    const pending = draft(); if (saving) return; if (!pending) { editingCell = null; paint(); return; }
     for (const input of host.querySelectorAll('.data-cell-input')) if (!input.reportValidity()) return;
     saving = true; error.hidden = true; syncDraft();
     let revision = pending.baseRevision, failed = false;
@@ -368,7 +393,7 @@ function crmTableMount(host, {biz, table, onTable, onOpenRecord, draftKey, draft
         revision = result.table.revision; pending.baseRevision = revision; pending.edits.delete(entryId); pending.attempts.delete(entryId);
         adopt(result.table);
       }
-      drafts.delete(draftKey);
+      drafts.delete(draftKey); editingCell = null;
     } catch (failure) {
       // Every unsaved edit stays in the draft; a stale table offers to refresh the base while retaining the draft.
       failed = true;
@@ -385,17 +410,19 @@ function crmTableMount(host, {biz, table, onTable, onOpenRecord, draftKey, draft
   function build() {
     host.replaceChildren();
     host.classList.add('crm-table');
-    host.innerHTML = `<div class="crm-header"><div class="crm-record-count" data-crm-count></div><h2 class="crm-title">${esc(current.title || '')}</h2>${current.description ? `<p class="crm-description">${esc(current.description)}</p>` : ''}</div>
-    <div class="crm-tools data-row-tools"><label class="crm-search-label">Search records<input type="search" class="inp crm-search" data-crm-query placeholder="Search records" value=""></label>
-      <label class="data-binary"><input type="checkbox" data-crm-archived>Archived records</label>
-      <label class="data-binary"><input type="checkbox" data-crm-removed>Removed entries</label>
-      <span class="data-spacer"></span>
-      <div class="crm-draft-actions" data-crm-draft hidden><button type="button" class="btn" data-crm-discard>Discard</button><button type="button" class="btn primary" data-crm-save>Save</button></div>
-      </div>
+    host.innerHTML = `<header class="crm-header"><div class="crm-heading"><h2 class="crm-title">${esc(current.title || '')}</h2><span class="crm-record-count" data-crm-count></span></div>
+      ${current.description ? `<details class="crm-description"><summary>About this CRM</summary><p>${esc(current.description)}</p></details>` : ''}
+      <div class="crm-tools"><label class="tsearch crm-search-label">${SVG_TSEARCH}<input type="search" data-crm-query aria-label="Search records" placeholder="Search records"></label>
+      <details class="crm-options"><summary aria-label="CRM view options" title="View options">⋯</summary><div class="crm-options-body">
+        <label><input type="checkbox" data-crm-archived>Show archived records</label>
+        <label><input type="checkbox" data-crm-removed>Show removed entries</label>
+        <fieldset><legend>Leading fields</legend><p>Choose up to two to show first.</p>${availableColumns().map(column => `<label><input type="checkbox" data-crm-leading="${esc(column.id)}" ${(leadingColumns ?? availableColumns().slice(0,2).map(item => item.id)).includes(column.id) ? 'checked' : ''}>${esc(column.name)}</label>`).join('')}</fieldset>
+      </div></details></div></header>
     <p class="data-error" data-crm-error role="alert" hidden></p>
     <div class="data-grid-wrap crm-grid-wrap"><table class="data-grid crm-grid"><thead></thead><tbody></tbody></table></div>
     <p class="data-empty muted" data-crm-empty role="status" hidden></p>
-    <footer class="data-footer"><span data-crm-status role="status" aria-live="polite"></span><button type="button" class="btn crm-undo" data-crm-undo hidden>Undo</button><button type="button" class="btn" data-crm-more hidden>Load more</button></footer>`;
+    <footer class="data-footer"><span data-crm-status role="status" aria-live="polite"></span><button type="button" class="btn crm-undo" data-crm-undo hidden>Undo</button><button type="button" class="btn" data-crm-more hidden>Load more</button>
+      <div class="crm-draft-actions" data-crm-draft hidden><button type="button" class="btn" data-crm-discard>Discard</button><button type="button" class="btn primary" data-crm-save>Save</button></div></footer>`;
     error = $q('[data-crm-error]'); tbody = host.querySelector('tbody'); empty = $q('[data-crm-empty]');
     $q('[data-crm-query]').oninput = event => { view.query = event.target.value.trim(); clearTimeout(timer); timer = setTimeout(() => { if (alive) load(); }, 300); };
     $q('[data-crm-archived]').onchange = event => { view.archived = event.target.checked; load(); };
@@ -403,9 +430,16 @@ function crmTableMount(host, {biz, table, onTable, onOpenRecord, draftKey, draft
     $q('[data-crm-more]').onclick = () => load(true);
     $q('[data-crm-save]').onclick = save;
     $q('[data-crm-discard]').onclick = discard;
+    host.querySelectorAll('[data-crm-leading]').forEach(box => { box.onchange = () => {
+      const selected = [...host.querySelectorAll('[data-crm-leading]:checked')];
+      if (selected.length > 2) { box.checked = false; return; }
+      leadingColumns = selected.map(input => input.dataset.crmLeading);
+      try { localStorage.setItem(columnKey, JSON.stringify(leadingColumns)); } catch (_) {}
+      paint();
+    }; });
     paintHead();
   }
-  function discard() { drafts.delete(draftKey); if (alive && !unavailable) void load(); }
+  function discard() { editingCell = null; drafts.delete(draftKey); if (alive && !unavailable) void load(); }
   build(); void load();
   return {dirty, refresh, discard, save: async () => { await save(); return !dirty() && !unavailable; },
     dispose() { alive = false; generation++; clearTimeout(timer); host.removeEventListener('click', sortClick); host.replaceChildren(); }};
@@ -418,7 +452,7 @@ function crmAddDialog(biz, table, onDone) {
   const attempts = new Map();
   const stageOptions = (table.crm_config?.stages || []).filter(stage => !stage.archived).map(stage => `<option value="${esc(stage.id)}">${esc(stage.name)}</option>`).join('');
   const dialog = modal({title: 'Add entry', width: 640, body: `<form class="data-form crm-add" novalidate>
-      <div class="focus-add-kind" role="radiogroup" aria-label="Entry source"><label><input type="radio" name="mode" value="create" checked> New record</label><label><input type="radio" name="mode" value="link"> Existing record</label></div>
+      <div class="crm-entry-kind" role="radiogroup" aria-label="Entry source"><label><input type="radio" name="mode" value="create" checked> New record</label><label><input type="radio" name="mode" value="link"> Existing record</label></div>
       <div data-crm-create><label>Name<input class="inp" name="title" maxlength="1000" autocomplete="off" required></label>${taskTypeFields({task_type: 'customer'})}
         <label>Tags <span class="muted">(roles such as influencer, client, supplier)</span><input class="inp" name="tags" autocomplete="off"></label></div>
       <div data-crm-link hidden><button type="button" class="btn" data-crm-choose>Choose existing records</button><ul class="crm-chosen" aria-label="Chosen records"></ul></div>
