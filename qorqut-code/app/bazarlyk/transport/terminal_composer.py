@@ -77,6 +77,7 @@ class Reading:
     fingerprint: str
     # A running turn was recognized beside the composer. Only an opted-in read (``allow_busy``) can be ready while busy.
     busy: bool = False
+    clear_passes: int = 0
 
     @property
     def ready(self):
@@ -278,7 +279,7 @@ def _interrupts(texts):
     return any(_contains(text, INTERRUPT_HINTS) for text in texts)
 
 
-def read(client, raw, cursor=None, expect=None, allow_busy=False):
+def read(client, raw, cursor=None, expect=None, allow_busy=False, allow_text=False):
     """Classify a styled capture. ``cursor`` is ``(x, y, visible)`` from tmux, or None when unknown.
 
     ``expect`` is text that was just pasted: the reading is then ``pasted`` only when that exact text (or its placeholder)
@@ -339,6 +340,18 @@ def read(client, raw, cursor=None, expect=None, allow_busy=False):
         return result("busy", "turn_running")
     if interrupts:
         return result("busy", "enter_interrupts", True)
+    if allow_text:
+        # Replacement requires a visible cursor inside the ordinary input area.
+        # Dialog/mode/interrupt checks above still apply, even to owner Chat.
+        end = next((i for i in range(row + 1, len(rows))
+                    if RULE.match(_text(rows[i])) or _footer(rows[i]) or _blank(rows[i])), len(rows))
+        if client == "claude":
+            end = next((i for i in range(row + 1, len(rows)) if RULE.match(_text(rows[i]))), row)
+        if not cursor or not cursor[2] or not row <= cursor[1] < end:
+            return result("unrecognized", "cursor_outside_composer", running)
+        if end - row > 64:
+            return result("unrecognized", "composer_too_large_to_replace", running)
+        return Reading("editable", "editable_composer", digest, running, max(1, 2 * (end - row)))
     # The composer line's own content: dim placeholder text and the cursor cell are not typed text.
     tail = cells[content_start:]
     while tail and tail[-1][0] in "│|":
