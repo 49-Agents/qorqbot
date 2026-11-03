@@ -6,7 +6,7 @@ const attentionQueue=(()=>{
   let queueOkAt=0,signoffOkAt=0;
   let signoffs=[],signoffsLoading=false,signoffsError='',signoffTimer,signoffPromise=null,signoffAgain=false;
   // Due reminders addressed to the owner. Opening or reading one never changes it; only an explicit dismiss/snooze/cancel does.
-  let dueReminders=[],remindersError='',remindersAvailable=true;
+  let dueReminders=[],remindersError='';
   const reminderIcon=typeof SG_BELL==='string' ? SG_BELL : '';
   const viewedIds=item=>item.viewed_ids?.length?item.viewed_ids:[item.id];
   const remaining=()=>items.filter(item=>!viewedIds(item).every(id=>acknowledged.has(id)));
@@ -64,8 +64,7 @@ const attentionQueue=(()=>{
       if(!host.isConnected){signoffMounts.delete(host);continue;}
       // Due reminders lead the strip, ahead of Signoff and email chips, until explicitly handled.
       const due=dueReminders.map(r=>`<button type="button" class="focus-signoff-chip focus-reminder-chip" data-reminder-key="${esc(r.reminder_id)}" data-reminder-state="due" aria-label="${esc('Reminder due: '+r.text)}" title="${esc(r.text)}">${reminderIcon}</button>`).join('');
-      const button=remindersAvailable?'<button type="button" class="focus-signoff-chip focus-reminders-button" data-reminders-open aria-label="Reminders" title="Reminders">'+reminderIcon+'</button>':'';
-      const markup=due+button+signoffs.map(s=>{const title=mount.name?.(s.id)||s.title;return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" aria-label="Review ${esc(title)}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
+      const markup=due+signoffs.map(s=>{const title=mount.name?.(s.id)||s.title;return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" aria-label="Review ${esc(title)}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
       const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'')+(remindersError?'<button type="button" class="quiet" data-reminders-retry>Retry reminders</button>':'');
       if(host._signoffHTML!==html){host.innerHTML=html;host._signoffHTML=html;}
       host.hidden=!markup && !signoffsError && !remindersError;
@@ -89,9 +88,9 @@ const attentionQueue=(()=>{
   }
   // A failed or denied reminder read keeps the last list; losing access hides reminders entirely.
   async function loadReminders(){
-    try{dueReminders=await remindersOwnerDue();remindersError='';remindersAvailable=true;}
+    try{dueReminders=await remindersOwnerDue();remindersError='';}
     catch(e){
-      if(accessLost(e)){dueReminders=[];remindersError='';remindersAvailable=false;}
+      if(accessLost(e)){dueReminders=[];remindersError='';}
       else remindersError=e.message||'Reminders unavailable';
     }
   }
@@ -114,7 +113,6 @@ const attentionQueue=(()=>{
   }
   function signoffClick(event){
     if(event.target.closest('[data-signoffs-retry],[data-reminders-retry]')){void refreshSignoffs();return;}
-    if(event.target.closest('[data-reminders-open]')){if(typeof remindersOpenUpcoming==='function')remindersOpenUpcoming({onChange:()=>{void refreshSignoffs();}});return;}
     const reminderKey=event.target.closest('[data-reminder-key]')?.dataset.reminderKey;
     if(reminderKey){
       const reminder=dueReminders.find(r=>r.reminder_id===reminderKey);

@@ -13,16 +13,5 @@
 .conversation-unread{position:absolute;top:3px;right:3px;width:8px;height:8px;border-radius:50%;background:#fff;border:1px solid var(--line-2);box-shadow:0 0 0 1px rgba(0,0,0,.35)}
 .conversation-unread[hidden]{display:none}
 
-/* Canonical Task context is separate from the private feed. */
-.conversation-context{max-height:min(42%,240px);overflow:auto;margin-bottom:10px;flex:0 0 auto}
-.conversation-context-box{border:1px solid var(--line-2,rgba(255,255,255,.2));border-radius:10px;padding:8px 10px;background:rgba(255,255,255,.03);font-size:13px}
-.conversation-context-title{display:flex;gap:8px;align-items:baseline;margin:4px 0}
-.conversation-context-status{opacity:.7;font-size:12px;text-transform:capitalize}
-.conversation-context-text{overflow-wrap:anywhere}
-.conversation-context-text p{margin:4px 0}
-.conversation-context-empty{opacity:.7;margin:4px 0;font-size:12px}
-.conversation-context-note{border-top:1px solid var(--line-2,rgba(255,255,255,.12));padding:6px 0}
-.conversation-context-meta{display:flex;gap:8px;font-size:12px;opacity:.75}
-.conversation-context-more>summary{cursor:pointer;font-size:12px;opacity:.8;margin:4px 0}
-.conversation-reference-reader[hidden],.conversation-context[hidden],.conversation-view[hidden]{display:none}
-@media (max-width:600px){.conversation-context{max-height:34%}}
+/* An optional reference reader replaces the feed while a source is open. */
+.conversation-reference-reader[hidden],.conversation-view[hidden]{display:none}

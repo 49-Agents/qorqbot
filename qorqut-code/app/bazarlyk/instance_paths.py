@@ -23,11 +23,10 @@ Layout under ``instance_root``::
       .runtime/agentic/                   agentic module state, separate from its authored tree
       .runtime/context-questions.sqlite3  host-owned external review questions (outside the Context and its runtime)
       .runtime/history.git/               private operational Git snapshots
-    qorqut-roles/                         the separate role-source repositories
 
 Components (``app``, ``operations_engine``, ``context_engine``, ``dashboard``, ``roles``) are
 explicitly supplied source or installed-artifact roots; they are never inferred from this instance root. The
-``roles`` component is the reusable role source and must stay separate from every code component.
+``roles`` component contains the Agentic layer's bundled defaults and must stay separate from every code component.
 """
 
 from __future__ import annotations
@@ -85,7 +84,7 @@ def _segment(value, label: str) -> str:
 class InstancePaths:
     """The explicit instance root and component locations of one host."""
 
-    __slots__ = ("_root", "_components", "_operations", "_roles")
+    __slots__ = ("_root", "_components", "_operations")
 
     def __init__(self, instance_root: Path, components: Mapping[str, Path]):
         if not isinstance(components, Mapping):
@@ -97,10 +96,9 @@ class InstancePaths:
         if unknown:
             raise InstancePathError(f"unknown components: {', '.join(unknown)}")
         resolved = {name: _absolute(components[name], f"component {name}") for name in COMPONENTS if name in components}
-        operations, roles = root / "operations", root / "qorqut-roles"
-        for label, path in (("operations", operations), ("qorqut-roles", roles)):
-            if Path(os.path.realpath(path)) != path:
-                raise InstancePathError(f"the {label} root must not be a symlink")
+        operations = root / "operations"
+        if Path(os.path.realpath(operations)) != operations:
+            raise InstancePathError("the operations root must not be a symlink")
         seen: dict[Path, str] = {}
         for name, path in resolved.items():
             if path in seen:
@@ -110,8 +108,6 @@ class InstancePaths:
                 raise InstancePathError(f"component {name} must be separate from the operations root")
             if _inside(root, path):
                 raise InstancePathError(f"instance_root must not be a component location or inside component {name}")
-            if name != "roles" and _overlaps(path, roles):
-                raise InstancePathError(f"component {name} must be separate from the qorqut-roles root")
         if "roles" in resolved:
             for name, path in resolved.items():
                 if name != "roles" and _overlaps(path, resolved["roles"]):
@@ -119,7 +115,6 @@ class InstancePaths:
         object.__setattr__(self, "_root", root)
         object.__setattr__(self, "_components", MappingProxyType(resolved))
         object.__setattr__(self, "_operations", operations)
-        object.__setattr__(self, "_roles", roles)
 
     def __setattr__(self, name, value):
         raise AttributeError("InstancePaths is immutable")
@@ -200,10 +195,6 @@ class InstancePaths:
     def files(self) -> Path:
         return self._checked(self._operations / "files")
 
-    @property
-    def roles(self) -> Path:
-        return self._checked(self._roles)
-
     def extension_home(self, name: str) -> Path:
         """The owner-editable instance directory of one instruction package (``operations/extensions/<name>``)."""
         return self._checked(self._operations / EXTENSIONS_DIRECTORY / _segment(name, "extension name"))
@@ -215,14 +206,6 @@ class InstancePaths:
             return self._components[name]
         except KeyError:
             raise InstancePathError(f"component {name} is not configured") from None
-
-    def role_source(self, path) -> Path:
-        """A configured role source: inside the instance ``qorqut-roles`` root or the explicit ``roles`` component."""
-        resolved = _absolute(path, "role source")
-        bases = [self._roles] + ([self._components["roles"]] if "roles" in self._components else [])
-        if not any(_inside(resolved, base) for base in bases):
-            raise InstancePathError("role source is outside the qorqut-roles root and the configured roles component")
-        return resolved
 
     def business_root(self, folder: str) -> Path:
         """The registered project's folder; the internal ``business`` names and identifiers are unchanged."""

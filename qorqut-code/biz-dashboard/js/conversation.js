@@ -198,15 +198,15 @@ function conversationMount(host,source,adapter={}) {
   const signoffViews=new Set();
   const mountId=++conversationMountId;
   const panelId=`conversation-panel-${mountId}`;
-  host.innerHTML=`<button type="button" class="quiet conversation-toggle" aria-label="Comment" aria-expanded="false" aria-controls="${panelId}"><span class="conversation-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 12.5z"/></svg></span><span class="conversation-unread" data-conversation-unread aria-hidden="true" hidden></span></button><section id="${panelId}" class="conversation-panel" role="region" aria-label="Conversation with Ordubashy" hidden><div class="conversation-context" hidden></div><div class="conversation-reference-reader" hidden></div><div class="conversation-view"></div></section>`;
+  host.innerHTML=`<button type="button" class="quiet conversation-toggle" aria-label="Comment" aria-expanded="false" aria-controls="${panelId}"><span class="conversation-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 12.5z"/></svg></span><span class="conversation-unread" data-conversation-unread aria-hidden="true" hidden></span></button><section id="${panelId}" class="conversation-panel" role="region" aria-label="Conversation with Ordubashy" hidden><div class="conversation-reference-reader" hidden></div><div class="conversation-view"></div></section>`;
   const toggle=host.querySelector('.conversation-toggle'),panel=host.querySelector('.conversation-panel');
   const unreadDot=host.querySelector('[data-conversation-unread]');
-  const ctxEl=panel.querySelector('.conversation-context'),readerEl=panel.querySelector('.conversation-reference-reader'),viewEl=panel.querySelector('.conversation-view');
-  // The Task overview and recent progress belong to this mount's last related read; they are never chat messages.
-  let ctx=null,ctxError=false,ctxGen=0,ctxMoreBusy=false,ctxMoreError=false,ctxSig='',ctxOpen=false,referenceGeneration=0;
+  const readerEl=panel.querySelector('.conversation-reference-reader'),viewEl=panel.querySelector('.conversation-view');
+  // Canonical overview/progress render in the shared feed without writing duplicate private messages.
+  let ctx=null,ctxError=false,ctxGen=0,ctxMoreBusy=false,ctxMoreError=false,overviewExpanded=false,referenceGeneration=0;
   const referenceReader=conversationReferenceMount(readerEl,()=>{
     if(disposed)return;
-    viewEl.hidden=false;ctxSig='';paintContext();
+    viewEl.hidden=false;paintContext();
     restoring=true;
     try {chat.layout();if(saved)chat.setScrollState(saved);} finally {restoring=false;}
   });
@@ -238,70 +238,27 @@ function conversationMount(host,source,adapter={}) {
   const clearError=()=>{if(errorText)setError('');};
   let painted='';
   function paint(mode='auto') {
-    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before,adapter.related?s.related:null,relatedReady,!!ctx]);
+    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before,adapter.related?s.related:null,relatedReady,ctx,ctxError,ctxMoreBusy,ctxMoreError,overviewExpanded]);
     if(painted===signature && mode==='auto')return;
     painted=signature;
-    chat.render({entries:conversationTimeline(s,{...adapter,related:adapter.related && relatedReady},recordSource),older:{visible:!!s.before,disabled:false},empty:{text:s.loaded && !s.notes.length?(ctx?'No private messages yet':'No messages yet'):''}},{scroll:mode});
+    const notes=[...s.notes,...(ctx?.notes || []).map(note=>({...note,id:`progress:${note.id}`}))]
+      .sort((a,b)=>(a.created_at || '').localeCompare(b.created_at || ''));
+    const entries=conversationTimeline({...s,notes},{...adapter,related:adapter.related && relatedReady},recordSource);
+    const overview=String(ctx?.overview || '').trim();
+    if(overview) {
+      const words=plainSafeLinks(overview).trim().split(/\s+/u),long=words.length>100;
+      const coordinator=s.participants.find(person=>person.author_kind==='agent');
+      entries.unshift({key:'task-overview',speaker:'agent',text:long && !overviewExpanded?words.slice(0,100).join(' ')+'…':overview,
+        author:{name:'Ordubashy',avatarHtml:coordinator?conversationGlyph(coordinator,31):'Or'},showAuthorName:false,
+        actions:long?[{key:'overview-toggle',label:overviewExpanded?'Show less':'Read full overview'}]:[]});
+    }
+    if(ctx?.notes_next_cursor || ctxMoreError)entries.unshift({key:'progress-more',speaker:'notice',text:ctxMoreError?"Couldn't load earlier progress.":'',
+      actions:[{key:'progress-more',label:ctxMoreBusy?'Loading…':'Load earlier progress',disabled:ctxMoreBusy}]});
+    if(ctxError)entries.unshift({key:'context-error',speaker:'notice',text:"Couldn't load task context.",actions:[{key:'context-retry',label:'Retry'}]});
+    chat.render({entries,older:{visible:!!s.before,disabled:false},empty:{text:s.loaded && !entries.length?'No messages yet':''}},{scroll:mode});
     if(adapter.inlineComposer)host.querySelectorAll('[title]').forEach(el=>el.removeAttribute('title'));
   }
-  function refButton(ref) {
-    const button=conversationEl('button','gchat-reference quiet',ref.label || (ref.type==='email'?'Email conversation':ref.type) || 'Reference');
-    button.type='button';button.disabled=!!ref.unavailable;
-    button.onclick=()=>openRef(ref);
-    return button;
-  }
-  function noteNode(note) {
-    const box=conversationEl('article','conversation-context-note');
-    const head=conversationEl('div','conversation-context-meta');
-    head.append(conversationEl('strong',null,conversationPersonName(note)),conversationEl('span',null,conversationWhen(note.created_at)));
-    const body=conversationEl('div','conversation-context-text md');body.innerHTML=chatViewMarkdown(note.body || '');
-    box.append(head,body);
-    const refs=(note.refs || []).filter(ref=>ref.type!=='dev_ticket');
-    if(refs.length){const row=conversationEl('div','gchat-references');for(const ref of refs)row.append(refButton(ref));box.append(row);}
-    return box;
-  }
-  function paintContext() {
-    if(disposed)return;
-    const signature=JSON.stringify([ctx,ctxError,ctxMoreBusy,ctxMoreError,referenceReader.isOpen()]);
-    if(signature===ctxSig)return;
-    ctxSig=signature;
-    if(referenceReader.isOpen() || (!ctx && !ctxError)){ctxEl.hidden=true;ctxEl.replaceChildren();return;}
-    const box=conversationEl('section','conversation-context-box');
-    box.setAttribute('aria-label',ctx?.task_type==='story'?'Story context':'Task context');
-    if(ctx) {
-      const title=conversationEl('div','conversation-context-title');
-      title.append(conversationEl('strong',null,'Overview'));
-      if(ctx.status)title.append(conversationEl('span','conversation-context-status',String(ctx.status).replace(/_/g,' ')));
-      box.append(title);
-      const overview=conversationEl('div','conversation-context-text md');
-      if(String(ctx.overview || '').trim())overview.innerHTML=chatViewMarkdown(ctx.overview);
-      else overview.append(conversationEl('p','conversation-context-empty','No overview yet.'));
-      box.append(overview);
-      const notes=ctx.notes || [];
-      const progress=conversationEl('div','conversation-context-title');progress.append(conversationEl('strong',null,'Progress'));box.append(progress);
-      if(!notes.length)box.append(conversationEl('p','conversation-context-empty','No progress notes yet.'));
-      else {
-        box.append(noteNode(notes[0]));
-        if(notes.length>1) {
-          const more=conversationEl('details','conversation-context-more');
-          more.open=ctxOpen;more.ontoggle=()=>{ctxOpen=more.open;};
-          more.append(conversationEl('summary',null,`Earlier progress (${notes.length-1})`));
-          for(const note of notes.slice(1))more.append(noteNode(note));
-          box.append(more);
-        }
-      }
-      if(ctx.notes_next_cursor) {
-        if(ctxMoreError)box.append(conversationEl('p','conversation-context-empty',"Couldn't load earlier progress."));
-        const earlier=conversationEl('button','quiet',ctxMoreBusy?'Loading…':ctxMoreError?'Retry':'Load earlier progress');
-        earlier.type='button';earlier.disabled=ctxMoreBusy;earlier.onclick=()=>{void loadEarlier();};box.append(earlier);
-      }
-    }
-    if(ctxError) {
-      box.append(conversationEl('p','conversation-context-empty',"Couldn't load the overview and progress."));
-      const retry=conversationEl('button','quiet','Retry');retry.type='button';retry.onclick=()=>{void loadRelated();};box.append(retry);
-    }
-    ctxEl.replaceChildren(box);ctxEl.hidden=false;
-  }
+  function paintContext() {if(!disposed)paint('preserve');}
   // Earlier progress uses the canonical Task read in the Project the context named.
   // The source is no longer readable: drop everything read from it and invalidate outstanding context and mail reads.
   function dropContext() {
@@ -550,6 +507,9 @@ function conversationMount(host,source,adapter={}) {
     onTask:adapter.openReference ? ref=>adapter.openReference(ref) : null,
     onReference:ref=>{if(ref)void openRef(ref);},
     onEntryAction:(actionKey,entryKey)=>{
+      if(actionKey==='overview-toggle'){overviewExpanded=!overviewExpanded;paint('preserve');return;}
+      if(actionKey==='progress-more'){void loadEarlier();return;}
+      if(actionKey==='context-retry'){void loadRelated();return;}
       const note=actionKey==='parent'?s.notes.find(n=>n.id===entryKey):null;
       if(note && adapter.openParent)Promise.resolve().then(()=>adapter.openParent(note)).catch(()=>setError(CONVERSATION_TEXT.load));
     }});

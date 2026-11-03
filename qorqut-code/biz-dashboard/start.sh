@@ -17,7 +17,7 @@
 #   INTERPRETER (or BIZ_DASH_PYTHON)   the Python of the installed host, used with -I -m bazarlyk.service;
 #                                      not needed when BIZ_DASH_LAUNCHER names the stable application launcher
 #   WORKSPACE (or BIZ_DASH_WORKSPACE)  the protected configuration / package-source workspace
-#   INSTANCE_ROOT                      the instance root holding operations/ and qorqut-roles/
+#   INSTANCE_ROOT                      the instance root holding operations/
 #   COMPONENT_APP, COMPONENT_DASHBOARD   required component locations
 #   COMPONENT_OPERATIONS_ENGINE, COMPONENT_CONTEXT_ENGINE, COMPONENT_ROLES   optional component locations
 # `start.sh argv` prints the exact launch command, one element per line, without starting anything.

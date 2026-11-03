@@ -389,7 +389,7 @@ Operations and Context engines installed:
 
 ```sh
 BAZARLYK_CORE_ROOT=/absolute/path/to/qorqut-code/app \
-QORQUT_TEST_ROLE_ROOT=/absolute/path/to/agent-roles \
+QORQUT_TEST_ROLE_ROOT=/absolute/path/to/qorqut-agentic/src/qorqut_agentic/resources/defaults \
 TEST_PYTHON=/absolute/path/to/python \
   node tests/<file>.js
 

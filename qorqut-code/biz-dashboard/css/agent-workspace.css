@@ -53,10 +53,6 @@
 
 /* Focus follows the approved workspace: quiet controls, square attention tiles,
    and readable separated rows. Source status colours remain in tasks.css. */
-.agent-workspace-app .agpad .agfocus-head-tools { display:flex; flex:none; align-items:center; gap:4px; margin-left:auto; }
-.agent-workspace-app .agfocus-head-tools .agfocus-icon { display:flex; align-items:center; justify-content:center; width:30px; height:30px; min-height:30px; padding:6px; border:0; border-radius:5px; background:none; color:var(--fg-2); cursor:pointer; box-sizing:border-box; }
-.agent-workspace-app .agfocus-head-tools svg { width:17px; height:17px; }
-.agent-workspace-app .agfocus-head-tools .agfocus-icon:hover { color:var(--fg); background:var(--hover); }
 .agent-workspace-app .agpad .agfocus > header:has(.agfocus-empty[hidden]) { display:none; }
 .agent-workspace-app .agpad .agfocus { padding-top:0; padding-left:0; }
 .agent-workspace-app .agfocus > header,
