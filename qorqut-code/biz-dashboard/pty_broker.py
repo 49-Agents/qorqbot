@@ -15,6 +15,7 @@ Linux only (stdlib `pty`); the target host is Linux. No third-party Python depen
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import pty
 import re
@@ -355,6 +356,21 @@ def ensure_session(name: str, cmd: list[str], cwd: str, env: dict | None = None,
     args = ["new-session", "-d", "-s", name, "-c", cwd, "-x", str(cols), "-y", str(rows)]
     for k, v in (env or {}).items():
         args += ["-e", f"{k}={v}"]
+    # tmux may predate an app restart and retain the old app HOME/config.
+    # Restore the invoking user's paths in the child itself, including unsets.
+    # Explicit per-session Settings still take precedence. Keep TMUX_TMPDIR
+    # unchanged so each installation retains its own terminal server.
+    native = json.loads(os.environ.get("QORQUT_NATIVE_USER_ENV", "{}"))
+    unset, values = [], []
+    for key, value in native.items():
+        if key in (env or {}):
+            continue
+        if value is None:
+            unset += ["-u", key]
+        else:
+            values.append(f"{key}={value}")
+    if native:
+        cmd = ["/usr/bin/env", *unset, *values, *cmd]
     rc, out = tmux(*args, "--", *cmd)
     if rc and "duplicate session" not in out:
         raise RuntimeError(f"tmux new-session failed: {out.strip()}")
