@@ -229,7 +229,7 @@ class InputArbiter:
             return OwnerInputOutcome("deferred", "unsupported_transport"), "none"
         try:
             # Owner Chat and Telegram can both contain long free-form text that the client collapses.
-            # Both keep exact-session, empty-composer and post-paste mode checks before Enter.
+            # Both keep exact-session, empty-composer and post-paste mode checks before one Enter.
             # System notices and other producers retain whole-text echo verification.
             return adapter.submit(profile, session, text, steer=steer,
                                   echo=input_type not in {TYPE_CHAT, TYPE_TELEGRAM}, checkpoint=checkpoint), adapter.name

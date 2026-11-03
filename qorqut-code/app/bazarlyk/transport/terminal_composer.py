@@ -77,7 +77,6 @@ class Reading:
     fingerprint: str
     # A running turn was recognized beside the composer. Only an opted-in read (``allow_busy``) can be ready while busy.
     busy: bool = False
-    literal_paste: bool = False
 
     @property
     def ready(self):
@@ -292,8 +291,8 @@ def read(client, raw, cursor=None, expect=None, allow_busy=False):
     """
     digest = fingerprint(raw, cursor)
 
-    def result(state, reason, busy=False, literal_paste=False):
-        return Reading(state, reason, digest, busy, literal_paste)
+    def result(state, reason, busy=False):
+        return Reading(state, reason, digest, busy)
 
     if client not in CLIENTS:
         return result("unrecognized", "unsupported_client")
@@ -379,6 +378,5 @@ def _pasted(client, rows, candidates, expect, cursor, result, allow_busy=False):
             return result("busy", "turn_running")
         if interrupts:
             return result("busy", "enter_interrupts", True)
-        head = _content(_text(rows[first]), MARKERS[client].match(_text(rows[first])), True)
-        return result("pasted", "paste_in_composer", running, literal_paste=not PLACEHOLDER.match(head))
+        return result("pasted", "paste_in_composer", running)
     return result("text", "paste_not_in_composer")
