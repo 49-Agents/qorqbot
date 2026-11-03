@@ -42,6 +42,20 @@ def save_json(path, value):
         os.close(descriptor)
 
 
+def link_user_keychains(home, user_home):
+    """macOS finds the login keychain through $HOME/Library/Keychains. Agent CLIs keep their sign-in there, so the
+    private home links that one folder to the user's own; without it macOS reports "A keychain cannot be found" and
+    offers to reset the keychain. Nothing else of the user's Library is shared, and an existing entry is never replaced."""
+    target = Path(user_home) / 'Library' / 'Keychains'
+    link = Path(home) / 'Library' / 'Keychains'
+    if Path(home).resolve() == Path(user_home).resolve() or not target.is_dir():
+        return
+    if link.is_symlink() or link.exists():
+        return
+    link.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    link.symlink_to(target, target_is_directory=True)
+
+
 def environment(root, home):
     runtime = root / 'runtime'
     env = dict(os.environ)
@@ -73,6 +87,8 @@ def environment(root, home):
     for key, path in paths.items():
         path.mkdir(parents=True, exist_ok=True, mode=0o700)
         env[key] = str(path)
+    if sys.platform == 'darwin':
+        link_user_keychains(home, user_home)
     env.update({
         'PATH': str(runtime / 'venv/bin') + os.pathsep + user_path,
         'QORQUT_FOLDER_ROOT': str(root),

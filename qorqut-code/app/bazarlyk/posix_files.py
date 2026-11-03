@@ -21,9 +21,19 @@ def immutable_database_uri(descriptor: int) -> str:
     else:
         raise OSError(errno.ENOTSUP, "This host lacks a qualified retained-file descriptor path")
     named = os.stat(path)
-    if (named.st_dev, named.st_ino) != (opened.st_dev, opened.st_ino):
+    if _file_identity(named) != _file_identity(opened):
         raise OSError(errno.ESTALE, "Database descriptor path identifies a different file")
     return f"file:{path}?mode=ro&immutable=1"
+
+
+def _file_identity(result: os.stat_result) -> tuple:
+    if sys.platform == "darwin":
+        # Darwin's fdesc /dev/fd/N duplicates descriptor N, but recent macOS reports
+        # a different st_dev through it than fstat() does for the same vnode. Use
+        # inode, type, size and both timestamps instead of the device number.
+        return (result.st_ino, stat.S_IFMT(result.st_mode), result.st_size,
+                result.st_mtime_ns, result.st_birthtime)
+    return (result.st_dev, result.st_ino)
 
 
 def require_anonymous_publication() -> None:
