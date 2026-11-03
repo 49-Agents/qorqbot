@@ -7,7 +7,7 @@ is typed. After the checkpoint every outcome other than an explicit ``deferred``
 ``receipt`` names only what was observed (client, a digest of the terminal identity, the composer fingerprint).
 
 * ``TerminalAdapter`` types into the agent's one registered tmux pane for Claude Code or Codex through the existing verified
-  composer path (bracketed paste, a single Enter, three composer observations, no input into a modal or non-empty composer).
+  composer path (bracketed paste, a single Enter, no input into a modal). Owner Chat can replace an existing draft.
 * ``CodexQueueAdapter`` uses explicit turn/steer (busy) or turn/start (idle) for steering inputs on the verified
   shared server. Non-steering producers retain codex queue. It never starts or resumes a client.
 """
@@ -40,7 +40,7 @@ class TerminalAdapter:
     def __init__(self, backend):
         self._backend = backend
 
-    def submit(self, profile: dict, session: dict, text: str, *, steer: bool, echo: bool, checkpoint) -> OwnerInputOutcome:
+    def submit(self, profile: dict, session: dict, text: str, *, steer: bool, echo: bool, checkpoint, replace_composer=False) -> OwnerInputOutcome:
         backend = self._backend()
         if backend is None:
             return OwnerInputOutcome(DEFERRED, "terminal_unavailable")
@@ -54,11 +54,13 @@ class TerminalAdapter:
         delivery = {**profile, "profile_json": json.dumps({**json.loads(profile["profile_json"]),
                                                            "runtime": PROVIDER_RUNTIMES[session["provider"]]})}
         # ``steer`` lets the text coexist with a running turn (the client queues or steers it as if the owner typed it); the
-        # composer must still be verified empty and the single normal submit is the only key. ``echo`` demands the whole pasted
+        # composer must be verified editable. Only owner Chat replaces drafts with editing keys; ``echo`` demands the whole pasted
         # text visible in the composer before it is submitted; Chat and Telegram free-form text may be collapsed by the client
-        # and may do without the whole-text echo. A producer without ``steer`` also keeps the idle-only default.
+        # and may do without the whole-text echo unless replacing a draft. Replacement always verifies
+        # the paste. A producer without ``steer`` also keeps the idle-only default.
         return backend.owner_input(delivery, text, workdir=workdir, checkpoint=checkpoint,
-                                   require_paste_echo=echo, allow_busy=steer)
+                                   require_paste_echo=echo or replace_composer, allow_busy=steer,
+                                   replace_composer=replace_composer)
 
 
 class CodexQueueAdapter:
@@ -70,7 +72,7 @@ class CodexQueueAdapter:
         self._run, self._alive, self._executable = run, alive, executable
         self._steering = steering
 
-    def submit(self, profile: dict, session: dict, text: str, *, steer: bool, echo: bool, checkpoint) -> OwnerInputOutcome:
+    def submit(self, profile: dict, session: dict, text: str, *, steer: bool, echo: bool, checkpoint, replace_composer=False) -> OwnerInputOutcome:
         owner = session.get("owner")
         if not owner or not self._alive(owner):
             return OwnerInputOutcome(DEFERRED, "codex_session_closed")

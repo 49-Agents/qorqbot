@@ -22,7 +22,7 @@ CLIENT_NAMES = {'claude':'Claude Code', 'codex':'Codex'}
 NATIVE_ONLY = 'Terminal control currently requires native host execution'
 MAX_OWNER_INPUT_CHARS = 17000
 # A busy CLI can take several frames to display a bracketed paste. Re-read only:
-# never paste twice, clear the composer, or submit without the existing checks.
+# never paste twice or submit without the existing checks.
 PASTE_VERIFY_ATTEMPTS = 10
 PASTE_VERIFY_INTERVAL = .2
 # ``receipt`` names what was observed once input was attempted (client, a hash of the terminal identity, the composer
@@ -392,7 +392,7 @@ class AgentTerminalBackend:
             if char not in '\n\t' and (code < 0x20 or code == 0x7f or 0x80 <= code <= 0x9f):
                 raise DomainError('validation_error', 'Owner input cannot contain terminal control characters')
 
-    def _observe(self, row, client, expect=None, allow_busy=False):
+    def _observe(self, row, client, expect=None, allow_busy=False, allow_text=False):
         """One verified observation ``(broker, snapshot, reading)`` or ``OwnerInputDeferred``. Nothing here has an effect.
 
         ``expect`` is the text just pasted: the reading is then ``pasted`` only if that exact text occupies the composer.
@@ -421,26 +421,30 @@ class AgentTerminalBackend:
         if code:
             raise OwnerInputDeferred('terminal_unreadable')
         reading = terminal_composer.read(client, screen, (int(fields[3]), int(fields[4]), fields[2] == '1'), expect=expect,
-                                         allow_busy=allow_busy)
+                                         allow_busy=allow_busy, allow_text=allow_text)
         return broker, snap, reading
 
-    def _ready(self, row, client, allow_busy=False):
-        broker, snap, reading = self._observe(row, client, allow_busy=allow_busy)
-        if not reading.ready:
+    def _ready(self, row, client, allow_busy=False, replace_composer=False):
+        options = {"allow_text": True} if replace_composer else {}
+        broker, snap, reading = self._observe(row, client, allow_busy=allow_busy, **options)
+        if not (reading.ready or (replace_composer and reading.state == "editable")):
             if reading.reason == 'enter_interrupts':
                 raise OwnerInputDeferred('submit_interrupts')
             raise OwnerInputDeferred({'text': 'composer_not_empty', 'busy': 'composer_busy', 'modal': 'composer_modal'}
                                      .get(reading.state, 'composer_unrecognized'))
         return broker, snap, reading
 
-    def owner_input(self, row, text, *, workdir, checkpoint, require_paste_echo=True, allow_busy=False):
-        """Type ``text`` into the target's empty composer and submit it. Returns an ``OwnerInputOutcome``.
+    def owner_input(self, row, text, *, workdir, checkpoint, require_paste_echo=True, allow_busy=False, replace_composer=False):
+        """Type ``text`` into the target composer and submit it. Returns an ``OwnerInputOutcome``.
+
+        Owner Chat may explicitly replace the draft; other producers require an empty composer.
 
         ``deferred``: nothing was typed (the terminal is not ready); ``submitted``: the submit key was sent, processing
         is not confirmed; ``uncertain``: input may have reached the terminal and must never be replayed. ``checkpoint``
         is called once after the pre-input checks and before the first input, and one more observation follows it; if
         either fails nothing is typed. ``allow_busy`` (default off) accepts a verified empty composer while the native
-        turn is still running; the same checks, paste and single normal submit apply and nothing else is ever pressed.
+        turn is still running. Replacement uses editing keys only, after the durable claim,
+        then requires exact paste verification before the single normal submit.
         ``workdir`` is a private (0700) directory for the short-lived paste file, which never carries the text in argv.
         """
         self.validate_owner_text(text)
@@ -451,7 +455,7 @@ class AgentTerminalBackend:
         if not lock.acquire(blocking=False):
             return OwnerInputOutcome('deferred', 'target_busy')
         try:
-            return self._deliver(row, client, text, workdir, checkpoint, require_paste_echo, allow_busy)
+            return self._deliver(row, client, text, workdir, checkpoint, require_paste_echo, allow_busy, replace_composer)
         finally:
             lock.release()
 
@@ -469,14 +473,14 @@ class AgentTerminalBackend:
             raise DomainError('operation_failed', 'Direct message outcome could not be confirmed')
         raise DomainError('not_delivered', f"Direct message was not typed: {result.reason or 'the native session is not ready'}")
 
-    def _deliver(self, row, client, text, workdir, checkpoint, require_paste_echo=True, allow_busy=False):
-        # Each of the three observations must independently show the ordinary empty composer on the exact same client
+    def _deliver(self, row, client, text, workdir, checkpoint, require_paste_echo=True, allow_busy=False, replace_composer=False):
+        # Each observation must show the ordinary composer (empty unless Chat replaces it) on the same client
         # snapshot. The rest of the screen (a transcript or status timer, the footer, colours) is free to change, and with
         # ``allow_busy`` so is whether a turn is running: busy to idle between the checks is fine.
         try:
-            broker, snap, first = self._ready(row, client, allow_busy)
+            broker, snap, first = self._ready(row, client, allow_busy, replace_composer)
             self.sleep(self.screen_settle)
-            _, again, _ = self._ready(row, client, allow_busy)
+            _, again, _ = self._ready(row, client, allow_busy, replace_composer)
         except OwnerInputDeferred as exc:
             return OwnerInputOutcome('deferred', exc.reason)
         if again != snap:
@@ -487,19 +491,35 @@ class AgentTerminalBackend:
             return OwnerInputOutcome('deferred', 'checkpoint_failed')
         # The checkpoint is a database write that can wait: look at the composer once more right before the first input.
         try:
-            _, last, _ = self._ready(row, client, allow_busy)
+            _, last, _ = self._ready(row, client, allow_busy, replace_composer)
         except OwnerInputDeferred as exc:
             return OwnerInputOutcome('deferred', exc.reason)
         if last != snap:
             return OwnerInputOutcome('deferred', 'screen_changing')
         receipt = {'client': client, 'composer': first.fingerprint,
                    'target': hashlib.sha256(json.dumps(snap, sort_keys=True, default=str).encode()).hexdigest()}
-        outcome = self._type(row, client, broker, snap, first, text, workdir, require_paste_echo, allow_busy)
+        outcome = self._type(row, client, broker, snap, first, text, workdir, require_paste_echo, allow_busy, replace_composer)
         return outcome._replace(receipt={**receipt, **(outcome.receipt or {})})
 
-    def _type(self, row, client, broker, snap, first, text, workdir, require_paste_echo=True, allow_busy=False):
+    def _type(self, row, client, broker, snap, first, text, workdir, require_paste_echo=True, allow_busy=False, replace_composer=False):
         """Everything from the first input on. Any outcome here may follow a write, so it is never replayed."""
         pane = snap['pane_id']
+        if replace_composer:
+            # The durable claim has already been made. Clear only the editable
+            # draft, never send Escape/Ctrl-C, and never replay after a key write.
+            for _ in range(first.clear_passes):
+                code, _ = broker.tmux('send-keys', '-t', pane, 'C-e', 'C-u', 'C-k')
+                if code:
+                    return OwnerInputOutcome('uncertain', 'composer_clear_failed')
+                self.sleep(self.screen_settle)
+                try:
+                    _, seen, _ = self._ready(row, client, allow_busy, True)
+                    if seen != snap:
+                        return OwnerInputOutcome('uncertain', 'session_changed')
+                except OwnerInputDeferred as exc:
+                    return OwnerInputOutcome('uncertain', 'composer_clear_unverified', {'clear_check': exc.reason})
+            # A suggestion can remain visible after clearing. The exact-paste
+            # check below proves replacement; never submit leftover draft text.
         paste = self._paste(broker, pane, text, workdir)
         if paste is not None:
             return paste
