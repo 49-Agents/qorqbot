@@ -387,6 +387,17 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
+            if parts == ["root", "onboarding"] and request.method in {"GET", "POST"}:
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "Walkthrough preferences are for the owner's dashboard")
+                from bazarlyk.onboarding_preferences import progress
+                body = await read_json(request, limit=1024) if request.method == "POST" else None
+                if request.method == "POST" and not isinstance(body, dict):
+                    raise DomainError("validation_error", "Walkthrough preferences must be an object")
+                data = await anyio.to_thread.run_sync(partial(progress, self.runtime.paths.runtime, actor.principal.id, body))
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
             if parts == ["root", "agent-pins"] and request.method in {"GET", "POST"}:
                 if request.headers.get("authorization") is not None:
                     raise DomainError("forbidden", "Agent pins are for the owner's dashboard")
