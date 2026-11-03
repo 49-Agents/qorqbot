@@ -31,6 +31,8 @@
 .onboarding-card .onboarding-close:hover { color:var(--fg); }
 .onboarding.is-welcome .onboarding-card { width:420px; padding:32px; }
 .onboarding-mark svg { display:block; width:48px; height:48px; }
+.onboarding-mark .qorqbot-agent > path { fill:#fff; }
+.onboarding-mark .qorqbot-agent > g path { fill:#000; }
 .onboarding-mark { display:block; width:48px; height:48px; margin-bottom:25px; }
 .onboarding.is-welcome h2 { max-width:none; font-size:30px; margin-top:11px; margin-bottom:14px; }
 .onboarding.is-welcome .onboarding-detail { color:#737373; font-size:11px; margin-top:20px; }
