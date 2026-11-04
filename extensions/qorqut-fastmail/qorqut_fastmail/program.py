@@ -161,5 +161,5 @@ def register(programs, provider) -> FastmailMutationProgram:
     program = FastmailMutationProgram(provider)
     programs.register(Program(PROGRAM, 1, SCHEMA, program.run, {}, (), (), global_capabilities=("manage_fastmail",),
                               scope_kinds=("global",), external=True, recover=program.recover, timeout_seconds=120,
-                              routine_allowed=False))
+                              routine_allowed=False, background_queue="email"))
     return program

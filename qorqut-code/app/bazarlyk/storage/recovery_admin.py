@@ -315,7 +315,9 @@ class RecoveryAdministration:
     def _assert_not_background_worker(self) -> None:
         # Runtime composition may supply its actual background service.  Its own
         # thread cannot run recovery because quiescence would join itself.
-        if self._background_worker is not None and getattr(self._background_worker, "_thread", None) is threading.current_thread():
+        worker = self._background_worker
+        if worker is not None and (getattr(worker, "_thread", None) is threading.current_thread()
+                or callable(getattr(worker, "is_worker_thread", None)) and worker.is_worker_thread()):
             raise DomainError("recovery_unavailable", "Recovery cannot run from its background worker")
 
     @staticmethod

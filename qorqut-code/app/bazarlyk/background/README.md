@@ -6,7 +6,7 @@ bounded application work through the shared backend.
 
 ## Assembly
 
-The generic machinery (`ProgramRegistry`, `BackgroundAuthority`, the serial `BackgroundService`, `RoutineScheduler`
+The generic machinery (`ProgramRegistry`, `BackgroundAuthority`, the queued `BackgroundService`, `RoutineScheduler`
 and `RoutineOperations`) is the Operations engine's (`qorqut_operations.background`/`.routines`). This package holds the
 host's concrete programs and the attachment below; the registry is frozen with the operation registry before traffic.
 
@@ -61,6 +61,29 @@ Worker IDs are `uuid5(installation_id, "program:" + program_id)`. Registration
 never reactivates an existing revoked principal or membership. The exact program
 definition and grants are hashed into every job. Runtime configuration does not
 load executable modules, shell commands, or arbitrary program definitions.
+
+## Independent queues
+
+Each queue executes one job at a time. Context completion checks use `context`;
+installed Fastmail and WhatsApp connectors declare `email` and `whatsapp` queues.
+Other programs use `general`. Absent connectors add no queues. The routine
+scheduler runs separately so a slow job does not block admission of due work.
+
+Trusted program registration may set `background_queue` to an ASCII identifier.
+Attachment captures this routing once; job arguments cannot change it. Routing
+is excluded from program definition digests, so existing jobs and approvals stay
+valid. Stop the previous application before starting an updated build; concurrent
+application versions with different routing are not supported.
+
+Deferred jobs are ordered by their next retry time. New manual jobs retain
+priority, while repeated completion checks yield to already-ready work. Each
+queue holds an installation-derived file claim through execution and outcome
+bookkeeping, including explicit recovery. Shutdown signals all workers and uses
+one total join deadline; a timeout prevents restarting workers until they stop.
+
+The owner processes response retains `current`, `queued` and `invalid` and adds
+`running` and per-queue counts. Queue isolation does not automatically retry a
+failed Context model call or bypass any provider approval.
 
 ## Programs
 
