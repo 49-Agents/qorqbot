@@ -149,6 +149,7 @@ def add_payload(app, archive, version, built):
     # Electron's own license and Chromium's third-party notices travel inside the app.
     shutil.copyfile(built / 'LICENSE', resources / 'LICENSE.electron.txt')
     shutil.copyfile(built / 'LICENSES.chromium.html', resources / 'LICENSES.chromium.html')
+    shutil.copyfile(HERE / 'THIRD-PARTY-NOTICES.md', resources / 'THIRD-PARTY-NOTICES.md')
 
 
 def sign(app, identity):
@@ -173,14 +174,14 @@ def main(argv=None):
     parser.add_argument('--identity', default='-', help="codesign identity; '-' (default) is ad-hoc")
     parser.add_argument('--notary-profile', help='notarytool keychain profile; requires a Developer ID identity')
     args = parser.parse_args(argv)
-    if sys.platform != 'darwin':
-        parser.error('Build the Mac app on macOS')
     if args.notary_profile and args.identity == '-':
         parser.error('Notarization needs a Developer ID Application identity, not ad-hoc signing')
     archive = args.archive.resolve()
     output = args.output.resolve()
     if output.exists() and any(output.iterdir()):
         parser.error('Output directory must be new or empty')
+    if sys.platform != 'darwin':
+        parser.error('Build the Mac app on macOS')
     version = archive_version(archive)
     output.mkdir(parents=True, exist_ok=True)
     dmg = output / f'Qorqbot-{version}-macos14-arm64.dmg'
