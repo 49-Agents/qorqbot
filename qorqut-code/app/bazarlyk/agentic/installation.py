@@ -118,6 +118,8 @@ def prepare_installation(export_root, selected_extensions):
         # Validate the host-owned record contract before any target write.
         HostAgenticView(None, inventory)
         _verify_inventory(inventory, selected, manifest_digest)
+        if not any(p["id"] == "runtime-instructions" and p["native"]["enabled"] for p in inventory["packages"]):
+            raise _failure("Missing required runtime instruction package")
         plan = build_import_plan(inventory)
         from .support import Source
         source = Source("roles", roots["roles"], "roles", True, [], export_component=components["qorqut-agentic"], manifest_digest=manifest_digest)
@@ -254,7 +256,9 @@ def _verify_inventory(inventory, selected, manifest_digest):
             if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
                 raise ValueError("Invalid used-file provenance")
     packages = {p["id"]: p for p in inventory["packages"]}
-    expected = {"imported-host-builtins", "imported-roles", "imported-email-management", "imported-terminal-control", "runtime-instructions"}
+    # Older bindings must remain verifiable for explicit updates and retained ancestry.
+    # Fresh imports require runtime-instructions separately; message reads require its current catalog entry.
+    expected = {"imported-host-builtins", "imported-roles", "imported-email-management", "imported-terminal-control"}
     if not expected <= packages.keys() or any(not packages[p]["native"]["enabled"] for p in expected):
         raise ValueError("Missing required active core packages")
     roles = {b["native_id"] for b in inventory["bindings"] if b["kind"] == "role" and b["enabled"]}
