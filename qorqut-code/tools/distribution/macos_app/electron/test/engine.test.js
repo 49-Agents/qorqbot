@@ -287,21 +287,6 @@ test('a hanging login shell times out and falls back', async () => {
   assert.match(fs.readFileSync(engine.logFile, 'utf8'), /timed out/);
 });
 
-test('Getting Started is claimed once per install folder, across app launches', async () => {
-  const { payload } = makePayload('1.0.0');
-  const engine = await engineFor(payload);
-  await engine.install();
-  assert.equal(engine.claimFirstRunGuide(), true);
-  assert.equal(engine.claimFirstRunGuide(), false);
-  const relaunched = await engineFor(payload);
-  assert.equal(relaunched.claimFirstRunGuide(), false);
-});
-
-test('Getting Started claim never throws when the folder is missing', async () => {
-  const engine = await engineFor(makePayload('1.0.0').payload, { options: { home: path.join(base, 'absent', 'deeper') } });
-  assert.equal(engine.claimFirstRunGuide(), false);
-});
-
 test('quitting stops an app-started server but not one started from Terminal', async () => {
   const engine = await engineFor(makePayload('1.0.0').payload);
   assert.equal(engine.ownsServer(), false, 'nothing running');

@@ -159,6 +159,16 @@ class MainTests(unittest.TestCase):
         printed.assert_called_with('Qorqbot is already running at http://127.0.0.1:1050', flush=True)
         opened.assert_not_called()
 
+    def test_status_names_a_terminal_started_server(self):
+        for terminal, expected in ((True, 'Running at http://127.0.0.1:1050 from Terminal'), (False, 'Running at http://127.0.0.1:1050')):
+            running = {'pid': 1, 'identity': {}, 'url': 'http://127.0.0.1:1050', 'terminal': terminal}
+            with self.subTest(terminal=terminal), mock.patch.object(native_launch, 'require_platform'), \
+                    mock.patch.object(native_launch, 'active', return_value=running), \
+                    mock.patch.object(native_launch, '__file__', '/tmp/q/runtime/launch.py'), \
+                    mock.patch.object(Path, 'mkdir'), mock.patch('builtins.print') as printed:
+                self.assertEqual(native_launch.main(['status']), 0)
+                printed.assert_called_with(expected)
+
 
 if __name__ == '__main__':
     unittest.main()
