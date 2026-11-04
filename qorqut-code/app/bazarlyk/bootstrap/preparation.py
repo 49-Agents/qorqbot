@@ -491,14 +491,13 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     if always_skills:
         # A separate entry with its own context budget, appended after existing
         # entries so previously trusted Codex hook positions are unchanged.
-        from .always_skills import LIMIT as skills_limit
         local['hooks']['SessionStart'].append({"matcher": "startup|resume|clear|compact|fork", "hooks": [{"type": "command",
             "command": shlex.join([executable, '-I', skills_script, '--registration', str(registration_path), '--runtime', 'claude-code']),
             "timeout": 30}]})
         local['hooks']['UserPromptSubmit'].append({"hooks": [{"type": "command",
             "command": local['hooks']['SessionStart'][-1]['hooks'][0]['command'], "timeout": 30}]})
         codex_skills = {"type": "command", "command": codex_entry + ' skills', "timeout": 30,
-                        "additionalContextLimit": skills_limit}
+                        "additionalContextLimit": runtime_instructions.SKILL_BUDGET}
         codex_hooks['SessionStart'].append({"matcher": "startup|resume|clear|compact", "hooks": [codex_skills]})
         codex_hooks['UserPromptSubmit'].append({"hooks": [dict(codex_skills)]})
     profile = {key: data[key] for key in ("schema_version", "agent_id", "profile_revision", "name", "display_name", "status", "runtime", "role", "scope", "assignment_brief", "plugins", "tool_policy", "presentation", "created_at")}
