@@ -22,6 +22,7 @@ import tomllib
 from typing import Any, Callable
 
 import yaml
+from qorqut_agentic.behavior import instructions as runtime_instructions
 
 from bazarlyk.catalog.packages import content_hash, files_digest, relative_path
 from qorqut_operations.contracts import DomainError, Principal, new_id, utc_now
@@ -111,7 +112,7 @@ def managed_skill_directories(workspace: Path, *, runtime=None):
 
 
 def managed_skill_file(name: str) -> bool:
-    return name.startswith((".claude/skills/bazarlyk-", ".agents/skills/bazarlyk-",
+    return name == runtime_instructions.SNAPSHOT or name.startswith((".claude/skills/bazarlyk-", ".agents/skills/bazarlyk-",
                             *(directory + "/" for directory in role_workflow.SKILL_DIRECTORIES),
                             *(directory + "/" for directory in cleanup_workflow.SKILL_DIRECTORIES)))
 
@@ -217,6 +218,7 @@ def skill_projection(resolver, data) -> tuple[dict, dict]:
         selected = {item["name"]: item["materialization_hash"] for item in metadata}
         if selected != {item["name"]: item["materialization_hash"] for item in data["skills"]}:
             raise DomainError("agentic_revision_conflict", "Managed skills changed after configuration resolution", retryable=True)
+        files[runtime_instructions.SNAPSHOT] = view.runtime_instructions().bytes()
         return files, selected
 
     files, selected = view.consistent(read, revision=data["agentic_catalog_revision"])
@@ -593,6 +595,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         and kinds.get(tool["canonical_operation"]) == "read"
         for name in (tool["canonical_operation"], *tool["exposed_aliases"])})
     files = {
+        runtime_instructions.HELPER: Path(runtime_instructions.__file__).read_bytes(),
         '.bazarlyk/mcp-bridge': mcp_launcher.encode(),
         '.bazarlyk/codex-hook': codex_launcher.encode(),
         **({'.bazarlyk/always-skills.py': Path(__file__).with_name('always_skills.py').read_bytes()} if always_skills else {}),

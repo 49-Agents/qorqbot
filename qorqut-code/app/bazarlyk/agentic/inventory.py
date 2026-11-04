@@ -23,7 +23,7 @@ def package_area(package_id):
         return "roles"
     if package_id == "overseer-role-skills":
         return "overseer"
-    if package_id in {"imported-role-skills", "imported-host-builtins", "imported-host-builtins-templates"}:
+    if package_id in {"imported-role-skills", "imported-host-builtins", "imported-host-builtins-templates", "runtime-instructions"}:
         return "operations"
     return "plugins"
 
@@ -629,6 +629,27 @@ def _compose_inventory(inv, selected, custom_sources, email_guidance_root):
                 package["manifest_file"] = dict(content_base64=encoded(body), sha256=digest(body),
                                                 source_id=source.id, source_path=path)
             inv.attempt(source, import_bundle_manifest, package)
+        def import_runtime_instructions():
+            package = inv.package("runtime-instructions", source.owner, True)
+            prefix = package["path"] + "/"
+            body = source.read(prefix + "agentic.yaml")
+            manifest = read_yaml(body)
+            if manifest.get("id") != package["id"] or not isinstance(manifest.get("entries"), list):
+                raise ImportFailure("invalid_manifest", "Invalid runtime instruction manifest")
+            refs = []
+            for entry in manifest["entries"]:
+                path = relative(entry["path"])
+                if entry.get("kind") != "instruction" or not path.startswith("messages/"):
+                    raise ImportFailure("invalid_manifest", "Invalid runtime instruction entry")
+                refs.append(inv.entry(source, package, prefix + path, "instruction",
+                                      destination=path, entry_id=entry["id"]))
+            for path in ("index.json", "README.md"):
+                inv.put(source, package, prefix + path, destination=path)
+            package["manifest_file"] = dict(content_base64=encoded(body), sha256=digest(body),
+                source_id=source.id, source_path=prefix + "agentic.yaml")
+            inv.binding(source, "runtime-instructions", package, refs, kind="builtin")
+
+        inv.attempt(source, import_runtime_instructions)
     if "host" in inv.sources:
         source = inv.sources["host"]
         package = inv.package("imported-host-builtins", source.owner, True)

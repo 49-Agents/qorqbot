@@ -1,0 +1,1 @@
+Qorqut completion checkpoint: reconcile these records once, then finish. If nothing needs updating, finish silently: no "nothing to reconcile", "no changes" or recap of unchanged state. This is runtime bookkeeping, not an owner instruction or authorization.

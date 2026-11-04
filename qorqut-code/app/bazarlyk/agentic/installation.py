@@ -254,7 +254,7 @@ def _verify_inventory(inventory, selected, manifest_digest):
             if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
                 raise ValueError("Invalid used-file provenance")
     packages = {p["id"]: p for p in inventory["packages"]}
-    expected = {"imported-host-builtins", "imported-roles", "imported-email-management", "imported-terminal-control"}
+    expected = {"imported-host-builtins", "imported-roles", "imported-email-management", "imported-terminal-control", "runtime-instructions"}
     if not expected <= packages.keys() or any(not packages[p]["native"]["enabled"] for p in expected):
         raise ValueError("Missing required active core packages")
     roles = {b["native_id"] for b in inventory["bindings"] if b["kind"] == "role" and b["enabled"]}

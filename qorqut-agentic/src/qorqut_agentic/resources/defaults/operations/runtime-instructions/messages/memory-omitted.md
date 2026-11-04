@@ -1,0 +1,1 @@
+# Working context omitted for budget. Before work, call agent_context_get(inventory=true), follow next_cursor to completion, then agent_context_get for your handoff.

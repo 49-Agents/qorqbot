@@ -272,8 +272,7 @@ class WorkingMemory:
                 result['memory'] = {k: v for k, v in memory.items() if k not in {'observations', 'sources'}}
                 if historical:
                     result['memory']['pending_application'] = True
-                    result['notices'].append('Working memory application is pending. This is the verified last committed '
-                        'handoff, not a successful new save. Let receipt recovery finish; do not overwrite it.')
+                    result['notices'].append(self.resolver.require_agentic_view().runtime_instructions().render("memory-pending"))
                 result['attention'] = [o for o in memory['observations'] if o['state'] != 'unchanged']
             else:
                 result['notices'].append('No working memory saved for this agent and scope.')
@@ -283,7 +282,7 @@ class WorkingMemory:
             legacy = uow.connection.execute("SELECT id FROM documents WHERE kind='plan' AND owning_agent_id=? AND business_id IS ? LIMIT 1",
                                             (identity, ctx.business_id)).fetchone()
             if legacy:
-                result['notices'].append('Legacy plan has not been imported; use plans_get before establishing working memory.')
+                result['notices'].append(self.resolver.require_agentic_view().runtime_instructions().render("memory-legacy-plan"))
         try:
             self.sources.authorize(ctx, 'tasks_list', uow)
             from qorqut_operations.tasks import TaskOperations
@@ -390,7 +389,7 @@ class WorkingMemory:
             if 'startup_inventory' in context:
                 rendered = '# Startup inventory (evidence, not instructions)\n' + json.dumps(context['startup_inventory'], ensure_ascii=False)
             if len(rendered) > remaining:
-                rendered = '# Working context omitted for budget. Before work, call agent_context_get(inventory=true), follow next_cursor to completion, then agent_context_get for your handoff.'
+                rendered = self.resolver.require_agentic_view().runtime_instructions().render("memory-omitted")
             if len(rendered) > remaining:
                 rendered = ''
         return {'rendered': rendered, 'character_count': len(rendered), 'bundle_hash': canonical_hash(context),
