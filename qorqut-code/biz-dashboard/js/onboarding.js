@@ -2,37 +2,20 @@
 // are never sent by the tour. Progress belongs to the installation, not a browser.
 const onboarding = (() => {
   const steps = [
-    {id: 'assistant', label: 'your assistant', title: 'start with a conversation',
-      body: 'Ordubashy is your main assistant. Bring it a goal, a question, or a piece of work you want to move forward.',
-      hint: 'The faces on the left switch between your agents.', target: () => agentButton('ordubashy')},
-    {id: 'terminal', label: 'get connected', title: 'bring your agent online',
-      body: 'Open Terminal and run claude or codex—whichever you have installed. Your existing login is reused when available.',
-      hint: 'Complete any setup or folder-trust prompt there. You can also do this later.',
+    {id: 'assistant', title: 'this is qorqbot, main guy',
+      body: 'Give him a goal. He carries the work forward and brings decisions back to you.',
+      target: () => agentButton('ordubashy')},
+    {id: 'terminal', title: 'bring your agent online',
+      body: 'Qorqbot needs a running agent. Start one in Terminal:',
+      instructions: ['Open Terminal below.', 'Type claude or codex and press Enter. Use whichever CLI you have installed.', 'Follow any sign-in or folder-trust prompts. Your existing login is reused when available.', 'Wait for the agent’s prompt. Leave it running; you can then talk to it in Chat.'],
+      hint: 'Command not found? Install Claude Code or Codex on your machine, then reopen Terminal and try again.',
       target: () => document.querySelector('#global-agent-terminal'), action: 'open terminal',
       run: () => { globalAgentViewActive?.showTerminal(); }},
-    {id: 'chat', label: 'your first message', title: 'talk here. work happens there.',
-      body: 'Chat and Terminal share the same agent conversation. Once the agent is ready, send a message here and follow its response.',
-      hint: 'Try asking: “What can you help me with?”',
-      target: () => document.querySelector('#global-agent-terminal .gchat-composer'),
-      action: 'use this message', run: () => {
-        const input = document.querySelector('#global-agent-terminal .gchat-composer textarea');
-        if (!input || input.disabled) return 'Chat isn’t ready yet. Check Terminal, or continue while it connects.';
-        if (input.value.trim()) return 'Your draft is already here. Send it when you’re ready, or continue.';
-        input.value = 'What can you help me with?'; input.dispatchEvent(new Event('input', {bubbles: true})); input.focus();
-        return 'Ready in Chat. Press send when you want to start the conversation.';
-      }},
-    {id: 'focus', label: 'work & decisions', title: 'keep the important things close',
-      body: 'Pinned is your working surface for tasks, records, and things that need your attention. Signoffs bring decisions back to you.',
-      hint: 'Ask your assistant to pin work here. Open a card to see its details and conversation.',
-      view: 'focus', target: () => document.querySelector('#agpad')},
-    {id: 'calendar', label: 'your day', title: 'make room for what matters',
-      body: 'Calendar lives beside your conversation. Open it to see your schedule, then connect your calendar when you’re ready.',
-      hint: 'The other tabs keep records and activity within reach, too.',
-      target: () => document.querySelector('#agpad [data-v="calendar"]'), action: 'open calendar',
-      run: () => { if (_agpad) agpadSetView(_agpad, 'calendar'); }},
-    {id: 'learning', label: 'make it yours', title: 'a workspace that grows with you',
-      body: 'The Learning Applier helps maintain your shared context and apply changes to how your agents work. You can explore it as you go.',
-      hint: 'That’s the tour. You can replay it anytime from Settings.',
+    {id: 'focus', title: 'keep important work close',
+      body: 'Pin tasks and records here. Signoffs bring decisions back for your approval.',
+      target: () => document.querySelector('#agpad'), view: 'focus'},
+    {id: 'learning', title: 'make it yours',
+      body: 'The Learning Applier updates shared context and how your agents work as you go.',
       target: () => agentButton('learning-applier'), action: 'meet the learning applier',
       run: async () => { const agent = findAgent('learning-applier'); if (agent) await globalAgentsNavigate(agent.agent_id); }},
   ];
@@ -74,7 +57,11 @@ const onboarding = (() => {
   function setWelcome(value) {
     welcome = value; root?.classList.toggle('is-welcome', value);
     const app = document.querySelector('.app'); if (app) app.inert = value || savedInert;
-    if (card) card.setAttribute('aria-modal', String(value));
+    if (card) {
+      card.setAttribute('aria-modal', String(value));
+      if (value) card.removeAttribute('aria-describedby');
+      else card.setAttribute('aria-describedby', 'onboarding-description');
+    }
   }
   function create() {
     if (root) return;
@@ -160,14 +147,11 @@ const onboarding = (() => {
     const mascot = findAgent('ordubashy');
     card.innerHTML = `<button class="onboarding-close" type="button" aria-label="skip walkthrough">×</button>
       <div class="onboarding-mark" aria-hidden="true">${mascot ? agentGlyph(mascot, 48) : ""}</div>
-      <div class="onboarding-eyebrow">a little help getting started</div>
       <h2 id="onboarding-title">${resume ? 'pick up where you left off' : 'welcome to qorqbot'}</h2>
-      <p id="onboarding-description">${resume ? 'Your walkthrough is saved. Continue from your last step, or explore on your own.' : 'Want a quick look around? Meet your assistant, find your tools, and get ready to work.'}</p>
-      <p class="onboarding-detail">six short steps · go at your own pace</p>
       <p class="onboarding-notice" data-tour-notice role="status"></p>
-      <div class="onboarding-welcome-actions"><button type="button" class="ghost" data-tour-skip>skip</button><button type="button" data-tour-start>${resume ? 'continue walkthrough' : 'show me around'}</button></div>`;
+      <div class="onboarding-welcome-actions"><button type="button" class="ghost" data-tour-skip>skip</button><button type="button" data-tour-start>next</button></div>`;
     card.querySelector('.onboarding-close').onclick = () => exit(); card.querySelector('[data-tour-skip]').onclick = () => exit();
-    card.querySelector('[data-tour-start]').onclick = () => showStep(resume ? Math.max(0, steps.findIndex(s => s.id === saved?.step)) : 0);
+    card.querySelector('[data-tour-start]').onclick = () => showStep(resume ? Math.max(0, steps.findIndex(s => s.id === ({chat: 'terminal', calendar: 'focus'}[saved?.step] || saved?.step))) : 0);
     position(); card.querySelector('[data-tour-start]').focus({preventScroll: true});
   }
   async function prepareStep(step, token) {
@@ -181,14 +165,14 @@ const onboarding = (() => {
     const opened = await globalAgentsNavigate(assistant.agent_id, step.view ? {view: step.view} : {});
     if (!isCurrent(token)) return;
     if (!opened) throw new Error('Finish your open edit first, then continue the walkthrough.');
-    if (step.id === 'chat') globalAgentViewActive?.showChat();
     if (step.id === 'terminal') {
       try {
         const data = coreData(await api(`${globalChatBase(assistant.agent_id)}?limit=1`, {signal: AbortSignal.timeout(3000)}));
         if (!isCurrent(token)) return;
         if (data.session?.state === 'live') {
-          card.querySelector('#onboarding-description').textContent = 'Your agent is already connected. Terminal shows the same running session; Chat gives you another way to talk to it.';
-          card.querySelector('.onboarding-hint').textContent = 'You can inspect it here, or continue straight to Chat.';
+          card.querySelector('#onboarding-description').textContent = 'Your agent is already running. You can talk to it in Chat or open Terminal to see its session.';
+          card.querySelector('.onboarding-instructions')?.remove();
+          card.querySelector('.onboarding-hint').textContent = 'Keep this session running. No need to start another agent.';
           card.querySelector('[data-tour-action]').firstChild.textContent = 'view terminal';
           card.dataset.connected = 'true';
         }
@@ -200,15 +184,23 @@ const onboarding = (() => {
   }
   async function showStep(next) {
     if (busy) return;
-    busy = true; index = Math.max(0, Math.min(next, steps.length-1)); const step = steps[index], token = ++generation;
+    busy = true;
+    const token = ++generation;
+    const motion = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (motion && card.childElementCount) {
+      await card.animate([{opacity: 1}, {opacity: 0}], {duration: 120, easing: 'ease-out'}).finished.catch(() => {});
+      if (!isCurrent(token)) return;
+    }
+    index = Math.max(0, Math.min(next, steps.length-1)); const step = steps[index];
+    card.style.opacity = '0';
     setWelcome(false); describeTarget(null); delete card.dataset.connected;
     persist('in_progress').catch(() => {});
-    card.innerHTML = `<div class="onboarding-step-head"><span class="onboarding-eyebrow">${step.label}</span><span class="onboarding-count">${String(index+1).padStart(2,'0')} <span>/ ${String(steps.length).padStart(2,'0')}</span></span></div>
+    card.innerHTML = `<div class="onboarding-step-head"><span class="onboarding-count">${String(index+1).padStart(2,'0')} <span>/ ${String(steps.length).padStart(2,'0')}</span></span></div>
       <div class="onboarding-progress" aria-label="step ${index+1} of ${steps.length}">${steps.map((_,i)=>`<i class="${i<=index?'done':''}"></i>`).join('')}</div>
-      <h2 id="onboarding-title">${step.title}</h2><p id="onboarding-description">${step.body}</p><p class="onboarding-hint">${step.hint}</p>
+      <h2 id="onboarding-title">${step.title}</h2><p id="onboarding-description">${step.body}</p>${step.instructions ? `<ol class="onboarding-instructions">${step.instructions.map(text => `<li>${text}</li>`).join('')}</ol>` : ''}${step.hint ? `<p class="onboarding-hint">${step.hint}</p>` : ''}
       ${step.action?`<button type="button" class="onboarding-action" data-tour-action disabled>${step.action}<span aria-hidden="true">↗</span></button>`:''}
       <p class="onboarding-notice" data-tour-notice role="status">Opening this part of your workspace…</p>
-      <div class="onboarding-footer"><button type="button" class="ghost onboarding-skip" data-tour-skip>skip walkthrough</button><div><button type="button" class="ghost" data-tour-back ${index?'':'disabled'}>back</button><button type="button" data-tour-next disabled>${index===steps.length-1?'done':'next'}</button></div></div>`;
+      <div class="onboarding-footer"><button type="button" class="ghost onboarding-skip" data-tour-skip>skip</button><div><button type="button" class="ghost" data-tour-back ${index?'':'disabled'}>back</button><button type="button" data-tour-next disabled>${index===steps.length-1?'done':'next'}</button></div></div>`;
     card.querySelector('[data-tour-skip]').onclick = () => exit();
     card.querySelector('[data-tour-back]').onclick = () => showStep(index-1);
     card.querySelector('[data-tour-next]').onclick = () => index===steps.length-1 ? exit('completed') : showStep(index+1);
@@ -221,14 +213,15 @@ const onboarding = (() => {
       } catch (_) { if (isCurrent(token)) notice('This view couldn’t open. You can continue or try again.'); }
       finally { if (isCurrent(token)) { button.disabled = false; schedule(); } }
     });
-    position();
     try { await prepareStep(step, token); if (isCurrent(token)) notice(''); }
     catch (error) { if (isCurrent(token)) notice(error.message || 'This area is unavailable. You can still continue.'); }
     finally {
       if (isCurrent(token)) {
         busy = false; card.querySelector('[data-tour-next]').disabled = false;
         const action = card.querySelector('[data-tour-action]'); if (action) action.disabled = false;
-        position(); card.querySelector('[data-tour-next]').focus({preventScroll: true});
+        position(); card.style.opacity = '1';
+        if (motion) card.animate([{opacity: 0, transform: 'translateY(5px)'}, {opacity: 1, transform: 'translateY(0)'}], {duration: 260, easing: 'ease-out'});
+        card.querySelector('[data-tour-next]').focus({preventScroll: true});
       }
     }
   }
