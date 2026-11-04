@@ -220,6 +220,18 @@ function showGuide() {
 
 // ---------------------------------------------------------------- menus
 
+async function installTerminalCommand() {
+  try {
+    const message = await engine.installCommand();
+    await dialog.showMessageBox(mainWindow, {
+      type: 'info', message: 'The qorqbot command is installed',
+      detail: message + '\n\nqorqbot opens the same dashboard in your browser. Use either the app or the browser; both talk to the same server.',
+    });
+  } catch (error) {
+    await dialog.showMessageBox(mainWindow, { type: 'warning', message: error.message, detail: error.detail || '' });
+  }
+}
+
 function rebuildMenu() {
   const running = state.phase === 'running' && Boolean(engine && engine.url);
   const statusLabel = busy ? 'Status: working…'
@@ -235,7 +247,7 @@ function rebuildMenu() {
         { type: 'separator' },
         { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
         { type: 'separator' },
-        { label: 'Quit Qorqbot (stops the server)', accelerator: 'Cmd+Q', click: () => app.quit() },
+        { label: engine && !engine.ownsServer() && running ? 'Quit Qorqbot (server keeps running in Terminal)' : 'Quit Qorqbot (stops the server)', accelerator: 'Cmd+Q', click: () => app.quit() },
       ],
     },
     { role: 'editMenu' },
@@ -269,7 +281,12 @@ function rebuildMenu() {
     { role: 'windowMenu' },
     {
       role: 'help',
-      submenu: [{ label: 'Getting Started', click: showGuide }, { label: 'How Qorqbot Works', click: showHelp }],
+      submenu: [
+        { label: 'Getting Started', click: showGuide },
+        { label: 'How Qorqbot Works', click: showHelp },
+        { type: 'separator' },
+        { label: 'Install Terminal Command…', enabled: Boolean(engine && engine.isInstalled()) && !busy, click: installTerminalCommand },
+      ],
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
@@ -342,7 +359,8 @@ if (!app.requestSingleInstanceLock()) {
     event.preventDefault();
     quitting = true;
     const finish = () => app.exit(0);
-    if (!engine || !engine.isInstalled()) return finish();
+    // A server started from Terminal belongs to that Terminal; quitting the app leaves it running.
+    if (!engine || !engine.isInstalled() || !engine.ownsServer()) return finish();
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.show();
       publish({ phase: 'stopping', title: 'Stopping Qorqbot before quitting', steps: [{ label: 'Stopping the local server', status: 'active' }], log: [], error: null, choice: null });

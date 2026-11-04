@@ -19,12 +19,15 @@ case "\${1-}" in
   setup) echo setup >>"$root/calls"; echo 'Preparing Qorqbot from the bundled files'; echo 'Qorqbot is ready.';;
   status)
     if [ -f "$root/.run/pid" ] && kill -0 "$(cat "$root/.run/pid")" 2>/dev/null; then
-      echo "Running at $(cat "$root/.run/url")"; exit 0; fi
+      echo "Running at $(cat "$root/.run/url")$([ -f "$root/.run/terminal" ] && echo ' from Terminal')"; exit 0; fi
     echo Stopped; exit 1;;
   stop)
     echo stop >>"$root/calls"
     if [ -f "$root/.run/pid" ]; then kill "$(cat "$root/.run/pid")" 2>/dev/null; rm -f "$root/.run/pid"; fi
     echo Stopped;;
+  install-command)
+    [ -n "\${FAKE_COMMAND_FAIL:-}" ] && { echo 'Qorqbot: /x/qorqbot already exists and was not created by Qorqbot'; exit 1; }
+    echo install-command >>"$root/calls"; echo "Installed /x/qorqbot";;
   update)
     echo "update $2 $4" >>"$root/calls"
     [ -n "\${FAKE_UPDATE_FAIL:-}" ] && { echo 'Qorqbot update: refused'; exit 1; }
@@ -297,4 +300,29 @@ test('Getting Started is claimed once per install folder, across app launches', 
 test('Getting Started claim never throws when the folder is missing', async () => {
   const engine = await engineFor(makePayload('1.0.0').payload, { options: { home: path.join(base, 'absent', 'deeper') } });
   assert.equal(engine.claimFirstRunGuide(), false);
+});
+
+test('quitting stops an app-started server but not one started from Terminal', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  assert.equal(engine.ownsServer(), false, 'nothing running');
+  await engine.install();
+  await engine.start();
+  assert.equal(engine.ownsServer(), true);
+  fs.writeFileSync(path.join(engine.root, '.run', 'terminal'), '');
+  const attached = await engineFor(makePayload('1.0.0').payload);
+  assert.ok(await attached.status());
+  assert.equal(attached.ownsServer(), false);
+  fs.rmSync(path.join(engine.root, '.run', 'terminal'));
+  await attached.status();
+  assert.equal(attached.ownsServer(), true, 'an orphaned app server is still stopped on quit');
+});
+
+test('the Terminal command is installed through the folder launcher', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  await assert.rejects(engine.installCommand(), /not installed yet/);
+  await engine.install();
+  assert.equal(await engine.installCommand(), 'Installed /x/qorqbot');
+  assert.ok(calls(engine).includes('install-command'));
+  const failing = await engineFor(makePayload('1.0.0').payload, { env: { FAKE_COMMAND_FAIL: '1' } });
+  await assert.rejects(failing.installCommand(), (error) => error instanceof EngineError && /already exists/.test(error.detail));
 });

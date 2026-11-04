@@ -237,6 +237,22 @@ class Engine {
     });
   }
 
+  /** True when quitting the app should stop the server: it is running and was not started from Terminal.
+   * A Terminal-started server is only attached to and keeps running after the app quits. */
+  ownsServer() {
+    return Boolean(this.url) && !this.terminalServer;
+  }
+
+  /** Install the `qorqbot` Terminal command for this folder. Resolves to the launcher's message. */
+  async installCommand() {
+    if (!this.isInstalled()) throw new EngineError('command', 'Qorqbot is not installed yet.');
+    const { code, output } = await this.run(['install-command'], { allowFailure: true });
+    if (code !== 0) {
+      throw new EngineError('command', 'The qorqbot command was not installed.', { detail: output.trim() });
+    }
+    return output.trim();
+  }
+
   // True exactly once per install folder: the first time the dashboard opens, the app shows Getting Started.
   claimFirstRunGuide() {
     try {
@@ -332,6 +348,7 @@ class Engine {
     const { code, output } = await this.run(['status'], { allowFailure: true });
     const match = output.match(/Running at (\S+)/);
     this.url = code === 0 && match ? match[1] : null;
+    this.terminalServer = Boolean(this.url) && /from Terminal/.test(output);
     if (this.url) this.savePort(Number(new URL(this.url).port));
     return this.url;
   }
@@ -393,6 +410,7 @@ class Engine {
       if ((await httpStatus(url)) === 200) {
         this.log(`ready at ${url} (pid ${child.pid})`);
         this.url = url;
+        this.terminalServer = false;
         return url;
       }
       await sleep(400);
