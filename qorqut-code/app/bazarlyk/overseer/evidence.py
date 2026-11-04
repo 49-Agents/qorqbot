@@ -22,6 +22,16 @@ EPISODE_WORK_RESERVE_SECONDS = 0.25
 EPISODE_MAX_CANDIDATES = 20
 EPISODE_CURSOR_SCOPE = "focused_episode"
 EPISODE_CURSOR_VERSION = 2
+# Versioned pass and per-source progress, saved in the capture index's existing JSON columns.
+SCAN_STATE_VERSION = 2
+SOURCE_STATUSES = frozenset({"continuing", "complete", "blocked"})
+# The routing tables a pass freezes at its start: nothing inserted into them later belongs to the pass.
+ROUTING_TABLES = ("tasks", "action_logs", "documents", "signoffs", "native_captures")
+MAX_BLOCKED_GAPS = 200
+PENDING_BATCH = 100
+# Routing part of a saved source key -> the routing kind that captures it.
+_SOURCE_KINDS = {"task_thread": "task", "signoff_notes": "signoff", "action_history": "action",
+                 "action_thread": "action", "document_history": "document", "transcript": "transcript"}
 
 _EPISODE_KIND_ALIASES = {
     "parent_task": "task", "task": "task", "tasks": "task",
@@ -267,6 +277,28 @@ def _identity(ref):
                        ref.get("revision"), ref.get("content_hash")], sort_keys=True, separators=(",", ":"))
 
 
+def _is_scan(value):
+    return isinstance(value, dict) and value.get("v") == SCAN_STATE_VERSION and isinstance(value.get("pass"), str)
+
+
+def _is_source_state(value):
+    return (isinstance(value, dict) and value.get("v") == SCAN_STATE_VERSION
+            and value.get("status") in SOURCE_STATUSES)
+
+
+def _source_origin(source_key):
+    """(principal, routing identity) named by a saved continuation key; identity is None when no source is named."""
+    import json
+    try:
+        principal, namespace, part, identity = json.loads(source_key)
+    except (TypeError, ValueError):
+        return None, None
+    kind = _SOURCE_KINDS.get(part)
+    if kind is None or not isinstance(namespace, dict):
+        return principal, None
+    return principal, {"namespace": namespace, "kind": kind, "identity": identity}
+
+
 class CaptureJournal:
     """Private inventory and pending observations; capture is never analysis.
 
@@ -280,6 +312,8 @@ class CaptureJournal:
         from .archive import PrivateArchive
         self.access, self.coverage = _access(access), coverage
         self.origin_check = None
+        # Monotonic request deadline shared with the scanner; None outside an inventory request.
+        self.deadline = None
         self.overseer_ids = frozenset(overseer_ids)
         if not self.overseer_ids or not all(isinstance(identity, str) and identity for identity in self.overseer_ids):
             raise DomainError("invalid_configuration", "Current Overseer identities are required for source exclusion")
@@ -312,6 +346,9 @@ class CaptureJournal:
                 CREATE TABLE IF NOT EXISTS inventory (
                     selection_key TEXT NOT NULL, source_key TEXT NOT NULL, identity TEXT NOT NULL,
                     PRIMARY KEY(selection_key, source_key)
+                );
+                CREATE TABLE IF NOT EXISTS scan_progress (
+                    selection_key TEXT PRIMARY KEY, position TEXT, generation INTEGER NOT NULL
                 );
             """)
 
@@ -403,41 +440,77 @@ class CaptureJournal:
             return None
         return excluded(ref, overseer_ids=self.overseer_ids, lookup=lookup, origin_check=self.origin_check)
 
+    def _covered(self, refs):
+        """Exact identities with committed positive coverage, and whether the lookup failed (suppressing nothing)."""
+        try:
+            if self.coverage is None:
+                raise LookupError("coverage unavailable")
+            result = self.coverage.completed_sources(refs)
+            if not isinstance(result, (list, tuple)):
+                raise ValueError("invalid coverage result")
+            requested = {_identity(ref) for ref in refs}
+            return {_identity(ref) for ref in result if isinstance(ref, Mapping) and _identity(ref) in requested}, False
+        except Exception:
+            return set(), True
+
     def pending(self, selection_key, *, after=0, limit=50):
+        """Deliver up to ``limit`` captured sources that still lack positive coverage, in capture order.
+
+        Every candidate is authorized and checked for exclusion first, as it always was, and only the admitted ones
+        are looked up in coverage; an exact positive match is then consumed internally. Rows are consumed in
+        batches until an eligible page is ready, the captures are exhausted or the request deadline passes (at
+        least one row is always handled, and the deadline also ends work inside a batch). ``next_after`` is the last
+        consumed capture sequence (None once exhausted); only an item that is actually returned can end a page, so
+        replaying a cursor never skips one. When exhausted, ``position`` is the cursor to resume from: past the
+        consumed prefix, but not past the delivered items, which stay offered until covered.
+        """
         import json
         import sqlite3
+        import time
         if type(limit) is not int or not 1 <= limit <= 100 or type(after) is not int or after < 0:
             raise DomainError("validation_error", "Invalid pending source page")
-        with sqlite3.connect(self.path) as db:
-            rows = db.execute("SELECT c.sequence,c.ref,c.material_ref FROM captures c JOIN selection_captures s ON s.identity=c.identity "
-                              "WHERE s.selection_key=? AND c.sequence>? ORDER BY c.sequence LIMIT ?",
-                              (selection_key, after, limit)).fetchall()
-        available, gaps = [], []
-        for sequence, raw, material in rows:
-            ref = json.loads(raw)
-            try:
-                self._authorize(ref)
-                if self._excluded(ref):
-                    continue
-            except DomainError as error:
-                gaps.append({"code": error.code, "sequence": sequence})
-                continue
-            available.append((sequence, {**ref, "material_ref": json.loads(material)}))
-        analyzed = set()
-        if available:
-            try:
-                if self.coverage is None:
-                    raise LookupError("coverage unavailable")
-                requested = [ref for _, ref in available]
-                result = self.coverage.completed_sources(requested)
-                if not isinstance(result, (list, tuple)):
-                    raise ValueError("invalid coverage result")
-                requested_ids = {_identity(ref) for ref in requested}
-                analyzed = {_identity(ref) for ref in result if isinstance(ref, Mapping) and _identity(ref) in requested_ids}
-            except Exception:
-                gaps.append({"code": "coverage_unavailable"})
-        items = [ref for _, ref in available if _identity(ref) not in analyzed]
-        return {"items": items, "next_after": rows[-1][0] if len(rows) == limit else None, "gaps": gaps}
+        stop = self.deadline if self.deadline is not None else time.monotonic() + SCAN_SECONDS
+        items, gaps, cursor, first, lookup_failed, exhausted = [], [], after, None, False, False
+        while True:
+            with sqlite3.connect(self.path) as db:
+                rows = db.execute("SELECT c.sequence,c.ref,c.material_ref FROM captures c JOIN selection_captures s ON s.identity=c.identity "
+                                  "WHERE s.selection_key=? AND c.sequence>? ORDER BY c.sequence LIMIT ?",
+                                  (selection_key, cursor, PENDING_BATCH)).fetchall()
+            screened = []  # (sequence, ref, refusal code, excluded)
+            for sequence, raw, material in rows:
+                if screened and time.monotonic() >= stop:
+                    break
+                ref, code, excluded = {**json.loads(raw), "material_ref": json.loads(material)}, None, False
+                try:
+                    self._authorize(ref)
+                    excluded = bool(self._excluded(ref))
+                except DomainError as error:
+                    code = error.code
+                screened.append((sequence, ref, code, excluded))
+            admitted = [ref for _, ref, code, excluded in screened if code is None and not excluded]
+            covered, failed = self._covered(admitted) if admitted else (set(), False)
+            lookup_failed = lookup_failed or failed
+            consumed_batch = True
+            for sequence, ref, code, excluded in screened:
+                if len(items) >= limit:
+                    consumed_batch = False
+                    break
+                if code is not None:
+                    gaps.append({"code": code, "sequence": sequence})
+                elif not excluded and _identity(ref) not in covered:
+                    items.append(ref)
+                    first = sequence if first is None else first
+                cursor = sequence
+            whole = consumed_batch and len(screened) == len(rows)
+            if whole and len(rows) < PENDING_BATCH:
+                exhausted = True
+                break
+            if not whole or items or time.monotonic() >= stop:
+                break
+        if lookup_failed:
+            gaps.append({"code": "coverage_unavailable"})
+        return {"items": items, "next_after": None if exhausted else cursor, "gaps": gaps,
+                "position": first - 1 if exhausted and first is not None else cursor}
 
     def get_source(self, reference):
         import json
@@ -471,21 +544,111 @@ class CaptureJournal:
                 return {**ref, "material_ref": json.loads(material)}
         return None
 
-    def continuation(self, selection_key, source_key):
+    def scan_row(self, selection_key):
+        """Saved routing state as ``(value, generation)``, or None when this scope was never scanned.
+
+        ``value`` is a versioned pass object, or the raw pre-versioned position (a routing key or None).
+        """
         import json
         import sqlite3
+        with sqlite3.connect(self.path) as db:
+            row = db.execute("SELECT position,generation FROM scan_progress WHERE selection_key=?", (selection_key,)).fetchone()
+        return None if row is None else (json.loads(row[0]) if row[0] else None, row[1])
+
+    def save_scan(self, selection_key, scan, generation):
+        import json
+        import sqlite3
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO scan_progress(selection_key,position,generation) VALUES(?,?,?) "
+                       "ON CONFLICT(selection_key) DO UPDATE SET position=excluded.position,generation=excluded.generation",
+                       (selection_key, json.dumps(scan, sort_keys=True), generation))
+
+    def current_pass(self, selection_key):
+        """The active pass of this scope, or None outside an inventory scan (direct source captures)."""
+        row = self.scan_row(selection_key)
+        return row[0]["pass"] if row and _is_scan(row[0]) else None
+
+    @staticmethod
+    def _unfinished(position, pass_id):
+        # A pre-versioned non-null position is unfinished work at exactly that position.
+        return {"v": SCAN_STATE_VERSION, "pass": pass_id, "status": "continuing", "position": position,
+                "bound": None, "origin": None, "gap": None}
+
+    def source_state(self, selection_key, source_key):
+        """This pass's progress of one paginated source: continuing, complete or blocked; None when not yet read.
+
+        A pre-versioned null cannot prove the source was read, so it is absent here; a pre-versioned position
+        is unfinished work. Progress of an earlier pass is absent, so a later pass reads the source afresh.
+        """
+        import json
+        import sqlite3
+        current = self.current_pass(selection_key)
         with sqlite3.connect(self.path) as db:
             row = db.execute("SELECT value FROM source_continuations WHERE selection_key=? AND source_key=?",
                              (selection_key, source_key)).fetchone()
-        return json.loads(row[0]) if row and row[0] is not None else None
+        value = json.loads(row[0]) if row and row[0] is not None else None
+        if value is None:
+            return None
+        if not _is_source_state(value):
+            return self._unfinished(value, current)
+        return value if value.get("pass") == current else None
 
-    def set_continuation(self, selection_key, source_key, value):
+    def save_source(self, selection_key, source_key, *, status, position=None, bound=None, origin=None, gap=None):
+        """Record one source's progress: its last position, the per-pass boundary, and the actual gap if blocked."""
         import json
         import sqlite3
+        if status not in SOURCE_STATUSES:
+            raise ValueError("unknown source status")
+        state = {"v": SCAN_STATE_VERSION, "pass": self.current_pass(selection_key), "status": status,
+                 "position": position, "bound": bound, "origin": origin, "gap": gap}
         with sqlite3.connect(self.path) as db:
             db.execute("INSERT INTO source_continuations(selection_key,source_key,value) VALUES(?,?,?) "
                        "ON CONFLICT(selection_key,source_key) DO UPDATE SET value=excluded.value",
-                       (selection_key, source_key, json.dumps(value) if value is not None else None))
+                       (selection_key, source_key, json.dumps(state, sort_keys=True)))
+
+    def sources(self, selection_key, status):
+        """This pass's sources in one status, in stable key order, as ``(source_key, state)``."""
+        import json
+        import sqlite3
+        current = self.current_pass(selection_key)
+        with sqlite3.connect(self.path) as db:
+            rows = db.execute("SELECT source_key,value FROM source_continuations WHERE selection_key=? "
+                              "AND value IS NOT NULL AND value!='null' AND (json_extract(value,'$.v') IS NULL "
+                              "OR json_extract(value,'$.status')=?) ORDER BY source_key", (selection_key, status)).fetchall()
+        found = []
+        for key, raw in rows:
+            value = json.loads(raw)
+            state = value if _is_source_state(value) else self._unfinished(value, current)
+            if state["pass"] == current and state["status"] == status:
+                found.append((key, state))
+        return found
+
+    def wrap_legacy(self, selection_key, pass_id, principal_id):
+        """Adopt pre-versioned continuation positions into ``pass_id``, keeping every saved position exactly.
+
+        Each becomes unfinished work of this pass. A key that names no routing source is blocked with that reason,
+        rather than retried forever. Pre-versioned nulls are left absent: they never proved a source was read.
+        """
+        import json
+        import sqlite3
+        with sqlite3.connect(self.path) as db:
+            rows = db.execute("SELECT source_key,value FROM source_continuations WHERE selection_key=? "
+                              "AND value IS NOT NULL AND value!='null' AND json_extract(value,'$.v') IS NULL",
+                              (selection_key,)).fetchall()
+            for key, raw in rows:
+                principal, origin = _source_origin(key)
+                if principal is not None and principal != principal_id:
+                    continue  # another principal's progress is not ours to adopt
+                if origin is None:
+                    state = {"v": SCAN_STATE_VERSION, "pass": pass_id, "status": "blocked", "position": json.loads(raw),
+                             "bound": None, "origin": None,
+                             "gap": {"code": "continuation_unresolvable", "state": "blocked",
+                                     "reason": "Saved continuation does not identify a readable source"}}
+                else:
+                    state = self._unfinished(json.loads(raw), pass_id)
+                    state["origin"] = origin
+                db.execute("UPDATE source_continuations SET value=? WHERE selection_key=? AND source_key=?",
+                           (json.dumps(state, sort_keys=True), selection_key, key))
 
     def frontier(self, selection, selection_key, *, gaps=(), episode_ids=(), source_refs=(), frozen_inventory=False):
         """Freeze the observed journal prefix; no cross-provider atomicity is claimed."""
@@ -1066,6 +1229,7 @@ class HostScanner:
         self.runtime, self.context, self.access, self.journal = runtime, context, _access(access), journal
         self.readers = AdmittedReaders(runtime, access)
         self.deadline = None
+        self.bounds = None  # the active pass's insertion bounds while it enumerates routing keys, else unbounded
 
     def expired(self):
         import time
@@ -1110,20 +1274,23 @@ class HostScanner:
                     else:
                         clause += " AND owning_agent_id IN (" + marks + ")"
                         parameters.extend(sorted(agents))
-                sql = f"SELECT {column} FROM {table} WHERE {column_scope} IS ? AND {column}>?{clause} ORDER BY {column} LIMIT ?"
-                for row in uow.connection.execute(sql, (business_id, bound, *parameters, limit + 1)):
+                inserted, fresh = self._inserted_after(table)
+                sql = (f"SELECT {column} FROM {table} WHERE {column_scope} IS ? AND {column}>?{clause}{inserted} "
+                       f"ORDER BY {column} LIMIT ?")
+                for row in uow.connection.execute(sql, (business_id, bound, *parameters, *fresh, limit + 1)):
                     rows.append(([nskey, kind, row[0]], namespace, kind, row[0]))
             if not tasks and (nskey, "transcript") >= (old[0], old[1]):
                 bound = old[2] if (nskey, "transcript") == (old[0], old[1]) else ["", "", ""]
                 if not isinstance(bound, list) or len(bound) != 3:
                     raise DomainError("validation_error", "Invalid transcript enumeration cursor")
                 agent_filter = " AND c.agent_id IN (" + ",".join("?" for _ in agents) + ")" if agents else ""
+                inserted, fresh = self._inserted_after("native_captures", "c")
                 captures = uow.connection.execute("SELECT c.agent_id,c.provider,c.conversation_id FROM native_captures c "
                     "JOIN agent_profiles p ON p.agent_id=c.agent_id WHERE p.home_business_id IS ? "
                     "AND c.receipt_id IS NOT NULL AND c.captured_length>0 "
-                    "AND (c.agent_id,c.provider,c.conversation_id)>(?,?,?)" + agent_filter +
+                    "AND (c.agent_id,c.provider,c.conversation_id)>(?,?,?)" + agent_filter + inserted +
                     " ORDER BY c.agent_id,c.provider,c.conversation_id LIMIT ?",
-                    (business_id, *bound, *sorted(agents), limit + 1))
+                    (business_id, *bound, *sorted(agents), *fresh, limit + 1))
                 for row in captures:
                     identity = [row[0], row[1], row[2]]
                     rows.append(([nskey, "transcript", identity], namespace, "transcript", identity))
@@ -1237,6 +1404,67 @@ class HostScanner:
     def _continuation_key(self, namespace, kind, identity):
         return _key([self.context.principal_id, namespace, kind, identity])
 
+    def routing_bounds(self, uow):
+        """Where every routing table ends when a pass starts: its last rowid and the start time. Metadata only.
+
+        Rows inserted later sort anywhere among the existing identities, so the pass bounds the tables themselves
+        instead of walking the roster for a maximum key. Later arrivals belong to a later pass.
+        """
+        from qorqut_operations.contracts import utc_now
+        return {"rowid": {table: uow.connection.execute(f"SELECT MAX(rowid) FROM {table}").fetchone()[0] or 0
+                          for table in ROUTING_TABLES}, "at": utc_now()}
+
+    def _inserted_after(self, table, alias=None):
+        """SQL and parameters keeping ``table``'s rows to those that existed when the active pass began."""
+        if self.bounds is None:
+            return "", ()
+        alias = alias or table
+        return (f" AND {alias}.rowid<=? AND {alias}.created_at<=?", (self.bounds["rowid"][table], self.bounds["at"]))
+
+    @staticmethod
+    def _origin(namespace, kind, identity):
+        return {"namespace": dict(namespace), "kind": kind, "identity": identity}
+
+    def _resume(self, selection_key, position_key):
+        """Saved (position, boundary) of an unfinished source; a finished, blocked or unseen source starts afresh."""
+        state = self.journal.source_state(selection_key, position_key)
+        return (state["position"], state["bound"]) if state and state["status"] == "continuing" else (None, None)
+
+    def _settled(self, selection_key, position_key):
+        """Inside an active pass, a source that finished or was found unreadable is not read again."""
+        state = self.journal.source_state(selection_key, position_key)
+        return state if state and state["pass"] is not None and state["status"] != "continuing" else None
+
+    def _settle(self, selection_key, position_key, origin, position, *, done, bound=None):
+        self.journal.save_source(selection_key, position_key, status="complete" if done else "continuing",
+                                 position=position, bound=bound, origin=origin)
+
+    @staticmethod
+    def _blocked_gap(origin, part, code, reason, **detail):
+        kind, identity = origin["kind"], origin["identity"]
+        return {"code": code, "state": "blocked", "reason": reason,
+                "source": {"provider": "native_archive" if kind == "transcript" else "operations", "kind": kind,
+                           "namespace": origin["namespace"], "record_id": _key(identity) if kind == "transcript" else identity,
+                           "part": part, **detail}}
+
+    def _block(self, selection_key, position_key, origin, part, code, reason, *, position=None, bound=None, **detail):
+        """Record a source as unreadable under current grants or data, with the actual limitation, not as runnable work."""
+        gap = self._blocked_gap(origin, part, code, reason, **detail)
+        self.journal.save_source(selection_key, position_key, status="blocked", position=position, bound=bound,
+                                 origin=origin, gap=gap)
+        return gap
+
+    def block_source(self, selection_key, namespace, kind, identity, error):
+        """A source whose read failed for good: block it and every unfinished part of it."""
+        origin = self._origin(namespace, kind, identity)
+        gap = self._blocked_gap(origin, "source", error.code, error.message[:200])
+        for key, state in self.journal.sources(selection_key, "continuing"):
+            if state.get("origin") == origin:
+                self.journal.save_source(selection_key, key, status="blocked", position=state["position"],
+                                         bound=state["bound"], origin=origin, gap=gap)
+        self.journal.save_source(selection_key, self._continuation_key(namespace, kind, identity),
+                                 status="blocked", origin=origin, gap=gap)
+
     def _mirror_status(self, note, uow, namespace):
         originals = []
         attribution = note.get("attribution") or {}
@@ -1317,22 +1545,35 @@ class HostScanner:
         pre = self._locator(namespace, "task", identity, task_id=identity)
         ops = self._ops(namespace)
         self.access.authorize_source(pre)
-        self._admit_notes(namespace, identity, "task", uow)
-        item = ops.read("tasks_get", {"task_id": identity}, pre, uow)["task"]
-        episode = _episode(namespace, "task", identity)
-        note_cursor = item.pop("notes_next_cursor", None)
-        item.pop("notes", None)
-        refs = self._save(selection_key, pre, item, revision=str(item["revision"]), episode_id=episode,
-                          actor_id=None, actor_kind=None,
-                          occurred_at=item.get("updated_at"), producer_id=item.get("created_by"),
-                          relations=[{"kind": "parent_task", "record_id": item["parent_id"]}] if item.get("parent_id") else [],
-                          gaps=[{"code": "task_edit_history_unavailable"}])
         position_key = self._continuation_key(namespace, "task_thread", identity)
-        cursor = self.journal.continuation(selection_key, position_key)
-        result, unresolved = [refs], False
-        if item.get("created_by") in self.journal.overseer_ids:
-            return result, []
-        for _ in range(MAX_THREAD_PAGES):
+        routing = self._origin(namespace, "task", identity)
+        cursor, bound = self._resume(selection_key, position_key)
+        settled = self._settled(selection_key, position_key)
+        episode = _episode(namespace, "task", identity)
+        result, gaps, unresolved = [], [], False
+        # The head admitted when the thread was first read is the Task's evidence for this pass; draining the thread
+        # never captures a newer one, so later activity belongs to a later pass. A thread that already finished or
+        # was blocked in this pass has had its head admitted too.
+        if not settled and not (bound and "revision" in bound):
+            self._admit_notes(namespace, identity, "task", uow)
+            item = ops.read("tasks_get", {"task_id": identity}, pre, uow)["task"]
+            item.pop("notes_next_cursor", None)
+            item.pop("notes", None)
+            result.append(self._save(selection_key, pre, item, revision=str(item["revision"]), episode_id=episode,
+                                     actor_id=None, actor_kind=None,
+                                     occurred_at=item.get("updated_at"), producer_id=item.get("created_by"),
+                                     relations=[{"kind": "parent_task", "record_id": item["parent_id"]}] if item.get("parent_id") else [],
+                                     gaps=[{"code": "task_edit_history_unavailable"}]))
+            if item.get("created_by") in self.journal.overseer_ids:
+                self._settle(selection_key, position_key, routing, None, done=True)
+                return result, []
+            bound = {"revision": item["revision"]}
+            if not settled:
+                self._settle(selection_key, position_key, routing, cursor, done=False, bound=bound)
+            if item.get("related_tasks_next_cursor") or item.get("children_has_more"):
+                gaps.append({"code": "task_relations_truncated"})
+        # Messages page from newest to older, so the first page admitted is the pass's upper boundary.
+        for _ in range(0 if settled else MAX_THREAD_PAGES):
             args = {"task_id": identity, "limit": MAX_THREAD_PAGE_NOTES}
             if cursor:
                 args["cursor"] = cursor
@@ -1358,14 +1599,12 @@ class HostScanner:
                     origin_event_id=origin,
                     relations=note.get("refs", [])))
             cursor = thread.get("next_cursor")
+            self._settle(selection_key, position_key, routing, cursor, done=not cursor, bound=bound)
             if not cursor:
                 break
-        self.journal.set_continuation(selection_key, position_key, cursor)
-        gaps = [{"code": "task_thread_continuation_pending"}] if cursor else []
+        gaps = ([{"code": "task_thread_continuation_pending"}] if cursor else []) + gaps
         if unresolved:
             gaps.append({"code": "unresolved_provenance"})
-        if item.get("related_tasks_next_cursor") or item.get("children_has_more"):
-            gaps.append({"code": "task_relations_truncated"})
         return result, gaps
 
     @staticmethod
@@ -1384,67 +1623,86 @@ class HostScanner:
         ops = self._ops(namespace)
         args = {"signoff_id": identity, **({"scope": "global"} if namespace["kind"] == "global" else {})}
         self.access.authorize_source(pre)
-        self._admit_notes(namespace, identity, "signoff", uow)
-        metadata = uow.connection.execute("SELECT decision_json IS NOT NULL, apply_result_json IS NOT NULL, "
-            "json_extract(decision_json,'$.message_id') FROM signoffs WHERE id=?", (identity,)).fetchone()
-        if metadata is None:
-            raise DomainError("evidence_unavailable", "Signoff is unavailable")
-        response_pre = self._locator(namespace, "signoff_response", identity, signoff_id=identity)
-        outcome_pre = self._locator(namespace, "execution_outcome", identity, signoff_id=identity)
-        if metadata[0]:
-            self.access.authorize_source(response_pre)
-        if metadata[2]:
-            self.access.authorize_source(self._locator(namespace, "signoff_note", metadata[2], signoff_id=identity, note_id=metadata[2]))
-        if metadata[1]:
-            self.access.authorize_source(outcome_pre)
-        item = ops.read("signoffs_get", args, pre, uow)["signoff"]
-        episode = _episode(namespace, "signoff", identity)
-        producer = item.get("proposer_agent_id") or item.get("proposer_principal_id")
-        decision, outcome = item.pop("decision", None), item.pop("apply_result", None)
-        relations = [{"kind": name, "record_id": item[name]} for name in ("supersedes_id", "superseded_by_id") if item.get(name)]
-        types = {"tasks": "task", "documents": "document", "action_logs": "action"}
-        for target in item.get("expected_targets", []):
-            resource = target.get("resource", {})
-            if resource.get("resource_type") in types and resource.get("resource_id"):
-                relations.append({"kind": types[resource["resource_type"]], "record_id": resource["resource_id"],
-                                  "business_id": resource.get("business_id")})
-        previous, edit_gaps = None, []
-        if item.get("supersedes_id"):
-            previous_pre = self._locator(namespace, "signoff", item["supersedes_id"], signoff_id=item["supersedes_id"])
-            try:
-                self.access.authorize_source(previous_pre)
-                if depth >= 8:
-                    edit_gaps.append({"code": "signoff_chain_truncated"})
-                else:
-                    earlier, earlier_gaps = self._signoff(selection_key, namespace, item["supersedes_id"], uow, depth=depth + 1)
-                    previous = next((ref for ref in earlier if ref["kind"] == "signoff" and ref["record_id"] == item["supersedes_id"]), None)
-                    edit_gaps.extend(earlier_gaps)
-                    if previous is None:
-                        edit_gaps.append({"code": "signoff_before_unavailable"})
-            except DomainError:
-                edit_gaps.append({"code": "signoff_before_forbidden"})
-        edit = item.get("preview", {}).get("owner_edit") or {}
-        author_id = edit.get("by") or item.get("proposer_principal_id")
-        author = uow.connection.execute("SELECT kind FROM principals WHERE id=?", (author_id,)).fetchone() if author_id else None
-        result = [self._save(selection_key, pre, item, revision=str(item["status_revision"]), episode_id=episode,
-                  actor_id=author_id, actor_kind=author[0] if author else None, occurred_at=item.get("created_at"),
-                  producer_id=producer, origin_event_id=identity, relations=relations, gaps=edit_gaps,
-                  before_ref=previous, after_ref=pre if previous else None)]
-        if producer in self.journal.overseer_ids:
-            return result, []
-        if decision:
-            by = decision.get("by")
-            actor = uow.connection.execute("SELECT kind FROM principals WHERE id=?", (by,)).fetchone() if by else None
-            result.append(self._save(selection_key, response_pre, decision, revision=str(item["status_revision"]),
-                episode_id=episode, actor_id=by, actor_kind=actor[0] if actor else None, occurred_at=decision.get("at"),
-                producer_id=by, origin_event_id=decision.get("message_id") or (identity + ":decision")))
-        if outcome is not None:
-            result.append(self._save(selection_key, outcome_pre, outcome, revision=str(item["status_revision"]),
-                episode_id=episode, actor_id=None, actor_kind=None, occurred_at=item.get("applied_at"), producer_id=producer,
-                origin_event_id=identity + ":outcome"))
         position_key = self._continuation_key(namespace, "signoff_notes", identity)
-        before, unresolved = self.journal.continuation(selection_key, position_key), False
-        for _ in range(MAX_THREAD_PAGES):
+        routing = self._origin(namespace, "signoff", identity)
+        before, bound = self._resume(selection_key, position_key)
+        settled = self._settled(selection_key, position_key)
+        bound = settled["bound"] if settled else bound
+        episode = _episode(namespace, "signoff", identity)
+        result, edit_gaps = [], []
+        # The status admitted when the notes were first read is the Signoff's evidence for this pass; draining the
+        # notes never captures a newer one, so a later decision or outcome belongs to a later pass. Notes that
+        # already finished or were blocked in this pass have had their status admitted too.
+        if not settled and not (bound and "revision" in bound):
+            self._admit_notes(namespace, identity, "signoff", uow)
+            metadata = uow.connection.execute("SELECT decision_json IS NOT NULL, apply_result_json IS NOT NULL, "
+                "json_extract(decision_json,'$.message_id') FROM signoffs WHERE id=?", (identity,)).fetchone()
+            if metadata is None:
+                raise DomainError("evidence_unavailable", "Signoff is unavailable")
+            response_pre = self._locator(namespace, "signoff_response", identity, signoff_id=identity)
+            outcome_pre = self._locator(namespace, "execution_outcome", identity, signoff_id=identity)
+            if metadata[0]:
+                self.access.authorize_source(response_pre)
+            if metadata[2]:
+                self.access.authorize_source(self._locator(namespace, "signoff_note", metadata[2], signoff_id=identity, note_id=metadata[2]))
+            if metadata[1]:
+                self.access.authorize_source(outcome_pre)
+            item = ops.read("signoffs_get", args, pre, uow)["signoff"]
+            producer = item.get("proposer_agent_id") or item.get("proposer_principal_id")
+            decision, outcome = item.pop("decision", None), item.pop("apply_result", None)
+            relations = [{"kind": name, "record_id": item[name]} for name in ("supersedes_id", "superseded_by_id") if item.get(name)]
+            types = {"tasks": "task", "documents": "document", "action_logs": "action"}
+            for target in item.get("expected_targets", []):
+                resource = target.get("resource", {})
+                if resource.get("resource_type") in types and resource.get("resource_id"):
+                    relations.append({"kind": types[resource["resource_type"]], "record_id": resource["resource_id"],
+                                      "business_id": resource.get("business_id")})
+            previous = None
+            if item.get("supersedes_id"):
+                previous_pre = self._locator(namespace, "signoff", item["supersedes_id"], signoff_id=item["supersedes_id"])
+                try:
+                    self.access.authorize_source(previous_pre)
+                    if depth >= 8:
+                        edit_gaps.append({"code": "signoff_chain_truncated"})
+                    else:
+                        earlier, earlier_gaps = self._signoff(selection_key, namespace, item["supersedes_id"], uow, depth=depth + 1)
+                        previous = next((ref for ref in earlier if ref["kind"] == "signoff" and ref["record_id"] == item["supersedes_id"]), None)
+                        edit_gaps.extend(earlier_gaps)
+                        if previous is None:
+                            edit_gaps.append({"code": "signoff_before_unavailable"})
+                except DomainError:
+                    edit_gaps.append({"code": "signoff_before_forbidden"})
+            edit = item.get("preview", {}).get("owner_edit") or {}
+            author_id = edit.get("by") or item.get("proposer_principal_id")
+            author = uow.connection.execute("SELECT kind FROM principals WHERE id=?", (author_id,)).fetchone() if author_id else None
+            result.append(self._save(selection_key, pre, item, revision=str(item["status_revision"]), episode_id=episode,
+                      actor_id=author_id, actor_kind=author[0] if author else None, occurred_at=item.get("created_at"),
+                      producer_id=producer, origin_event_id=identity, relations=relations, gaps=edit_gaps,
+                      before_ref=previous, after_ref=pre if previous else None))
+            if producer in self.journal.overseer_ids:
+                return result, []
+            if decision:
+                by = decision.get("by")
+                actor = uow.connection.execute("SELECT kind FROM principals WHERE id=?", (by,)).fetchone() if by else None
+                result.append(self._save(selection_key, response_pre, decision, revision=str(item["status_revision"]),
+                    episode_id=episode, actor_id=by, actor_kind=actor[0] if actor else None, occurred_at=decision.get("at"),
+                    producer_id=by, origin_event_id=decision.get("message_id") or (identity + ":decision")))
+            if outcome is not None:
+                result.append(self._save(selection_key, outcome_pre, outcome, revision=str(item["status_revision"]),
+                    episode_id=episode, actor_id=None, actor_kind=None, occurred_at=item.get("applied_at"), producer_id=producer,
+                    origin_event_id=identity + ":outcome"))
+            bound = {"revision": item["status_revision"]}
+            if not settled:
+                self._settle(selection_key, position_key, routing, before, done=False, bound=bound)
+        else:
+            # Offer the exact revision admitted earlier in this pass (its access is rechecked), never a newer one.
+            admitted = (self.journal.captured_revision("operations", "signoff", namespace, identity, bound["revision"])
+                        if bound and "revision" in bound else None)
+            result.extend([admitted] if admitted is not None else [])
+            if admitted is None:
+                edit_gaps.append({"code": "signoff_admitted_head_unavailable"})
+        unresolved = False
+        for _ in range(0 if settled else MAX_THREAD_PAGES):
             params = {**args, "limit": MAX_THREAD_PAGE_NOTES}
             if before:
                 params["before"] = before
@@ -1461,10 +1719,41 @@ class HostScanner:
                     actor_id=note.get("created_by"), actor_kind=note.get("author_kind"), occurred_at=note.get("created_at"),
                     producer_id=note.get("created_by"), origin_event_id=note["id"], original_refs=linked_sources, relations=note.get("refs", [])))
             before = page.get("next_before")
+            self._settle(selection_key, position_key, routing, before, done=not before, bound=bound)
             if not before:
                 break
-        self.journal.set_continuation(selection_key, position_key, before)
         return result, edit_gaps + ([{"code": "signoff_notes_continuation_pending"}] if before else []) + ([{"code": "unresolved_provenance"}] if unresolved else [])
+
+    def _linked_task(self, namespace, task_id, uow):
+        """The Task an Action revision links to, readable under current grants, as ``(locator, creator row, gap code)``.
+
+        A Task the audited move record shows now living in another project is followed there, but only if that
+        project is currently granted; access is never widened to make a link resolve.
+        """
+        from qorqut_operations.tasks.relocation import moved_location
+        pre, forbidden = self._locator(namespace, "task", task_id, task_id=task_id), False
+        try:
+            self.access.authorize_source(pre)
+        except DomainError:
+            forbidden = True
+        else:
+            parent = uow.connection.execute("SELECT created_by FROM tasks WHERE business_id IS ? AND id=?",
+                                            (namespace["business_id"], task_id)).fetchone()
+            if parent is not None:
+                return pre, parent, None
+        location = moved_location(uow, namespace["business_id"], task_id)
+        if location is not None:
+            moved = {"kind": "business", "business_id": location}
+            moved_pre = self._locator(moved, "task", task_id, task_id=task_id)
+            try:
+                self.access.authorize_source(moved_pre)
+            except DomainError:
+                return None, None, "related_source_forbidden"
+            parent = uow.connection.execute("SELECT created_by FROM tasks WHERE business_id IS ? AND id=?",
+                                            (location, task_id)).fetchone()
+            if parent is not None:
+                return moved_pre, parent, None
+        return None, None, "related_source_forbidden" if forbidden else "related_source_unavailable"
 
     def _action(self, selection_key, namespace, identity, uow):
         pre = self._locator(namespace, "action", identity, action_id=identity)
@@ -1477,81 +1766,102 @@ class HostScanner:
         if actor.get("id") in self.journal.overseer_ids:
             return [], []
         result, link_gaps = [], []
-        maximum = item["revision"]
+        routing = self._origin(namespace, "action", identity)
         position_key = self._continuation_key(namespace, "action_history", identity)
-        last = self.journal.continuation(selection_key, position_key) or 0
-        if type(last) is not int or last < 0 or last > maximum:
-            raise DomainError("evidence_unavailable", "Action history continuation is invalid")
-        previous = self.journal.captured_revision("operations", "action_revision", namespace, identity, last) if last else None
-        if last and previous is None:
-            raise DomainError("evidence_unavailable", "Prior Action history observation is unavailable")
-        end, completed = min(maximum, last + MAX_HISTORY_REVISIONS), last
-        excluded_history = bool(previous and self.journal._excluded(previous))
-        for number in range(last + 1, end + 1):
-            if number > last + 1 and self.expired():
-                break
-            revision_pre = self._locator(namespace, "action_revision", identity, action_id=identity, revision=number)
-            value = ops.read("actions_get", {"action_id": identity, "revision": number}, revision_pre, uow)["action"]
-            # Existing Action reads may intentionally redact references. Consult
-            # only the immutable revision's routing metadata to detect a hidden
-            # parent; never expose that metadata when the reader redacted it.
-            route = uow.connection.execute("SELECT json_extract(snapshot_json,'$.refs.task') FROM action_revisions "
-                                           "WHERE action_key=? AND revision=?", (identity, number)).fetchone()
-            if route is None:
-                link_gaps.append({"code": "action_revision_unavailable"})
-                break
-            task_id = (value.get("refs") or {}).get("task")
-            if route[0] and task_id != route[0]:
-                link_gaps.append({"code": "related_source_forbidden"})
-                break
-            linked_task, excluded_parent = None, False
-            if task_id:
-                task_pre = self._locator(namespace, "task", task_id, task_id=task_id)
-                try:
-                    self.access.authorize_source(task_pre)
-                    parent = uow.connection.execute("SELECT created_by FROM tasks WHERE business_id IS ? AND id=?",
-                        (namespace["business_id"], task_id)).fetchone()
-                except DomainError:
+        settled = self._settled(selection_key, position_key)
+        gaps, excluded_history = [], False
+        if settled is not None:
+            # Already read in this pass: only the discussion may remain. A blocked history keeps it withheld.
+            if settled["status"] == "blocked":
+                return [], []
+            previous = self.journal.captured_revision("operations", "action_revision", namespace, identity, settled["position"])
+            if previous is None:
+                return [], []
+            excluded_history = bool(self.journal._excluded(previous))
+        else:
+            last, bound = self._resume(selection_key, position_key)
+            last = last or 0
+            # The history read at admission is the pass's boundary; later revisions belong to a later pass.
+            maximum = item["revision"] if bound is None else min(item["revision"], bound["revision"])
+            if type(last) is not int or last < 0 or last > maximum:
+                raise DomainError("evidence_unavailable", "Action history continuation is invalid")
+            previous = self.journal.captured_revision("operations", "action_revision", namespace, identity, last) if last else None
+            if last and previous is None:
+                raise DomainError("evidence_unavailable", "Prior Action history observation is unavailable")
+            end, completed = min(maximum, last + MAX_HISTORY_REVISIONS), last
+            excluded_history, blocked = bool(previous and self.journal._excluded(previous)), None
+            for number in range(last + 1, end + 1):
+                if number > last + 1 and self.expired():
+                    break
+                revision_pre = self._locator(namespace, "action_revision", identity, action_id=identity, revision=number)
+                value = ops.read("actions_get", {"action_id": identity, "revision": number}, revision_pre, uow)["action"]
+                # Existing Action reads may intentionally redact references. Consult
+                # only the immutable revision's routing metadata to detect a hidden
+                # parent; never expose that metadata when the reader redacted it.
+                route = uow.connection.execute("SELECT json_extract(snapshot_json,'$.refs.task') FROM action_revisions "
+                                               "WHERE action_key=? AND revision=?", (identity, number)).fetchone()
+                if route is None:
+                    link_gaps.append({"code": "action_revision_unavailable"})
+                    blocked = ("action_revision_unavailable", "The Action revision is unavailable", {"revision": number})
+                    break
+                task_id = (value.get("refs") or {}).get("task")
+                if route[0] and task_id != route[0]:
                     link_gaps.append({"code": "related_source_forbidden"})
+                    blocked = ("related_source_forbidden", "The linked Task is hidden from this reader", {"revision": number})
                     break
-                if parent is None:
-                    link_gaps.append({"code": "related_source_unavailable"})
-                    break
-                excluded_parent = parent[0] in self.journal.overseer_ids
-                linked_task = task_pre
-            actor = value.get("recorded_by") or {}
-            if excluded_parent:
-                from .provenance import content_hash
-                existing = self.journal.captured_revision("operations", "action_revision", namespace, identity, number)
-                if existing is not None and existing["content_hash"] == content_hash(value):
-                    # An immutable earlier observation may predate knowledge of
-                    # its excluded Task ancestry. Keep its exact metadata and
-                    # recheck that ancestry and preserve the saved record.
-                    saved = {key: data for key, data in existing.items() if key != "material_ref"}
-                    previous = self.journal.observe(selection_key, _key([namespace, "action_revision", identity]), saved, value)
-                    completed, excluded_history = number, True
-                    continue
-            captured = self._save(selection_key, revision_pre, value, revision=str(number), episode_id=episode,
-                actor_id=actor.get("id"), actor_kind=actor.get("kind"), occurred_at=value.get("recorded_at"),
-                producer_id=actor.get("id"), origin_event_id=f"{identity}:r{number}",
-                relations=([{"kind": "task", "record_id": task_id}] if task_id else []),
-                original_refs=[linked_task] if linked_task else [], before_ref=previous,
-                after_ref={**revision_pre, "revision": str(number)} if number > 1 else None,
-                overseer_origin=excluded_parent)
-            previous, completed = captured, number
-            if self.journal._excluded(captured):
-                excluded_history = True
+                linked_task, excluded_parent, relation = None, False, None
+                if task_id:
+                    linked_task, parent, gap_code = self._linked_task(namespace, task_id, uow)
+                    if gap_code:
+                        link_gaps.append({"code": gap_code})
+                        blocked = (gap_code, "The linked Task is not readable under current grants"
+                                   if gap_code == "related_source_forbidden" else "The linked Task is unavailable",
+                                   {"revision": number, "related": {"kind": "task", "record_id": task_id}})
+                        break
+                    excluded_parent = parent[0] in self.journal.overseer_ids
+                    relation = {"kind": "task", "record_id": task_id}
+                    if linked_task["namespace"] != namespace:
+                        relation["business_id"] = linked_task["namespace"]["business_id"]
+                actor = value.get("recorded_by") or {}
+                if excluded_parent:
+                    from .provenance import content_hash
+                    existing = self.journal.captured_revision("operations", "action_revision", namespace, identity, number)
+                    if existing is not None and existing["content_hash"] == content_hash(value):
+                        # An immutable earlier observation may predate knowledge of
+                        # its excluded Task ancestry. Keep its exact metadata and
+                        # recheck that ancestry and preserve the saved record.
+                        saved = {key: data for key, data in existing.items() if key != "material_ref"}
+                        previous = self.journal.observe(selection_key, _key([namespace, "action_revision", identity]), saved, value)
+                        completed, excluded_history = number, True
+                        continue
+                captured = self._save(selection_key, revision_pre, value, revision=str(number), episode_id=episode,
+                    actor_id=actor.get("id"), actor_kind=actor.get("kind"), occurred_at=value.get("recorded_at"),
+                    producer_id=actor.get("id"), origin_event_id=f"{identity}:r{number}",
+                    relations=[relation] if relation else [],
+                    original_refs=[linked_task] if linked_task else [], before_ref=previous,
+                    after_ref={**revision_pre, "revision": str(number)} if number > 1 else None,
+                    overseer_origin=excluded_parent)
+                previous, completed = captured, number
+                if self.journal._excluded(captured):
+                    excluded_history = True
+                else:
+                    result.append(captured)
+            bound = {"revision": maximum}
+            if blocked:
+                code, reason, detail = blocked
+                self._block(selection_key, position_key, routing, "history", code, reason,
+                            position=completed, bound=bound, **detail)
             else:
-                result.append(captured)
-        self.journal.set_continuation(selection_key, position_key, completed if completed < maximum else None)
-        gaps = link_gaps + ([{"code": "action_history_continuation_pending"}] if completed < maximum else [])
+                self._settle(selection_key, position_key, routing, completed, done=completed >= maximum, bound=bound)
+            gaps = link_gaps + ([{"code": "action_history_continuation_pending"}] if not blocked and completed < maximum else [])
         if excluded_history or link_gaps:
             # A discussion bound to excluded or unresolved Action history cannot
             # safely be presented as an independent experience record.
             return result, gaps
         position_key = self._continuation_key(namespace, "action_thread", identity)
-        cursor, unresolved = self.journal.continuation(selection_key, position_key), False
-        for _ in range(MAX_THREAD_PAGES):
+        cursor, _ = self._resume(selection_key, position_key)
+        unresolved = False
+        for _ in range(0 if self._settled(selection_key, position_key) else MAX_THREAD_PAGES):
             args = {"action_id": identity, "limit": MAX_THREAD_PAGE_NOTES}
             if cursor:
                 args["cursor"] = cursor
@@ -1575,9 +1885,9 @@ class HostScanner:
                     producer_id=note.get("recorder_id"), origin_event_id=origin,
                     original_refs=([source] if isinstance(source, dict) else []) + linked_sources, relations=note.get("refs", [])))
             cursor = page.get("next_cursor")
+            self._settle(selection_key, position_key, routing, cursor, done=not cursor)
             if not cursor:
                 break
-        self.journal.set_continuation(selection_key, position_key, cursor)
         if cursor:
             gaps.append({"code": "action_thread_continuation_pending"})
         if unresolved:
@@ -1630,6 +1940,9 @@ class HostScanner:
     def _document(self, selection_key, namespace, identity, uow):
         pre = self._locator(namespace, "document_revision", identity, document_id=identity)
         self.access.authorize_source(pre)
+        position_key = self._continuation_key(namespace, "document_history", identity)
+        if self._settled(selection_key, position_key):
+            return [], []
         import json
         row = uow.connection.execute("SELECT kind,owning_agent_id,source_refs_json FROM documents WHERE id=? AND business_id IS ?", (identity, namespace["business_id"])).fetchone()
         if row is None:
@@ -1648,12 +1961,18 @@ class HostScanner:
         if status == "unknown":
             return [], [{"code": "unresolved_provenance"}]
         linked_sources = linked_sources[1:]  # The first locator is this document itself, not its origin.
-        position_key = self._continuation_key(namespace, "document_history", identity)
-        last = self.journal.continuation(selection_key, position_key) or 0
+        last, bound = self._resume(selection_key, position_key)
+        last = last or 0
         if type(last) is not int or last < 0:
             raise DomainError("evidence_unavailable", "Document history continuation is invalid")
+        # The newest version at admission is the pass's boundary; later versions belong to a later pass.
+        if bound is None:
+            newest = uow.connection.execute("SELECT MAX(version) FROM qbdv_document_versions WHERE namespace=? AND document_id=?",
+                                            (space, identity)).fetchone()[0]
+            bound = {"version": newest or 0}
         versions = uow.connection.execute("SELECT version FROM qbdv_document_versions WHERE namespace=? AND document_id=? "
-            "AND version>? ORDER BY version LIMIT ?", (space, identity, last, MAX_HISTORY_REVISIONS + 1)).fetchall()
+            "AND version>? AND version<=? ORDER BY version LIMIT ?",
+            (space, identity, last, bound["version"], MAX_HISTORY_REVISIONS + 1)).fetchall()
         more = len(versions) > MAX_HISTORY_REVISIONS
         versions = versions[:MAX_HISTORY_REVISIONS]
         episode = _episode(namespace, "document", identity)
@@ -1674,7 +1993,8 @@ class HostScanner:
                 origin_event_id=f"document:{identity}:v{number}", original_refs=linked_sources,
                 before_ref=result[-1] if result else previous,
                 after_ref={**version_pre, "revision": str(number)} if number > 1 else None))
-        self.journal.set_continuation(selection_key, position_key, int(result[-1]["revision"]) if more and result else None)
+        self._settle(selection_key, position_key, self._origin(namespace, "document", identity),
+                     int(result[-1]["revision"]) if result else last, done=not (more and result), bound=bound)
         if more:
             gaps.append({"code": "document_history_continuation_pending"})
         if not result and not last:
@@ -1707,16 +2027,20 @@ class HostScanner:
         self.access.authorize_source(pre)
         if agent in self.journal.overseer_ids:
             return [], []
+        position_key = self._continuation_key(namespace, "transcript", identity)
+        if self._settled(selection_key, position_key):
+            return [], []
         row = uow.connection.execute("SELECT receipt_id,updated_at,complete,error_code,transcript_path FROM native_captures "
             "WHERE agent_id=? AND provider=? AND conversation_id=?", (agent, provider, conversation)).fetchone()
         if row is None or not row["receipt_id"]:
             return [], [{"code": "transcript_unavailable"}]
-        pre["locator"]["receipt_id"] = row["receipt_id"]
+        # The receipt read at admission is the pass's boundary; a later, longer receipt belongs to a later pass.
+        saved, bound = self._resume(selection_key, position_key)
+        receipt_id = (bound or {}).get("receipt_id") or row["receipt_id"]
+        pre["locator"]["receipt_id"] = receipt_id
         self.access.authorize_source(pre)
-        archive, receipt = self._transcript_material(agent, provider, conversation, row["receipt_id"], uow)
+        archive, receipt = self._transcript_material(agent, provider, conversation, receipt_id, uow)
         lineage = Lineage(agent, provider, conversation, receipt.archive_id)
-        position_key = self._continuation_key(namespace, "transcript", identity)
-        saved = self.journal.continuation(selection_key, position_key)
         start, blocked, saved_state = 0, False, None
         if saved:
             try:
@@ -1803,15 +2127,15 @@ class HostScanner:
                                 "AND json_extract(i.evidence_json,'$.raw_offset')=? LIMIT 2",
                                 (agent, provider, conversation, entry.offset)).fetchall()
                             adapter = self.runtime.selection.owner_input_sources.get(association_types[0][0]) if len(association_types) == 1 else None
-                            result = adapter.evidence(self, uow, agent=agent, provider=provider, conversation=conversation,
+                            source_evidence = adapter.evidence(self, uow, agent=agent, provider=provider, conversation=conversation,
                                 row=row, entry=entry, owner_id=owner_id, archive=archive, receipt=receipt, namespace=namespace,
                                 gaps=gaps) if adapter else None
-                            if result is None:
+                            if source_evidence is None:
                                 if adapter is None:
                                     gaps.append({"code": "unresolved_provenance", "reason": "owner_source_unavailable", "offset": entry.offset})
                                 blocked = True
                                 continue
-                            original_sources, association_info, eligible_text, actor_id, actor_kind, event_id = result
+                            original_sources, association_info, eligible_text, actor_id, actor_kind, event_id = source_evidence
                         elif entry.speaker != SPEAKER_AGENT or blocked:
                             continue
                         if entry.references is not None:
@@ -1864,7 +2188,8 @@ class HostScanner:
             raise
         except Exception as exc:
             raise DomainError("evidence_unavailable", "Transcript projection is unavailable") from exc
-        self.journal.set_continuation(selection_key, position_key, continuation)
+        self._settle(selection_key, position_key, self._origin(namespace, "transcript", identity), continuation,
+                     done=not continuation, bound={"receipt_id": receipt.receipt_id})
         if continuation:
             gaps.append({"code": "transcript_continuation_pending", "offset": continuation["offset"]})
         if not row["complete"]:
@@ -1877,13 +2202,10 @@ class HostScanner:
 class EvidenceProvider:
     """The four-method host boundary, bound to a current authenticated actor."""
     def __init__(self, runtime, context, archive_root, access, *, overseer_ids, coverage=None):
-        import sqlite3
         self.access = _access(access)
         self.journal = CaptureJournal(archive_root, access, coverage, overseer_ids=overseer_ids)
         self.scanner = HostScanner(runtime, context, access, self.journal)
         self.journal.origin_check = self.scanner._current_origin_excluded
-        with sqlite3.connect(self.journal.path) as db:
-            db.execute("CREATE TABLE IF NOT EXISTS scan_progress (selection_key TEXT PRIMARY KEY, position TEXT, generation INTEGER NOT NULL)")
 
     def _inventory_cursor(self, cursor, current):
         """Recover the server-saved scope of legacy cursors; the cursor never grants access."""
@@ -1920,10 +2242,104 @@ class EvidenceProvider:
             raise DomainError("validation_error", "Cursor does not match this selection") from exc
         return _admit_inventory_scope(self.access, frozen), saved["selection"], saved["after"]
 
+    def _open_pass(self, selection_key, resolved, uow, *, resumed):
+        """The scan pass to work on, as ``(state, generation)``.
+
+        A pass is one routing sweep, bounded at its start by each routing table's last row, followed by draining the
+        sources that sweep met. An active pass keeps its saved bounds and positions across restarts. A scan that begins
+        after a pass has finished starts a new one; a cursor presented after that point only finishes delivering what
+        was captured. Pre-versioned state is adopted in place: its routing position and unfinished source positions
+        are kept, and the bounds are taken when it is first adopted.
+        """
+        from uuid import uuid4
+        row = self.journal.scan_row(selection_key)
+        scan, generation = None, 1
+        if row is not None:
+            value, generation = row
+            if _is_scan(value) and value.get("phase") in {"routing", "drain", "done"}:
+                scan = value
+            else:
+                # Pre-versioned: a position is a sweep in progress; none means the last sweep finished, so any
+                # unfinished sources still need draining. Nothing is restarted or inferred complete.
+                scan = {"v": SCAN_STATE_VERSION, "pass": uuid4().hex, "after": None, "bounds": None}
+                if isinstance(value, list):
+                    scan.update(phase="routing", after=value, bounds=self.scanner.routing_bounds(uow))
+                else:
+                    scan["phase"] = "done"
+                self.journal.save_scan(selection_key, scan, generation)
+                self.journal.wrap_legacy(selection_key, scan["pass"], self.scanner.context.principal_id)
+                if scan["phase"] == "done" and self.journal.sources(selection_key, "continuing"):
+                    scan["phase"] = "drain"
+        if scan is None or (scan["phase"] == "done" and not resumed):
+            scan = {"v": SCAN_STATE_VERSION, "pass": uuid4().hex, "phase": "routing", "after": None,
+                    "bounds": self.scanner.routing_bounds(uow)}
+        self.journal.save_scan(selection_key, scan, generation)
+        return scan, generation
+
+    def _capture(self, selection_key, namespace, kind, identity, uow, gaps):
+        """Capture one routing source: ``read``, ``blocked`` (a refusal that cannot be retried, now recorded) or
+        ``retry`` (a temporary failure that leaves the source's saved state exactly as it was)."""
+        try:
+            _, source_gaps = self.scanner.capture(selection_key, namespace, kind, identity, uow)
+            gaps.extend(source_gaps)
+            return "read"
+        except DomainError as error:
+            gaps.append({"code": error.code, "provider": "native_archive" if kind == "transcript" else "operations"})
+            if error.retryable:
+                return "retry"
+            self.scanner.block_source(selection_key, namespace, kind, identity, error)
+            return "blocked"
+
+    def _route(self, selection_key, resolved, scan, uow, limit, gaps):
+        """One time-sliced page of the routing sweep, inside the pass's insertion bounds; True while more remains.
+
+        A source that must be retried is not passed: it stays first in what remains, so the next request reads it
+        again within this same pass.
+        """
+        self.scanner.bounds = scan["bounds"]
+        try:
+            rows = self.scanner.keys(resolved, uow, after=scan["after"], limit=limit)
+        finally:
+            self.scanner.bounds = None
+        for index, (key, namespace, kind, identity) in enumerate(rows[:limit]):
+            if index and self.scanner.expired():
+                return True
+            if self._capture(selection_key, namespace, kind, identity, uow, gaps) == "retry":
+                return True
+            scan["after"] = key
+        return len(rows) > limit
+
+    def _drain(self, selection_key, uow, limit, gaps):
+        """Advance the unfinished sources this pass already met. Nothing new is admitted and finished or blocked
+        sources are not read again. A source that was read in full yet made no progress is blocked so the pass always
+        ends; a temporary failure or a slice cut short by the deadline is never taken for that."""
+        groups = {}
+        for key, state in self.journal.sources(selection_key, "continuing"):
+            groups.setdefault(_key(state["origin"]) if state.get("origin") else key, []).append((key, state))
+        for index, group in enumerate(list(groups.values())[:limit]):
+            origin = group[0][1].get("origin")
+            if origin is None:
+                for key, state in group:
+                    self.journal.save_source(selection_key, key, status="blocked", position=state["position"],
+                        bound=state["bound"], gap={"code": "continuation_unresolvable", "state": "blocked",
+                                                   "reason": "Saved continuation does not identify a readable source"})
+                continue
+            if index and self.scanner.expired():
+                break
+            if self._capture(selection_key, origin["namespace"], origin["kind"], origin["identity"], uow, gaps) != "read":
+                continue
+            if self.scanner.expired():
+                continue
+            for key, before in group:
+                after = self.journal.source_state(selection_key, key)
+                if after and after["status"] == "continuing" and _key(after["position"]) == _key(before["position"]):
+                    self.scanner._block(selection_key, key, origin, "source", "continuation_stalled",
+                                        "The source made no progress when read again", position=after["position"],
+                                        bound=after["bound"])
+
     def list_changes(self, selection, cursor=None, limit=50):
         import base64
         import json
-        import sqlite3
         import time
         from .provenance import content_hash
         if type(limit) is not int or not 1 <= limit <= 100:
@@ -1931,16 +2347,12 @@ class EvidenceProvider:
         # Limit is a maximum, not a promise to fill a page. Leave time for source
         # admission, the frozen frontier and delivery retention under MCP's 60s call.
         limit = min(limit, 20)
-        self.scanner.deadline = time.monotonic() + SCAN_SECONDS
+        self.scanner.deadline = self.journal.deadline = time.monotonic() + SCAN_SECONDS
         current = resolved = resolve_selection(self.access, selection)
         selection_key = content_hash(resolved)
         pending_after = 0
         if cursor:
             resolved, selection_key, pending_after = self._inventory_cursor(cursor, current)
-        with sqlite3.connect(self.journal.path) as db:
-            progress = db.execute("SELECT position,generation FROM scan_progress WHERE selection_key=?", (selection_key,)).fetchone()
-        position, generation = (json.loads(progress[0]) if progress and progress[0] else None,
-                                progress[1] if progress else 1)
         gaps = []
         additional = [ns for ns in current["namespaces"] if ns not in resolved["namespaces"]]
         if additional:
@@ -1952,39 +2364,33 @@ class EvidenceProvider:
         if resolved.get("agent_ids"):
             gaps.append({"code": "agent_relation_scope_incomplete"})
         with self.scanner.runtime.database.read() as uow:
-            candidates = self.scanner.keys(resolved, uow, after=position, limit=limit)
-            more = len(candidates) > limit
-            for index, (key, namespace, kind, identity) in enumerate(candidates[:limit]):
-                if index and self.scanner.expired():
-                    more = True
-                    break
-                try:
-                    _, source_gaps = self.scanner.capture(selection_key, namespace, kind, identity, uow)
-                    gaps.extend(source_gaps)
-                except DomainError as error:
-                    gaps.append({"code": error.code, "provider": "native_archive" if kind == "transcript" else "operations"})
-                position = key
-        if not more:
-            position, generation = None, generation + 1
-        with sqlite3.connect(self.journal.path) as db:
-            db.execute("INSERT INTO scan_progress(selection_key,position,generation) VALUES(?,?,?) "
-                       "ON CONFLICT(selection_key) DO UPDATE SET position=excluded.position,generation=excluded.generation",
-                       (selection_key, json.dumps(position) if position is not None else None, generation))
-            # A source may span several inventory sweeps. Keep a cursor until
-            # all saved source continuations have drained, including ones first
-            # encountered on an earlier page of this sweep.
-            continuing = db.execute("SELECT 1 FROM source_continuations WHERE selection_key=? "
-                                    "AND value IS NOT NULL AND value!='null' LIMIT 1", (selection_key,)).fetchone()
+            scan, generation = self._open_pass(selection_key, resolved, uow, resumed=bool(cursor))
+            if scan["phase"] == "routing":
+                if not self._route(selection_key, resolved, scan, uow, limit, gaps):
+                    scan["phase"], generation = "drain", generation + 1
+            elif scan["phase"] == "drain":
+                self._drain(selection_key, uow, limit, gaps)
+            if scan["phase"] == "drain" and not self.journal.sources(selection_key, "continuing"):
+                scan["phase"], generation = "done", generation + 1
+        self.journal.save_scan(selection_key, scan, generation)
         pending = self.journal.pending(selection_key, after=pending_after, limit=limit)
         gaps.extend(pending["gaps"])
+        final = scan["phase"] == "done" and pending["next_after"] is None
+        if final:
+            # Sources found unreadable stay visible at the end; they never keep the scan open.
+            blocked = [state["gap"] for _, state in self.journal.sources(selection_key, "blocked") if state.get("gap")]
+            unique = list({_key(gap): gap for gap in blocked}.values())
+            gaps.extend(unique[:MAX_BLOCKED_GAPS])
+            if len(unique) > MAX_BLOCKED_GAPS:
+                gaps.append({"code": "blocked_sources_truncated", "count": len(unique)})
         frontier = self.journal.frontier(resolved, selection_key, gaps=gaps,
                                          episode_ids=[ref["episode_id"] for ref in pending["items"]], source_refs=pending["items"],
                                          frozen_inventory=True)
         gaps = frontier["gaps"]
         next_cursor = None
-        if more or continuing or pending["next_after"] is not None:
+        if not final:
             payload = {"selection": selection_key, "provider": "host_inventory", "generation": generation,
-                       "after": pending["next_after"] if pending["next_after"] is not None else pending_after}
+                       "after": pending["next_after"] if pending["next_after"] is not None else pending.get("position", pending_after)}
             next_cursor = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
         return {"schema_version": 1, "items": pending["items"], "frontier": frontier,
                 "next_cursor": next_cursor, "availability": "partial" if gaps else "available",

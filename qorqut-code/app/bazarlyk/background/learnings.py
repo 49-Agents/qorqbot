@@ -37,11 +37,25 @@ class BusinessBrief:
                 for row in self.profiles]
 
 
+def unread_source(value):
+    """The bounded code, reason and optional provider/receipt of a source its adapter could not read.
+
+    Such a record states only the source's registered identity and why it is unread: content or a hash would be invented."""
+    failure = value["source_failure"]
+    if (not isinstance(failure, dict) or "content" in value or "transcript_hash" in value
+            or not isinstance(failure.get("code"), str) or not 1 <= len(failure["code"]) <= 100
+            or not isinstance(failure.get("reason"), str)):
+        raise DomainError("invalid_transcript", "Transcript source failure is malformed")
+    return {"code": failure["code"], "reason": failure["reason"][:500],
+            **{key: failure[key] for key in ("provider", "receipt_id") if isinstance(failure.get(key), str) and len(failure[key]) <= 200}}
+
+
 class LearningProgram:
     def __init__(self, models, transcripts):
         self.models, self.transcripts = models, transcripts
 
-    def snapshots(self, control, agent_id=None, limit=100, seen=None, exclude=frozenset(), listed=None, only=None, limits=None):
+    def snapshots(self, control, agent_id=None, limit=100, seen=None, exclude=frozenset(), listed=None, only=None, limits=None,
+                  source_errors=None):
         """Saved snapshots not already ``seen`` at their current hash, at most ``limit`` and ``MAX_PASS_BYTES`` of them.
 
         A caller that needs to know which sessions the adapter offered, whether or not they were skipped as seen, passes an
@@ -49,6 +63,12 @@ class LearningProgram:
         ``only`` (a set of session IDs) selects just those: every other offered session is validated and listed but never
         selected, and counts against neither bound. A caller that must tell a bound from the end of the adapter's list passes an
         empty ``limits`` set: it receives ``"count"`` or ``"bytes"`` when that bound stopped the pass with a selected snapshot unread.
+
+        A source the adapter offers as unreadable (``source_failure``, no content or hash), one whose content is over the
+        bounded run limit and one that is not UTF-8 text are source-specific failures. The caller opts into containing them by
+        passing an empty ``source_errors`` list: each is appended with its validated registered identity, code and reason and the
+        pass goes on. Such a source is never yielded, listed, counted or treated as seen. Without that list its error is raised as
+        it always was, so no caller silently misses an unread source.
         """
         if self.transcripts is None:
             raise DomainError("operation_unavailable", "Business transcript adapter is not configured")
@@ -81,12 +101,29 @@ class LearningProgram:
                     continue
                 if control.business_id is None:
                     value['agent_kind'] = role
-            content = value.get("content")
-            if not isinstance(content, str):
-                raise DomainError("invalid_transcript", "Transcript content must be UTF-8 JSONL text")
-            raw = content.encode("utf-8")
-            if len(raw) > 16 * 1024 * 1024:
-                raise DomainError("invalid_transcript", "Selected transcript input exceeds the bounded run limit")
+            failure = None
+            if "source_failure" in value:
+                failure = unread_source(value)
+            else:
+                content = value.get("content")
+                if not isinstance(content, str):
+                    raise DomainError("invalid_transcript", "Transcript content must be UTF-8 JSONL text")
+                try:
+                    raw = content.encode("utf-8")
+                except UnicodeError:
+                    failure = {"code": "invalid_transcript", "reason": "Transcript content is not valid UTF-8 text"}
+                else:
+                    if len(raw) > 16 * 1024 * 1024:
+                        failure = {"code": "invalid_transcript", "reason": "Selected transcript input exceeds the bounded run limit"}
+            if failure is not None:
+                if value["session_id"] in sessions:
+                    raise DomainError("invalid_transcript", "Transcript hash or session identity is inconsistent")
+                sessions.add(value["session_id"])
+                if source_errors is None:
+                    raise DomainError(failure["code"], failure["reason"])
+                if only is None or value["session_id"] in only:
+                    source_errors.append({**{key: value[key] for key in ("session_id", "source_id", "agent_id", "agent_kind")}, **failure})
+                continue
             digest = hashlib.sha256(raw).hexdigest()
             if value.get("transcript_hash", digest) != digest or value["session_id"] in sessions:
                 raise DomainError("invalid_transcript", "Transcript hash or session identity is inconsistent")
@@ -135,7 +172,7 @@ class LearningProgram:
             # Owner contributions of Global and every active business, under one bound (v1.2 G023).
             packets = sources.snapshots(uow, seen, retry_failed=bool(args.get('retry_failed')), limit=50) if not args.get('agent_id') else []
         run_id, cores, processed, fresh, errors = new_id(), {}, [], [], []
-        recorded, diagnostics = [], []
+        recorded, diagnostics, unread = [], [], []
         # A migrated note whose v1 progress cannot be proven the same content: paused in Global scan state for the later
         # migration's reconciliation, never extracted. Its original rows, cursors and evidence stay as they are.
         for packet in [packet for packet in packets if packet.get('unresolved')]:
@@ -171,7 +208,7 @@ class LearningProgram:
         def transcripts():
             # The retired engine no longer owns any session: its enrollment rows are history and must not suppress
             # authorized Context input on the factual route.
-            for source in self.snapshots(control, args.get("agent_id"), args.get("max_sessions", 100), seen):
+            for source in self.snapshots(control, args.get("agent_id"), args.get("max_sessions", 100), seen, source_errors=unread):
                 core = analysis.build_core(source, biz, source["agent_id"], source["agent_kind"], source.get("subagents", []))
                 core["header"]["session"] = source["session_id"]
                 core["source"] = {key: source[key] for key in ("session_id", "source_id", "transcript_hash", "agent_id")}
@@ -245,6 +282,12 @@ class LearningProgram:
                 recorded.append({**record, 'status': 'complete', 'attempts': attempts} if guarded else record)
             if len(fresh) >= 1800:
                 break
+        # A source the adapter could not read stays unread: no hash, scan state or processed record is invented for it, so the
+        # next run offers it again. Its identity and reason are the run's own errors and diagnostics.
+        for failure in unread:
+            errors.append({'source': failure['session_id'], 'error': f"{failure['code']}: {failure['reason']}"})
+            diagnostics.append({'source': failure['session_id'], 'stage': 'source_failure', 'reason': failure['reason'],
+                                **{key: value for key, value in failure.items() if key not in {'session_id', 'reason'}}})
         evidence, stats = [], {"merged": 0, "duplicates": 0, "contradictions": 0, "ignored": 0}
         if fresh or args.get('supersession_mode'):
             try:
