@@ -253,18 +253,6 @@ class Engine {
     return output.trim();
   }
 
-  // True exactly once per install folder: the first time the dashboard opens, the app shows Getting Started.
-  claimFirstRunGuide() {
-    try {
-      fs.writeFileSync(path.join(this.installParent, '.getting-started-shown'), new Date().toISOString() + '\n', { flag: 'wx', mode: 0o600 });
-      return true;
-    } catch (error) {
-      if (error.code === 'EEXIST') return false;
-      this.log(`getting-started marker: ${error.message}`);
-      return false;
-    }
-  }
-
   isInstalled() {
     try {
       fs.accessSync(path.join(this.root, 'qorqbot'), fs.constants.X_OK);

@@ -120,8 +120,8 @@ async function boot() {
 
 async function openDashboard(url) {
   if (mainWindow && !mainWindow.isDestroyed()) {
+    // First-run onboarding is the dashboard's own walkthrough; Getting Started stays in the Help menu.
     await mainWindow.loadURL(url);
-    if (engine.claimFirstRunGuide()) showGuide();
   }
 }
 
