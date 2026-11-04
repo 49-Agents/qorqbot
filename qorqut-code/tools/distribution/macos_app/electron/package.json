@@ -1,0 +1,21 @@
+{
+  "name": "qorqbot-mac",
+  "productName": "Qorqbot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Qorqbot desktop app for macOS: installs, runs and shows the local Qorqbot server.",
+  "license": "SEE LICENSE IN ../../../../LICENSE",
+  "author": "49 Agents LLC",
+  "main": "main.js",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "44.10.2"
+  },
+  "dependencies": {
+    "semver": "7.8.6"
+  }
+}

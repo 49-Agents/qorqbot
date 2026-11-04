@@ -23,6 +23,8 @@ from .client import (BOOTSTRAP_TIMEOUT, REQUEST_TIMEOUT, BootstrapClient,
                      load_registration, write_json_private)
 from .codex_session import owner_alive
 
+# Parent session runtimes whose delegated workers this host runs (see delegated_runtime.RUNTIME_EXECUTABLES).
+DELEGATION_RUNTIMES = frozenset({'codex','claude-code'})
 HELPER_MODULE = 'bazarlyk.bootstrap.supervisor'  # the stable launcher runs it as __main__, so __name__ is not this allowlisted name
 PERMANENT = {'forbidden','invalid_principal','inactive_agent','invalid_credential',
              'missing_credential','missing_registration','invalid_registration',
@@ -294,7 +296,7 @@ class Supervisor:
                     self.recoveries[path].request_id = item.get('request_id')
             except (OSError,ValueError,KeyError): continue
         self.reconcile_followups()
-        # Only a session with a delegated Codex runtime needs a process of its own; nothing is hosted for anything else.
+        # Only a session with delegated workers (Codex or Claude Code) needs a process of its own; nothing else is hosted.
         wanted = {}
         for path in sorted(self.root.joinpath('state/agent-supervisor').glob('*.json'))[:1000]:
             try:
@@ -305,7 +307,7 @@ class Supervisor:
                     continue
                 if item['desired_state'] != 'running' or not self.alive(item['owner']):
                     continue
-                if item['runtime'] != 'codex' or registration.get('durable_delegation_enabled') is not True:
+                if item['runtime'] not in DELEGATION_RUNTIMES or registration.get('durable_delegation_enabled') is not True:
                     continue
                 fault = self.root/'state/helper-faults'/f"{item['registration_id']}.json"
                 if fault.is_file():
@@ -374,9 +376,9 @@ def run_watch(path, session, generation, owner, runtime):
     signal.signal(signal.SIGTERM,stop)
     delegated = None
     try:
-        if not alive() or registration.get('durable_delegation_enabled') is not True or runtime != 'codex': return 0
+        if not alive() or registration.get('durable_delegation_enabled') is not True or runtime not in DELEGATION_RUNTIMES: return 0
         from .delegated_runtime import DelegatedRuntime
-        delegated = DelegatedRuntime(registration,session,alive=alive); delegated.start()
+        delegated = DelegatedRuntime(registration,session,alive=alive,runtime=runtime); delegated.start()
         while alive(): time.sleep(1)
         return 0
     except DomainError as error:
