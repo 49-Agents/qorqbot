@@ -62,7 +62,20 @@ Git and tmux. Follow export, projection and preparation steps above, then add
 but cannot qualify them. On an actual Mac run `tools/distribution/check_posix.py
 --archive MAC_ARCHIVE --output /tmp/qb-mac-check`; the output must be a new short
 path. `.github/workflows/macos-checks.yml` prepares this native build/check on
-manual dispatch. It has not run merely because the workflow exists.
+manual dispatch. Supply its optional `version` input (for example,
+`1.3.0-preview.2`) to also build a DMG from the checked archive. The job mounts
+that DMG, checks its signature and identical embedded archive, and exercises
+the packaged launcher with a fresh home folder: install, verify, dashboard,
+stop and restart. It saves the DMG, checksum, archive and reports as a GitHub
+Actions artifact. Without a version input it only runs preparation checks.
+
+Use a version newer than the existing download: `1.3.0-local.*` sorts below
+`1.3.0-preview.1` and will not be offered as an update. Check the actual embedded
+version; changing only the filename or release tag is insufficient. Update the
+license ledger for the first public distribution date before building a release.
+CI artifacts do not prove the downloaded app's Gatekeeper/Open Anyway flow,
+a separate macOS user account, or interactive agent sign-in. Record those
+checks separately before promoting the candidate to the website.
 
 Record fresh setup, restart, stopped updates, process permissions, agent terminal
 and browser results separately. Mac process inspection can be denied or return
