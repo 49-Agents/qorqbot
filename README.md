@@ -1,7 +1,7 @@
 # qorqbot
 **a proactive agent for complex work**
 
-[opening image]
+![Qorqbot: a provider-agnostic business agent with chat, agents, and a work panel](docs/images/qorqbot-overview.png)
 
 Qorqbot carries business workflows and long-running tasks forward in the background, bringing you the decisions that need your attention.
 
