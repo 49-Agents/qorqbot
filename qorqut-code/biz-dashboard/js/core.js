@@ -60,7 +60,7 @@ function agentBusinessLetter(m) {
 }
 // Qorqbot's original mascot geometry, reused from its dark SVG.
 // Role colors are presentation only; saved agent identity and icon settings are untouched.
-const QORQBOT_AGENT_COLORS = {ordubashy:'#258fa0', 'learning-applier':'#9063c8'};
+const QORQBOT_AGENT_COLORS = {ordubashy:'#fff', 'learning-applier':'#9063c8'};
 function qorqbotAgentColor(m) {
   const role=m?.role?.id || m?.role_id || m?.kind;
   if(QORQBOT_AGENT_COLORS[role])return QORQBOT_AGENT_COLORS[role];
@@ -79,7 +79,7 @@ const QORQBOT_MUSTACHES = {
 };
 function qorqbotAgentVariant(m) {
   const role=m?.role?.id || m?.role_id || m?.kind;
-  if(role==='ordubashy')return {body:'round',mustache:'classic',eyeOffset:-10};
+  if(role==='ordubashy')return {body:'round',mustache:'classic',eyeOffset:-10,featureColor:'#000'};
   if(role==='learning-applier')return {body:'brain',mustache:'classic'};
   return {body:'round',mustache:'classic'};
 }
@@ -103,11 +103,11 @@ function qorqbotAgentGlyph(color,size,variant={body:'round',mustache:'classic'})
   return `<svg class="ai qorqbot-agent" width="${size}" height="${size}" viewBox="25 30 110 112" aria-hidden="true" focusable="false">
     <path fill="${color}" d="${QORQBOT_BODIES[variant.body] || QORQBOT_BODIES.round}"/>
     <g transform="${variant.body==='round' ? '' : 'translate(79 85) scale(.84) translate(-100 -79)'}">
-    <g fill="#fff" transform="translate(${variant.eyeOffset || 0} 0) rotate(-22 80 86)">
+    <g fill="${variant.featureColor || '#fff'}" transform="translate(${variant.eyeOffset || 0} 0) rotate(-22 80 86)">
       <g transform="translate(90 73) rotate(-12)"><g class="qorqbot-gaze"><g class="qorqbot-eye"><path d="M0 -12 C8 -7 8 7 0 12 C-8 7 -8 -7 0 -12 Z"/></g></g></g>
       <g transform="translate(116.5 72) rotate(-12)"><g class="qorqbot-gaze"><g class="qorqbot-eye"><path d="M0 -10.5 C6 -6 6 6 0 10.5 C-6 6 -6 -6 0 -10.5 Z"/></g></g></g>
     </g>
-    <g fill="#fff" transform="translate(5 0) rotate(-22 80 86)"><path transform="translate(91 103) scale(${variant.mustache==='classic' ? .65 : .58}) translate(-91 -103)" d="${QORQBOT_MUSTACHES[variant.mustache] || QORQBOT_MUSTACHES.classic}"/></g>
+    <g fill="${variant.featureColor || '#fff'}" transform="translate(5 0) rotate(-22 80 86)"><path transform="translate(91 103) scale(${variant.mustache==='classic' ? .65 : .58}) translate(-91 -103)" d="${QORQBOT_MUSTACHES[variant.mustache] || QORQBOT_MUSTACHES.classic}"/></g>
     </g>
   </svg>`;
 }

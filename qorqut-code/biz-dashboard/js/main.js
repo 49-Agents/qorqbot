@@ -12,7 +12,7 @@ onChange(['action_logs', 'signoffs', 'jobs_routines'], null, refreshSide);
 setInterval(refreshSide, 60000);
 onChange(['jobs_routines'], null, () => { if (rtGlobal() && rtVisible()) rtRefresh(); });
 setInterval(() => { if (rtGlobal() && rtVisible()) rtRefresh(); }, 60000);
-loadBiz();
+loadBiz().then(() => onboarding.boot());
 replyNotifications.start();
 connectEvents();
 }

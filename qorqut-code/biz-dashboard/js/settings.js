@@ -11,6 +11,7 @@ async function renderSettings(c) {
   const p = envView = { pane, scope, global, url: global ? "/root/env" : "/biz/" + encodeURIComponent(state.biz) + "/env",
     rows: [], inherited: [], loaded: false, saving: false, dirty: false };
   pane.innerHTML = `
+    ${global ? '<section class="onboarding-settings"><div><h2>find your way around</h2><p>A quick, interactive introduction to your workspace.</p></div><button type="button" class="quiet" data-onboarding-replay>restart walkthrough</button></section>' : ''}
     <div class="set-head"><div>
       <h1 class="set-title">${global ? "Global environment" : "Environment"}</h1>
       <div class="muted small">${global ? "Shared defaults for all projects and Global agents. Projects can override individual values." : "Global values are inherited automatically. Override a value for this project, or use Global again."}</div>
@@ -21,6 +22,10 @@ async function renderSettings(c) {
     <div class="set-note muted small" id="envnote" role="status"></div>
     <p class="muted small">Changes apply to new agent sessions and subsequent jobs. Already-running agent sessions keep their current environment.</p>`;
   c.appendChild(pane);
+  pane.querySelector('[data-onboarding-replay]')?.addEventListener('click', () => {
+    if (p.dirty || p.saving) { toast('Save your environment changes before starting the walkthrough.'); return; }
+    onboarding.start();
+  });
   pane.querySelector("#envsave").onclick = () => saveEnv(p);
   pane.querySelector("#envadd").onclick = () => {
     p.rows.push({ key: "", value: "" }); envDirty(p); paintEnv(p);
