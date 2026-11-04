@@ -7,8 +7,10 @@
 .onboarding-card h2 { margin:17px 0 10px; max-width:290px; font-size:23px; font-weight:500; text-transform:none; color:var(--fg); line-height:1.2; letter-spacing:-.035em; }
 .onboarding-card p { margin:0; font-size:13px; line-height:1.65; color:#c0c0c0; }
 .onboarding-card .onboarding-hint { margin-top:13px; font-size:12px; color:#909090; }
-.onboarding-eyebrow { font-size:10px; font-weight:500; letter-spacing:.06em; color:#a5a5a5; }
-.onboarding-step-head { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.onboarding-step-head { display:flex; justify-content:flex-end; }
+.onboarding-instructions { padding-left:19px; margin:15px 0 0; font-size:13px; line-height:1.6; color:#c0c0c0; }
+.onboarding-instructions li + li { margin-top:9px; }
+.onboarding-card, .onboarding-shade, .onboarding-outline { transition:left .3s ease, top .3s ease, width .3s ease, height .3s ease; }
 .onboarding-count { flex:none; font:10px var(--mono); color:var(--accent); }
 .onboarding-count span { color:#737373; }
 .onboarding-progress { display:flex; gap:4px; margin-top:13px; }
@@ -33,7 +35,6 @@
 .onboarding-mark svg { display:block; width:48px; height:48px; }
 .onboarding-mark { display:block; width:48px; height:48px; margin-bottom:25px; }
 .onboarding.is-welcome h2 { max-width:none; font-size:30px; margin-top:11px; margin-bottom:14px; }
-.onboarding.is-welcome .onboarding-detail { color:#737373; font-size:11px; margin-top:20px; }
 .onboarding-welcome-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:27px; }
 .onboarding-settings { display:flex; justify-content:space-between; align-items:center; gap:20px; padding:20px 0 24px; margin-bottom:26px; border-bottom:1px solid var(--line-2); }
 .onboarding-settings h2 { text-transform:none; margin:0 0 5px; font-size:15px; font-weight:500; }
@@ -45,4 +46,4 @@
   .onboarding.is-welcome .onboarding-card { padding:26px; }
   .onboarding-settings { align-items:flex-start; flex-direction:column; gap:12px; }
 }
-@media (prefers-reduced-motion:reduce) { .onboarding-card { animation:none; } }
+@media (prefers-reduced-motion:reduce) { .onboarding-card, .onboarding-shade, .onboarding-outline { animation:none; transition:none; } }
