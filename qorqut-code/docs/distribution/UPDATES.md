@@ -20,7 +20,12 @@ replays provider work or starts an agent.
 The first updater supports unchanged database schemas and unchanged managed
 instruction contents with core and the bundled Google Calendar provider. A
 read-only managed plan checks the retained binding before the new application
-can start. Instruction adoption/conflicts, schema changes and separately installed connectors need
+can start. A new build always changes the provenance its catalogs record for packaged
+sources (commit, tree, snapshot and manifest hashes, source root) even when no
+instruction changed; that provenance-only refresh is admitted. Linux applies it through
+the journaled managed apply. macOS keeps the previous provenance, because the managed
+apply relies on Linux-only unnamed files; the per-file digests still prove the bytes
+unchanged. Any other instruction adoption/conflict, schema changes and separately installed connectors need
 a compatible, qualified update bundle/migration; unsupported updates are refused
 before replacing the runtime. Future migrations must preserve historical dates,
 provider receipts, authored instructions, credentials and native-session identity.
