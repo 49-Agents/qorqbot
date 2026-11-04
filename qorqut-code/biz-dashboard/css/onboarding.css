@@ -1,0 +1,49 @@
+/* The walkthrough uses the workspace palette; the bright area remains live. */
+.onboarding { position:fixed; inset:0; z-index:280; pointer-events:none; }
+.onboarding.is-paused { visibility:hidden; }
+.onboarding-shade { position:absolute; background:rgba(0,0,0,.66); pointer-events:auto; }
+.onboarding-outline { position:absolute; border:1px solid rgba(245,240,232,.45); border-radius:12px; pointer-events:none; box-shadow:0 0 0 4px rgba(245,240,232,.035); }
+.onboarding-card { position:absolute; width:350px; max-width:calc(100vw - 32px); max-height:calc(100dvh - 32px); overflow:auto; padding:24px; pointer-events:auto; background:#171717; color:var(--fg); border:1px solid rgba(255,255,255,.12); border-radius:18px; box-shadow:0 16px 80px rgba(0,0,0,.5); animation:tour-in .16s ease-out; }
+.onboarding-card h2 { margin:17px 0 10px; max-width:290px; font-size:23px; font-weight:500; text-transform:none; color:var(--fg); line-height:1.2; letter-spacing:-.035em; }
+.onboarding-card p { margin:0; font-size:13px; line-height:1.65; color:#c0c0c0; }
+.onboarding-card .onboarding-hint { margin-top:13px; font-size:12px; color:#909090; }
+.onboarding-step-head { display:flex; justify-content:flex-end; }
+.onboarding-instructions { padding-left:19px; margin:15px 0 0; font-size:13px; line-height:1.6; color:#c0c0c0; }
+.onboarding-instructions li + li { margin-top:9px; }
+.onboarding-card, .onboarding-shade, .onboarding-outline { transition:left .3s ease, top .3s ease, width .3s ease, height .3s ease; }
+.onboarding-count { flex:none; font:10px var(--mono); color:var(--accent); }
+.onboarding-count span { color:#737373; }
+.onboarding-progress { display:flex; gap:4px; margin-top:13px; }
+.onboarding-progress i { height:2px; flex:1; background:rgba(255,255,255,.1); border-radius:2px; }
+.onboarding-progress i.done { background:var(--accent); }
+.onboarding-card button { text-transform:none; font-size:11px; font-weight:500; height:33px; padding:0 14px; }
+.onboarding-card button:hover { transform:none; }
+.onboarding-card button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.onboarding-card .onboarding-action { display:flex; align-items:center; justify-content:space-between; width:100%; margin-top:20px; padding:0 12px; height:38px; border-radius:9px; background:#232323; border:1px solid rgba(255,255,255,.09); color:var(--fg); }
+.onboarding-action span { color:#8c8c8c; font-size:15px; }
+.onboarding-card .onboarding-action:hover { background:#2b2b2b; }
+.onboarding-card .onboarding-notice { color:#c9b58d; font-size:11px; margin-top:12px; }
+.onboarding-notice:empty { display:none; }
+.onboarding-footer { display:flex; justify-content:space-between; align-items:center; gap:4px; padding-top:18px; margin-top:20px; border-top:1px solid rgba(255,255,255,.08); }
+.onboarding-footer>div { display:flex; gap:4px; }
+.onboarding-card .onboarding-skip { padding:0; color:#909090; font-size:10px; }
+.onboarding-card .ghost { background:transparent; color:#a5a5a5; }
+.onboarding-card .ghost:hover { color:var(--fg); background:rgba(255,255,255,.04); }
+.onboarding-card .onboarding-close { position:absolute; top:13px; right:13px; width:28px; height:28px; padding:0; font-size:20px; background:transparent; color:#818181; }
+.onboarding-card .onboarding-close:hover { color:var(--fg); }
+.onboarding.is-welcome .onboarding-card { width:420px; padding:32px; }
+.onboarding-mark svg { display:block; width:48px; height:48px; }
+.onboarding-mark { display:block; width:48px; height:48px; margin-bottom:25px; }
+.onboarding.is-welcome h2 { max-width:none; font-size:30px; margin-top:11px; margin-bottom:14px; }
+.onboarding-welcome-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:27px; }
+.onboarding-settings { display:flex; justify-content:space-between; align-items:center; gap:20px; padding:20px 0 24px; margin-bottom:26px; border-bottom:1px solid var(--line-2); }
+.onboarding-settings h2 { text-transform:none; margin:0 0 5px; font-size:15px; font-weight:500; }
+.onboarding-settings p { margin:0; font-size:12px; color:var(--fg-2); }
+.onboarding-settings button { flex:none; font-weight:500; }
+@keyframes tour-in { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
+@media (max-width:600px) {
+  .onboarding-card { padding:20px; width:330px; }
+  .onboarding.is-welcome .onboarding-card { padding:26px; }
+  .onboarding-settings { align-items:flex-start; flex-direction:column; gap:12px; }
+}
+@media (prefers-reduced-motion:reduce) { .onboarding-card, .onboarding-shade, .onboarding-outline { animation:none; transition:none; } }
