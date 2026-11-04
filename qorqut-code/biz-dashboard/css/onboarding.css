@@ -1,8 +1,19 @@
 /* The walkthrough uses the workspace palette; the bright area remains live. */
 .onboarding { position:fixed; inset:0; z-index:280; pointer-events:none; }
 .onboarding.is-paused { visibility:hidden; }
-.onboarding-shade { position:absolute; background:rgba(0,0,0,.66); pointer-events:auto; }
-.onboarding-outline { position:absolute; border:1px solid rgba(245,240,232,.45); border-radius:12px; pointer-events:none; box-shadow:0 0 0 4px rgba(245,240,232,.035); }
+/* Shades only catch clicks; the outline's spread shadow does the dimming around a rounded, glowing cutout. */
+.onboarding-shade { position:absolute; background:transparent; pointer-events:auto; }
+.onboarding-outline { position:absolute; border:1.5px solid rgba(245,240,232,.75); border-radius:14px; pointer-events:none;
+  box-shadow:0 0 0 4px rgba(245,240,232,.08), 0 0 28px 2px rgba(245,240,232,.14), 0 0 0 200vmax rgba(4,4,4,.74); }
+.onboarding-outline::after { content:""; position:absolute; inset:-1.5px; border-radius:inherit; border:1.5px solid rgba(245,240,232,.55); animation:tour-pulse 2.2s ease-out infinite; }
+.onboarding-outline.is-empty { border-color:transparent; box-shadow:0 0 0 200vmax rgba(4,4,4,.8); }
+.onboarding-outline.is-empty::after { display:none; }
+.onboarding-card.is-wide { width:440px; }
+.onboarding-card .onboarding-promise { display:block; font-size:18px; font-weight:600; line-height:1.3; color:var(--ok); letter-spacing:-.015em; margin-bottom:8px; }
+.onboarding-card .onboarding-private { display:flex; gap:10px; align-items:flex-start; margin-top:16px; padding:11px 13px; border-radius:11px;
+  background:rgba(107,170,130,.1); border:1px solid rgba(107,170,130,.3); color:#d7e8dc; font-size:12.5px; line-height:1.5; }
+.onboarding-private svg { flex:none; width:18px; height:18px; margin-top:1px; color:var(--ok); }
+.onboarding-private b { color:var(--ok); font-weight:600; }
 .onboarding-card { position:absolute; width:350px; max-width:calc(100vw - 32px); max-height:calc(100dvh - 32px); overflow:auto; padding:24px; pointer-events:auto; background:#171717; color:var(--fg); border:1px solid rgba(255,255,255,.12); border-radius:18px; box-shadow:0 16px 80px rgba(0,0,0,.5); animation:tour-in .16s ease-out; }
 .onboarding-card h2 { margin:17px 0 10px; max-width:290px; font-size:23px; font-weight:500; text-transform:none; color:var(--fg); line-height:1.2; letter-spacing:-.035em; }
 .onboarding-card p { margin:0; font-size:13px; line-height:1.65; color:#c0c0c0; }
@@ -48,10 +59,11 @@
 .onboarding-settings h2 { text-transform:none; margin:0 0 5px; font-size:15px; font-weight:500; }
 .onboarding-settings p { margin:0; font-size:12px; color:var(--fg-2); }
 .onboarding-settings button { flex:none; font-weight:500; }
+@keyframes tour-pulse { 0% { opacity:.9; transform:scale(1); } 70%,100% { opacity:0; transform:scale(1.035); } }
 @keyframes tour-in { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
 @media (max-width:600px) {
-  .onboarding-card { padding:20px; width:330px; }
+  .onboarding-card, .onboarding-card.is-wide { padding:20px; width:330px; }
   .onboarding.is-welcome .onboarding-card { padding:26px; }
   .onboarding-settings { align-items:flex-start; flex-direction:column; gap:12px; }
 }
-@media (prefers-reduced-motion:reduce) { .onboarding-card, .onboarding-shade, .onboarding-outline { animation:none; transition:none; } }
+@media (prefers-reduced-motion:reduce) { .onboarding-card, .onboarding-shade, .onboarding-outline { animation:none; transition:none; } .onboarding-outline::after { animation:none; opacity:0; } }
