@@ -37,10 +37,11 @@ Needs an Apple silicon Mac (M1 or newer) on macOS 14 or newer.
    Or, in Terminal: `xattr -dr com.apple.quarantine /Applications/Qorqbot.app`
 5. The first open installs into `~/Qorqbot/qorqbot`, opens the dashboard and
    offers a walkthrough. It shows you how to start your first agent, then tours
-   the workspace chapter by chapter. Replay it, or any chapter, from **Settings**.
+   the workspace chapter by chapter. Skipped or finished, take it again anytime
+   with the **?** button at the bottom left, or **Help > Show Walkthrough**.
 
-If a tool from step 1 is missing, the app says which one and shows the command to
-copy. Details: [Mac guide](qorqut-code/docs/distribution/MACOS.md).
+If a tool from step 1 is missing, the app shows a checklist with the exact command to
+copy, and carries on by itself once it is installed. Details: [Mac guide](qorqut-code/docs/distribution/MACOS.md).
 
 ## Run it in your browser
 
