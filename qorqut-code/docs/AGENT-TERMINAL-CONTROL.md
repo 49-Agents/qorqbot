@@ -31,6 +31,18 @@ owner-issued ping command. Input broadcasts are now installation-owner-only;
 Ordubashy retains inbox broadcasts. Already queued agent input broadcasts are
 rechecked and denied by the dispatcher. Raw shell access is unchanged, as requested.
 
+## Starting an agent from Chat
+
+The installation owner may invoke `agent_terminal_start` directly from the
+dashboard (owner policy on the global scope allows it; the plugin requirement
+applies to agent principals). Chat's **Start** button does exactly that, and
+Ordubashy's Chat starts him automatically while the owner's agent trust consent
+exists and his session intent is not `stopped` or `paused`. The queued action is
+dispatched like any other: same rechecks, same idle-shell preflight. Before
+typing the launcher, the dispatcher records folder trust for the target's
+workspace when the owner has consented (`bazarlyk/agent_trust.py`), so the
+readiness wait reaches the composer instead of stopping at a trust prompt.
+
 ## Target selectors and batch review
 
 Lifecycle tools and owner command issuance accept any combination of:
