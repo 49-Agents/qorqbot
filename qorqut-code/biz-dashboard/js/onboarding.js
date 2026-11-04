@@ -142,16 +142,16 @@ const onboarding = (() => {
     }
     Object.assign(card.style, {left:clampX(cx)+'px', top:clampY(cy)+'px'});
   }
-  function invitation(resume = false) {
+  function invitation() {
     create(); setWelcome(true); describeTarget(null);
     const mascot = findAgent('ordubashy');
     card.innerHTML = `<button class="onboarding-close" type="button" aria-label="skip walkthrough">×</button>
       <div class="onboarding-mark" aria-hidden="true">${mascot ? agentGlyph(mascot, 48) : ""}</div>
-      <h2 id="onboarding-title">${resume ? 'pick up where you left off' : 'welcome to qorqbot'}</h2>
+      <h2 id="onboarding-title">welcome to qorqbot</h2>
       <p class="onboarding-notice" data-tour-notice role="status"></p>
       <div class="onboarding-welcome-actions"><button type="button" class="ghost" data-tour-skip>skip</button><button type="button" data-tour-start>next</button></div>`;
     card.querySelector('.onboarding-close').onclick = () => exit(); card.querySelector('[data-tour-skip]').onclick = () => exit();
-    card.querySelector('[data-tour-start]').onclick = () => showStep(resume ? Math.max(0, steps.findIndex(s => s.id === ({chat: 'terminal', calendar: 'focus'}[saved?.step] || saved?.step))) : 0);
+    card.querySelector('[data-tour-start]').onclick = () => showStep(0);
     position(); card.querySelector('[data-tour-start]').focus({preventScroll: true});
   }
   async function prepareStep(step, token) {
@@ -232,7 +232,7 @@ const onboarding = (() => {
         saved = coreData(await api('/root/onboarding'));
         if (!['new','in_progress'].includes(saved.status) || root) return;
         await waitFor(() => document.querySelector('.global-agents,.settingspane'));
-        if (!root && !_modal) invitation(saved.status === 'in_progress');
+        if (!root && !_modal) invitation();
       } catch (_) { /* A walkthrough never blocks loading the app. Settings can retry. */ }
     },
     async start() {
