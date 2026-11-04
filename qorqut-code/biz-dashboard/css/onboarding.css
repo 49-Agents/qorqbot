@@ -7,7 +7,11 @@
 .onboarding-card h2 { margin:17px 0 10px; max-width:290px; font-size:23px; font-weight:500; text-transform:none; color:var(--fg); line-height:1.2; letter-spacing:-.035em; }
 .onboarding-card p { margin:0; font-size:13px; line-height:1.65; color:#c0c0c0; }
 .onboarding-card .onboarding-hint { margin-top:13px; font-size:12px; color:#909090; }
-.onboarding-step-head { display:flex; justify-content:flex-end; }
+.onboarding-step-head { display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
+.onboarding-chapter { font:10px var(--mono); color:#909090; text-transform:uppercase; letter-spacing:.06em; }
+.onboarding-footer>div:first-child { gap:10px; }
+.onboarding-settings-chapters { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+.onboarding-settings-chapters button { font-size:11px; height:28px; padding:0 10px; }
 .onboarding-instructions { padding-left:19px; margin:15px 0 0; font-size:13px; line-height:1.6; color:#c0c0c0; }
 .onboarding-instructions li + li { margin-top:9px; }
 .onboarding-card, .onboarding-shade, .onboarding-outline { transition:left .3s ease, top .3s ease, width .3s ease, height .3s ease; }

@@ -8,7 +8,9 @@ import tempfile
 
 from qorqut_operations.contracts import DomainError
 
-STEPS = ("assistant", "terminal", "chat", "focus", "calendar", "learning")
+# Saved step ids, in walkthrough order. Removing an id makes saved progress unreadable, so ids are only added.
+STEPS = ("assistant", "terminal", "chat", "focus", "attention", "activity", "calendar", "journal",
+         "projects", "signoffs", "learning", "context", "settings")
 STATUSES = {"new", "in_progress", "skipped", "completed"}
 
 
