@@ -230,7 +230,7 @@ class WorkflowAttention:
         ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
         if (ctx.principal_kind != 'agent' or ctx.source != 'mcp' or not ctx.session_registration_id
                 or ctx.delegation_binding_id is not None or ctx.delegation_assignment_id is not None
-                or configured_ordubashy(uow, require_codex=False) != ctx.principal_id):
+                or configured_ordubashy(uow) != ctx.principal_id):
             raise DomainError('forbidden', 'A current full native Ordubashy registration is required')
         registration = uow.connection.execute('SELECT * FROM machine_registrations WHERE id=?', (ctx.session_registration_id,)).fetchone()
         profile, profile_row = self.runtime.resolver.profile(ctx.principal, connection=uow.connection)

@@ -44,12 +44,10 @@ Private coordinator: `installation.management_coordinator_id`, whose
 runtime check**.
 
 `bazarlyk/management/identity.py` holds this once: `installation_owner(uow)`,
-`ordubashy_profile(uow, identity, *, require_codex)`, and
-`configured_ordubashy(uow, *, require_codex)` (`private_participants(uow)`
-calls it with `require_codex=False`). This is a deliberate split from
-`ManagementService._coordinator`/`require_coordinator`, which keep
-`require_codex=True` for the existing Codex-only management intake; no other
-management, browser, terminal or signoff authority changed.
+`ordubashy_profile(uow, identity)`, and `configured_ordubashy(uow)`
+(`private_participants(uow)` uses it). `ManagementService._coordinator` and
+`require_coordinator` ask the same question: the coordinator is the registered
+Ordubashy on any supported runtime.
 
 Session IDs, runtimes (`claude-code`/`codex`), `agent_activity` rows and
 continuation state never influence the ACL: every session of the one

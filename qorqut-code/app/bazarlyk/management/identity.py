@@ -1,7 +1,7 @@
 """One registered identity predicate for the installation owner and Ordubashy.
 
-The private owner conversation and the Codex-only management intake ask the same
-question about different runtimes, so the profile check lives here once. Session
+The private owner conversation and management intake ask the same question, on
+whichever supported CLI the owner started, so the profile check lives here once. Session
 IDs, `agent_activity` rows, runtime bookkeeping, workspace paths and display
 names are delivery details: they never widen or narrow who a principal is.
 """
@@ -19,44 +19,41 @@ def installation_owner(uow):
     return row[0] if row else None
 
 
-def ordubashy_profile(uow, identity, *, require_codex):
+def ordubashy_profile(uow, identity):
     """True when `identity` is a current supported global holding the Ordubashy role.
 
     Current means the shared global eligibility (``global_scope.active_global``):
     an active agent principal with an active, homeless ecosystem profile. A
-    business-home, inactive or malformed registration never qualifies.
-    `require_codex` keeps the existing Codex-only management contract. The
-    private conversation predicate passes False so that every supported runtime
-    of the one registered identity shares its history.
+    business-home, inactive or malformed registration never qualifies. The
+    runtime is not part of the identity: the owner may start Ordubashy with any
+    supported CLI, and every session shares the same records and history.
     """
     data = active_global(uow.connection, identity)
-    if data is None or data['role']['id'] != ORDUBASHY_ROLE:
-        return False
-    return not require_codex or data.get('runtime') == 'codex'
+    return data is not None and data['role']['id'] == ORDUBASHY_ROLE
 
 
-def configured_ordubashy(uow, *, require_codex):
+def configured_ordubashy(uow):
     """The one configured coordinator principal, or None when it cannot act."""
     installation = uow.repository('installation').get('service')
     identity = installation and installation['management_coordinator_id']
-    if not identity or not ordubashy_profile(uow, identity, require_codex=require_codex):
+    if not identity or not ordubashy_profile(uow, identity):
         return None
     return identity
 
 
 def private_participants(uow):
     """The exact pair allowed in a private conversation; never client-selected."""
-    return installation_owner(uow), configured_ordubashy(uow, require_codex=False)
+    return installation_owner(uow), configured_ordubashy(uow)
 
 
 def require_coordinator(uow):
-    """Codex-only management coordinator; keeps its two distinct refusals."""
+    """The management coordinator on any supported runtime; keeps its two distinct refusals."""
     installation = uow.repository('installation').get('service')
     if not (installation and installation['management_coordinator_id']):
         raise DomainError('management_unavailable', 'No management coordinator is configured')
-    identity = configured_ordubashy(uow, require_codex=True)
+    identity = configured_ordubashy(uow)
     if not identity:
-        raise DomainError('management_unavailable', 'Configured coordinator is not an active Codex Ordubashy')
+        raise DomainError('management_unavailable', 'Configured coordinator is not an active Ordubashy')
     return identity
 
 

@@ -309,7 +309,7 @@ class AgentActivity:
                 u.connection.executemany('UPDATE agent_activity SET state=?,sequence=?,last_seen_at=?,activity_at=?,checkpoint_state=?,checkpoint_checked_at=? '
                     'WHERE agent_id=? AND session_id=? AND sequence<=?', [(*row,row[1]) for row in observations])
                 from bazarlyk.management.identity import configured_ordubashy
-                coordinator = configured_ordubashy(u, require_codex=False)
+                coordinator = configured_ordubashy(u)
                 for agent_id, session_id, registration_id, tool_id, genuine_at in genuine_tools:
                     if agent_id != coordinator:
                         continue
@@ -506,7 +506,7 @@ class AgentActivity:
         and an unchanged Task keeps his later choice."""
         from bazarlyk.management.identity import configured_ordubashy
         task = (items[0]['business_id'], items[0].get('task_id')) if items else None
-        ordubashy = configured_ordubashy(uow, require_codex=False)
+        ordubashy = configured_ordubashy(uow)
         if not ordubashy or not task or not task[1] or (stored and task == (stored[0]['business_id'], stored[0].get('task_id'))):
             return
         thread = ThreadItem(task[0], 'task', task[1])

@@ -71,7 +71,7 @@ def context_locations(paths) -> ContextLocations:
 
 def coordinator_of(uow) -> str | None:
     """The configured Ordubashy's identity if it can receive notices (any runtime), read in the caller's own snapshot."""
-    return configured_ordubashy(uow, require_codex=False)
+    return configured_ordubashy(uow)
 
 
 def compose_context(application, paths, settings: ContextSettings | None = None) -> integration.ContextComposition:

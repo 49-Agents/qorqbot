@@ -6,7 +6,7 @@ coordinator, or deployment.
 ## Management without impersonation
 
 Business agents use `management_message_send` for durable management requests.
-An owner explicitly selects the installation's active Codex Ordubashy with
+An owner explicitly selects the installation's active Ordubashy with
 `management_coordinator_set`. The service routes to this exact principal; it
 never chooses a similarly named agent or gives it the owner's identity.
 
@@ -179,11 +179,14 @@ these bounds alone; full production load measurement remains a rollout check.
 
 ## Verification and adoption
 
-Legacy Ordubashy profiles may still declare `claude-code`. Before role adoption,
-use `agents_update` with `changes={"runtime":"codex"}` and the current profile
-revision under the installation owner's context. This keeps the existing agent
-identity and records; preparation refreshes its generated files without launching
-a CLI. Ordubashy cannot be changed back to a non-Codex runtime.
+Ordubashy runs on Codex or Claude Code. Every prepared workspace carries both
+clients' hooks and instructions, so the owner starts whichever CLI they choose in
+Ordubashy's own terminal, and management intake, delegated answers and the Focus
+board support that session. Automatic durable-worker execution still requires
+a Codex parent session. The profile `runtime` is only the
+default: the CLI that terminal control starts and that Chat names first. Change it
+with `agents_update` and `changes={"runtime":"codex"}` or `{"runtime":"claude-code"}`;
+the agent identity and records stay the same in both directions.
 
 Focused isolated coverage exercises authoritative migrations, management delivery
 and delegated answers through real HTTP/MCP, policy/membership revocation, exact

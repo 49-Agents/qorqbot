@@ -136,7 +136,7 @@ class LocalFiles:
             # A retired business agent's registration never reaches its old bindings.
             if row is None or not browser_surfaces.global_profile(row["profile_json"]):
                 raise DomainError("not_found", "Active registered Global agent was not found")
-            desktop_allowed = configured_ordubashy(uow, require_codex=False) == agent_id
+            desktop_allowed = configured_ordubashy(uow) == agent_id
         registry = browser_surfaces.read(self.runtime.paths)
         fallback = None
         if desktop_allowed:

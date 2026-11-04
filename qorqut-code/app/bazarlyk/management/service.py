@@ -53,7 +53,7 @@ class ManagementService:
             **common, supports_signoff=False, description='Send a durable management message to the exact configured coordinator.', prepare=self.prepare_message, apply=self.apply_message))
         registry.register(OperationDescriptor('management_coordinator_set', schema({'coordinator_id': UUID}, ('coordinator_id',)),
             scope_kinds=frozenset({'global'}), exposure=frozenset({'dashboard', 'worker'}), owner_only=True,
-            global_capability='read_global_context', supports_signoff=False, description='Set the one installation management coordinator. The target must be an active Codex Ordubashy.',
+            global_capability='read_global_context', supports_signoff=False, description='Set the one installation management coordinator. The target must be an active Ordubashy.',
             prepare=self.prepare_coordinator, apply=self.apply_coordinator))
         registry.register(OperationDescriptor('management_resolve', schema({**SCOPE, 'routing_id': UUID,
             'disposition': {'enum': ['resolved', 'dismissed']}},
@@ -65,8 +65,6 @@ class ManagementService:
 
     @staticmethod
     def _coordinator(uow):
-        # Management intake stays Codex-only; the private owner conversation
-        # uses the same registered identity with require_codex=False.
         return require_coordinator(uow)
 
     def _scope(self, ctx, business_id, uow):
@@ -98,7 +96,7 @@ class ManagementService:
         identity = installation and installation['management_coordinator_id']
         profile = uow.connection.execute('SELECT p.display_name,p.active,a.status,a.profile_json FROM principals p LEFT JOIN agent_profiles a ON a.agent_id=p.id WHERE p.id=?', (identity,)).fetchone() if identity else None
         data = json.loads(profile['profile_json'] or '{}') if profile else {}
-        valid = ordubashy_profile(uow, identity, require_codex=True)
+        valid = ordubashy_profile(uow, identity)
         observed = uow.connection.execute('SELECT state,last_seen_at,runtime FROM agent_activity WHERE agent_id=? ORDER BY last_seen_at DESC LIMIT 1', (identity,)).fetchone() if identity else None
         now = self.clock()
         if isinstance(now,str):
@@ -110,7 +108,7 @@ class ManagementService:
                 fresh = 0 <= (now - seen).total_seconds() <= 180
             except (ValueError,TypeError):
                 pass
-        observed_live = bool(fresh and observed['runtime']=='codex' and observed['state'] in {'running','idle'})
+        observed_live = bool(fresh and observed['runtime'] in {'codex','claude-code'} and observed['state'] in {'running','idle'})
         return {'principal_id': identity, 'display_name': profile['display_name'] if profile else None,
                 'role_id': data.get('role', {}).get('id') if profile else None, 'runtime': data.get('runtime') if profile else None,
                 'active': bool(profile and profile['active'] and profile['status'] == 'active'), 'available': valid and observed_live,
@@ -220,8 +218,8 @@ class ManagementService:
             namespace=task_namespace(ctx,args), affected_scope={'kind': 'business', 'business_id': ctx.business_id}).build()
 
     def _validate_coordinator(self, identity, uow):
-        if not ordubashy_profile(uow, identity, require_codex=True):
-            raise DomainError('validation_error', 'Coordinator must be an active Codex Ordubashy profile')
+        if not ordubashy_profile(uow, identity):
+            raise DomainError('validation_error', 'Coordinator must be an active Ordubashy profile')
 
     def prepare_coordinator(self, ctx, args, options, uow):
         if ctx.principal_kind != 'human' or self._owner(uow) != ctx.principal_id or ctx.business_id is not None:

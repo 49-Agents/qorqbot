@@ -90,7 +90,7 @@ class HostVisibility:
         # reads and acknowledgements retain the inbox's normal authorization.
         from bazarlyk.management.identity import configured_ordubashy
         attention = (self.inbox.app.ordubashy_attention
-                     if agent_id == configured_ordubashy(uow, require_codex=False) else None)
+                     if agent_id == configured_ordubashy(uow) else None)
         focused = bool(attention and attention.state(uow, agent_id).get('focus_json'))
         granted: set[int] = set()
         source_visibility = {}

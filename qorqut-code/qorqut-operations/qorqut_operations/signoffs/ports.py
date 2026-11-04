@@ -66,10 +66,10 @@ class ExecutionPresentation(Protocol):
 class PeerIdentities(Protocol):
     """The exact current identity lookup behind the standing-authority check (v1 ``management.identity``).
 
-    ``configured_ordubashy(uow, *, require_codex)`` -> the one configured coordinator principal id, or ``None``
+    ``configured_ordubashy(uow)`` -> the one configured coordinator principal id, or ``None``
     when it cannot act. The engine decides what this answer authorizes and re-checks it before execution."""
 
-    def configured_ordubashy(self, uow, *, require_codex: bool) -> str | None: ...
+    def configured_ordubashy(self, uow) -> str | None: ...
 
 
 class OwnerTaskAttention(Protocol):
