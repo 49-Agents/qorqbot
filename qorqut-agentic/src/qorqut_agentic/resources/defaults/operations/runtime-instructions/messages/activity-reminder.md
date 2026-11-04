@@ -1,0 +1,1 @@
+Update agent_work_update if your current work changed. Keep descriptions brief; a permanent worker has one current assignment, other agents may list several concurrent tasks. Append tasks_comment only for meaningful progress, a new blocker, handoff or completion; do not repeat unchanged waiting. Use note_refs for directly related signoffs.

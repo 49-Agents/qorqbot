@@ -259,6 +259,18 @@ class HostAgenticView:
             raise DomainError("agentic_resource_unavailable", exc.message,
                               details={"source_id": source_id, "path": source_path, "agentic_code": exc.code}) from exc
 
+    def runtime_instructions(self):
+        """Current protected runtime prose; never use bundled code strings as fallback."""
+        from qorqut_agentic.behavior.instructions import from_catalog
+
+        def read():
+            def resource(path):
+                value = self.resource("roles", "operations/runtime-instructions/" + path)
+                return _bytes(value).decode("utf-8")
+            return from_catalog(resource)
+
+        return self.consistent(read)
+
     def role_brief(self, native_package) -> dict:
         """Read the current role instruction through its trusted native binding."""
         if native_package.kind != "role":

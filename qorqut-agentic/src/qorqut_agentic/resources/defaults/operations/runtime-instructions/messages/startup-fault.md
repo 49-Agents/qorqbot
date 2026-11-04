@@ -1,0 +1,1 @@
+ agent_runtime_get and operations_describe are diagnostic reads, not delivery confirmation. Record a persistent fault once on the existing task with its request/receipt ID and who acts next. Saved context does not grant current service permission.

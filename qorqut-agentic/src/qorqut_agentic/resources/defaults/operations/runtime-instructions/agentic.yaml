@@ -1,0 +1,288 @@
+{
+  "schema_version": 1,
+  "id": "runtime-instructions",
+  "name": "Runtime instructions",
+  "description": "Canonical hook, startup, reminder and recovery wording. Delivery does not grant authority.",
+  "entries": [
+    {
+      "id": "activity-reminder",
+      "kind": "instruction",
+      "path": "messages/activity-reminder.md",
+      "description": "Activity reminder",
+      "when_to_use": "activity hook; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-board",
+      "kind": "instruction",
+      "path": "messages/attention-board.md",
+      "description": "Attention board",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-candidates",
+      "kind": "instruction",
+      "path": "messages/attention-candidates.md",
+      "description": "Attention candidates",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-continue",
+      "kind": "instruction",
+      "path": "messages/attention-continue.md",
+      "description": "Attention continue",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-data",
+      "kind": "instruction",
+      "path": "messages/attention-data.md",
+      "description": "Attention data",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-detach",
+      "kind": "instruction",
+      "path": "messages/attention-detach.md",
+      "description": "Attention detach",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-empty",
+      "kind": "instruction",
+      "path": "messages/attention-empty.md",
+      "description": "Attention empty",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-focus",
+      "kind": "instruction",
+      "path": "messages/attention-focus.md",
+      "description": "Attention focus",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-more",
+      "kind": "instruction",
+      "path": "messages/attention-more.md",
+      "description": "Attention more",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-unavailable",
+      "kind": "instruction",
+      "path": "messages/attention-unavailable.md",
+      "description": "Attention unavailable",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "background-recovered",
+      "kind": "instruction",
+      "path": "messages/background-recovered.md",
+      "description": "Background recovered",
+      "when_to_use": "activity context; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "briefing-evidence",
+      "kind": "instruction",
+      "path": "messages/briefing-evidence.md",
+      "description": "Briefing evidence",
+      "when_to_use": "briefing; legacy; selected by the registered runtime policy."
+    },
+    {
+      "id": "briefing-omitted",
+      "kind": "instruction",
+      "path": "messages/briefing-omitted.md",
+      "description": "Briefing omitted",
+      "when_to_use": "briefing; legacy; selected by the registered runtime policy."
+    },
+    {
+      "id": "briefing-tools",
+      "kind": "instruction",
+      "path": "messages/briefing-tools.md",
+      "description": "Briefing tools",
+      "when_to_use": "briefing; legacy; selected by the registered runtime policy."
+    },
+    {
+      "id": "briefing-truncated",
+      "kind": "instruction",
+      "path": "messages/briefing-truncated.md",
+      "description": "Briefing truncated",
+      "when_to_use": "briefing; legacy; selected by the registered runtime policy."
+    },
+    {
+      "id": "completion-finished-work",
+      "kind": "instruction",
+      "path": "messages/completion-finished-work.md",
+      "description": "Completion finished work",
+      "when_to_use": "checkpoints; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "completion-focus-retired",
+      "kind": "instruction",
+      "path": "messages/completion-focus-retired.md",
+      "description": "Completion focus retired",
+      "when_to_use": "checkpoints; retired; selected by the registered runtime policy."
+    },
+    {
+      "id": "completion-owner-inbox",
+      "kind": "instruction",
+      "path": "messages/completion-owner-inbox.md",
+      "description": "Completion owner inbox",
+      "when_to_use": "checkpoints; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "completion-records",
+      "kind": "instruction",
+      "path": "messages/completion-records.md",
+      "description": "Completion records",
+      "when_to_use": "checkpoints; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "completion-unavailable-work",
+      "kind": "instruction",
+      "path": "messages/completion-unavailable-work.md",
+      "description": "Completion unavailable work",
+      "when_to_use": "checkpoints; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "completion-wrapper",
+      "kind": "instruction",
+      "path": "messages/completion-wrapper.md",
+      "description": "Completion wrapper",
+      "when_to_use": "activity hook; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "environment-guidance",
+      "kind": "instruction",
+      "path": "messages/environment-guidance.md",
+      "description": "Environment guidance",
+      "when_to_use": "environment; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "environment-legacy",
+      "kind": "instruction",
+      "path": "messages/environment-legacy.md",
+      "description": "Environment legacy",
+      "when_to_use": "environment; legacy; selected by the registered runtime policy."
+    },
+    {
+      "id": "environment-legacy-omitted",
+      "kind": "instruction",
+      "path": "messages/environment-legacy-omitted.md",
+      "description": "Environment legacy omitted",
+      "when_to_use": "environment; legacy; selected by the registered runtime policy."
+    },
+    {
+      "id": "environment-omitted",
+      "kind": "instruction",
+      "path": "messages/environment-omitted.md",
+      "description": "Environment omitted",
+      "when_to_use": "environment; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "environment-truncated",
+      "kind": "instruction",
+      "path": "messages/environment-truncated.md",
+      "description": "Environment truncated",
+      "when_to_use": "environment; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "environment-unavailable",
+      "kind": "instruction",
+      "path": "messages/environment-unavailable.md",
+      "description": "Environment unavailable",
+      "when_to_use": "environment; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "memory-legacy-plan",
+      "kind": "instruction",
+      "path": "messages/memory-legacy-plan.md",
+      "description": "Memory legacy plan",
+      "when_to_use": "working memory; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "memory-omitted",
+      "kind": "instruction",
+      "path": "messages/memory-omitted.md",
+      "description": "Memory omitted",
+      "when_to_use": "working memory; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "memory-pending",
+      "kind": "instruction",
+      "path": "messages/memory-pending.md",
+      "description": "Memory pending",
+      "when_to_use": "working memory; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "skills-header",
+      "kind": "instruction",
+      "path": "messages/skills-header.md",
+      "description": "Skills header",
+      "when_to_use": "always skills; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "skills-omitted",
+      "kind": "instruction",
+      "path": "messages/skills-omitted.md",
+      "description": "Skills omitted",
+      "when_to_use": "always skills; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "startup-denied",
+      "kind": "instruction",
+      "path": "messages/startup-denied.md",
+      "description": "Startup denied",
+      "when_to_use": "claude session; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "startup-fault",
+      "kind": "instruction",
+      "path": "messages/startup-fault.md",
+      "description": "Startup fault",
+      "when_to_use": "claude session; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "startup-inventory",
+      "kind": "instruction",
+      "path": "messages/startup-inventory.md",
+      "description": "Startup inventory",
+      "when_to_use": "claude session; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "startup-pending",
+      "kind": "instruction",
+      "path": "messages/startup-pending.md",
+      "description": "Startup pending",
+      "when_to_use": "claude session; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "startup-recovered",
+      "kind": "instruction",
+      "path": "messages/startup-recovered.md",
+      "description": "Startup recovered",
+      "when_to_use": "claude session; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "startup-repair",
+      "kind": "instruction",
+      "path": "messages/startup-repair.md",
+      "description": "Startup repair",
+      "when_to_use": "claude session; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "startup-session",
+      "kind": "instruction",
+      "path": "messages/startup-session.md",
+      "description": "Startup session",
+      "when_to_use": "claude session; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "startup-unavailable",
+      "kind": "instruction",
+      "path": "messages/startup-unavailable.md",
+      "description": "Startup unavailable",
+      "when_to_use": "claude session; conditional; selected by the registered runtime policy."
+    }
+  ]
+}

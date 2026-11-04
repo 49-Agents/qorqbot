@@ -18,53 +18,26 @@ from pathlib import Path
 import sys
 import tempfile
 
-SKILLS = (
-    "bazarlyk-role-owner-focus",
-    "bazarlyk-role-chat-references",
-    "bazarlyk-role-owner-input",
-    "bazarlyk-role-action-recording",
-    "bazarlyk-role-owner-reminders",
-    "bazarlyk-role-calendar",
-    "bazarlyk-plugin-email-management",
-    "bazarlyk-role-business-tables",
-    "bazarlyk-role-browser-control",
-    # Owners ask Ordubashy how Qorqbot works; a skill matched only by its description was missed on the first question.
-    "bazarlyk-qorqbot-guide",
-)
-SKILL_ROOTS = {"codex": ".agents/skills", "claude-code": ".claude/skills"}
-# Matches the generated Codex additionalContextLimit for this hook entry.
-LIMIT = 120000
-HEADER = "# Always-loaded skills (already loaded — follow them; do not re-read)"
 
+def agentic_policy(registration_path):
+    import importlib.util
+    path = Path(registration_path).parent / 'agentic-instructions.py'
+    if path.is_symlink() or any(parent.is_symlink() for parent in path.parents):
+        raise ValueError('Agentic hook helper cannot be a symlink')
+    spec = importlib.util.spec_from_file_location('prepared_agentic_instructions', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 def _no_symlink(path: Path) -> bool:
     return not (path.is_symlink() or any(parent.is_symlink() for parent in path.parents))
 
 
-def render(workspace: Path, runtime: str, limit: int = LIMIT) -> str:
-    root = workspace / SKILL_ROOTS[runtime]
-    parts, notes = [HEADER], []
-    size = len(HEADER)
-    for name in SKILLS:
-        path = root / name / "SKILL.md"
-        try:
-            if not _no_symlink(path):
-                raise OSError("symlink")
-            text = path.read_text(encoding="utf-8").strip()
-        except (OSError, UnicodeError):
-            notes.append(f"- {name}: not available in this workspace; skipped.")
-            continue
-        block = f'<skill name="{name}" path="{path}">\n{text}\n</skill>'
-        # Reserve room for a short note per skill so the total stays within limit.
-        if size + len(block) + 2 > limit - 250 * len(SKILLS):
-            # Never truncate a skill: name it so the agent reads it on demand.
-            notes.append(f"- {name}: omitted (context budget); read {path} in full before using it.")
-            continue
-        parts.append(block)
-        size += len(block) + 2
-    if notes:
-        parts.append("Skill notes:\n" + "\n".join(notes))
-    return "\n\n".join(parts)
+def render(workspace: Path, runtime: str, limit=None) -> str:
+    registration_path = workspace / '.bazarlyk/registration.json'
+    policy = agentic_policy(registration_path)
+    return policy.render_skills(policy.from_prepared(registration_path), workspace, runtime,
+                                limit=policy.SKILL_BUDGET if limit is None else limit)
 
 
 def _receipt_path(workspace: Path, session_id: str) -> Path:
@@ -87,7 +60,7 @@ def _write_private(path: Path, value: dict) -> None:
 
 def handle(hook: dict, registration_path: Path, runtime: str) -> dict:
     event = hook.get("hook_event_name")
-    if event not in {"SessionStart", "UserPromptSubmit"} or runtime not in SKILL_ROOTS:
+    if event not in {"SessionStart", "UserPromptSubmit"} or runtime not in {"claude-code", "codex"}:
         return {}
     session_id = hook.get("session_id")
     if not isinstance(session_id, str) or not 1 <= len(session_id) <= 200:

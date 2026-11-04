@@ -1,0 +1,1 @@
+For more board context, use attention_get(projection="summary") and its pagination.

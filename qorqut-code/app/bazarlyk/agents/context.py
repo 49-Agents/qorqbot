@@ -17,6 +17,7 @@ from qorqut_operations.contracts import DomainError, canonical_bytes
 from .models import AgentProfile
 from .roles import SUPPORTED_GLOBAL_ROLES
 from . import role_workflow
+from qorqut_agentic.behavior import composition as instruction_policy
 from bazarlyk.agentic.text import bundled, render
 
 # A generous total delivery budget, roughly 20k tokens for ordinary English.
@@ -129,7 +130,7 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
         if not body.strip():
             raise DomainError("missing_context", f"Mandatory context is empty: {source.document_id}")
         header = f"## {title}\n[source={source.document_id}; revision={source.revision}; hash={source.content_hash}]"
-        rendered.append(header + "\n" + body)
+        rendered.append((title, header + "\n" + body))
         entries.append({"document_id": source.document_id, "source_id": source.document_id,
                         "source_kind": source.source_kind, "source_path": source.source_path,
                         "section_selector": source.section_selector, "revision": source.revision,
@@ -192,57 +193,57 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
             "engineering:" + business["id"], "Current repository and deployment ownership; no credential values")
     plugins = ", ".join(f"{item['id']}@{item['version']}" for item in profile.data["plugins"]) or "none"
     parameters = "\n".join(f"{item['id']} parameters: {canonical_bytes(item['config']).decode()}" for item in profile.data["plugins"])
+    # Explicit resource reads retain the host inventory contracts; Agentic selects and orders them.
+    guidance_by_name = {
+        "software-ownership": render(agentic_view, "host", "app/bazarlyk/agentic/assets/software-ownership.md"),
+        "startup": render(agentic_view, "host", "app/bazarlyk/agentic/assets/startup.md"),
+        "completion-report": render(agentic_view, "host", "app/bazarlyk/agentic/assets/completion-report.md"),
+        "thread-replies": render(agentic_view, "host", "app/bazarlyk/agentic/assets/thread-replies.md"),
+        "owner-decisions": render(agentic_view, "host", "app/bazarlyk/agentic/assets/owner-decisions.md"),
+        "trusted-handoffs": render(agentic_view, "host", "app/bazarlyk/agentic/assets/trusted-handoffs.md"),
+        "project-briefing": render(agentic_view, "host", "app/bazarlyk/agentic/assets/project-briefing.md"),
+        "working-memory": render(agentic_view, "host", "app/bazarlyk/agentic/assets/working-memory.md"),
+        "capability-handoffs": render(agentic_view, "host", "app/bazarlyk/agentic/assets/capability-handoffs.md"),
+        "viewbox-guidance": render(agentic_view, "host", "app/bazarlyk/agentic/assets/viewbox-guidance.md"),
+        "environment-set": render(agentic_view, "host", "app/bazarlyk/agentic/assets/environment-set.md"),
+        "environment-get": render(agentic_view, "host", "app/bazarlyk/agentic/assets/environment-get.md"),
+        "operation-batches": render(agentic_view, "host", "app/bazarlyk/agentic/assets/operation-batches.md"),
+        "task-overview": render(agentic_view, "host", "app/bazarlyk/agentic/assets/task-overview.md"),
+        "environment-list": render(agentic_view, "host", "app/bazarlyk/agentic/assets/environment-list.md"),
+        "files-link-guidance": render(agentic_view, "host", "app/bazarlyk/agentic/assets/files-link-guidance.md"),
+        "legacy-working-memory": render(agentic_view, "host", "app/bazarlyk/agentic/assets/legacy-working-memory.md"),
+        "team-queue": render(agentic_view, "host", "app/bazarlyk/agentic/assets/team-queue.md"),
+        "backlog": render(agentic_view, "host", "app/bazarlyk/agentic/assets/backlog.md"),
+        "private-owner-replies": render(agentic_view, "host", "app/bazarlyk/agentic/assets/private-owner-replies.md"),
+        "task-assignment": render(agentic_view, "host", "app/bazarlyk/agentic/assets/task-assignment.md"),
+        "task-relations": render(agentic_view, "host", "app/bazarlyk/agentic/assets/task-relations.md"),
+        "signoff-evidence": render(agentic_view, "host", "app/bazarlyk/agentic/assets/signoff-evidence.md"),
+        "learning-review": render(agentic_view, "host", "app/bazarlyk/agentic/assets/learning-review.md"),
+        "context-reads": render(agentic_view, "host", "app/bazarlyk/agentic/assets/context-reads.md"),
+    }
     orientation = [render(agentic_view, "host", "app/bazarlyk/agentic/assets/workspace.md", WORKSPACE=str(workspace))]
-    orientation.append(render(agentic_view, "host", "app/bazarlyk/agentic/assets/software-ownership.md"))
-    orientation.append(render(agentic_view, "host", "app/bazarlyk/agentic/assets/startup.md"))
+    orientation.extend(guidance_by_name[path]
+                       for path in instruction_policy.LEADING_ORIENTATION)
     from .preferences import plugin_discovery_guidance
     orientation.append(plugin_discovery_guidance())
     orientation.extend(extension_guidance)
-    orientation.append(
-        render(agentic_view, "host", "app/bazarlyk/agentic/assets/completion-report.md"))
-    orientation.append(
-        render(agentic_view, "host", "app/bazarlyk/agentic/assets/thread-replies.md"))
-    orientation.append(
-        render(agentic_view, "host", "app/bazarlyk/agentic/assets/owner-decisions.md"))
-    orientation.append(render(agentic_view, "host", "app/bazarlyk/agentic/assets/trusted-handoffs.md"))
-    if "business_briefing" in available_operations:
-        orientation.append(render(agentic_view, "host", "app/bazarlyk/agentic/assets/project-briefing.md"))
-    orientation.append(render(agentic_view, "host", "app/bazarlyk/agentic/assets/working-memory.md"))
-    orientation.append(
-        render(agentic_view, "host", "app/bazarlyk/agentic/assets/capability-handoffs.md"))
+    orientation.extend(guidance_by_name[path]
+                       for path in instruction_policy.orientation_tail(available_operations))
     if {'inbox_list', 'inbox_acknowledge'} <= available_operations:
         inbox_instructions = render(agentic_view, "host", "app/bazarlyk/agentic/assets/inbox.md")
         add("Agent inbox", ContextSource("core:agent-inbox", inbox_instructions, 1,
             content_hash(inbox_instructions.encode()), "qorqut-core:agent-inbox", "core"),
             "Built-in agent startup and inbox handling")
-    for required_tools, guidance in (
-        ({"viewbox_place"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/viewbox-guidance.md")),
-        ({"environment_set"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/environment-set.md")),
-        ({"environment_get"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/environment-get.md")),
-        ({"operations_batch"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/operation-batches.md")),
-        ({"tasks_overview"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/task-overview.md")),
-        ({"environment_list"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/environment-list.md")),
-        ({"files_link"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/files-link-guidance.md")),
-        ({"plans_get", "plans_set", "notes_get", "notes_create"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/legacy-working-memory.md")),
-        ({"agents_list", "tasks_list"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/team-queue.md")),
-        ({"tasks_update", "tasks_list"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/backlog.md")),
-        ({"owner_conversation_get", "owner_conversation_send"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/private-owner-replies.md")),
-        ({"tasks_assign"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/task-assignment.md")),
-        ({"tasks_create", "tasks_update"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/task-relations.md")),
-        ({"signoffs_list", "signoffs_get"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/signoff-evidence.md")),
-        ({"learnings_review_list", "learnings_review_get"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/learning-review.md")),
-        ({"context_home", "context_find", "context_object", "context_expand"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/context-reads.md")),
-    ):
-        if required_tools <= available_operations:
-            orientation.append(guidance)
+    orientation.extend(guidance_by_name[path]
+                       for path in instruction_policy.capability_guidance(available_operations))
     work = ("\n".join(orientation) + "\n" + render(agentic_view, "host", "app/bazarlyk/agentic/assets/plugins.md", PLUGINS=str(plugins))
             + (parameters + "\n" if parameters else "")
             + ((render(agentic_view, "host", "app/bazarlyk/agentic/assets/context-evidence.md")) if context_home else
                render(agentic_view, "host", "app/bazarlyk/agentic/assets/context-unavailable.md"))
             + render(agentic_view, "host", "app/bazarlyk/agentic/assets/current-configuration.md", CONFIGURATION=str(effective_config_id)))
     derived("Work Orientation", work, "work:" + profile.agent_id, "Queues, own documents, selected abilities, and expanded evidence roots")
-    bundle = (render(agentic_view, "host", "app/bazarlyk/agentic/assets/configuration-header.md", CONFIGURATION=str(effective_config_id))
-              + "\n\n".join(rendered))
+    bundle = instruction_policy.assemble_sections(
+        render(agentic_view, "host", "app/bazarlyk/agentic/assets/configuration-header.md", CONFIGURATION=str(effective_config_id)), rendered)
     if len(bundle) > MAX_CONTEXT_CHARACTERS:
         raise DomainError("context_budget_exceeded", f"Mandatory context contains {len(bundle)} characters; maximum is {MAX_CONTEXT_CHARACTERS}",
                           details={"character_count": len(bundle), "limit": MAX_CONTEXT_CHARACTERS,
