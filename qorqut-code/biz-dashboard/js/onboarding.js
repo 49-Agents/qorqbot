@@ -55,7 +55,8 @@ const onboarding = (() => {
       body: 'The shared context your agents work from: what they know about you, your work and how you like it done. You can read and edit it here.',
       target: pane},
     {id: 'settings', chapter: 'yours', title: 'settings',
-      body: 'Environment values such as API keys for your agents live in Settings. Replay this walkthrough or any chapter from there.',
+      body: 'Environment values such as API keys for your agents live in Settings.',
+      hint: 'Take this walkthrough again, or one chapter of it, anytime with the ? button just above Terminal.',
       target: () => document.querySelector('[data-global-settings]')},
   ];
   let root = null, card = null, target = null, index = 0, generation = 0, busy = false;
@@ -131,7 +132,9 @@ const onboarding = (() => {
     if (status === 'completed') {
       const assistant = findAgent('ordubashy');
       if (assistant) globalAgentsNavigate(assistant.agent_id, {chat: true}).catch(() => {});
-      toast('You’re ready. Replay the walkthrough anytime in Settings.');
+      toast('You’re ready. Replay the walkthrough anytime with the ? button at the bottom left.');
+    } else {
+      toast('Walkthrough closed. Open it again anytime with the ? button at the bottom left.');
     }
   }
   function focusables() {
@@ -181,18 +184,27 @@ const onboarding = (() => {
     }
     Object.assign(card.style, {left:clampX(cx)+'px', top:clampY(cy)+'px'});
   }
-  function invitation(resume = 0) {
+  // First run shows a short welcome; the ? button (menu) also lists every chapter. Both work in any saved state,
+  // so a skipped or finished walkthrough can always be taken again.
+  function invitation(resume = 0, menu = false) {
     create(); setWelcome(true); describeTarget(null);
     const mascot = findAgent('ordubashy');
-    card.innerHTML = `<button class="onboarding-close" type="button" aria-label="skip walkthrough">×</button>
+    const intro = resume ? `<p>You stopped at <b>${chapterTitles[steps[resume].chapter]}</b>.</p>`
+      : '<p>A short tour of your workspace, in four chapters. Skip any chapter, or take it again anytime with the ? button at the bottom left.</p>';
+    const list = menu ? `<div class="onboarding-chapters" aria-label="chapters">${onboardingPlan.chapters(steps).map((c, i) =>
+      `<button type="button" class="onboarding-chapter-pick" data-tour-chapter-pick="${c.start}"><span>${String(i + 1).padStart(2, '0')}</span>${chapterTitles[c.id]}</button>`).join('')}</div>` : '';
+    card.innerHTML = `<button class="onboarding-close" type="button" aria-label="close walkthrough">×</button>
       <div class="onboarding-mark" aria-hidden="true">${mascot ? agentGlyph(mascot, 48) : ""}</div>
-      <h2 id="onboarding-title">welcome to qorqbot</h2>
+      <h2 id="onboarding-title">${menu ? 'walkthrough' : 'welcome to qorqbot'}</h2>
       <p class="onboarding-notice" data-tour-notice role="status"></p>
-      ${resume ? `<p>You stopped at <b>${chapterTitles[steps[resume].chapter]}</b>.</p>` : '<p>A short tour of your workspace, in four chapters. Skip any chapter, or replay it later from Settings.</p>'}
-      <div class="onboarding-welcome-actions"><button type="button" class="ghost" data-tour-skip>skip</button>${resume ? '<button type="button" class="ghost" data-tour-restart>start over</button>' : ''}<button type="button" data-tour-start>${resume ? 'continue' : 'next'}</button></div>`;
-    card.querySelector('.onboarding-close').onclick = () => exit(); card.querySelector('[data-tour-skip]').onclick = () => exit();
+      ${menu && !resume ? '<p>Take the whole tour, or jump to one chapter.</p>' : intro}${list}
+      <div class="onboarding-welcome-actions"><button type="button" class="ghost" data-tour-skip>${menu ? 'close' : 'skip'}</button>${resume ? '<button type="button" class="ghost" data-tour-restart>start over</button>' : ''}<button type="button" data-tour-start>${resume ? 'continue' : menu ? 'start' : 'next'}</button></div>`;
+    // Closing the menu leaves saved progress as it was; only the first-run welcome records a skip.
+    const close = () => menu ? dispose() : exit();
+    card.querySelector('.onboarding-close').onclick = close; card.querySelector('[data-tour-skip]').onclick = close;
     card.querySelector('[data-tour-start]').onclick = () => showStep(resume);
     card.querySelector('[data-tour-restart]')?.addEventListener('click', () => showStep(0));
+    card.querySelectorAll('[data-tour-chapter-pick]').forEach(button => button.onclick = () => showStep(Number(button.dataset.tourChapterPick)));
     position(); card.querySelector('[data-tour-start]').focus({preventScroll: true});
   }
   async function prepareStep(step, token) {
@@ -282,6 +294,13 @@ const onboarding = (() => {
       if (agentWorkspaceEmbedded()) return;
       const first = chapter ? Math.max(0, steps.findIndex(step => step.chapter === chapter)) : 0;
       if (root) dispose(); index = first; create(); await showStep(first);
+    },
+    // The ? button and the desktop app's Help menu. Offers to continue an unfinished walkthrough.
+    async open() {
+      if (agentWorkspaceEmbedded()) return;
+      try { saved = coreData(await api('/root/onboarding')); } catch (_) { /* Open the menu even if progress can't be read. */ }
+      if (root) dispose();
+      invitation(onboardingPlan.resumeIndex(steps, saved), true);
     },
     chapters: () => onboardingPlan.chapters(steps).map(c => ({id: c.id, title: chapterTitles[c.id]})),
   };

@@ -39,6 +39,10 @@
 .onboarding-mark svg { display:block; width:48px; height:48px; }
 .onboarding-mark { display:block; width:48px; height:48px; margin-bottom:25px; }
 .onboarding.is-welcome h2 { max-width:none; font-size:30px; margin-top:11px; margin-bottom:14px; }
+.onboarding-chapters { display:grid; gap:6px; margin-top:18px; }
+.onboarding-card .onboarding-chapter-pick { display:flex; align-items:center; justify-content:flex-start; gap:12px; width:100%; height:38px; padding:0 12px; border-radius:9px; background:#232323; border:1px solid rgba(255,255,255,.09); color:var(--fg); text-align:left; }
+.onboarding-card .onboarding-chapter-pick:hover { background:#2b2b2b; }
+.onboarding-chapter-pick span { font:10px var(--mono); color:var(--accent); }
 .onboarding-welcome-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:27px; }
 .onboarding-settings { display:flex; justify-content:space-between; align-items:center; gap:20px; padding:20px 0 24px; margin-bottom:26px; border-bottom:1px solid var(--line-2); }
 .onboarding-settings h2 { text-transform:none; margin:0 0 5px; font-size:15px; font-weight:500; }
