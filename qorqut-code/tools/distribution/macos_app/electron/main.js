@@ -6,7 +6,7 @@
 
 const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, shell } = require('electron');
 const path = require('node:path');
-const { Engine, INSTALL_COMMAND } = require('./engine');
+const { Engine, AGENT_CLIS, HOMEBREW_URL, INSTALL_COMMAND } = require('./engine');
 
 const STATUS_PAGE = path.join(__dirname, 'ui', 'status.html');
 const HELP_PAGE = path.join(__dirname, 'ui', 'help.html');
@@ -19,7 +19,8 @@ let guideWindow = null;
 let quitting = false;
 let busy = false;           // an engine operation is in progress
 let pendingChoice = null;   // resolves when the status page answers a question
-let state = { phase: 'starting', title: 'Starting Qorqbot', steps: [], log: [], error: null, choice: null };
+let checklistTimer = null; // re-checks programs while the set-up checklist is shown
+let state = { phase: 'starting', title: 'Starting Qorqbot', steps: [], log: [], error: null, choice: null, checklist: null };
 
 // ---------------------------------------------------------------- status page state
 
@@ -72,18 +73,18 @@ function serverOrigin() {
 async function boot() {
   if (busy) return;
   busy = true;
+  clearInterval(checklistTimer);
+  checklistTimer = null;
   publish({ phase: 'starting', title: 'Starting Qorqbot', steps: [], log: [], error: null, choice: null });
   await showStatusPage();
   try {
-    step('Checking Python 3.12, git and tmux');
-    const { missing } = await engine.prerequisites();
-    if (missing.length) {
+    step('Checking the programs Qorqbot uses');
+    const checklist = await engine.checklist();
+    publish({ checklist });
+    if (!checklist.ready) {
       finishSteps('failed');
-      publish({
-        phase: 'error', title: 'Install the programs Qorqbot needs',
-        error: { message: `Qorqbot needs ${missing.join(', ')} on this Mac. Install them with Homebrew in Terminal, then choose Try Again.`,
-          command: INSTALL_COMMAND, detail: '' },
-      });
+      publish({ phase: 'setup', title: 'Install the programs Qorqbot needs' });
+      watchChecklist();
       return;
     }
     if (!engine.isInstalled()) {
@@ -116,6 +117,27 @@ async function boot() {
     busy = false;
     rebuildMenu();
   }
+}
+
+// While the checklist is shown, re-check every few seconds so items turn green as they are installed and start-up
+// continues by itself once nothing required is missing.
+function watchChecklist() {
+  clearInterval(checklistTimer);
+  checklistTimer = setInterval(async () => {
+    if (state.phase !== 'setup' || busy) { clearInterval(checklistTimer); checklistTimer = null; return; }
+    try {
+      const checklist = await engine.checklist({ log: false });
+      if (state.phase !== 'setup') return;
+      publish({ checklist });
+      if (checklist.ready) {
+        clearInterval(checklistTimer);
+        checklistTimer = null;
+        boot();
+      }
+    } catch (error) {
+      engine.log(`checklist: ${error.message}`);
+    }
+  }, 3000);
 }
 
 async function openDashboard(url) {
@@ -220,6 +242,18 @@ function showGuide() {
 
 // ---------------------------------------------------------------- menus
 
+// Opens the dashboard's walkthrough menu, whether it was finished, skipped or never started.
+async function showWalkthrough() {
+  if (!mainWindow || mainWindow.isDestroyed() || isStatusPage(mainWindow.webContents)) return;
+  mainWindow.show();
+  const opened = await mainWindow.webContents.executeJavaScript(
+    "typeof onboarding !== 'undefined' && typeof onboarding.open === 'function' ? (onboarding.open(), true) : false",
+  ).catch(() => false);
+  if (!opened) {
+    await dialog.showMessageBox(mainWindow, { type: 'info', message: 'The walkthrough is not available on this page.', detail: 'Open Global > Agents and choose the ? button under your agents.' });
+  }
+}
+
 async function installTerminalCommand() {
   try {
     const message = await engine.installCommand();
@@ -282,6 +316,7 @@ function rebuildMenu() {
     {
       role: 'help',
       submenu: [
+        { label: 'Show Walkthrough', enabled: running && !busy, click: showWalkthrough },
         { label: 'Getting Started', click: showGuide },
         { label: 'How Qorqbot Works', click: showHelp },
         { type: 'separator' },
@@ -303,7 +338,9 @@ ipcMain.handle('qorqbot:action', async (event, action) => {
   if (!fromLocalPage(event)) return;
   switch (action) {
     case 'retry': case 'start': return boot();
-    case 'copy-command': return clipboard.writeText(state.error?.command || INSTALL_COMMAND);
+    case 'copy-command': return clipboard.writeText(state.phase === 'setup' ? state.checklist?.command || INSTALL_COMMAND
+      : state.error?.command || INSTALL_COMMAND);
+    case 'open-homebrew': return shell.openExternal(HOMEBREW_URL);
     case 'copy-details': return clipboard.writeText([state.error?.message, state.error?.detail].filter(Boolean).join('\n\n'));
     case 'open-terminal': return shell.openPath('/System/Applications/Utilities/Terminal.app');
     case 'show-log': return shell.openPath(engine.logFile);
@@ -311,6 +348,12 @@ ipcMain.handle('qorqbot:action', async (event, action) => {
     case 'help': return showHelp();
     case 'guide': return showGuide();
     default:
+      // Only the fixed documentation links are opened; the page cannot name an arbitrary URL.
+      if (typeof action === 'string' && action.startsWith('agent-docs:')) {
+        const agent = AGENT_CLIS.find((item) => item.id === action.slice('agent-docs:'.length));
+        if (agent) shell.openExternal(agent.url);
+        return;
+      }
       if (typeof action === 'string' && action.startsWith('choice:') && pendingChoice) {
         const resolve = pendingChoice;
         pendingChoice = null;

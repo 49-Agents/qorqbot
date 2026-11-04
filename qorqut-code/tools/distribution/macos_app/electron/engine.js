@@ -23,6 +23,12 @@ const INSTALL_COMMAND = 'brew install python@3.12 git tmux';
 // native_launch.py refuses roots whose Unix socket paths exceed 104 bytes;
 // '<root>/.run/c/org.chromium.Chromium.XXXXXX/SingletonSocket' needs root <= 50.
 const MAX_ROOT_LENGTH = 50;
+// Agent CLIs are not needed to start Qorqbot, only to bring an agent online, so they never block start-up.
+const AGENT_CLIS = [
+  { id: 'claude', label: 'Claude Code', command: 'claude', url: 'https://docs.anthropic.com/en/docs/claude-code' },
+  { id: 'codex', label: 'Codex', command: 'codex', url: 'https://github.com/openai/codex' },
+];
+const HOMEBREW_URL = 'https://brew.sh';
 const PORT_RANGE = 20;
 const READY_TIMEOUT_MS = 180_000;
 const LOGIN_SHELL_TIMEOUT_MS = 5_000;
@@ -183,7 +189,7 @@ class Engine {
   }
 
   /** @returns {{missing: string[], python: string|null}} */
-  async prerequisites() {
+  async prerequisites({ log = true } = {}) {
     const env = await this.environment();
     const missing = [];
     let python = env.QORQUT_PYTHON || this.which('python3.12', env);
@@ -198,8 +204,27 @@ class Engine {
     }
     if (!this.which('git', env)) missing.push('git');
     if (!this.which('tmux', env)) missing.push('tmux');
-    if (missing.length) this.log('missing prerequisites: ' + missing.join(', '));
+    if (missing.length && log) this.log('missing prerequisites: ' + missing.join(', '));
     return { missing, python };
+  }
+
+  /** Every program the first-run checklist shows. `ready` means Qorqbot can start; agent CLIs are reported but optional.
+   * `command` installs only the missing required programs with Homebrew. */
+  async checklist({ log = true } = {}) {
+    const env = await this.environment();
+    const { missing } = await this.prerequisites({ log });
+    const tools = [
+      { id: 'python', label: 'Python 3.12', formula: 'python@3.12', ok: !missing.includes('Python 3.12') },
+      { id: 'git', label: 'git', formula: 'git', ok: !missing.includes('git') },
+      { id: 'tmux', label: 'tmux, for agent terminals', formula: 'tmux', ok: !missing.includes('tmux') },
+    ];
+    const agents = AGENT_CLIS.map(({ id, label, command, url }) => ({ id, label, command, url, ok: Boolean(this.which(command, env)) }));
+    const absent = tools.filter((tool) => !tool.ok).map((tool) => tool.formula);
+    return {
+      ready: absent.length === 0, homebrew: Boolean(this.which('brew', env)),
+      command: absent.length ? 'brew install ' + absent.join(' ') : '',
+      tools, agents, agentReady: agents.some((agent) => agent.ok),
+    };
   }
 
   async requirePrerequisites() {
@@ -419,4 +444,4 @@ class Engine {
   }
 }
 
-module.exports = { Engine, EngineError, INSTALL_COMMAND, MAX_ROOT_LENGTH };
+module.exports = { Engine, EngineError, AGENT_CLIS, HOMEBREW_URL, INSTALL_COMMAND, MAX_ROOT_LENGTH };

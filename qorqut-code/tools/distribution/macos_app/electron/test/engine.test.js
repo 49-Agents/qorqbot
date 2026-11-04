@@ -311,3 +311,36 @@ test('the Terminal command is installed through the folder launcher', async () =
   const failing = await engineFor(makePayload('1.0.0').payload, { env: { FAKE_COMMAND_FAIL: '1' } });
   await assert.rejects(failing.installCommand(), (error) => error instanceof EngineError && /already exists/.test(error.detail));
 });
+
+function onlyCommands(engine, available) {
+  engine.which = (command) => (available.includes(command) ? '/fake/bin/' + command : null);
+  return engine;
+}
+
+test('checklist installs only the missing required programs and never blocks on agent CLIs', async () => {
+  const engine = onlyCommands(await engineFor(makePayload('1.0.0').payload), ['brew', 'git']);
+  const list = await engine.checklist();
+  assert.equal(list.ready, false);
+  assert.equal(list.command, 'brew install tmux');
+  assert.deepEqual(list.tools.map((tool) => [tool.id, tool.ok]), [['python', true], ['git', true], ['tmux', false]]);
+  assert.deepEqual(list.agents.map((agent) => [agent.id, agent.ok]), [['claude', false], ['codex', false]]);
+  assert.equal(list.agentReady, false);
+  assert.equal(list.homebrew, true);
+});
+
+test('checklist is ready without any agent CLI and reports a missing Homebrew', async () => {
+  const engine = onlyCommands(await engineFor(makePayload('1.0.0').payload), ['git', 'tmux', 'codex']);
+  const list = await engine.checklist();
+  assert.equal(list.ready, true);
+  assert.equal(list.command, '');
+  assert.equal(list.homebrew, false);
+  assert.equal(list.agentReady, true);
+  assert.deepEqual(list.agents.filter((agent) => agent.ok).map((agent) => agent.id), ['codex']);
+});
+
+test('checklist names the Homebrew formula for a missing Python', async () => {
+  const engine = onlyCommands(await engineFor(makePayload('1.0.0').payload, { env: { QORQUT_PYTHON: '/nonexistent/python3.12' } }), []);
+  const list = await engine.checklist({ log: false });
+  assert.equal(list.command, 'brew install python@3.12 git tmux');
+  assert.doesNotMatch(fs.existsSync(engine.logFile) ? fs.readFileSync(engine.logFile, 'utf8') : '', /missing prerequisites/);
+});
