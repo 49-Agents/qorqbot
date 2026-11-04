@@ -26,8 +26,13 @@ class Program:
     # Host-owned programs that only an approved domain operation may queue (for example an owner-approved send) are
     # not schedulable as routines. Not part of the frozen definition, so every existing digest is unchanged.
     routine_allowed: bool = True
+    # Trusted startup routing, not job arguments or part of the durable definition digest.
+    background_queue: str = "general"
 
     def __post_init__(self):
+        if (not isinstance(self.background_queue, str) or not self.background_queue.isascii()
+                or not self.background_queue.isidentifier()):
+            raise ValueError("Background queue must be an ASCII identifier")
         if not self.id or type(self.version) is not int or self.version < 1:
             raise ValueError("Programs require a stable ID and positive definition version")
         if self.run is None and not self.unavailable_reason:
