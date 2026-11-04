@@ -281,7 +281,8 @@ class BackgroundService:
                         row = decode_row(uow.connection.execute("SELECT * FROM jobs WHERE state IN "
                             "('queued','running','applying','waiting_signoff','cancel_requested') "
                             "AND (next_retry_at IS NULL OR next_retry_at<=?) ORDER BY "
-                            "CASE WHEN json_extract(definition_ref_json,'$.trigger')='manual' THEN 0 ELSE 1 END, created_at,rowid LIMIT 1",
+                            "CASE WHEN next_retry_at IS NULL AND json_extract(definition_ref_json,'$.trigger')='manual' THEN 0 ELSE 1 END, "
+                            "COALESCE(next_retry_at,created_at),created_at,rowid LIMIT 1",
                             (self.clock().isoformat().replace('+00:00','Z'),)).fetchone())
                     if not row or row["state"] in {"succeeded", "cancelled", "failed"}:
                         return None
