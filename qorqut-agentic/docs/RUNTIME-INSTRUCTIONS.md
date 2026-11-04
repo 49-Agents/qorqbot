@@ -5,6 +5,10 @@ native hooks, Attention reminders and completion guidance. The host supplies
 authorized records and performs authenticated delivery. This consolidation keeps
 the existing wording, prompt order, timing, role exclusions and correction limits.
 
+This pass covers runtime messages and their behavioral policy. Generated workspace
+orientation, tool descriptions and connector-specific guidance still have host or
+connector code as their source; they are not included in the runtime message index.
+
 ## Where to read the instructions
 
 | Content | Canonical location in the instance | Delivery |
