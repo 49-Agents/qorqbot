@@ -387,6 +387,39 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
+            if parts == ["root", "agent-trust"] and request.method in {"GET", "POST"}:
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "Agent trust consent is for the owner's dashboard")
+                context, _ = self.context(actor)
+                with self.runtime.database.read() as uow:
+                    owner = uow.repository("installation").get("service")
+                if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
+                    raise DomainError("forbidden", "Only the installation owner can change agent trust")
+                from bazarlyk.agent_trust import owner_view
+                body = await read_json(request, limit=1024) if request.method == "POST" else None
+                if request.method == "POST" and not isinstance(body, dict):
+                    raise DomainError("validation_error", "Agent trust consent must be an object")
+                agent_id = request.query_params.get("agent_id")
+                data = await anyio.to_thread.run_sync(partial(owner_view, self.runtime, body, agent_id))
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
+            if parts == ["root", "connectors"] and request.method in {"GET", "POST"}:
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "Connectors are for the owner's dashboard")
+                context, _ = self.context(actor)
+                with self.runtime.database.read() as uow:
+                    owner = uow.repository("installation").get("service")
+                if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
+                    raise DomainError("forbidden", "Only the installation owner can change connectors")
+                from bazarlyk.connectors import owner_view as connectors_view
+                body = await read_json(request, limit=1024) if request.method == "POST" else None
+                if request.method == "POST" and not isinstance(body, dict):
+                    raise DomainError("validation_error", "A connector change must be an object")
+                data = await anyio.to_thread.run_sync(partial(connectors_view, self.runtime, body))
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
             if parts == ["root", "agent-pins"] and request.method in {"GET", "POST"}:
                 if request.headers.get("authorization") is not None:
                     raise DomainError("forbidden", "Agent pins are for the owner's dashboard")
@@ -531,6 +564,16 @@ class HTTPAPI:
                     raise DomainError("forbidden", "This endpoint requires Global scope")
                 if parts[2] in {"routines_runs", "jobs_get"} and args.get("scope") != "global":
                     raise DomainError("forbidden", "Global routines and jobs are read with scope=global")
+                result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, parts[2], args, options))
+                return response(result)
+            if parts == ["root", "operations", "agent_terminal_start"] and request.method == "POST":
+                # Chat's Start button: the owner's own start of one Global agent, through the normal operation, policy and
+                # durable terminal dispatch. Only a single target is accepted here; batches stay with terminal_command_issue.
+                context, _ = self.context(actor)
+                args, options = split_options(await read_json(request, limit=4096))
+                checked_fields(args, {"target_agent_id", "rationale"}, {"target_agent_id", "rationale"})
+                if options.business_id is not None or options.review_business_id is not None:
+                    raise DomainError("forbidden", "This endpoint requires Global scope")
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, parts[2], args, options))
                 return response(result)
             if len(parts) == 3 and parts[:2] == ["root", "operations"] and parts[2] in {

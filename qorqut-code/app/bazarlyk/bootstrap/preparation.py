@@ -38,6 +38,8 @@ LEGACY_PLUGINS = {"biz-agents-manager@bazarlyk", "biz-agents-marketing@bazarlyk"
 # External MCP connections come only from installed extensions (resolver.native_connections); a registered role may
 # declare one by name, and any name that no installed extension provides is refused (see external_connections). A
 # previously prepared entry stays managed (see previous_connections) and is removed on the next authorized preparation.
+# The one exception is the owner's own choice of local connectors (bazarlyk.connectors): the agent shell adds them at
+# launch from the owner's connector file, never through the projection.
 INTEGRATION_DIRECTORY = ".bazarlyk/integrations"
 
 def compatibility_report(version: str) -> dict:
@@ -236,6 +238,50 @@ def seed_instance_guidance(resolver, data) -> dict:
             validated[grant["id"]] = {"path": str(root), "seeded": False, "source": "agentic"}
     resolver.check_agentic_revision(data["agentic_catalog_revision"])
     return validated
+
+
+def _cli_wrappers(launch_settings: str, consent_marker: str, connector_launch: str) -> str:
+    """The claude and codex wrappers, valid in both bash and zsh. Every argument is already shell-quoted."""
+    return (
+        'unalias claude codex 2>/dev/null || true\n'
+        '_qorqbot_connectors() { QORQBOT_CLAUDE_ARGS=(); QORQBOT_CODEX_ARGS=(); '
+        'if [ -f ' + connector_launch + ' ]; then . ' + connector_launch + '; fi; }\n'
+        # --mcp-config takes several values; the --settings option after it ends that list before the caller's arguments.
+        'claude() { _qorqbot_connectors; command claude "${QORQBOT_CLAUDE_ARGS[@]}" --settings ' + launch_settings + ' "$@"; }\n'
+        'codex() { _qorqbot_connectors; if [ -f ' + consent_marker + ' ]; then '
+        'command codex --dangerously-bypass-hook-trust "${QORQBOT_CODEX_ARGS[@]}" "$@"; '
+        'else command codex "${QORQBOT_CODEX_ARGS[@]}" "$@"; fi; }\n'
+    )
+
+
+def agent_shell(launch_settings: str, consent_marker: str, connector_launch: str) -> str:
+    """The prepared bash agent shell (``bash --rcfile``)."""
+    return ('# Generated Qorqut agent shell; keep personal shell setup.\n'
+            'if [ -f "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi\n'
+            + _cli_wrappers(launch_settings, consent_marker, connector_launch))
+
+
+# zsh (the macOS default) has no --rcfile: an agent terminal starts with ZDOTDIR at .bazarlyk/zsh (transport/terminals.py).
+# These files load the owner's own .zshenv and .zshrc from their usual folder first, then add the wrappers, and leave
+# ZDOTDIR as the owner had it so shells started from the agent terminal behave normally.
+ZSH_ENV = (
+    '# Generated Qorqut agent shell for zsh; loads your own .zshenv.\n'
+    '_qorqbot_zdotdir="$ZDOTDIR"\n'
+    'ZDOTDIR="${QORQBOT_USER_ZDOTDIR:-$HOME}"\n'
+    'if [ -f "$ZDOTDIR/.zshenv" ]; then . "$ZDOTDIR/.zshenv"; fi\n'
+    'QORQBOT_USER_ZDOTDIR="$ZDOTDIR"\n'
+    'ZDOTDIR="$_qorqbot_zdotdir"\n'
+    'unset _qorqbot_zdotdir\n'
+)
+
+
+def agent_zshrc(launch_settings: str, consent_marker: str, connector_launch: str) -> str:
+    return ('# Generated Qorqut agent shell for zsh; loads your own .zshrc.\n'
+            'ZDOTDIR="${QORQBOT_USER_ZDOTDIR:-$HOME}"\n'
+            'if [ -f "$ZDOTDIR/.zshrc" ]; then . "$ZDOTDIR/.zshrc"; fi\n'
+            'if [ "$ZDOTDIR" = "$HOME" ]; then unset ZDOTDIR; fi\n'
+            'unset QORQBOT_USER_ZDOTDIR\n'
+            + _cli_wrappers(launch_settings, consent_marker, connector_launch))
 
 
 def build_projection(resolver, config, *, registration_id: str, endpoint: str, interpreter: str,
@@ -535,12 +581,16 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     claude_mode = "bypassPermissions" if data["scope"]["kind"] == "ecosystem" else "dontAsk"
     files[".bazarlyk/claude-launch-settings.json"] = _bytes({"permissions": {"defaultMode": claude_mode}})
     launch_settings = shlex.quote(str(workspace / ".bazarlyk/claude-launch-settings.json"))
-    files[".bazarlyk/agent-shell.bash"] = (
-        '# Generated Qorqut agent shell; keep personal shell setup.\n'
-        'if [ -f "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi\n'
-        'unalias claude 2>/dev/null || true\n'
-        'claude() { command claude --settings ' + launch_settings + ' "$@"; }\n'
-    ).encode()
+    from bazarlyk.agent_trust import marker_path
+    # Codex runs Qorqbot's prepared hooks without a separate review only while the owner's consent file exists
+    # (bazarlyk.agent_trust); removing it restores Codex's own hook review for the next launch.
+    consent_marker = shlex.quote(str(marker_path(resolver.paths.runtime)))
+    from bazarlyk.connectors import launch_path
+    # Local connectors the owner turned on (bazarlyk.connectors) are read at each launch, so a change needs no preparation.
+    connector_launch = shlex.quote(str(launch_path(resolver.paths.runtime)))
+    files[".bazarlyk/agent-shell.bash"] = agent_shell(launch_settings, consent_marker, connector_launch).encode()
+    files[".bazarlyk/zsh/.zshenv"] = ZSH_ENV.encode()
+    files[".bazarlyk/zsh/.zshrc"] = agent_zshrc(launch_settings, consent_marker, connector_launch).encode()
     for name in extension_files:
         if name in files:
             raise DomainError("invalid_configuration", "An extension helper duplicates a generated file")
