@@ -62,11 +62,15 @@ class ArchiveTranscripts:
         except (CaptureError, ValueError) as error:
             raise DomainError("operation_unavailable", f"Historical session archive is unavailable: {getattr(error, 'code', 'invalid')}") from None
 
-    def source(self, agent: dict, capture: dict, content: bytes) -> dict:
-        """One conversation in the learning programs' source shape."""
+    def identity(self, agent: dict, capture: dict) -> dict:
+        """The stable registered identity of one conversation, whether or not its content could be read."""
         return {"session_id": capture["conversation_id"],
                 "source_id": f"native-archive/{agent['agent_id']}/{capture['provider']}/{capture['conversation_id']}",
-                "agent_id": agent["agent_id"], "agent_kind": agent["profile_json"].get("role", {}).get("id", ""),
+                "agent_id": agent["agent_id"], "agent_kind": agent["profile_json"].get("role", {}).get("id", "")}
+
+    def source(self, agent: dict, capture: dict, content: bytes) -> dict:
+        """One conversation in the learning programs' source shape."""
+        return {**self.identity(agent, capture),
                 "content": content.decode("utf-8"), "transcript_hash": hashlib.sha256(content).hexdigest()}
 
 
