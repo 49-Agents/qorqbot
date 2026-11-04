@@ -9,6 +9,7 @@ const GLOBAL_CHAT_SENDS = new Map();            // scope -> {text, key, pin}: th
 const GLOBAL_CHAT_INFLIGHT = new Map();         // scope -> {text, promise} of a send still waiting for its response
 const GLOBAL_CHAT_RESENDS = new Map();          // undelivered input id -> {key, pin}: identity of an explicit resend
 const GLOBAL_CHAT_HIDDEN = new Set();           // settled inputs the owner dismissed or already resent
+const GLOBAL_CHAT_STARTS = new Map();           // agent id -> {startedAt, autoTried, error}: Chat's start attempts for this page
 // scope -> {records, consumed}: owner messages accepted by the backend whose transcript entry has not been seen yet. Browser-only and
 // presentation-only: a record keeps the sent text visible until its exact native user entry arrives, and never touches receipts.
 const GLOBAL_CHAT_ACCEPTED = new Map();
@@ -184,6 +185,10 @@ function mountGlobalChat(pane, agent, options = {}) {
   let disposed = false, loading = false, again = false, generation = 0, finished = false, reading = 0;
   let bannerText = '', reconnecting = false, olderBusy = false, view = null;
   let pairedHost = null, pairedConversation = null, pairedGeneration = 0;
+  // Starting from Chat is offered where Chat sits beside the agent's own Terminal; only Ordubashy starts by itself.
+  const canStart = !!options.openTerminal && typeof agentStart !== 'undefined';
+  const isLead = (agent.role?.id || agent.role_id) === 'ordubashy';
+  let trust = null;
   const cleanups = [];
   const reads = new AbortController();
 
@@ -199,6 +204,10 @@ function mountGlobalChat(pane, agent, options = {}) {
   sessionLine.innerHTML = `<span class="gchat-working-tag" role="img" aria-label="${esc(label)} is working" hidden><span aria-hidden="true">${identityAvatar('agent', label, {...agent, ...agent.presentation})}</span><span class="gchat-working-dots" aria-hidden="true"><i></i><i></i><i></i></span></span><span class="gchat-session-dot" aria-hidden="true"></span><span class="gchat-session-text">Loading…</span>`;
   const sessionText = sessionLine.querySelector('.gchat-session-text');
   const workingTag = sessionLine.querySelector('.gchat-working-tag');
+  // The Start button also sits in the status line, so an agent with earlier conversation (no empty state) can be started.
+  const startButton = document.createElement('button');
+  startButton.type = 'button'; startButton.className = 'quiet gchat-start'; startButton.hidden = true;
+  sessionLine.append(startButton);
 
   const live = () => !disposed && (root.isConnected || !!pairedHost?.isConnected);
   const originPane = typeof _agpad !== 'undefined' ? _agpad : null;
@@ -357,7 +366,39 @@ function mountGlobalChat(pane, agent, options = {}) {
       : `${startHint()} to send.`;
     if (session.reason === 'capture_disabled') return {key: 'disabled', line: ''};
     if (session.reason === 'unsupported_runtime') return {key: 'offline', line: ''};
+    const start = startPlan();
+    if (start.kind === 'starting') return {key: 'starting', line: `Starting ${label}…`};
+    if (start.kind === 'start') return {key: 'offline', line: `${label} is offline.`};
     return {key: 'offline', line: direction};
+  }
+  // ---- starting the agent from Chat (agent-start.js): the button, the owner's one-time consent and Ordubashy's own start
+  const startState = () => GLOBAL_CHAT_STARTS.get(agentId) || {startedAt: 0, autoTried: false, error: ''};
+  const startPlan = () => canStart ? agentStartPlan.plan(session, trust, {...startState(), isLead}) : {kind: 'none'};
+  async function runStart(auto) {
+    if (startPlan().kind === 'starting') return;
+    if (!trust?.granted) {
+      if (auto) return;
+      const view = await agentStart.consent(agentId, label);
+      if (!view || disposed) return;
+      trust = view;
+    }
+    GLOBAL_CHAT_STARTS.set(agentId, {...startState(), startedAt: Date.now(), error: '', autoTried: startState().autoTried || auto});
+    paint();
+    try { await agentStart.start(agentId); }
+    catch (error) { GLOBAL_CHAT_STARTS.set(agentId, {...startState(), startedAt: 0, error: error.message}); }
+    paint();
+    // The plan turns a start that never came online into a failure once its wait runs out.
+    setTimeout(() => paint(), agentStartPlan.STARTING_FOR_MS + 100);
+  }
+  function startIfDue() {
+    // Online: the attempt is over. autoTried stays, so an agent the owner exits in Terminal is not restarted behind them.
+    if (session?.state === 'live' && (startState().startedAt || startState().error)) {
+      GLOBAL_CHAT_STARTS.set(agentId, {...startState(), startedAt: 0, error: ''});
+    }
+    const start = startPlan();
+    if (start.kind !== 'start' || !start.auto) return;
+    GLOBAL_CHAT_STARTS.set(agentId, {...startState(), autoTried: true});
+    void runStart(true);
   }
   // Names the programs that connect: any supported CLI started in this agent's own terminal, the agent's default first.
   function startHint() {
@@ -370,6 +411,9 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (key === 'live' || key === 'working') return {text: 'Your agent conversation appears here.', action: null};
     if (key === 'starting') return {text: 'Connecting…', action: null};
     if (key === 'disabled') return {text: 'Chat unavailable.', action: null};
+    const start = startPlan();
+    if (start.kind === 'start') return {text: `${label} is offline. Start it and its conversation will appear here.`, action: {key: 'start', label: `Start ${label}`}};
+    if (start.kind === 'failed') return {text: `${start.error}`, action: {key: 'start', label: 'Try again'}};
     return {text: `${startHint()}. Its conversation will appear here.`, action: options.openTerminal ? {key: 'terminal', label: 'Open terminal'} : null};
   }
   // One repaint: the native status line, then every presentation field the view displays. `patch` adds fields such as the entries.
@@ -380,6 +424,10 @@ function mountGlobalChat(pane, agent, options = {}) {
     sessionLine.classList.toggle('gchat-session-working', working);
     sessionText.textContent = finished ? 'This chat is no longer available.' : summary.line;
     workingTag.hidden = !working;
+    const start = finished ? {kind: 'none'} : startPlan();
+    startButton.hidden = !(start.kind === 'start' || start.kind === 'failed') || emptyState().action?.key === 'start';
+    startButton.textContent = start.kind === 'failed' ? 'Try again' : `Start ${label}`;
+    if (start.kind === 'failed') sessionText.textContent = start.error;
     sessionLine.hidden = !working && !sessionText.textContent;
     const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope);
     const pending = presentInputs();
@@ -391,7 +439,9 @@ function mountGlobalChat(pane, agent, options = {}) {
       older: {visible: older != null, disabled: olderBusy},
       empty: emptyState(),
     }, {scroll});
+    startIfDue();
   }
+  listen(startButton, 'click', () => void runStart(false));
   const paintEntries = scroll => paint({entries: orderedEntries()}, scroll);
   const paintInputs = () => paint();
   const paintSession = () => paint();
@@ -545,9 +595,15 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (action === 'resend') void resendInput(id);
       else if (action === 'dismiss') { GLOBAL_CHAT_HIDDEN.add(id); paintInputs(); }
     },
-    onEmptyAction: action => { if (action === 'terminal') options.openTerminal?.(); },
+    onEmptyAction: action => {
+      if (action === 'terminal') options.openTerminal?.();
+      else if (action === 'start') void runStart(false);
+    },
   });
   paint();
+  if (canStart) {
+    agentStart.read(agentId).then(view => { if (!disposed) { trust = view; paint(); } }).catch(() => { /* Start still asks for consent */ });
+  }
   // Ordubashy's current workflow Focus appears above the composer; it refreshes with this chat's own loads (no extra timer).
   const workflowPanel = (agent.role?.id || agent.role_id) === 'ordubashy' && view.elements?.composer ? workflowPanelMount(view.elements.composer, agentId) : null;
   if (workflowPanel) cleanups.push(() => workflowPanel.dispose());

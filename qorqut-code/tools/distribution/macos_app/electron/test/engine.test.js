@@ -249,6 +249,8 @@ test('same version is not offered as an update', async () => {
 
 test('older releases, older prereleases and build metadata never trigger an update', async () => {
   for (const [current, bundled, expected] of [
+    ['1.3.0-preview.1', '1.3.0-local.85a24e2e7724', false],
+    ['1.3.0-preview.1', '1.3.0-preview.2', true],
     ['1.1.0', '1.0.0', false],
     ['1.1.0', '1.1.0-rc.1', false],
     ['1.1.0-rc.10', '1.1.0-rc.2', false],

@@ -272,7 +272,7 @@ class Runtime:
             step("incidents", self.incidents, lambda x: x.start(), stop_with_timeout, "no incident drain", required=True),
             step("signoffs", self.signoffs, lambda x: x.start(), stop_with_timeout, required=True, recovery="engine"),
             step("background", self.background, lambda x: x.start(), stop_with_timeout, "background service is not attached",
-                 recovery="engine"),
+                 recovery="engine", running=lambda x: x.is_running()),
             # The shared Context driver loop (lane B's ``runtime.context_services``): recovers mechanically on start and
             # reports ``{"stopped", "in_flight"}`` on stop; only a stop with nothing in flight is a stop.
             step("context", getattr(self, "context_services", None), lambda x: x.start(),
