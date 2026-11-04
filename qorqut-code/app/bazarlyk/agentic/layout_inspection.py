@@ -80,7 +80,7 @@ def legacy_destination(package_id, path):
         container = 'operations/agentic-management'
     elif package_id == 'overseer':
         container = 'overseer/overseer'
-    elif package_id in ('imported-host-builtins', 'imported-host-builtins-templates'):
+    elif package_id in ('imported-host-builtins', 'imported-host-builtins-templates', 'runtime-instructions'):
         container = 'operations/' + package_id
     elif package_id == 'imported-roles':
         if path.startswith('native/skills/learning-application/'):
