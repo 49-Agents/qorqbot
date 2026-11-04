@@ -38,8 +38,10 @@ def _probe(identity):
             'scoped_mcp':'--strict-config' in root,
             'identity':list(identity),'verification':'executable_feature_surface',
             'native_session_observed':False}
-    return {'hooks':'--settings' in root and '--print' in root,'scoped_mcp':'--mcp-config' in root,
-        'resume':'--resume' in root,'identity':list(identity),
+    return {'hooks':'--settings' in root and '--print' in root,'scoped_mcp':'--mcp-config' in root and '--strict-mcp-config' in root,
+        'resume':'--resume' in root,'json_events':'--output-format' in root and 'stream-json' in root,
+        'isolated_configuration':all(flag in root for flag in ('--setting-sources','--tools','--permission-mode','--allowedTools')),
+        'identity':list(identity),
         'verification':'executable_feature_surface','native_session_observed':False}
 
 

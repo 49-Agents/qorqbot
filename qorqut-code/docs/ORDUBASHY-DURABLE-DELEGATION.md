@@ -23,12 +23,20 @@ inbox delivery active. Completion and blocker events return through that inbox.
 No model-driven status polling or empty native wait loops are needed; background
 supervisor polling is ordinary code. This does not start a closed parent session.
 
-For each durable assignment, use a separate Codex CLI root session:
+Workers run on the CLI of the parent Ordubashy session that hosts the
+dispatcher: Codex workers under a Codex session, Claude Code workers under a
+Claude Code session. For each durable assignment, use a separate root session:
 
-1. Start one worker turn with `codex exec --json` and persist the returned
-   `thread_id` against the assignment's current execution generation.
+1. Start one worker turn and persist the returned session ID against the
+   assignment's current execution generation. Codex: `codex exec --json`, whose
+   `thread.started` event carries `thread_id`. Claude Code: `claude -p
+   --output-format stream-json --verbose`, whose `system`/`init` event carries
+   `session_id`.
 2. After that process exits, deliver the next approved assignment step or
-   routed event with `codex exec resume --json <thread_id> <prompt>`.
+   routed event by resuming that session: `codex exec resume --json <thread_id>`
+   or `claude -p --resume <session_id>`. A Claude Code resume of a missing session
+   fails before `init` and is recreated from the checkpoint like a missing Codex
+   thread.
 3. Bound each process and turn. Waiting assignments retain their saved thread
    but do not occupy a running process slot. A missing or incompatible thread
    must be recreated from the canonical assignment/checkpoint, not from the
@@ -41,7 +49,16 @@ the parent's consumer UUID or current-work declaration.
 
 The runner must use an assignment-only working directory and an explicit CLI
 configuration that ignores user configuration and exposes only the
-assignment-bound Qorqut MCP connection. The worker connection is authenticated
+assignment-bound Qorqut MCP connection. Claude Code workers use
+`--setting-sources project,local` (no user settings, hooks or memory; the private
+folder has no project settings), `--tools ""` (no built-in tools),
+`--strict-mcp-config` with one HTTP `bazarlyk` server authenticated by the same
+`mcp_headers` helper as Codex workers, and `--permission-mode dontAsk` with
+`--allowedTools` naming only the assignment's operations. They keep the real home
+folder for their sign-in and resumable sessions. Claude usage is recorded as all
+input (uncached, cache read and cache write) with its cache-read part as cached
+input. A Codex worker model is not passed to Claude Code, which then uses the
+account's default model; the effort level is passed through. The worker connection is authenticated
 with a server-issued, revocable binding; a worker may not select a parent token
 or an alternate unrestricted MCP server. Runtime instructions contain only the
 saved assignment, allowed scope, current checkpoint, and necessary source
