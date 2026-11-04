@@ -156,18 +156,12 @@ function agentWorkspaceViews(scope, role) {
   if (role === 'ordubashy') return ['calendar', 'journal'];
   return [];
 }
-// Ordubashy opens Focus and Learning Applier Context; a general worker opens its saved allowed browser choice or inbox/status.
+// Ordubashy opens Focus and Learning Applier Context; a general worker opens its first allowed view.
 function agentWorkspaceDefault(p) {
   if (p.workspaceScope !== 'global') return null;
   if (p.workspaceRole === 'ordubashy') return 'focus';
   if (p.workspaceRole === 'global-worker') return null;
   return agentWorkspaceViews(p.workspaceScope, p.workspaceRole)[0] || null;
-}
-
-// A general worker's first view is its inbox/status, not Project management, when no saved choice applies.
-function agentWorkspaceFallback(p) {
-  if (p.workspaceScope !== 'global' || p.workspaceRole !== 'global-worker') return null;
-  return p.views.find(view => view === 'inbox') || p.views.find(view => view === 'status') || null;
 }
 
 let agentWorkspaceDocument = null;
