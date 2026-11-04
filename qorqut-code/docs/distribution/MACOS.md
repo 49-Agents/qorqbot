@@ -85,7 +85,9 @@ in `Contents/Resources/qorqbot-payload`; it bundles no Python, git or tmux.
 - First open: a set-up screen shows each step and its log while the app checks
   prerequisites, verifies the archive, unpacks it to `~/Qorqbot/qorqbot` (a
   short path, see above) and runs `./qorqbot setup`. Then it starts the server
-  on port 1049 (or the next free port) and shows the dashboard.
+  on port 1049 (or the next free port on the first launch) and shows the dashboard.
+  It remembers that port across restarts so existing agents keep their server address.
+  If the saved port is occupied, close the other program and retry.
 - Closing the window hides it; the Dock icon brings it back. **Quit** stops the
   local server first. Opening the app again focuses the existing window.
 - The **Server** menu shows the status and can stop, start or restart the

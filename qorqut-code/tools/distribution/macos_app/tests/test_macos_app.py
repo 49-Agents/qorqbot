@@ -115,6 +115,7 @@ class BuilderIntegrationTests(unittest.TestCase):
                 self.assertTrue((resources / 'app.asar').is_file())
                 self.assertTrue((resources / 'LICENSES.chromium.html').is_file())
                 self.assertTrue((resources / 'LICENSE.electron.txt').is_file())
+                self.assertTrue((resources / 'THIRD-PARTY-NOTICES.md').is_file())
                 icon = info['CFBundleIconFile']
                 icon = icon if icon.endswith('.icns') else icon + '.icns'
                 self.assertGreater((resources / icon).stat().st_size, 10_000)
@@ -123,6 +124,7 @@ class BuilderIntegrationTests(unittest.TestCase):
                                          check=True, capture_output=True, text=True).stdout.split()
                 for expected in ('/main.js', '/engine.js', '/preload.js', '/ui/status.html', '/ui/help.html', '/ui/start.html', '/ui/start.js', '/ui/mark.svg'):
                     self.assertIn(expected, listing)
+                self.assertIn('/node_modules/semver/LICENSE', listing)
                 self.assertFalse([name for name in listing if name.startswith('/test') or 'electron-packager' in name])
                 subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', app], check=True)
             finally:

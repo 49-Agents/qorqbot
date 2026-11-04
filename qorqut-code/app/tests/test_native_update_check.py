@@ -1,4 +1,4 @@
-"""A new build's provenance-only catalog refresh is admitted and applied; any real managed change is still refused."""
+"""A new build's provenance-only catalog refresh is admitted without writes; any real managed change is still refused."""
 import base64
 from pathlib import Path
 import tempfile
@@ -69,12 +69,10 @@ class CheckTests(unittest.TestCase):
         paths = mock.Mock(agentic_root=root)
         with mock.patch.object(module, "load_prepared", return_value=(None, None, {})), \
                 mock.patch.object(module, "InstancePaths", return_value=paths), \
-                mock.patch.object(module, "prepare_upgrade", return_value=plan):
-            result = module.check(Path("/prepared"), Path("/instance"), supported=lambda: self.supported,
-                                  apply=lambda p, pl, attribution: applied.append((pl, attribution)))
+                mock.patch.object(module, "prepare_upgrade", return_value=plan), \
+                mock.patch("bazarlyk.agentic.managed_update.apply", side_effect=AssertionError("Admission must not write")):
+            result = module.check(Path("/prepared"), Path("/instance"))
         return result, applied
-
-    supported = True
 
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
@@ -89,25 +87,15 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(result, {"applied": False})
         self.assertEqual(applied, [])
 
-    def test_provenance_refresh_is_applied_with_installer_attribution(self):
+    def test_provenance_refresh_is_read_only_on_linux_and_mac(self):
         plan = {**self.plan, "changes": [edit(self.path, refreshed(commit="6895969d"))]}
-        result, applied = self.run_check(plan, self.root)
-        self.assertEqual(result, {"applied": True, "files": [self.path]})
-        self.assertIs(applied[0][0], plan)
-        self.assertEqual(applied[0][1]["actor_id"], "local-native-updater")
-
-    def test_without_managed_apply_the_refresh_is_admitted_and_nothing_is_written(self):
-        self.supported = False
-        plan = {**self.plan, "changes": [edit(self.path, refreshed(commit="6895969d"))]}
-        result, applied = self.run_check(plan, self.root)
-        self.assertEqual(result, {"applied": False, "retained_provenance": [self.path]})
-        self.assertEqual(applied, [])
-
-    def test_without_managed_apply_a_content_change_still_refuses(self):
-        self.supported = False
-        plan = {**self.plan, "changes": [edit(self.path, refreshed(files={"a": "b"}))]}
-        with self.assertRaisesRegex(RuntimeError, "qualified managed update"):
-            self.run_check(plan, self.root)
+        before = (self.root / self.path).read_bytes()
+        for platform in ("linux", "darwin"):
+            with self.subTest(platform=platform), mock.patch("sys.platform", platform):
+                result, applied = self.run_check(plan, self.root)
+                self.assertEqual(result, {"applied": False, "retained_provenance": [self.path]})
+                self.assertEqual(applied, [])
+                self.assertEqual((self.root / self.path).read_bytes(), before)
 
     def test_any_content_change_refuses_and_applies_nothing(self):
         plan = {**self.plan, "changes": [edit(self.path, refreshed(commit="6895969d")),

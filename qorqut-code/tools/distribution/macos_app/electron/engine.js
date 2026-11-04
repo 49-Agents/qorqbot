@@ -17,6 +17,7 @@ const http = require('node:http');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
+const semver = require('semver');
 
 const INSTALL_COMMAND = 'brew install python@3.12 git tmux';
 // native_launch.py refuses roots whose Unix socket paths exceed 104 bytes;
@@ -83,6 +84,7 @@ class Engine {
     this.installParent = home || path.join(os.homedir(), 'Qorqbot');
     this.root = path.join(this.installParent, 'qorqbot');
     this.logFile = path.join(this.installParent, 'launcher.log');
+    this.portFile = path.join(this.installParent, 'server-port');
     this.appLog = path.join(this.root, 'instance', 'logs', 'application.log');
     this.firstPort = firstPort;
     this.baseEnv = { ...env };
@@ -266,7 +268,8 @@ class Engine {
 
   updateAvailable() {
     const current = this.installedVersion();
-    return Boolean(this.isInstalled() && current && current !== this.bundledVersion);
+    return Boolean(this.isInstalled() && semver.valid(current) && semver.valid(this.bundledVersion)
+      && semver.gt(this.bundledVersion, current));
   }
 
   async install({ onLine = () => {} } = {}) {
@@ -307,6 +310,9 @@ class Engine {
   }
 
   async update({ onLine = () => {} } = {}) {
+    if (!this.updateAvailable()) {
+      throw new EngineError('update', 'This app does not contain a newer Qorqbot version. The installed version was kept.');
+    }
     const from = this.installedVersion();
     if (await this.status()) {
       onLine('Stopping the running server');
@@ -326,18 +332,47 @@ class Engine {
     const { code, output } = await this.run(['status'], { allowFailure: true });
     const match = output.match(/Running at (\S+)/);
     this.url = code === 0 && match ? match[1] : null;
+    if (this.url) this.savePort(Number(new URL(this.url).port));
     return this.url;
+  }
+
+  savedPort() {
+    let value;
+    try {
+      value = readTrimmed(this.portFile);
+    } catch (error) {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    }
+    const port = Number(value);
+    if (!/^\d+$/.test(value) || !Number.isInteger(port) || port < 1024 || port > 65535) {
+      throw new EngineError('ports', 'The saved server port is invalid. Check ' + this.portFile);
+    }
+    return port;
+  }
+
+  savePort(port) {
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+      throw new EngineError('ports', 'The server did not report a valid local port.');
+    }
+    this.ensureParent();
+    fs.writeFileSync(this.portFile, String(port) + '\n', { mode: 0o600 });
   }
 
   async start({ onLine = () => {} } = {}) {
     await this.requirePrerequisites();
-    let port = this.firstPort;
+    const saved = this.savedPort();
+    let port = saved ?? this.firstPort;
     while (!(await portFree(port))) {
+      if (saved !== null) {
+        throw new EngineError('ports', `Qorqbot's saved port ${port} is in use. Close the program using it and try again; existing agents need this same address.`);
+      }
       port += 1;
       if (port > this.firstPort + PORT_RANGE) {
         throw new EngineError('ports', `Ports ${this.firstPort}-${this.firstPort + PORT_RANGE} are all in use.`);
       }
     }
+    this.savePort(port);
     const url = `http://127.0.0.1:${port}`;
     this.log(`starting on ${url}`);
     onLine('Starting the local server on ' + url);
@@ -346,12 +381,14 @@ class Engine {
     const child = spawn('./qorqbot', ['--port', String(port)], { cwd: this.root, env, stdio: ['ignore', log, log] });
     fs.closeSync(log);
     let exited = false;
+    let startError = null;
+    child.on('error', (error) => { startError = error; exited = true; });
     child.on('exit', () => { exited = true; if (this.server === child) { this.server = null; this.url = null; } });
     this.server = child;
     const deadline = Date.now() + READY_TIMEOUT_MS;
     while (Date.now() < deadline) {
       if (exited) {
-        throw new EngineError('start', 'Qorqbot stopped during start-up.', { detail: this.logTail() });
+        throw new EngineError('start', 'Qorqbot stopped during start-up.', { detail: startError?.message || this.logTail() });
       }
       if ((await httpStatus(url)) === 200) {
         this.log(`ready at ${url} (pid ${child.pid})`);

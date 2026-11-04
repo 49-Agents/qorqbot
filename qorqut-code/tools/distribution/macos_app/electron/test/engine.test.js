@@ -28,7 +28,7 @@ case "\${1-}" in
   update)
     echo "update $2 $4" >>"$root/calls"
     [ -n "\${FAKE_UPDATE_FAIL:-}" ] && { echo 'Qorqbot update: refused'; exit 1; }
-    version=$(tar -xzOf "$2" qorqbot/runtime/PAYLOAD.json | /usr/bin/plutil -extract version raw -o - -)
+    version=$(tar -xzOf "$2" qorqbot/runtime/PAYLOAD.json | "$QORQUT_PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["version"])')
     printf '{"version": "%s"}' "$version" >"$root/runtime/PAYLOAD.json";;
   --port)
     [ -n "\${FAKE_START_FAIL:-}" ] && { echo 'Qorqbot: exited during startup'; exit 1; }
@@ -144,6 +144,34 @@ test('busy port moves to the next port', async () => {
   }
 });
 
+test('a new app session keeps the chosen port after a competing app exits', async () => {
+  const { payload } = makePayload('1.0.0');
+  const engine = await engineFor(payload);
+  await engine.install();
+  const busy = net.createServer();
+  await new Promise(resolve => busy.listen(engine.firstPort, '127.0.0.1', resolve));
+  try {
+    const original = await engine.start();
+    await engine.stop();
+    await new Promise(resolve => busy.close(resolve));
+    const next = await engineFor(payload, { options: { firstPort: engine.firstPort } });
+    assert.equal(await next.start(), original);
+  } finally { if (busy.listening) busy.close(); }
+});
+
+test('a busy saved port is refused without moving existing agents to another address', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  await engine.install();
+  await engine.start();
+  await engine.stop();
+  const busy = net.createServer();
+  await new Promise(resolve => busy.listen(engine.firstPort, '127.0.0.1', resolve));
+  try {
+    await assert.rejects(engine.start(), error => error.code === 'ports');
+    assert.equal(calls(engine).filter(call => call.startsWith('start')).length, 1);
+  } finally { busy.close(); }
+});
+
 test('bad checksum installs nothing', async () => {
   const engine = await engineFor(makePayload('1.0.0', { checksum: '0'.repeat(64) }).payload);
   await assert.rejects(engine.install(), (error) => error instanceof EngineError && error.code === 'checksum');
@@ -214,6 +242,27 @@ test('same version is not offered as an update', async () => {
   assert.equal(engine.updateAvailable(), false);
   await engine.install();
   assert.equal(engine.updateAvailable(), false);
+});
+
+test('older releases, older prereleases and build metadata never trigger an update', async () => {
+  for (const [current, bundled, expected] of [
+    ['1.1.0', '1.0.0', false],
+    ['1.1.0', '1.1.0-rc.1', false],
+    ['1.1.0-rc.10', '1.1.0-rc.2', false],
+    ['1.1.0+build.1', '1.1.0+build.2', false],
+    ['1.1.0-rc.2', '1.1.0-rc.10', true],
+    ['1.1.0-rc.2', '1.1.0', true],
+  ]) {
+    const installed = await engineFor(makePayload(current).payload);
+    fs.rmSync(installed.root, { recursive: true, force: true });
+    await installed.install();
+    const updater = await engineFor(makePayload(bundled).payload);
+    assert.equal(updater.updateAvailable(), expected, `${current} -> ${bundled}`);
+    if (!expected) {
+      await assert.rejects(updater.update(), error => error.code === 'update');
+      assert.equal(calls(updater).some(call => call.startsWith('update ')), false);
+    }
+  }
 });
 
 test('login shell PATH is read between markers, ignoring banners', async () => {

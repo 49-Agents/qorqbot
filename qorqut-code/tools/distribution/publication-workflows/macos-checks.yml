@@ -15,7 +15,7 @@ jobs:
       - name: Check native target and install build prerequisites
         run: |
           test "$(uname -m)" = arm64
-          brew install tmux
+          brew install tmux librsvg
           python -m pip install packaging
       - name: Export and build this exact commit
         env:
@@ -32,6 +32,19 @@ jobs:
           RELEASE_WORK: ${{ runner.temp }}/qorqbot-mac
         run: |
           python qorqut-code/tools/distribution/check_posix.py --archive "$RELEASE_WORK/package/qorqbot-1.3.0-mac-check.${GITHUB_SHA:0:12}-macos14-arm64.tar.gz" --output "/tmp/qm-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+      - name: Run Mac runtime and launcher tests
+        run: |
+          test_python="/tmp/qm-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/i/qorqbot/runtime/venv/bin/python"
+          "$test_python" -I -B -m unittest discover -s qorqut-code/app/tests
+          "$test_python" -I -B -m unittest discover -s qorqut-code/tools/distribution/tests
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Check desktop launcher and signed DMG
+        run: |
+          npm ci --prefix qorqut-code/tools/distribution/macos_app/electron
+          npm test --prefix qorqut-code/tools/distribution/macos_app/electron
+          python -B -m unittest discover -s qorqut-code/tools/distribution/macos_app/tests
       # This job prepares and checks a candidate only. It does not publish,
       # change repository visibility or use accounts/native agent clients.
       # Real terminal/browser acceptance remains a separate Mac release gate.
