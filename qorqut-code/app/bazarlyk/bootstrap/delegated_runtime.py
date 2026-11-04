@@ -1,8 +1,9 @@
-"""Bounded local Codex dispatcher for opted-in durable Ordubashy assignments.
+"""Bounded local dispatcher for opted-in durable Ordubashy assignments.
 
-The dispatcher runs beside, never inside, the parent conversation. Worker
-threads use a separate registration and delegation credential; the normal
-parent registration remains the sole inbox consumer and lease owner.
+The dispatcher runs beside, never inside, the parent conversation. Workers use
+the CLI the parent session runs (Codex or Claude Code), each in a separate
+registration with its own delegation credential; the normal parent registration
+remains the sole inbox consumer and lease owner.
 """
 
 from __future__ import annotations
@@ -29,8 +30,12 @@ POLL_SECONDS = 10
 HEARTBEAT_SECONDS = 30
 MAX_LINE_BYTES = 1_000_000
 MAX_TURN_BYTES = 8_000_000
-# Keep later releases explicit until the isolated launch/resume contract passes.
-
+RUNTIME_EXECUTABLES = {"codex": "codex", "claude-code": "claude"}
+RUNTIME_NAMES = {"codex": "Codex", "claude-code": "Claude Code"}
+CLAUDE_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
+CLAUDE_MODEL_PREFIXES = ("claude", "opus", "sonnet", "haiku")
+# Process environment a Claude Code worker needs to find its own sign-in; nothing from the parent session.
+CLAUDE_ENVIRONMENT = ("HOME", "USER", "LOGNAME", "TMPDIR", "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY")
 
 
 def startup_diagnostic(raw):
@@ -46,7 +51,7 @@ def startup_diagnostic(raw):
 
 
 class MissingRuntimeThread(Exception):
-    """A resume process exited before reopening its saved Codex thread."""
+    """A resume process exited before reopening its saved worker thread (Codex thread or Claude Code session)."""
 
 
 def supported_cli_version(value: str) -> bool:
@@ -158,6 +163,76 @@ def worker_command(assignment, registration, registration_path, *, executable="c
     return command
 
 
+def claude_worker_command(assignment, registration, registration_path, *, executable="claude", thread_id=None):
+    """Build a headless Claude Code invocation with one MCP server, no built-in tools and no user configuration.
+
+    ``--setting-sources project,local`` skips user settings, hooks and memory; the private worker folder has no
+    project settings. ``--tools ""`` removes every built-in tool, ``--strict-mcp-config`` loads only the Bazarlyk
+    server, and ``dontAsk`` denies any tool not named in ``--allowedTools`` instead of prompting."""
+    header_helper = shlex.join([
+        os.sys.executable, "-I", "-m", "bazarlyk.bootstrap.mcp_headers",
+        "--registration", str(registration_path),
+    ])
+    servers = {"mcpServers": {"bazarlyk": {"type": "http", "url": registration["service_url"] + "/mcp",
+                                           "headersHelper": header_helper}}}
+    from bazarlyk.agents.operational_delegation import WORKER_OPERATIONS
+    from .tool_permissions import PREFIX
+    allowed_tools = sorted(set(assignment.get("allowed_operations_json", [])) | set(WORKER_OPERATIONS))
+    command = [executable, "-p", "--output-format", "stream-json", "--verbose", "--input-format", "text",
+               "--setting-sources", "project,local", "--strict-mcp-config",
+               "--mcp-config", json.dumps(servers, separators=(",", ":")),
+               "--tools", "", "--permission-mode", "dontAsk",
+               "--allowedTools", *[PREFIX + name for name in allowed_tools]]
+    if thread_id is not None:
+        try:
+            valid = isinstance(thread_id, str) and str(uuid.UUID(thread_id)) == thread_id
+        except ValueError:
+            valid = False
+        if not valid:
+            raise DomainError("invalid_response", "Saved Claude Code session ID is invalid")
+        command.extend(["--resume", thread_id])
+    # The worker model is a Codex model unless the owner chose a Claude one; otherwise Claude Code uses its own default.
+    model = assignment.get("selected_model")
+    if isinstance(model, str) and model.lower().startswith(CLAUDE_MODEL_PREFIXES):
+        command.extend(["--model", model])
+    if assignment.get("reasoning_effort") in CLAUDE_EFFORTS:
+        command.extend(["--effort", assignment["reasoning_effort"]])
+    return command
+
+
+def interpret_event(runtime, event):
+    """Normalize one JSONL event: ("thread", id), ("completed", usage), ("failed", None) or (None, None)."""
+    kind = event.get("type")
+    if runtime == "codex":
+        if kind == "thread.started":
+            return "thread", event.get("thread_id")
+        if kind == "turn.completed":
+            raw = event.get("usage") if isinstance(event.get("usage"), dict) else {}
+            return "completed", {key: value for key, value in raw.items() if key in {
+                "input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"}}
+        if kind in {"turn.failed", "error"}:
+            return "failed", None
+        return None, None
+    if kind == "system" and event.get("subtype") == "init":
+        return "thread", event.get("session_id")
+    if kind == "result":
+        if event.get("is_error") or event.get("subtype") != "success":
+            return "failed", None
+        return "completed", claude_usage(event.get("usage"))
+    return None, None
+
+
+def claude_usage(raw):
+    """Claude reports uncached, cache-read and cache-write input separately; the ledger counts all input and its cached part."""
+    raw = raw if isinstance(raw, dict) else {}
+    count = lambda name: raw.get(name) if type(raw.get(name)) is int and raw.get(name) >= 0 else 0
+    cached = count("cache_read_input_tokens")
+    details = raw.get("output_tokens_details") if isinstance(raw.get("output_tokens_details"), dict) else {}
+    thinking = details.get("thinking_tokens") if type(details.get("thinking_tokens")) is int and details.get("thinking_tokens") >= 0 else 0
+    return {"input_tokens": count("input_tokens") + cached + count("cache_creation_input_tokens"),
+            "cached_input_tokens": cached, "output_tokens": count("output_tokens"), "reasoning_output_tokens": thinking}
+
+
 def _prompt(assignment, events, *, continuation=False):
     scope = {
         "assignment_id": assignment["id"], "business_id": assignment.get("business_id"),
@@ -200,15 +275,19 @@ def _prompt(assignment, events, *, continuation=False):
 
 
 class DelegatedRuntime:
-    """Poll saved assignments and run at most three isolated Codex sessions."""
+    """Poll saved assignments and run at most three isolated worker sessions on the parent session's CLI."""
 
-    def __init__(self, registration, consumer_id, *, alive, client=None, executable=None,
+    def __init__(self, registration, consumer_id, *, alive, runtime="codex", client=None, executable=None,
                  state_root=None, poll_interval=POLL_SECONDS, popen=subprocess.Popen):
+        if runtime not in RUNTIME_EXECUTABLES:
+            raise DomainError("unsupported_runtime", "Delegated workers support Codex and Claude Code only")
+        self.runtime = runtime
+        self.name = RUNTIME_NAMES[runtime]
         self.registration = registration
         self.consumer_id = str(uuid.UUID(consumer_id))
         self.alive = alive
         self.client = client or BootstrapClient(registration, timeout=10)
-        self.executable = executable or shutil.which("codex")
+        self.executable = executable or shutil.which(RUNTIME_EXECUTABLES[runtime])
         self.state_root = Path(state_root) if state_root is not None else Path(
             os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")) / "bazarlyk" / "delegated-workers"
         self.poll_interval = poll_interval
@@ -225,6 +304,25 @@ class DelegatedRuntime:
         from .features import probe
         features = probe(self.executable)
         return all(features.get(name) for name in ('json_events','resume','isolated_configuration','scoped_mcp'))
+
+    def command(self, assignment, registration, registration_path, thread_id):
+        build = worker_command if self.runtime == "codex" else claude_worker_command
+        return build(assignment, registration, registration_path, executable=self.executable, thread_id=thread_id)
+
+    def environment(self, cwd):
+        env = {"PATH": os.environ.get("PATH", os.defpath), "TERM": "dumb", "LANG": os.environ.get("LANG", "C.UTF-8")}
+        if self.runtime == "codex":
+            env["HOME"] = cwd
+            env["CODEX_HOME"] = os.environ.get("CODEX_HOME") or str(Path.home() / ".codex")
+        else:
+            # Claude Code keeps its sign-in and resumable sessions under the real home; settings and memory are skipped
+            # by the command line, not by hiding the home folder.
+            env.update({name: os.environ[name] for name in CLAUDE_ENVIRONMENT if name in os.environ})
+            env.setdefault("HOME", str(Path.home()))
+        for name in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"):
+            if name in os.environ:
+                env[name] = os.environ[name]
+        return env
 
     def start(self):
         if not self.compatible():
@@ -334,7 +432,7 @@ class DelegatedRuntime:
         except DomainError as error:
             self._failed(assignment_id, generation, "Worker runtime failed (" + error.code + "): " + (error.message if error.code == "worker_turn_failed" else startup_diagnostic(error.message)))
         except Exception:
-            self._failed(assignment_id, generation, "Codex worker exited before saving a durable checkpoint")
+            self._failed(assignment_id, generation, self.name + " worker exited before saving a durable checkpoint")
         finally:
             if worker_files is not None:
                 for path in worker_files:
@@ -371,8 +469,7 @@ class DelegatedRuntime:
                     self._failed(assignment_id, generation, "Assignment runtime limit reached")
                 return
             prompt = _prompt(assignment, events, continuation=continuation)
-            command = worker_command(assignment, registration, registration_path,
-                executable=self.executable, thread_id=thread_id)
+            command = self.command(assignment, registration, registration_path, thread_id)
             try:
                 thread_id, _usage, status, new_events = self._run_turn(command, prompt, assignment,
                     generation, deadline, registration["workspace"], thread_id, turns + 1)
@@ -391,7 +488,7 @@ class DelegatedRuntime:
             if assignment.get("state") != "running":
                 return
             if thread_id is None:
-                raise DomainError("invalid_response", "Codex did not report a resumable worker thread")
+                raise DomainError("invalid_response", self.name + " did not report a resumable worker thread")
             for event in new_events:
                 if not isinstance(event, dict) or event.get("id") in seen_events:
                     continue
@@ -408,14 +505,7 @@ class DelegatedRuntime:
                 self._failed(assignment_id, generation, "Assignment worker-turn limit reached")
 
     def _run_turn(self, command, prompt, assignment, generation, deadline, cwd, prior_thread_id, turn_number):
-        env = {"PATH": os.environ.get("PATH", os.defpath), "HOME": cwd,
-            "TERM": "dumb", "LANG": os.environ.get("LANG", "C.UTF-8")}
-        codex_home = os.environ.get("CODEX_HOME") or str(Path.home() / ".codex")
-        if codex_home:
-            env["CODEX_HOME"] = codex_home
-        for name in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"):
-            if name in os.environ:
-                env[name] = os.environ[name]
+        env = self.environment(cwd)
         process = self.popen(command, cwd=cwd, env=env, stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, bufsize=0)
         diagnostic_tail = bytearray()
@@ -442,6 +532,7 @@ class DelegatedRuntime:
             status = {"assignment": assignment, "events": []}
             usage = None
             completed = False
+            failed = None
             thread_started = False
             service_stopped = False
             heartbeat = time.monotonic() + HEARTBEAT_SECONDS
@@ -473,27 +564,32 @@ class DelegatedRuntime:
                     break
                 total += len(chunk)
                 if total > MAX_TURN_BYTES:
-                    raise DomainError("invalid_response", "Codex output exceeded its bounded size")
+                    raise DomainError("invalid_response", self.name + " output exceeded its bounded size")
                 buffer.extend(chunk)
                 while b"\n" in buffer:
                     line, _, tail = buffer.partition(b"\n")
                     buffer[:] = tail
                     if len(line) > MAX_LINE_BYTES:
-                        raise DomainError("invalid_response", "Codex emitted an oversized JSONL event")
+                        raise DomainError("invalid_response", self.name + " emitted an oversized JSONL event")
                     if not line:
                         continue
                     try:
                         event = json.loads(line)
                     except (ValueError, UnicodeDecodeError):
-                        raise DomainError("invalid_response", "Codex emitted invalid JSONL") from None
+                        raise DomainError("invalid_response", self.name + " emitted invalid JSONL") from None
                     if not isinstance(event, dict):
                         continue
-                    if event.get("type") == "thread.started":
-                        reported = event.get("thread_id")
-                        if not isinstance(reported, str) or str(uuid.UUID(reported)) != reported:
-                            raise DomainError("invalid_response", "Codex emitted an invalid thread ID")
+                    kind, value = interpret_event(self.runtime, event)
+                    if kind == "thread":
+                        reported = value
+                        try:
+                            valid = isinstance(reported, str) and str(uuid.UUID(reported)) == reported
+                        except ValueError:
+                            valid = False
+                        if not valid:
+                            raise DomainError("invalid_response", self.name + " emitted an invalid thread ID")
                         if thread_id is not None and thread_id != reported:
-                            raise DomainError("runtime_conflict", "Codex resumed a different worker thread")
+                            raise DomainError("runtime_conflict", self.name + " resumed a different worker thread")
                         thread_id = reported
                         thread_started = True
                         status = self._post("poll", assignment, generation, runtime_thread_id=thread_id)
@@ -502,12 +598,8 @@ class DelegatedRuntime:
                             self._stop_process(process)
                             service_stopped = True
                             break
-                    elif event.get("type") == "turn.completed":
-                        raw_usage = event.get("usage") or {}
-                        if not isinstance(raw_usage, dict):
-                            raw_usage = {}
-                        usage = {key: value for key, value in raw_usage.items() if key in {
-                            "input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"}}
+                    elif kind == "completed":
+                        usage = value
                         status = self._post("poll", assignment, generation,
                             runtime_thread_id=thread_id, turn_number=turn_number, turn_usage=usage)
                         assignment = status.get("assignment", assignment)
@@ -516,8 +608,13 @@ class DelegatedRuntime:
                             self._stop_process(process)
                             service_stopped = True
                             break
-                    elif event.get("type") in {"turn.failed", "error"}:
-                        raise DomainError("worker_turn_failed", "Codex worker turn failed: " + startup_diagnostic(json.dumps(event)))
+                    elif kind == "failed":
+                        # Claude Code reports a resume of a missing session as a failed result before any init event:
+                        # that is a missing thread, decided after the process exits. Codex keeps its immediate failure.
+                        if self.runtime == "claude-code" and prior_thread_id is not None and not thread_started:
+                            failed = event
+                            continue
+                        raise DomainError("worker_turn_failed", self.name + " worker turn failed: " + startup_diagnostic(json.dumps(event)))
                 if service_stopped:
                     break
             selector.close()
@@ -525,10 +622,10 @@ class DelegatedRuntime:
             error_reader.join(timeout=1)
             if service_stopped:
                 return thread_id, usage, status, status.get("events", [])
-            if return_code != 0 and prior_thread_id is not None and not thread_started:
+            if (return_code != 0 or failed is not None) and prior_thread_id is not None and not thread_started:
                 raise MissingRuntimeThread
             if return_code != 0 or not completed:
-                raise DomainError("worker_turn_failed", "Codex worker did not complete the turn: " + startup_diagnostic(diagnostic_tail))
+                raise DomainError("worker_turn_failed", self.name + " worker did not complete the turn: " + startup_diagnostic(diagnostic_tail))
             return thread_id, usage, status, status.get("events", [])
         finally:
             if selector is not None:

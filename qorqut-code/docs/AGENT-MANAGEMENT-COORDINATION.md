@@ -182,8 +182,7 @@ these bounds alone; full production load measurement remains a rollout check.
 Ordubashy runs on Codex or Claude Code. Every prepared workspace carries both
 clients' hooks and instructions, so the owner starts whichever CLI they choose in
 Ordubashy's own terminal, and management intake, delegated answers and the Focus
-board support that session. Automatic durable-worker execution still requires
-a Codex parent session. The profile `runtime` is only the
+board and automatic durable workers follow that session. The profile `runtime` is only the
 default: the CLI that terminal control starts and that Chat names first. Change it
 with `agents_update` and `changes={"runtime":"codex"}` or `{"runtime":"claude-code"}`;
 the agent identity and records stay the same in both directions.
