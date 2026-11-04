@@ -12,8 +12,6 @@ jobs:
   macos:
     runs-on: macos-14
     timeout-minutes: 40
-    env:
-      RELEASE_WORK: ${{ runner.temp }}/qorqbot-mac
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -31,8 +29,8 @@ jobs:
           const fs = require('node:fs');
           const semver = require('./qorqut-code/tools/distribution/macos_app/electron/node_modules/semver');
           const version = process.env.RELEASE_VERSION || `1.3.0-mac-check.${process.env.GITHUB_SHA.slice(0, 12)}`;
-          if (!semver.valid(version)) throw new Error('Version must be valid SemVer');
-          fs.appendFileSync(process.env.GITHUB_ENV, `QORQBOT_BUILD_VERSION=${version}\n`);
+          if (semver.valid(version) !== version) throw new Error('Version must be canonical SemVer');
+          fs.appendFileSync(process.env.GITHUB_ENV, `QORQBOT_BUILD_VERSION=${version}\nRELEASE_WORK=${process.env.RUNNER_TEMP}/qorqbot-mac\n`);
           JS
       - name: Check native target and install build prerequisites
         run: |
