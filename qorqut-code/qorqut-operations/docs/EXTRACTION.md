@@ -199,7 +199,7 @@ implementation or `ABSENT`. A `None` for an optional port is also an `AssemblyEr
 | `execution` (required) | `execution_states` | `platform_actions.proposals.EXECUTION_STATES` | `signoffs_list` schema enum | ordered names |
 | | `execution_state(row, uow=None)` | `proposals.execution_state` | `_dto` | one of those names |
 | | `execution_sql("s")` | `proposals.execution_sql` | `signoffs_list` filter | fixed SQL over alias `s`, only embedded |
-| `peers` (required) | `configured_ordubashy(uow, *, require_codex)` | `management.identity` | `authorize_mail_control`, `_validate` | coordinator principal id or `None` |
+| `peers` (required) | `configured_ordubashy(uow)` | `management.identity` | `authorize_mail_control`, `_validate` | coordinator principal id or `None` |
 | `tasks` (required) | `open_assigned_count(uow, business_id, principal_id, now)` | `tasks.models.DEFAULT_CONFIG` + `tasks.snooze.ACTIVE_SQL` inline SQL | `notifications.overview` | `int` |
 | `references` (required) | `targets` (`{kind: ReferenceTarget(operation, argument)}`) | `tasks.operations.NOTE_REFS` and the kind table | note schema; `notes.references` (engine authorizes the read op, then calls its read handler) | ordered mapping |
 | | `task_namespace(ctx, args)` | `tasks.operations.task_namespace` | delegated answer namespace | namespace string |

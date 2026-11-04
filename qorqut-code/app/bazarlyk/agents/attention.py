@@ -21,7 +21,7 @@ UNREADABLE = frozenset({'forbidden', 'policy_denied', 'invalid_policy', 'not_fou
 
 def task_recipients(uow, business_id, task, actor_id):
     """Current board membership is a routing reason, never a source grant."""
-    agent = configured_ordubashy(uow, require_codex=False)
+    agent = configured_ordubashy(uow)
     if not agent or agent == actor_id:
         return set()
     found = uow.connection.execute(
@@ -65,7 +65,7 @@ class Attention:
 
     def context(self, ctx, args, uow):
         ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
-        agent = configured_ordubashy(uow, require_codex=False)
+        agent = configured_ordubashy(uow)
         if not agent or (args.get('agent_id') and args['agent_id'] != agent):
             raise DomainError('not_found', 'Configured Ordubashy is unavailable')
         if ctx.principal_kind == 'agent' and ctx.principal_id == agent:
@@ -151,7 +151,7 @@ class Attention:
             key = ('attention_coordinator_context', id(self))
             peer = memo.get(key) if memo is not None else None
             if peer is None:
-                agent = configured_ordubashy(uow, require_codex=False)
+                agent = configured_ordubashy(uow)
                 peer = self.app.policy.context_for(agent, business_id=None, review_business_id=None, uow=uow)
                 if memo is not None:
                     memo[key] = peer
@@ -218,7 +218,7 @@ class Attention:
     def reminder_eligible(self, uow, agent_id, *, consumer_id, binding_generation, focus_generation, kind):
         """Recheck current identity, binding and source authority before delivery."""
         try:
-            if configured_ordubashy(uow, require_codex=False) != agent_id: return False
+            if configured_ordubashy(uow) != agent_id: return False
             row = uow.connection.execute('SELECT * FROM native_session_owners WHERE agent_id=?', (agent_id,)).fetchone()
             if not row or row['consumer_id'] != consumer_id or row['generation'] != binding_generation or row['desired_state'] in ('paused','stopped'): return False
             binding = json.loads(row['binding_json'])
@@ -433,7 +433,7 @@ class Attention:
         if status not in ('working', 'done'):
             return None
         with self.runtime.database.read() as uow:
-            agent = configured_ordubashy(uow, require_codex=False)
+            agent = configured_ordubashy(uow)
             if ctx.principal_id != agent:
                 return None
             if status == 'working':

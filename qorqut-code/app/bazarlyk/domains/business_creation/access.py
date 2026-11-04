@@ -20,6 +20,6 @@ def creator_actor(uow, identity) -> str | None:
     matching role. An active global worker, a retired role and a system program never qualify, whatever they hold or are granted."""
     data = active_global(uow.connection, identity)
     if (data is None or COORDINATION_CAPABILITY not in data["scope"].get("global_capabilities", [])
-            or data["role"]["id"] != ORDUBASHY_ROLE or identity != configured_ordubashy(uow, require_codex=False)):
+            or data["role"]["id"] != ORDUBASHY_ROLE or identity != configured_ordubashy(uow)):
         return None
     return ORDUBASHY_ROLE

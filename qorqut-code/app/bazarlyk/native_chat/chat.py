@@ -42,6 +42,15 @@ MAX_PAGE = 100
 REASON_BINDING_NOT_READY = "binding_not_ready"
 # A read that was not handed the agent's selection reads it itself.
 _UNREAD = object()
+# The commands the owner may type in an agent's own terminal; Chat names them while the agent is offline. Any supported CLI
+# connects; the profile's runtime is only the default, listed first.
+LAUNCH_COMMANDS = {"codex": "codex", "claude-code": "claude"}
+
+
+def launch_commands(profile) -> list[str]:
+    preferred = store.profile_runtime(profile)
+    ordered = sorted(LAUNCH_COMMANDS, key=lambda runtime: runtime != preferred)
+    return [LAUNCH_COMMANDS[runtime] for runtime in ordered]
 
 _REFUSALS = {
     "terminal_offline": ("terminal_offline", "Start or resume the agent in its terminal first"),
@@ -166,7 +175,8 @@ class NativeChat:
                 "working": bool(captured and observation.working), "provider": observation.provider if live else None,
                 "conversation_id": observation.conversation_id if live else None,
                 "transport": observation.transport if live else None, "binding": binding, "detail": detail,
-                "selection": chosen.public() if chosen is not None else None, "candidate": candidate}
+                "selection": chosen.public() if chosen is not None else None, "candidate": candidate,
+                "launch_commands": launch_commands(profile)}
 
     def state(self, principal_id: str, agent_id: str, *, before: int | None = None, limit: int = 50,
               conversation: str | None = None, provider: str | None = None) -> dict:

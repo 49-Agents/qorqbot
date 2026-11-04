@@ -148,7 +148,7 @@ class Execution:
     def execution_state(self, row, uow=None): return "applied" if row["state"] == "applied" else "not_started"
     def execution_sql(self, alias): return "'not_started'"
 class Peers:
-    def configured_ordubashy(self, uow, *, require_codex): return None
+    def configured_ordubashy(self, uow): return None
 class Tasks:
     def open_assigned_count(self, uow, business_id, principal_id, now): return 0
 class References:

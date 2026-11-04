@@ -58,7 +58,7 @@ def write_notice(connection, *, kind, source_id, sender_id, manager_id, worker_i
 
 def forward_owner_message(uow, *, kind, source_id, sender_id, worker_id, body, accepted_at):
     """Note one accepted message to Ordubashy unless it is not an owner message to an active worker; return the notice ID or None."""
-    manager_id = configured_ordubashy(uow, require_codex=False)
+    manager_id = configured_ordubashy(uow)
     if manager_id is None or sender_id != installation_owner(uow):
         return None
     from bazarlyk.agents.worker_access import is_worker

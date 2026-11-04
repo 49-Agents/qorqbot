@@ -61,7 +61,7 @@ class UserInput:
         ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
         if ctx.principal_kind != "agent" or ctx.delegation_assignment_id is not None:
             raise DomainError("forbidden", "request_user_input is limited to the configured Ordubashy agent")
-        if configured_ordubashy(uow, require_codex=False) != ctx.principal_id:
+        if configured_ordubashy(uow) != ctx.principal_id:
             from bazarlyk.overseer.authority import current_overseer
             ctx, _ = current_overseer(self.runtime, ctx, uow, capability='manage_agentic_layer')
             session = store.live_session(uow.connection, ctx.principal_id)

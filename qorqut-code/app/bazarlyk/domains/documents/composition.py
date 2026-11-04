@@ -51,9 +51,9 @@ class DocumentOperations:
             scope_root=lambda business=None: scope_root(paths, business), clock=clock,
             present=self.publication.present_view)
         self.filing_operations = FilingOperations(self.sources, self.filing,
-            global_upload_agent=lambda uow: configured_ordubashy(uow, require_codex=False))
+            global_upload_agent=lambda uow: configured_ordubashy(uow))
         self.business_config = BusinessConfigOperations(paths, clock=clock)
-        self.journal = JournalOperations(self.store, lambda uow: configured_ordubashy(uow, require_codex=False))
+        self.journal = JournalOperations(self.store, lambda uow: configured_ordubashy(uow))
         self.plans = self.working_memory = self.shared_context = None
 
     def register(self, registry, application, *, working_memory, shared_context):

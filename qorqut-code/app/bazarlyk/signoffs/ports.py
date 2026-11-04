@@ -86,8 +86,8 @@ class HostPeers:
     """v1 ``management.identity``: the current coordinator, the one principal with standing authority."""
 
     @staticmethod
-    def configured_ordubashy(uow, *, require_codex):
-        return configured_ordubashy(uow, require_codex=require_codex)
+    def configured_ordubashy(uow):
+        return configured_ordubashy(uow)
 
 
 class HostTasks:
