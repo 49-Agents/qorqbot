@@ -28,7 +28,7 @@ jobs:
           node <<'JS'
           const fs = require('node:fs');
           const semver = require('./qorqut-code/tools/distribution/macos_app/electron/node_modules/semver');
-          const version = process.env.RELEASE_VERSION || `1.3.0-mac-check.${process.env.GITHUB_SHA.slice(0, 12)}`;
+          const version = process.env.RELEASE_VERSION || require('node:child_process').execFileSync('python3', ['qorqut-code/tools/distribution/build_version.py', '1.3.0', 'mac-check', '--commit', process.env.GITHUB_SHA], {encoding: 'utf8'}).trim();
           if (semver.valid(version) !== version) throw new Error('Version must be canonical SemVer');
           fs.appendFileSync(process.env.GITHUB_ENV, `QORQBOT_BUILD_VERSION=${version}\nRELEASE_WORK=${process.env.RUNNER_TEMP}/qorqbot-mac\n`);
           JS

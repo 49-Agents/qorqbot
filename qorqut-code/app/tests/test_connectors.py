@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import shlex
 import shutil
+import stat
 import subprocess
 import tempfile
 from types import SimpleNamespace
@@ -25,7 +26,7 @@ class FakeProbe:
     def __init__(self, result=None, checking=False):
         self.result, self.checking, self.refreshed = result, checking, []
 
-    def view(self, environ, refresh=False):
+    def view(self, environ, refresh=False, cache=None):
         self.refreshed.append(refresh)
         return {"checking": self.checking, "result": self.result}
 
@@ -111,7 +112,8 @@ class ConnectorsTest(unittest.TestCase):
     def test_view_combines_statuses(self):
         connectors.set_enabled(self.runtime_dir, "chrome", True, self.environ)
         probe = FakeProbe({"available": True, "connectors": connectors.parse_claude_list(CLAUDE_LIST)})
-        with mock.patch.object(connectors, "_browser_status", return_value={"status": "connected"}):
+        with mock.patch.object(connectors, "_browser_status", return_value={"status": "connected"}), \
+                mock.patch.object(connectors, "chrome_extension_installed", return_value=True):
             result = connectors.view(self.runtime, environ=self.environ, probe=probe)
         status = {item["id"]: item["status"] for item in result["connectors"]}
         self.assertEqual(status["chrome"], "connected")
@@ -121,6 +123,29 @@ class ConnectorsTest(unittest.TestCase):
         self.assertEqual(status["google_calendar"], "not_added")
         self.assertEqual(status["whatsapp"], "coming_soon" if connectors.host_platform() == "darwin" else "not_installed")
         self.assertNotIn("claude_name", result["connectors"][3])
+
+    def test_chrome_needs_its_extension_and_the_helper_browser_is_only_suggested(self):
+        probe = FakeProbe({"available": True, "connectors": {}})
+        with mock.patch.object(connectors, "_browser_status", return_value={"status": "connected"}), \
+                mock.patch.object(connectors, "chrome_extension_installed", return_value=False):
+            off = {item["id"]: item for item in connectors.view(self.runtime, environ=self.environ, probe=probe)["connectors"]}
+            connectors.set_enabled(self.runtime_dir, "chrome", True, self.environ)
+            on = {item["id"]: item for item in connectors.view(self.runtime, environ=self.environ, probe=probe)["connectors"]}
+        self.assertEqual((off["chrome"]["status"], off["chrome"]["extension"]), ("off", False))
+        self.assertEqual(on["chrome"]["status"], "needs_extension")
+        self.assertEqual([i["id"] for i in on.values() if i["tier"] == "recommended"], ["chrome", "playwright", "gmail"])
+        self.assertEqual(on["browser"]["tier"], "suggested")
+
+    def test_chrome_extension_is_found_in_any_profile(self):
+        home = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, home)
+        self.assertFalse(connectors.chrome_extension_installed(str(home)))
+        self.assertFalse(connectors.chrome_extension_installed(None))
+        chrome = home / "Library/Application Support/Google/Chrome"
+        (chrome / "Default/Extensions/someotherextension").mkdir(parents=True)
+        self.assertFalse(connectors.chrome_extension_installed(str(home)))
+        (chrome / "Profile 1/Extensions" / connectors.CLAUDE_IN_CHROME).mkdir(parents=True)
+        self.assertTrue(connectors.chrome_extension_installed(str(home)))
 
     def test_view_before_first_check_and_without_claude(self):
         with mock.patch.object(connectors, "_browser_status", return_value={"status": "connected"}):
@@ -236,6 +261,35 @@ class ClaudeProbeTest(unittest.TestCase):
         probe._thread.join()
         self.assertEqual(len(calls), 4)
 
+    def test_the_last_result_is_kept_across_restarts(self):
+        directory = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, directory)
+        cache = directory / "connectors-status.json"
+
+        def run(command, **options):
+            if command[1] == "auth":
+                return SimpleNamespace(returncode=0, stdout=json.dumps({"loggedIn": True}))
+            return SimpleNamespace(returncode=0, stdout=CLAUDE_LIST)
+
+        first = connectors.ClaudeProbe(run=run)
+        self.assertIsNone(first.view({}, cache=cache)["result"])
+        first._thread.join()
+        self.assertEqual(stat.S_IMODE(cache.stat().st_mode), 0o600)
+        # A new server process: the saved result shows at once while a fresh check runs.
+        second = connectors.ClaudeProbe(run=lambda command, **options: SimpleNamespace(returncode=1, stdout=""))
+        shown = second.view({}, cache=cache)
+        self.assertTrue(shown["checking"])
+        self.assertEqual(shown["result"]["connectors"]["Gmail"], "connected")
+        second._thread.join()
+
+    def test_a_damaged_saved_result_is_ignored(self):
+        directory = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, directory)
+        cache = directory / "connectors-status.json"
+        for content in ("not json", "[]", json.dumps({"available": True})):
+            cache.write_text(content)
+            self.assertIsNone(connectors._read_cached(cache))
+
     def test_missing_or_failing_claude(self):
         def missing(command, **options):
             raise FileNotFoundError(command[0])
@@ -269,8 +323,10 @@ class AgentShellTest(unittest.TestCase):
         from bazarlyk.bootstrap.preparation import agent_shell
         self.marker = marker_path(self.runtime_dir)
         self.shell = self.directory / "agent-shell.bash"
+        self.trusted = self.directory / "trust ran"
         self.shell.write_text(agent_shell(shlex.quote(str(self.directory / "launch settings.json")), shlex.quote(str(self.marker)),
-                                          shlex.quote(str(connectors.launch_path(self.runtime_dir)))))
+                                          shlex.quote(str(connectors.launch_path(self.runtime_dir))),
+                                          "touch " + shlex.quote(str(self.trusted))))
 
     def run_shell(self, command):
         return subprocess.run(["/bin/bash", "-c", ". \"$1\"; " + command, "bash", str(self.shell)], capture_output=True,
@@ -280,6 +336,32 @@ class AgentShellTest(unittest.TestCase):
         claude, codex = self.run_shell("claude 'hello there'; codex resume --last")
         self.assertEqual(claude, "claude|--settings|" + str(self.directory / "launch settings.json") + "|hello there|")
         self.assertEqual(codex, "codex|resume|--last|")
+
+    def test_a_bare_launch_opens_with_the_role_prompt_unless_start_sends_it(self):
+        claude, codex, started_claude, started_codex = self.run_shell(
+            "claude; codex; QORQBOT_ROLE_SENT=1 claude; QORQBOT_ROLE_SENT=1 codex")
+        self.assertEqual(claude.split("|")[-2], "/role")
+        self.assertEqual(codex, "codex|$role|")
+        self.assertTrue(started_claude.endswith("launch settings.json|"))
+        self.assertEqual(started_codex, "codex|")
+
+    def test_folder_trust_is_rechecked_before_each_launch_only_with_consent(self):
+        self.run_shell("claude; codex")
+        self.assertFalse(self.trusted.exists())
+        self.marker.write_text("{}")
+        self.run_shell("claude")
+        self.assertTrue(self.trusted.exists())
+        self.trusted.unlink()
+        self.run_shell("codex")
+        self.assertTrue(self.trusted.exists())
+
+    def test_a_failing_trust_check_never_blocks_the_launch(self):
+        from bazarlyk.bootstrap.preparation import agent_shell
+        self.marker.write_text("{}")
+        self.shell.write_text(agent_shell(shlex.quote(str(self.directory / "launch settings.json")), shlex.quote(str(self.marker)),
+                                          shlex.quote(str(connectors.launch_path(self.runtime_dir))), "false"))
+        claude, = self.run_shell("claude hi")
+        self.assertTrue(claude.startswith("claude|--settings|"))
 
     def test_connectors_precede_settings_and_follow_consent(self):
         connectors.set_enabled(self.runtime_dir, "playwright", True, self.environ)
@@ -352,7 +434,13 @@ class ZshAgentShellTest(unittest.TestCase):
         custom.mkdir()
         (custom / ".zshrc").write_text('export PATH="$HOME/bin:$PATH"\nexport FROM_CUSTOM=yes\n')
         lines = self.run_zsh('echo "$FROM_CUSTOM"; echo "$ZDOTDIR"; codex', user_zdotdir=str(custom))
-        self.assertEqual(lines, ["yes", str(custom), "codex|"])
+        self.assertEqual(lines, ["yes", str(custom), "codex|$role|"])
+
+    def test_start_prefix_reaches_the_wrapper_in_zsh(self):
+        lines = self.run_zsh("claude; QORQBOT_ROLE_SENT=1 claude; codex; QORQBOT_ROLE_SENT=1 codex")
+        self.assertEqual([line.split("|")[-2] for line in lines[:2]],
+                         ["/role", str(self.directory / "launch settings.json")])
+        self.assertEqual(lines[2:], ["codex|$role|", "codex|"])
 
 
 if __name__ == "__main__":

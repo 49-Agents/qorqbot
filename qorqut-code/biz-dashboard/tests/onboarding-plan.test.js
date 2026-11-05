@@ -46,3 +46,10 @@ test('saveId uses the shared progress id when present', () => {
   assert.equal(plan.saveId(steps[2]), 'terminal');
   assert.equal(plan.saveId(steps[4]), 'focus');
 });
+
+test('the launch step reads the Chat session as checking, waiting, connecting or online', () => {
+  assert.equal(plan.launchPhase(null), 'checking');
+  assert.equal(plan.launchPhase({state: 'offline', reason: 'no_session'}), 'waiting');
+  assert.equal(plan.launchPhase({state: 'live', can_send: false}), 'connecting');
+  assert.equal(plan.launchPhase({state: 'live', can_send: true}), 'online');
+});
