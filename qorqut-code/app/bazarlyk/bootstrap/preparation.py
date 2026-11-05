@@ -298,8 +298,14 @@ def agent_zshrc(launch_settings: str, consent_marker: str, connector_launch: str
 # run Ordubashy passed it on to the owner as the way to start him.
 OWNER_START = ("/role and $role are for you, not the owner. The owner starts you from the Qorqbot dashboard: your own\n"
                "terminal there (the >_ button above your Chat), typing claude or codex, or the Start button in Chat. When the\n"
-               "owner asks how to use Qorqbot, answer from the bazarlyk-role-qorqbot-guide skill; never send them to another\n"
+               "owner asks how to use Qorqbot, answer from the bazarlyk-qorqbot-guide skill; never send them to another\n"
                "terminal window, to cd into this folder or to type /role.\n")
+# Ordubashy has no managed browser of his own (those belong to helper workers). The owner's connectors give him two.
+ORDUBASHY_BROWSING = ("For a web page the owner is signed in to (LinkedIn, webmail, their dashboards), use the Claude in Chrome\n"
+                      "tools when they are available: they act in the owner's own Chrome and its sessions, only on sites the owner\n"
+                      "allows there. For other pages, or without them, use the Playwright tools, a separate signed-out browser.\n"
+                      "Neither needs a managed browser. Never sign in or type a password yourself. If neither is available, ask\n"
+                      "the owner to turn on Your Chrome or Playwright in Settings > Connect your tools and start you again.\n")
 
 
 def build_projection(resolver, config, *, registration_id: str, endpoint: str, interpreter: str,
@@ -573,10 +579,12 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
             'bazarlyk.agentic.client', '--registration', str(registration_path))) + '\n').encode(),
         "agent.yaml": yaml.safe_dump(profile, sort_keys=False, allow_unicode=False).encode(),
         "CLAUDE.md": (orientation + "\nUse /role to start or recover your registered work loop. A startup greeting\n"
-            "also takes up your queued responsibilities; follow mandatory role-work guidance.\n" + OWNER_START + inbox_guidance).encode(),
+            "also takes up your queued responsibilities; follow mandatory role-work guidance.\n" + OWNER_START
+            + (ORDUBASHY_BROWSING if ordubashy else "") + inbox_guidance).encode(),
         "AGENTS.md": (orientation + "\nUse the scoped Qorqut MCP for saved operational records and project mutations.\n"
             "Use $role to start or recover your registered work loop. A startup greeting\n"
-            "also takes up your queued responsibilities; follow mandatory role-work guidance.\n" + OWNER_START +
+            "also takes up your queued responsibilities; follow mandatory role-work guidance.\n" + OWNER_START
+            + (ORDUBASHY_BROWSING if ordubashy else "") +
             "Inbox delivery needs nothing from this session: do not start a Monitor or invent a poller. Native hook trust\n"
             "and loaded configuration remain client-owned; keep compatible cached paths\n"
             "until verified migration or natural session exit. Recovery preserves this session.\n" + codex_delegation).encode(),
@@ -622,6 +630,9 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
                 files[name] += guidance
     skill_files, selected = skill_projection(resolver, data)
     files.update(skill_files)
+    from . import qorqbot_guide
+    # Core-generated, like the CLAUDE.md text above: changing it needs no managed-instruction adoption on update.
+    files.update(qorqbot_guide.skill_files())
     from .browser import SKILL_NAME
     if data["role"]["id"] == ORDUBASHY_ROLE and SKILL_NAME in selected:
         # A native command, discovered only inside the selected skill. Runtime
