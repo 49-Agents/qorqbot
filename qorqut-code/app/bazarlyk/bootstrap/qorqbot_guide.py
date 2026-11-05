@@ -116,9 +116,19 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
     **Playwright** (a separate, signed-out browser agents can drive; needs Node.js) and **Gmail**.
   - Also useful: Google Calendar, Google Drive, Notion, Slack, WhatsApp (not on Mac yet) and the **Helper browser**
     (Google Chrome plus the `agent-browser` command, for helper agents Ordubashy hands work to).
-  - Gmail, Calendar, Drive, Notion and Slack are claude.ai connectors: **Connect** opens claude.ai's connector
-    settings; sign in there with the same Claude account the agents use (the panel names it). They work in Claude Code,
-    not in Codex. Changes reach an agent the next time it starts.
+  - More services: Linear, Atlassian (Jira, Confluence), Sentry, Asana, HubSpot, Figma, Canva, Stripe.
+  - **Claude and Codex have different connectors**, and the page shows a Claude column and a Codex column for each.
+    Claude agents use the connectors of the owner's claude.ai account: **Connect** opens claude.ai's connectors page and
+    a step-by-step guide on the row; sign in there with the same Claude account the agents use (the panel names it), and
+    Qorqbot confirms by itself. Every Claude agent then has it. Codex agents cannot use those; for services that offer it
+    (Notion, Linear, Atlassian, Sentry) **Connect** in the Codex column adds the service to the owner's Codex settings and
+    opens the service's own sign-in page. Gmail, Calendar, Drive and the others say "Not available" for Codex: use a
+    Claude agent for those. Your Chrome is Claude only; Playwright, the Helper browser and WhatsApp are shared.
+  - "Also on your Claude account" lists other claude.ai connectors the owner added; Claude agents have them too.
+  - Agent cards show which connectors that agent can use and which its client lacks.
+  - Local connectors (Your Chrome, Playwright) reach an agent the next time it starts; online services right away.
+- If the owner asks you to use a service you do not have, say so plainly, name where to connect it (Settings >
+  Connections, in your client's column), and if your client cannot have it, suggest asking a Claude (or Codex) agent.
 - **find your way around**: replay the walkthrough or one chapter of it.
 - **trusted agent folders**: the consent described under Starting an agent.
 - **Global environment**: variables such as API keys for the agents. Changes apply to new agent sessions.
@@ -151,8 +161,8 @@ Five chapters: get online, your workspace, projects and decisions, make it yours
   Claude Code or Codex must be installed and signed in once in a normal terminal (`claude` / `codex`).
 - **A message shows as not delivered or unconfirmed**: check the Terminal; if the CLI is showing a menu or dialog, finish
   it there, then resend from Chat.
-- **A connector shows "Needs sign-in" or "Not connected"**: press **Sign in** / **Connect** in Settings, finish on
-  claude.ai, then **Check again**.
+- **A connector shows "Needs sign-in" or "Not connected"**: press **Reconnect** / **Connect** in that client's column in
+  Settings, finish on claude.ai (Claude) or the service's page (Codex); Qorqbot checks by itself.
 - **The dashboard does not load**: in the Mac app use **Server > Restart Server**, or run `qorqbot status`.
 - Anything else: say what you see, and suggest the walkthrough or **Help > How Qorqbot Works** in the Mac app.
 """
