@@ -189,8 +189,9 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 .gchat-ref-group, .gchat-attachment { display:flex; flex-direction:column; min-width:0; max-width:100%; padding-left:9px; border-left:2px solid var(--line-2); }
 /* Record threads and native agent chat draw Task/Action references as flat attachment lists, not cards: a subtle
    vertical rule and a small left inset connect consecutive references. A Task row keeps only the Focus status ball and
-   its title; an Action row keeps the shared activity glyph and its honest state. The whole row is the target, and the
-   hover outline/wash is drawn inside the same box so nothing moves. */
+   its title; an Action row keeps the shared activity glyph and its honest state. A rendered website link uses the same
+   row and list with its globe glyph and full label, so an ordinary site reads as an attachment rather than a chip. The
+   whole row is the target, and the hover outline/wash is drawn inside the same box so nothing moves. */
 .gchat-log > .gchat-ref-group { align-self:flex-start; width:min(760px,100%); margin:12px 0 16px; }
 .gchat-ref-group-inline { flex:1 1 100%; margin:2px 0; }
 .gchat-attachment { width:100%; }
