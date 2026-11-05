@@ -1,0 +1,50 @@
+'use strict';
+const {test}=require('node:test'), assert=require('node:assert/strict'), fs=require('node:fs'), vm=require('node:vm');
+const source=fs.readFileSync(require.resolve('../js/global-tasks.js'),'utf8');
+const tick=()=>new Promise(r=>setImmediate(r));
+class Node {
+  constructor(){this.children=[];this.isConnected=true;this.dataset={};this.hidden=false;this.disabled=false;}
+  append(...nodes){this.children.push(...nodes);}
+  remove(){this.isConnected=false;}
+  setAttribute(){} focus(){} contains(){return true;}
+  addEventListener(name,fn){this['on'+name]=fn;}
+}
+function harness(embedded=false){
+  const calls=[], writes=[], pending=[], nodes={}, session={closed:0,setBeforeLeave(fn){this.leave=fn;},onDispose(fn){this.dispose=fn;},async close(){if(await this.leave()){this.closed++;this.dispose();return true;}return false;}};
+  let spec, ids=0;
+  const host=new Node(); host.firstElementChild=new Node();
+  const fields={title:{value:''},due:{value:''},status:{value:'open'}};
+  const form=new Node();form.elements=fields;
+  const assignee={value:'owner',checked:true};
+  const status=new Node(), back=new Node(), retry=new Node(), reload=new Node(), newButton=new Node();
+  const selectors={'[data-editor]':form,'[data-global-task-status]':status,'[data-back]':back,'[data-retry]':retry,'[data-reload]':reload,'[data-new]':newButton,'[data-refresh]':new Node(),'[data-task-tags]':new Node()};
+  host.querySelector=s=>selectors[s]||null;
+  host.querySelectorAll=s=>s==='[name="assignee"]'||s==='[name="assignee"]:checked'?[assignee]:[];
+  const ctx={window:{parent:{taskOpenGlobalCreate(){calls.push('parent');}},focusExpansion:{open(s){spec=s;s.mount(host,session);return session;}}},embeddedAgentPane:embedded,document:{activeElement:null,createElement:()=>new Node()},
+    taskStateSubscribe:()=>()=>{}, taskStateObserve:(_,task)=>task, post:async(url,args)=>{calls.push([url,args]);if(url.endsWith('assignees_list'))return {assignees:[{id:'owner',is_owner:true}]};if(url.endsWith('tasks_create')){writes.push(args);return new Promise((resolve,reject)=>pending.push({resolve,reject}));}return {tasks:[]};},coreData:x=>x,loadGlobalAgentProfiles:async()=>[],esc:x=>String(x),T_STATES:['open'],T_LABEL:{open:'Open'},taskTypeFields:()=>'',taskSnoozePicker:()=>'',taskSnoozeWire(){},taskSnoozeChange:()=>undefined,taskTypeMount:()=>({values:()=>({task_type:'task',overview:''}),confirmConversion:async()=>true,dispose(){}}),tagPickerMount:()=>({labels:()=>[]}),tagNormalize:x=>x,taskShowsState:()=>true,newRequestId:()=>`id-${++ids}`,uiFailure:e=>e.message,refreshTasks:()=>{calls.push('refresh');return Promise.resolve();},toast(){},identityAvatar:()=>'',globalAgentProfile:()=>null,taskRowLayout:()=>'',taskStateSnapshot:()=>({}),taskStateBind(){},tClosed:()=>false};
+  vm.createContext(ctx);vm.runInContext(source,ctx);
+  return {ctx,calls,writes,pending,host,fields,form,back,retry,newButton,session,get spec(){return spec;}};
+}
+async function opened(){const h=harness();h.ctx.window.taskOpenGlobalCreate();await tick();return h;}
+test('normal and embedded entry routes only create intent',async()=>{
+ const h=await opened();assert.equal(h.spec.title,'New Global task');assert.equal(h.writes.length,0);assert.equal(h.calls.filter(c=>Array.isArray(c)&&c[0].endsWith('tasks_list')).length,0);
+ const e=harness(true);e.ctx.window.taskOpenGlobalCreate();assert.deepEqual(e.calls,['parent']);assert.equal(e.spec,undefined);
+});
+test('cancel clean and keep or discard dirty without writes',async()=>{
+ let h=await opened();await h.session.close();assert.equal(h.session.closed,1);assert.equal(h.writes.length,0);
+ h=await opened();h.fields.title.value='Draft';let closing=h.session.close();let prompt=h.host.children.at(-1);prompt.children[1].onclick();assert.equal(await closing,false);assert.equal(h.session.closed,0);
+ closing=h.session.close();prompt=h.host.children.at(-1);prompt.children[2].onclick();assert.equal(await closing,true);assert.equal(h.writes.length,0);
+});
+test('create preserves payload and retry key; pending blocks close and unknown warns on discard',async()=>{
+ const h=await opened();h.fields.title.value='  Example  ';h.fields.due.value='2027-01-01';h.form.onsubmit({preventDefault(){}});await tick();
+ assert.deepEqual(JSON.parse(JSON.stringify(h.writes[0])),{title:'Example',due:'2027-01-01',assignee_ids:['owner'],tags:[],task_type:'task',overview:'',status:'open',id:'id-1',idempotency_key:'id-2'});
+ assert.equal(await h.session.close(),false);h.pending[0].reject(Error('lost'));await tick();
+ let closing=h.session.close();let prompt=h.host.children.at(-1);assert.match(prompt.children[0].textContent,/may have succeeded/);prompt.children[1].onclick();assert.equal(await closing,false);
+ h.retry.onclick();await tick();assert.deepEqual(JSON.parse(JSON.stringify(h.writes[1])),JSON.parse(JSON.stringify(h.writes[0])));
+ h.pending[1].resolve({task:{id:'id-1'}});await tick();await tick();assert.equal(h.session.closed,1);assert.ok(h.calls.includes('refresh'));
+});
+
+test('Global list New opens the parent entry point',async()=>{
+ const h=harness();let invoked=0;h.ctx.window.taskOpenGlobalCreate=()=>{invoked++;};
+ h.ctx.globalTasksMount(h.host);await tick();await tick();h.newButton.onclick();assert.equal(invoked,1);assert.equal(h.writes.length,0);
+});
