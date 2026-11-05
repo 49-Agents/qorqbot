@@ -251,9 +251,14 @@ def _cli_wrappers(launch_settings: str, consent_marker: str, connector_launch: s
         '_qorqbot_connectors() { QORQBOT_CLAUDE_ARGS=(); QORQBOT_CODEX_ARGS=(); '
         'if [ -f ' + connector_launch + ' ]; then . ' + connector_launch + '; fi; '
         'if [ -f ' + consent_marker + ' ]; then ' + trust_command + ' >/dev/null 2>&1 || true; fi; }\n'
+        # A bare claude or codex, as the owner types it in the agent's terminal, opens with the role prompt Start would
+        # type: the agent takes up its work, and Codex writes the session file Chat needs (it does so only on a first turn).
+        # Start itself types the prompt after launch and sets QORQBOT_ROLE_SENT so it is not sent twice.
         # --mcp-config takes several values; the --settings option after it ends that list before the caller's arguments.
-        'claude() { _qorqbot_connectors; command claude "${QORQBOT_CLAUDE_ARGS[@]}" --settings ' + launch_settings + ' "$@"; }\n'
-        'codex() { _qorqbot_connectors; if [ -f ' + consent_marker + ' ]; then '
+        'claude() { _qorqbot_connectors; if [ $# -eq 0 ] && [ -z "${QORQBOT_ROLE_SENT:-}" ]; then set -- /role; fi; '
+        'command claude "${QORQBOT_CLAUDE_ARGS[@]}" --settings ' + launch_settings + ' "$@"; }\n'
+        'codex() { _qorqbot_connectors; if [ $# -eq 0 ] && [ -z "${QORQBOT_ROLE_SENT:-}" ]; then set -- \'$role\'; fi; '
+        'if [ -f ' + consent_marker + ' ]; then '
         'command codex --dangerously-bypass-hook-trust "${QORQBOT_CODEX_ARGS[@]}" "$@"; '
         'else command codex "${QORQBOT_CODEX_ARGS[@]}" "$@"; fi; }\n'
     )

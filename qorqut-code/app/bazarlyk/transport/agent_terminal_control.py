@@ -378,7 +378,8 @@ class AgentTerminalBackend:
             return 'Startup command submitted; readiness/work is not confirmed'
         client = launcher
         name, role_command = CLIENT_NAMES[client], '/role' if client=='claude' else '$role'
-        broker.submit_input(session, client)
+        # The agent shell's wrapper would otherwise open a bare launch with the role prompt typed again just below.
+        broker.submit_input(session, 'QORQBOT_ROLE_SENT=1 ' + client)
         self.wait_ready(row, client)
         broker.submit_input(session, role_command)
         self.sleep(.2)
