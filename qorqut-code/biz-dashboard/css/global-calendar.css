@@ -125,3 +125,6 @@
 .calendar-focus-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .calendar-leave-choice { margin: 0 16px 16px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
 .calendar-leave-choice button + button { margin-left: 8px; }
+.calendar-recovery { padding: 16px; }
+.calendar-recovery-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.calendar-recovery-row p, .calendar-recovery-row small { flex-basis: 100%; margin: 0; }

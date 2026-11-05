@@ -7,12 +7,13 @@ const path = require('node:path');
 // Minimal DOM and provider: no calendar request leaves this process.
 function harness() {
   const calls = [], notices = [], subscriptions = [];
-  let session, rejectResponse, deferRead = false, resolveRead, successOperation;
+  let session, rejectResponse, deferRead = false, resolveRead, successOperation, owner = 'owner-a', requestNumber = 0;
   class Element {
     constructor() { this.children = []; this.dataset = {}; this.isConnected = true; this.value = ''; this.textContent = ''; this.className = ''; }
     append(...children) { for (const child of children) { child.parent = this; this.children.push(child); } }
     setAttribute(name,value) { this[name] = value; }
     contains() { return false; }
+    replaceChildren(...children) { this.children = []; this.append(...children); }
     after(child) { this.retry = child; }
     remove() { this.removed = true; if (this.parent) this.parent.children = this.parent.children.filter(x => x !== this); }
     focus() { this.focused = true; }
@@ -20,7 +21,7 @@ function harness() {
     set innerHTML(value) {
       this.html = value;
       if (value.includes('calendar-focus-content')) {
-        const root = this.firstElementChild = new Element(); root.footer = new Element(); root.error = new Element(); root.note = new Element(); root.select = new Element(); root.save = new Element(); root.meetOption = new Element();
+        const root = this.firstElementChild = new Element(); root.footer = new Element(); root.error = new Element(); root.note = new Element(); root.select = new Element(); root.save = new Element(); root.meetOption = new Element(); root.review = new Element();
         if (value.includes('calendar-form')) {
           const form = root.form = new Element(); form.elements = {};
           for (const match of value.matchAll(/<(input|select|textarea)\b([^>]*)>(?:([^<]*))?/g)) {
@@ -46,6 +47,7 @@ function harness() {
     if (selector === '[data-calendar-status-save]') return el.save;
     if (selector === '[data-calendar-status-retry]') return el.note.retry?.removed ? null : el.note.retry;
     if (selector === '[data-meet-option]') return el.meetOption;
+    if (selector === '[data-calendar-review]') return el.review;
     if (selector === 'form') return el.form;
     throw Error('Unexpected selector '+selector);
   };
@@ -57,13 +59,13 @@ function harness() {
     spec.mount(host,session); return session;
   }}},document,$,console,Intl,Date,Map,Set,Promise,JSON,Object,Array,Number,String,RegExp,Error,
     FormData:class { constructor(form) { this.items = Object.values(form.elements).filter(f => !f.disabled && (f.type !== 'checkbox' || f.checked)).map(f => [f.name,f.value]); } [Symbol.iterator]() {return this.items[Symbol.iterator]();} },
-    esc:s=>String(s ?? ''),toast:s=>notices.push(s),coreData:x=>x,accessLost:()=>false,clearEtagCache:()=>{},newRequestId:()=> 'request-id',AICONS:{},T_VIEW_ICON:{calendar:''},
+    esc:s=>String(s ?? ''),toast:s=>notices.push(s),coreData:x=>x,accessLost:()=>false,clearEtagCache:()=>{},newRequestId:()=> 'request-'+(++requestNumber),loadSession:async()=>owner ? {principal_id:owner,principal_kind:'human',is_owner:true} : null,AICONS:{},T_VIEW_ICON:{calendar:''},
     api:async()=>({items:[]}),post:async (url,args) => {calls.push({url,args}); if (url.endsWith('calendar_event_get')) { if (deferRead) return new Promise(resolve=>{resolveRead=()=>resolve({event:{...occurrence,id:args.event_id}});}); return {event:{...occurrence,id:args.event_id}}; } if (successOperation && url.endsWith(successOperation)) return {}; if (url.endsWith('calendar_event_respond')) return new Promise((resolve,reject)=>{rejectResponse=reject;}); throw Error('Provider mutation intentionally rejected');}};
   vm.createContext(context); vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/global-calendar.js'),'utf8'),context);
   const run = code => vm.runInContext(code,context);
   const flush = async () => { for(let i=0;i<8;i++) await Promise.resolve(); };
   const button = label => session.host.firstElementChild.footer.children.find(b=>b.textContent===label);
-  return {context,run,occurrence,calendar,calls,notices,flush,button,get session(){return session;},success: operation => {successOperation=operation;},choose: label => { const prompt=session.host.children.at(-1); const option=prompt.children.find(b=>b.textContent===label); assert.ok(option); option.onclick(); },defer:()=>{deferRead=true;},resolveRead:()=>resolveRead(),respond:()=>rejectResponse(Error('Provider mutation intentionally rejected'))};
+  return {context,run,occurrence,calendar,calls,notices,flush,button,get session(){return session;},success: operation => {successOperation=operation;},setOwner: value => {owner=value;},choose: label => { const prompt=session.host.children.at(-1); const option=prompt.children.find(b=>b.textContent===label); assert.ok(option); option.onclick(); },defer:()=>{deferRead=true;},resolveRead:()=>resolveRead(),respond:()=>rejectResponse(Error('Provider mutation intentionally rejected'))};
 }
 
 test('detail, occurrence status, RSVP and pending navigation use Focus', async () => {
@@ -91,7 +93,9 @@ test('edit, dirty guard and delete cancellation stay within Focus without writes
   await h.run('calendarStatuses.refresh()'); await h.run('calendarOpen(event, calendars, () => {})'); await h.flush();
   await h.button('Edit').onclick(); assert.equal(h.session.title,'Edit event');
   h.session.host.firstElementChild.form.elements.title.value='Draft';
-  const attempt=h.session.attempt(); await h.flush(); h.choose('Keep editing'); assert.equal(await attempt,false);
+  const attempt=h.session.attempt(); await h.flush(); assert.equal(await h.session.attempt(),false);
+  assert.equal(h.session.host.firstElementChild.form.elements.title.value,'Draft');
+  h.choose('Keep editing'); assert.equal(await attempt,false);
   const cancel=h.button('Cancel').onclick(); await h.flush(); h.choose('Keep editing'); await cancel; assert.equal(h.session.title,'Edit event');
   const discard=h.button('Cancel').onclick(); await h.flush(); h.choose('Discard changes'); await discard; await h.flush(); assert.equal(h.session.title,'Meeting');
   await h.button('Delete').onclick(); assert.equal(h.session.title,'Delete event?');
@@ -190,4 +194,58 @@ test('failed deletion leaves confirmation and cache untouched', async () => {
   await h.button('Delete').onclick(); await h.button('Delete').onclick();
   assert.equal(h.session.title,'Delete event?'); assert.match(h.session.host.firstElementChild.error.textContent,/intentionally rejected/);
   assert.equal(h.run('calendarWriteGeneration'),0);
+});
+
+test('lost delete is retained across close and retried with the original request', async () => {
+  const h=harness(); h.context.event=h.occurrence; h.context.calendars=[h.calendar];
+  await h.run('calendarStatuses.refresh()'); await h.run('calendarOpen(event, calendars, () => {})'); await h.flush();
+  await h.button('Delete').onclick(); await h.button('Delete').onclick();
+  const first=h.calls.at(-1); assert.match(h.session.host.firstElementChild.error.textContent,/outcome is unconfirmed/i);
+  assert.equal(h.run('calendarAttempts.size'),1); await h.session.close();
+  h.success('calendar_event_delete'); await h.run('calendarReviewOpen(document.activeElement)'); await h.flush();
+  const panel=h.session.host.children.at(-1), row=panel.children[2].children[0];
+  await row.children[1].onclick(); const retry=h.calls.at(-1);
+  assert.deepEqual(retry.args,first.args); assert.equal(h.run('calendarAttempts.size'),0);
+});
+
+test('recovery respects fresh owner and preserves another unsaved edit', async () => {
+  const h=harness(); h.context.event=h.occurrence; h.context.calendars=[h.calendar];
+  await h.run('calendarStatuses.refresh()'); await h.run('calendarOpen(event, calendars, () => {})'); await h.flush();
+  await h.button('Delete').onclick(); await h.button('Delete').onclick(); await h.session.close();
+  await h.run('calendarEdit(null, calendars, () => {})'); await h.flush();
+  const root=h.session.host.firstElementChild; root.form.elements.title.value='Another draft';
+  h.setOwner(null); const before=h.calls.length; await h.button('Save').onclick(); assert.equal(h.calls.length,before); assert.match(root.error.textContent,/owner session/i);
+  h.setOwner('owner-b'); await root.review.onclick(); let panel=h.session.host.children.at(-1); assert.equal(panel.children[2].children.length,0); panel.children.at(-1).onclick();
+  h.setOwner('owner-a'); await root.review.onclick(); panel=h.session.host.children.at(-1); const row=panel.children[2].children[0];
+  h.setOwner('owner-b'); await row.children[1].onclick(); assert.equal(h.calls.length,before); assert.equal(h.run('calendarAttempts.size'),1);
+  panel.children.at(-1).onclick(); h.setOwner('owner-a'); await root.review.onclick(); panel=h.session.host.children.at(-1);
+  h.success('calendar_event_delete'); await panel.children[2].children[0].children[1].onclick(); panel.children.at(-1).onclick();
+  assert.equal(root.form.elements.title.value,'Another draft'); assert.equal(h.session.host.firstElementChild,root); assert.equal(h.run('calendarAttempts.size'),0);
+});
+
+test('matching uncertain creates require a choice and remain independent', async () => {
+  const h=harness(); h.context.calendars=[h.calendar];
+  const fill=()=>{const f=h.session.host.firstElementChild.form.elements; f.title.value='New'; f.start.value='2026-11-05T10:00'; f.end.value='2026-11-05T10:30';};
+  await h.run('calendarEdit(null, calendars, () => {})'); await h.flush(); fill(); await h.button('Save').onclick();
+  const first=h.calls.at(-1); assert.equal(h.run('calendarAttempts.size'),1);
+  const close=h.session.close(); await h.flush(); h.choose('Discard changes'); await close;
+  await h.run('calendarEdit(null, calendars, () => {})'); await h.flush(); fill();
+  const save=h.button('Save').onclick(); await h.flush(); assert.equal(h.calls.length,1); h.choose('Create separate event'); await save;
+  assert.equal(h.run('calendarAttempts.size'),2); assert.notEqual(h.calls.at(-1).args.idempotency_key,first.args.idempotency_key);
+});
+
+
+test('uncertain personal statuses remain separate for recurring occurrences', async () => {
+  const h=harness(); h.context.event=h.occurrence; h.context.calendars=[h.calendar];
+  await h.run('calendarStatuses.refresh()');
+  for (const start of ['2026-11-05T15:00:00Z','2026-11-06T15:00:00Z']) {
+    h.context.event={...h.occurrence,start};
+    await h.run('calendarOpen(event, calendars, () => {})'); await h.flush();
+    const select=h.session.host.firstElementChild.select; select.value='completed'; select.onchange();
+    await h.session.host.firstElementChild.save.onclick();
+    const close=h.session.close(); await h.flush(); h.choose('Discard changes'); await close;
+  }
+  assert.equal(h.run('calendarAttempts.size'),2);
+  const starts=h.run('[...calendarAttempts.values()].map(a => a.args.target.occurrence_start)');
+  assert.deepEqual(Array.from(starts),['2026-11-05T15:00:00.000Z','2026-11-06T15:00:00.000Z']);
 });
