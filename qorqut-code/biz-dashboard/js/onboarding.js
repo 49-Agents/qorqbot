@@ -6,13 +6,16 @@ const onboarding = (() => {
   const pane = () => document.querySelector('#agpad');
   const steps = [
     {id: 'assistant', chapter: 'online', title: 'meet ordubashy',
-      body: 'Ordubashy is your lead agent. Give him a goal. He carries the work forward, hands parts to helpers and brings decisions back to you.',
+      body: 'Ordubashy is your lead agent. Give him a goal. He carries the work forward, hands parts to helpers and brings decisions back to you. Next, you start him.',
       target: () => agentButton('ordubashy')},
-    {id: 'start', chapter: 'online', title: 'bring him online',
-      body: 'Press Start in Chat. The first time, Qorqbot asks once to trust its own agent folders, then starts Ordubashy in Claude Code or Codex for you.',
-      hint: 'If Start fails, open the >_ terminal to see what it is waiting for. Claude Code or Codex must be installed and signed in once.',
+    // The launch itself: the card's button presses Chat's own Start, and next stays locked until he is online.
+    {id: 'start', chapter: 'online', title: 'start ordubashy', launch: true,
+      body: 'Ordubashy runs in Claude Code or Codex, here on your computer. Start him now. This takes up to a minute.',
+      instructions: ['The first time, Qorqbot asks once whether it may start its agents for you.',
+        'He opens in his own terminal and connects to this Chat by himself.'],
+      hint: 'Claude Code or Codex must be installed and signed in once.',
       online: 'Ordubashy is online. He is setting himself up and will answer in Chat in a moment.',
-      target: () => document.querySelector('#global-agent-terminal .gchat-start:not([hidden]), #global-agent-terminal [data-empty-action="start"]')
+      target: () => document.querySelector('#global-agent-terminal .gchat-session')
         || document.querySelector('#global-agent-terminal .gchat-composer')},
     {id: 'chat', chapter: 'online', title: 'say hello',
       body: 'Once he is connected, type “hi, what can you help me with?” in the message box and press send.',
@@ -171,18 +174,45 @@ const onboarding = (() => {
     event.preventDefault(); list[next].focus();
   }
   function schedule() { if (root && !frame) frame = requestAnimationFrame(() => { frame = 0; position(); }); }
-  // Chat's composer accepts text only while the agent is connected (global-chat.js).
-  const agentOnline = () => { const box = document.querySelector('#global-agent-terminal .gchat-composer textarea');
-    return !!box && !box.disabled && !/not available/i.test(box.placeholder || ''); };
+  // Ordubashy's Chat (global-chat.js): its status line and whichever Start control it shows while he is offline.
+  const chatStart = () => [...document.querySelectorAll('#global-agent-terminal .gchat-start, #global-agent-terminal [data-empty-action="start"]')]
+    .find(visible) || null;
+  const LAUNCH_TEXT = {
+    checking: 'Checking whether Ordubashy is running…',
+    offline: 'Offline. Press Start Ordubashy.',
+    starting: 'Starting Ordubashy in his terminal…',
+    online: 'Online',
+    unavailable: 'Chat can’t start him here. Open his >_ terminal and type claude or codex.',
+  };
+  // The launch step's live panel. Next unlocks once he is online, when Chat can't start him, or after "start later".
+  function paintLaunch() {
+    const panel = card.querySelector('[data-launch]'); if (!panel) return;
+    const line = document.querySelector('#global-agent-terminal .gchat-session');
+    const control = chatStart();
+    const {phase, error} = onboardingPlan.launchPhase({state: line?.dataset.state, startLabel: control?.textContent || '',
+      error: line?.querySelector('.gchat-session-text')?.textContent || ''});
+    if (panel.dataset.phase !== phase || (phase === 'failed' && panel.dataset.error !== error)) {
+      panel.dataset.phase = phase; panel.dataset.error = error || '';
+      panel.querySelector('[data-launch-text]').textContent = phase === 'failed' ? (error || 'Ordubashy didn’t start.') : LAUNCH_TEXT[phase];
+      const button = panel.querySelector('[data-launch-start]');
+      button.hidden = !['offline', 'failed', 'starting'].includes(phase);
+      button.disabled = phase === 'starting';
+      button.textContent = phase === 'failed' ? 'try again' : phase === 'starting' ? 'starting…' : 'start ordubashy';
+      if (phase === 'online') {
+        card.querySelector('#onboarding-description').textContent = steps[index].online;
+        card.querySelector('.onboarding-instructions')?.remove();
+        const hint = card.querySelector('.onboarding-hint'); if (hint) hint.textContent = 'Press next to say hello.';
+      }
+    }
+    // Offer "start later" once a start was tried and he is still not online (declined, failed or never connected).
+    const later = card.querySelector('[data-launch-later]');
+    if (later) later.hidden = !(phase === 'failed' || (card.dataset.pressed && phase === 'offline' && !appDialog()));
+    const next = card.querySelector('[data-tour-next]');
+    if (next && !busy) next.disabled = !['online', 'unavailable'].includes(phase);
+  }
   function position() {
     if (!root) return;
-    if (!welcome && steps[index].online && !card.dataset.online && agentOnline()) {
-      // The owner pressed Start during this step: say so, rather than asking them to start him again.
-      card.dataset.online = '1';
-      const body = card.querySelector('#onboarding-description'), hint = card.querySelector('.onboarding-hint');
-      if (body) body.textContent = steps[index].online;
-      if (hint) hint.textContent = 'Press next to say hello.';
-    }
+    if (!welcome && steps[index].launch) paintLaunch();
     root.classList.toggle('is-paused', appDialog());
     if (!welcome) describeTarget(visible(steps[index].target()) ? steps[index].target() : null);
     const w = document.documentElement.clientWidth, h = window.visualViewport?.height || innerHeight;
@@ -262,17 +292,6 @@ const onboarding = (() => {
     if (!isCurrent(token)) return;
     if (!opened) throw new Error('Finish your open edit first, then continue the walkthrough.');
     if (['start', 'chat', 'projects'].includes(step.id)) globalAgentViewActive?.showChat();
-    if (step.id === 'start') {
-      try {
-        const data = coreData(await api(`${globalChatBase(assistant.agent_id)}?limit=1`, {signal: AbortSignal.timeout(3000)}));
-        if (!isCurrent(token)) return;
-        if (data.session?.state === 'live') {
-          card.dataset.online = '1';
-          card.querySelector('#onboarding-description').textContent = 'Ordubashy is already online. Nothing to start.';
-          card.querySelector('.onboarding-hint').textContent = 'Press next to say hello.';
-        }
-      } catch (_) { /* The regular start instructions remain usable offline. */ }
-    }
     if (step.view && _agpad?.workspaceFrame) await _agpad.workspaceFrame.workspaceReady;
     if (!isCurrent(token)) return;
     await waitFor(() => visible(step.target()) && step.target());
@@ -288,19 +307,28 @@ const onboarding = (() => {
     }
     index = Math.max(0, Math.min(next, steps.length-1)); const step = steps[index];
     card.style.opacity = '0';
-    setWelcome(false); describeTarget(null); card.classList.toggle('is-wide', !!step.wide); delete card.dataset.online;
+    setWelcome(false); describeTarget(null); card.classList.toggle('is-wide', !!step.wide); delete card.dataset.pressed;
     persist('in_progress').catch(() => {});
     const chapter = onboardingPlan.chapterAt(steps, index), following = onboardingPlan.nextChapter(steps, index);
     card.innerHTML = `<div class="onboarding-step-head"><span class="onboarding-chapter">${chapterTitles[chapter.id]}</span><span class="onboarding-count">${String(chapter.number).padStart(2,'0')} <span>/ ${String(chapter.total).padStart(2,'0')}</span></span></div>
       <div class="onboarding-progress" aria-label="chapter ${chapter.number} of ${chapter.total}, step ${chapter.step} of ${chapter.count}">${steps.slice(chapter.start, chapter.end + 1).map((_,i)=>`<i class="${chapter.start+i<=index?'done':''}"></i>`).join('')}</div>
       <h2 id="onboarding-title">${step.title}</h2><p id="onboarding-description">${step.body}</p>${step.instructions ? `<ol class="onboarding-instructions">${step.instructions.map(text => `<li>${text}</li>`).join('')}</ol>` : ''}${step.hint ? `<p class="onboarding-hint">${step.hint}</p>` : ''}
       ${step.action?`<button type="button" class="onboarding-action" data-tour-action disabled>${step.action}<span aria-hidden="true">↗</span></button>`:''}
+      ${step.launch?`<div class="onboarding-launch" data-launch data-phase=""><p class="onboarding-launch-status"><span class="onboarding-launch-dot" aria-hidden="true"></span><span data-launch-text role="status">${LAUNCH_TEXT.checking}</span></p><button type="button" class="onboarding-launch-start" data-launch-start hidden>start ordubashy</button><button type="button" class="ghost onboarding-launch-later" data-launch-later hidden>start later and continue the tour</button></div>`:''}
       <p class="onboarding-notice" data-tour-notice role="status">Opening this part of your workspace…</p>
       <div class="onboarding-footer"><div><button type="button" class="ghost onboarding-skip" data-tour-skip>skip</button>${following >= 0 ? '<button type="button" class="ghost onboarding-skip" data-tour-chapter>skip chapter</button>' : ''}</div><div><button type="button" class="ghost" data-tour-back ${index?'':'disabled'}>back</button><button type="button" data-tour-next disabled>${index===steps.length-1?'done':'next'}</button></div></div>`;
     card.querySelector('[data-tour-skip]').onclick = () => exit();
     card.querySelector('[data-tour-back]').onclick = () => showStep(index-1);
     const skipChapter = card.querySelector('[data-tour-chapter]'); if (skipChapter) skipChapter.onclick = () => showStep(following);
     card.querySelector('[data-tour-next]').onclick = () => index===steps.length-1 ? exit('completed') : showStep(index+1);
+    card.querySelector('[data-launch-start]')?.addEventListener('click', () => {
+      // Chat's own Start: the same consent, start and retry the owner gets outside the walkthrough.
+      const control = chatStart(); if (!control) return;
+      card.dataset.pressed = '1'; control.click(); schedule();
+    });
+    card.querySelector('[data-launch-later]')?.addEventListener('click', () => {
+      const following = onboardingPlan.nextChapter(steps, index); showStep(following >= 0 ? following : index + 1);
+    });
     card.querySelector('[data-tour-action]')?.addEventListener('click', async event => {
       const button = event.currentTarget; button.disabled = true;
       try {
@@ -315,10 +343,12 @@ const onboarding = (() => {
     finally {
       if (isCurrent(token)) {
         busy = false; card.querySelector('[data-tour-next]').disabled = false;
+        if (step.launch) paintLaunch();
         const action = card.querySelector('[data-tour-action]'); if (action) action.disabled = false;
         position(); card.style.opacity = '1';
         if (motion) card.animate([{opacity: 0, transform: 'translateY(5px)'}, {opacity: 1, transform: 'translateY(0)'}], {duration: 260, easing: 'ease-out'});
-        card.querySelector('[data-tour-next]').focus({preventScroll: true});
+        const next = card.querySelector('[data-tour-next]'), launch = card.querySelector('[data-launch-start]:not([hidden])');
+        (next.disabled && launch ? launch : next).focus({preventScroll: true});
       }
     }
   }
