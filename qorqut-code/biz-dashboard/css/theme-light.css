@@ -45,3 +45,21 @@
 :root[data-theme="light"] .st-switch i { background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
 :root[data-theme="light"] .envadd:hover { border-color: rgba(0,0,0,.25); }
 :root[data-theme="light"] .agents-menu, :root[data-theme="light"] .cmenu { border-color: var(--line-2); }
+
+/* Floating surfaces drawn dark on purpose (the walkthrough card hard-codes its dark fills): keep them dark in light
+   mode by giving them the dark tokens back, so their text and buttons stay legible. */
+:root[data-theme="light"] .onboarding-card {
+  --bg: #090909; --surface: #0e0e0e; --elevated: #111111;
+  --line: rgba(255,255,255,.06); --line-2: rgba(255,255,255,.09); --hover: rgba(255,255,255,.04); --wash: rgba(255,255,255,.025);
+  --fg: #f7f7f7; --fg-2: #8a8a8a; --fg-3: rgba(138,138,138,.6);
+  --accent: #f5f0e8; --accent-fg: #090909; --ok: #6BAA82; --warn: #C9A064; --danger: #D55A5A;
+  color: var(--fg);
+}
+:root[data-theme="light"] .onboarding-card button:hover { background: #fff; color: var(--accent-fg); }
+:root[data-theme="light"] .onboarding-card .ghost:hover { color: var(--fg); background: rgba(255,255,255,.04); }
+
+/* Pinned strip chips, the Journal heatmap and Journal rows (hard-coded dark fills). */
+:root[data-theme="light"] .agent-workspace-app .agfocus .attention-chip { background: rgba(0,0,0,.05); color: var(--fg-2); }
+:root[data-theme="light"] .jrheat { background: var(--wash); }
+:root[data-theme="light"] .ntrow:hover { background: rgba(0,0,0,.035); }
+:root[data-theme="light"] .ntrow.on { background: rgba(0,0,0,.06); }

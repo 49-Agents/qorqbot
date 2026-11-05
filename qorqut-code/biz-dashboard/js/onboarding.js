@@ -248,11 +248,24 @@ const onboarding = (() => {
     const outline = root.querySelector('.onboarding-outline'); outline.classList.toggle('is-empty', !box);
     if (box) Object.assign(outline.style, {left:x+'px', top:y+'px', width:(right-x)+'px', height:(bottom-y)+'px'});
     else Object.assign(outline.style, {left:w/2+'px', top:h/2+'px', width:'0px', height:'0px'});
-    const cw = card.offsetWidth, ch = card.offsetHeight, edge = 16, gap = 18;
+    const edge = 16, gap = 18, minWidth = 280;
+    // A wide highlight leaves no room beside it at the card's usual width: narrow the card into the larger side gap
+    // rather than covering the highlighted area.
+    card.style.width = '';
+    let narrowed = null;
+    if (box && !welcome) {
+      const natural = card.offsetWidth, rightGap = w - right - gap - edge, leftGap = x - gap - edge;
+      if (natural > rightGap && natural > leftGap && Math.max(rightGap, leftGap) >= minWidth) {
+        narrowed = rightGap >= leftGap ? 'right' : 'left';
+        card.style.width = Math.floor(Math.max(rightGap, leftGap)) + 'px';
+      }
+    }
+    const cw = card.offsetWidth, ch = card.offsetHeight;
     const clampX = v => Math.max(edge, Math.min(v, w-cw-edge));
     const clampY = v => Math.max(edge, Math.min(v, h-ch-edge));
     let cx = (w-cw)/2, cy = (h-ch)/2;
-    if (box && !welcome) {
+    if (box && !welcome && narrowed) { cx = narrowed === 'right' ? right + gap : x - gap - cw; cy = y; }
+    else if (box && !welcome) {
       if (right + gap + cw <= w-edge) { cx=right+gap; cy=y; }
       else if (x-gap-cw >= edge) { cx=x-gap-cw; cy=y; }
       else if (bottom+gap+ch <= h-edge) { cx=x; cy=bottom+gap; }

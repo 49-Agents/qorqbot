@@ -190,14 +190,21 @@ def parse_claude_list(text: str) -> dict:
 
 
 class ClaudeProbe:
-    """Runs ``claude mcp list`` in the background (it checks each server, which takes a while) and keeps the last result."""
+    """Runs ``claude mcp list`` in the background (it checks each server, which takes a while) and keeps the last result.
+
+    With ``cache`` (a file in the installation's runtime folder), the last result is also kept across restarts: a new
+    server shows it at once, marked as checking, instead of "Checking…" for every connector until Claude answers."""
 
     def __init__(self, run=subprocess.run, clock=time.monotonic):
         self._run, self._clock, self._lock = run, clock, threading.Lock()
-        self._result, self._checked, self._thread = None, None, None
+        self._result, self._checked, self._thread, self._cache = None, None, None, None
 
-    def view(self, environ, refresh=False) -> dict:
+    def view(self, environ, refresh=False, cache=None) -> dict:
         with self._lock:
+            if cache is not None:
+                self._cache = Path(cache)
+                if self._result is None:
+                    self._result = _read_cached(self._cache)
             fresh = self._checked is not None and self._clock() - self._checked < PROBE_FRESH_FOR
             running = self._thread is not None and self._thread.is_alive()
             if (refresh or not fresh) and not running:
@@ -234,7 +241,25 @@ class ClaudeProbe:
             result = {"available": False, "reason": "claude_failed"}
         result["account"] = account
         with self._lock:
-            self._result, self._checked = result, self._clock()
+            self._result, self._checked, cache = result, self._clock(), self._cache
+        if cache is not None:
+            try:
+                _atomic_write(cache, json.dumps(result).encode(), mode=0o600)
+            except OSError:
+                pass
+
+
+def _read_cached(path):
+    """The last saved result, if it is a well-formed one."""
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("available"), bool):
+        return None
+    if data["available"] and not isinstance(data.get("connectors"), dict):
+        return None
+    return data
 
 
 PROBE = ClaudeProbe()
@@ -319,7 +344,8 @@ def view(runtime, *, refresh=False, environ=None, probe=None) -> dict:
     from bazarlyk.agent_trust import clients
     state = load(runtime.paths.runtime)
     platform = host_platform()
-    claude = (probe or PROBE).view(_probe_environment(environ), refresh=refresh)
+    claude = (probe or PROBE).view(_probe_environment(environ), refresh=refresh,
+                                   cache=Path(runtime.paths.runtime) / "connectors-status.json")
     result = claude["result"]
     items = []
     for entry in CATALOG:
