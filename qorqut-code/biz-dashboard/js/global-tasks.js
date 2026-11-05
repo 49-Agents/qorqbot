@@ -1,6 +1,6 @@
 // Global task UI, also embedded above the business aggregate in the Tasks pane.
 // This uses the same typed task operations and revision checks as business tasks.
-function globalTasksMount(host, {agentId = null, heading = null, compact = false, initialTaskId = null, onBack = null, embedded = false, onNavigate = null, renderRelated = null, onCanonical = null} = {}) {
+function globalTasksMount(host, {agentId = null, heading = null, compact = false, initialTaskId = null, initialCreate = false, session = null, onBack = null, embedded = false, onNavigate = null, renderRelated = null, onCanonical = null} = {}) {
   if (!host) return;
   host._globalTasks?.dispose?.();
   const token = {};
@@ -15,7 +15,8 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
     if (!parts) return;
     parts.surface?.dispose(); parts.progress?.dispose?.(); parts.typeEditor?.dispose();
   }
-  token.dispose = () => { token.disposed = true; disposeEditor(); token.stateUnsubscribe?.(); token.stateUnsubscribe = null; };
+  let leavePrompt = null;
+  token.dispose = () => { token.disposed = true; leavePrompt?.finish(false); disposeEditor(); token.stateUnsubscribe?.(); token.stateUnsubscribe = null; };
   token.dirty = () => false;
   token.changed = message => {
     if (!current()) return;
@@ -33,7 +34,35 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
   };
   let assignees, rows = [], cursor = null, selected = null, recordSurface = null, editorParts = null;
   let search = '', snoozeFilter = 'active', includeClosed = false, busy = false, attempt = null;
-  let ownerFilter = 'all', filtersPending = false, rowsQuery = null;
+  let ownerFilter = 'all', filtersPending = false, rowsQuery = null, confirming = false;
+  if (initialCreate && session) {
+    session.onDispose(() => token.dispose());
+    session.setBeforeLeave(() => {
+      if (busy || confirming) { message('Please wait for the current save to finish.'); return false; }
+      if (!attempt && !token.dirty()) return true;
+      if (leavePrompt) return leavePrompt.promise;
+      const box = document.createElement('div');
+      box.setAttribute('role', 'group'); box.setAttribute('aria-label', 'Discard Global task');
+      const notice = document.createElement('p');
+      notice.textContent = attempt ? 'This create request may have succeeded. Discarding it cannot undo the request, and you will lose the ability to retry it.' : 'Discard your unsaved changes?';
+      const keep = document.createElement('button'); keep.type = 'button'; keep.textContent = 'Keep editing';
+      const discard = document.createElement('button'); discard.type = 'button'; discard.textContent = 'Discard changes';
+      box.append(notice, keep, discard);
+      const content = host.firstElementChild, previousFocus = document.activeElement;
+      if (content) content.inert = true;
+      host.append(box);
+      let resolve; const promise = new Promise(done => { resolve = done; });
+      const finish = accepted => {
+        if (!leavePrompt) return;
+        leavePrompt = null; box.remove(); if (content) content.inert = false;
+        if (accepted) attempt = null;
+        else if (previousFocus?.isConnected && content?.contains(previousFocus)) previousFocus.focus();
+        resolve(accepted);
+      };
+      leavePrompt = {promise, finish}; keep.onclick = () => finish(false); discard.onclick = () => finish(true); keep.focus();
+      return promise;
+    });
+  }
   token.stateUnsubscribe = taskStateSubscribe((scope, id, snapshot) => {
     if (!current()) { token.stateUnsubscribe?.(); token.stateUnsubscribe = null; return; }
     if (scope !== null) return;
@@ -92,7 +121,7 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
       <label><input type="checkbox" name="closed" ${includeClosed ? 'checked' : ''}>Include closed and archived</label><button>Search</button></form>`}
       <div class="personal-task-list">${visibleRows.length ? visibleRows.map(row).join('') : '<p>No Global tasks found.</p>'}</div>
       ${cursor ? '<button type="button" data-more>Load more</button>' : ''}`);
-    host.querySelector('[data-new]')?.addEventListener('click', () => edit(null));
+    host.querySelector('[data-new]')?.addEventListener('click', () => window.taskOpenGlobalCreate());
     host.querySelectorAll('[data-owner-filter]').forEach(button => button.onclick = () => { ownerFilter = button.dataset.ownerFilter; load(); });
     host.querySelector('[data-refresh]').onclick = () => load();
     host.querySelector('[data-search]')?.addEventListener('submit', e => {
@@ -198,6 +227,7 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
       ${task && !special ? '<section aria-label="Task notes"><h4>Progress notes</h4><div data-task-progress></div></section>' : ''}
       <button type="button" data-retry hidden>Retry exact save</button><button type="button" data-reload hidden>Discard edits and reload current task</button>`);
     host.querySelector('[data-back]')?.addEventListener('click', () => {
+      if (initialCreate && session) { void session.close(); return; }
       if(onBack && initialTaskId){onBack();return;}
       list(); load();
     });
@@ -226,7 +256,7 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
     const sortedIds = ids => [...ids].sort();
     const valuesFrom = value => ({title: value.title || '', due: value.due || null, assignee_ids: sortedIds(value.assignee_ids || []), archived: !!value.archived, status: value.status || 'open'});
     const assigneeBoxes = () => [...host.querySelectorAll('[name="assignee"]')];
-    let baseline = task ? valuesFrom(task) : null, surface = null;
+    let baseline = task ? valuesFrom(task) : valuesFrom({assignee_ids: assigned}), surface = null;
     const showValues = values => {
       const f = form.elements;
       f.title.value = values.title; f.due.value = values.due || ''; f.status.value = values.status;
@@ -260,19 +290,20 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
     host.querySelectorAll('[data-open-task]').forEach(button => button.onclick = () => goTask(button.dataset.openTask, button.title, task));
     taskSnoozeWire(host);
     const tagPicker = tagPickerMount(host.querySelector('[data-task-tags]'), {biz: null, labels: task?.tags || [], label: 'Tags'});
+    const initialTypeValues = !task ? JSON.stringify(typeEditor.values()) : null;
     token.dirty = () => {
-      if (typeEditor?.dirty?.()) return true;
       try {
+        if (task ? typeEditor?.dirty?.() : JSON.stringify(typeEditor.values()) !== initialTypeValues) return true;
         const f = form.elements;
         const assignees = [...host.querySelectorAll('[name="assignee"]:checked')].map(box => box.value);
         const current = valuesFrom({title: f.title?.value || '', due: f.due?.value || null, assignee_ids: assignees,
           archived: !!f.archived?.checked, status: f.status?.value || 'open'});
         if (JSON.stringify(current) !== JSON.stringify(baseline)) return true;
+        if (taskSnoozeChange(host, task || {}) !== undefined) return true;
         if (tagPicker && JSON.stringify(tagNormalize(tagPicker.labels() || [])) !== JSON.stringify(tagNormalize(task?.tags || []))) return true;
       } catch (_) { return true; }
       return false;
     };
-    let confirming = false;
     form.onsubmit = async e => {
       e.preventDefault(); if (busy || attempt || confirming) return;
       const f = form.elements, title = f.title.value.trim();
@@ -334,6 +365,13 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
         const fresh = taskStateObserve(null, data.task);
         // The workspace owns Task subtype adoption. Only the canonical successful response is
         // passed; a handled result has already disposed this editor or deliberately kept it.
+        if (initialCreate && !selected && session) {
+          void refreshTasks();
+          busy = false;
+          token.dirty = () => false;
+          await session.close();
+          return;
+        }
         if (onCanonical && await onCanonical(fresh, {reload: false, changes: submitted})) return;
         if (apply?.(fresh)) {
           host.querySelectorAll('input,select,textarea,button').forEach(e => e.disabled = false);
@@ -358,12 +396,20 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
   shell('<p>Loading Global tasks…</p>');
   Promise.all([invoke('assignees_list'), loadGlobalAgentProfiles().catch(() => [])]).then(([a]) => {
     if (!current()) return;
-    assignees = a.assignees; list(); initialTaskId ? open(initialTaskId) : load();
+    assignees = a.assignees; if (initialCreate) edit(null); else { list(); initialTaskId ? open(initialTaskId) : load(); }
   }).catch(error => {
     if (!current()) return;
     message(uiFailure(error, {load: true}));
-    const retry = document.createElement('button'); retry.textContent = 'Retry'; retry.onclick = () => globalTasksMount(host, {agentId, heading, compact, initialTaskId, onBack, embedded, onNavigate, renderRelated});
+    const retry = document.createElement('button'); retry.textContent = 'Retry'; retry.onclick = () => globalTasksMount(host, {agentId, heading, compact, initialTaskId, initialCreate, session, onBack, embedded, onNavigate, renderRelated, onCanonical});
     host.querySelector('.global-task-content').appendChild(retry);
   });
   return token;
 }
+
+window.taskOpenGlobalCreate = function () {
+  if (typeof embeddedAgentPane !== 'undefined' && embeddedAgentPane) return window.parent.taskOpenGlobalCreate();
+  if (!window.focusExpansion?.open) { toast('Focus is unavailable.'); return null; }
+  return window.focusExpansion.open({title: 'New Global task', mount(host, session) {
+    globalTasksMount(host, {initialCreate: true, session});
+  }});
+};
