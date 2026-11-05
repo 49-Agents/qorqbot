@@ -265,9 +265,9 @@ test('ordinary reminder Create prompts for retry or deliberate separate creation
     const nodes={'.rem-form':form,'.rem-editor-confirm':confirm,'.rem-editor-pending':pending,'.rem-editor-save':save,'.rem-editor-cancel':cancel};
     host.querySelector=selector=>nodes[selector];return {host,form,pending,save};
   };
-  let key=0, fail=true;const writes=[];
+  let key=0, fail=true, focusHandler;const writes=[];
   const context={document:{createElement:()=>new Node(),dispatchEvent(){}},Event:class{},embeddedAgentPane:true,
-    window:{addEventListener(){},removeEventListener(){}},state:{session:{principal_id:'owner'},bizs:[]},
+    window:{addEventListener(type,fn){if(type==='focus')focusHandler=fn;},removeEventListener(){}},state:{session:{principal_id:'owner'},bizs:[]},
     loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),newRequestId:()=>`key-${++key}`,
     post:async(path,args)=>{writes.push({path,args:{...args}});if(fail)throw new Error('lost');return {reminder:{id:'created'}};},
     coreData:x=>x,esc:String,uiFailure:()=> 'retry',Intl,Date};
@@ -285,6 +285,14 @@ test('ordinary reminder Create prompts for retry or deliberate separate creation
   fail=false;find(h.pending,'Create separate').onclick();await flush();
   assert.equal(writes.length,4);assert.notEqual(writes[2].args.idempotency_key,writes[3].args.idempotency_key);
   assert.equal(writes[2].args.text,writes[3].args.text);
+  let resolveWrite, saved=0;
+  context.post=()=>new Promise(resolve=>{resolveWrite=resolve;});
+  h=makeHost();h.form.elements.text.value='draft during pending';
+  context.editor(null,{host:h.host,session,onCancel(){},onSaved(){saved++;}});await flush();
+  h.save.onclick();await flush();assert.equal(h.form.inert,true);
+  focusHandler();assert.equal(h.form.inert,true);assert.equal(h.form.elements.text.value,'draft during pending');
+  resolveWrite({reminder:{id:'created'}});await flush();
+  assert.equal(saved,1);assert.equal(h.form.inert,false);assert.equal(h.form.elements.text.value,'draft during pending');
 });
 
 test('ordinary dismissal of a different recurring occurrence uses a separate request', async () => {
