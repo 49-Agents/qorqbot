@@ -9,11 +9,8 @@ function taskProgressMount(host,task,biz,beforeOpen) {
 async function taskProgressOpenReference(biz, ref, beforeOpen) {
   if (ref.unavailable) return;
   if (ref.type === 'task') {
-    if (!biz) return modal({title:'Global task', width:700, stack:true, body:'<div class="progress-task-detail"></div>',
-      onOpen:el => globalTasksMount($('.progress-task-detail',el), {initialTaskId:ref.id})});
-    const task = await tFetchTask(biz,ref.id);
     if (await beforeOpen?.() === false) return;
-    return tDetail(task);
+    return taskOpenReference({id:ref.id,...(biz ? {} : {business_id:null}),label:ref.label,task_type:ref.task_type},biz || undefined);
   }
   if (await beforeOpen?.() === false) return;
   if (ref.type === 'action') {

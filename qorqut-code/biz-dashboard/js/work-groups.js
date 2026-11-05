@@ -48,7 +48,7 @@ async function workOpenLink(view, link) {
   if(link.resource_type==='data_tables')return tablesOpen(view.biz,link.resource_id);
   if(link.resource_type==='documents' && (link.current || link.snapshot_json)?.kind==='data_upload')return tablesOpen(view.biz,link.resource_id,'uploads');
   if(link.resource_type==='email_conversations' || link.resource_type==='email_messages')return historicalEmailOpen((link.current || link.snapshot_json)?.label);
-  if(link.resource_type==='tasks'){if(view.biz)return tOpenTask(link.resource_id);return modal({title:'Global task',body:'<div class=global-work-task></div>',onOpen:el=>globalTasksMount(el.querySelector('.global-work-task'),{initialTaskId:link.resource_id})});}
+  if(link.resource_type==='tasks')return taskOpenReference({id:link.resource_id,...(view.biz ? {} : {business_id:null})},view.biz || undefined);
   const current=link.current || link.snapshot_json;
   if(link.resource_type==='entity'){
     if(/^https?:\/\//.test(current.url || ''))window.open(current.url,'_blank','noopener,noreferrer');return;
@@ -114,14 +114,8 @@ function workChooseTasks(biz,selected,onChange) {
 
 // Task/Story/Customer/Email links are scoped references, independent of plain labels and parents.
 async function taskLinkOpen(link) {
-  if(link.business_id){
-    const slug=link.business_slug || state.bizs.find(b=>(b.id || b.business_id)===link.business_id)?.slug;
-    if(!slug)throw new Error('This task is unavailable.');
-    await selectBiz(slug);
-    if(state.biz===slug && state.scope!=='global')await tOpenTask(link.task_id);
-  } else {
-    modal({stack:true,title:'Task',body:'<div class="linked-global-task"></div>',onOpen:el=>globalTasksMount(el.querySelector('.linked-global-task'),{initialTaskId:link.task_id})});
-  }
+  return taskOpenReference({id:link.task_id, business_id:link.business_id, business_slug:link.business_slug,
+    label:link.label || link.title, task_type:link.task_type});
 }
 
 // The shared chain-link glyph already used for record links; the add control is one icon button with an

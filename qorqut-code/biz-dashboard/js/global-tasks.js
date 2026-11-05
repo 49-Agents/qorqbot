@@ -29,7 +29,7 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
   const goTask = (id, label, task = null) => {
     if (embedded && typeof onNavigate === 'function') return onNavigate({type:'task', id, business_id:task?.business_id ?? null,
       business_slug:task?.business_slug ?? null, label:label || task?.title || id});
-    return open(id);
+    return taskOpenReference({id, business_id:null, label:label || task?.title, task_type:task?.task_type});
   };
   let assignees, rows = [], cursor = null, selected = null, recordSurface = null, editorParts = null;
   let search = '', snoozeFilter = 'active', includeClosed = false, busy = false, attempt = null;
@@ -105,8 +105,8 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
       taskStateBind(row.querySelector('.ball'), null, task);
       const ball = row.querySelector('.ball');
       if (ball) ball.onclick = event => { event.stopPropagation(); changeState(row.dataset.task); };
-      row.onclick = event => { event.stopPropagation(); open(row.dataset.task); };
-      row.onkeydown = event => { if (event.target === row && ['Enter', ' '].includes(event.key)) { event.preventDefault(); open(row.dataset.task); } };
+      row.onclick = event => { event.stopPropagation(); goTask(row.dataset.task,task?.title,task); };
+      row.onkeydown = event => { if (event.target === row && ['Enter', ' '].includes(event.key)) { event.preventDefault(); goTask(row.dataset.task,task?.title,task); } };
     });
     host.querySelector('[data-more]')?.addEventListener('click', () => load(true));
   }
