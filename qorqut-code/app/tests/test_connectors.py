@@ -269,8 +269,10 @@ class AgentShellTest(unittest.TestCase):
         from bazarlyk.bootstrap.preparation import agent_shell
         self.marker = marker_path(self.runtime_dir)
         self.shell = self.directory / "agent-shell.bash"
+        self.trusted = self.directory / "trust ran"
         self.shell.write_text(agent_shell(shlex.quote(str(self.directory / "launch settings.json")), shlex.quote(str(self.marker)),
-                                          shlex.quote(str(connectors.launch_path(self.runtime_dir)))))
+                                          shlex.quote(str(connectors.launch_path(self.runtime_dir))),
+                                          "touch " + shlex.quote(str(self.trusted))))
 
     def run_shell(self, command):
         return subprocess.run(["/bin/bash", "-c", ". \"$1\"; " + command, "bash", str(self.shell)], capture_output=True,
@@ -280,6 +282,24 @@ class AgentShellTest(unittest.TestCase):
         claude, codex = self.run_shell("claude 'hello there'; codex resume --last")
         self.assertEqual(claude, "claude|--settings|" + str(self.directory / "launch settings.json") + "|hello there|")
         self.assertEqual(codex, "codex|resume|--last|")
+
+    def test_folder_trust_is_rechecked_before_each_launch_only_with_consent(self):
+        self.run_shell("claude; codex")
+        self.assertFalse(self.trusted.exists())
+        self.marker.write_text("{}")
+        self.run_shell("claude")
+        self.assertTrue(self.trusted.exists())
+        self.trusted.unlink()
+        self.run_shell("codex")
+        self.assertTrue(self.trusted.exists())
+
+    def test_a_failing_trust_check_never_blocks_the_launch(self):
+        from bazarlyk.bootstrap.preparation import agent_shell
+        self.marker.write_text("{}")
+        self.shell.write_text(agent_shell(shlex.quote(str(self.directory / "launch settings.json")), shlex.quote(str(self.marker)),
+                                          shlex.quote(str(connectors.launch_path(self.runtime_dir))), "false"))
+        claude, = self.run_shell("claude hi")
+        self.assertTrue(claude.startswith("claude|--settings|"))
 
     def test_connectors_precede_settings_and_follow_consent(self):
         connectors.set_enabled(self.runtime_dir, "playwright", True, self.environ)
