@@ -92,10 +92,35 @@ test('exact agent rejects an unavailable identity',async()=>{
   assert.equal(await h.context.window.focusExpansion.open({agentId:'missing',mount(){mounted=true;}}),null);assert.equal(mounted,false);
 });
 
-test('a superseded async leave request cannot replace a newer surface',async()=>{
-  const h=harness();let release;const session=await h.context.window.focusExpansion.open({mount(){}});
-  session.setBeforeLeave(()=>new Promise(r=>release=r));
-  const browser=h.context.agpadSurfaceRequest(h.p,'browser');await tick();
-  session.setBeforeLeave(async()=>true);await h.context.agpadSurfaceRequest(h.p,'desktop');
-  release(true);await browser;assert.equal(h.desktop,1);assert.equal(h.browser,0);assert.equal(h.p.surface.kind,'desktop');
+test('repeated Close and switch share a pending discard decision',async()=>{
+  const h=harness();let release,calls=0;const session=await h.context.window.focusExpansion.open({mount(){}});
+  session.setBeforeLeave(()=>{calls++;return new Promise(r=>release=r);});
+  const first=session.close();await tick();const second=session.close();const switchView=h.context.agpadSurfaceRequest(h.p,'browser');
+  release(true);await Promise.all([first,second,switchView]);
+  assert.equal(calls,1);assert.equal(h.p.surface,null);assert.equal(h.browser,0);assert.equal(session.isCurrent(),false);
+});
+
+test('embedded documents reject cross-document mount callbacks',async()=>{
+  const h=harness();h.context.embeddedAgentPane=true;let mounted=false;
+  assert.equal(await h.context.window.focusExpansion.open({mount(){mounted=true;}}),null);assert.equal(mounted,false);
+});
+
+test('request view waits for a guarded surface and reports the shown view',async()=>{
+  const h=harness();const s=fs.readFileSync(require.resolve('../js/agentpane.js'),'utf8');
+  const a=s.indexOf('function agpadRequestView('),b=s.indexOf('function agpadWorkspaceTick(',a);
+  h.context.workspaceType=()=>true;h.context.agpadSetView=(p,view)=>h.context.agpadSurfaceRequest(p,view);
+  vm.runInContext(s.slice(a,b),h.context);
+  const session=await h.context.window.focusExpansion.open({mount(){}});let release;
+  session.setBeforeLeave(()=>new Promise(r=>release=r));const request=h.context.agpadRequestView(h.p,'browser');await tick();release(false);
+  assert.equal(await request,false);assert.ok(session.isCurrent());
+  session.setBeforeLeave(async()=>true);assert.equal(await h.context.agpadRequestView(h.p,'browser'),true);
+});
+
+test('global navigation returns the actual asynchronous result',async()=>{
+  const s=fs.readFileSync(require.resolve('../js/global-agents.js'),'utf8');
+  const a=s.indexOf('async function globalAgentsNavigate('),b=s.indexOf('const GLOBAL_WORKSPACE_TERMINAL',a);
+  let release;const root={openAgent:()=>new Promise(r=>release=r)};
+  const nav=new Function('document',s.slice(a,b)+';return globalAgentsNavigate;')({querySelector:()=>root});
+  const first=nav('a');release(false);assert.equal(await first,false);
+  const second=nav('b');release(true);assert.equal(await second,true);
 });
