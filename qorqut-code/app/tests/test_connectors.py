@@ -1,0 +1,359 @@
+import json
+import os
+from pathlib import Path
+import shlex
+import shutil
+import subprocess
+import tempfile
+from types import SimpleNamespace
+import unittest
+from unittest import mock
+
+from bazarlyk import connectors
+from qorqut_operations.contracts import DomainError
+
+CLAUDE_LIST = """Checking MCP server health…
+
+claude.ai Gmail: https://gmailmcp.googleapis.com/mcp/v1 - ✔ Connected
+claude.ai Notion: https://mcp.notion.com/mcp - ! Needs authentication
+claude.ai Slack: https://mcp.slack.com/mcp - ✘ Failed to connect
+plugin:playwright:playwright: npx @playwright/mcp@latest - ✔ Connected
+"""
+
+
+class FakeProbe:
+    def __init__(self, result=None, checking=False):
+        self.result, self.checking, self.refreshed = result, checking, []
+
+    def view(self, environ, refresh=False):
+        self.refreshed.append(refresh)
+        return {"checking": self.checking, "result": self.result}
+
+
+class ConnectorsTest(unittest.TestCase):
+    def setUp(self):
+        self.directory = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.directory)
+        self.runtime_dir = self.directory / "runtime"
+        self.runtime_dir.mkdir()
+        self.bin = self.directory / "bin"
+        self.bin.mkdir()
+        npx = self.bin / "npx"
+        npx.write_text("#!/bin/sh\n")
+        npx.chmod(0o755)
+        self.environ = {"PATH": str(self.bin), "HOME": str(self.directory), "SHELL": "/nonexistent"}
+        self.runtime = SimpleNamespace(paths=SimpleNamespace(runtime=self.runtime_dir), resolver=SimpleNamespace(native_connections={}))
+
+    def test_nothing_is_enabled_by_default(self):
+        self.assertEqual(connectors.load(self.runtime_dir), {"version": 1, "enabled": {}})
+        self.assertFalse(connectors.launch_path(self.runtime_dir).exists())
+
+    def test_enable_playwright_writes_private_launch_files(self):
+        state = connectors.set_enabled(self.runtime_dir, "playwright", True, self.environ)
+        self.assertEqual(state["enabled"]["playwright"]["command"], str(self.bin / "npx"))
+        self.assertTrue(state["enabled"]["playwright"]["path"].startswith(str(self.bin) + ":"))
+        mcp = json.loads((self.runtime_dir / "connectors/claude-mcp.json").read_text())
+        self.assertEqual(mcp["mcpServers"]["playwright"]["args"], ["@playwright/mcp@latest"])
+        for path in (connectors.state_path(self.runtime_dir), connectors.launch_path(self.runtime_dir)):
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual((self.runtime_dir / "connectors").stat().st_mode & 0o777, 0o700)
+
+    def test_launch_script_is_valid_bash_with_quoted_values(self):
+        connectors.set_enabled(self.runtime_dir, "playwright", True, self.environ)
+        connectors.set_enabled(self.runtime_dir, "chrome", True, self.environ)
+        script = connectors.launch_path(self.runtime_dir)
+        output = subprocess.run(["/bin/bash", "-c", '. "$1"; printf "%s\\n" "${QORQBOT_CLAUDE_ARGS[@]}" -- "${QORQBOT_CODEX_ARGS[@]}"',
+                                 "bash", str(script)], capture_output=True, text=True, check=True).stdout.splitlines()
+        split = output.index("--")
+        claude, codex = output[:split], output[split + 1:]
+        self.assertEqual(claude, ["--mcp-config", str(self.runtime_dir / "connectors/claude-mcp.json"), "--chrome"])
+        self.assertEqual(codex[0:2], ["-c", 'mcp_servers.playwright.command="' + str(self.bin / "npx") + '"'])
+        self.assertIn('mcp_servers.playwright.args=["@playwright/mcp@latest"]', codex)
+
+    def test_disable_removes_arguments_and_server_file(self):
+        connectors.set_enabled(self.runtime_dir, "playwright", True, self.environ)
+        state = connectors.set_enabled(self.runtime_dir, "playwright", False, self.environ)
+        self.assertEqual(state["enabled"], {})
+        self.assertFalse((self.runtime_dir / "connectors/claude-mcp.json").exists())
+        self.assertIn("QORQBOT_CLAUDE_ARGS=()", connectors.launch_path(self.runtime_dir).read_text())
+
+    def test_playwright_without_node_is_refused_and_records_nothing(self):
+        with self.assertRaises(DomainError) as raised:
+            connectors.set_enabled(self.runtime_dir, "playwright", True, {"PATH": "/nonexistent", "SHELL": "/nonexistent"})
+        self.assertEqual(raised.exception.code, "prerequisite_missing")
+        self.assertFalse(connectors.state_path(self.runtime_dir).exists())
+
+    def test_only_local_connectors_are_changed_here(self):
+        for change in (("gmail", True), ("browser", False), ("playwright", "yes")):
+            with self.assertRaises(DomainError):
+                connectors.set_enabled(self.runtime_dir, *change, self.environ)
+
+    def test_corrupt_state_is_reported(self):
+        connectors.state_path(self.runtime_dir).write_text("{")
+        with self.assertRaises(DomainError) as raised:
+            connectors.load(self.runtime_dir)
+        self.assertEqual(raised.exception.code, "configuration_unavailable")
+        connectors.state_path(self.runtime_dir).write_text(json.dumps({"enabled": {"gmail": {}}}))
+        with self.assertRaises(DomainError):
+            connectors.load(self.runtime_dir)
+
+    def test_find_npx_uses_login_shell_when_path_lacks_it(self):
+        shell = self.directory / "shell"
+        shell.write_text("#!/bin/sh\necho 'motd line'\necho " + shlex.quote(str(self.bin / "npx")) + "\n")
+        shell.chmod(0o755)
+        self.assertEqual(connectors.find_npx({"PATH": "/nonexistent", "SHELL": str(shell)}), str(self.bin / "npx"))
+        self.assertIsNone(connectors.find_npx({"PATH": "/nonexistent", "SHELL": "relative/zsh"}))
+
+    def test_parse_claude_list(self):
+        self.assertEqual(connectors.parse_claude_list(CLAUDE_LIST),
+                         {"Gmail": "connected", "Notion": "needs_sign_in", "Slack": "failed"})
+
+    def test_view_combines_statuses(self):
+        connectors.set_enabled(self.runtime_dir, "chrome", True, self.environ)
+        probe = FakeProbe({"available": True, "connectors": connectors.parse_claude_list(CLAUDE_LIST)})
+        with mock.patch.object(connectors, "_browser_status", return_value={"status": "connected"}):
+            result = connectors.view(self.runtime, environ=self.environ, probe=probe)
+        status = {item["id"]: item["status"] for item in result["connectors"]}
+        self.assertEqual(status["chrome"], "connected")
+        self.assertEqual(status["playwright"], "off")
+        self.assertEqual(status["gmail"], "connected")
+        self.assertEqual(status["notion"], "needs_sign_in")
+        self.assertEqual(status["google_calendar"], "not_added")
+        self.assertEqual(status["whatsapp"], "coming_soon" if connectors.host_platform() == "darwin" else "not_installed")
+        self.assertNotIn("claude_name", result["connectors"][3])
+
+    def test_view_before_first_check_and_without_claude(self):
+        with mock.patch.object(connectors, "_browser_status", return_value={"status": "connected"}):
+            checking = connectors.view(self.runtime, environ=self.environ, probe=FakeProbe(None, True))
+            missing = connectors.view(self.runtime, environ=self.environ,
+                                      probe=FakeProbe({"available": False, "reason": "claude_missing"}))
+        gmail = lambda result: next(item for item in result["connectors"] if item["id"] == "gmail")
+        self.assertEqual(gmail(checking)["status"], "checking")
+        self.assertTrue(checking["checking"])
+        self.assertEqual(gmail(missing), {**gmail(missing), "status": "unavailable", "reason": "claude_missing"})
+
+    def test_whatsapp_without_extension_is_coming_soon_on_mac(self):
+        self.runtime.resolver.native_connections = {}
+        self.assertEqual(connectors._whatsapp_status(self.runtime, "darwin"), {"status": "coming_soon"})
+        self.assertEqual(connectors._whatsapp_status(self.runtime, "wsl"), {"status": "not_installed"})
+        self.assertEqual(connectors._whatsapp_status(self.runtime, "linux"), {"status": "not_installed"})
+
+    def test_whatsapp_status_follows_setup(self):
+        self.runtime.resolver.native_connections = {"whatsapp": object()}
+        instance = self.runtime_dir.parent
+        self.assertEqual(connectors._whatsapp_status(self.runtime), {"status": "not_set_up"})
+        self.assertEqual(connectors._whatsapp_status(self.runtime, "darwin"), {"status": "not_set_up"})
+        (instance / "config").mkdir()
+        (instance / "config/whatsapp-personal.json").write_text("{}")
+        self.assertEqual(connectors._whatsapp_status(self.runtime), {"status": "not_paired"})
+        (instance / "private/whatsapp").mkdir(parents=True)
+        (instance / "private/whatsapp/session.sqlite3").write_text("")
+        self.assertEqual(connectors._whatsapp_status(self.runtime), {"status": "connected"})
+
+    def test_owner_view_changes(self):
+        probe = FakeProbe({"available": True, "connectors": {}})
+        with mock.patch.object(connectors, "PROBE", probe), \
+                mock.patch.object(connectors, "_browser_status", return_value={"status": "connected"}):
+            connectors.owner_view(self.runtime, {"refresh": True}, self.environ)
+            result = connectors.owner_view(self.runtime, {"id": "playwright", "enabled": True}, self.environ)
+            with self.assertRaises(DomainError):
+                connectors.owner_view(self.runtime, {"id": "playwright"}, self.environ)
+        self.assertEqual(probe.refreshed, [True, False])
+        self.assertEqual(next(i for i in result["connectors"] if i["id"] == "playwright")["status"], "connected")
+
+
+class ProbeEnvironmentTest(unittest.TestCase):
+    def test_matches_agent_terminals(self):
+        environ = {"HOME": "/app/home", "CLAUDE_CONFIG_DIR": "/Users/owner/.claude", "PATH": "/app/bin",
+                   "QORQUT_NATIVE_USER_ENV": json.dumps({"HOME": "/Users/owner", "CLAUDE_CONFIG_DIR": None,
+                                                         "PATH": "/Users/owner/.local/bin:/usr/bin"})}
+        result = connectors._probe_environment(environ)
+        self.assertEqual(result["HOME"], "/Users/owner")
+        self.assertNotIn("CLAUDE_CONFIG_DIR", result)
+        self.assertEqual(result["PATH"].split(":")[0], "/Users/owner/.local/bin")
+        self.assertEqual(connectors._probe_environment({"HOME": "/h", "QORQUT_NATIVE_USER_ENV": "{"})["HOME"], "/h")
+
+
+class BrowserStatusTest(unittest.TestCase):
+    def test_reports_what_is_missing(self):
+        with mock.patch("bazarlyk.native_paths.installed_chrome", return_value=None), \
+                mock.patch("bazarlyk.native_paths.installed_executable", return_value="/bin/agent-browser"):
+            self.assertEqual(connectors._browser_status(), {"status": "needs_install", "missing": ["chrome"],
+                                                            "install": "npm install -g agent-browser@0.38.1"})
+        with mock.patch("bazarlyk.native_paths.installed_chrome", return_value="/Applications/Chrome"), \
+                mock.patch("bazarlyk.native_paths.installed_executable", return_value=None):
+            self.assertEqual(connectors._browser_status()["missing"], ["agent_browser"])
+        with mock.patch("bazarlyk.native_paths.installed_chrome", return_value="/Applications/Chrome"), \
+                mock.patch("bazarlyk.native_paths.installed_executable", return_value="/bin/agent-browser"):
+            self.assertEqual(connectors._browser_status(), {"status": "connected"})
+
+
+class PlatformTest(unittest.TestCase):
+    def test_wsl_is_detected_and_chrome_is_unsupported_there(self):
+        directory = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, directory)
+        version = directory / "version"
+        version.write_text("Linux version 5.15.153.1-microsoft-standard-WSL2")
+        with mock.patch.object(connectors.os, "uname", return_value=SimpleNamespace(sysname="Linux")):
+            self.assertEqual(connectors.host_platform(str(version)), "wsl")
+            version.write_text("Linux version 6.8.0-generic")
+            self.assertEqual(connectors.host_platform(str(version)), "linux")
+            self.assertEqual(connectors.host_platform(str(directory / "missing")), "linux")
+        runtime_dir = directory / "runtime"
+        runtime_dir.mkdir()
+        runtime = SimpleNamespace(paths=SimpleNamespace(runtime=runtime_dir), resolver=SimpleNamespace(native_connections={}))
+        with mock.patch.object(connectors, "host_platform", return_value="wsl"), \
+                mock.patch.object(connectors, "_browser_status", return_value={"status": "connected"}):
+            result = connectors.view(runtime, environ={}, probe=FakeProbe({"available": True, "connectors": {}}))
+            with self.assertRaises(DomainError):
+                connectors.set_enabled(runtime_dir, "chrome", True, {})
+        self.assertEqual(result["platform"], "wsl")
+        self.assertEqual(next(i for i in result["connectors"] if i["id"] == "chrome")["status"], "unsupported")
+
+
+class ClaudeProbeTest(unittest.TestCase):
+    def test_runs_once_in_background_and_caches(self):
+        calls, now = [], [0.0]
+
+        def run(command, **options):
+            calls.append((command, options["env"]["HOME"]))
+            if command[1] == "auth":
+                return SimpleNamespace(returncode=0, stdout=json.dumps({"loggedIn": True, "authMethod": "claude.ai",
+                                                                         "email": "owner@example.com", "subscriptionType": "max"}))
+            return SimpleNamespace(returncode=0, stdout=CLAUDE_LIST)
+
+        probe = connectors.ClaudeProbe(run=run, clock=lambda: now[0])
+        first = probe.view({"HOME": "/home/owner"})
+        self.assertTrue(first["checking"])
+        probe._thread.join()
+        second = probe.view({"HOME": "/home/owner"})
+        self.assertFalse(second["checking"])
+        self.assertEqual(second["result"]["connectors"]["Gmail"], "connected")
+        self.assertEqual(second["result"]["account"], {"signed_in": True, "method": "claude.ai", "email": "owner@example.com", "plan": "max"})
+        self.assertEqual(calls, [(["claude", "auth", "status"], "/home/owner"), (["claude", "mcp", "list"], "/home/owner")])
+        now[0] = connectors.PROBE_FRESH_FOR + 1
+        probe.view({"HOME": "/home/owner"})
+        probe._thread.join()
+        self.assertEqual(len(calls), 4)
+
+    def test_missing_or_failing_claude(self):
+        def missing(command, **options):
+            raise FileNotFoundError(command[0])
+
+        probe = connectors.ClaudeProbe(run=missing)
+        probe.view({})
+        probe._thread.join()
+        self.assertEqual(probe.view({})["result"], {"available": False, "reason": "claude_missing", "account": None})
+        failing = connectors.ClaudeProbe(run=lambda command, **options: SimpleNamespace(returncode=1, stdout=""))
+        failing.view({})
+        failing._thread.join()
+        self.assertEqual(failing.view({})["result"]["reason"], "claude_failed")
+
+
+class AgentShellTest(unittest.TestCase):
+    """The generated wrappers, run in the system bash (3.2 on macOS) against stand-in CLIs that print their arguments."""
+
+    def setUp(self):
+        self.directory = Path(tempfile.mkdtemp(prefix="agent shell "))
+        self.addCleanup(shutil.rmtree, self.directory)
+        self.runtime_dir = self.directory / "runtime"
+        self.runtime_dir.mkdir()
+        bin_dir = self.directory / "bin"
+        bin_dir.mkdir()
+        for name in ("claude", "codex", "npx"):
+            path = bin_dir / name
+            path.write_text("#!/bin/sh\nprintf '%s|' " + name + " \"$@\"\necho\n")
+            path.chmod(0o755)
+        self.environ = {"PATH": str(bin_dir) + ":/usr/bin:/bin", "HOME": str(self.directory)}
+        from bazarlyk.agent_trust import marker_path
+        from bazarlyk.bootstrap.preparation import agent_shell
+        self.marker = marker_path(self.runtime_dir)
+        self.shell = self.directory / "agent-shell.bash"
+        self.shell.write_text(agent_shell(shlex.quote(str(self.directory / "launch settings.json")), shlex.quote(str(self.marker)),
+                                          shlex.quote(str(connectors.launch_path(self.runtime_dir)))))
+
+    def run_shell(self, command):
+        return subprocess.run(["/bin/bash", "-c", ". \"$1\"; " + command, "bash", str(self.shell)], capture_output=True,
+                              text=True, check=True, env=self.environ).stdout.splitlines()
+
+    def test_without_connectors_or_consent(self):
+        claude, codex = self.run_shell("claude 'hello there'; codex resume --last")
+        self.assertEqual(claude, "claude|--settings|" + str(self.directory / "launch settings.json") + "|hello there|")
+        self.assertEqual(codex, "codex|resume|--last|")
+
+    def test_connectors_precede_settings_and_follow_consent(self):
+        connectors.set_enabled(self.runtime_dir, "playwright", True, self.environ)
+        connectors.set_enabled(self.runtime_dir, "chrome", True, self.environ)
+        self.marker.write_text("{}")
+        claude, codex = self.run_shell("claude 'a prompt'; codex resume")
+        parts = claude.split("|")
+        self.assertEqual(parts[1:3], ["--mcp-config", str(self.runtime_dir / "connectors/claude-mcp.json")])
+        self.assertEqual(parts[3:6], ["--chrome", "--settings", str(self.directory / "launch settings.json")])
+        self.assertEqual(parts[6], "a prompt")
+        parts = codex.split("|")
+        self.assertEqual(parts[1], "--dangerously-bypass-hook-trust")
+        self.assertEqual(parts[2], "-c")
+        self.assertIn('mcp_servers.playwright.args=["@playwright/mcp@latest"]', parts)
+        self.assertEqual(parts[-2:], ["resume", ""])
+
+    def test_turning_off_takes_effect_on_next_launch(self):
+        connectors.set_enabled(self.runtime_dir, "chrome", True, self.environ)
+        self.assertIn("--chrome", self.run_shell("claude")[0])
+        connectors.set_enabled(self.runtime_dir, "chrome", False, self.environ)
+        self.assertNotIn("--chrome", self.run_shell("claude")[0])
+
+
+class ZshAgentShellTest(unittest.TestCase):
+    """The zsh agent shell, run in the real zsh: the owner's own zsh setup loads first, then the wrappers."""
+
+    def setUp(self):
+        if not shutil.which("zsh"):
+            self.skipTest("zsh is not installed")
+        from bazarlyk.agent_trust import marker_path
+        from bazarlyk.bootstrap.preparation import ZSH_ENV, agent_zshrc
+        self.directory = Path(tempfile.mkdtemp(prefix="zsh shell "))
+        self.addCleanup(shutil.rmtree, self.directory)
+        self.home = self.directory / "home"
+        bin_dir = self.home / "bin"
+        bin_dir.mkdir(parents=True)
+        for name in ("claude", "codex", "npx"):
+            path = bin_dir / name
+            path.write_text("#!/bin/sh\nprintf '%s|' " + name + " \"$@\"\necho\n")
+            path.chmod(0o755)
+        (self.home / ".zshenv").write_text("export FROM_ZSHENV=yes\n")
+        (self.home / ".zshrc").write_text('export PATH="$HOME/bin:$PATH"\nalias hello="echo hi"\n')
+        self.runtime_dir = self.directory / "runtime"
+        self.runtime_dir.mkdir()
+        self.marker = marker_path(self.runtime_dir)
+        self.prepared = self.directory / "workspace/.bazarlyk/zsh"
+        self.prepared.mkdir(parents=True)
+        (self.prepared / ".zshenv").write_text(ZSH_ENV)
+        (self.prepared / ".zshrc").write_text(agent_zshrc(shlex.quote(str(self.directory / "launch settings.json")),
+                                                          shlex.quote(str(self.marker)),
+                                                          shlex.quote(str(connectors.launch_path(self.runtime_dir)))))
+
+    def run_zsh(self, command, user_zdotdir=""):
+        environ = {"HOME": str(self.home), "PATH": "/usr/bin:/bin", "ZDOTDIR": str(self.prepared),
+                   "QORQBOT_USER_ZDOTDIR": user_zdotdir, "TERM": "dumb"}
+        return subprocess.run(["zsh", "-i", "-c", command], capture_output=True, text=True, env=environ,
+                              check=True, timeout=30).stdout.splitlines()
+
+    def test_owner_setup_loads_and_wrappers_apply(self):
+        connectors.set_enabled(self.runtime_dir, "chrome", True, {"PATH": str(self.home / "bin")})
+        self.marker.write_text("{}")
+        lines = self.run_zsh('claude "a b"; codex resume; echo "zdotdir=${ZDOTDIR-unset}"; echo "env=$FROM_ZSHENV"; '
+                             'alias hello; echo "left=${QORQBOT_USER_ZDOTDIR-unset}"')
+        self.assertEqual(lines[0], "claude|--chrome|--settings|" + str(self.directory / "launch settings.json") + "|a b|")
+        self.assertEqual(lines[1], "codex|--dangerously-bypass-hook-trust|resume|")
+        self.assertEqual(lines[2:], ["zdotdir=unset", "env=yes", "hello='echo hi'", "left=unset"])
+
+    def test_owner_zdotdir_is_kept(self):
+        custom = self.directory / "custom zsh"
+        custom.mkdir()
+        (custom / ".zshrc").write_text('export PATH="$HOME/bin:$PATH"\nexport FROM_CUSTOM=yes\n')
+        lines = self.run_zsh('echo "$FROM_CUSTOM"; echo "$ZDOTDIR"; codex', user_zdotdir=str(custom))
+        self.assertEqual(lines, ["yes", str(custom), "codex|"])
+
+
+if __name__ == "__main__":
+    unittest.main()

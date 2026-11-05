@@ -4,6 +4,7 @@ import base64
 from contextlib import nullcontext
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import subprocess
 import time
@@ -178,8 +179,13 @@ class TerminalService:
             env["QORQUT_REGISTRATION"] = str(Path(cwd) / ".bazarlyk/registration.json")
         shell = self.shell
         prepared_rc = Path(cwd) / ".bazarlyk/agent-shell.bash"
+        prepared_zsh = Path(cwd) / ".bazarlyk/zsh"
         if Path(shell[0]).name == "bash" and prepared_rc.is_file():
             shell = [shell[0], "--rcfile", str(prepared_rc), "-i"]
+        elif Path(shell[0]).name == "zsh" and (prepared_zsh / ".zshrc").is_file() and "ZDOTDIR" not in env:
+            # zsh has no --rcfile; its prepared files load the owner's own zsh setup first (bootstrap/preparation.py).
+            env["QORQBOT_USER_ZDOTDIR"] = os.environ.get("ZDOTDIR", "")
+            env["ZDOTDIR"] = str(prepared_zsh)
         broker.ensure_session(session, shell, cwd, env=env, cols=cols, rows=rows)
         return broker.get_or_start(key, broker.attach_cmd(session), cwd, cols=cols, rows=rows), profile, row
 
