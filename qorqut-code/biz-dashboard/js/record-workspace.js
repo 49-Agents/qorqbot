@@ -188,13 +188,23 @@ function recordWorkspaceMount(host, options = {}) {
     if (item.leaveChoice) return item.leaveChoice.promise;
     let finish;
     const promise = new Promise(resolve => { finish = resolve; });
+    const previousFocus = document.activeElement;
+    const hostItem = item.recordEl.hidden ? entry() : item;
+    const guarded = new Set([item.recordEl, hostItem?.recordEl].filter(Boolean));
+    const inertStates = [];
+    for (const recordEl of guarded) for (const child of recordEl.children) {
+      inertStates.push([child, child.inert]); child.inert = true;
+    }
     const panel = rwNode('section', 'rw-leave-choice');
     panel.setAttribute('role', 'group'); panel.setAttribute('aria-label', 'Unsaved work');
     panel.append(rwNode('p', '', message));
     const error = rwNode('p', 'ferr'); error.hidden = true; panel.append(error);
     const settle = value => {
       if (item.leaveChoice?.panel !== panel) return;
-      item.leaveChoice = null; panel.remove(); finish(value);
+      item.leaveChoice = null; panel.remove();
+      for (const [child, wasInert] of inertStates) child.inert = wasInert;
+      if (previousFocus?.isConnected && !previousFocus.closest?.('[hidden], [inert]')) previousFocus.focus?.({preventScroll: true});
+      finish(value);
     };
     item.leaveChoice = {promise, panel, settle};
     for (const choice of choices) {
@@ -207,7 +217,7 @@ function recordWorkspaceMount(host, options = {}) {
       };
       panel.append(button);
     }
-    (item.recordEl.hidden ? entry()?.recordEl : item.recordEl)?.append(panel); panel.querySelector('button')?.focus({preventScroll: true});
+    hostItem?.recordEl.append(panel); panel.querySelector('button')?.focus({preventScroll: true});
     return promise;
   }
   async function confirmRecordDiscard(item) {

@@ -2,12 +2,18 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const {chromium} = require('/tmp/node_modules/playwright');
+let chromium;
+try { ({chromium} = require('playwright')); } catch (_) { /* Browser checks are optional. */ }
+const browserAvailable = !!chromium && require('node:fs').existsSync(chromium.executablePath());
+const browserTest = (name, fn) => test(name, {skip: !browserAvailable && 'Local Playwright Chromium is unavailable'}, fn);
 
 async function fixture() {
   const browser = await chromium.launch({headless:true});
   const page = await browser.newPage();
-  await page.setContent('<div id="controls">Focus controls</div><div id="host"></div><div id="chat">Agent chat</div>');
+  await page.setViewportSize({width:1024,height:700});
+  await page.setContent('<div id="controls">Focus controls</div><div class="agfocus" data-attention-board><div class="agfocus-layout agfocus-record-open"><aside class="agfocus-dock"><div id="host" class="agfocus-dock-content"></div></aside></div></div><div id="chat">Agent chat</div>');
+  for (const file of ['agent-focus.css','record-workspace.css','task-move.css']) await page.addStyleTag({path:path.join(__dirname,'../css',file)});
+  await page.addStyleTag({content:'.agfocus-layout { height: 580px; display:flex; } .agfocus-dock { flex:1; }'});
   await page.evaluate(() => {
     window.state={bizs:[{id:'p1',slug:'one',name:'One'},{id:'p2',slug:'two',name:'Two'}]};
     window.TASK_TYPE_LABELS={task:'Task'}; window.T_VIEW_ICON={tasks:'<svg></svg>'};
@@ -20,7 +26,7 @@ async function fixture() {
     window.post=async (url,args)=>{
       calls.push({url,args:structuredClone(args)});
       if(url.endsWith('tasks_move_targets'))return {projects:[{id:'p2',name:'Two'}]};
-      if(url.endsWith('tasks_move_to_project_preview'))return {preview:{token:'preview-token',can_move:true,source:{name:args.source_business_id?'One':'Global'},destination:{name:'Two'},tasks:[{id:'t1',title:'Parent'},{id:'child',title:'Child'}],roots:[{previous_parent_id:null}],counts:{tasks:2}}};
+      if(url.endsWith('tasks_move_to_project_preview'))return {preview:{token:'preview-token',can_move:true,source:{name:args.source_business_id?'One':'Global'},destination:{name:'Two'},tasks:window.longPreview ? Array.from({length:50},(_,i)=>({id:'t'+i,title:'A descendant with a long title '+i})) : [{id:'t1',title:'Parent'},{id:'child',title:'Child'}],roots:[{previous_parent_id:null}],counts:{tasks:2}}};
       if(url.endsWith('tasks_move_to_project')) {
         if(mode==='lost')throw Error('connection lost');
         if(mode==='pending')return new Promise(resolve=>{window.resolveMove=()=>resolve({destination:{id:'p2',slug:'two',name:'Two'},moved:[{id:'t1',business_id:'p2'},{id:'child',business_id:'p2'}]});});
@@ -41,7 +47,7 @@ async function fixture() {
   return {browser,page};
 }
 const tick=page=>page.waitForTimeout(30);
-for (const scope of [null,'p1']) test(`Focus move preview and cancel retains ${scope || 'Global'} record`,async()=>{
+for (const scope of [null,'p1']) browserTest(`Focus move preview and cancel retains ${scope || 'Global'} record`,async()=>{
   const {browser,page}=await fixture(); try {
     await page.evaluate(scope=>openTask(scope),scope); await tick(page);
     await page.locator('[aria-label="Draft"]').fill('my draft');
@@ -57,14 +63,20 @@ for (const scope of [null,'p1']) test(`Focus move preview and cancel retains ${s
     assert.equal(await page.evaluate(()=>calls.filter(c=>c.url.endsWith('tasks_move_to_project')).length),0);
   } finally {await browser.close();}
 });
-test('dirty guard, child hook, uncertain retry and canonical replacement',async()=>{
+browserTest('dirty guard, child hook, uncertain retry and canonical replacement',async()=>{
   const {browser,page}=await fixture(); try {
     await page.evaluate(()=>openTask(null));await tick(page);
     await page.evaluate(()=>{dirty=true;hookResult=false;});await page.locator('.rw-move').click();await tick(page);
     assert.equal(await page.locator('.rw-move-panel').count(),0);
     await page.evaluate(()=>{hookResult=true;});await page.locator('.rw-move').click();
     assert.match(await page.locator('.rw-leave-choice').innerText(),/unsaved/);
+    assert.equal(await page.locator('.rw-body').evaluate(el=>el.inert),true);
+    assert.equal(await page.locator('.rw-head').evaluate(el=>el.inert),true);
+    assert.equal(await page.locator('#controls').evaluate(el=>el.inert),false);
+    assert.equal(await page.locator('#chat').evaluate(el=>el.inert),false);
     await page.getByRole('button',{name:'Keep editing'}).click();assert.equal(await page.evaluate(()=>dirty),true);
+    assert.equal(await page.locator('.rw-body').evaluate(el=>el.inert),false);
+    assert.equal(await page.locator('.rw-move').evaluate(el=>document.activeElement===el),true);
     await page.locator('.rw-move').click();await page.getByRole('button',{name:'Discard',exact:true}).click();
     await page.locator('[data-move-destination]').waitFor();await page.selectOption('[data-move-destination]','p2');
     await page.locator('[data-move-confirm]:not([disabled])').waitFor();await page.evaluate(()=>{mode='lost';});await page.locator('[data-move-confirm]').click();
@@ -79,7 +91,7 @@ test('dirty guard, child hook, uncertain retry and canonical replacement',async(
     assert.equal(await page.evaluate(()=>movedEvents.length),1);
   } finally {await browser.close();}
 });
-test('pending move requires explicit leave and later success invalidates',async()=>{
+browserTest('pending move requires explicit leave and later success invalidates',async()=>{
   const {browser,page}=await fixture(); try {
     await page.evaluate(()=>openTask('p1'));await tick(page);await page.locator('.rw-move').click();
     await page.selectOption('[data-move-destination]','p2');await page.locator('[data-move-confirm]:not([disabled])').waitFor();
@@ -90,7 +102,7 @@ test('pending move requires explicit leave and later success invalidates',async(
   } finally {await browser.close();}
 });
 
-test('different agent selection and Focus controls await the inline dirty decision',async()=>{
+browserTest('different agent selection and Focus controls await the inline dirty decision',async()=>{
   const {browser,page}=await fixture(); try {
     await page.evaluate(()=>openTask(null));await tick(page);
     const fs=require('node:fs');const src=fs.readFileSync(path.join(__dirname,'../js/global-agents.js'),'utf8');
@@ -124,7 +136,7 @@ test('different agent selection and Focus controls await the inline dirty decisi
   } finally {await browser.close();}
 });
 
-test('Global dashboard adapter forwards optional child beforeLeave',async()=>{
+browserTest('Global dashboard adapter forwards optional child beforeLeave',async()=>{
   const {browser,page}=await fixture();try {
     const result=await page.evaluate(async()=>{
       window.TASK_SPECIAL_TYPES=[];let count=0;
@@ -135,5 +147,35 @@ test('Global dashboard adapter forwards optional child beforeLeave',async()=>{
       return [await ctrl.beforeLeave(),count];
     });
     assert.deepEqual(result,[false,1]);
+  } finally {await browser.close();}
+});
+
+browserTest('long hosted preview stays inside Focus and actions remain reachable',async()=>{
+  const {browser,page}=await fixture();try {
+    await page.evaluate(()=>{window.longPreview=true;document.querySelector('.agfocus-layout').style.height='300px';return openTask(null);});await tick(page);
+    await page.locator('.rw-move').click();await page.selectOption('[data-move-destination]','p2');
+    await page.locator('.tmove-tasks li').last().waitFor();
+    const geometry=await page.evaluate(()=>{
+      const panel=document.querySelector('.rw-move-panel'),dock=document.querySelector('.agfocus-dock');
+      return {overflow:getComputedStyle(panel).overflowY, panelBottom:panel.getBoundingClientRect().bottom,
+        dockBottom:dock.getBoundingClientRect().bottom, scrollHeight:panel.scrollHeight, height:panel.clientHeight,
+        bodyHidden:getComputedStyle(document.querySelector('.rw-body')).display};
+    });
+    assert.equal(geometry.overflow,'auto');assert.ok(geometry.panelBottom<=geometry.dockBottom+1);
+    assert.ok(geometry.scrollHeight>geometry.height);assert.equal(geometry.bodyHidden,'none');
+    await page.locator('[data-move-cancel]').scrollIntoViewIfNeeded();
+    await page.locator('[data-move-cancel]').click();assert.equal(await page.locator('.rw-move-panel').count(),0);
+    assert.equal(await page.locator('.rw-body').evaluate(el=>el.inert),false);
+  } finally {await browser.close();}
+});
+
+browserTest('access removal cleans up the inline decision and restores inert state',async()=>{
+  const {browser,page}=await fixture();try {
+    await page.evaluate(()=>openTask(null));await tick(page);await page.evaluate(()=>{dirty=true;});
+    await page.locator('.rw-close').click();await page.getByRole('button',{name:'Keep editing'}).waitFor();
+    await page.evaluate(()=>{window.oldBody=document.querySelector('.rw-body');window.removal=ws.invalidate({type:'task',id:'t1',business_id:null});});
+    await page.waitForFunction(()=>!ws.isOpen());
+    assert.equal(await page.evaluate(()=>oldBody.inert),false);
+    assert.equal(await page.locator('.rw-leave-choice').count(),0);
   } finally {await browser.close();}
 });
