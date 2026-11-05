@@ -225,7 +225,7 @@ class _Briefing:
                 guidance.append(label + ": " + ", ".join(available))
         skills = [select(skill, ("name", "description", "generated_path", "owner")) for skill in self.config.get("skills", [])]
         if skills:
-            guidance.append(self.instructions.render('briefing-skill-discovery') + json.dumps(skills, ensure_ascii=False))
+            guidance.append(self.instructions.render('briefing-skill-discovery', SKILLS=json.dumps(skills, ensure_ascii=False)))
         guidance.append(instructions.render("briefing-tools"))
         as_of = utc_now()
         here = local_time.local(as_of)
