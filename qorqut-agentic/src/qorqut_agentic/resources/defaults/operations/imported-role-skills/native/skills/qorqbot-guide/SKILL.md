@@ -34,9 +34,8 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
 - An agent is online only while its Claude Code or Codex session runs in its **own** terminal. Chat sends messages
   into that session.
 - To start Ordubashy: open him in the agents list on the left, click **>_** above the chat to open his Terminal, type
-  `claude` or `codex` and press Enter (whichever the owner is signed in to). He connects to Chat by himself. Switch
-  back with the speech-bubble icon and say hello; he then takes up his work. The chat also has a **Start Ordubashy**
-  button that types the command for him.
+  `claude` or `codex` and press Enter (whichever the owner is signed in to). He connects to Chat and takes up his work by
+  himself. Switch back with the speech-bubble icon. The chat also has a **Start Ordubashy** button that does the same.
 - After the Mac restarts: open the Qorqbot app (or run `qorqbot` in a terminal), then start Ordubashy as above.
 - A session started in Terminal.app or another window is not the agent's session, even in the same folder, and Chat
   will not connect to it.
