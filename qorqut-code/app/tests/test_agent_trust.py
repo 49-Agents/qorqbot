@@ -2,6 +2,7 @@
 from contextlib import contextmanager
 import json
 import os
+import shutil
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -205,6 +206,29 @@ class OwnerViewTests(Base):
         self.assertEqual(set(view["recorded"]), {"lead"})
         self.assertTrue(view["granted"])
         self.assertNotIn("autostart", view)
+
+
+class MainTest(unittest.TestCase):
+    """What an agent shell runs before claude or codex."""
+
+    def test_ensure_trusts_the_folder_only_with_consent_and_always_exits_zero(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        runtime, folder = root / "runtime", root / "agent"
+        runtime.mkdir(); folder.mkdir()
+        (root / ".claude.json").write_text(json.dumps({"projects": {}}))
+        argv = ["ensure", "--runtime", str(runtime), "--folder", str(folder)]
+        with mock.patch.dict(os.environ, {"HOME": str(root)}, clear=False):
+            for key in ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "QORQUT_NATIVE_USER_ENV"):
+                os.environ.pop(key, None)
+            self.assertEqual(trust.main(argv), 0)
+            self.assertEqual(json.loads((root / ".claude.json").read_text())["projects"], {})
+            trust.consent(runtime, {"granted": True})
+            self.assertEqual(trust.main(argv), 0)
+            projects = json.loads((root / ".claude.json").read_text())["projects"]
+            self.assertTrue(any(entry.get("hasTrustDialogAccepted") for entry in projects.values()))
+            with mock.patch.object(trust, "ensure", side_effect=OSError("disk")):
+                self.assertEqual(trust.main(argv), 0)
 
 
 if __name__ == "__main__":
