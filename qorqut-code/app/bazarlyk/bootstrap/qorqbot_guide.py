@@ -64,6 +64,9 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
   - Composer: Enter sends, Shift+Enter adds a line, Cmd/Ctrl+Enter always sends. Attach files with the paperclip, or
     paste or drop them.
   - "Connecting…" means the session was found and Chat is attaching to it; "offline" means no session is running.
+  - Slash commands: type `/` at the start of the Chat box to list the agent's commands (`/compact`, `/clear`, `/init`,
+    the owner's own Claude Code commands and skills). Arrow keys and Enter pick one. Commands marked **Terminal**
+    (`/model`, `/resume`, `/cost` and others) open a menu or panel in the agent's Terminal, and Chat switches there.
   - Above Ordubashy's composer, **Workflow steps** shows the steps of the current workflow (Done, Working, Upcoming).
 - **Ordubashy's right-hand pane** has tabs:
   - **Pinned**: tasks and records kept in view, today's calendar, and chips across the top for browsers, due

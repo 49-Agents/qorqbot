@@ -54,13 +54,13 @@ async function globalChatOpenFocusReference(ref, context = {}) {
   if (!current()) return false;
   return taskProgressOpenReference(ref?.business_slug ?? null,ref,current);
 }
-function globalChatAccept(scope, text, input, position) {
+function globalChatAccept(scope, text, input, position, command = false) {
   if (!scope || !input?.id) return;
   const held = GLOBAL_CHAT_ACCEPTED.get(scope) || {records: [], consumed: new Set()};
   GLOBAL_CHAT_ACCEPTED.set(scope, held);
   const record = held.records.find(item => item.id === input.id) || {id: input.id, entry: null};
   if (!held.records.includes(record)) held.records.push(record);
-  Object.assign(record, {text, position, state: input.state, sequence: input.sequence ?? Number.MAX_SAFE_INTEGER, createdAt: Date.parse(input.created_at)});
+  Object.assign(record, {text, position, command, state: input.state, sequence: input.sequence ?? Number.MAX_SAFE_INTEGER, createdAt: Date.parse(input.created_at)});
 }
 // Exact provider + conversation identity of a captured conversation; the one key for drafts, sends and history queries.
 const globalChatKey = target => target?.conversation_id ? `${target.provider || ''}\n${target.conversation_id}` : null;
@@ -323,6 +323,8 @@ function mountGlobalChat(pane, agent, options = {}) {
           && !(Number.isFinite(at) && Number.isFinite(record.createdAt) && at < record.createdAt);
       });
       if (echo) { held.consumed.add(echo.id); record.entry = echo.id; }
+      // A slash command is done once it is typed: Codex records no entry for it, and Claude may record an alias.
+      else if (record.command && record.state === 'submitted') record.entry = 'command';
     }
     // Delivery confirmation can precede transcript capture. Keep the accepted message until its exact echo is loaded.
     held.records = held.records.filter(record => !record.entry);
@@ -369,6 +371,19 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (start.kind === 'starting') return {key: 'starting', line: `Starting ${label}…`};
     if (start.kind === 'start') return {key: 'offline', line: `${label} is offline.`};
     return {key: 'offline', line: direction};
+  }
+  // ---- slash commands: the catalog for the CLI this session runs
+  const commandCatalogs = new Map();
+  function commandCatalog() {
+    const provider = session?.provider;
+    if (!provider) return null;
+    if (!commandCatalogs.has(provider)) {
+      commandCatalogs.set(provider, null);
+      api(`${base}/commands?client=${encodeURIComponent(provider)}`)
+        .then(data => { if (!disposed) commandCatalogs.set(provider, coreData(data).commands || []); })
+        .catch(() => commandCatalogs.delete(provider));
+    }
+    return commandCatalogs.get(provider);
   }
   // ---- starting the agent from Chat (agent-start.js): the button and the owner's one-time consent
   const startState = () => GLOBAL_CHAT_STARTS.get(agentId) || {startedAt: 0, error: ''};
@@ -511,7 +526,12 @@ function mountGlobalChat(pane, agent, options = {}) {
           const error = new Error('Message too long'); error.attachment = true; error.code = 'message_too_long'; throw error;
         }
         const result = await admit(payload, attempt.key, attempt.pin);
-        globalChatAccept(mine, payload, result.input, attempt.position);
+        const slash = slashCommands.command(commandCatalog() || [], text);
+        globalChatAccept(mine, payload, result.input, attempt.position, !!slash);
+        if (slash?.where === 'terminal' && options.openTerminal) {
+          toast(`Finish ${slash.name} in ${label}’s Terminal.`);
+          options.openTerminal();
+        }
         if (GLOBAL_CHAT_SENDS.get(mine) === attempt) GLOBAL_CHAT_SENDS.delete(mine);
         if (GLOBAL_CHAT_DRAFTS.get(mine) === text) GLOBAL_CHAT_DRAFTS.delete(mine);
         const sent = new Set(attempt.files.map(file => file.key));
@@ -595,6 +615,11 @@ function mountGlobalChat(pane, agent, options = {}) {
   paint();
   if (canStart) {
     agentStart.read(agentId).then(view => { if (!disposed) { trust = view; paint(); } }).catch(() => { /* Start still asks for consent */ });
+  }
+  // Slash commands: the running CLI's catalog, loaded once per provider (native_chat/commands.py).
+  if (view.elements?.input && view.elements?.composer) {
+    const menu = slashCommands.attach({input: view.elements.input, form: view.elements.composer, commands: commandCatalog});
+    cleanups.push(() => menu.dispose());
   }
   // Ordubashy's current workflow Focus appears above the composer; it refreshes with this chat's own loads (no extra timer).
   const workflowPanel = (agent.role?.id || agent.role_id) === 'ordubashy' && view.elements?.composer ? workflowPanelMount(view.elements.composer, agentId) : null;
