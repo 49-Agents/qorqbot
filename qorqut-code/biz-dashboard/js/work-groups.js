@@ -114,7 +114,7 @@ function workChooseTasks(biz,selected,onChange) {
 
 // Task/Story/Customer/Email links are scoped references, independent of plain labels and parents.
 async function taskLinkOpen(link) {
-  return taskOpenReference({id:link.task_id, business_id:link.business_id, business_slug:link.business_slug,
+  return taskOpenReference({id:link.task_id, business_id:link.business_id ?? null, business_slug:link.business_id == null ? null : link.business_slug,
     label:link.label || link.title, task_type:link.task_type});
 }
 

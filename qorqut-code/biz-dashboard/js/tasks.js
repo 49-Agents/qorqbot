@@ -601,7 +601,7 @@ function taskRecordReference(task, scopeSlug = undefined) {
   const bySlug = slug ? list.find(b => b.slug === slug) : null;
   if (id == null && bySlug) id = bySlug.id ?? bySlug.business_id;
   if (!slug && byId) slug = byId.slug;
-  if (id == null || !slug || (byId && byId.slug !== slug) || (bySlug && (bySlug.id ?? bySlug.business_id) !== id)) return null;
+  if (id == null || !slug || !list.some(b => (b.id ?? b.business_id) === id && b.slug === slug)) return null;
   return {type:'task', id:task.id, business_id:id, business_slug:slug, label:task.label || task.title || null, task_type:task.task_type || null};
 }
 function taskOpenReference(task, scopeSlug = undefined) {
