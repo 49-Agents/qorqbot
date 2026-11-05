@@ -139,6 +139,64 @@ function calendarEventLanes(spans) {
   finish(); return result;
 }
 
+// Retained only in this page session, partitioned by the freshly verified owner.
+const calendarAttempts = new Map(), calendarAttemptListeners = new Set();
+const calendarAttemptsChanged = () => { for (const fn of [...calendarAttemptListeners]) { try { fn(); } catch (error) { console.error(error); } } };
+async function calendarOwner() {
+  const session = await loadSession(true);
+  if (session?.is_owner !== true || session.principal_kind !== 'human' || typeof session.principal_id !== 'string' || !session.principal_id.trim()) throw new Error('Verify your owner session and try again.');
+  return session.principal_id;
+}
+const calendarDefiniteFailure = error => error?.httpStatus >= 400 && error.httpStatus < 500 && ![408,429].includes(error.httpStatus) && error.code !== 'invalid_response';
+const calendarOwnerAttempts = owner => [...calendarAttempts.values()].filter(attempt => attempt.owner === owner);
+async function calendarRunAttempt(attempt, refresh) {
+  const owner = await calendarOwner();
+  if (attempt.owner && attempt.owner !== owner) throw new Error('This request belongs to a different owner session.');
+  attempt.owner = owner;
+  try {
+    if (attempt.operation === 'personal_status') await calendarStatuses.save(attempt.args.target,attempt.args.status,attempt.args.revision,attempt.key);
+    else await calendarCall(attempt.operation,attempt.args,attempt.key);
+  } catch (error) {
+    if (calendarDefiniteFailure(error)) calendarAttempts.delete(attempt.id);
+    else calendarAttempts.set(attempt.id,attempt);
+    calendarAttemptsChanged();
+    if (!calendarDefiniteFailure(error)) error.message = `The outcome is unconfirmed. Review unconfirmed calendar changes to retry the same request. ${error.message || ''}`;
+    throw error;
+  }
+  calendarAttempts.delete(attempt.id); calendarAttemptsChanged();
+  if (attempt.operation !== 'personal_status') {
+    try { calendarChanged(refresh); } catch (error) { console.error(error); }
+  }
+
+}
+const calendarAttempt = (operation,args,key,event,calendar) => ({id:newRequestId(),operation,args,key,
+  title:event?.title || args.title || 'Untitled event', start:event?.start || args.start || '', calendar:calendar?.name || args.calendar_id || '',
+  occurrence:event ? calendarStatusTarget(event).occurrence_start : ''});
+
+async function calendarSubmitAttempt(attempt, refresh, surface) {
+  const owner = await calendarOwner();
+  if (attempt.owner && attempt.owner !== owner) throw new Error('Owner session changed. Try again.');
+  attempt.owner = owner;
+  const previous = calendarOwnerAttempts(owner).find(old => old.operation === attempt.operation && old.occurrence === attempt.occurrence && JSON.stringify(old.args) === JSON.stringify(attempt.args));
+  if (previous) {
+    const choice = await surface.chooseAttempt(attempt.operation === 'calendar_event_create');
+    if (choice === 'cancel') return false;
+    if (choice === 'retry') { await calendarRunAttempt(previous,refresh); return true; }
+  }
+  await calendarRunAttempt(attempt,refresh);
+  return true;
+}
+
+// A provider write invalidates every mounted calendar view and the shared excerpt cache.
+const calendarChanges = new Set();
+let calendarWriteGeneration = 0;
+function calendarChanged(refresh) {
+  calendarWriteGeneration++;
+  calendarTodayShared = null;
+  for (const listener of [...calendarChanges]) { try { listener(); } catch (error) { console.error(error); } }
+  refresh?.();
+}
+
 // Each pane owns its navigation and lifecycle; embedding never changes the route.
 function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
   let calendarDate = new Date(), calendarViewDays = embedded ? 1 : 3, calendarGeneration = 0, active = true, repaint = () => {};
@@ -152,7 +210,7 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
     const last = calendarAddDays(first,count), dates = Array.from({length:count},(_,i) => calendarAddDays(first,i));
     host.innerHTML = `<section class="pane calendar-page${embedded ? ' calendar-embedded' : ''}" aria-label="Calendar" style="--calendar-columns:${count}">
       <header class="calendar-header"><div class="calendar-brand"><h1>Calendar</h1><time class="calendar-clock" aria-label="Current time"></time></div>
-        <div class="calendar-header-actions"><button type="button" class="calendar-icon" data-calendar-refresh aria-label="Refresh calendars">${calendarIcon('refresh-cw')}</button><button type="button" class="primary" data-calendar-add disabled><span aria-hidden="true">＋</span> Add event</button></div></header>
+        <div class="calendar-header-actions"><button type="button" class="ghost" data-calendar-unconfirmed hidden>Unconfirmed calendar changes</button><button type="button" class="calendar-icon" data-calendar-refresh aria-label="Refresh calendars">${calendarIcon('refresh-cw')}</button><button type="button" class="primary" data-calendar-add disabled><span aria-hidden="true">＋</span> Add event</button></div></header>
       <div class="calendar-layout"><aside class="calendar-sidebar" aria-label="Calendar navigation">
         <div class="calendar-month-heading"><h2></h2><div><button type="button" class="calendar-icon" data-month-prev aria-label="Previous month">‹</button><button type="button" class="calendar-icon" data-month-next aria-label="Next month">›</button></div></div>
         <div class="calendar-month" aria-label="Choose a date"></div><div class="calendar-sources"><h2>My calendars</h2><div></div></div>
@@ -168,6 +226,17 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
     };
     sizePage();
     const current = () => active && page.isConnected && generation === calendarGeneration && isCurrent();
+    const reviewButton = $('[data-calendar-unconfirmed]',page);
+    let recoveryGeneration = 0;
+    const updateUnconfirmed = async () => {
+      const check = ++recoveryGeneration;
+      try { const owner = await calendarOwner(); if (current() && check === recoveryGeneration) reviewButton.hidden = !calendarOwnerAttempts(owner).length; }
+      catch (_) { if (current() && check === recoveryGeneration) reviewButton.hidden = true; }
+    };
+    reviewButton.onclick = () => calendarReviewOpen(reviewButton);
+    calendarAttemptListeners.add(updateUnconfirmed);
+    dispose = () => { calendarAttemptListeners.delete(updateUnconfirmed); };
+    void updateUnconfirmed();
     const reload = (force = false) => { if (current()) return render(force === true); };
     const chooseDate = date => { calendarDate = date; calendarMonth = new Date(date.getFullYear(),date.getMonth(),1); reload(); };
     const paintDates = () => {
@@ -193,7 +262,8 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
     paintDates();
     let clockDay = calendarDateString(new Date()), clockTimer, observer;
     const cleanup = () => { clearInterval(clockTimer); observer?.disconnect(); };
-    dispose = cleanup;
+    const disposeReview = dispose;
+    dispose = () => { cleanup(); disposeReview(); };
     const tick = () => {
       if (!current()) { cleanup(); return; }
       const now = new Date(), clock = $('.calendar-clock',page); clock.dateTime = now.toISOString(); clock.textContent = calendarTime(now);
@@ -222,7 +292,7 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
       $('.calendar-sources > div',page).innerHTML = calendars.map(calendar => `<div class="calendar-source"><span class="calendar-dot"></span><span>${esc(calendar.name)} · ${esc(calendar.provider_name || calendar.provider)}</span></div>`).join('');
       if (!result.configured) { fixedMessage = 'Connect a calendar (for example Google Calendar) to get started.'; paint(); return; }
       $('[data-calendar-add]',page).disabled = !calendars.some(c => c.writable);
-      $('[data-calendar-add]',page).onclick = () => calendarEdit(null,calendars,reload,calendarDate);
+      $('[data-calendar-add]',page).onclick = e => calendarEdit(null,calendars,reload,calendarDate,e.currentTarget);
       await Promise.all(calendars.map(async calendar => {
         let cursor, more;
         const failureKey = `${calendar.connection_id}:${calendar.id}`;
@@ -245,8 +315,10 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
     } catch (error) { if (current()) { fixedMessage = error.message; paint(); } }
   };
   const unsubscribe = calendarStatuses.subscribe(() => { if (active) repaint(); });
+  const changed = () => { if (active && isCurrent()) void render(); };
+  calendarChanges.add(changed);
   void render();
-  return () => { active = false; unsubscribe(); dispose(); };
+  return () => { active = false; calendarChanges.delete(changed); unsubscribe(); dispose(); };
 }
 
 // Queue tiles show only the calendar icon; the one expanded tile adds its title, cut at 25 characters.
@@ -262,7 +334,7 @@ function calendarEventButton(event, calendars, refresh, allDay = false, {queue =
   button.setAttribute('aria-label',label); button.title = label;
   button.innerHTML = queue ? `${T_VIEW_ICON.calendar}${queue.expanded ? `<strong>${esc(calendarQueueTitle(event.title))}</strong>` : ''}${calendarStatusMark(shown)}`
     : `${calendarStatusMark(shown)}<strong>${esc(event.title || 'Untitled event')}</strong>`;
-  button.onclick = () => calendarOpen(event,calendars,refresh); return button;
+  button.onclick = () => calendarOpen(event,calendars,refresh,event,button); return button;
 }
 
 function calendarPaintGrid(page, dates, allEvents, eventButton, hourHeight = 64) {
@@ -303,6 +375,7 @@ const CALENDAR_TODAY_FRESH_MS = 30000;
 let calendarTodayShared = null, calendarTodayFlight = null;
 function calendarTodayLoad(force = false) {
   if (calendarTodayFlight) return force ? calendarTodayFlight.catch(() => {}).then(() => { calendarDirectory = null; return calendarTodayLoad(); }) : calendarTodayFlight;
+  const generation = calendarWriteGeneration;
   const flight = calendarTodayFlight = (async () => {
     const now = new Date(), day = new Date(now.getFullYear(),now.getMonth(),now.getDate()), key = calendarDateString(day);
     const result = await calendarDirectoryLoad(force);
@@ -325,7 +398,9 @@ function calendarTodayLoad(force = false) {
       const allDayA = a.start.length === 10, allDayB = b.start.length === 10;
       return Number(allDayB)-Number(allDayA) || (allDayA ? a.start.localeCompare(b.start) : new Date(a.start)-new Date(b.start)) || a.id.localeCompare(b.id);
     });
-    return calendarTodayShared = {key,calendars,visibleEvents,configured:result.configured,errors,at:Date.now()};
+    const resultData = {key,calendars,visibleEvents,configured:result.configured,errors,at:Date.now()};
+    if (generation === calendarWriteGeneration) calendarTodayShared = resultData;
+    return resultData;
   })();
   const clear = () => { if (calendarTodayFlight === flight) calendarTodayFlight = null; };
   flight.then(clear, clear);
@@ -366,16 +441,17 @@ function calendarTodayMount(host, openCalendar) {
     if (!current()) return;
     if (pending) { if (force !== false) refreshAgain = true; return; }
     pending = true;
+    const generation = calendarWriteGeneration;
     const statuses = calendarStatuses.refresh();
     try {
       const shared = await calendarTodayLoad(force !== false);
-      if (!current()) return;
+      if (!current() || generation !== calendarWriteGeneration) return;
       data = shared; refreshError = '';
       await statuses;
-      paintQueue();
+      if (generation === calendarWriteGeneration) paintQueue();
     } catch (error) {
+      if (!current() || generation !== calendarWriteGeneration) return;
       if (accessLost(error)) calendarTodayShared = null;
-      if (!current()) return;
       // A transient provider failure keeps the last loaded queue so a label save can still repaint it.
       if (data && !accessLost(error)) { refreshError = error.message; paintQueue(); }
       else { data = null; snapshot = undefined; refreshError = ''; queue.replaceChildren(); queue.hidden = true; status.textContent = error.message; }
@@ -383,7 +459,9 @@ function calendarTodayMount(host, openCalendar) {
     finally { pending = false; if (refreshAgain && current()) { refreshAgain = false; void refresh(); } }
   };
   const unsubscribe = calendarStatuses.subscribe(paintQueue);
-  const dispose = () => { active = false; unsubscribe(); clearInterval(timer); document.removeEventListener('visibilitychange',visible); };
+  const changed = () => { if (active) void refresh(); };
+  calendarChanges.add(changed);
+  const dispose = () => { active = false; calendarChanges.delete(changed); unsubscribe(); clearInterval(timer); document.removeEventListener('visibilitychange',visible); };
   timer = setInterval(() => { if (!current()) dispose(); else if (!document.hidden) void refresh(false); },60000);
   const visible = () => { if (!document.hidden) void refresh(false); };
   document.addEventListener('visibilitychange',visible);
@@ -393,23 +471,158 @@ function calendarTodayMount(host, openCalendar) {
   return {refresh,dispose};
 }
 
-async function calendarOpen(event, calendars, refresh, clicked = event) {
-  // Personal status always belongs to the occurrence that was clicked, even when detail returns the series master.
+// Calendar content owns one Focus expansion and replaces its children for nested work.
+async function calendarSurface(title, origin, mount) {
+  if (!window.focusExpansion?.open) { toast('Focus is unavailable.'); return null; }
+  return window.focusExpansion.open({title, mount(host, session) {
+    let disposed = false, busy = 0, dirty = () => false, cleanup = () => {}, prompt = null;
+    const leave = () => {
+      if (busy || disposed) return false;
+      if (!dirty()) return true;
+      if (prompt) return false;
+      const box = document.createElement('div');
+      box.className = 'calendar-leave-choice'; box.setAttribute('role','group');
+      box.setAttribute('aria-label','Unsaved calendar changes');
+      const message = document.createElement('p'); message.textContent = 'Discard your unsaved changes?';
+      const keep = document.createElement('button'); keep.type = 'button'; keep.textContent = 'Keep editing';
+      const discard = document.createElement('button'); discard.type = 'button'; discard.textContent = 'Discard changes';
+      box.append(message,keep,discard);
+      const content = host.firstElementChild, previousFocus = document.activeElement;
+      if (content) content.inert = true;
+      host.append(box);
+      let resolve; const promise = new Promise(done => { resolve = done; });
+      const finish = accepted => { if (!prompt) return; prompt = null; box.remove(); if (content) content.inert = false; if (accepted) dirty = () => false; else if (previousFocus?.isConnected && content?.contains(previousFocus)) previousFocus.focus(); resolve(accepted); };
+      prompt = {promise, finish}; keep.onclick = () => finish(false); discard.onclick = () => finish(true); keep.focus();
+      return promise;
+    };
+    session.setBeforeLeave(leave);
+    const surface = {
+      session,
+      current: () => !disposed && session.isCurrent(),
+      setDirty: fn => { dirty = fn; },
+      async show(spec) {
+        cleanup(); cleanup = () => {}; dirty = () => false;
+        if (!surface.current()) return;
+        session.setTitle(spec.title);
+        host.innerHTML = `<section class="calendar-focus-content"><div class="calendar-focus-body">${spec.body}</div><div class="mfoot calendar-focus-actions"></div></section>`;
+        const el = host.firstElementChild, footer = $('.mfoot',el);
+        for (const action of spec.actions || []) {
+          const button = document.createElement('button'); button.type = 'button';
+          button.textContent = action.label; if (action.primary) button.className = 'primary';
+          button.onclick = async () => {
+            if (busy) return;
+            let next = false;
+            if (!action.navigation) busy++;
+            try { await action.onClick(() => { next = true; },el); }
+            finally { if (!action.navigation) busy--; }
+            if (next && surface.current()) await spec.onBack();
+          };
+          footer.append(button);
+        }
+        cleanup = spec.onOpen?.(el) || (() => {});
+      },
+      async back(callback) { if (await leave() && surface.current()) await callback(); },
+      async chooseAttempt(isCreate) {
+        return new Promise(resolve => {
+          const content = host.firstElementChild, box = document.createElement('div'); box.className = 'calendar-leave-choice'; box.setAttribute('role','group'); box.setAttribute('aria-label','Unconfirmed matching calendar change');
+          const text = document.createElement('p'); text.textContent = 'A matching calendar change is unconfirmed. Retry the original request or cancel.';
+          const review = document.createElement('button'); review.type = 'button'; review.textContent = 'Retry same request';
+          const separate = document.createElement('button'); separate.type = 'button'; separate.textContent = 'Create separate event';
+          const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'Cancel';
+          const finish = value => { box.remove(); if (content) content.inert = false; resolve(value); };
+          review.onclick = () => finish('retry'); separate.onclick = () => finish('separate'); cancel.onclick = () => finish('cancel');
+          box.append(text,review); if (isCreate) box.append(separate); box.append(cancel); if (content) content.inert = true; host.append(box); review.focus();
+        });
+      },
+      async review(onBack = null) {
+        let owner;
+        try { owner = await calendarOwner(); } catch (error) { toast(error.message); return; }
+        if (!surface.current()) return;
+        const content = host.firstElementChild, panel = document.createElement('section');
+        panel.className = 'calendar-recovery'; panel.setAttribute('aria-label','Unconfirmed calendar changes');
+        const title = document.createElement('h2'); title.textContent = 'Unconfirmed calendar changes'; panel.append(title);
+        const note = document.createElement('p'); note.textContent = 'These changes may already have happened. Retry only the same request, or forget its local reminder.'; panel.append(note);
+        const list = document.createElement('div'); panel.append(list);
+        const sessionRetry = document.createElement('button'); sessionRetry.type = 'button'; sessionRetry.textContent = 'Retry owner session'; sessionRetry.hidden = true; panel.append(sessionRetry);
+        const back = document.createElement('button'); back.type = 'button'; back.textContent = 'Back'; panel.append(back);
+        let panelActive = true, verification = 0;
+        const finish = () => { panelActive = false; verification++; window.removeEventListener('focus',reverify); panel.remove(); if (content) content.inert = false; back.onclick = null; onBack?.(); };
+        session.onDispose(() => { panelActive = false; verification++; window.removeEventListener('focus',reverify); });
+        back.onclick = finish;
+        if (content) content.inert = true; host.append(panel);
+        const paint = () => {
+          list.replaceChildren();
+          for (const attempt of calendarOwnerAttempts(owner)) {
+            const row = document.createElement('div'); row.className = 'calendar-recovery-row';
+            const label = document.createElement('p'); label.textContent = `${attempt.title} · ${attempt.start} · ${attempt.calendar} · ${attempt.operation}`;
+            const retry = document.createElement('button'); retry.type = 'button'; retry.textContent = 'Retry same request';
+            const forget = document.createElement('button'); forget.type = 'button'; forget.textContent = 'Forget';
+            const explanation = document.createElement('small'); explanation.textContent = 'Forgetting removes only this local reminder; it does not undo or cancel the calendar operation.';
+            const error = document.createElement('p'); error.setAttribute('role','alert');
+            retry.onclick = async () => {
+              if (busy) return; busy++; const check = verification; retry.disabled = forget.disabled = back.disabled = true;
+              try { if (await calendarOwner() !== owner) { list.replaceChildren(); note.textContent = 'Owner session changed. Reopen this list.'; return; } await calendarRunAttempt(attempt, () => {}); if (surface.current() && panelActive && check === verification) paint(); }
+              catch (e) { if (panelActive && check === verification) { if (!calendarAttempts.has(attempt.id)) paint(); else error.textContent = e.message; } }
+              finally { busy--; retry.disabled = forget.disabled = back.disabled = false; }
+            };
+            forget.onclick = async () => {
+              try { if (await calendarOwner() !== owner) { list.replaceChildren(); note.textContent = 'Owner session changed. Reopen this list.'; return; } calendarAttempts.delete(attempt.id); calendarAttemptsChanged(); paint(); }
+              catch (e) { error.textContent = e.message; }
+            };
+            row.append(label,retry,forget,explanation,error); list.append(row);
+          }
+        };
+        const reverify = async () => {
+          const check = ++verification; list.replaceChildren(); sessionRetry.hidden = true;
+          note.textContent = 'Verifying owner session…';
+          try {
+            const verified = await calendarOwner();
+            if (!panelActive || check !== verification) return;
+            owner = verified; note.textContent = 'These changes may already have happened. Retry only the same request, or forget its local reminder.'; paint();
+          } catch (error) {
+            if (!panelActive || check !== verification) return;
+            note.textContent = error.message; sessionRetry.hidden = false;
+          }
+        };
+        sessionRetry.onclick = reverify; window.addEventListener('focus',reverify);
+        paint(); back.focus();
+      },
+      async close() { await session.close(); },
+      setBusy(value) { busy += value ? 1 : -1; }
+    };
+    session.onDispose(() => { disposed = true; prompt?.finish(false); cleanup(); if (origin?.isConnected) origin.focus(); });
+    void mount(surface);
+  }});
+}
+
+function calendarReviewOpen(origin) {
+  return calendarSurface('Unconfirmed calendar changes',origin, async surface => {
+    await surface.show({title:'Unconfirmed calendar changes',body:'',actions:[]});
+    await surface.review(() => surface.close());
+  });
+}
+
+async function calendarOpen(event, calendars, refresh, clicked = event, origin = document.activeElement) {
   const statusTarget = calendarStatusTarget(clicked);
-  let unsubscribe;
-  try {
-    const result = await calendarCall('calendar_event_get', {connection_id:event.connection_id, calendar_id:event.calendar_id, event_id:event.id});
-    event = result.event;
-    const calendar = calendars.find(c => c.id === event.calendar_id && c.connection_id === event.connection_id);
-    const attendee = event.attendees.find(a => calendar?.organizers?.some(address => address.toLowerCase() === a.email.toLowerCase()));
-    const recurring = !!event.series_id || event.recurrence.length > 0;
-    const responseActions = attendee ? ['accepted','tentative','declined'].map(response => { const key = newRequestId(); return ({
-      label:({accepted:'Accept',tentative:'Maybe',declined:'Decline'})[response], onClick:async (close, el) => {
-        el.querySelectorAll('.mfoot button').forEach(button => button.disabled = true);
-        try { await calendarCall('calendar_event_respond', {...calendarTarget(event), attendee:attendee.email, response}, key); close(); refresh(); }
-        catch (error) { $('.calendar-detail-error',el).textContent = error.message; el.querySelectorAll('.mfoot button').forEach(button => button.disabled = false); }
-      }}); }) : [];
-    modal({title:esc(event.title || 'Event'), width:600, body:`<div class="calendar-detail">
+  return calendarSurface(event.title || 'Event',origin, async surface => {
+    let detailGeneration = 0;
+    const detail = async requested => {
+      const generation = ++detailGeneration;
+      await surface.show({title:'Event',body:'<p role="status">Loading event…</p>',actions:[]});
+      try {
+        const result = await calendarCall('calendar_event_get', {connection_id:requested.connection_id, calendar_id:requested.calendar_id, event_id:requested.id});
+        if (!surface.current() || generation !== detailGeneration) return;
+        event = result.event;
+        const calendar = calendars.find(c => c.id === event.calendar_id && c.connection_id === event.connection_id);
+        const attendee = event.attendees.find(a => calendar?.organizers?.some(address => address.toLowerCase() === a.email.toLowerCase()));
+        const recurring = !!event.series_id || event.recurrence.length > 0;
+        const responseActions = attendee ? ['accepted','tentative','declined'].map(response => { const key = newRequestId(), attempt = calendarAttempt('calendar_event_respond',{...calendarTarget(event),attendee:attendee.email,response},key,clicked,calendar); return ({
+          label:({accepted:'Accept',tentative:'Maybe',declined:'Decline'})[response], onClick:async (close, el) => {
+            el.querySelectorAll('.mfoot button').forEach(button => button.disabled = true);
+            try { if (await calendarSubmitAttempt(attempt,refresh,surface)) close(); else el.querySelectorAll('.mfoot button').forEach(button => button.disabled = false); }
+            catch (error) { $('.calendar-detail-error',el).textContent = error.message; el.querySelectorAll('.mfoot button').forEach(button => button.disabled = false); }
+          }}); }) : [];
+        await surface.show({title:event.title || 'Event', body:`<div class="calendar-detail">
       <p>${esc(calendarEventWhen(event))}</p><p>${esc(calendar?.name || '')} · ${esc(event.organizer || '')}</p>
       ${recurring ? `<p class="muted">${event.recurrence_edit_scope === 'series' || event.recurrence.length ? 'Recurring series. Changes here apply to the series.' : 'Occurrence of a recurring event.'}</p>` : ''}
       ${event.location ? `<p>${esc(event.location)}</p>` : ''}
@@ -420,18 +633,25 @@ async function calendarOpen(event, calendars, refresh, clicked = event) {
         <button type="button" class="ghost" data-calendar-status-save>Save status</button>
         <p class="muted calendar-status-help">Only for you; guests aren’t notified.${statusTarget.occurrence_start ? ` Applies to the ${esc(calendarDateLabel(new Date(statusTarget.occurrence_start.length === 10 ? statusTarget.occurrence_start+'T12:00:00' : statusTarget.occurrence_start)))} occurrence only.` : ''}</p>
         <p class="calendar-status-note" role="status"></p></div>
-      <p class="calendar-detail-error" role="alert"></p></div>`, onClose:() => unsubscribe?.(), onOpen:el => { unsubscribe = calendarStatusEditor(el,statusTarget); }, actions:[
-      {label:'Close', onClick:close => close()}, ...responseActions,
-      ...(event.series_id && event.series_id !== event.id ? [{label:'Open series', onClick:close => { close(); calendarOpen({...event,id:event.series_id},calendars,refresh,clicked); }}] : []),
-      ...(calendar?.writable ? [{label:'Delete', onClick:close => { close(); calendarDelete(event,refresh); }},
-        {label:'Edit', primary:true, onClick:close => { close(); calendarEdit(event,calendars,refresh); }}] : [])]});
-  } catch (error) { toast(error.message); }
+      <p class="calendar-detail-error" role="alert"></p></div>`,
+          onOpen:el => calendarStatusEditor(el,statusTarget,surface,clicked,calendar), onBack:() => surface.close(), actions:[
+          ...responseActions,
+          ...(event.series_id && event.series_id !== event.id ? [{label:'Open series', navigation:true, onClick:() => surface.back(() => detail({...event,id:event.series_id}))}] : []),
+          ...(calendar?.writable ? [{label:'Delete', navigation:true, onClick:() => surface.back(() => calendarDelete(event,refresh,surface,() => detail(event),clicked,calendar))},
+            {label:'Edit', primary:true, navigation:true, onClick:() => surface.back(() => calendarEdit(event,calendars,refresh,new Date(),null,surface,() => detail(event),clicked))}] : [])]});
+      } catch (error) {
+        if (surface.current() && generation === detailGeneration) await surface.show({title:'Event',body:`<p class="calendar-detail-error" role="alert">${esc(error.message)}</p>`,onBack:() => surface.close(),actions:[{label:'Retry',onClick:() => detail(requested)}]});
+      }
+    };
+    await detail(event);
+  });
 }
 
-// Personal status editor inside the existing detail modal; returns its store unsubscribe.
-function calendarStatusEditor(el, target) {
+// Personal status editor inside the Focus detail; returns its store unsubscribe.
+function calendarStatusEditor(el, target, surface, clicked, calendar) {
   const select = $('select[name=personal_status]',el), save = $('[data-calendar-status-save]',el), note = $('.calendar-status-note',el);
-  let displayed = calendarStatuses.get(target), busy = false, dirty = false, lastPayload, requestId;
+  let displayed = calendarStatuses.get(target), busy = false, dirty = false, lastPayload, requestId, attempt;
+  surface.setDirty(() => dirty);
   const status = () => displayed?.status || 'pending', revision = () => displayed?.revision || 0;
   // Follow the store while the editor is unchanged; a dirty draft keeps its original revision and reports the change.
   const adopt = () => {
@@ -460,10 +680,10 @@ function calendarStatusEditor(el, target) {
   save.onclick = async () => {
     if (busy || select.value === status()) return;
     const chosen = select.value, payload = JSON.stringify([target,chosen,revision()]);
-    if (payload !== lastPayload) { requestId = newRequestId(); lastPayload = payload; }
-    busy = true; note.textContent = 'Saving…'; sync();
+    if (payload !== lastPayload) { requestId = newRequestId(); lastPayload = payload; attempt = calendarAttempt('personal_status',{target,status:chosen,revision:revision()},requestId,clicked,calendar); }
+    busy = true; surface.setBusy(true); note.textContent = 'Saving…'; sync();
     try {
-      displayed = await calendarStatuses.save(target,chosen,revision(),requestId); dirty = false;
+      if (!await calendarSubmitAttempt(attempt,null,surface)) { note.textContent = 'Retry cancelled; the outcome remains unconfirmed.'; return; } displayed = calendarStatuses.get(target); dirty = false;
       note.textContent = `Saved: ${calendarStatusLabels[displayed.status]}.`;
     } catch (error) {
       if (calendarStatuses.state.denied) note.textContent = calendarStatuses.state.error;
@@ -475,23 +695,24 @@ function calendarStatusEditor(el, target) {
         const definite = error.httpStatus >= 400 && error.httpStatus < 500 && ![408,429].includes(error.httpStatus) && error.code !== 'invalid_response';
         note.textContent = definite ? `Not saved: ${error.message} Save again to retry.` : `Couldn’t confirm the save. ${error.message || ''} Save again to retry.`;
       }
-    } finally { busy = false; sync(); }
+    } finally { busy = false; surface.setBusy(false); sync(); }
   };
   sync();
   return calendarStatuses.subscribe(() => { if (!busy) sync(); });
 }
 
-function calendarDelete(event, refresh) {
-  const key = newRequestId();
-  modal({title:'Delete event?',body:`<p>${esc(event.title)}${event.recurrence.length ? ' (whole series)' : ''}</p><p>Guests receive the provider’s cancellation notice.</p><p class="calendar-detail-error" role="alert"></p>`,actions:[
-    {label:'Cancel',onClick:close => close()}, {label:'Delete',primary:true,onClick:async (close,el) => {
+function calendarDelete(event, refresh, surface, back, clicked = event, calendar = null) {
+  const key = newRequestId(), attempt = calendarAttempt('calendar_event_delete',calendarTarget(event),key,clicked,calendar);
+  return surface.show({title:'Delete event?',onBack:() => surface.close(),body:`<p>${esc(event.title)}${event.recurrence.length ? ' (whole series)' : ''}</p><p>Guests receive the provider’s cancellation notice.</p><p class="calendar-detail-error" role="alert"></p>`,actions:[
+    {label:'Cancel',navigation:true,onClick:() => surface.back(back)}, {label:'Delete',primary:true,onClick:async (close,el) => {
       const button = $('.mfoot .primary',el); button.disabled = true;
-      try { await calendarCall('calendar_event_delete',calendarTarget(event),key); close(); refresh(); }
+      try { if (await calendarSubmitAttempt(attempt,refresh,surface)) close(); else button.disabled = false; }
       catch (error) { $('.calendar-detail-error',el).textContent = error.message; button.disabled = false; }
     }}]});
 }
 
-function calendarEdit(event, calendars, refresh, calendarDate = new Date()) {
+function calendarEdit(event, calendars, refresh, calendarDate = new Date(), origin = document.activeElement, surface = null, back = null, clicked = event) {
+  if (!surface) return calendarSurface(event ? 'Edit event' : 'Add event',origin, current => calendarEdit(event,calendars,refresh,calendarDate,origin,current,() => current.close()));
   const writable = calendars.filter(c => c.writable);
   const active = event ? calendars.find(c => c.id === event.calendar_id && c.connection_id === event.connection_id) : writable[0];
   const localInput = value => value?.length === 10 ? value : value ? calendarDateString(new Date(value))+'T'+new Date(value).toTimeString().slice(0,5) : '';
@@ -505,8 +726,8 @@ function calendarEdit(event, calendars, refresh, calendarDate = new Date()) {
   if (event && !event.default_reminders) reminderOptions.shift();
   if (!reminderOptions.some(([value]) => value === reminder)) reminderOptions.push([reminder,'Current reminders']);
   const selection = c => calendars.indexOf(c);
-  let initial, lastPayload, key;
-  modal({title:event ? 'Edit event' : 'Add event',width:620,body:`<form class="calendar-form">
+  let initial, lastPayload, key, attempt;
+  return surface.show({title:event ? 'Edit event' : 'Add event',onBack:() => surface.close(),body:`<form class="calendar-form">
     <label>Calendar<select class="inp" aria-label="Calendar" name="calendar" ${event ? 'disabled' : ''}>${writable.map(c => `<option value="${selection(c)}" ${c === active ? 'selected' : ''}>${esc(c.name)} (${esc(c.provider)})</option>`).join('')}</select></label>
     <label>Invitation from<select class="inp" aria-label="Invitation from" name="organizer" ${event ? 'disabled' : ''}></select></label>
     <label>Title<input class="inp" name="title" required maxlength="1000" value="${esc(event?.title || '')}"></label>
@@ -519,8 +740,8 @@ function calendarEdit(event, calendars, refresh, calendarDate = new Date()) {
     <label>Reminder<select class="inp" aria-label="Reminder" name="reminders">${reminderOptions.map(([value,label]) => `<option value="${esc(value)}" ${value === reminder ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div>
     <label class="calendar-inline" data-meet-option><input type="checkbox" name="meet"> Add Google Meet link</label>
     <label>Description<textarea class="inp" name="description">${esc(event?.description || '')}</textarea></label>
-    <p class="calendar-detail-error" role="alert"></p></form>`, actions:[
-    {label:'Cancel',onClick:close => close()}, {label:'Save',primary:true,onClick:async (close,el) => {
+    <p class="calendar-detail-error" role="alert"></p><button type="button" class="ghost" data-calendar-review>Review unconfirmed changes</button></form>`, actions:[
+    {label:'Cancel',navigation:true,onClick:() => surface.back(back)}, {label:'Save',primary:true,onClick:async (close,el) => {
       const form = $('form',el), f = form.elements;
       if (!form.reportValidity()) return;
       const values = Object.fromEntries(new FormData(form));
@@ -537,14 +758,18 @@ function calendarEdit(event, calendars, refresh, calendarDate = new Date()) {
       if (changes.recurrence?.length && !f.allDay.checked && !changes.timezone) changes.timezone = event?.timezone || calendarZone();
       if ((!event || values.reminders !== initial.reminders) && values.reminders !== 'default') changes.reminders = values.reminders ? values.reminders.split(',').map(Number) : [];
       if (f.meet.checked && selected.provider === 'google') changes.google_meet = true;
-      if (event && !Object.keys(changes).length) { close(); return; }
+      if (event && !Object.keys(changes).length) { surface.setDirty(() => false); close(); return; }
       const args = event ? {...calendarTarget(event),changes} : {connection_id:selected.connection_id, calendar_id:selected.id, organizer:f.organizer.value,...changes};
-      const payload = JSON.stringify(args); if (payload !== lastPayload) { key = newRequestId(); lastPayload = payload; }
+      const payload = JSON.stringify(args);
+      let owner;
+      try { owner = await calendarOwner(); } catch (error) { $('.calendar-detail-error',el).textContent = error.message; return; }
+      if (!event || payload !== lastPayload) { key = newRequestId(); lastPayload = payload; attempt = calendarAttempt(event ? 'calendar_event_update' : 'calendar_event_create',args,key,clicked,selected); attempt.owner = owner; }
       const button = $('.mfoot .primary',el); button.disabled = true;
-      try { await calendarCall(event ? 'calendar_event_update' : 'calendar_event_create',args,key); close(); refresh(); }
+      try { if (await calendarSubmitAttempt(attempt,refresh,surface)) { surface.setDirty(() => false); close(); } else button.disabled = false; }
       catch (error) { $('.calendar-detail-error',el).textContent = error.message; button.disabled = false; }
     }}],onOpen:el => {
       const form = $('form',el), f = form.elements;
+      $('[data-calendar-review]',el).onclick = () => surface.review();
       const update = () => {
         const selected = event ? active : calendars[Number(f.calendar.value)];
         f.organizer.innerHTML = (event ? [event.organizer] : selected.organizers).map(address => `<option>${esc(address)}</option>`).join('');
@@ -554,6 +779,7 @@ function calendarEdit(event, calendars, refresh, calendarDate = new Date()) {
       update(); f.calendar.onchange = update;
       f.allDay.onchange = () => { for (const name of ['start','end']) { const old = f[name].value; f[name].type = f.allDay.checked ? 'date' : 'datetime-local'; f[name].value = f.allDay.checked ? old.slice(0,10) : old+'T10:00'; } };
       initial = Object.fromEntries(new FormData(form));
+      surface.setDirty(() => JSON.stringify(Object.fromEntries(new FormData(form))) !== JSON.stringify(initial));
       form.onsubmit = e => { e.preventDefault(); $('.mfoot .primary',el).click(); };
     }});
 }

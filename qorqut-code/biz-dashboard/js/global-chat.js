@@ -28,7 +28,7 @@ async function globalChatOpenFocusReference(ref, context = {}) {
         await agpadSetView(pane,'focus');
         if (!current() || pane.view !== 'focus') return false;
       }
-      if(pane.view==='focus' && pane.surface) { agpadSurfaceClose(pane); if (!current()) return false; }
+      if(pane.view==='focus' && pane.surface) { await agpadSurfaceClose(pane); if (!current() || pane.surface) return false; }
       if(pane.view==='focus') {
         const frame=pane.workspaceFrame;
         if(frame?.isConnected && pane.el?.contains(frame)) {

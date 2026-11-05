@@ -183,6 +183,89 @@ function recordWorkspaceMount(host, options = {}) {
   };
   return api;
 
+  // Leave decisions stay inside the Focus record and share one pending decision.
+  function inlineChoice(item, message, choices) {
+    if (item.leaveChoice) return item.leaveChoice.promise;
+    let finish;
+    const promise = new Promise(resolve => { finish = resolve; });
+    const previousFocus = document.activeElement;
+    const hostItem = item.recordEl.hidden ? entry() : item;
+    const guarded = new Set([item.recordEl, hostItem?.recordEl].filter(Boolean));
+    const inertStates = [];
+    for (const recordEl of guarded) for (const child of recordEl.children) {
+      inertStates.push([child, child.inert]); child.inert = true;
+    }
+    const panel = rwNode('section', 'rw-leave-choice');
+    panel.setAttribute('role', 'group'); panel.setAttribute('aria-label', 'Unsaved work');
+    panel.append(rwNode('p', '', message));
+    const error = rwNode('p', 'ferr'); error.hidden = true; panel.append(error);
+    const settle = value => {
+      if (item.leaveChoice?.panel !== panel) return;
+      item.leaveChoice = null; panel.remove();
+      for (const [child, wasInert] of inertStates) child.inert = wasInert;
+      if (previousFocus?.isConnected && !previousFocus.closest?.('[hidden], [inert]')) previousFocus.focus?.({preventScroll: true});
+      finish(value);
+    };
+    item.leaveChoice = {promise, panel, settle};
+    for (const choice of choices) {
+      const button = rwNode('button', 'quiet', choice.label); button.type = 'button';
+      button.onclick = async () => {
+        if (panel.dataset.busy) return;
+        panel.dataset.busy = 'yes'; panel.querySelectorAll('button').forEach(b => { b.disabled = true; });
+        try { const result = await choice.run(); settle(result); }
+        catch (failure) { error.textContent = uiFailure(failure); error.hidden = false; delete panel.dataset.busy; panel.querySelectorAll('button').forEach(b => { b.disabled = false; }); }
+      };
+      panel.append(button);
+    }
+    hostItem?.recordEl.append(panel); panel.querySelector('button')?.focus({preventScroll: true});
+    return promise;
+  }
+  async function confirmRecordDiscard(item) {
+    if (options.entry !== 'focus' || item.record.source.type !== 'task') return rwConfirmDiscard(item);
+    const choices = [{label: 'Keep editing', run: () => false}];
+    if (typeof item.dashboard?.save === 'function') choices.push({label: 'Save', run: async () => {
+      if (await item.dashboard.save() === false) throw new Error('The dashboard could not save. Your edits are still here.');
+      return true;
+    }});
+    choices.push({label: 'Discard', run: () => {
+      if (typeof item.dashboard?.discard === 'function') item.dashboard.discard();
+      else {
+        item.dashboard?.dispose?.(); item.dashboard = null; item.dashboardLoaded = false;
+        item.dashboardMounting = false; item.dashboardGeneration = (item.dashboardGeneration || 0) + 1;
+        mountDashboard(item);
+      }
+      return true;
+    }});
+    return inlineChoice(item, 'This record dashboard has unsaved changes.', choices);
+  }
+  async function beforeLeave(item, {guardDirty = true} = {}) {
+    if (!item?.alive) return false;
+    if (!item.leaveGuard) {
+      item.leaveGuard = (async () => {
+        if (item.moveDialog && !await leaveMove(item)) return false;
+        if (item.dashboard?.beforeLeave && await item.dashboard.beforeLeave() === false) return false;
+        return !disposed && item.alive && entry() === item;
+      })();
+    }
+    const guard = item.leaveGuard;
+    let allowed;
+    try { allowed = await guard; } finally { if (item.leaveGuard === guard) item.leaveGuard = null; }
+    if (!allowed || disposed || !item.alive || entry() !== item) return false;
+    if (guardDirty && rwDirty(item.dashboard) && !await confirmRecordDiscard(item)) return false;
+    return !disposed && item.alive && entry() === item;
+  }
+  async function leaveMove(item) {
+    const dialog = item.moveDialog;
+    if (!dialog) return true;
+    const status = dialog.status?.();
+    if (!status?.pending && !status?.uncertain) { dialog.close(); return true; }
+    const choices = [{label: 'Keep', run: () => false}];
+    if (status.uncertain) choices.push({label: 'Retry move', run: () => { dialog.retry(); return false; }});
+    choices.push({label: 'Leave', run: () => { item.leaveChoice?.settle(true); dialog.close(); return true; }});
+    return inlineChoice(item, status.pending
+      ? 'The move is still in progress. Leaving cannot undo a move that may succeed.'
+      : 'The move outcome is unknown. Leaving cannot undo a move that may have succeeded.', choices);
+  }
   function entry() { return stack[stack.length - 1] || null; }
   function current() { const item = entry(); return item && item.alive ? item.record : null; }
   function makeEntry(record) {
@@ -265,15 +348,29 @@ function recordWorkspaceMount(host, options = {}) {
   }
   async function moveRecord(item) {
     if (disposed || !item.alive || item.moveDialog) return;
-    // The normal editor guard: Save or Discard is the owner's explicit choice, never implied.
+    if (item.dashboard?.beforeLeave && await item.dashboard.beforeLeave() === false) return;
+    if (disposed || !item.alive || entry() !== item) return;
     if (rwDirty(item.dashboard)) {
-      if (!await rwConfirmDiscard(item)) return;
-      if (disposed || !item.alive) return;
+      if (!await confirmRecordDiscard(item)) return;
+      if (disposed || !item.alive || entry() !== item || item.moveDialog || rwDirty(item.dashboard)) return;
     }
     const record = item.record, source = record.source;
-    let dialog = null;
+    let dialog = null, panel = null, body = null, previousFocus = null, dashboardScroll = 0;
+    if (options.entry === 'focus') {
+      previousFocus = document.activeElement; dashboardScroll = item.dashHost.scrollTop;
+      body = item.recordEl.querySelector('.rw-body');
+      panel = rwNode('section', 'rw-move-panel');
+      body.hidden = true; body.inert = true;
+      body.after(panel);
+    }
     dialog = taskMoveOpen({
-      onClosed: () => { if (item.moveDialog === dialog || !dialog) item.moveDialog = null; },
+      hostedContent: panel,
+      onRequestClose: () => { void leaveMove(item); },
+      onClosed: () => {
+        if (item.moveDialog === dialog || !dialog) item.moveDialog = null;
+        if (panel) { panel.remove(); body.hidden = false; body.inert = false; item.dashHost.scrollTop = dashboardScroll; if (item.alive) previousFocus?.focus?.({preventScroll: true}); }
+        item.leaveChoice?.settle(false);
+      },
       task: {id: source.id, title: record.label, task_type: record.task_type},
       sourceBusinessId: source.business_id ?? null, sourceSlug: record.biz || null,
       onSourceLost: () => { if (item.alive) void rwRecordUnavailable(item); },
@@ -281,18 +378,20 @@ function recordWorkspaceMount(host, options = {}) {
       onMoved: reference => { void replaceWithReference(item, reference); },
       onMovedElsewhere: reference => { void replaceWithReference(item, reference); },
     });
-    if (!dialog) return;
+    if (!dialog) { panel?.remove(); if (body) { body.hidden = false; body.inert = false; } return; }
     item.moveDialog = dialog;
+    panel?.querySelector('select')?.focus({preventScroll: true});
   }
   // The moved Task keeps its id; its new scope is a new canonical record. Replace this entry in place so Back never
   // returns to the old-scope copy.
   function replaceWithReference(item, reference) {
     const target = rwRecordFromItem({source: {type: 'task', id: reference.id, business_id: reference.business_id, business_slug: reference.business_slug,
       business_name: reference.business_name, label: reference.label, task_type: reference.task_type}});
-    return target ? replace(item, target, {tab: item.tab}) : false;
+    return target ? replace(item, target, {tab: item.tab, confirmedMove: true}) : false;
   }
-  async function replace(oldItem, record, {tab = null} = {}) {
+  async function replace(oldItem, record, {tab = null, confirmedMove = false} = {}) {
     if (disposed || !record) return false;
+    if (!confirmedMove && oldItem === entry() && !await beforeLeave(oldItem)) return false;
     const index = stack.indexOf(oldItem);
     if (index < 0 || index !== stack.length - 1) return navigate(record, {tab});
     stack.pop();
@@ -310,7 +409,7 @@ function recordWorkspaceMount(host, options = {}) {
     notice.append(rwNode('span', '', `This record moved to ${where.destination.name || 'another project'}. `));
     const open = rwNode('button', 'quiet', 'Open in new project'); open.type = 'button';
     open.onclick = async () => {
-      if (rwDirty(item.dashboard) && !await rwConfirmDiscard(item)) return;
+      if (!await beforeLeave(item)) return;
       if (disposed || !item.alive) return;
       void replaceWithReference(item, {id: where.task.id, business_id: where.task.business_id ?? where.destination.id,
         business_slug: where.destination.slug ?? null, business_name: where.destination.name ?? null, label: item.record.label,
@@ -371,17 +470,19 @@ function recordWorkspaceMount(host, options = {}) {
   }
   async function navigate(record, {tab = null, parentTable = null} = {}) {
     if (disposed || !record) return false;
+    const leaving = entry();
     const existing = stack.find(item => rwRecordKey(item.record) === rwRecordKey(record));
-    if (existing) return finishExistingNavigation(existing, tab);
+    if (leaving && rwRecordKey(leaving.record) !== rwRecordKey(record) && !await beforeLeave(leaving, {guardDirty: !!existing})) return false;
+    if (existing) return finishExistingNavigation(existing, tab, leaving);
     return pushEntry(record, tab, parentTable);
   }
   // Returning to an earlier record pops only the finite slice above it. Collect that slice
   // once (never loop on an unchanged stack), guard it, then recheck the stack before removal.
-  async function finishExistingNavigation(existing, tab = null) {
+  async function finishExistingNavigation(existing, tab = null, guardedItem = null) {
     const index = stack.indexOf(existing);
     if (index < 0) return false;
     const above = stack.slice(index + 1);
-    if (above.length && !await confirmDiscardEntries(above)) return false;
+    if (above.length && !await confirmDiscardEntries(above, guardedItem)) return false;
     if (disposed || !existing.alive) return false;
     const now = stack.indexOf(existing);
     if (now < 0) return false;
@@ -407,7 +508,7 @@ function recordWorkspaceMount(host, options = {}) {
         // requested navigation once the owner has chosen.
         if (pendingEviction) return false;
         pendingEviction = true;
-        void rwConfirmDiscard(oldest).then(chosen => {
+        void confirmRecordDiscard(oldest).then(chosen => {
           pendingEviction = false;
           if (!chosen || disposed || !oldest.alive) return;
           if (stack[0] !== oldest) return;
@@ -438,10 +539,12 @@ function recordWorkspaceMount(host, options = {}) {
     return true;
   }
   // Prompt only for entries that would actually be removed; cancellation keeps the stack intact.
-  async function confirmDiscardEntries(items) {
+  async function confirmDiscardEntries(items, guardedItem = null) {
     for (const item of items) {
-      if (!item?.alive || !rwDirty(item.dashboard)) continue;
-      if (!await rwConfirmDiscard(item)) { reveal(); return false; }
+      if (!item?.alive || item === guardedItem) continue;
+      if (item === entry()) { if (!await beforeLeave(item)) { reveal(); return false; } continue; }
+      if (!rwDirty(item.dashboard)) continue;
+      if (!await confirmRecordDiscard(item)) { reveal(); return false; }
       if (disposed || !item.alive) return false;
     }
     return true;
@@ -485,6 +588,7 @@ function recordWorkspaceMount(host, options = {}) {
   function removeEntry(item) {
     if (!item || !item.alive) return;
     item.alive = false;
+    item.leaveChoice?.settle(false);
     try { item.moveDialog?.close(); } catch (_) { /* a dead dialog cannot keep the stack alive */ }
     item.moveDialog = null;
     item._scrollSave?.();
@@ -514,10 +618,7 @@ function recordWorkspaceMount(host, options = {}) {
     if (disposed || stack.length < 2) return false;
     const leaving = entry();
     // Back restores the prior record; leaving a dashboard with unsaved edits still asks first.
-    if (rwDirty(leaving.dashboard)) {
-      if (!await rwConfirmDiscard(leaving)) { reveal(); return false; }
-      if (disposed || !leaving.alive || entry() !== leaving) return false;
-    }
+    if (!await beforeLeave(leaving)) { reveal(); return false; }
     const prior = stack[stack.length - 2];
     if (options.paired && !(await pairedSelect(prior.record, prior.pairedParent))) { reveal(); return false; }
     captureScroll(leaving);
@@ -543,13 +644,15 @@ function recordWorkspaceMount(host, options = {}) {
   }
   async function discardAny() {
     // More than one dashboard on the Back path can be dirty; each gets its own explicit choice.
+    const currentEntry = entry();
+    if (currentEntry && !await beforeLeave(currentEntry)) return false;
     const handled = new Set();
     for (;;) {
       if (disposed) return false;
       const dirty = stack.find(item => !handled.has(item) && rwDirty(item.dashboard)) || null;
       if (!dirty) return true;
       handled.add(dirty);
-      if (!await rwConfirmDiscard(dirty)) { reveal(); return false; }
+      if (!await confirmRecordDiscard(dirty)) { reveal(); return false; }
       if (disposed || !dirty.alive) return false;
     }
   }
@@ -1007,6 +1110,7 @@ async function rwTaskDashboard(host, record, ctx, call) {
         return true;
       }});
     return {dirty: () => !!token?.dirty?.(), hasUnsaved: () => !!token?.dirty?.(), onShow: revalidateTask,
+      beforeLeave: () => token?.beforeLeave?.() ?? true,
       changed(message) { token?.changed?.(message); },
       dispose() { token?.dispose?.(); host.replaceChildren(); }};
   }

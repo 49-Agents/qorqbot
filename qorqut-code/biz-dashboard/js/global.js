@@ -37,6 +37,7 @@ async function selectGlobal(tab = ls('global-tab') || 'agents') {
   const navigation = ++workspaceNavigation;
   // Preserve edits before removing the business's editor and its autosave timers.
   if (state.scope !== 'global') {
+    if (typeof agentWorkspaceCanLeave === 'function' && !await agentWorkspaceCanLeave(_agpad)) return;
     if (!await ntFlush()) return;
     if (_jState && (_jState.dirty || _jState.saving)) {
       await jSave();
@@ -51,7 +52,7 @@ async function selectGlobal(tab = ls('global-tab') || 'agents') {
     state.agents = []; state.tasks = [];
     if (typeof sgBusinessChanged === 'function') sgBusinessChanged();
   }
-  goGlobalTab(tab);
+  return goGlobalTab(tab);
 }
 async function goGlobalTab(tab) {
   // An embedded page opens an agent in the surrounding app; it never navigates its own frame there.
@@ -79,7 +80,7 @@ async function goGlobalTab(tab) {
     location.hash = `/global/${state.globalTab}`;
   renderedGlobalHash = location.hash;
   ls('workspace-route', location.hash);
-  renderTab(); syncWorkspaceNav();
+  await renderTab(); syncWorkspaceNav();
 
 }
 function renderGlobalContext(c) {

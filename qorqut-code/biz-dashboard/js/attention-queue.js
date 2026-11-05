@@ -6,7 +6,13 @@ const attentionQueue=(()=>{
   let queueOkAt=0,signoffOkAt=0;
   let signoffs=[],signoffsLoading=false,signoffsError='',signoffTimer,signoffPromise=null,signoffAgain=false;
   // Due reminders addressed to the owner. Opening or reading one never changes it; only an explicit dismiss/snooze/cancel does.
-  let dueReminders=[],remindersError='';
+  let dueReminders=[],remindersError='',recoveryCount=0,recoveryError=false,recoveryGeneration=0;
+  async function refreshReminderRecovery(){
+    const request=++recoveryGeneration; recoveryCount=0; recoveryError=false; paintSignoffs();
+    try { const owner=await remVerifiedOwner(); if(request===recoveryGeneration) recoveryCount=[...remAttempts.values()].filter(a=>a.owner===owner).length; }
+    catch (_) { if(request===recoveryGeneration) recoveryError=remAttempts.size>0; }
+    if(request===recoveryGeneration)paintSignoffs();
+  }
   const reminderIcon=typeof SG_BELL==='string' ? SG_BELL : '';
   const viewedIds=item=>item.viewed_ids?.length?item.viewed_ids:[item.id];
   const remaining=()=>items.filter(item=>!viewedIds(item).every(id=>acknowledged.has(id)));
@@ -64,7 +70,8 @@ const attentionQueue=(()=>{
       if(!host.isConnected){signoffMounts.delete(host);continue;}
       // Due reminders lead the strip, ahead of Signoff and email chips, until explicitly handled.
       const due=dueReminders.map(r=>`<button type="button" class="focus-signoff-chip focus-reminder-chip" data-reminder-key="${esc(r.reminder_id)}" data-reminder-state="due" aria-label="${esc('Reminder due: '+r.text)}" title="${esc(r.text)}">${reminderIcon}</button>`).join('');
-      const markup=due+signoffs.map(s=>{const title=mount.name?.(s.id)||s.title;return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" aria-label="Review ${esc(title)}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
+      const recovery=recoveryCount ? '<button type="button" class="quiet" data-reminder-recovery>Unconfirmed reminder changes</button>' : recoveryError ? '<button type="button" class="quiet" data-reminder-recovery-check>Retry reminder session</button>' : '';
+      const markup=due+recovery+signoffs.map(s=>{const title=mount.name?.(s.id)||s.title;return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" aria-label="Review ${esc(title)}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
       const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'')+(remindersError?'<button type="button" class="quiet" data-reminders-retry>Retry reminders</button>':'');
       if(host._signoffHTML!==html){host.innerHTML=html;host._signoffHTML=html;}
       host.hidden=!markup && !signoffsError && !remindersError;
@@ -112,6 +119,8 @@ const attentionQueue=(()=>{
     return signoffPromise;
   }
   function signoffClick(event){
+    if(event.target.closest('[data-reminder-recovery-check]')){void refreshReminderRecovery();return;}
+    if(event.target.closest('[data-reminder-recovery]')){void remindersOpenUnconfirmed();return;}
     if(event.target.closest('[data-signoffs-retry],[data-reminders-retry]')){void refreshSignoffs();return;}
     const reminderKey=event.target.closest('[data-reminder-key]')?.dataset.reminderKey;
     if(reminderKey){
@@ -130,7 +139,7 @@ const attentionQueue=(()=>{
       void Promise.resolve(mount.opener(summary)).catch(()=>{});
       return;
     }
-    void open({kind:'signoff',signoff_id:s.id,business_id:s.review_business_id,category:s.category,globalReview:true}).catch(e=>toast(e.message));
+    void open({kind:'signoff',signoff_id:s.id,business_id:s.review_business_id,category:s.category,globalReview:true,proposal_revision:s.proposal_revision,payload_hash:s.payload_hash,actionable:s.actionable}).catch(e=>toast(e.message));
   }
   async function loadQueue(){
     loading=true;const request=++generation;
@@ -198,8 +207,13 @@ const attentionQueue=(()=>{
       // Native/private read cursors clear the queue only after the conversation actually loads.
       // Legacy Telegram/capture entries have no read cursor: show their exact text before clearing.
       if(item.kind==='global' && !item.chat){
-        modal({title:esc(item.agent_name),body:`<p class="attention-message">${esc(item.body || item.text)}</p>`,
-          actions:[{label:'Open chat',onClick:close=>{close();void replyNotifications.open(item);}}],onOpen:()=>acknowledge(item.viewed_ids)});
+        await window.focusExpansion.open({title:item.agent_name,agentId:item.agent_id,mount(host,session){
+          const message=document.createElement('p');message.className='attention-message';message.textContent=item.body || item.text || '';
+          const button=document.createElement('button');button.type='button';button.className='quiet';button.textContent='Open chat';
+          button.onclick=()=>void replyNotifications.open(item);
+          host.append(message,button);void acknowledge(item.viewed_ids);
+          return ()=>{button.onclick=null;};
+        }});
       }else{
         const chat=item.chat && document.querySelector(`[data-global-chat="${CSS.escape(item.agent_id)}"]`);
         if(chat?.getClientRects().length && !chat.closest('[hidden],[inert],[aria-hidden="true"]') && getComputedStyle(chat).visibility!=='hidden'){
@@ -210,14 +224,9 @@ const attentionQueue=(()=>{
       }
       return;
     }
-    let view,host;
-    modal({title:'Signoff',width:760,stack:true,body:'<div class="attention-signoff-view"></div>',onOpen:el=>{
-      host=el.querySelector('.attention-signoff-view');
-      view=sgCreateView({active:()=>host.isConnected,body:()=>host,workspace:()=>item.biz || 'scope:global',
-        global:item.globalReview || !item.business_id,category:item.category,item:()=>({id:item.signoff_id,businessId:item.business_id}),
-        waitingOnly:false,execution:true});
-      view.paint();
-    },onClose:()=>{view?.dispose();void refreshSignoffs();}});
+    await sgFocusOpen('Signoff', {workspace:()=>item.biz || 'scope:global',
+      global:item.globalReview || !item.business_id,category:item.category,item:()=>({id:item.signoff_id,businessId:item.business_id}),
+      waitingOnly:false,execution:true,...(item.proposal_revision != null && item.payload_hash ? {expectedBinding:{signoff_id:item.signoff_id,proposal_revision:item.proposal_revision,payload_hash:item.payload_hash,actionable:item.actionable !== false}} : {})}, () => { void refreshSignoffs(); });
   }
   function dismiss(event){
     const target=event.target.closest('[data-attention-key]');
@@ -230,22 +239,23 @@ const attentionQueue=(()=>{
     const target=event.target.closest('button');if(!target)return;
     if(target.hasAttribute('data-attention-retry')){void refresh();return;}
     if(target.hasAttribute('data-attention-more')){
-      let host;
-      modal({title:'New attention',width:540,body:`<div class="attention-all">${remaining().map(button).join('')}</div>`,
-        onOpen:el=>{host=el.querySelector('.attention-all');lists.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);},
-        onClose:()=>{lists.delete(host);host?.removeEventListener('click',clicks);host?.removeEventListener('contextmenu',dismiss);}});return;
+      void window.focusExpansion.open({title:'New attention',mount(host){
+        host.classList.add('attention-all');host.innerHTML=remaining().map(button).join('');
+        lists.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);
+        return ()=>{lists.delete(host);host.removeEventListener('click',clicks);host.removeEventListener('contextmenu',dismiss);};
+      }});return;
     }
     const item=items.find(row=>row.id===target.dataset.attentionKey);
     if(item){
-      if((item.kind==='viewbox' || item.kind==='global' && item.chat) && target.closest('.attention-all'))_modal?.close();
       void open(item).catch(e=>toast(e.message));
     }
   }
+  document.addEventListener('reminder-attempts-changed',()=>{if(signoffMounts.size)void refreshReminderRecovery();});
   document.addEventListener('reply-notifications-changed',()=>{if(mounts.size)void refresh();});
-  window.addEventListener('focus',()=>{if(mounts.size)void refresh();void refreshSignoffs();});
+  window.addEventListener('focus',()=>{if(mounts.size)void refresh();void refreshSignoffs();if(signoffMounts.size)void refreshReminderRecovery();});
   if(typeof onChange==='function')onChange(['signoffs'],null,()=>{void refreshSignoffs();});
   return {signoffViewed,viewboxViewed,refresh,refreshSignoffs,paintSignoffs,
-    mountSignoffs(host,name,opener){signoffMounts.set(host,{name,opener});host.addEventListener('click',signoffClick);paintSignoffs();void refreshSignoffs(true);
+    mountSignoffs(host,name,opener){signoffMounts.set(host,{name,opener});host.addEventListener('click',signoffClick);paintSignoffs();void refreshSignoffs(true);void refreshReminderRecovery();
       return ()=>{signoffMounts.delete(host);host.removeEventListener('click',signoffClick);if(!signoffMounts.size)clearTimeout(signoffTimer);};},
     mount(host){mounts.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);paint(host);void refresh(true);
     return ()=>{mounts.delete(host);host.removeEventListener('click',clicks);host.removeEventListener('contextmenu',dismiss);if(!mounts.size)clearTimeout(timer);};}};

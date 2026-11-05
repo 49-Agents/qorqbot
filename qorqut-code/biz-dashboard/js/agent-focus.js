@@ -317,7 +317,9 @@ function agfocusMount(p) {
   document.addEventListener('reply-notifications-changed',repliesChanged);
   // An open item's Close is the only way back to the board besides the launcher row; Escape keeps closing the record.
   const escape=event=>{
-    if(event.key!=='Escape' || p.surface || !p.focusSelected || document.querySelector('.overlay'))return;
+    if(event.key!=='Escape' || document.querySelector('.overlay'))return;
+    if(p.surface?.kind==='expansion'){event.preventDefault();event.stopPropagation();void agpadSurfaceClose(p);return;}
+    if(p.surface || !p.focusSelected)return;
     event.preventDefault();event.stopPropagation();void p.focusWorkspace?.close();
   };
   document.addEventListener('keydown',escape);
@@ -974,6 +976,7 @@ function agfocusNewTab(item) {
 
 // Open a Focus/related record in the same shared workspace (used by deep links, reference chips and derived rows).
 async function agfocusOpenTarget(p,target,{root=true,paired=target?._workKind==='crm',parentTable=null}={}) {
+  if (p.surface) { await agpadSurfaceClose(p); if (p.surface || _agpad !== p) return false; }
   const record=rwRecordFromItem(target,{can_thread:target?.can_thread});
   if(!record)throw new Error('This item is no longer available.');
   if(!await agfocusWorkspaceMode(p,paired))return false;
@@ -1071,6 +1074,7 @@ function agfocusPairedSource(record,parentTable) {
   return window.agentWorkspacePairedRecord?.(window,{type:source.type,id:source.id,business_id:source.business_id ?? null},parent) ?? true;
 }
 async function agfocusOpenPairedReference(p,ref) {
+  if (p.surface) { await agpadSurfaceClose(p); if (p.surface || _agpad !== p) return false; }
   if(!ref?.type || !ref.id)return false;
   const target=rwRecordFromItem({source:{type:ref.type,id:ref.id,business_id:ref.business_id ?? null,
     business_slug:ref.business_slug,business_name:ref.business_name,label:ref.label,state:ref.state,resource_type:ref.resource_type,
@@ -1460,8 +1464,9 @@ function agfocusDesktopMount(p, ctx = null) {
 }
 
 // Focus notes use the existing inline editor and persistence.
-function agfocusAdd(p) {
+async function agfocusAdd(p) {
   const text = agfocusTextHost();
+  if (p.surface) { await agpadSurfaceClose(p); if (p.surface || _agpad !== p) return; }
   if (!text?.add(p, '')) toast(text?.unavailable(p) || 'Focus notes are unavailable.');
 }
 
