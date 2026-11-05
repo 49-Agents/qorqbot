@@ -283,6 +283,14 @@ class AgentShellTest(unittest.TestCase):
         self.assertEqual(claude, "claude|--settings|" + str(self.directory / "launch settings.json") + "|hello there|")
         self.assertEqual(codex, "codex|resume|--last|")
 
+    def test_a_bare_launch_opens_with_the_role_prompt_unless_start_sends_it(self):
+        claude, codex, started_claude, started_codex = self.run_shell(
+            "claude; codex; QORQBOT_ROLE_SENT=1 claude; QORQBOT_ROLE_SENT=1 codex")
+        self.assertEqual(claude.split("|")[-2], "/role")
+        self.assertEqual(codex, "codex|$role|")
+        self.assertTrue(started_claude.endswith("launch settings.json|"))
+        self.assertEqual(started_codex, "codex|")
+
     def test_folder_trust_is_rechecked_before_each_launch_only_with_consent(self):
         self.run_shell("claude; codex")
         self.assertFalse(self.trusted.exists())
@@ -372,7 +380,13 @@ class ZshAgentShellTest(unittest.TestCase):
         custom.mkdir()
         (custom / ".zshrc").write_text('export PATH="$HOME/bin:$PATH"\nexport FROM_CUSTOM=yes\n')
         lines = self.run_zsh('echo "$FROM_CUSTOM"; echo "$ZDOTDIR"; codex', user_zdotdir=str(custom))
-        self.assertEqual(lines, ["yes", str(custom), "codex|"])
+        self.assertEqual(lines, ["yes", str(custom), "codex|$role|"])
+
+    def test_start_prefix_reaches_the_wrapper_in_zsh(self):
+        lines = self.run_zsh("claude; QORQBOT_ROLE_SENT=1 claude; codex; QORQBOT_ROLE_SENT=1 codex")
+        self.assertEqual([line.split("|")[-2] for line in lines[:2]],
+                         ["/role", str(self.directory / "launch settings.json")])
+        self.assertEqual(lines[2:], ["codex|$role|", "codex|"])
 
 
 if __name__ == "__main__":
