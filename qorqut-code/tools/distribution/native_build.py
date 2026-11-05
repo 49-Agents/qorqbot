@@ -131,7 +131,12 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 python=${QORQUT_PYTHON:-python3.12}
 if ! command -v "$python" >/dev/null 2>&1; then
-    echo "Qorqbot requires Python 3.12 with venv support. Install it using your platform package manager." >&2
+    echo "Qorqbot requires Python 3.12 with venv support." >&2
+    if [ "$(uname -s)" = Darwin ]; then
+        echo "Install it with: brew install python@3.12" >&2
+    else
+        echo "Install it with: sudo apt install python3.12 python3.12-venv" >&2
+    fi
     exit 1
 fi
 unset PYTHONHOME PYTHONPATH

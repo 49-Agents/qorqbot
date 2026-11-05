@@ -49,14 +49,47 @@ Needs an Apple silicon Mac (M1 or newer) on macOS 14 or newer.
 3. Download `Qorqbot-VERSION-macos14-arm64.dmg` from the
    [Releases page](https://github.com/49-Agents/qorqbot/releases), open it and
    drag **Qorqbot** to **Applications**.
-4. Open Qorqbot. The app is not notarized yet, so macOS blocks the first open:
-   go to **System Settings > Privacy & Security** and click **Open Anyway**.
-5. The first open installs into `~/Qorqbot/qorqbot` and opens the dashboard
-   and a **Getting Started** page (also in the **Help** menu). To start an
-   agent, open it in **Global > Agents**, click **>_** for its terminal, and run
-   `claude` or `codex` there. Then switch back to Chat.
+4. Open Qorqbot from Applications. The app is not notarized yet, so macOS says it
+   "could not verify" Qorqbot. Click **Done**, not **Move to Trash**. Then open
+   **System Settings > Privacy & Security**, scroll down to **Security**, click
+   **Open Anyway** next to "Qorqbot was blocked" and enter your password. Open
+   Qorqbot again and click **Open Anyway** in the dialog. You do this once.
+   Or, in Terminal: `xattr -dr com.apple.quarantine /Applications/Qorqbot.app`
+5. The first open installs into `~/Qorqbot/qorqbot`, opens the dashboard and
+   offers a walkthrough. It shows you how to start your first agent, then tours
+   the workspace chapter by chapter. Skipped or finished, take it again anytime
+   with the **?** button at the bottom left, or **Help > Show Walkthrough**.
 
-If a tool from step 1 is missing, the app says which one and shows the command to
-copy. Details: [Mac guide](qorqut-code/docs/distribution/MACOS.md).
+If a tool from step 1 is missing, the app shows a checklist with the exact command to
+copy, and carries on by itself once it is installed. Details: [Mac guide](qorqut-code/docs/distribution/MACOS.md).
+
+## Run it in your browser
+
+The same dashboard runs in any browser, started from a terminal.
+
+**Mac, with the app installed:** choose **Help > Install Terminal Command** once.
+Then run `qorqbot` in any Terminal window. It starts Qorqbot and opens
+`http://127.0.0.1:1049` in your browser. If the app already started it, the
+command opens the running dashboard instead. `qorqbot stop` and `qorqbot status`
+work from any folder.
+
+**Mac or Linux, without the app:** download the `.tar.gz` for your system from
+the [Releases page](https://github.com/49-Agents/qorqbot/releases), then:
+
+```sh
+tar -xzf qorqbot-VERSION-macos14-arm64.tar.gz   # or ...-ubuntu24-x86_64.tar.gz
+cd qorqbot
+./qorqbot                    # starts and opens the browser; Ctrl+C stops
+./qorqbot install-command    # optional: run it later as plain `qorqbot`
+```
+
+**Windows:** Qorqbot runs inside WSL2 with Ubuntu 24.04 and shows in your Windows
+browser. In Ubuntu: `sudo apt install python3.12 python3.12-venv git tmux`,
+install `claude` or `codex` there, extract the Ubuntu `.tar.gz` into your Ubuntu
+home (not under `/mnt/c`) and run `./qorqbot`. Full steps:
+[Windows guide](qorqut-code/docs/distribution/WINDOWS.md).
+
+Add `--no-open` to start without opening the browser, or `--port 1050` to use
+another port. Later starts reuse the last port, so running agents keep their address.
 
 Licensed under [BSL 1.1](https://github.com/49-Agents/qorqbot/blob/main/LICENSE), converting to Apache 2.0 after two years per release.

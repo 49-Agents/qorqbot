@@ -21,8 +21,7 @@
     <p>Qorqbot does not run an AI model itself. Each agent is a coding CLI that you have installed and signed in to,
       running inside that agent's own terminal on this Mac. Qorqbot gives the agent its instructions and tools, and
       the dashboard's chat sends your messages to that running session.</p>
-    <p>No session running in the agent's own terminal means no chat. That is what
-      <b>"Not available to send"</b> means.</p>
+    <p>No session running means no chat. When an agent is offline, its chat offers a <b>Start</b> button.</p>
   </div>
 
   <h2>1. Install an agent CLI once</h2>
@@ -36,31 +35,44 @@
     <p class="hint spaced">You can mix them: start one agent with Claude Code and another with Codex.</p>
   </div>
 
-  <h2>2. Open the agent</h2>
+  <h2>2. Open Ordubashy</h2>
   <div class="card">
-    <p>In the dashboard, go to <b>Global &rsaquo; Agents</b> and select <b>Ordubashy</b>. Its chat opens. At the top are
-      two buttons: the speech bubble shows <b>Chat</b>, and <b>&gt;_</b> shows the agent's own <b>Terminal</b>.</p>
+    <p>In the dashboard, go to <b>Global &rsaquo; Agents</b> and select <b>Ordubashy</b>, your lead agent. Its chat opens.</p>
   </div>
 
-  <h2>3. Start it in its own terminal</h2>
+  <h2>3. Press Start</h2>
   <div class="card">
-    <p>Click <b>&gt;_</b>, type <code>claude</code> or <code>codex</code> and press Return. The chat names both while
-      the agent is offline, its usual one first.</p>
-    <p>The first time, the CLI asks whether you trust the agent's folder. Choose <b>Yes, I trust this folder</b>
-      (in Claude Code the highlighted answer is "No, exit", so press the down arrow first). Qorqbot prepared that
-      folder and its tool permissions.</p>
-    <p>Start it in that terminal, not elsewhere. A session started in Terminal.app or another window is not that
-      agent's session, even in the same folder, and the chat will not connect to it.</p>
-    <p>Background helpers Ordubashy hands work to run on the same CLI you started Ordubashy with.</p>
+    <p>While Ordubashy is offline, the chat shows <b>Start Ordubashy</b>. The first time you press it, Qorqbot asks once
+      whether it may start agents for you. If you allow it, Qorqbot marks its own agent folders as trusted in Claude Code
+      and Codex and runs the hooks it installs there without a separate Codex review. Your other projects are not changed.</p>
+    <p>After that, Qorqbot starts Ordubashy by itself whenever he is offline, unless you stopped him on purpose. You can
+      turn this off in <b>Settings</b>.</p>
+    <p class="hint spaced">Prefer to start him yourself? The <b>&gt;_</b> button above the chat opens his own terminal; type
+      <code>claude</code> or <code>codex</code> there. A session started in Terminal.app is not his session and the chat
+      will not connect to it.</p>
   </div>
 
-  <h2>4. Chat</h2>
+  <h2>4. Say hello</h2>
   <div class="card">
-    <p>Switch back with the speech bubble. The status shows <b>Connecting…</b> for a moment, then the message box
-      unlocks. Messages you send there go into the same session that is running in the terminal, and its replies
-      appear in the chat. You can switch between Chat and Terminal at any time.</p>
-    <p>If the CLI exits (you typed <code>/exit</code> or closed it), the chat goes offline again. Repeat step 3 to start
-      a new session.</p>
+    <p>The status shows <b>Connecting…</b> for a moment, then the message box unlocks. Messages you send go into
+      Ordubashy's running session and his replies appear in the chat.</p>
+    <p>If the session ends, the chat goes offline and offers <b>Start Ordubashy</b> again.</p>
+  </div>
+
+  <h2>The walkthrough</h2>
+  <div class="card">
+    <p>The dashboard offers a walkthrough the first time it opens. It does steps 2 to 4 with you, then tours the
+      workspace, projects and signoffs chapter by chapter. Skipped or finished, you can always take it again: click the <b>?</b> button at the bottom left of the dashboard,
+      or choose <b>Help &rsaquo; Show Walkthrough</b>.</p>
+  </div>
+
+  <h2>Use it in your browser</h2>
+  <div class="card">
+    <p>Choose <b>Help &rsaquo; Install Terminal Command</b> once. Then <code>qorqbot</code> in any Terminal window opens the
+      same dashboard in your browser, starting Qorqbot first if it is not running. <code>qorqbot stop</code> and
+      <code>qorqbot status</code> work from any folder.</p>
+    <p class="hint">The app and the browser share one server. Quitting the app leaves a server started from Terminal
+      running.</p>
   </div>
 
   <p class="actions spaced"><button data-action="help">How Qorqbot Works</button></p>

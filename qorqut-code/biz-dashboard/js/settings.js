@@ -12,6 +12,7 @@ async function renderSettings(c) {
     rows: [], inherited: [], loaded: false, saving: false, dirty: false };
   pane.innerHTML = `
     ${global ? '<div data-connectors-slot></div>' : ''}
+    ${global ? `<section class="onboarding-settings"><div><h2>find your way around</h2><p>A quick, interactive introduction to your workspace. Replay all of it, or one chapter.</p><div class="onboarding-settings-chapters" aria-label="replay one chapter">${onboarding.chapters().map(c => `<button type="button" class="quiet" data-onboarding-chapter="${esc(c.id)}">${esc(c.title)}</button>`).join('')}</div></div><button type="button" class="quiet" data-onboarding-replay>restart walkthrough</button></section>` : ''}
     ${global ? `<section class="cx-trust" data-agent-trust hidden><div><h2>start agents for me</h2><p data-agent-trust-text></p></div><button type="button" class="quiet" data-agent-trust-toggle></button></section>` : ''}
     <div class="set-head"><div>
       <h1 class="set-title">${global ? "Global environment" : "Environment"}</h1>
@@ -23,6 +24,14 @@ async function renderSettings(c) {
     <div class="set-note muted small" id="envnote" role="status"></div>
     <p class="muted small">Changes apply to new agent sessions and subsequent jobs. Already-running agent sessions keep their current environment.</p>`;
   c.appendChild(pane);
+  pane.querySelector('[data-onboarding-replay]')?.addEventListener('click', () => {
+    if (p.dirty || p.saving) { toast('Save your environment changes before starting the walkthrough.'); return; }
+    onboarding.start();
+  });
+  pane.querySelectorAll('[data-onboarding-chapter]').forEach(button => button.addEventListener('click', () => {
+    if (p.dirty || p.saving) { toast('Save your environment changes before starting the walkthrough.'); return; }
+    onboarding.start(button.dataset.onboardingChapter);
+  }));
   if (global) { connectorsPanel.mount(pane.querySelector('[data-connectors-slot]')); void paintAgentTrust(pane); }
   pane.querySelector("#envsave").onclick = () => saveEnv(p);
   pane.querySelector("#envadd").onclick = () => {
