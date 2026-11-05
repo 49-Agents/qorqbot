@@ -160,10 +160,10 @@ function chatViewFileFace(name, kind) {
   return `<span class="gchat-file-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${CHAT_VIEW_FILE_ICONS[kind[0]] || CHAT_VIEW_FILE_ICONS.file}</svg></span><span class="gchat-file-label"><span class="gchat-file-name">${esc(name)}</span><small>${kind[1]}</small></span>`;
 }
 
-// A rendered website is the same flat attachment row as a Task/Action reference: one globe glyph and the
-// full link label under a subtle left rule, with no chip border and no visible type word. Consecutive
-// website rows share one list; every other reference keeps its card or chip and ends the run. A row never
-// requests anything: only its click opens the existing preview.
+// A rendered website is the same flat attachment row as a Task/Action reference: one globe glyph, the full
+// link label, and the site's own hostname as subdued right-aligned metadata, with no chip border and no visible
+// type word. Consecutive website rows share one list; every other reference keeps its card or chip and ends the
+// run. A row never requests anything: only its click opens the existing preview.
 function chatViewWebsiteRow(target, label) {
   const row = document.createElement('button');
   row.type = 'button'; row.className = 'gchat-ref-row';
@@ -176,6 +176,8 @@ function chatViewWebsiteRow(target, label) {
   }
   const title = document.createElement('span'); title.className = 'gchat-ref-row-title'; title.textContent = label;
   row.append(title);
+  const host = document.createElement('span'); host.className = 'gchat-ref-row-meta gchat-ref-row-host';
+  host.textContent = target.url.hostname; row.append(host);
   return row;
 }
 // Chips represent rendered links, never code samples. No document/image request happens until a chip is opened.
