@@ -278,6 +278,34 @@
       "when_to_use": "activity hook; conditional; selected by the registered runtime policy."
     },
     {
+      "id": "connection-pending-outcome",
+      "kind": "instruction",
+      "path": "messages/connection-pending-outcome.md",
+      "description": "connection pending outcome",
+      "when_to_use": "native MCP connection recovery"
+    },
+    {
+      "id": "connection-possible-write",
+      "kind": "instruction",
+      "path": "messages/connection-possible-write.md",
+      "description": "connection possible write",
+      "when_to_use": "native MCP connection recovery"
+    },
+    {
+      "id": "connection-refused",
+      "kind": "instruction",
+      "path": "messages/connection-refused.md",
+      "description": "connection refused",
+      "when_to_use": "native MCP connection recovery"
+    },
+    {
+      "id": "connection-unavailable",
+      "kind": "instruction",
+      "path": "messages/connection-unavailable.md",
+      "description": "connection unavailable",
+      "when_to_use": "native MCP connection recovery"
+    },
+    {
       "id": "connection-uncertain-write",
       "kind": "instruction",
       "path": "messages/connection-uncertain-write.md",

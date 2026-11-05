@@ -98,3 +98,7 @@ The consolidation preserves existing wording, triggers and delivery order. Condi
 | [workspace-worker-delegation](messages/workspace-worker-delegation.md) | trusted workspace preparation | conditional |
 | [workspace-worker-queue](messages/workspace-worker-queue.md) | trusted workspace preparation | conditional |
 | [workspace-worker-unavailable](messages/workspace-worker-unavailable.md) | trusted workspace preparation | conditional |
+| [connection-unavailable](messages/connection-unavailable.md) | native MCP connection recovery | conditional |
+| [connection-pending-outcome](messages/connection-pending-outcome.md) | native MCP connection recovery | conditional |
+| [connection-refused](messages/connection-refused.md) | native MCP connection recovery | conditional |
+| [connection-possible-write](messages/connection-possible-write.md) | native MCP connection recovery | conditional |

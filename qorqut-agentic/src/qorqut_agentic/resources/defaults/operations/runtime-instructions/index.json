@@ -365,6 +365,42 @@
       "previous_source": "bootstrap/activity_hook.py"
     },
     {
+      "id": "connection-pending-outcome",
+      "path": "messages/connection-pending-outcome.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "native MCP connection recovery",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/mcp_reconnect.py:ReconnectBridge.request"
+    },
+    {
+      "id": "connection-possible-write",
+      "path": "messages/connection-possible-write.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "native MCP connection recovery",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/mcp_reconnect.py:ReconnectBridge.request"
+    },
+    {
+      "id": "connection-refused",
+      "path": "messages/connection-refused.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "native MCP connection recovery",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/mcp_reconnect.py:ReconnectBridge.request"
+    },
+    {
+      "id": "connection-unavailable",
+      "path": "messages/connection-unavailable.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "native MCP connection recovery",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/mcp_reconnect.py:ReconnectBridge.request"
+    },
+    {
       "id": "connection-uncertain-write",
       "path": "messages/connection-uncertain-write.md",
       "parameters": [],

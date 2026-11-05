@@ -10,6 +10,8 @@ operational records."""
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.catalog import CatalogContribution
 from qorqut_operations.application.registry import CatalogEntry
@@ -36,25 +38,11 @@ OUTPUTS = {
     "context_changes": schemas.CHANGES_OUTPUT,
 }
 DESCRIPTIONS = {
-    "context_home": "The shared published Context graph: a bounded page of node summaries and attributes with their "
-                    "relationships, most connected first. Every response names the published revision it was read at; "
-                    "follow page.next_cursor as cursor to keep reading that same revision. An initialized empty graph "
-                    "says empty; a status other than ready says why nothing could be read.",
-    "context_object": "One published node, relationship (edge), note or source by its reference (node:ID, edge:ID, "
-                      "note:ID, source:ID or a bare five-character ID): its summary, attributes, relationships, committed "
-                      "evidence and change history; a note's exact text and the nodes and relationships it links, each "
-                      "labeled current or removed; or a source's committed text. Follow the history and text next_cursor "
-                      "values to keep reading the same revision. A source reference never opens the protected operational "
-                      "source.",
-    "context_find": "Literal word and prefix search over published node and edge summaries and attributes, note text and "
-                    "committed source text, filtered by kind (node, edge, note or source) or attribute values. Notes are "
-                    "separate records, not graph nodes. Empty query browses. Follow page.next_cursor as cursor with the "
-                    "same arguments; results stay at the revision of the first page. An empty result is not proof of "
-                    "absence.",
-    "context_expand": "The relationships around a published node out to depth 3 (in, out or both), nearest first, as a "
-                      "bounded page pinned to one revision.",
-    "context_changes": "Owner view: published change events newest first with the submitting identity, source path, "
-                       "operation and the operational Action envelope when one produced the event.",
+    "context_home": instruction_text('operations-the-shared-published-context-graph-a-bounded-page'),
+    "context_object": instruction_text('operations-one-published-node-relationship-edge-note-or-source'),
+    "context_find": instruction_text('operations-literal-word-and-prefix-search-over-published-node'),
+    "context_expand": instruction_text('operations-the-relationships-around-a-published-node-out-to'),
+    "context_changes": instruction_text('operations-owner-view-published-change-events-newest-first-with'),
 }
 ENTRIES = (
     *(CatalogEntry(name, False, "read") for name in AGENT_READS),

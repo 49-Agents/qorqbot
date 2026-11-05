@@ -1500,6 +1500,181 @@
       "id": "operations-this-mutation-does-not-send-email",
       "source": "extensions/qorqut-fastmail/qorqut_fastmail/operations.py",
       "line": 254
+    },
+    {
+      "id": "operations-apply-the-terminal-outcome-of-one-registered-context",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/filing/operations.py",
+      "line": 45
+    },
+    {
+      "id": "operations-retry-the-current-source-of-an-unfiled-upload",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/filing/operations.py",
+      "line": 46
+    },
+    {
+      "id": "operations-owner-only-queue-the-removal-of-the-exact",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/filing/operations.py",
+      "line": 47
+    },
+    {
+      "id": "source-operations-owner-view-recent-context-filings-or-every",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/filing/source_operations.py",
+      "line": 35
+    },
+    {
+      "id": "source-operations-owner-view-the-source-to-publication-chain",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/filing/source_operations.py",
+      "line": 36
+    },
+    {
+      "id": "source-operations-focused-attributed-correction-to-context-you-are",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/filing/source_operations.py",
+      "line": 37
+    },
+    {
+      "id": "source-operations-explicit-typed-edit-of-the-published-context",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/filing/source_operations.py",
+      "line": 38
+    },
+    {
+      "id": "operations-learning-applier-and-owner-only-list-open-context",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/questions/operations.py",
+      "line": 73
+    },
+    {
+      "id": "operations-learning-applier-and-owner-only-create-update-or",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/questions/operations.py",
+      "line": 77
+    },
+    {
+      "id": "operations-list-this-namespace-s-context-inputs-in-queue",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/queue/operations.py",
+      "line": 111
+    },
+    {
+      "id": "operations-read-one-of-this-namespace-s-context-inputs",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/queue/operations.py",
+      "line": 116
+    },
+    {
+      "id": "operations-queue-one-context-source-change-add-edit-or",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/queue/operations.py",
+      "line": 122
+    },
+    {
+      "id": "operations-ask-for-another-attempt-at-the-blocked-head",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/queue/operations.py",
+      "line": 126
+    },
+    {
+      "id": "operations-discard-this-namespace-s-blocked-head-or-an",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/queue/operations.py",
+      "line": 129
+    },
+    {
+      "id": "operations-the-shared-published-context-graph-a-bounded-page",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/reading/operations.py",
+      "line": 39
+    },
+    {
+      "id": "operations-one-published-node-relationship-edge-note-or-source",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/reading/operations.py",
+      "line": 43
+    },
+    {
+      "id": "operations-literal-word-and-prefix-search-over-published-node",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/reading/operations.py",
+      "line": 49
+    },
+    {
+      "id": "operations-the-relationships-around-a-published-node-out-to",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/reading/operations.py",
+      "line": 54
+    },
+    {
+      "id": "operations-owner-view-published-change-events-newest-first-with",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/reading/operations.py",
+      "line": 56
+    },
+    {
+      "id": "schemas-nodes-per-page-most-connected-first",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/reading/schemas.py",
+      "line": 36
+    },
+    {
+      "id": "schemas-node-id-edge-id-note-id-source-id",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/reading/schemas.py",
+      "line": 39
+    },
+    {
+      "id": "schemas-characters-of-a-source-s-committed-text-per",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/reading/schemas.py",
+      "line": 41
+    },
+    {
+      "id": "schemas-a-node-reference",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/reading/schemas.py",
+      "line": 51
+    },
+    {
+      "id": "operations-owner-view-recorded-context-model-call-usage-across",
+      "source": "qorqut-code/qorqut-context/qorqut_context/integration/usage/operations.py",
+      "line": 30
+    },
+    {
+      "id": "operations-browse-scoped-context-metadata-with-pagination-without-loading",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/operations.py",
+      "line": 88
+    },
+    {
+      "id": "operations-search-context-with-bounded-excerpts-check-complete-and",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/operations.py",
+      "line": 89
+    },
+    {
+      "id": "operations-read-a-context-document-by-id-heading-or",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/operations.py",
+      "line": 90
+    },
+    {
+      "id": "operations-list-your-own-notes-with-target-business-id",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/operations.py",
+      "line": 91
+    },
+    {
+      "id": "operations-archive-a-note-while-preserving-its-contents-and",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/operations.py",
+      "line": 92
+    },
+    {
+      "id": "operations-create-your-private-note-with-target-business-id",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/operations.py",
+      "line": 93
+    },
+    {
+      "id": "operations-edit-a-note-with-expected-revision-a-project",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/operations.py",
+      "line": 94
+    },
+    {
+      "id": "operations-set-a-person-internal-external-classification-using-current",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/operations.py",
+      "line": 95
+    },
+    {
+      "id": "operations-edit-person-details-including-contact-email-phone-notes",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/operations.py",
+      "line": 96
+    },
+    {
+      "id": "settings-operations-patch-editable-settings-in-the-selected-project",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/projects/settings_operations.py",
+      "line": 28
+    },
+    {
+      "id": "settings-operations-replace-editable-settings-in-the-selected-project",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/projects/settings_operations.py",
+      "line": 29
     }
   ]
 }

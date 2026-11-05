@@ -11,6 +11,10 @@
     },
     {
       "source": "email",
+      "path": "schemas/config.schema.json"
+    },
+    {
+      "source": "email",
       "path": "skills/email-management/SKILL.md"
     },
     {

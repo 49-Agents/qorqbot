@@ -213,7 +213,7 @@ class ReconnectBridge:
                     self.reconnect(deadline)
                     needs_reconnect = False
                     if uncertain:
-                        return self.failure(message, prepared_instructions(self.registration_path).render('connection-uncertain-write'))
+                        return self.failure(message, self.instruction('connection-uncertain-write'))
                     # Discovery may have been empty when this request arrived.
                     # Reclassify before dispatch, never after an uncertain write.
                     safe = method in SAFE_METHODS or (method == 'tools/call' and
@@ -241,14 +241,19 @@ class ReconnectBridge:
                 if self.clock() >= deadline:
                     self.reset_connection()
                     self.schedule_repair()
-                    return self.failure(message, 'MCP service temporarily unavailable within this request budget. The local connection '
-                        'remains open; its helper reconnects in the background.' + (' The previous tool outcome is unknown; '
-                        'reconcile it before retrying with the original idempotency key.' if uncertain else ''))
+                    return self.failure(message, self.instruction('connection-unavailable') + (self.instruction('connection-pending-outcome') if uncertain else ''))
             except (DomainError, OSError, ValueError):
-                return self.failure(message, 'MCP connection or preparation was refused. Check agent preparation '
-                    'and access; no tool request was automatically replayed.' +
-                    (' A write outcome may be unknown; reconcile it before retrying with the original idempotency key.'
+                return self.failure(message, self.instruction('connection-refused') +
+                    (self.instruction('connection-possible-write')
                      if method == 'tools/call' and not safe else ''))
+
+    def instruction(self, key):
+        try:
+            return prepared_instructions(self.registration_path).render(key)
+        except (OSError, ValueError, KeyError):
+            # A missing prepared source is a preparation fault, never a reason
+            # to substitute a different set of behavioral instructions.
+            return "Prepared agent instructions are unavailable."
 
     @staticmethod
     def failure(message, text):
