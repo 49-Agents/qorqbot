@@ -219,7 +219,7 @@ async function renderGlobalAgents(c) {
   paintOverseerEntry();
   const select = (agent, requestedView = null, remember = true, leaveChecked = false) => {
     if (!current()) return;
-    selectionVersion++;
+    const selection = ++selectionVersion;
     const workspace = typeof agent === 'string' ? globalWorkspaceTerminal(agent) : null;
     const id = workspace ? workspace.id : agent?.agent_id;
     if (!id) return;
@@ -235,10 +235,10 @@ async function renderGlobalAgents(c) {
         return;
       }
     }
-    if (!leaveChecked && typeof agentWorkspaceCanLeave === 'function' && (_agpad?.workspaceFrame || _agpad?.journalMount)) {
+    if (!leaveChecked && typeof agentWorkspaceCanLeave === 'function' && (_agpad?.workspaceFrame || _agpad?.journalMount || _agpad?.surface?.beforeLeave || _agpad?.focusWorkspace?.isOpen?.())) {
       const previous = _agpad, frame = previous.workspaceFrame, journal = previous.journalMount;
       return agentWorkspaceCanLeave(previous).then(ok => {
-        if (ok && _agpad === previous && previous.workspaceFrame === frame && previous.journalMount === journal)
+        if (ok && selection === selectionVersion && _agpad === previous && previous.workspaceFrame === frame && previous.journalMount === journal)
           select(agent, requestedView, remember, true);
       });
     }

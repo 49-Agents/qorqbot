@@ -360,6 +360,7 @@ function agentWorkspaceMount(p, view) {
 
 // Native editors retain their save/leave contract when hosted in a pane.
 async function agentWorkspaceCanLeave(p) {
+  if (p?.view === 'focus' && !await agpadFocusCanLeave(p)) return false;
   if (p?.journalMount) return p.journalMount.flush();
   const child = p?.workspaceFrame?.contentWindow;
   if (child?.agentWorkspaceLeaveEmbedded) return child.agentWorkspaceLeaveEmbedded();
