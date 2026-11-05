@@ -57,3 +57,32 @@ for (const outcome of ['malformed', 'wrong-id', 'timeout', 'rate-limit', 'coded-
  h.retry.onclick();await tick();assert.deepEqual(JSON.parse(JSON.stringify(h.writes[1])),JSON.parse(JSON.stringify(h.writes[0])));
  h.pending[1].resolve({task:{id:'id-1'}});await tick();await tick();assert.equal(h.session.closed,1);
 });
+async function parentOpened(){
+ const h=harness(), c=harness(), add=new Node(), family=new Node();family.querySelectorAll=()=>[];
+ const previous=h.host.querySelector;h.host.querySelector=s=>s==='[data-add-child]'?add:s==='[data-task-family]'?family:previous(s);
+ h.fields.archived={checked:false};
+ const task={id:'parent',title:'Parent',status:'open',assignee_ids:['owner'],tags:[],children:[],revision:1};
+ let childHostUsed=false, reads=0;
+ h.ctx.document.createElement=tag=>tag==='div'&&!childHostUsed?(childHostUsed=true,c.host):new Node();
+ h.ctx.post=async(url,args)=>{h.calls.push([url,args]);if(url.endsWith('assignees_list'))return {assignees:[{id:'owner',is_owner:true}]};if(url.endsWith('tasks_get')){reads++;return {task:{...task,children:reads>1?[{id:'id-1',title:'Child',status:'open'}]:[]}};}if(url.endsWith('tasks_create')){h.writes.push(args);return new Promise((resolve,reject)=>h.pending.push({resolve,reject}));}return {tasks:[]};};
+ h.ctx.tChipLabel=x=>x;h.ctx.customerStateChip=()=>'';h.ctx.taskTypeIcon=()=>'';
+ const controller=h.ctx.globalTasksMount(h.host,{initialTaskId:'parent',embedded:true});await tick();await tick();
+ h.fields.title.value='Parent draft';add.onclick();await tick();
+ return {h,c,controller,add,family,get reads(){return reads;}};
+}
+test('child cancel guards draft and preserves parent editor without writes',async()=>{
+ const {h,c,controller}=await parentOpened();assert.equal(h.writes.length,0);assert.equal(h.host.firstElementChild.hidden,true);
+ c.fields.title.value='Child draft';assert.equal(controller.dirty(),true);
+ let leaving=controller.beforeLeave();let prompt=c.host.children.at(-1);prompt.children[1].onclick();assert.equal(await leaving,false);assert.equal(h.host.firstElementChild.hidden,true);
+ leaving=controller.beforeLeave();prompt=c.host.children.at(-1);prompt.children[2].onclick();assert.equal(await leaving,true);assert.equal(h.host.firstElementChild.hidden,false);assert.equal(h.fields.title.value,'Parent draft');assert.equal(h.writes.length,0);
+});
+test('child create retains parent identity and draft through unknown outcome and success',async()=>{
+ const p=await parentOpened(),{h,c,controller}=p;c.fields.title.value='Child';c.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(h.writes[0].parent_id,'parent');assert.equal(await controller.beforeLeave(),false);
+ h.pending[0].reject(Error('lost'));await tick();c.retry.onclick();await tick();assert.deepEqual(JSON.parse(JSON.stringify(h.writes[1])),JSON.parse(JSON.stringify(h.writes[0])));
+ h.pending[1].resolve({task:{id:'id-1',title:'Child'}});await tick();await tick();assert.equal(h.fields.title.value,'Parent draft');assert.equal(h.host.firstElementChild.hidden,false);assert.match(p.family.innerHTML,/Child/);assert.ok(p.reads>=2);
+});
+
+test('clean child Back restores parent without creating',async()=>{
+ const {h,c}=await parentOpened();c.back.onclick();await tick();assert.equal(h.host.firstElementChild.hidden,false);assert.equal(h.fields.title.value,'Parent draft');assert.equal(h.writes.length,0);
+});
