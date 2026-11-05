@@ -141,6 +141,29 @@ const connectorsPanel = (() => {
         ${copy.needs ? `<p><b>Needs:</b> ${esc(copy.needs)}</p>` : ''}${steps}${guide}</details>
     </article>`;
   }
+  // Settings shows each connector as one compact row; the walkthrough and the cards above share the same model.
+  function row(item) {
+    const copy = connectorsModel.COPY[item.id] || {name: item.id, does: ''};
+    const status = connectorsModel.status(item), action = connectorsModel.action(item), note = connectorsModel.note(item);
+    const button = action.kind === 'none' ? '' : `<button type="button" class="${action.quiet || action.label === 'Turn off' ? 'quiet' : ''}" data-cx-action="${esc(action.kind)}" data-cx-id="${esc(item.id)}">${esc(action.label)}</button>`;
+    const steps = copy.steps ? `<ol>${copy.steps.map(step => `<li>${esc(step)}</li>`).join('')}</ol>` : '';
+    const guide = item.id === 'chrome' ? `<a href="${connectorsModel.CHROME_GUIDE_URL}" target="_blank" rel="noopener noreferrer">How to install Claude in Chrome</a>` : '';
+    const search = [copy.name, copy.does, copy.why, status.label, item.id.replace('_', ' ')].join(' ').toLowerCase();
+    return `<div class="cx-row" data-cx-card="${esc(item.id)}" data-tone="${status.tone}" data-search="${esc(search)}">
+      <span class="cx-icon">${connectorsModel.ICONS[item.id] || ''}</span>
+      <div class="cx-row-main">
+        <div class="cx-row-title"><h3>${esc(copy.name)}</h3><span class="cx-status" data-tone="${status.tone}">${esc(status.label)}</span></div>
+        <p class="cx-row-does">${esc(copy.does)}</p>
+        ${note ? `<p class="cx-note" data-tone="${note.tone}">${esc(note.text)}</p>` : ''}
+        ${item.id === 'chrome' && item.extension === false && copy.install ? `<a class="cx-get" href="${esc(copy.install)}" target="_blank" rel="noopener noreferrer">Get Claude in Chrome</a>` : ''}
+        ${item.install && item.missing?.includes('agent_browser') ? `<div class="cx-command"><code>${esc(item.install)}</code><button type="button" class="quiet" data-cx-copy="${esc(item.install)}">Copy</button></div>` : ''}
+        <details class="cx-more"><summary>What it can see</summary>
+          <p><b>Why:</b> ${esc(copy.why || '')}</p><p><b>Privacy:</b> ${esc(copy.privacy || '')}</p>
+          ${copy.needs ? `<p><b>Needs:</b> ${esc(copy.needs)}</p>` : ''}${steps}${guide}</details>
+      </div>
+      <div class="cx-row-action">${button}</div>
+    </div>`;
+  }
   // Shown under the cards once the owner has gone to claude.ai, so returning to the dashboard shows what to do next.
   const CLAUDE_STEPS = `<div class="cx-claude-steps" data-cx-claude-steps hidden role="status">
       <h3>Finish in Claude</h3>
@@ -153,14 +176,14 @@ const connectorsPanel = (() => {
   // `options.onChange(view)` is called after every read; `options.compact` drops the privacy banner (the walkthrough shows its own).
   function mount(container, options = {}) {
     const root = document.createElement('div');
-    root.className = 'cx-panel';
+    root.className = 'cx-panel' + (options.rows ? ' cx-panel-rows' : '');
     root.innerHTML = `${options.compact ? '' : PRIVACY}
-      <div class="cx-head"><div><h2>Connect your tools</h2><p>Give your agents the tools they need. Browser, Playwright and Gmail are strongly recommended; everything is optional.</p></div>
+      <div class="cx-head"><div>${options.rows ? '' : '<h2>Connect your tools</h2>'}<p>Give your agents the tools they need. Your Chrome, Playwright and Gmail are strongly recommended; everything is optional.</p></div>
         <div class="cx-progress" data-cx-progress aria-live="polite"></div></div>
       <p class="cx-error" data-cx-error role="alert" hidden></p>
       <p class="cx-account" data-cx-account hidden></p>
-      <h3 class="cx-group">Strongly recommended</h3><div class="cx-grid" data-cx-tier="recommended"><p class="muted small">Loading connectors…</p></div>
-      <h3 class="cx-group">Also useful</h3><div class="cx-grid" data-cx-tier="suggested"></div>
+      <h3 class="cx-group">Strongly recommended</h3><div class="${options.rows ? 'cx-rows' : 'cx-grid'}" data-cx-tier="recommended"><p class="muted small">Loading connectors…</p></div>
+      <h3 class="cx-group">Also useful</h3><div class="${options.rows ? 'cx-rows' : 'cx-grid'}" data-cx-tier="suggested"></div>
       ${CLAUDE_STEPS}
       <p class="cx-foot muted small">Changes reach an agent the next time it starts. <button type="button" class="cx-link" data-cx-refresh>Check again</button></p>`;
     container.appendChild(root);
@@ -170,7 +193,7 @@ const connectorsPanel = (() => {
     function paint() {
       if (!view) return;
       for (const tier of ['recommended', 'suggested'])
-        root.querySelector(`[data-cx-tier="${tier}"]`).innerHTML = view.connectors.filter(item => item.tier === tier).map(card).join('');
+        root.querySelector(`[data-cx-tier="${tier}"]`).innerHTML = view.connectors.filter(item => item.tier === tier).map(options.rows ? row : card).join('');
       const progress = connectorsModel.summary(view.connectors);
       root.querySelector('[data-cx-progress]').innerHTML = `<span class="cx-progress-text">${progress.done} of ${progress.total} recommended connected</span>
         <span class="cx-progress-bar" aria-hidden="true"><i style="width:${Math.round(progress.done / progress.total * 100)}%"></i></span>`;
@@ -180,6 +203,7 @@ const connectorsPanel = (() => {
       const refresh = root.querySelector('[data-cx-refresh]');
       refresh.disabled = view.checking; refresh.textContent = view.checking ? 'Checking…' : 'Check again';
       options.onChange?.(view);
+      root.dispatchEvent(new CustomEvent('connectors-painted', {bubbles: true}));
     }
     function schedule() {
       clearTimeout(timer);
@@ -212,7 +236,8 @@ const connectorsPanel = (() => {
         awaitingClaude = true; paint(); return;
       }
       busy = true; button.disabled = true;
-      const enabling = item.status !== 'connected';
+      // On covers "needs the extension" too: its button reads Turn off.
+      const enabling = !['connected', 'needs_extension'].includes(item.status);
       try {
         await load({id: item.id, enabled: enabling});
         if (live() && !root.querySelector('[data-cx-error]').textContent)

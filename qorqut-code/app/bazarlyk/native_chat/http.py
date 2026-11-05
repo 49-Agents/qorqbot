@@ -88,6 +88,15 @@ async def route(runtime, request, principal_id, parts, request_id):
                                         limit=_integer(request, "limit", 50, minimum=1), **_conversation(request))))
         if tail == ["attachment"]:
             return ok(await run(partial(chat.attachment_state, principal_id, agent_id)))
+        if tail == ["commands"]:
+            # Owner-only like every Chat read; the catalog reads the agent's folder and the owner's own commands.
+            await run(partial(chat.check_events, principal_id, agent_id))
+            from bazarlyk.composition.locations import agent_workspace
+            from bazarlyk.connectors import _probe_environment
+            from .commands import catalog
+            client = request.query_params.get("client") or ""
+            workspace = agent_workspace(runtime.paths, agent_id, None)
+            return ok(await run(partial(catalog, client, home=_probe_environment().get("HOME"), workspace=workspace)))
         if tail == ["events"]:
             return await _events(chat, request, principal_id, agent_id)
         raise DomainError("not_found", "Chat endpoint is not registered")

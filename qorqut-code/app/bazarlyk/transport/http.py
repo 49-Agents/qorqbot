@@ -415,6 +415,20 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
+            if parts in (["root", "about"], ["root", "agent-clients"]) and request.method == "GET":
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "Settings details are for the owner's dashboard")
+                context, _ = self.context(actor)
+                with self.runtime.database.read() as uow:
+                    owner = uow.repository("installation").get("service")
+                if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
+                    raise DomainError("forbidden", "Only the installation owner can read these settings")
+                from bazarlyk import owner_settings
+                reader = owner_settings.about_view if parts[1] == "about" else owner_settings.agent_clients_view
+                data = await anyio.to_thread.run_sync(reader)
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
             if parts == ["root", "connectors"] and request.method in {"GET", "POST"}:
                 if request.headers.get("authorization") is not None:
                     raise DomainError("forbidden", "Connectors are for the owner's dashboard")
