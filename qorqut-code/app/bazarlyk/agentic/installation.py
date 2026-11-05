@@ -258,7 +258,7 @@ def _verify_inventory(inventory, selected, manifest_digest):
                 raise ValueError("Invalid used-file provenance")
     packages = {p["id"]: p for p in inventory["packages"]}
     # Older bindings must remain verifiable for explicit updates and retained ancestry.
-    # Fresh imports require runtime-instructions separately; message reads require its current catalog entry.
+    # Fresh imports require the instruction libraries separately; active reads require their current catalog entries.
     expected = {"imported-host-builtins", "imported-roles", "imported-email-management", "imported-terminal-control"}
     if not expected <= packages.keys() or any(not packages[p]["native"]["enabled"] for p in expected):
         raise ValueError("Missing required active core packages")
