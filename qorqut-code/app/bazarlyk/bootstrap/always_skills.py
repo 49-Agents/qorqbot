@@ -28,6 +28,8 @@ SKILLS = (
     "bazarlyk-plugin-email-management",
     "bazarlyk-role-business-tables",
     "bazarlyk-role-browser-control",
+    # Owners ask Ordubashy how Qorqbot works; a skill matched only by its description was missed on the first question.
+    "bazarlyk-role-qorqbot-guide",
 )
 SKILL_ROOTS = {"codex": ".agents/skills", "claude-code": ".claude/skills"}
 # Matches the generated Codex additionalContextLimit for this hook entry.
