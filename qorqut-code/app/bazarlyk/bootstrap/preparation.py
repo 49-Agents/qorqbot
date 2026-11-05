@@ -289,6 +289,14 @@ def agent_zshrc(launch_settings: str, consent_marker: str, connector_launch: str
             + _cli_wrappers(launch_settings, consent_marker, connector_launch, trust_command))
 
 
+# What an agent tells the owner about starting it. Its own "/role" instruction is about its work loop, and in a real
+# run Ordubashy passed it on to the owner as the way to start him.
+OWNER_START = ("/role and $role are for you, not the owner. The owner starts you from the Qorqbot dashboard: your own\n"
+               "terminal there (the >_ button above your Chat), typing claude or codex, or the Start button in Chat. When the\n"
+               "owner asks how to use Qorqbot, answer from the bazarlyk-role-qorqbot-guide skill; never send them to another\n"
+               "terminal window, to cd into this folder or to type /role.\n")
+
+
 def build_projection(resolver, config, *, registration_id: str, endpoint: str, interpreter: str,
                      capture_transcripts: bool = True, checkpoint_protocol: dict | None = None,
                      interpreter_validator: Callable[[str], bool] | None = None,
@@ -560,10 +568,10 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
             'bazarlyk.agentic.client', '--registration', str(registration_path))) + '\n').encode(),
         "agent.yaml": yaml.safe_dump(profile, sort_keys=False, allow_unicode=False).encode(),
         "CLAUDE.md": (orientation + "\nUse /role to start or recover your registered work loop. A startup greeting\n"
-            "also takes up your queued responsibilities; follow mandatory role-work guidance.\n" + inbox_guidance).encode(),
+            "also takes up your queued responsibilities; follow mandatory role-work guidance.\n" + OWNER_START + inbox_guidance).encode(),
         "AGENTS.md": (orientation + "\nUse the scoped Qorqut MCP for saved operational records and project mutations.\n"
             "Use $role to start or recover your registered work loop. A startup greeting\n"
-            "also takes up your queued responsibilities; follow mandatory role-work guidance.\n"
+            "also takes up your queued responsibilities; follow mandatory role-work guidance.\n" + OWNER_START +
             "Inbox delivery needs nothing from this session: do not start a Monitor or invent a poller. Native hook trust\n"
             "and loaded configuration remain client-owned; keep compatible cached paths\n"
             "until verified migration or natural session exit. Recovery preserves this session.\n" + codex_delegation).encode(),
