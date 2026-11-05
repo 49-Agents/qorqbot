@@ -69,7 +69,7 @@ test('signoff pending-write check is scoped to content and includes uncertain re
   const source=fs.readFileSync(path.join(__dirname,'../js/signoffs.js'),'utf8');
   const start=source.indexOf('    hasPendingWrite: () => {'), end=source.indexOf('\n    async save()',start);
   const factory=new Function('sg','messageEdits','options','ownedWrites',`return {${source.slice(start,end)}}`);
-  const sg={slug:'a',items:new Map([['one',{}]]),busy:new Map(),executions:new Map()};
+  const sg={slug:'a',selected:'one',items:new Map([['one',{}],['other',{}]]),busy:new Map(),executions:new Map()};
   const edits=new Map(), view=factory(sg,edits,{},new Set());
   sg.busy.set('b:one:2:hash',{unknown:true}); assert.equal(view.hasPendingWrite(),false);
   sg.busy.set('a:other:2:hash',{unknown:true}); assert.equal(view.hasPendingWrite(),false);
@@ -123,4 +123,68 @@ test('reminder Focus opening and disposal do not dismiss the reminder', async ()
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(await guard(),true);assert.equal(calls.length,1);assert.equal(calls[0].reminder_id,'r');
   dispose();assert.equal(calls.length,1);
+});
+
+test('embedded task and project signoff links dispatch canonical identity to parent', async () => {
+  const received=[];
+  const context={window:{},parent:{async sgAttentionNavigate(...args){received.push(args);return 'parent-result';}},embeddedAgentPane:true};
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/signoff-attention.js'),'utf8'),context);
+  context.sgAttentionNavigate=context.window.sgAttentionNavigate;
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/task-progress.js'),'utf8'),context);
+  assert.equal(await context.taskProgressOpenReference('project',{type:'signoff',id:'complete-1'}),'parent-result');
+  assert.equal(await context.window.sgAttentionNavigate(null,'pending-2'),'parent-result');
+  const workSource=fs.readFileSync(path.join(__dirname,'../js/work-groups.js'),'utf8');
+  const workFunction=workSource.slice(workSource.indexOf('async function workOpenLink'),workSource.indexOf('function workChooseTasks'));
+  let action;context.workCall=async()=>({signoff:{id:'work-3',title:'Review',state:'pending'}});context.esc=String;
+  context.modal=spec=>{action=spec.actions[0];};
+  vm.runInContext(workFunction,context);
+  await context.workOpenLink({biz:'project'},{resource_type:'signoffs',resource_id:'work-3',current:{}});
+  action.onClick(()=>{});await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(received,[['project','complete-1'],[null,'pending-2'],['project','work-3']]);
+  context.parent={};
+  await assert.rejects(()=>context.taskProgressOpenReference('project',{type:'signoff',id:'missing'}),/Focus pane is unavailable/);
+});
+
+test('uncertain reminder dismissal remains retryable after disposal with identical request', async () => {
+  class Node {constructor(){this.children=[];this.isConnected=true;} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} remove(){this.isConnected=false;} setAttribute(){}}
+  const reminder={reminder_id:'r',business_id:'b',revision:7,state:'due',occurrence_id:'occ-1',text:'Due'};
+  const writes=[];let tries=0;
+  const context={document:{createElement:()=>new Node()},embeddedAgentPane:true,state:{session:{principal_id:'owner'},bizs:[{id:'b',slug:'project'}]},
+    post:async(path,args)=>{if(path.endsWith('reminders_get'))return {reminder};writes.push({path,args:{...args}});if(!tries++)throw new Error('lost');return {reminder:{...reminder,state:'dismissed'}};},
+    coreData:x=>x,accessLost:()=>false,sourceGone:()=>false,uiFailure:()=> 'unknown',newRequestId:()=> 'original-key',Intl,Date};
+  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.mount=remindersDetailMount;',context);
+  const find=(node,text)=>node.textContent===text ? node : node.children.map(child=>find(child,text)).find(Boolean);
+  let host=new Node(),view=context.mount(host,reminder);await new Promise(resolve=>setImmediate(resolve));
+  find(host,'Dismiss').onclick();await new Promise(resolve=>setImmediate(resolve));view.dispose();
+  host=new Node();view=context.mount(host,reminder);await new Promise(resolve=>setImmediate(resolve));assert.equal(writes.length,1);
+  find(host,'Retry the same request').onclick();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(writes.length,2);assert.deepEqual(writes[1],writes[0]);assert.equal(writes[0].args.occurrence_id,'occ-1');view.dispose();
+});
+
+test('create and update uncertain requests retain scope and keys independently', async () => {
+  const calls=[];let serial=0,fail=true;
+  const context={document:{},embeddedAgentPane:true,state:{session:{principal_id:'owner'},bizs:[{id:'b',slug:'p'}]},
+    post:async(path,args)=>{calls.push({path,args:{...args}});if(fail)throw new Error('lost');return {};},coreData:x=>x,newRequestId:()=>`key-${++serial}`,Intl,Date};
+  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.make=remAttempt;this.submit=remSubmitAttempt;this.pending=remPending;',context);
+  const create=context.make(null,'p','editor','reminders_create',{text:'one',at:'time'});
+  await assert.rejects(()=>context.submit(create));
+  assert.equal(context.pending(null,'p','editor').length,1);assert.equal(context.pending(null,'q','editor').length,0);
+  const different=context.make(null,'p','editor','reminders_create',{text:'two',at:'time'});assert.notEqual(create.args.idempotency_key,different.args.idempotency_key);
+  const reminder={reminder_id:'r',business_id:'b',occurrence_id:'o'};
+  const update=context.make(reminder,'p','editor','reminders_update',{reminder_id:'r',revision:2,text:'new'});
+  await assert.rejects(()=>context.submit(update));assert.equal(context.pending(reminder,'p','editor').length,1);
+  context.state.session.principal_id='other';assert.equal(context.pending(reminder,'p','editor').length,0);
+  context.state.session.principal_id='owner';fail=false;await context.submit(context.pending(null,'p','editor')[0]);
+  assert.deepEqual(calls[2],calls[0]);assert.equal(context.pending(null,'p','editor').length,0);
+});
+
+test('duplicate editor leave requests keep one discard prompt and do not discard the draft', async () => {
+  const source=fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8');
+  const start=source.indexOf('  const guard = async () => {',source.indexOf('function remindersEditor'));
+  const end=source.indexOf("  confirmBox.querySelector('[data-stay]')",start);
+  const box={hidden:true}, construct=new Function('confirmBox',`let busy=false,initial='original',pendingConfirm=null,pendingPromise=null; const snapshot=()=> 'edited'; ${source.slice(start,end)}; return {guard,answer,baseline:()=>initial};`);
+  const state=construct(box),first=state.guard(),second=state.guard();
+  assert.equal(box.hidden,false);assert.equal(state.baseline(),'original');
+  state.answer(false);assert.equal(await first,false);assert.equal(await second,false);assert.equal(state.baseline(),'original');
 });
