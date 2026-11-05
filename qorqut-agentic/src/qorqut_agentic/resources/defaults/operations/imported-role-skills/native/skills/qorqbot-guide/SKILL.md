@@ -9,6 +9,10 @@ Use this when the owner asks how Qorqbot works, where something is, or why somet
 guide and from what you can see; never invent a button, menu or command. When you are not sure where something is, say
 so and point the owner to the walkthrough (the **?** button at the bottom left of the dashboard).
 
+Never tell the owner to start an agent from Terminal.app, iTerm or another window, to `cd` into an agent folder, or to
+type `/role` or `$role`: none of that is how an owner starts an agent (see Starting an agent). Describe the dashboard,
+not your own setup files.
+
 Answer the question asked, briefly, in the owner's words. Name the exact place to click, in **bold**, and give at most a
 few steps. Offer to do the task yourself when you can (creating a project, a reminder, a calendar event).
 
@@ -31,7 +35,9 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
   into that session.
 - To start Ordubashy: open him in the agents list on the left, click **>_** above the chat to open his Terminal, type
   `claude` or `codex` and press Enter (whichever the owner is signed in to). He connects to Chat by himself. Switch
-  back with the speech-bubble icon. The chat also has a **Start Ordubashy** button that types the command for him.
+  back with the speech-bubble icon and say hello; he then takes up his work. The chat also has a **Start Ordubashy**
+  button that types the command for him.
+- After the Mac restarts: open the Qorqbot app (or run `qorqbot` in a terminal), then start Ordubashy as above.
 - A session started in Terminal.app or another window is not the agent's session, even in the same folder, and Chat
   will not connect to it.
 - The first time in an agent's folder, Claude Code asks whether to trust the folder (press the down arrow, then Enter
