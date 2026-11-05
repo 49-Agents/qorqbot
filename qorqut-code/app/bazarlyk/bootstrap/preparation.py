@@ -219,7 +219,16 @@ def skill_projection(resolver, data) -> tuple[dict, dict]:
             raise DomainError("agentic_revision_conflict", "Managed skills changed after configuration resolution", retryable=True)
         return files, selected
 
-    return view.consistent(read, revision=data["agentic_catalog_revision"])
+    files, selected = view.consistent(read, revision=data["agentic_catalog_revision"])
+    # The core-generated Qorqbot guide travels with the managed skills, so full preparation and skill refresh both keep it.
+    from . import qorqbot_guide
+    return {**files, **qorqbot_guide.skill_files()}, selected
+
+
+def core_generated_skill(name: str) -> bool:
+    """A skill folder Qorqut writes itself, outside the agent's managed skill selection (bootstrap/qorqbot_guide.py)."""
+    from . import qorqbot_guide
+    return name == qorqbot_guide.SKILL_NAME
 
 
 def seed_instance_guidance(resolver, data) -> dict:
@@ -630,9 +639,6 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
                 files[name] += guidance
     skill_files, selected = skill_projection(resolver, data)
     files.update(skill_files)
-    from . import qorqbot_guide
-    # Core-generated, like the CLAUDE.md text above: changing it needs no managed-instruction adoption on update.
-    files.update(qorqbot_guide.skill_files())
     from .browser import SKILL_NAME
     if data["role"]["id"] == ORDUBASHY_ROLE and SKILL_NAME in selected:
         # A native command, discovered only inside the selected skill. Runtime
@@ -687,7 +693,7 @@ def inspect_projection(workspace: Path, projection: dict, *, runtime="claude-cod
             for child in sorted(path.rglob("*")):
                 if (child.is_file() or child.is_symlink()) and child.relative_to(workspace).as_posix() not in expected:
                     drift.append(child.relative_to(workspace).as_posix())
-            if path.name not in projection.get("selected_skills", {}):
+            if path.name not in projection.get("selected_skills", {}) and not core_generated_skill(path.name):
                 drift.append(path.relative_to(workspace).as_posix())
     for name in ((".claude/settings.json", ".claude/settings.local.json") if runtime == "claude-code" else ()):
         if path_has_symlink(workspace / name):
@@ -757,7 +763,7 @@ def _prepare_agent_locked(resolver, principal: Principal, *, endpoint: str, vers
         raise DomainError("validation_error", "Codex permission mode must be scoped or bypass")
     unmanaged = []
     for path in managed_skill_directories(workspace):
-        if path.name not in old.get("selected_skills", {}):
+        if path.name not in old.get("selected_skills", {}) and not core_generated_skill(path.name):
             unmanaged.append(path.name)
     if unmanaged:
         raise DomainError("projection_conflict", "Unknown manually added skills at Qorqut-managed names require reconciliation", details={"skills": unmanaged})
