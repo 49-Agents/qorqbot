@@ -58,7 +58,9 @@ class TerminalAdapter:
         # text visible in the composer before it is submitted; Chat and Telegram free-form text may be collapsed by the client
         # and may do without the whole-text echo unless replacing a draft. Replacement always verifies
         # the paste. A producer without ``steer`` also keeps the idle-only default.
-        return backend.owner_input(delivery, text, workdir=workdir, checkpoint=checkpoint,
+        # A bare slash command is typed with one trailing space, which closes the CLI's completion menu (commands.py).
+        from .commands import delivery_text
+        return backend.owner_input(delivery, delivery_text(text), workdir=workdir, checkpoint=checkpoint,
                                    require_paste_echo=echo or replace_composer, allow_busy=steer,
                                    replace_composer=replace_composer)
 

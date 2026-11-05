@@ -53,6 +53,8 @@ function sgAttentionPaint() {
   if (host._identity===identity && host.children.length) return;
   host._identity=identity; host.dataset.delivery=delivery.id;
   const row=delivery.items[0];
+  if(typeof desktopNotify!=='undefined')desktopNotify.send({kind:'signoffs',title:delivery.kind==='individual'?row.title:'Waiting on you',
+    body:delivery.kind==='individual'?(row.attention?.reason||row.business_name||''):`${delivery.items.length} signoffs need your response`,tag:'signoff:'+delivery.id});
   const groups=new Map();
   delivery.items.forEach(item=>{ const key=item.business_slug || ''; const old=groups.get(key); groups.set(key,{name:item.business_name,count:(old?.count||0)+1}); });
   host.innerHTML=`<section class="sg-toast"><header>${SG_BELL}<strong>${delivery.kind==='individual' ? esc(row.business_name) : 'Waiting on you'}</strong><button type="button" data-action="dismiss" aria-label="Dismiss notification">×</button></header>

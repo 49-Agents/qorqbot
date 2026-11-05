@@ -71,7 +71,22 @@ button.cx-link:hover { background: none; color: var(--fg); transform: none; }
 .cx-trust h2 { text-transform: none; margin: 0 0 5px; font-size: 15px; font-weight: 500; }
 .cx-trust p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--fg-2); max-width: 560px; }
 .cx-trust button { flex: none; }
+/* Settings: one compact row per connector. */
+.cx-panel-rows { margin: 0; padding: 0; border: 0; gap: 12px; }
+.cx-panel-rows .cx-head p { max-width: none; }
+.cx-rows { display: grid; border: 1px solid var(--line-2); border-radius: var(--r-lg); overflow: hidden; background: var(--wash); }
+.cx-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 14px 18px; border-top: 1px solid var(--line-2); }
+.cx-row:first-child { border-top: 0; }
+.cx-row-main { min-width: 0; display: grid; gap: 4px; }
+.cx-row-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cx-panel .cx-row h3 { margin: 0; font-size: 13.5px; font-weight: 600; text-transform: none; color: var(--fg); }
+.cx-row-does { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--fg-2); }
+.cx-row .cx-more { margin-top: 2px; padding-top: 0; border-top: 0; }
+.cx-row-action { padding-top: 2px; }
+.cx-row-action button { height: 30px; padding: 0 13px; font-size: 12px; }
 @media (max-width: 600px) {
+  .cx-row { grid-template-columns: 34px minmax(0, 1fr); }
+  .cx-row-action { grid-column: 2; }
   .cx-trust { flex-direction: column; align-items: flex-start; }
   .cx-privacy { grid-template-columns: 1fr; padding: 18px; }
   .cx-head { flex-direction: column; align-items: flex-start; }

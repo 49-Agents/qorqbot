@@ -109,7 +109,7 @@ const ERRORS = {
 };
 function showError(error, retry) {
   const [title, text] = ERRORS[error.code] || ["This file cannot be shown", error.message || "The request failed."];
-  document.title = `${title} · Qorqut`;
+  document.title = `${title} · Qorqbot`;
   root.replaceChildren(h("section", { class: "fv-error", role: "alert" }, h("h2", {}, title), h("p", {}, text),
     error.code === "network" ? h("button", { class: "fv-btn", type: "button", onclick: retry }, "Try again") : null));
 }
@@ -338,7 +338,7 @@ function renderHistory() {
   if (!state.panel) return;
   const hist = state.history, panel = h("section", { class: "fv-history", id: "fv-history", "aria-label": "Saved versions" });
   panel.append(h("h2", { tabindex: "-1" }, "Saved versions"),
-    h("div", { class: "fv-muted" }, "Versions saved by Qorqut. The file shown as current is the file on disk."));
+    h("div", { class: "fv-muted" }, "Versions saved by Qorqbot. The file shown as current is the file on disk."));
   if (!hist) panel.append(h("p", { class: "fv-loading" }, "Loading versions…"));
   else {
     if (hist.error) panel.append(h("p", { class: "fv-muted", role: "alert" }, hist.error));
@@ -371,7 +371,7 @@ async function main() {
   let meta;
   try { meta = await call("metadata", search); } catch (error) { showError(error, main); return; }
   Object.assign(state, { meta, payload: null, mode: "rendered", history: null, panel: false, compare: [], diff: null, drift: null });
-  document.title = `${meta.name} · Qorqut`;
+  document.title = `${meta.name} · Qorqbot`;
   parts.head = h("header", { class: "fv-head" });
   parts.notices = h("div");
   parts.tools = h("div", { class: "fv-tools", role: "toolbar", "aria-label": "View options" });

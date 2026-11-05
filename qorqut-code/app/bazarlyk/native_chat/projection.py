@@ -69,6 +69,9 @@ _MARKER = re.compile(r'<' + MARKER_TAG + r'\s+id="([A-Za-z0-9_-]{8,120})"(?:\s+t
 _LEADING_SPACE = " \t\n\r\x0b\x0c"
 _OPENING_TAG = re.compile(r"<[A-Za-z].*>", re.S)
 _COMMAND_PREFIXES = ("<local-command-", "<command-name>", "<system-reminder>")
+# Claude Code records a slash command as ``<command-name>/x</command-name> … <command-args>a b</command-args>``. Chat shows it
+# as the command the owner typed (``/x a b``), so a command sent from Chat finds its own entry instead of waiting forever.
+_COMMAND_RECORD = re.compile(r"<command-name>\s*(/?[^<\s]{1,200})\s*</command-name>.*?(?:<command-args>(.*?)</command-args>|$)", re.S)
 MAX_ENTRY_CHARS = 200_000
 SEND_SERVER = "bazarlyk"
 SEND_TOOL = "agents_message_send"
@@ -431,6 +434,14 @@ class Projector:
         if not text.strip():
             return Result()
         stripped = text.lstrip(_LEADING_SPACE)
+        if stripped.startswith("<command-name>"):
+            command = _COMMAND_RECORD.match(stripped)
+            if command is None:
+                return Result(hidden=True)
+            name = command.group(1) if command.group(1).startswith("/") else "/" + command.group(1)
+            typed = (name + " " + (command.group(2) or "").strip()).strip()
+            # Shown, but not a turn: commands such as /compact or /clear get no assistant reply to end one.
+            return Result(entry=_user_entry(identity[0], identity[1], typed, value, record.offset, record.length))
         if stripped.startswith(_COMMAND_PREFIXES):
             return Result(hidden=True)
         entry = _user_entry(identity[0], identity[1], text, value, record.offset, record.length)
