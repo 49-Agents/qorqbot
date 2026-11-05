@@ -10,3 +10,32 @@
 .overseer details { margin: 10px 0; }
 .overseer pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .overseer-notice { color: var(--muted, #777); }
+
+/* Testing mode OFF: one centered availability state in place of Overseer's
+   chat, terminal and right-hand workspace. */
+.overseer-coming-soon {
+  grid-column: 2; display: grid; place-items: center; min-width: 0; min-height: 0;
+  padding: 32px 24px; overflow: auto;
+}
+.overseer-coming-soon-embed { grid-column: auto; flex: 1; }
+.overseer-coming-soon-box {
+  width: min(340px, 80vw); max-width: 340px; text-align: center;
+  transform: translateY(-20px);
+}
+.overseer-coming-soon-box h2 {
+  margin: 0 0 12px; color: var(--fg); font-size: 16px; font-weight: 600;
+  letter-spacing: normal; text-transform: none;
+}
+.overseer-coming-soon-description {
+  margin: 0 auto; color: var(--fg-2); font-size: 13px; line-height: 1.5;
+}
+.overseer-coming-soon-hint { margin: 18px 0 0; color: var(--fg-3); font-size: 12px; }
+.overseer-coming-soon-error { margin: 14px 0 0; color: var(--danger); font-size: 12px; }
+.overseer-coming-soon-retry { height: 30px; margin-top: 10px; padding: 0 12px; font-size: 11px; }
+@media (max-width: 800px) {
+  .overseer-coming-soon { padding: 24px 16px; }
+  .overseer-coming-soon-box { width: min(340px, 100%); transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .overseer-coming-soon-box { transform: none; }
+}

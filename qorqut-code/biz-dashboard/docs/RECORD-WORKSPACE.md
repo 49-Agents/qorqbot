@@ -2,7 +2,8 @@
 
 Focus uses the shared record workspace: `recordWorkspaceMount(host, options)` in
 `js/record-workspace.js`, with layout in `css/record-workspace.css`. Selecting a record
-from Focus shows exactly one full-width pane in the dock:
+from Focus expands it in the board below the persistent launcher row, filling the board's
+height, and shows exactly one full-width pane:
 
 - **Chat** — the record's existing private Ordubashy conversation
   (`js/conversation.js` → `js/chat-view.js`). This is the fresh-selection default for
@@ -11,10 +12,12 @@ from Focus shows exactly one full-width pane in the dock:
   `Signoff dashboard`, `Project dashboard`, …). Selecting it replaces the chat area; the
   two panes are never side by side.
 
-The header holds Back, the canonical title, the record-type icon tab, the Chat icon tab
-(only when the source has a private thread) and Close. A record with no thread (an email
-reading, table, document or generic reference) opens its reader directly and has no Chat
-tab. Related records open in the same workspace on a bounded stack (20 entries), so Back
+The Focus header leads with a pill Close (the same control a Browser/Desktop surface
+carries; there is no back-to-Pinned control), then Back, the canonical title, the
+record-type icon tab and the Chat icon tab (only when the source has a private thread).
+Elsewhere the workspace keeps Close as its trailing icon. A record with no thread (an
+email reading, table, document or generic reference) opens its reader directly and has
+no Chat tab. Related records open in the same workspace on a bounded stack (20 entries), so Back
 restores the previous record's selected tab, dashboard edits and dashboard scroll.
 
 Every entry stays mounted while hidden. Switching tabs, opening a related record and

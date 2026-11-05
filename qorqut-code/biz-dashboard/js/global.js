@@ -175,6 +175,12 @@ async function projectsStartNew() {
     const state = document.querySelector('#global-agent-terminal .gchat-session')?.dataset.state;
     if (box && state && state !== 'loading') {
       if (box.disabled) { toast('Start Ordubashy first, then ask him to create the project.'); return; }
+      // An unsent draft is never replaced: it stays exactly as typed.
+      if (box.value !== '') {
+        box.focus();
+        toast('Your draft was kept. Ask Ordubashy to create a project there.');
+        return;
+      }
       box.value = 'Create a project for ';
       box.dispatchEvent(new Event('input', {bubbles: true}));
       box.focus(); box.setSelectionRange(box.value.length, box.value.length);

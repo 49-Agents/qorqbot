@@ -46,8 +46,6 @@ function acMountButton() {
   button.hidden = !acOwner();
 }
 // Owner identity may land after the first paint; keep one button across navigation.
-acMountButton();
-if (typeof loadSession === "function" && (typeof embeddedAgentPane === 'undefined' || !embeddedAgentPane)) loadSession().then(acMountButton).catch(() => {});
 
 // ---------------------------------------------------------------- saved state and payloads
 function acRealTime(draft) {
@@ -348,8 +346,7 @@ function acRowHtml(action, i) {
     <div class="ac-row-main"><span class="ac-row-cat" title="${esc(action.category || "Unclassified")}">${acCategoryIcon(action.category)}</span>
       <p class="ac-row-text">${esc(action.text)}</p>
       ${task ? `<button class="ltask" type="button" data-ac-task title="Open related task" aria-label="Open related task">${T_VIEW_ICON.tasks}</button>` : ""}
-      ${action.withdrawn ? '<span class="ac-withdrawn">Withdrawn</span>' : ""}
-      ${action.can_change ? `<button type="button" class="ghost ac-edit" data-ac-edit aria-label="Correct action">Correct</button>` : ""}</div>
+      ${action.withdrawn ? '<span class="ac-withdrawn">Withdrawn</span>' : ""}</div>
     <div class="ac-row-meta"><time>${esc(acOccurred(action))}</time><span>${esc(acPerson(action))}</span><span>${esc(action.category || "Unclassified")}</span>${businesses.length ? `<span>${businesses.map(b => esc(b.name || b.slug || "Project")).join(", ")}</span>` : ""}${(action.tags || []).map(tag => `<span class="ac-tag">${esc(tag)}</span>`).join("")}</div>
     ${refs.length || action.detail ? `<details class="ac-row-details"><summary>Details</summary>${action.detail ? `<p>${esc(action.detail)}</p>` : ""}${refs.map(([key, value]) => `<div><span class="muted">${esc(key)}</span> ${/^https?:\/\//.test(value) ? `<a href="${esc(value)}" target="_blank" rel="noopener">${esc(value)}</a>` : esc(value)}</div>`).join("")}</details>` : ""}
     <details class="ac-row-discussion" data-ac-discussion><summary>Discussion and earlier versions</summary><div class="ac-discussion-body"></div></details>
@@ -483,7 +480,6 @@ function acListPaint() {
       const host = discussion.querySelector(".ac-discussion-body");
       if (host._acDiscussion) host._acDiscussion.layout(); else acDiscussionMount(host, action);
     });
-    row.querySelector("[data-ac-edit]")?.addEventListener("click", event => acOpen(document.querySelector("[data-ac-capture]:not([hidden])") || event.currentTarget, action));
     row.querySelector("[data-ac-task]")?.addEventListener("click", () => acOpenTask(action));
   });
 }

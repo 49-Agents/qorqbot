@@ -67,8 +67,8 @@
 .sg-urgent-link { display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; width:100%; height:auto; min-height:0; padding:12px; gap:5px; background:var(--wash); color:var(--fg); border:1px solid var(--line); border-radius:6px; text-align:left; white-space:normal; font-weight:400; }
 .sg-urgent-link:hover { background:var(--wash); color:var(--fg); transform:none; }
 .sg-urgent-link small { color:var(--fg-2); }
-#sg-toast-host { position:fixed; right:20px; bottom:20px; z-index:1000; width:min(360px,calc(100vw - 32px)); }
-.sg-toast { border:1px solid var(--line-2); background:var(--bg); color:var(--fg); border-radius:10px; padding:16px; box-shadow:0 10px 35px #0005; font:13px/1.5 var(--sans); }
+#sg-toast-host { position:fixed; left:20px; top:20px; z-index:1100; width:min(300px,calc(100vw - 32px)); }
+.sg-toast { border:0; background:var(--bg); color:var(--fg); border-radius:10px; padding:16px; box-shadow:0 10px 35px #0005; font:13px/1.5 var(--sans); }
 .sg-toast header { display:flex; align-items:center; gap:10px; }
 .sg-toast header strong { flex:1; }
 .sg-toast button { background:none; color:inherit; border:0; cursor:pointer; text-align:left; white-space:normal; }

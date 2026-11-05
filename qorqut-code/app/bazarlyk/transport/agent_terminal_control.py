@@ -287,6 +287,38 @@ class AgentTerminalBackend:
         if action=='ping' and snapshot.get('command')!=snapshot.get('client', 'codex'):
             raise DomainError('invalid_transition', 'Direct ping requires the agent\'s verified foreground client')
 
+    # The terminal's foreground shell is what receives the launcher and what carries Qorqbot's claude and codex wrappers, which
+    # apply only in the agent's own workspace root (bootstrap/preparation.py). Start never moves it there or types a cd.
+    @staticmethod
+    def _physical(path):
+        return os.path.realpath(os.fspath(path), strict=True)
+
+    def _require_agent_folder(self, snap, workspace):
+        """Refuse unless the observed foreground shell is, physically, in the prepared agent workspace root. Both folders are
+        resolved through symlinks, and anything that cannot be established (the process, its folder, the workspace) refuses
+        too. Nothing is changed or typed."""
+        from bazarlyk import process_info
+        pid = snap.get('foreground_pid')
+        try:
+            if type(pid) is not int or pid <= 0 or workspace is None:
+                raise ValueError('No foreground shell to inspect')
+            here, root = self._physical(process_info.cwd(pid)), self._physical(workspace)
+        except (OSError, ValueError) as exc:
+            raise DomainError('operation_unavailable', "Cannot verify which folder the agent's terminal is in, so nothing was "
+                              "started. Return the agent terminal to its own folder, then press Start again.") from exc
+        if here != root:
+            raise DomainError('invalid_transition', f"The agent's terminal is not in the agent's own folder ({root}). Return it "
+                              "to that folder before pressing Start; Qorqbot does not change folders or type commands for you.")
+
+    def _require_same_shell_in_folder(self, row, observed, workspace):
+        """Observe the pane again, just before anything is typed: the same pane and the same idle foreground shell process as
+        ``observed``, still in the agent's own folder. A different process, or one that cannot be read, refuses."""
+        now = self.snapshot(row)
+        identity = ('state', 'server_pid', 'session_id', 'pane_id', 'pane_pid', 'foreground_pid', 'foreground_started')
+        if now.get('command') not in SHELLS or any(now.get(key) != observed.get(key) for key in identity):
+            raise DomainError('revision_conflict', 'Terminal changed before dispatch')
+        self._require_agent_folder(now, workspace)
+
     def opened_snapshot(self, row, attempts=50):
         """The pane just opened for a start. A new pane's shell takes a moment (the owner's zsh setup, a prompt theme) before
         it has a foreground process; until then the pane cannot be read, so it is read again for up to about ten seconds.
@@ -370,13 +402,23 @@ class AgentTerminalBackend:
         # whose runtime is not a supported client.
         if launcher is None:
             raise DomainError('unsupported_runtime', 'Terminal control supports Claude Code and Codex agents only')
-        # With the owner's consent, the CLI's folder-trust prompt is answered in its own file before launch, so the readiness
-        # wait below reaches the composer instead of stopping at a prompt it must never type into. No consent: unchanged.
+        # An agent's launcher is typed into its shell, whose wrappers belong to the agent's own folder: a terminal the owner
+        # has moved elsewhere is refused before any trust is recorded or anything is typed. Dev's owner-project launch is
+        # exempt.
+        if not dev:
+            self._require_agent_folder(snap, workspace)
+        # With the owner's consent, the CLI's folder-trust prompt for the workspace is answered in its own file before launch,
+        # so the readiness wait below reaches the composer instead of stopping at a prompt it must never type into. A prompt
+        # about an enclosing repository is the owner's to answer in the terminal. No consent: unchanged.
         try:
             from bazarlyk import agent_trust
             agent_trust.ensure(self.runtime.paths.runtime, workspace)
         except (OSError, DomainError):
             logging.getLogger(__name__).warning('Agent folder trust could not be recorded', exc_info=True)
+        # The observed shell and its folder are checked once more at the last moment before the resume or the Ctrl-U. (A person
+        # typing in the same tmux pane outside Qorqbot's lock cannot be excluded.)
+        if not dev:
+            self._require_same_shell_in_folder(row, snap, workspace)
         # An agent with a selected native conversation is resumed as exactly that conversation, with no role bootstrap; a
         # launch that cannot be proved safe is refused, never replaced by a fresh conversation. That path verifies the pane's
         # shell by process identity and does its own line-clear, so nothing is typed before it has.

@@ -203,6 +203,8 @@ input's own, equal to `input.binding`.
 * Refusals (no input stored; all 422 unless noted): `terminal_offline` (no verified live session — Chat never starts one),
   `capture_disabled`, `capture_not_ready` (retry once the session publishes its transcript), `operation_unavailable` (503;
   sandbox/remote target), `unsupported_runtime`, `terminal_changed`,
+  `terminal_required` (a Codex built-in slash command sent to a shared Codex server, which takes plain text and cannot run it;
+  decided for a new request only, after the pin check and before anything is stored; other text such as `/tmp/foo` is not affected),
   `not_found` (404), `forbidden` (403), `validation_error` (empty/oversized/control characters/bad key or missing/malformed pin),
   `idempotency_conflict` (409).
 

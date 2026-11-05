@@ -32,12 +32,15 @@ const agentStart = (() => {
       modal({
         title: 'Trust Qorqbot’s agent folders',
         width: 520,
-        body: `<p>Claude Code and Codex ask before they work in a new folder. Allow this once, and they open straight into
+        body: `<p>Claude Code and Codex ask before they work in a new folder. Allow this once, and they can open straight into
           the session in the folders Qorqbot prepares for its agents${agentId ? `, starting with ${esc(label)}` : ''}.</p>
           <p>Qorqbot will:</p>
-          <ul><li>mark its own agent folders as trusted in Claude Code and Codex</li>
-          <li>run the hooks Qorqbot installs in those folders without asking Codex to review them each time</li></ul>
-          <p class="muted">Your other projects are not changed. Nothing starts by itself. You can turn this off in Settings.</p>
+          <ul><li>mark each agent’s own folder as trusted in Claude Code and Codex</li>
+          <li>run the hooks Qorqbot installs in an agent’s own folder without asking Codex to review them each time</li></ul>
+          <p class="muted">Nothing else is trusted. Claude Code or Codex can still ask you about a larger folder around an agent,
+          such as the git repository its folder sits in: Qorqbot does not answer that for you, and you decide in the terminal.
+          Your other projects are not changed, and claude and codex run as usual anywhere outside an agent’s own folder.
+          Nothing starts by itself. You can turn this off in Settings.</p>
           <div class="ferr" role="alert" hidden></div>`,
         onClose: () => finish(null),
         actions: [

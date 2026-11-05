@@ -22,6 +22,8 @@
 .rw .rw-tabs .rw-tab:focus-visible{outline:2px solid var(--fg-2);outline-offset:-2px}
 .rw-head .rw-close{display:grid;place-items:center;flex:none;width:26px;height:26px;min-height:26px;margin:0;padding:4px;border:0;background:transparent;color:var(--fg-2)}
 .rw-head .rw-close:hover{background:var(--hover);color:var(--fg)}
+/* Focus expands the record in its board, where the header leads with the shared pill Close
+   (css/agent-focus.css keeps that control identical to a Browser/Desktop surface's). */
 .rw-body{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
 .rw-pane{flex:1;min-height:0;min-width:0;box-sizing:border-box}
 .rw-pane[hidden]{display:none}

@@ -139,6 +139,18 @@ def catalog(client: str, *, home=None, workspace=None) -> dict:
     return {"client": client, "commands": commands}
 
 
+def codex_builtin(text: str) -> str | None:
+    """The Codex built-in command (from the catalog above) that ``text`` runs, or None for any other text.
+
+    Only the first word counts, as the CLI reads it: ``/compact keep decisions`` runs ``/compact``, while ``/tmp/foo`` and
+    ``/model/x`` are ordinary text. Nothing is run and no configuration is read."""
+    words = text.split(None, 1)
+    if not words:
+        return None
+    word = words[0].lower()
+    return next((name for name, _, _ in BUILT_IN["codex"] if name == word), None)
+
+
 def delivery_text(text: str) -> str:
     """What Chat types for a slash command: a bare command gets one trailing space, which closes the CLI's completion
     menu so the paste can be confirmed and Enter runs exactly that command. Anything else is typed unchanged."""

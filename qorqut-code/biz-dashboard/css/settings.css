@@ -5,6 +5,43 @@
 .set-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
 .set-head .small { max-width: 480px; }
 .settingspane .mono { font-family: var(--mono); }
+
+/* Global-only availability preference: one labelled switch, off until the owner turns it on. */
+.set-testing {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  padding: 0 0 18px; margin-bottom: 20px; border-bottom: 1px solid var(--line);
+}
+.set-testing-copy { min-width: 0; }
+.set-testing-copy .set-title {
+  margin-top: 0; margin-bottom: 4px; color: var(--fg);
+  letter-spacing: normal; text-transform: none;
+}
+.set-testing-copy .small { max-width: 480px; }
+.set-switch { position: relative; display: inline-flex; align-items: center; gap: 10px; flex: none; cursor: pointer; user-select: none; }
+.set-switch input {
+  position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; opacity: 0; pointer-events: none;
+}
+.set-switch-track {
+  position: relative; width: 38px; height: 22px; border: 1px solid var(--line-2); border-radius: var(--r-full);
+  background: var(--wash); transition: background .14s ease, border-color .14s ease;
+}
+.set-switch-track::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--fg-2); transition: transform .14s ease, background .14s ease;
+}
+.set-switch input:checked + .set-switch-track { background: var(--fg); border-color: var(--fg); }
+.set-switch input:checked + .set-switch-track::after { background: var(--bg); transform: translateX(16px); }
+.set-switch input:focus-visible + .set-switch-track { outline: 2px solid var(--fg-2); outline-offset: 3px; }
+.set-switch input:disabled + .set-switch-track { opacity: .4; cursor: default; }
+.set-switch-label { min-width: 36px; color: var(--fg-2); font-size: 12px; }
+.set-testing-note { display: block; margin-top: 4px; }
+.set-testing-note:empty { display: none; }
+.set-testing-note:not(:empty) { color: var(--fg-2); }
+.set-testing-note.error:not(:empty) { color: var(--danger); }
+.set-testing-retry { height: 26px; margin-left: 6px; padding: 0 10px; font-size: 11px; }
+@media (max-width: 600px) {
+  .set-switch { align-self: flex-start; }
+}
 .envrows { display: flex; flex-direction: column; gap: 8px; }
 .envrow { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(100px, 2fr) auto; gap: 8px; align-items: center; }
 .envrow input { font-family: var(--mono); font-size: 13px; }

@@ -9,8 +9,13 @@ With consent, given on one dashboard screen that names both effects:
 
 * folder trust is recorded for Qorqbot's prepared agent workspaces only, in the CLIs' own files (``~/.claude.json`` and
   ``~/.codex/config.toml``, honouring ``CLAUDE_CONFIG_DIR`` and ``CODEX_HOME``);
-* the prepared agent shell runs Codex with ``--dangerously-bypass-hook-trust`` while the consent file exists
-  (``preparation.py`` reads :func:`marker_path`).
+* the prepared agent shell runs Codex with ``--dangerously-bypass-hook-trust`` in the agent's workspace root while the
+  consent file exists (``preparation.py`` reads :func:`marker_path`).
+
+The wrappers apply the hook bypass, connectors and role prompt only when the shell is in the agent's own workspace root
+(``preparation.py``); ``claude`` and ``codex`` run unchanged from any other folder. Only the workspace folder is recorded
+(see :func:`folder_keys`): a CLI can still ask the owner to trust an enclosing git repository, which the owner answers in the
+terminal.
 
 Nothing is written without consent. A folder the owner explicitly marked with another Codex trust level is left alone.
 Revoking removes the consent file, which stops the hook bypass for new launches; folder trust already recorded in a CLI's
@@ -81,28 +86,16 @@ def codex_file(env) -> Path:
     return Path(env["CODEX_HOME"] or Path(env["HOME"]) / ".codex") / "config.toml"
 
 
-def git_root(folder):
-    """The nearest enclosing folder with a ``.git`` entry (directory or file), or None."""
-    current = Path(folder)
-    for candidate in (current, *current.parents):
-        if (candidate / ".git").exists():
-            return candidate
-    return None
-
-
 def folder_keys(folder) -> list[str]:
-    """The folder as given and as resolved, and the git repository that contains it.
+    """The agent's workspace folder as given and, when it differs, as resolved through symlinks. Nothing else.
 
-    Claude Code keys its trust dialog by the project root, which is the enclosing git repository when there is one: an agent
-    folder inside Qorqbot's operations repository is asked about as that repository, so trusting only the agent folder
-    still showed the dialog. The repository is Qorqbot's own (``instance/operations``); nothing outside it is trusted."""
-    keys = []
-    for path in (os.path.abspath(str(folder)), os.path.realpath(os.path.abspath(str(folder)))):
-        root = git_root(path)
-        for key in (path, str(root) if root is not None else None):
-            if key and key not in keys:
-                keys.append(key)
-    return keys
+    A CLI may also ask the owner about the git repository that encloses the workspace (Claude Code keys its trust dialog
+    by the project root, which is that repository, so an agent folder inside Qorqbot's operations repository can still show
+    the dialog). That repository is never recorded here: the consent names Qorqbot's agent folders, so the owner answers
+    that prompt in the terminal."""
+    lexical = os.path.abspath(str(folder))
+    physical = os.path.realpath(lexical)
+    return [lexical] if physical == lexical else [lexical, physical]
 
 
 def trust_claude(path: Path, folders) -> str:

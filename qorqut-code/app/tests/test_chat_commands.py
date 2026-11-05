@@ -2,6 +2,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 from bazarlyk.native_chat import commands
 
@@ -39,6 +40,23 @@ class CatalogTest(unittest.TestCase):
         self.assertNotIn("/role", found)
         self.assertEqual(found["/compact"]["source"], "built-in")
         self.assertNotIn("/standup", {item["name"] for item in commands.catalog("codex", home=self.home)["commands"]})
+
+
+class CodexBuiltinTest(unittest.TestCase):
+    def test_the_first_word_decides(self):
+        for text in ("/compact", "/compact keep decisions", "  /compact\nkeep", "/COMPACT", "/model\tgpt-6", "/mcp  "):
+            self.assertIn(commands.codex_builtin(text), {name for name, _, _ in commands.BUILT_IN["codex"]}, text)
+        self.assertEqual(commands.codex_builtin("/Compact now"), "/compact")
+
+    def test_other_text_is_not_a_command(self):
+        for text in ("", "   ", "/", "/tmp/foo", "/tmp/foo /compact", "/model/x", "/compact:x", "/compactly", "//compact", "/ compact",
+                     "hello /compact", "please /new", "/clear", "/security-review", "~/compact", "compact"):
+            self.assertIsNone(commands.codex_builtin(text), text)
+
+    def test_it_reads_only_the_catalog_in_memory(self):
+        with mock.patch.object(commands, "_read", side_effect=AssertionError("read a file")), \
+                mock.patch.object(commands.Path, "home", side_effect=AssertionError("looked up a home")):
+            self.assertEqual(commands.codex_builtin("/status"), "/status")
 
 
 class DeliveryTextTest(unittest.TestCase):

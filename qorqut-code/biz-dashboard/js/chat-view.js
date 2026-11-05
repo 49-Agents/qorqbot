@@ -160,14 +160,48 @@ function chatViewFileFace(name, kind) {
   return `<span class="gchat-file-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${CHAT_VIEW_FILE_ICONS[kind[0]] || CHAT_VIEW_FILE_ICONS.file}</svg></span><span class="gchat-file-label"><span class="gchat-file-name">${esc(name)}</span><small>${kind[1]}</small></span>`;
 }
 
+// A rendered website is the same flat attachment row as a Task/Action reference: one globe glyph, the full
+// link label, and the site's own hostname as subdued right-aligned metadata, with no chip border and no visible
+// type word. Consecutive website rows share one list; every other reference keeps its card or chip and ends the
+// run. A row never requests anything: only its click opens the existing preview.
+function chatViewWebsiteRow(target, label) {
+  const row = document.createElement('button');
+  row.type = 'button'; row.className = 'gchat-ref-row';
+  row.dataset.previewHref = target.url.href; row.dataset.previewTitle = label;
+  row.setAttribute('aria-label', `Preview ${label}`);
+  if (typeof AGVB_ICON !== 'undefined') {
+    const icon = document.createElement('span'); icon.className = 'gchat-ref-row-icon';
+    icon.setAttribute('aria-hidden', 'true'); icon.innerHTML = AGVB_ICON.web;
+    row.append(icon);
+  }
+  const title = document.createElement('span'); title.className = 'gchat-ref-row-title'; title.textContent = label;
+  row.append(title);
+  const host = document.createElement('span'); host.className = 'gchat-ref-row-meta gchat-ref-row-host';
+  host.textContent = target.url.hostname; row.append(host);
+  return row;
+}
 // Chips represent rendered links, never code samples. No document/image request happens until a chip is opened.
 function chatViewReferenceChips(body) {
   const chips = document.createElement('div'), seen = new Set();
   chips.className = 'gchat-references';
+  let run = null;
   for (const link of body.querySelectorAll('a.safe-link')) {
     const target = chatViewReferenceTarget(link.href);
     if (!target || seen.has(target.url.href)) continue;
     seen.add(target.url.href);
+    const website = !target.viewer && !target.image;
+    if (website) {
+      if (!run) {
+        run = document.createElement('div');
+        run.className = 'gchat-ref-group gchat-ref-group-inline';
+        run.setAttribute('role', 'group'); run.setAttribute('aria-label', 'Website references');
+        const rows = document.createElement('div'); rows.className = 'gchat-ref-rows';
+        run.append(rows); chips.append(run);
+      }
+      run.firstElementChild.append(chatViewWebsiteRow(target, link.textContent));
+      continue;
+    }
+    run = null;
     const chip = document.createElement('button');
     chip.type = 'button'; chip.className = 'gchat-reference';
     chip.dataset.previewHref = target.url.href; chip.dataset.previewTitle = link.textContent;
