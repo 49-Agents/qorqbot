@@ -96,7 +96,10 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
 - A project keeps the work, records and context for one client or business apart. There is no "new project" button:
   the owner asks Ordubashy in Chat ("Create a project for …" with a name and its purpose), and he prepares it and asks
   for a Signoff before anything is created.
-- Links and records belonging to a project open it; **← Back to agents** returns to the Global agents view.
+- The **Projects** page (the folder icon in the left rail) explains projects, lists every project with its summary and
+  archived ones, and has **New project**, which opens Ordubashy's Chat with the request started.
+- Opening a project shows its Tasks; links and records belonging to a project also open it; **← Back to agents**
+  returns to the Global agents view.
 
 ## Settings (the gear)
 
