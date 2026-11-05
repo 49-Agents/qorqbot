@@ -74,7 +74,7 @@ const onboarding = (() => {
       body: 'These make your agents useful on day one. Turn on Your Chrome and Playwright, and press Connect on Gmail to sign in with Google through Claude.',
       instructions: ['Your Chrome lets Ordubashy use sites you are already signed in to, like LinkedIn. It needs the free Claude in Chrome extension; the card links to it.',
         'Playwright gives him a separate, clean browser for everything else.',
-        'Open “Why it helps and what it can see” on any card for the details.'],
+        'Open “What it can see” on any connection for the details.'],
       hint: 'All optional, but strongly recommended. You can do this later in Settings.',
       target: () => document.querySelector('[data-cx-tier="recommended"]')},
     {id: 'connect-more', chapter: 'connect', tab: 'settings', title: 'also useful',
@@ -289,6 +289,8 @@ const onboarding = (() => {
     if (step.tab === 'settings') {
       if (state.scope !== 'global' || state.globalTab !== 'settings' || !document.querySelector('.settingspane')) await selectGlobal('settings');
       if (!isCurrent(token)) return;
+      // Settings shows one section at a time; the connector steps live in Connections.
+      if (typeof settingsShowSection === 'function') settingsShowSection('connections');
       await waitFor(() => visible(step.target()) && step.target(), 10000);
       // Instant, so the spotlight is placed on where the area ends up rather than mid-scroll.
       if (isCurrent(token)) step.target().scrollIntoView({block: 'center', behavior: 'auto'});

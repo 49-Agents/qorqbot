@@ -11,7 +11,8 @@ function workspaceComposerCloseTerminal() {
 }
 async function workspaceComposerRefresh() {
   const w=workspaceComposer,key=state.scope==='global'?'global':state.biz;
-  if(state.scope==='global' && state.globalTab==='agents'){
+  // Agents has its own Chat; Settings has nothing to message about.
+  if(state.scope==='global' && ['agents','settings'].includes(state.globalTab)){
     ++w.generation;w.scope=null;
     workspaceComposerCloseTerminal();
     document.querySelector('#workspace-composer')?.remove();
