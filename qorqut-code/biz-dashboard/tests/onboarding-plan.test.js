@@ -46,3 +46,16 @@ test('saveId uses the shared progress id when present', () => {
   assert.equal(plan.saveId(steps[2]), 'terminal');
   assert.equal(plan.saveId(steps[4]), 'focus');
 });
+
+test('the launch step reads Chat as online, starting, failed, offline or unavailable', () => {
+  assert.deepEqual(plan.launchPhase({state: 'live'}), {phase: 'online'});
+  assert.deepEqual(plan.launchPhase({state: 'working'}), {phase: 'online'});
+  assert.deepEqual(plan.launchPhase({state: 'starting', startLabel: ''}), {phase: 'starting'});
+  assert.deepEqual(plan.launchPhase({state: 'loading'}), {phase: 'checking'});
+  assert.deepEqual(plan.launchPhase({}), {phase: 'checking'});
+  assert.deepEqual(plan.launchPhase({state: 'offline', startLabel: 'Start Ordubashy'}), {phase: 'offline'});
+  assert.deepEqual(plan.launchPhase({state: 'offline', startLabel: 'Try again', error: 'Codex is not installed'}),
+    {phase: 'failed', error: 'Codex is not installed'});
+  assert.deepEqual(plan.launchPhase({state: 'offline'}), {phase: 'unavailable'});
+  assert.deepEqual(plan.launchPhase({state: 'disabled'}), {phase: 'unavailable'});
+});
