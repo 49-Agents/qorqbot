@@ -234,6 +234,8 @@
 .task-create-project form>label{display:grid;gap:5px}
 .task-create-project .task-inline-actions{display:flex;justify-content:flex-end;gap:8px}
 .task-create-project [data-project-discard] button+button{margin-left:8px}
+.task-type-confirm{padding:16px}
+.task-type-confirm button+button{margin-left:8px}
 .agfocus-surface-body > .agvb{flex:1;min-height:0}
 .agfocus-surface-body .agvb-frameview{min-height:240px}
 .agfocus-surface-body .agfocus-desktop-view{padding:0 0 10px}
