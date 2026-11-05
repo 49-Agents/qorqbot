@@ -8,6 +8,8 @@ their own explicitly labelled zones and are not reinterpreted here.
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from datetime import date, datetime, timedelta, timezone
 import os
 import re
@@ -23,9 +25,7 @@ except (ValueError, ZoneInfoNotFoundError) as exc:
 LABEL = TIMEZONE + " time"
 REAL_TIME = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}))?$")
 REAL_TIME_SCHEMA = {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}(T\d{2})?$",
-                    "description": "Optional occurrence in the installation timezone returned by actions_config_get: "
-                                   "YYYY-MM-DD or YYYY-MM-DDTHH (24-hour). No minutes, seconds or offsets. Omit for now. "
-                                   "A nonexistent DST hour is rejected; a repeated hour means its first occurrence."}
+                    "description": instruction_text('local-time-optional-occurrence-in-the-installation-timezone-returned')}
 
 
 def instant(value):

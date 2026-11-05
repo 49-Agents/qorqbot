@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import re
 import uuid
 
@@ -14,13 +16,13 @@ AGENT_WORD_LIMIT = 20
 TEXT_LIMIT = 2000
 EVIDENCE_KEYS = ("url", "commit", "pull_request", "signoff", "task", "document", "request", "conversation", "upload")
 EVIDENCE = {**schema({key: {"type": "string", "minLength": 1, "maxLength": 2000} for key in EVIDENCE_KEYS}),
-            "description": "Optional typed evidence of the result (URL, commit, pull request or record IDs)."}
+            "description": instruction_text('models-optional-typed-evidence-of-the-result-url-commit')}
 ACTION_TEXT = {"type": "string", "minLength": 1, "maxLength": TEXT_LIMIT}
 POINTER_ID = re.compile(r"^[a-z0-9]{5}$")
 RELATED_OBJECTS = {"type": "array", "maxItems": 50, "items": {
     **schema({"kind": {"enum": ["node", "edge"]}, "id": {"type": "string", "pattern": "^[a-z0-9]{5}$"},
               "explanation": {"type": "string", "maxLength": 2000}}, ("kind", "id")),
-    "description": "A suggested Context object this Action relates to. Pointers are suggestions, never required graph subjects."}}
+    "description": instruction_text('models-a-suggested-context-object-this-action-relates-to')}}
 SOURCE_NAMESPACE = uuid.UUID("3f0b7c52-5a3c-4f7e-9d6b-2f1a0e8c4b71")
 SHARING = ("A business-operational action names one or more projects; each named project sees the same shared "
            "text once, and scoped reads never reveal other projects or unrelated evidence.")

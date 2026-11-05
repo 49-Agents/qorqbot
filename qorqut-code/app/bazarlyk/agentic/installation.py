@@ -118,8 +118,9 @@ def prepare_installation(export_root, selected_extensions):
         # Validate the host-owned record contract before any target write.
         HostAgenticView(None, inventory)
         _verify_inventory(inventory, selected, manifest_digest)
-        if not any(p["id"] == "runtime-instructions" and p["native"]["enabled"] for p in inventory["packages"]):
-            raise _failure("Missing required runtime instruction package")
+        for package_id in ("runtime-instructions", "tool-instructions"):
+            if not any(p["id"] == package_id and p["native"]["enabled"] for p in inventory["packages"]):
+                raise _failure("Missing required instruction package: " + package_id)
         plan = build_import_plan(inventory)
         from .support import Source
         source = Source("roles", roots["roles"], "roles", True, [], export_component=components["qorqut-agentic"], manifest_digest=manifest_digest)
@@ -333,7 +334,7 @@ def _active_inventory(layer, inventory, selected):
     source_owners = {source: owner for owner, spec in OPTIONAL.items() for source in spec["sources"]}
     template_packages = {a["package_id"] for a in inventory["assets"] if a["template"]}
     template_packages.update(b["package_id"] for b in inventory["bindings"] if b["template"])
-    optional_packages = {a["package_id"] for a in inventory["assets"] if a["source_id"] in source_owners}
+    optional_packages = {p["id"] for p in inventory["packages"] if p["native"]["owner"] in OPTIONAL}
     for source in active["sources"]:
         if source["id"] in source_owners:
             source["enabled"] = source_owners[source["id"]] in selected
@@ -345,8 +346,8 @@ def _active_inventory(layer, inventory, selected):
         for entry in package["entries"]:
             entry["native"]["enabled"] = enabled and not entry["native"].get("template") and entry["kind"] != "template"
     for asset in active["assets"]:
-        if asset["source_id"] in source_owners:
-            asset["enabled"] = source_owners[asset["source_id"]] in selected and not asset["template"] and asset["package_id"] not in template_packages
+        if asset["package_id"] in optional_packages:
+            asset["enabled"] = packages[asset["package_id"]]["native"]["owner"] in selected and not asset["template"] and asset["package_id"] not in template_packages
     for binding in active["bindings"]:
         if binding["source_id"] in source_owners:
             binding["enabled"] = source_owners[binding["source_id"]] in selected and not binding["template"] and binding["package_id"] not in template_packages

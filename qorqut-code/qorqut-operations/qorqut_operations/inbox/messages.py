@@ -5,6 +5,8 @@ writes, history pagination and the message view. Everything that depends on the 
 worker bindings and their attribution, forwarding to the owner, terminal delivery, the retirement handoff read) is a
 named call on a required host adapter, made at the point the flow always made it. There is no default adapter."""
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import json
 from dataclasses import replace
 from typing import Protocol
@@ -66,18 +68,18 @@ class Messages:
     def register(self, common):
         self.app.registry.register(OperationDescriptor('agents_message_send', schema({
             'scope': {'enum': ['business', 'global']}, 'to_agent_id': UUID, 'reply_to': UUID, 'summary': SUMMARY,
-            'delivery': {'enum': ['inbox', 'terminal'], 'description': 'Default inbox. terminal targeted retired project Dev agents and is refused; use inbox.'},
+            'delivery': {'enum': ['inbox', 'terminal'], 'description': instruction_text('messages-default-inbox-terminal-targeted-retired-project-dev-agents')},
             'message': {'type': 'string', 'minLength': 1, 'maxLength': 16000}}, ('message',)),
-            **common, description='Send a durable internal message to a scoped agent. For a reply, supply reply_to; recipient is inferred. No agent may message Learning Applier; those roles can send outbound. Not a task assignment or permission grant.',
+            **common, description=instruction_text('messages-send-a-durable-internal-message-to-a-scoped'),
             prepare=self.prepare, apply=self.apply))
         self.app.registry.register(OperationDescriptor('agents_messages_list', schema({
             'scope': {'enum': ['business', 'global']}, 'thread_id': UUID, 'counterpart_id': UUID,
             'retirement_backlog': {'type': 'boolean'}, **PAGE}),
-            **common, effect_kind='read', description='Read your sent and received message history in this scope, optionally one thread or one current counterpart (counterpart_id from a message). Reading never acknowledges inbox events. The owner or current Ordubashy may use retirement_backlog=true in Global scope for the frozen read-only retirement handoff.', read=self.history))
+            **common, effect_kind='read', description=instruction_text('messages-read-your-sent-and-received-message-history-in'), read=self.history))
         self.app.registry.register(OperationDescriptor('agents_message_recipients', schema({
             'scope': {'enum': ['business', 'global']}, 'all_businesses': {'type': 'boolean'},
             'role_id': {'type': 'string', 'minLength': 1, 'maxLength': 100}}), **common, effect_kind='read',
-            description='Find active agents in the selected scope, or all authorized projects with all_businesses=true. Filter role_id (for example global-worker). Each row includes business_id for sends; IDs are authoritative.', read=self.recipients))
+            description=instruction_text('messages-find-active-agents-in-the-selected-scope-or'), read=self.recipients))
 
     @staticmethod
     def scope_visible(ctx, business):

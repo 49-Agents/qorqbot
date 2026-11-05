@@ -1,0 +1,1 @@
+Discover and read relevant shared catalogue entries for the current project and work type, including applicable plugins, without requiring explicit plugin assignment. Catalogue discovery does not grant tools, credentials, permissions, or native plugin access.

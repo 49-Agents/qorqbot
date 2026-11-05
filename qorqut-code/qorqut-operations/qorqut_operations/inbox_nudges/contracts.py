@@ -7,6 +7,8 @@ keeps the durable need, the immutable attempts and their evidence.
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.seeds import runtime_text as runtime_seed
+
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -17,11 +19,7 @@ from qorqut_operations.contracts import DomainError, canonical_hash, plain
 # states the delivery semantics the agent must follow: direct user work first, the existing MCP inbox tools, explicit exact
 # acknowledgement. It is advisory: it is not an approval, an acknowledgement or a task.
 NUDGE_TEXT = (
-    "Inbox notice: you have pending inbox updates. Keep priority on any direct user request you are working on now. "
-    "Review the pending updates with your existing MCP inbox tools as soon as that work finishes or reaches a suitable "
-    "checkpoint, or now if you are not working on one. Acknowledge only the exact events you have handled. "
-    "This notice is advisory: it acknowledges nothing, approves nothing, changes no task, action, signoff or routine, "
-    "and needs no reply."
+    runtime_seed('inbox-nudge')
 )
 
 PROVIDERS = ("claude", "codex")

@@ -345,6 +345,8 @@ class NudgeBackend:
 
     def _send(self, session: dict, reservation: Reservation) -> str:
         stale: dict[str, bool] = {}
+        reservation = replace(reservation, text=self.runtime.resolver.require_agentic_view()
+            .runtime_instructions().render("inbox-nudge"))
 
         def checkpoint() -> None:
             # The freshest check there is: the exact binding and some covered event still pending and authorized, under the

@@ -14,6 +14,8 @@ one optional event; it creates no Action revision and no Context input."""
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import base64
 import json
 import uuid
@@ -53,45 +55,18 @@ ACTION_ENTRIES = (
 ACTION_ID = {"type": "string", "minLength": 1, "maxLength": 300}
 BUSINESS_IDS = {"type": "array", "items": UUID, "maxItems": 50, "uniqueItems": True}
 RECORD_DESCRIPTION = (
-    "Record one atomic COMPLETED result (not a task description, plan, proposal, status change or failed attempt) "
-    "in the canonical action log. Text is the result in at most 20 words for agents; no task, title or time is "
-    "required. Omitted real_time means now; supplied real_time uses the installation timezone from actions_config_get, "
-    "YYYY-MM-DD or YYYY-MM-DDTHH. Agents holding read_global_context record in Global: category is required "
-    "(global-operational or business-operational); business-operational needs business_ids of currently authorized, "
-    "active projects, and one inaccessible project rejects the whole call. An agent without read_global_context "
-    "records only with a project selected: text only; the action is business-operational for that project. "
-    "Tags come from the shared tag catalog (tags_list); a new label is created by using it, and a tag grants no access. "
-    "related_objects are optional suggestions of Context objects the result concerns. Every accepted record is queued for "
-    "Context as revision 1. You are the performer and recorder of your own work; never record another actor's work as "
-    "yours or duplicate system receipts. " + models.SHARING)
+    instruction_text('operations-record-one-atomic-completed-result-not-a-task') + models.SHARING)
 DELEGATION_DESCRIPTION = (
-    "Optional: record the result of your own COMPLETED delegated assignment. The server verifies that you own the "
-    "assignment, that it completed with a recorded result and that the projects are within its scope; the performer "
-    "is then unknown, you are the recorder and the assignment is kept as provenance. Each assignment's result is "
-    "recorded once, and not at all when its worker already recorded its actions.")
+    instruction_text('operations-optional-record-the-result-of-your-own-completed'))
 CORRECT_DESCRIPTION = (
-    "Correct an Action you recorded (the installation owner may correct any visible Action): supply the fields to change "
-    "(text, category, business_ids, real_time, tags, related_objects, evidence) with expected_revision. The correction is a "
-    "new immutable revision queued for Context; earlier revisions are kept. Identity, origin, performer and recorder never "
-    "change. A withdrawn Action cannot be corrected: record a new one.")
+    instruction_text('operations-correct-an-action-you-recorded-the-installation-owner'))
 WITHDRAW_DESCRIPTION = (
-    "Withdraw an Action you recorded (the installation owner may withdraw any visible Action) with expected_revision. The "
-    "Action and its history stay readable, marked withdrawn; the withdrawal is queued for Context as a removal and the "
-    "Action accepts no later change.")
-LIST_DESCRIPTION = ("List authorized completed actions by occurrence (newest first) with their recorded local date, category, "
-                    "business, performer and tag filters; withdrawn actions are omitted unless requested. With a project "
-                    "selected you see the actions linked to that project; without one, agents holding read_global_context "
-                    "see global-operational and their accessible business-operational actions. " + models.SHARING)
+    instruction_text('operations-withdraw-an-action-you-recorded-the-installation-owner'))
+LIST_DESCRIPTION = (instruction_text('operations-list-authorized-completed-actions-by-occurrence-newest-first') + models.SHARING)
 THREAD_DESCRIPTION = (
-    "Read one bounded page of an authorized action's discussion (oldest first within the page; next_cursor continues to older "
-    "messages). Authorized exactly like actions_get: unauthorized or unknown actions are not found, and a project that can read a "
-    "shared action reads its discussion. Reading never follows the action. " + models.SHARING)
+    instruction_text('operations-read-one-bounded-page-of-an-authorized-action') + models.SHARING)
 COMMENT_DESCRIPTION = (
-    "Add a comment to an action's discussion (it changes neither the action nor its revisions, and queues nothing for Context). "
-    "Needs its own permission and an active participant invoking in the action's owning namespace: being linked to an action "
-    "is read access only. "
-    "You follow the discussion by default unless you explicitly unfollowed it. The registered coordinator may relay an explicit "
-    "installation-owner statement or another agent's report with relay; the recorder is always kept and a relay is never approval.")
+    instruction_text('operations-add-a-comment-to-an-action-s-discussion'))
 FOLLOW = schema({"action_id": ACTION_ID, "following": {"type": "boolean"}}, ("action_id", "following"))
 COMMENT_EVENT = "note_added"
 
@@ -150,8 +125,7 @@ class ActionOperations:
             apply=self.apply_comment, validate_targets=self.validate_comment))
         descriptors.append(OperationDescriptor(ACTION_FOLLOW, FOLLOW, **changing, supports_signoff=False,
             prepare=self.prepare_follow, apply=self.apply_follow,
-            description="Follow or unfollow an action for yourself. The recorder follows by default; an explicit unfollow stays "
-                        "until you follow again. Followers are told when it is corrected or withdrawn."))
+            description=instruction_text('operations-follow-or-unfollow-an-action-for-yourself-the')))
         return tuple(descriptors)
 
     # -- shared rules ----------------------------------------------------------------------------------------------

@@ -100,6 +100,12 @@ def _root(source_id):
 def _read_local(source_id, path):
     """Read one explicitly bounded seed/index path without following links."""
     relative(path)
+    from qorqut_agentic.behavior.sources import location, seed_bytes
+    if location(source_id, path) is not None:
+        body = seed_bytes(source_id, path)
+        if len(body) > MAX_TEXT_BYTES:
+            raise DomainError("instruction_limit", "Instruction resource exceeds its byte limit")
+        return body
     # Host source paths include app/, whereas installed distributions start at bazarlyk/.
     root = _root(source_id)
     if source_id == "host":

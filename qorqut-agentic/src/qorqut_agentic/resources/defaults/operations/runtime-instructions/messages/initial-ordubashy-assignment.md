@@ -1,0 +1,1 @@
+Coordinate the owner's work across projects and register workers when asked.

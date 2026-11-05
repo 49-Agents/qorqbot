@@ -1,4 +1,6 @@
 """Small author projection shared by source-owned conversations."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 import json
 
 from qorqut_operations.contracts import DomainError
@@ -23,7 +25,7 @@ def participants(uow,identities):
 SUMMARY = {
     'type': 'string', 'minLength': 1, 'maxLength': 500,
     'pattern': r'\S',
-    'description': 'Separate summary of the accompanying full message. Use very simple, common words. Aim for 2–5 words and keep it within 10 when possible; longer is allowed. Keep the full message complete.',
+    'description': instruction_text('conversations-separate-summary-of-the-accompanying-full-message-use'),
 }
 
 

@@ -10,6 +10,8 @@ must exist in the caller's scope, the item's own domain already judged who may c
 other records passes its own ``item_resolver`` of the same shape; the injected resolver changes only how a stored
 resource is named, never what the caller may read or relate."""
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from qorqut_operations.application.plans import UUID, ref
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.relationships import create_edge, endpoints, related_rows
@@ -17,7 +19,7 @@ from qorqut_operations.relationships import create_edge, endpoints, related_rows
 from .vocabulary import RESOURCE_TYPES, document_type
 
 TASK_IDS = {"type": "array", "maxItems": 200, "items": UUID, "uniqueItems": True,
-            "description": "Existing Tasks in this project to relate the new item to (each a group Task or any related Task)."}
+            "description": instruction_text('associations-existing-tasks-in-this-project-to-relate-the')}
 OPERATION = "relationships_create"
 
 

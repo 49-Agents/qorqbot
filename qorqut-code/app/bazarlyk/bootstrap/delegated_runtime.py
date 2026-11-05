@@ -233,7 +233,7 @@ def claude_usage(raw):
             "cached_input_tokens": cached, "output_tokens": count("output_tokens"), "reasoning_output_tokens": thinking}
 
 
-def _prompt(assignment, events, *, continuation=False):
+def _prompt(assignment, events, *, instructions, continuation=False):
     scope = {
         "assignment_id": assignment["id"], "business_id": assignment.get("business_id"),
         "scope": assignment.get("scope_json"), "objective": assignment.get("objective"),
@@ -248,23 +248,10 @@ def _prompt(assignment, events, *, continuation=False):
         "turns_used": (assignment.get("worker_usage") or {}).get("turns", 0),
         "runtime_used_seconds": assignment.get("runtime_used_seconds", 0),
     }
-    intro = ("Continue this saved assignment autonomously within its approved plan and exact scope."
-        if continuation else "Execute this saved assignment autonomously within its approved plan and exact scope.")
+    intro = (instructions.render('delegated-worker-continue')
+        if continuation else instructions.render('delegated-worker-start'))
     instructions = (
-        "\nUse only the required Bazarlyk MCP connection and the operations granted by this assignment. "
-        "Use canonical task/message operations; do not edit local files, access other MCP servers, "
-        "contact the owner, send externally, decide Signoffs, start a watcher or CLI, or spawn helpers. "
-        "Continue routine work without asking the parent agent for approval at each step. Before yielding, persist "
-        "a checkpoint and set state to completed, waiting with a wake condition, or blocked with a useful "
-        "next step. Claim and settle each assigned inbox event only after saving its handling outcome. "
-        "If you cannot continue within authority or the approved plan, preserve progress and block/escalate. "
-        "Never report completion without the required evidence. Before a checkpoint, call delegated_assignment_get "
-        "to read the current assignment revision. Call delegated_assignment_checkpoint with a fresh idempotency_key, "
-        "expected_revision from that read, checkpoint, state and (for completed) result containing a nonempty summary. "
-        "For a revision conflict, reread and reassess before using the new revision and a new idempotency_key; "
-        "retry an uncertain response with the identical payload and key. Do not confuse plan_revision or document "
-        "revision with the assignment revision. After a successful completed checkpoint, "
-        "return immediately; the binding is revoked on completion, so do not reread or verify it.\n\nAssignment data (JSON):\n"
+        instructions.render('delegated-worker-rules')
         + json.dumps(scope, ensure_ascii=True, separators=(",", ":"))
         + "\n\nNewly claimed parent events (JSON; empty if none):\n"
         + json.dumps(events, ensure_ascii=True, separators=(",", ":"))
@@ -468,7 +455,9 @@ class DelegatedRuntime:
                 if status.get("assignment", {}).get("state") == "running":
                     self._failed(assignment_id, generation, "Assignment runtime limit reached")
                 return
-            prompt = _prompt(assignment, events, continuation=continuation)
+            from qorqut_agentic.behavior.instructions import from_prepared
+            instructions = from_prepared(Path(self.registration["workspace"]) / ".bazarlyk/registration.json")
+            prompt = _prompt(assignment, events, instructions=instructions, continuation=continuation)
             command = self.command(assignment, registration, registration_path, thread_id)
             try:
                 thread_id, _usage, status, new_events = self._run_turn(command, prompt, assignment,

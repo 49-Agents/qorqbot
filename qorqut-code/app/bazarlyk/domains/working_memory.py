@@ -1,4 +1,6 @@
 """Provider-independent, committed working state for one agent and selected scope."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 import base64
 import hashlib
 import json
@@ -41,17 +43,14 @@ class WorkingMemory:
                 'inventory': {'type': 'boolean'},
                 'inventory_limit': {'type': 'integer', 'minimum': 1, 'maximum': 50},
                 'inventory_after': {'type': 'string', 'minLength': 1, 'maxLength': 24000,
-                    'description': 'Pass next_cursor exactly. New cursors are short process-local handles bound to this agent, scope and page size; they expire or become unavailable after restart/eviction, then restart from the first page. Legacy cursors remain accepted.'},
+                    'description': instruction_text('working-memory-pass-next-cursor-exactly-new-cursors-are')},
                 'business_after': {'type': 'string', 'maxLength': 36}})]:
             registry.register(OperationDescriptor(name, schema(arguments), effect_kind='read',
                 scope_kinds={'business', 'global'}, global_capability='read_global_context', supports_signoff=False,
                 resolve_namespace=lambda ctx, args: 'business:' + ctx.business_id if ctx.business_id else 'global',
                 read=lambda ctx, args, opts, uow, op=name: self.read(op, ctx, args, uow),
-                description=('Read committed own working memory or bounded historical revisions. metadata_only returns the current revision/hash '
-                    'without body or evidence, for recovery when evidence is revoked or a file has drifted. Observe same-scope '
-                    'source IDs to get freshness tokens; this does not acknowledge evidence or inbox events.' if name == 'working_memory_get'
-                    else 'Read compact current working memory and live attention. inventory=true returns paginated own tasks (including snoozed), requested Signoffs and pending inbox summaries across authorized scopes; follow inventory_after from next_cursor. '
-                    'No complete tool catalog, copied task bodies, inbox acknowledgement or scope mutation.')))
+                description=(instruction_text('working-memory-read-committed-own-working-memory-or-bounded') if name == 'working_memory_get'
+                    else instruction_text('working-memory-read-compact-current-working-memory-and-live'))))
         registry.register(OperationDescriptor('working_memory_update', schema({**SELECTOR,
             'body': {'type': 'string', 'maxLength': BODY_LIMIT}, 'sources': REFS,
             'create_if_missing': {'type': 'boolean'}, 'expected_content_hash': HASH,
@@ -60,13 +59,7 @@ class WorkingMemory:
             prepare=self.prepare, apply=self.apply,
             resolve_namespace=lambda ctx, args: 'business:' + ctx.business_id if ctx.business_id else 'global',
             validate_targets=self.validate,
-            description='Save own working handoff: focus, approach, findings, uncertainty and next step. '
-                'Keep tasks/decisions in their owning records. Max 4000 characters; evidence must be same-scope. '
-                'Existing saves require expected_revision and expected_content_hash; first save requires create_if_missing:true. '
-                'Sources use tokens observed with working_memory_get, not guessed current revisions. '
-                'If an own legacy plan exists in this scope, read it first and supply legacy_plan_content_hash on first save; '
-                'its exact original bytes are preserved and legacy writes are retired. '
-                'Do not copy credentials or project evidence into Global notes. Never claim pending work succeeded.'))
+            description=instruction_text('working-memory-save-own-working-handoff-focus-approach-findings')))
 
     def access(self, ctx, args, uow):
         identity = args.get('agent_id', ctx.agent_id)

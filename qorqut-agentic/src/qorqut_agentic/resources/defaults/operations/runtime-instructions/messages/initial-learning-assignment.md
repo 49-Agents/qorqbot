@@ -1,0 +1,1 @@
+Extract evidence-backed agentic proposals, review them with the owner and apply the accepted ones.

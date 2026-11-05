@@ -6,6 +6,8 @@ No credentials or provider exception strings are written to stdout/stderr.
 """
 from __future__ import annotations
 
+from qorqut_agentic.behavior.instructions import from_prepared as prepared_instructions
+
 import argparse
 import json
 from pathlib import Path
@@ -211,9 +213,7 @@ class ReconnectBridge:
                     self.reconnect(deadline)
                     needs_reconnect = False
                     if uncertain:
-                        return self.failure(message, 'MCP reconnected, but the previous tool outcome is unknown. '
-                            'Do not send a new mutation. Reconcile its result or retry the exact original request '
-                            'with its original idempotency key.')
+                        return self.failure(message, prepared_instructions(self.registration_path).render('connection-uncertain-write'))
                     # Discovery may have been empty when this request arrived.
                     # Reclassify before dispatch, never after an uncertain write.
                     safe = method in SAFE_METHODS or (method == 'tools/call' and

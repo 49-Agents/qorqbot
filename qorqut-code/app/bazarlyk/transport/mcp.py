@@ -74,14 +74,13 @@ def split_options(arguments, *, domain_fields=()):
     return {key: value for key, value in arguments.items() if key not in options}, InvocationOptions.from_mapping(options)
 
 
-def validation_hint(value, operation):
+def validation_hint(value, operation, *, read_instructions):
     """Point a rejected call of a known operation to its current schema; never replaces an existing hint."""
     error = value.get("error")
     if (operation is None or "agent_hint" in value or value.get("status") != "error"
             or not isinstance(error, dict) or error.get("code") != "validation_error"):
         return value
-    return {**value, "agent_hint": (f"Read operations_describe(names={json.dumps([operation])}) for the current schema, "
-                                    "correct this call, and preserve its idempotency key if present.")}
+    return {**value, "agent_hint": (read_instructions().render('tool-validation-recovery', VALUE0=f'{json.dumps([operation])}'))}
 
 
 def tool_schema(registry, name):
@@ -265,6 +264,8 @@ class MCPTransport:
             try:
                 actor = self._request_actor()
                 inventory = await anyio.to_thread.run_sync(lambda: self.caller.inventory(actor))
+                instructions = await anyio.to_thread.run_sync(
+                    lambda: self.runtime.resolver.require_agentic_view().tool_instructions())
                 tools = []
                 for row in inventory:
                     if not row["available"]:
@@ -272,8 +273,9 @@ class MCPTransport:
                     descriptor = self.runtime.registry.get(row["canonical_operation"])
                     for name in (row["canonical_operation"], *row["exposed_aliases"]):
                         tools.append(types.Tool(name=name,
-                            description=(descriptor.description or name.replace("_", " ")) + mcp_presentation.description(descriptor.name),
-                            inputSchema=tool_schema(self.runtime.registry, name),
+                            description=instructions.description((descriptor.description or name.replace("_", " "))
+                                + mcp_presentation.description(descriptor.name)),
+                            inputSchema=instructions.metadata(tool_schema(self.runtime.registry, name)),
                             annotations=tool_annotations(descriptor)))
                 return tools
             except DomainError as exc:
@@ -472,7 +474,8 @@ class MCPTransport:
             if presented.get("status") == "ok":
                 self._report_transport_success(operation=canonical_name, request_id=request_id,
                     actor=actor, context=context)
-            return validation_hint(presented, known_operation)
+            return validation_hint(presented, known_operation,
+                read_instructions=lambda: self.runtime.resolver.require_agentic_view().runtime_instructions())
         except DomainError as exc:
             result = OperationResult.failure(exc, request_id=request_id)
         except Exception as exc:
@@ -485,7 +488,8 @@ class MCPTransport:
                     actor=actor, context=context)
             logger.exception("MCP operation failed: %s", request_id)
             result = OperationResult.failure(DomainError("internal_error", "The operation failed; use its correlation ID for diagnosis"), request_id=request_id)
-        return validation_hint(result.to_dict(), known_operation)
+        return validation_hint(result.to_dict(), known_operation,
+            read_instructions=lambda: self.runtime.resolver.require_agentic_view().runtime_instructions())
 
     async def _authorize_batch(self):
         bound = self._request_actor()

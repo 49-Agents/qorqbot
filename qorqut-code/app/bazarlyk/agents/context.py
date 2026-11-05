@@ -225,7 +225,7 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
     orientation.extend(guidance_by_name[path]
                        for path in instruction_policy.LEADING_ORIENTATION)
     from .preferences import plugin_discovery_guidance
-    orientation.append(plugin_discovery_guidance())
+    orientation.append(plugin_discovery_guidance(agentic_view.runtime_instructions()))
     orientation.extend(extension_guidance)
     orientation.extend(guidance_by_name[path]
                        for path in instruction_policy.orientation_tail(available_operations))

@@ -1,0 +1,1 @@
+Relationships are independent directional records. Prefer predefined roles; custom roles and duplicate edges are allowed. A mention is not an assignment or permission grant.

@@ -7,6 +7,7 @@ from copy import deepcopy
 import posixpath
 import re
 from urllib.parse import unquote, urlsplit
+from qorqut_agentic.behavior import sources as instruction_sources
 
 from .support import ImportFailure, Source, absolute, decoded, digest, encoded, identifier, read_yaml, relative
 
@@ -23,7 +24,7 @@ def package_area(package_id):
         return "roles"
     if package_id == "overseer-role-skills":
         return "overseer"
-    if package_id in {"imported-role-skills", "imported-host-builtins", "imported-host-builtins-templates", "runtime-instructions"}:
+    if package_id in {"imported-role-skills", "imported-host-builtins", "imported-host-builtins-templates", "runtime-instructions", "tool-instructions"}:
         return "operations"
     return "plugins"
 
@@ -38,6 +39,31 @@ class Inventory:
         self.sources, self.packages, self.bindings, self.diagnostics, self.assets = {}, {}, [], [], []
         self.native_ids = {}
         self.declarations, self.composition = {}, {}
+
+    def supplier(self, source, path):
+        target = instruction_sources.location(source.id, path)
+        if target is None:
+            return source, path
+        if "roles" not in self.sources:
+            raise ImportFailure("missing_source", "Agentic instruction sources are required")
+        return self.sources["roles"], target
+
+    def read(self, source, path):
+        supplier, target = self.supplier(source, path)
+        body = supplier.read(target)
+        source.classified.add(path)
+        return body
+
+    def exists(self, source, path):
+        supplier, target = self.supplier(source, path)
+        return bool(instruction_sources.paths(source.id, path)) or supplier.exists(target)
+
+    def source_paths(self, source, root, **options):
+        relocated = instruction_sources.paths(source.id, root)
+        physical = source.tree(root, **options) if not root or source.exists(root) else ()
+        if not physical and not relocated:
+            return source.tree(root, **options)
+        return sorted(set(physical) | set(relocated))
 
     def attempt(self, source, function, *args, **kwargs):
         try:
@@ -58,20 +84,23 @@ class Inventory:
 
     def put(self, source, package, path, *, kind="resource", template=False, destination=None, data=None,
             symbol=None, line=None, status="preserved"):
-        body = source.read(path) if data is None else data
+        body = self.read(source, path) if data is None else data
         destination = destination or "native/" + path
         relative(destination)
         sha = digest(body)
         previous = package["files"].get(destination)
         if previous and previous["sha256"] != sha:
             raise ImportFailure("duplicate_destination", "Different assets have the same destination", path=path)
-        provenance = dict(source_id=source.id, path=path, commit=source.commit,
-                          source_sha256=source.used.get(path, sha), symbol=symbol, line=line)
+        supplier, target = self.supplier(source, path)
+        provenance = dict(source_id=supplier.id, path=target, commit=supplier.commit,
+                          source_sha256=supplier.used.get(target, sha), symbol=symbol, line=line)
         row = dict(**provenance, sha256=sha, destination=f"{package['path']}/{destination}",
                    package_id=package["id"], kind=kind, native_owner=source.owner,
                    template=template, enabled=package["native"]["enabled"] and not template, status=status)
+        if supplier is not source:
+            row["native_source"] = {"source_id": source.id, "path": path}
         existing_row = next((item for item in self.assets if item["destination"] == row["destination"]
-                             and item["source_id"] == source.id and item["path"] == path), None)
+                             and item["source_id"] == supplier.id and item["path"] == target), None)
         if existing_row is None:
             self.assets.append(row)
         elif kind != "resource":
@@ -106,7 +135,7 @@ class Inventory:
 
     def tree(self, source, package, root, *, template=False, destination_prefix="native/", advertise=True):
         refs = {}
-        for path in source.tree(root, root_resources=not root):
+        for path in self.source_paths(source, root, root_resources=not root):
             target = destination_prefix + path
             if posixpath.basename(path) == "SKILL.md" and advertise:
                 refs[path] = self.entry(source, package, path, template=template, destination=target)
@@ -125,7 +154,7 @@ class Inventory:
             enabled=package["native"]["enabled"] and not template, template=template, **extra))
 
     def native_manifest(self, source, package, path, *, base="", template=False, role=False, canonical=None):
-        body = source.read(path)
+        body = self.read(source, path)
         manifest = read_yaml(body)
         native_id = identifier(manifest.get("id"))
         self.put(source, package, path, data=body, kind="manifest", template=template)
@@ -156,7 +185,7 @@ class Inventory:
                 target = canonical["files"].get("native/" + target_path)
                 if target is None:
                     raise ImportFailure("missing_canonical_skill", "Native content skill has no adapted entry", path=skill_path)
-                source_bytes = source.read(skill_path)
+                source_bytes = self.read(source, skill_path)
                 ref = next(f"{canonical['id']}/{e['id']}" for e in canonical["entries"] if e["path"] == "native/" + target_path)
                 # Original native bytes remain reconstructable, but never enter the active catalog as a second skill.
                 self.tree(source, package, posixpath.dirname(skill_path), advertise=False,
@@ -180,10 +209,10 @@ class Inventory:
         from .text import parse_index, render_text
         from qorqut_operations.contracts import DomainError
 
-        if not source.exists(index_path):
+        if not self.exists(source, index_path):
             return
         self.put(source, package, index_path, kind="metadata")
-        entries = parse_index(source.read(index_path))
+        entries = parse_index(self.read(source, index_path))
         prefix = posixpath.dirname(index_path) + "/"
         indexed = set()
         trees, sites = {}, {}
@@ -192,12 +221,12 @@ class Inventory:
             source_path, symbol = site.split(":")
             if not path.startswith(prefix) or source_path not in source_paths:
                 raise ImportFailure("invalid_text_index", "Declaration is outside the bounded source contract", path=path, source_site=site)
-            text = source.read(path).decode("utf-8", "strict")
+            text = self.read(source, path).decode("utf-8", "strict")
             try:
                 render_text(text, entry["parameters"], {name: "" for name in entry["parameters"]})
             except DomainError as exc:
                 raise ImportFailure("invalid_text_index", exc.message, path=path) from exc
-            raw = source.read(source_path)
+            raw = self.read(source, source_path)
             # Several fragments share one source site. Reuse only parsing of
             # exact bytes read during this inventory; validate each call below.
             site_key = (raw, symbol)
@@ -226,7 +255,9 @@ class Inventory:
             if not valid or len(valid) != len(calls):
                 raise ImportFailure("unresolved_source_site", "No exact renderer call with declared parameters at source_site", path=path, source_site=site)
             self.entry(source, package, path, "instruction", entry_id=entry["id"])
-            row = next(a for a in self.assets if a["source_id"] == source.id and a["path"] == path)
+            row = next(a for a in self.assets if
+                       (a.get("native_source") or {"source_id": a["source_id"], "path": a["path"]})
+                       == {"source_id": source.id, "path": path})
             row.update(parameters=entry["parameters"], source_site=site,
                        source_site_sha256=digest(raw), source_site_lines=sorted(n.lineno for n in valid))
             self.declarations[(source.id, path)] = entry
@@ -234,7 +265,7 @@ class Inventory:
                 asset_path=path, parameters=entry["parameters"], source_site=site,
                 lines=sorted(n.lineno for n in valid), source_sha256=digest(raw)))
             indexed.add(path)
-        for path in source.tree(prefix.rstrip("/")):
+        for path in self.source_paths(source, prefix.rstrip("/")):
             if path.endswith(".md") and path not in indexed:
                 source.issue("undeclared_instruction", "Markdown fragment is absent from its index", path=path)
 
@@ -277,7 +308,7 @@ class Inventory:
             source.issue("pending_host_composition", "Built-in skill lacks its managed resource contract", path=path, severity="pending")
             return
         self.composition.setdefault((source.id, path), []).append(dict(asset_path=skill_path, parameters=[],
-            source_site=path + ":skill_files", lines=[n.lineno for n in calls], source_sha256=digest(source.read(path))))
+            source_site=path + ":skill_files", lines=[n.lineno for n in calls], source_sha256=digest(self.read(source, path))))
 
     def email_guide(self, source, package, root):
         """Import the canonical guide from explicit offline bytes, never instance discovery."""
@@ -292,9 +323,9 @@ class Inventory:
             source = Source("email-guidance", root, source.owner, source.enabled, self.diagnostics)
             self.sources[source.id] = source
             prefix = ""
-            files = source.tree("", root_resources=True)
+            files = self.source_paths(source, "", root_resources=True)
         else:
-            version = read_yaml(source.read("plugin.yaml")).get("version")
+            version = read_yaml(self.read(source, "plugin.yaml")).get("version")
             required = email_guidance.template_files(version)
             if required is None:
                 raise ImportFailure("unsupported_email_guidance", "Email Management package version has no known factory template",
@@ -309,7 +340,7 @@ class Inventory:
         size = 0
         for path in files:
             name = path.removeprefix(prefix)
-            data = source.read(path)
+            data = self.read(source, path)
             size += len(data)
             if size > 64 * 1024 * 1024:
                 raise ImportFailure("oversized_resource", "Offline email guide exceeds 64 MiB")
@@ -369,11 +400,11 @@ return render_text(text, parameters, values).encode("utf-8")''').body
         if email is None:
             return False
         try:
-            discovery = email.read(expected["discovery_source"]).decode("utf-8", "strict")
+            discovery = self.read(email, expected["discovery_source"]).decode("utf-8", "strict")
             render_text(discovery, expected["parameters"], {"EMAIL_MANAGEMENT_HOME": ""})
         except (UnicodeError, DomainError, ImportFailure):
             return False
-        self.composition[(source.id, path)] = [dict(**expected, source_sha256=digest(source.read(path)),
+        self.composition[(source.id, path)] = [dict(**expected, source_sha256=digest(self.read(source, path)),
                                                    status="declared_email_composition")]
         return True
 
@@ -417,7 +448,7 @@ return render_text(text, parameters, values).encode("utf-8")''').body
                     binding["entry_refs"] = [ref for ref in binding["entry_refs"] if not ref.startswith(inactive_id + "/")]
 
     def embedded(self, source, package, path, *, metadata=False):
-        raw = source.read(path)
+        raw = self.read(source, path)
         try:
             text = raw.decode("utf-8")
             tree = ast.parse(text)
@@ -583,7 +614,7 @@ def _compose_inventory(inv, selected, custom_sources, email_guidance_root):
         for role in ROLE_IDS:
             def import_role(role_id):
                 path = f"roles/imported-roles/native/roles/{role_id}/role.yaml"
-                manifest = read_yaml(source.read(path))
+                manifest = read_yaml(inv.read(source, path))
                 native_id = identifier(manifest.get("id"))
                 if native_id != role_id:
                     raise ImportFailure("invalid_manifest", "Role ID does not match its path", path=path)
@@ -603,7 +634,7 @@ def _compose_inventory(inv, selected, custom_sources, email_guidance_root):
                     if not skill_path.startswith(prefix + "native/skills/") or not skill_path.endswith("/SKILL.md"):
                         raise ImportFailure("invalid_manifest", "Role skill is outside its canonical package", path=skill_path)
                     logical_skill = skill_path.removeprefix(prefix)
-                    for item in source.tree(posixpath.dirname(skill_path)):
+                    for item in inv.source_paths(source, posixpath.dirname(skill_path)):
                         target = item.removeprefix(prefix)
                         if item == skill_path:
                             ref = inv.entry(source, package, item, destination=target)
@@ -618,7 +649,7 @@ def _compose_inventory(inv, selected, custom_sources, email_guidance_root):
         for package in (role_package, *skill_packages.values()):
             def import_bundle_manifest(package):
                 path = package["path"] + "/agentic.yaml"
-                body = source.read(path)
+                body = inv.read(source, path)
                 manifest = read_yaml(body)
                 if manifest.get("id") != package["id"] or not isinstance(manifest.get("entries"), list):
                     raise ImportFailure("invalid_manifest", "Invalid bundled package manifest", path=path)
@@ -629,17 +660,18 @@ def _compose_inventory(inv, selected, custom_sources, email_guidance_root):
                 package["manifest_file"] = dict(content_base64=encoded(body), sha256=digest(body),
                                                 source_id=source.id, source_path=path)
             inv.attempt(source, import_bundle_manifest, package)
-        def import_runtime_instructions():
-            package = inv.package("runtime-instructions", source.owner, True)
+        def import_instruction_library(package_id):
+            package = inv.package(package_id, source.owner, True)
             prefix = package["path"] + "/"
-            body = source.read(prefix + "agentic.yaml")
+            body = inv.read(source, prefix + "agentic.yaml")
             manifest = read_yaml(body)
             if manifest.get("id") != package["id"] or not isinstance(manifest.get("entries"), list):
                 raise ImportFailure("invalid_manifest", "Invalid runtime instruction manifest")
             refs = []
             for entry in manifest["entries"]:
                 path = relative(entry["path"])
-                if entry.get("kind") != "instruction" or not path.startswith("messages/"):
+                if entry.get("kind") != "instruction" or not (path.startswith("messages/") or
+                        package_id == "tool-instructions" and path == "messages.json"):
                     raise ImportFailure("invalid_manifest", "Invalid runtime instruction entry")
                 refs.append(inv.entry(source, package, prefix + path, "instruction",
                                       destination=path, entry_id=entry["id"]))
@@ -647,9 +679,10 @@ def _compose_inventory(inv, selected, custom_sources, email_guidance_root):
                 inv.put(source, package, prefix + path, destination=path)
             package["manifest_file"] = dict(content_base64=encoded(body), sha256=digest(body),
                 source_id=source.id, source_path=prefix + "agentic.yaml")
-            inv.binding(source, "runtime-instructions", package, refs, kind="builtin")
+            inv.binding(source, package_id, package, refs, kind="builtin")
 
-        inv.attempt(source, import_runtime_instructions)
+        for package_id in ("runtime-instructions", "tool-instructions"):
+            inv.attempt(source, import_instruction_library, package_id)
     if "host" in inv.sources:
         source = inv.sources["host"]
         package = inv.package("imported-host-builtins", source.owner, True)
@@ -724,7 +757,7 @@ def _compose_inventory(inv, selected, custom_sources, email_guidance_root):
         for path in paths:
             inv.attempt(source, inv.embedded, source, package, path, metadata=True)
         for tree in ("docs", "skills"):
-            if source.exists(tree):
+            if inv.exists(source, tree):
                 inv.attempt(source, inv.tree, source, package, tree, advertise=tree == "skills")
         inv.binding(source, source_id, package, [f"{package['id']}/{e['id']}" for e in package["entries"]],
                     kind="extension", metadata_only=not package["entries"])
@@ -760,7 +793,7 @@ def _compose_inventory(inv, selected, custom_sources, email_guidance_root):
         if descriptor["kind"] == "plugin":
             inv.attempt(source, inv.native_manifest, source, package, "plugin.yaml")
         else:
-            if source.exists("SKILL.md"):
+            if inv.exists(source, "SKILL.md"):
                 ref = inv.entry(source, package, "SKILL.md")
                 # The supplied root is the resource boundary, with private/runtime exclusions.
                 inv.attempt(source, inv.tree, source, package, "", advertise=False)
@@ -775,9 +808,9 @@ def _compose_inventory(inv, selected, custom_sources, email_guidance_root):
         if source_id.startswith("custom-"):
             roots = ("skills", "critic", "templates")
         for root in roots:
-            if not source.exists(root):
+            if not inv.exists(source, root):
                 continue
-            paths = inv.attempt(source, source.tree, root) or []
+            paths = inv.attempt(source, inv.source_paths, source, root) or []
             for path in paths:
                 if path.rsplit("/", 1)[-1] in {"SKILL.md", "role.yaml", "plugin.yaml"} and path not in source.classified:
                     source.issue("unclassified_asset", "Candidate asset has not been classified", path=path)

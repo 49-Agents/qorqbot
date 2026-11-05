@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import hashlib
 
 from qorqut_operations.application import OperationDescriptor
@@ -24,12 +26,12 @@ class JournalOperations:
                       resolve_namespace=lambda _ctx, _args: "global", exposure={"mcp"})
         registry.register(OperationDescriptor(
             "journal_entries_list", schema(PAGE), effect_kind="read", supports_signoff=False,
-            description="When the owner asks, list visible journal entry titles and dates so the named entry can be read. Does not change review or filing state.",
+            description=instruction_text('journal-when-the-owner-asks-list-visible-journal-entry'),
             read=lambda c, a, o, u: self.read_list(c, a, u), **shared))
         registry.register(OperationDescriptor(
             "journal_entry_get", schema({"document_id": {"type": "string", "format": "uuid"}}, ("document_id",)),
             effect_kind="read", supports_signoff=False,
-            description="When the owner asks, return the complete current visible journal entry with its title, date, checklist state, revision and content hash. Never return a diff or excerpt.",
+            description=instruction_text('journal-when-the-owner-asks-return-the-complete-current'),
             read=lambda c, a, o, u: self.read_entry(c, a, u), **shared))
         return self
 

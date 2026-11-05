@@ -5,6 +5,8 @@ target is always the installation owner and every mutation now needs the owner o
 no longer use them to remind the owner. Every call is also authorized as the matching shared ``reminders_*`` operation (a deny
 there is not bypassed here), including when a saved result is replayed. Reminders are stable rows now, so an update keeps its
 reminder_id. Optional delivery adapters own admission of historical queued transport rows."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, page_position, schema
 from qorqut_operations.contracts import DomainError, plain
@@ -32,15 +34,13 @@ class LegacyReminders:
         self.app.registry.register(OperationDescriptor(NAME, schema({
             "action": {"enum": ["schedule", "list", "update", "cancel"]},
             "text": {"type": "string", "minLength": 1, "maxLength": 240},
-            "at": {"type": "string", "format": "date-time", "description": "When to remind the owner; include a timezone offset."},
+            "at": {"type": "string", "format": "date-time", "description": instruction_text('legacy-when-to-remind-the-owner-include-a-timezone')},
             "reminder_id": {"type": "string", "format": "uuid"},
             "revision": {"type": "integer", "minimum": 1},
         }, ("action",)), supports_signoff=False, exposure=frozenset({"mcp", "dashboard"}),
             scope_kinds=frozenset({"business", "global"}),
             resolve_namespace=lambda ctx, args: self.service.namespace(ctx), global_capability="read_global_context",
-            description="Short alias for the owner's own one-off reminders; prefer the reminders_* tools, which also support "
-                        "recurrence and other recipients. When the owner asks to be reminded, schedule one concise reminder with text and "
-                        "at; list, update or cancel with reminder_id and revision. Only the owner and Ordubashy may use it.",
+            description=instruction_text('legacy-short-alias-for-the-owner-s-own-one'),
             prepare=self.prepare, apply=self.apply, replay_validator=self.replay))
         self.app.registry.register(OperationDescriptor(READ, schema({
             "scope": {"enum": ["business", "global"]},
@@ -50,8 +50,7 @@ class LegacyReminders:
             effect_kind="read", supports_signoff=False, exposure=frozenset({"dashboard", "worker"}),
             scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
             resolve_namespace=self.read_namespace,
-            description="Owner and configured Ordubashy read of the owner's reminders in the selected project (or Global from the "
-                        "root route). Safe stored fields only; no delivery, update or cancel.",
+            description=instruction_text('legacy-owner-and-configured-ordubashy-read-of-the-owner'),
             read=self.read))
         return self
 

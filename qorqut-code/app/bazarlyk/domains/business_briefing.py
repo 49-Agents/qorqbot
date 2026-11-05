@@ -1,4 +1,6 @@
 """One bounded business briefing assembled from the caller's own authorized reads."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 from collections import Counter
 from dataclasses import replace
 from datetime import timedelta
@@ -15,11 +17,7 @@ STUCK_AFTER = timedelta(hours=1)
 MAX_CHARACTERS = 10000
 CAPS = {"context": 6, "blocked": 5, "active": 6, "paused": 3, "groups": 5, "routines": 5, "jobs": 3,
         "signoffs": 5, "owner_tasks": 4, "done": 4, "agents": 6, "work": 3, "notes": 4}
-DESCRIPTION = ("One bounded snapshot of a project: the shared published Context's revision and most connected nodes, "
-    "open and blocked tasks, parent-Task work groups, routines and failed jobs, what waits on the owner, work done in the last 14 days, agent "
-    "activity, project note headlines and KPIs. Call it first when you start work "
-    "on a project; Global agents pass business_id. Sections you cannot read are marked unavailable; each "
-    "section names the tool for details. Read-only; it never acknowledges inbox events.")
+DESCRIPTION = (instruction_text('business-briefing-one-bounded-snapshot-of-a-project-the'))
 
 
 def clip(value, limit, *, lines=False):
@@ -117,8 +115,7 @@ class _Briefing:
             result[key] = self.section(key, build)
         if self.unavailable:
             result["unavailable"] = self.unavailable
-        result["note"] = ("Bounded snapshot, not an inventory: lists are capped and sorted by relevance. "
-                          "Read the named tools before acting; unavailable sections are not empty.")
+        result["note"] = (self.app.policy.agent_resolver.require_agentic_view().runtime_instructions().render('project-briefing-evidence'))
         return bound(result)
 
     def context(self):

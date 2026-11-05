@@ -1,74 +1,87 @@
-# Runtime instruction ownership
+# Shipped instruction ownership
 
-Agentic owns the wording, selection and behavioral policy for Qorqbot's startup,
-native hooks, Attention reminders and completion guidance. The host supplies
-authorized records and performs authenticated delivery. This consolidation keeps
-the existing wording, prompt order, timing, role exclusions and correction limits.
+Agentic owns Qorqbot's shipped instruction prose and pure behavior composition.
+The host supplies authorized records and handles delivery. This consolidation
+preserves existing wording, section order, triggers, timing, permissions and
+role exclusions. It does not revise Ordubashy's responsibilities.
 
-This pass covers runtime messages and their behavioral policy. Generated workspace
-orientation, tool descriptions and connector-specific guidance still have host or
-connector code as their source; they are not included in the runtime message index.
+## Where the instructions live
 
-## Where to read the instructions
+All supplier text lives under `qorqut_agentic/resources/defaults/`:
 
-| Content | Canonical location in the instance | Delivery |
+| Content | Supplier package or library | Active delivery |
 | --- | --- | --- |
-| Role responsibilities | `roles/imported-roles` | Mandatory startup configuration |
-| Shared foundation, work loop and instruction fragments | `operations/imported-host-builtins` and its registered documents | Mandatory configuration, selected by available capabilities |
-| Role skills | `operations/imported-role-skills` | Selected skill projection; nine configured skills are loaded at startup |
+| Role responsibilities | `roles/imported-roles` | Mandatory configuration |
+| Role skills | `operations/imported-role-skills` | Selected skills; nine configured skills load at startup |
 | Owner preferences | `user-preferences` | Mandatory configuration |
-| Hook, recovery and reminder messages | `operations/runtime-instructions` | Conditional native hook or background delivery |
-| Agentic management | `operations/agentic-management` | Authorized management orientation and procedures |
+| Startup, workspace, inbox, Attention, delegation and recovery messages | `operations/runtime-instructions` | Current catalog or prepared native-hook snapshot |
+| Native tool descriptions, schema help and response guidance | `operations/tool-instructions` | Tool discovery, configuration inventory and exact schema reads |
+| Shared fragments, workspace skills, terminal and email packages, connector guidance, and initial document seeds | `operations/source-instructions` | Existing native catalog destinations and bindings |
+| Agentic management and Overseer | `operations/agentic-management`, `overseer` | Authorized management and selected procedures |
 
-The [runtime message index](../src/qorqut_agentic/resources/defaults/operations/runtime-instructions/README.md)
-lists each migrated message, its delivery path and active/legacy status. Its
-machine-readable index declares substitutions and previous source locations.
-Template parameters contain data and are substituted once, never interpreted as
-additional templates. Dynamic source records, status labels and ordinary errors
-remain data; they are not independently authored behavioral rules.
+The [runtime index](../src/qorqut_agentic/resources/defaults/operations/runtime-instructions/README.md)
+lists individual messages. The tool and source libraries have machine-readable
+indexes mapping entries to their native delivery sites or stable source aliases.
+Historical Telegram role snippets and basic plugin templates remain inactive.
+Provider implementations, independent Context-filer prompts and external coding
+session instructions are outside this registered-agent instruction library.
+
+## Native aliases and existing edits
+
+The source library replaces host- and connector-owned source files. Native calls
+keep their stable source aliases and installed catalog destinations. The importer
+verifies those aliases, records Agentic as the actual supplier, and preserves the
+native package identity separately. Moving a supplier does not replace an existing
+local catalog edit. Connector prose ships as data; selecting a connector and
+registering its code and tools remain separate host operations.
+
+Three shared documents (`foundation`, `ecosystem-agent`, `ecosystem`) remain
+registered Operations records after their initial seed. Saved agent assignment
+briefs and owner-written email instructions are also instance records. Their
+**shipped defaults** are centralized here; their current authored content and
+history are not migrated or overwritten by this source consolidation. Moving those
+live records would require an explicit data migration that preserves local edits.
+
+Tool libraries construct ordinary string metadata from Agentic's packaged seeds.
+Before delivering that trusted metadata, the host substitutes the current catalog
+clauses, once, in descriptions only. Machine schema constraints, enum values,
+permission decisions and handlers stay native. The same projection is used for
+MCP discovery, `operations_describe` and `agent_config_get`; it never runs on user
+records or conversation text. The Operations library depends on Agentic only for
+these instruction seeds, not for authorization or execution.
 
 ## Behavior code
 
 The `qorqut_agentic.behavior` modules own:
 
-- `composition`: existing mandatory section order and capability-based guidance selection.
-- `instructions`: template rendering, recovery-message selection, always-loaded
-  skill selection and budgets, and the existing activity-reminder condition.
-- `attention`: bounded reminder presentation and choice of focus, board or
-  workflow-detach guidance.
-- `attention_clock`: focus/board reminder timing, owner-message deferral and
-  workflow-detach eligibility.
+- `composition`: mandatory section order and capability-based guidance selection.
+- `workspace`: prepared Claude and Codex instruction composition and delegation branches.
+- `instructions`: template rendering, recovery selection, skill selection and budgets,
+  and the activity-reminder condition.
+- `attention` and `attention_clock`: reminder wording, presentation, timing and deferral.
 - `completion`: review eligibility, finding closure and correction formatting.
+- `sources`, `seeds` and `tool_help`: supplier aliases, initial seeds and tool wording.
 
-The host retains authentication, permission checks, operational reads and writes,
-native hook registration, process observation, durable claims, clocks and message
-transport. Executable behavior code is shipped with the Agentic library; authored
-catalog content is not executed as Python.
+Authentication, operational reads and writes, hook registration, native process
+observation, durable claims, clock access and message transport stay with the host.
+Authored catalog text is never executed as Python. Template parameters are data
+and are substituted once. Operational records, status labels and ordinary errors
+are not a second set of behavioral rules.
 
-## Prepared copies and refresh
+## Installation and refresh
 
-The fresh importer registers `runtime-instructions` as a protected operations
-package, using the same inventory, provenance and catalog validation as existing
-native instructions. Server-side messages read the current managed package.
-There is no runtime fallback to the repository's default wording.
+Fresh imports require the protected runtime and tool instruction packages.
+Active delivery reads their current managed content without a packaged fallback.
+Trusted preparation also writes `.bazarlyk/runtime-instructions.json` and copies
+its standard-library renderer beside isolated hooks. These are generated copies
+for startup and service outages, not separately authored sources.
 
-Trusted agent preparation writes `.bazarlyk/runtime-instructions.json` from that
-catalog and copies the standard-library Agentic renderer beside native hooks.
-These files are generated projections, not a second authored source. They allow
-startup and recovery hooks to work while the service is unavailable. Missing or
-invalid snapshots are reported; they never select another set of instructions.
+Instruction-only changes use the existing locked projection refresh: verify the
+prepared files, refuse local-edit conflicts, and replace the snapshot atomically.
+Changed executable behavior still requires normal trusted release/preparation;
+editing catalog text cannot load Python into a running client.
 
-Instruction-only changes reuse the existing locked skill refresh and projection
-receipt. Refresh first verifies the prepared files, preserves local edits by
-refusing conflicts, and replaces the snapshot atomically. Changed behavior code
-requires normal trusted preparation/release adoption; it is not loaded from the
-authored catalog or silently rewritten into a running client.
-
-Existing installations need an explicit reviewed catalog update containing the
-new protected package, followed by agent preparation. Opening the service does
-not seed, migrate or overwrite an existing instruction catalog. Package updates
-that change managed instructions retain the existing release qualification rules.
-
-Retired Focus completion wording and legacy environment/briefing fallbacks remain
-labelled for inspection and historical compatibility. Consolidation does not
-activate them, change the Ordubashy role, add checks, or introduce a new supervisor.
+Existing installations need a reviewed catalog update followed by agent
+preparation. Opening the service does not overwrite the catalog. Older inventory
+bindings remain verifiable for update history, including bindings that predate
+these packages. Retired and legacy entries retain their existing activation state.

@@ -11,6 +11,8 @@ references, owner-work routing) arrives through ``TaskPorts``."""
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from qorqut_operations.application.catalog import CatalogContribution
 from qorqut_operations.application.plans import (DATE, IDENTITY, PAGE, TEXT, UUID, PlanBuilder, apply_records, page, ref,
                                                  require_revision, rows, schema, timestamp, utc_clock)
@@ -53,17 +55,16 @@ TASK_ENTRIES = (
 ASSIGNEES = {"type": "array", "items": UUID, "maxItems": 100}
 SCOPE = {"scope": {"enum": ["business", "global"]}}
 TASK_FIELDS = {
-    "task_type": {"enum": list(TYPES), "description": "task for an actionable step; story for an ongoing relationship, opportunity or work group; customer for a person or company; email for a historical Task bound to one email conversation (its binding is read-only)."},
-    "overview": {"type": "string", "maxLength": 20000, "description": "Maintained current summary and next steps; history stays in the Task discussion and related items."},
-    "email_conversation_id": {"anyOf": [IDENTITY, {"type": "null"}], "description": "Historical binding of an Email Task, kept read-only. Ordinary writes omit it; changing the type away from email clears it."},
+    "task_type": {"enum": list(TYPES), "description": instruction_text('operations-task-for-an-actionable-step-story-for-an')},
+    "overview": {"type": "string", "maxLength": 20000, "description": instruction_text('operations-maintained-current-summary-and-next-steps-history-stays')},
+    "email_conversation_id": {"anyOf": [IDENTITY, {"type": "null"}], "description": instruction_text('operations-historical-binding-of-an-email-task-kept-read')},
     "customer_kind": KIND_SCHEMA, "customer_state": STATE_SCHEMA, "customer_profile": PROFILE_SCHEMA,
     "kind": {"enum": list(KINDS)}, "title": {"type": "string", "minLength": 1, "maxLength": 1000},
     "status": {"enum": list(STATES)}, "assignee_ids": ASSIGNEES, "worker_ids": {**ASSIGNEES, "uniqueItems": True}, "archived": {"type": "boolean"}, "tags": LABELS_SCHEMA,
     "due": {"anyOf": [DATE, {"type": "null"}]}, "blocked_by": {"type": "array", "items": IDENTITY, "maxItems": 100, "uniqueItems": True},
     "fields": {"type": "object", "maxProperties": 100},
-    "snoozed_until": {"description": "One shared deferral of the Task's due reminder, as a timezone-aware future timestamp; null "
-                      "clears it. It is not a state, a due date or a subscription change.", "anyOf": [{"type": "string", "maxLength": 64}, {"type": "null"}]},
-    "parent_id": {"description": "The parent Task in the same owning scope (null for none). Parent and child states are independent.",
+    "snoozed_until": {"description": instruction_text('operations-one-shared-deferral-of-the-task-s-due'), "anyOf": [{"type": "string", "maxLength": 64}, {"type": "null"}]},
+    "parent_id": {"description": instruction_text('operations-the-parent-task-in-the-same-owning-scope'),
                   "anyOf": [IDENTITY, {"type": "null"}]},
 }
 FOLLOW = schema({"task_id": IDENTITY, "following": {"type": "boolean"}}, ("task_id", "following"))
@@ -123,8 +124,7 @@ class TaskOperations:
         refs = self.note_references().schema
         common = dict(scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
                       resolve_namespace=task_namespace,
-                      description="Manage tasks in the selected project, or use scope=global for Global-only work. Global tasks are "
-                                  "not inherited by projects; only the owner and granted global agents have access.")
+                      description=instruction_text('operations-manage-tasks-in-the-selected-project-or-use'))
         reads = {
             "tasks_list": {**PAGE, "assignee_id": {"anyOf": [UUID, {"type": "null"}]}, "include_archived": {"type": "boolean"},
                            "task_type": {"enum": list(TYPES)},
@@ -132,12 +132,12 @@ class TaskOperations:
                            "statuses": {"type": "array", "items": {"enum": list(STATES)}}, "tags": LABELS_SCHEMA,
                            "include_closed": {"type": "boolean"}, "include_paused": {"type": "boolean"}, "blocked": {"type": "boolean"},
                            "due_before": DATE, "search": {"type": "string", "maxLength": 500},
-                           "parent_id": {"anyOf": [IDENTITY, {"type": "null"}], "description": "Children of this parent, or null for top-level tasks."},
+                           "parent_id": {"anyOf": [IDENTITY, {"type": "null"}], "description": instruction_text('operations-children-of-this-parent-or-null-for-top')},
                            "snooze_filter": {"enum": ["active", "snoozed", "all"], "default": "active",
-                                             "description": "Defaults to not currently snoozed. Snoozed tasks are the backlog. Closed/archived filters apply independently."}},
+                                             "description": instruction_text('operations-defaults-to-not-currently-snoozed-snoozed-tasks-are')}},
             "tasks_get": {"task_id": IDENTITY, "related_cursor": PAGE["cursor"],
                           "notes_limit": {"type": "integer", "minimum": 0, "maximum": 10, "default": 7,
-                                          "description": "Comments per page, newest first (0 omits them). Keep it unchanged when paging."},
+                                          "description": instruction_text('operations-comments-per-page-newest-first-0-omits-them')},
                           "notes_cursor": PAGE["cursor"]}, "tasks_thread_get": {**PAGE, "task_id": IDENTITY},
             "tasks_notes_list": {**PAGE, "task_id": IDENTITY}, "tasks_config_get": {}, "assignees_list": {}, "workers_list": {},
         }
@@ -159,18 +159,14 @@ class TaskOperations:
             options = common
             if name in {"tasks_create", "tasks_update"}:
                 options = {**common, "description": common["description"] +
-                           " Tags are ordinary labels that group work; they never grant access or select an assignee. "
-                           "Preserve unrelated tags on updates. Tags come from the shared "
-                           "tag catalog (tags_list); a new label is created by using it."}
+                           instruction_text('operations-tags-are-ordinary-labels-that-group-work-they')}
             descriptors.append(OperationDescriptor(
                 name, schema({**SCOPE, **properties, "rationale": TEXT}, required), **options,
                 prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, options, uow),
                 apply=self.apply, validate_targets=self.validate_prepared))
         descriptors.append(OperationDescriptor(
             TASK_FOLLOW, schema({**SCOPE, **FOLLOW.get("properties", {})}, ("task_id", "following")),
-            **{**common, "description": "Follow or unfollow a task's discussion for yourself. Creators, assignees and commenters follow by "
-                                        "default; an explicit unfollow stays until you follow again. Required responsibility updates "
-                                        "still reach responsible assignees."},
+            **{**common, "description": instruction_text('operations-follow-or-unfollow-a-task-s-discussion-for')},
             supports_signoff=False, prepare=self.prepare_follow, apply=self.apply_follow))
         return tuple(descriptors)
 
