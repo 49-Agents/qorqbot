@@ -253,7 +253,7 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
     host.querySelector('[data-add-child]')?.addEventListener('click', () => {
       if (!embedded) { taskCreateDialog(null, {parentId:task.id, onCreated:()=>open(task.id)}); return; }
       if (child || !current()) return;
-      const parentContent = host.firstElementChild, scrollTop = host.scrollTop;
+      const parentContent = host.firstElementChild, scrollTop = host.scrollTop, parentEditor = editorParts;
       const childHost = document.createElement('div');
       parentContent.hidden = true; parentContent.inert = true; host.append(childHost);
       let beforeLeave = () => true, cleanups = [], dead = false;
@@ -277,10 +277,11 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
         onCreated: async () => {
           try {
             const data = await invoke('tasks_get', {task_id: task.id});
-            if (!current() || !data?.task) return;
+            if (!current() || selected !== task || editorParts !== parentEditor) return;
+            if (!data?.task) throw new Error('Invalid task response');
             task.children = data.task.children || []; task.children_has_more = data.task.children_has_more;
             paintFamily();
-          } catch (_) { if (current()) message('Child created. Refresh the task to update related work.'); }
+          } catch (_) { if (current() && selected === task && editorParts === parentEditor) message('Child created. Refresh the task to update related work.'); }
         }});
     });
     const progress = task && !embedded ? taskProgressMount(host.querySelector('[data-task-progress]'), task, null) : null;
@@ -410,10 +411,10 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
         // passed; a handled result has already disposed this editor or deliberately kept it.
         if (initialCreate && !selected && session) {
           void refreshTasks();
-          if (onCreated) await onCreated(fresh);
           busy = false;
           token.dirty = () => false;
           await session.close();
+          if (onCreated) void Promise.resolve().then(() => onCreated(fresh)).catch(() => {});
           return;
         }
         if (onCanonical && await onCanonical(fresh, {reload: false, changes: submitted})) return;

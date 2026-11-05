@@ -57,18 +57,18 @@ for (const outcome of ['malformed', 'wrong-id', 'timeout', 'rate-limit', 'coded-
  h.retry.onclick();await tick();assert.deepEqual(JSON.parse(JSON.stringify(h.writes[1])),JSON.parse(JSON.stringify(h.writes[0])));
  h.pending[1].resolve({task:{id:'id-1'}});await tick();await tick();assert.equal(h.session.closed,1);
 });
-async function parentOpened(){
+async function parentOpened({deferRefresh=false}={}){
  const h=harness(), c=harness(), add=new Node(), family=new Node();family.querySelectorAll=()=>[];
  const previous=h.host.querySelector;h.host.querySelector=s=>s==='[data-add-child]'?add:s==='[data-task-family]'?family:previous(s);
  h.fields.archived={checked:false};
  const task={id:'parent',title:'Parent',status:'open',assignee_ids:['owner'],tags:[],children:[],revision:1};
- let childHostUsed=false, reads=0;
+ let childHostUsed=false, reads=0, resolveRefresh;
  h.ctx.document.createElement=tag=>tag==='div'&&!childHostUsed?(childHostUsed=true,c.host):new Node();
- h.ctx.post=async(url,args)=>{h.calls.push([url,args]);if(url.endsWith('assignees_list'))return {assignees:[{id:'owner',is_owner:true}]};if(url.endsWith('tasks_get')){reads++;return {task:{...task,children:reads>1?[{id:'id-1',title:'Child',status:'open'}]:[]}};}if(url.endsWith('tasks_create')){h.writes.push(args);return new Promise((resolve,reject)=>h.pending.push({resolve,reject}));}return {tasks:[]};};
+ h.ctx.post=async(url,args)=>{h.calls.push([url,args]);if(url.endsWith('assignees_list'))return {assignees:[{id:'owner',is_owner:true}]};if(url.endsWith('tasks_get')){reads++;if(reads>1 && deferRefresh)return new Promise(resolve=>{resolveRefresh=resolve;});return {task:{...task,children:reads>1?[{id:'id-1',title:'Child',status:'open'}]:[]}};}if(url.endsWith('tasks_create')){h.writes.push(args);return new Promise((resolve,reject)=>h.pending.push({resolve,reject}));}return {tasks:[]};};
  h.ctx.tChipLabel=x=>x;h.ctx.customerStateChip=()=>'';h.ctx.taskTypeIcon=()=>'';
  const controller=h.ctx.globalTasksMount(h.host,{initialTaskId:'parent',embedded:true});await tick();await tick();
  h.fields.title.value='Parent draft';add.onclick();await tick();
- return {h,c,controller,add,family,get reads(){return reads;}};
+ return {h,c,controller,add,family,get reads(){return reads;}, resolveRefresh: result=>resolveRefresh(result)};
 }
 test('child cancel guards draft and preserves parent editor without writes',async()=>{
  const {h,c,controller}=await parentOpened();assert.equal(h.writes.length,0);assert.equal(h.host.firstElementChild.hidden,true);
@@ -85,4 +85,12 @@ test('child create retains parent identity and draft through unknown outcome and
 
 test('clean child Back restores parent without creating',async()=>{
  const {h,c}=await parentOpened();c.back.onclick();await tick();assert.equal(h.host.firstElementChild.hidden,false);assert.equal(h.fields.title.value,'Parent draft');assert.equal(h.writes.length,0);
+});
+
+test('confirmed child closes before slow relationship refresh and ignores late result after disposal',async()=>{
+ const p=await parentOpened({deferRefresh:true}),{h,c,controller}=p;c.fields.title.value='Child';c.form.onsubmit({preventDefault(){}});await tick();
+ h.pending[0].resolve({task:{id:'id-1',title:'Child'}});await tick();await tick();
+ assert.equal(h.host.firstElementChild.hidden,false);assert.equal(h.fields.title.value,'Parent draft');assert.equal(await controller.beforeLeave(),true);assert.equal(p.reads,2);
+ h.fields.title.value='Still editable';p.family.innerHTML='unchanged';controller.dispose();p.resolveRefresh({task:{id:'parent',children:[{id:'id-1',title:'Late child',status:'open'}]}});await tick();
+ assert.equal(p.family.innerHTML,'unchanged');assert.equal(h.fields.title.value,'Still editable');assert.equal(h.writes.length,1);
 });
