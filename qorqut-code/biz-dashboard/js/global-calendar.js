@@ -139,6 +139,16 @@ function calendarEventLanes(spans) {
   finish(); return result;
 }
 
+// A provider write invalidates every mounted calendar view and the shared excerpt cache.
+const calendarChanges = new Set();
+let calendarWriteGeneration = 0;
+function calendarChanged(refresh) {
+  calendarWriteGeneration++;
+  calendarTodayShared = null;
+  for (const listener of [...calendarChanges]) { try { listener(); } catch (error) { console.error(error); } }
+  refresh?.();
+}
+
 // Each pane owns its navigation and lifecycle; embedding never changes the route.
 function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
   let calendarDate = new Date(), calendarViewDays = embedded ? 1 : 3, calendarGeneration = 0, active = true, repaint = () => {};
@@ -245,8 +255,10 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
     } catch (error) { if (current()) { fixedMessage = error.message; paint(); } }
   };
   const unsubscribe = calendarStatuses.subscribe(() => { if (active) repaint(); });
+  const changed = () => { if (active && isCurrent()) void render(); };
+  calendarChanges.add(changed);
   void render();
-  return () => { active = false; unsubscribe(); dispose(); };
+  return () => { active = false; calendarChanges.delete(changed); unsubscribe(); dispose(); };
 }
 
 // Queue tiles show only the calendar icon; the one expanded tile adds its title, cut at 25 characters.
@@ -303,6 +315,7 @@ const CALENDAR_TODAY_FRESH_MS = 30000;
 let calendarTodayShared = null, calendarTodayFlight = null;
 function calendarTodayLoad(force = false) {
   if (calendarTodayFlight) return force ? calendarTodayFlight.catch(() => {}).then(() => { calendarDirectory = null; return calendarTodayLoad(); }) : calendarTodayFlight;
+  const generation = calendarWriteGeneration;
   const flight = calendarTodayFlight = (async () => {
     const now = new Date(), day = new Date(now.getFullYear(),now.getMonth(),now.getDate()), key = calendarDateString(day);
     const result = await calendarDirectoryLoad(force);
@@ -325,7 +338,9 @@ function calendarTodayLoad(force = false) {
       const allDayA = a.start.length === 10, allDayB = b.start.length === 10;
       return Number(allDayB)-Number(allDayA) || (allDayA ? a.start.localeCompare(b.start) : new Date(a.start)-new Date(b.start)) || a.id.localeCompare(b.id);
     });
-    return calendarTodayShared = {key,calendars,visibleEvents,configured:result.configured,errors,at:Date.now()};
+    const resultData = {key,calendars,visibleEvents,configured:result.configured,errors,at:Date.now()};
+    if (generation === calendarWriteGeneration) calendarTodayShared = resultData;
+    return resultData;
   })();
   const clear = () => { if (calendarTodayFlight === flight) calendarTodayFlight = null; };
   flight.then(clear, clear);
@@ -366,16 +381,17 @@ function calendarTodayMount(host, openCalendar) {
     if (!current()) return;
     if (pending) { if (force !== false) refreshAgain = true; return; }
     pending = true;
+    const generation = calendarWriteGeneration;
     const statuses = calendarStatuses.refresh();
     try {
       const shared = await calendarTodayLoad(force !== false);
-      if (!current()) return;
+      if (!current() || generation !== calendarWriteGeneration) return;
       data = shared; refreshError = '';
       await statuses;
-      paintQueue();
+      if (generation === calendarWriteGeneration) paintQueue();
     } catch (error) {
+      if (!current() || generation !== calendarWriteGeneration) return;
       if (accessLost(error)) calendarTodayShared = null;
-      if (!current()) return;
       // A transient provider failure keeps the last loaded queue so a label save can still repaint it.
       if (data && !accessLost(error)) { refreshError = error.message; paintQueue(); }
       else { data = null; snapshot = undefined; refreshError = ''; queue.replaceChildren(); queue.hidden = true; status.textContent = error.message; }
@@ -383,7 +399,9 @@ function calendarTodayMount(host, openCalendar) {
     finally { pending = false; if (refreshAgain && current()) { refreshAgain = false; void refresh(); } }
   };
   const unsubscribe = calendarStatuses.subscribe(paintQueue);
-  const dispose = () => { active = false; unsubscribe(); clearInterval(timer); document.removeEventListener('visibilitychange',visible); };
+  const changed = () => { if (active) void refresh(); };
+  calendarChanges.add(changed);
+  const dispose = () => { active = false; calendarChanges.delete(changed); unsubscribe(); clearInterval(timer); document.removeEventListener('visibilitychange',visible); };
   timer = setInterval(() => { if (!current()) dispose(); else if (!document.hidden) void refresh(false); },60000);
   const visible = () => { if (!document.hidden) void refresh(false); };
   document.addEventListener('visibilitychange',visible);
@@ -397,10 +415,25 @@ function calendarTodayMount(host, openCalendar) {
 async function calendarSurface(title, origin, mount) {
   if (!window.focusExpansion?.open) { toast('Focus is unavailable.'); return null; }
   return window.focusExpansion.open({title, mount(host, session) {
-    let disposed = false, busy = 0, dirty = () => false, cleanup = () => {};
+    let disposed = false, busy = 0, dirty = () => false, cleanup = () => {}, prompt = null;
     const leave = () => {
-      if (busy) return false;
-      return !dirty() || confirm('This pane has unsaved edits. Discard them and leave?');
+      if (busy || disposed) return false;
+      if (!dirty()) return true;
+      if (prompt) return false;
+      const box = document.createElement('div');
+      box.className = 'calendar-leave-choice'; box.setAttribute('role','group');
+      box.setAttribute('aria-label','Unsaved calendar changes');
+      const message = document.createElement('p'); message.textContent = 'Discard your unsaved changes?';
+      const keep = document.createElement('button'); keep.type = 'button'; keep.textContent = 'Keep editing';
+      const discard = document.createElement('button'); discard.type = 'button'; discard.textContent = 'Discard changes';
+      box.append(message,keep,discard);
+      const content = host.firstElementChild, previousFocus = document.activeElement;
+      if (content) content.inert = true;
+      host.append(box);
+      let resolve; const promise = new Promise(done => { resolve = done; });
+      const finish = accepted => { if (!prompt) return; prompt = null; box.remove(); if (content) content.inert = false; if (accepted) dirty = () => false; else if (previousFocus?.isConnected && content?.contains(previousFocus)) previousFocus.focus(); resolve(accepted); };
+      prompt = {promise, finish}; keep.onclick = () => finish(false); discard.onclick = () => finish(true); keep.focus();
+      return promise;
     };
     session.setBeforeLeave(leave);
     const surface = {
@@ -428,11 +461,11 @@ async function calendarSurface(title, origin, mount) {
         }
         cleanup = spec.onOpen?.(el) || (() => {});
       },
-      async back(callback) { if ((!dirty() || confirm('This pane has unsaved edits. Discard them and leave?')) && surface.current()) { dirty = () => false; await callback(); } },
+      async back(callback) { if (await leave() && surface.current()) await callback(); },
       async close() { await session.close(); },
       setBusy(value) { busy += value ? 1 : -1; }
     };
-    session.onDispose(() => { disposed = true; cleanup(); if (origin?.isConnected) origin.focus(); });
+    session.onDispose(() => { disposed = true; prompt?.finish(false); cleanup(); if (origin?.isConnected) origin.focus(); });
     void mount(surface);
   }});
 }
@@ -440,11 +473,13 @@ async function calendarSurface(title, origin, mount) {
 async function calendarOpen(event, calendars, refresh, clicked = event, origin = document.activeElement) {
   const statusTarget = calendarStatusTarget(clicked);
   return calendarSurface(event.title || 'Event',origin, async surface => {
+    let detailGeneration = 0;
     const detail = async requested => {
-      surface.setBusy(true);
+      const generation = ++detailGeneration;
+      await surface.show({title:'Event',body:'<p role="status">Loading event…</p>',actions:[]});
       try {
         const result = await calendarCall('calendar_event_get', {connection_id:requested.connection_id, calendar_id:requested.calendar_id, event_id:requested.id});
-        if (!surface.current()) return;
+        if (!surface.current() || generation !== detailGeneration) return;
         event = result.event;
         const calendar = calendars.find(c => c.id === event.calendar_id && c.connection_id === event.connection_id);
         const attendee = event.attendees.find(a => calendar?.organizers?.some(address => address.toLowerCase() === a.email.toLowerCase()));
@@ -452,7 +487,7 @@ async function calendarOpen(event, calendars, refresh, clicked = event, origin =
         const responseActions = attendee ? ['accepted','tentative','declined'].map(response => { const key = newRequestId(); return ({
           label:({accepted:'Accept',tentative:'Maybe',declined:'Decline'})[response], onClick:async (close, el) => {
             el.querySelectorAll('.mfoot button').forEach(button => button.disabled = true);
-            try { await calendarCall('calendar_event_respond', {...calendarTarget(event), attendee:attendee.email, response}, key); close(); refresh(); }
+            try { await calendarCall('calendar_event_respond', {...calendarTarget(event), attendee:attendee.email, response}, key); close(); calendarChanged(refresh); }
             catch (error) { $('.calendar-detail-error',el).textContent = error.message; el.querySelectorAll('.mfoot button').forEach(button => button.disabled = false); }
           }}); }) : [];
         await surface.show({title:event.title || 'Event', body:`<div class="calendar-detail">
@@ -473,8 +508,8 @@ async function calendarOpen(event, calendars, refresh, clicked = event, origin =
           ...(calendar?.writable ? [{label:'Delete', navigation:true, onClick:() => surface.back(() => calendarDelete(event,refresh,surface,() => detail(event)))},
             {label:'Edit', primary:true, navigation:true, onClick:() => surface.back(() => calendarEdit(event,calendars,refresh,new Date(),null,surface,() => detail(event)))}] : [])]});
       } catch (error) {
-        if (surface.current()) await surface.show({title:'Event',body:`<p class="calendar-detail-error" role="alert">${esc(error.message)}</p>`,onBack:() => surface.close(),actions:[{label:'Retry',onClick:() => detail(requested)}]});
-      } finally { surface.setBusy(false); }
+        if (surface.current() && generation === detailGeneration) await surface.show({title:'Event',body:`<p class="calendar-detail-error" role="alert">${esc(error.message)}</p>`,onBack:() => surface.close(),actions:[{label:'Retry',onClick:() => detail(requested)}]});
+      }
     };
     await detail(event);
   });
@@ -539,7 +574,7 @@ function calendarDelete(event, refresh, surface, back) {
   return surface.show({title:'Delete event?',onBack:() => surface.close(),body:`<p>${esc(event.title)}${event.recurrence.length ? ' (whole series)' : ''}</p><p>Guests receive the provider’s cancellation notice.</p><p class="calendar-detail-error" role="alert"></p>`,actions:[
     {label:'Cancel',navigation:true,onClick:() => surface.back(back)}, {label:'Delete',primary:true,onClick:async (close,el) => {
       const button = $('.mfoot .primary',el); button.disabled = true;
-      try { await calendarCall('calendar_event_delete',calendarTarget(event),key); close(); refresh(); }
+      try { await calendarCall('calendar_event_delete',calendarTarget(event),key); close(); calendarChanged(refresh); }
       catch (error) { $('.calendar-detail-error',el).textContent = error.message; button.disabled = false; }
     }}]});
 }
@@ -595,7 +630,7 @@ function calendarEdit(event, calendars, refresh, calendarDate = new Date(), orig
       const args = event ? {...calendarTarget(event),changes} : {connection_id:selected.connection_id, calendar_id:selected.id, organizer:f.organizer.value,...changes};
       const payload = JSON.stringify(args); if (payload !== lastPayload) { key = newRequestId(); lastPayload = payload; }
       const button = $('.mfoot .primary',el); button.disabled = true;
-      try { await calendarCall(event ? 'calendar_event_update' : 'calendar_event_create',args,key); surface.setDirty(() => false); close(); refresh(); }
+      try { await calendarCall(event ? 'calendar_event_update' : 'calendar_event_create',args,key); surface.setDirty(() => false); close(); calendarChanged(refresh); }
       catch (error) { $('.calendar-detail-error',el).textContent = error.message; button.disabled = false; }
     }}],onOpen:el => {
       const form = $('form',el), f = form.elements;
