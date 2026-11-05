@@ -4,15 +4,43 @@ window.sgAttentionBadge = slug => {
   const row = sgAttention.businesses.find(b => b.slug === slug);
   return row?.total ? `<span class="sg-attention-badge${row.urgent ? ' urgent' : ''}" aria-label="${row.total} waiting items${row.urgent ? ', urgent or blocking signoffs' : ''}">${row.total}</span>` : '';
 };
+// Mount the existing signoff renderer in the shared Focus surface.
+window.sgFocusOpen = (title, options, afterClose) => window.focusExpansion.open({title, mount(host, session) {
+  let view, confirmation = null;
+  const notice = document.createElement('p'); notice.className='sg-notice'; notice.setAttribute('role','status'); notice.hidden=true;
+  const prompt = document.createElement('div'); prompt.className='sg-focus-confirm'; prompt.hidden=true;
+  const body = document.createElement('div');
+  host.append(notice, prompt, body);
+  const finish = answer => { prompt.hidden=true; prompt.replaceChildren(); const resolve=confirmation; confirmation=null; resolve?.(answer); };
+  const confirmExecutionCancel = () => {
+    if (confirmation) return Promise.resolve(false);
+    prompt.hidden=false;
+    const text=document.createElement('p'); text.textContent='Request cancellation? Work that has already started may still need reconciliation.';
+    const cancel=document.createElement('button'); cancel.type='button'; cancel.className='quiet'; cancel.textContent='Keep execution'; cancel.onclick=()=>finish(false);
+    const confirm=document.createElement('button'); confirm.type='button'; confirm.className='danger'; confirm.textContent='Confirm cancellation'; confirm.onclick=()=>finish(true);
+    prompt.append(text,cancel,confirm); cancel.focus();
+    return new Promise(resolve=>{confirmation=resolve;});
+  };
+  view=sgCreateView({...options, active:()=>session.isCurrent() && body.isConnected, body:()=>body, confirmExecutionCancel});
+  session.setBeforeLeave(async()=>{
+    if (confirmation) { notice.textContent='Finish or cancel the confirmation first.'; notice.hidden=false; return false; }
+    if (view.hasPendingWrite()) { notice.textContent='Finish or check the pending signoff operation before leaving.'; notice.hidden=false; return false; }
+    if (view.hasUnsaved()) { notice.textContent='Save or discard the message edit before leaving.'; notice.hidden=false; return false; }
+    return true;
+  });
+  view.paint();
+  return ()=>{finish(false);view.dispose();afterClose?.();};
+}});
 window.sgAttentionNavigate = async (slug, id) => {
-  await Promise.resolve(); // Finish the originating click before mounting a new pane.
-  // Notifications retain exact scope without reopening the retired drawer.
-  let view;
-  return modal({title:'Signoffs',body:'<div data-attention-signoffs></div>',
-    onOpen:el=>{const host=el.querySelector('[data-attention-signoffs]');
-      view=sgCreateView({active:()=>host.isConnected,body:()=>host,workspace:()=>slug || 'scope:global',
-        global:!slug,execution:true,...(id?{item:()=>({id,businessId:slug ? (state.bizs.find(b=>b.slug===slug)?.id || state.bizs.find(b=>b.slug===slug)?.business_id) : null})}:{})});
-      view.paint();},onClose:()=>view?.dispose()});
+  if (typeof embeddedAgentPane !== 'undefined' && embeddedAgentPane) {
+    try {
+      if (parent === window || typeof parent.sgAttentionNavigate !== 'function') throw new Error('The Focus pane is unavailable.');
+      return await parent.sgAttentionNavigate(slug || null, id || null);
+    } catch (error) { throw new Error(error?.message || 'The Focus pane is unavailable.'); }
+  }
+  await Promise.resolve();
+  return sgFocusOpen('Signoffs', {workspace:()=>slug || 'scope:global', global:!slug, execution:true,
+    ...(id?{item:()=>({id,businessId:slug ? (state.bizs.find(b=>b.slug===slug)?.id || state.bizs.find(b=>b.slug===slug)?.business_id) : null})}:{})});
 };
 function sgAttentionPaint() {
   const urgent = sgAttention.urgent.length > 0;

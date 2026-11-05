@@ -316,7 +316,7 @@ function sgCreateView(options) {
   };
   const errorHtml = (error, action) => `<div class="sg-error" role="alert"><span>${esc(error.message || error)}</span>${action ? `<button type="button" class="sg-command" data-sg="${action}">Retry</button>` : ""}</div>`;
   // Message drafts belong to this mounted view and survive background refreshes.
-  const messageEdits = new Map();
+  const messageEdits = new Map(), ownedWrites = new Set();
   // Inline Chat email cards start as a compact preview; expanded ids survive routine rerenders of this view.
   const emailExpanded = new Set();
   const collapseEmail = id => {
@@ -778,7 +778,8 @@ function sgCreateView(options) {
       if (!more) {
         const freshIds = new Set(data.items.map(item => item.id));
         for (const id of [...sg.order]) {
-          if (id !== sg.selected && !freshIds.has(id)) { sg.items.delete(id); sg.order = sg.order.filter(existing => existing !== id); }
+          const retained = messageEdits.has(id) || [...sg.busy.keys()].some(key => key.startsWith(`${sg.slug}:${id}:`)) || sg.executions.has(`${sg.slug}:${id}:execution`);
+          if (id !== sg.selected && !freshIds.has(id) && !retained) { sg.items.delete(id); sg.order = sg.order.filter(existing => existing !== id); }
         }
       }
       data.items.forEach(item => {
@@ -883,7 +884,7 @@ function sgCreateView(options) {
     if (action !== "reject" || !active() || !listed || !expected(listed) || !owner() || listed.state !== "pending" || listed.input || listed.superseded_by_id || sg.error) return;
     const c = capture(), key = busyKey(c.slug, listed);
     if (sg.busy.has(key)) return;
-    sg.busy.set(key, { key, loading: true }); render();
+    ownedWrites.add(key); sg.busy.set(key, { key, loading: true }); render();
     try {
       const detail = coreData(await api(path(c.slug, id))).signoff;
       if (!current(c)) return;
@@ -927,7 +928,7 @@ function sgCreateView(options) {
       }
     }
     const receipt = { key, slug: sg.slug, businessId: s.review_business_id || null, id: s.id, binding: binding(s), draftKey: draftKey(s), action, body, unknown: false };
-    sg.busy.set(key, receipt);
+    ownedWrites.add(key); sg.busy.set(key, receipt);
 
     render(); submit(receipt);
   }
@@ -941,10 +942,18 @@ function sgCreateView(options) {
       if (sg.error || sg.verified.get(s.id) !== s.status_revision || sg.detailErrors.has(s.id)) return;
       const body = { signoff_id: s.id, status_revision: s.status_revision, idempotency_key: newRequestId() };
       if (action === "cancel-execution") {
-        if (!window.confirm("Request cancellation? Work that has already started may still need reconciliation.")) return;
+        const original = {slug:sg.slug, id:s.id, revision:s.status_revision, binding:binding(s), businessId:s.review_business_id, principal:owner()};
+        const accepted = options.confirmExecutionCancel
+          ? await options.confirmExecutionCancel()
+          : window.confirm("Request cancellation? Work that has already started may still need reconciliation.");
+        const currentItem = sg.items.get(original.id);
+        if (!accepted || !active() || sg.slug !== original.slug || workspace() !== original.slug || sg.selected !== original.id ||
+            !currentItem || binding(currentItem) !== original.binding || currentItem.review_business_id !== original.businessId ||
+            currentItem.status_revision !== original.revision || sg.verified.get(original.id) !== original.revision ||
+            owner() !== original.principal || !original.principal || sg.error || sg.detailErrors.has(original.id) || sg.executions.has(key)) return;
       }
       receipt = { slug: sg.slug, id: s.id, operation: action === "cancel-execution" ? "signoffs_platform_cancel" : "signoffs_platform_retry", body };
-      sg.executions.set(key, receipt);
+      ownedWrites.add(key); sg.executions.set(key, receipt);
     }
     if (receipt.saving) return;
     receipt.saving = true; receipt.unknown = false; render();
@@ -1070,6 +1079,14 @@ function sgCreateView(options) {
     businessChanged,
     render,
     hasUnsaved: () => messageEdits.size > 0,
+    hasPendingWrite: () => {
+      if ([...messageEdits.values()].some(edit => edit.saving || edit.receipt)) return true;
+      if ([...(sg.mount?.querySelectorAll('.sg-conversation[data-conversation]') || [])].some(host => host._conversation?.state.sending)) return true;
+      if ([...ownedWrites].some(key => sg.busy.has(key) || sg.executions.has(key))) return true;
+      const ids = [...new Set([...(sg.selected ? [sg.selected] : []), ...(options.item?.()?.id ? [options.item().id] : [])])];
+      return ids.some(id => [...sg.busy.keys()].some(key => key.startsWith(`${sg.slug}:${id}:`)) ||
+        sg.executions.has(`${sg.slug}:${id}:execution`));
+    },
     async save() {
       if (!messageEdits.size) return true;
       const s = sg.items.get(sg.selected);

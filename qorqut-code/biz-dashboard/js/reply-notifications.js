@@ -34,16 +34,19 @@ const replyNotifications=(()=>{
     // it opens nothing to write to and carries no text to another conversation.
     await loadGlobalAgentProfiles().catch(()=>{});
     if(globalAgentProfile(item.agent_id)?.role?.id!=='ordubashy'){
-      modal({title:'Thread unavailable',width:520,stack:true,body:'<p class="reply-notification-retired" role="status">This agent thread on a record is no longer available. Record conversations are with Ordubashy only.</p>',actions:[]});
-      void refresh();return;
+      await window.focusExpansion.open({title:'Thread unavailable', agentId:item.agent_id, mount(host){
+        const message=document.createElement('p');message.className='reply-notification-retired';message.setAttribute('role','status');
+        message.textContent='This agent thread on a record is no longer available. Record conversations are with Ordubashy only.';host.append(message);
+        return ()=>{message.remove();void refresh();};
+      }});
+      return;
     }
-    let conversation;
-    modal({title:`${esc(item.agent_name)} · ${esc(item.source.type)} thread`,width:760,stack:true,body:'<div class="reply-notification-thread"></div>',
-      onOpen:el=>{
-        const host=el.querySelector('.reply-notification-thread');
-        conversation=conversationMount(host,{type:item.source.type,id:item.source.id,biz:item.biz},{dismissOnOutside:false});
-        conversation.expand();
-      },onClose:()=>{conversation?.dispose();void refresh();}});
+    await window.focusExpansion.open({title:`${item.agent_name} · ${item.source.type} thread`,agentId:item.agent_id,mount(host,session){
+      const conversation=conversationMount(host,{type:item.source.type,id:item.source.id,biz:item.biz,business_id:item.source.business_id},{dismissOnOutside:false});
+      session.setBeforeLeave(async()=>!conversation.state.sending);
+      conversation.expand();
+      return ()=>{conversation.dispose();void refresh();};
+    }});
   }
   // Order-independent comparison of every field, so a changed flag or preview counts as well as a new ID.
   const canonical=value=>JSON.stringify(value,(_,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([x],[y])=>x<y?-1:x>y?1:0)):v);

@@ -51,8 +51,7 @@ function wireGlobalAgentGaze() {
 async function globalAgentsNavigate(agentId, options = {}) {
   const root = document.querySelector('.global-agents');
   if (!root?.openAgent) return false;
-  await root.openAgent(agentId, options);
-  return true;
+  return await root.openAgent(agentId, options) === true;
 }
 const GLOBAL_WORKSPACE_TERMINAL = '__qorqut_workspace_terminal__';
 // One owner shell keeps the original id, route and tmux session. Older saved or
@@ -219,7 +218,7 @@ async function renderGlobalAgents(c) {
   paintOverseerEntry();
   const select = (agent, requestedView = null, remember = true, leaveChecked = false) => {
     if (!current()) return;
-    selectionVersion++;
+    const selection = leaveChecked || ++selectionVersion;
     const workspace = typeof agent === 'string' ? globalWorkspaceTerminal(agent) : null;
     const id = workspace ? workspace.id : agent?.agent_id;
     if (!id) return;
@@ -231,15 +230,16 @@ async function renderGlobalAgents(c) {
       }
       if (gated) { gated = false; selected = null; }
       else {
-        if (requestedView && _agpad?.agentId === id) agpadRequestView(_agpad, requestedView);
-        return;
+        if (requestedView && _agpad?.agentId === id) return agpadRequestView(_agpad, requestedView);
+        return true;
       }
     }
-    if (!leaveChecked && typeof agentWorkspaceCanLeave === 'function' && (_agpad?.workspaceFrame || _agpad?.journalMount)) {
+    if (!leaveChecked && typeof agentWorkspaceCanLeave === 'function' && (_agpad?.workspaceFrame || _agpad?.journalMount || _agpad?.surface?.beforeLeave || _agpad?.focusWorkspace?.isOpen?.())) {
       const previous = _agpad, frame = previous.workspaceFrame, journal = previous.journalMount;
       return agentWorkspaceCanLeave(previous).then(ok => {
-        if (ok && _agpad === previous && previous.workspaceFrame === frame && previous.journalMount === journal)
-          select(agent, requestedView, remember, true);
+        if (ok && selection === selectionVersion && _agpad === previous && previous.workspaceFrame === frame && previous.journalMount === journal)
+          return select(agent, requestedView, remember, selection);
+        return false;
       });
     }
     selected = id;
@@ -294,17 +294,19 @@ async function renderGlobalAgents(c) {
     const agent = agents.find(candidate => candidate.agent_id === id);
     if (!agent) throw new Error(GLOBAL_AGENT_UNAVAILABLE);
     const gateTarget = overseerRole(agent) && !testingModeEnabled();
-    await select(agent, gateTarget ? null : view);
+    const selectedRequest = select(agent, gateTarget ? null : view), selection = selectionVersion;
+    const selectedResult = await selectedRequest;
     // A cancelled unsaved-edit prompt, the Testing mode gate or a newer selection
     // must stay where it is; no chat, terminal or workspace control is focused.
-    if (!current() || selected !== id || gated) return;
-    if (!gateTarget && view && agpadShownView(_agpad) !== view) return;
+    if (selection !== selectionVersion || selectedResult === false || !current() || selected !== id || gated || _agpad?.agentId !== id) return false;
+    if (!gateTarget && view && agpadShownView(_agpad) !== view) return false;
     if (viewboxItem) agviewboxReveal(_agpad, viewboxItem);
     if (chat) {
       pane.querySelector('[data-chat-return]:not(:disabled)')?.click();
       pane.querySelector('.gchat-jump')?.click();
       pane.querySelector('.gchat-composer textarea')?.focus({preventScroll: true});
     }
+    return true;
   };
   const linkedAgent = params.get('agent');
   if (linkedAgent) { const url = new URL(location.href); url.searchParams.delete('agent'); history.replaceState(null, '', url); }

@@ -581,10 +581,37 @@ async function tOpenTask(id) {
     if (state.biz !== biz) return;
   }
   clearTimeout(tSearchT); tSearch = "";
-  tDetail(t);
+  return tDetail(t);
+}
+
+// Build only a canonical reference; the parent owns the record workspace and
+// any iframe may disappear as soon as navigation begins.
+function taskRecordReference(task, scopeSlug = undefined) {
+  if (!task?.id) return null;
+  const hasId = Object.hasOwn(task, 'business_id') && task.business_id !== undefined;
+  const business = task.business || null;
+  let id = hasId ? task.business_id : business?.id ?? business?.business_id;
+  let slug = task.business_slug || business?.slug || scopeSlug || null;
+  if (id === null) {
+    if (slug) return null;
+    return {type:'task', id:task.id, business_id:null, business_slug:null, label:task.label || task.title || null, task_type:task.task_type || null};
+  }
+  const list = state.bizs || [];
+  const byId = id != null ? list.find(b => (b.id ?? b.business_id) === id) : null;
+  const bySlug = slug ? list.find(b => b.slug === slug) : null;
+  if (id == null && bySlug) id = bySlug.id ?? bySlug.business_id;
+  if (!slug && byId) slug = byId.slug;
+  if (id == null || !slug || !list.some(b => (b.id ?? b.business_id) === id && b.slug === slug)) return null;
+  return {type:'task', id:task.id, business_id:id, business_slug:slug, label:task.label || task.title || null, task_type:task.task_type || null};
+}
+function taskOpenReference(task, scopeSlug = undefined) {
+  const reference = taskRecordReference(task, scopeSlug);
+  if (!reference) { toast('This task’s project is unavailable.'); return Promise.resolve(false); }
+  return agentOpenRecordReference(reference);
 }
 
 function tDetail(t,{host=null,onClose=null,recordPanelOpen=false,embedded=false,navigate=null,relatedMount=null,onMount=null,onCanonical=null}={}) {
+  if (!host) return taskOpenReference(t, t.business || Object.hasOwn(t, 'business_id') ? undefined : state.biz);
   if (!host && typeof modal !== "function") return toast("details need core modal()");
   const biz = tSlug(t);
   Object.assign(t, taskStateObserve(biz, t));
@@ -1021,6 +1048,7 @@ function taskTypeMount(host, biz, task = {}) {
   const type=host.querySelector('[data-task-type]');
   const customerBox=host.querySelector('[data-task-customer]'), overviewField=host.querySelector('[data-task-overview-field]');
   const originalType=task.task_type || 'task', ownedElsewhere=!!task.id && ['story','customer'].includes(originalType);
+  let disposed=false, confirmation=null;
   let statesLoaded=false;
   const states=customerStatesMount(customerBox,biz);
   function update(){
@@ -1041,7 +1069,29 @@ function taskTypeMount(host, biz, task = {}) {
     // Converting a Customer away clears its kind, state and profile; the owner confirms that first.
     async confirmConversion(){
       if(originalType!=='customer' || type.value==='customer')return true;
-      return taskConfirm({title:'Remove customer details?',message:`Changing this Customer to ${TASK_TYPE_LABELS[type.value]} clears its kind, state, profile and notes. Its conversation and links stay.`,confirmLabel:'Change type'});
+      const selectedType=type.value;
+      const message=`Changing this Customer to ${TASK_TYPE_LABELS[selectedType]} clears its kind, state, profile and notes. Its conversation and links stay.`;
+      if(!host.closest('.agfocus'))return taskConfirm({title:'Remove customer details?',message,confirmLabel:'Change type'});
+      if(disposed || !host.isConnected || confirmation)return false;
+      const children=[...host.children].map(node=>({node,hidden:node.hidden,inert:node.inert}));
+      const panel=document.createElement('section');panel.className='task-type-confirm';panel.setAttribute('aria-label','Remove customer details?');
+      const heading=document.createElement('h3');heading.textContent='Remove customer details?';
+      const text=document.createElement('p');text.textContent=message;
+      const cancel=document.createElement('button');cancel.type='button';cancel.className='quiet';cancel.textContent='Cancel';
+      const accept=document.createElement('button');accept.type='button';accept.className='btn';accept.textContent='Change type';
+      panel.append(heading,text,cancel,accept);children.forEach(({node})=>{node.hidden=true;node.inert=true;});host.append(panel);
+      return new Promise(resolve=>{
+        const finish=accepted=>{
+          if(!confirmation)return;
+          confirmation=null;panel.remove();children.forEach(({node,hidden,inert})=>{node.hidden=hidden;node.inert=inert;});
+          const ok=accepted && !disposed && host.isConnected && type.value===selectedType;
+          if(!disposed && host.isConnected)type.focus?.();
+          resolve(ok);
+        };
+        confirmation=finish;cancel.onclick=()=>finish(false);accept.onclick=()=>finish(true);
+        panel.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();finish(false);}};
+        cancel.focus();
+      });
     },
     values(){
       // The legacy email link is display-only: it is never sent in a create, update or type change.
@@ -1054,13 +1104,110 @@ function taskTypeMount(host, biz, task = {}) {
     },
     // True while the editor holds a change that has not been saved.
     dirty(){try{return Object.keys(taskTypeChanges(task,this.values())).length>0;}catch(_){return true;}},
-    dispose(){states.dispose();},
+    dispose(){disposed=true;confirmation?.(false);states.dispose();},
   };
 }
 function taskEmailOpen(task) {
   if(task.email_conversation_id)historicalEmailOpen();
 }
+
+// The Project creation controller owns only its Focus content. No callback or
+// DOM node crosses from an embedded document into the parent.
+function taskProjectCreateMount(host, session, biz, initial, onCreated) {
+  host.innerHTML = `<section class="task-create-project"><form data-project-create><label>Title<input class="inp" name="title" required maxlength="1000" value="${esc(initial.title || '')}" autocomplete="off"></label>${taskTypeFields(initial)}<p class="ferr" role="alert" data-project-error hidden></p><div class="task-inline-actions"><button type="button" class="quiet" data-project-cancel>Cancel</button><button type="submit" class="btn" data-project-submit>Create</button></div></form><section data-project-discard hidden aria-label="Discard task draft"><p data-project-discard-message></p><button type="button" class="quiet" data-project-keep>Keep editing</button><button type="button" class="btn" data-project-discard-confirm>Discard</button></section></section>`;
+  const form = host.querySelector('[data-project-create]'), error = host.querySelector('[data-project-error]');
+  const panel = host.querySelector('[data-project-discard]'), submit = host.querySelector('[data-project-submit]');
+  const editor = taskTypeMount(form, biz, initial);
+  let alive = true, busy = false, submission = null, decision = null;
+  const title = form.elements.title;
+  const baselineTitle = title.value;
+  let baseline;
+  try { baseline = JSON.stringify(editor.values()); } catch (_) { baseline = null; }
+  const dirty = () => {
+    try { return title.value !== baselineTitle || baseline === null || JSON.stringify(editor.values()) !== baseline; }
+    catch (_) { return true; }
+  };
+  const restore = () => { panel.hidden = true; form.hidden = false; form.inert = false; title.focus(); };
+  const settle = value => { const resolve = decision; decision = null; if (resolve) resolve(value); };
+  const beforeLeave = () => {
+    if (busy) return false;
+    if (!submission && !dirty()) return true;
+    if (decision) return false;
+    form.hidden = true; form.inert = true; panel.hidden = false;
+    host.querySelector('[data-project-discard-message]').textContent = submission
+      ? 'The request may have succeeded. Discarding this draft does not undo it. Keep editing to retry the same request.'
+      : 'Discard this unsaved task?';
+    host.querySelector('[data-project-keep]').focus();
+    return new Promise(resolve => { decision = resolve; });
+  };
+  host.querySelector('[data-project-keep]').onclick = () => { restore(); settle(false); };
+  host.querySelector('[data-project-discard-confirm]').onclick = () => settle(true);
+  host.querySelector('[data-project-cancel]').onclick = () => { void session.close(); };
+  session.setBeforeLeave(beforeLeave);
+  form.onsubmit = async event => {
+    event.preventDefault();
+    if (busy || !alive) return;
+    try {
+      if (!submission) {
+        if (!form.reportValidity()) return;
+        const values = editor.values(), taskTitle = title.value.trim();
+        if (!taskTitle) { error.textContent = 'A title is required.'; error.hidden = false; return; }
+        busy = true;
+        const {assignees} = await workCall(biz, 'assignees_list');
+        if (!alive) return;
+        const owner = assignees.find(person => person.is_owner);
+        submission = {title:taskTitle,...values,assignee_ids:owner?[owner.id]:[],idempotency_key:newRequestId()};
+      }
+      busy = true; error.hidden = true; submit.disabled = true;
+      form.querySelectorAll('input,select,textarea').forEach(el => { el.disabled = true; });
+      const {task} = await workCall(biz, 'tasks_create', submission, {idempotency_key:submission.idempotency_key});
+      if (typeof task?.id !== 'string' || !task.id.trim()) throw Object.assign(new Error('Invalid create result.'), {code:'invalid_response'});
+      submission = null;
+      try { tGen++; clearEtagCache(); void refreshTasks(); } catch (_) { /* refresh is independent of creation */ }
+      if (!alive) return;
+      session.setBeforeLeave(null);
+      await session.close();
+      onCreated?.(task);
+    } catch (failure) {
+      if (!alive) return;
+      const uncertain = [408,429].includes(failure.httpStatus) || failure.httpStatus >= 500 || ['request_timeout','invalid_response'].includes(failure.code);
+      const decided = !uncertain && ['validation_error','forbidden','not_found','revision_conflict'].includes(failure.code);
+      if (decided) submission = null;
+      error.textContent = submission ? 'Could not confirm creation. Retry to send the same request safely.' : uiFailure(failure);
+      error.hidden = false;
+      form.querySelectorAll('input,select,textarea').forEach(el => { el.disabled = !!submission; });
+      submit.textContent = submission ? 'Retry' : 'Create';
+    } finally { busy = false; if (alive) submit.disabled = false; }
+  };
+  title.focus();
+  return () => { alive = false; settle(false); editor.dispose(); };
+}
+
+async function taskCreateProjectOpen(request, onCreated = null) {
+  const slug = request?.business_slug, id = request?.business_id;
+  let initial;
+  try { initial = JSON.parse(JSON.stringify(request?.initial || {})); }
+  catch (_) { toast('This task draft is unavailable.'); return null; }
+  if (typeof embeddedAgentPane !== 'undefined' && embeddedAgentPane) {
+    return parent.taskCreateProjectOpen({business_slug:slug,business_id:id,initial});
+  }
+  const project = (state.bizs || []).find(b => b.slug === slug && (b.id ?? b.business_id) === id);
+  if (!project || !slug || id == null) { toast('This task’s project is unavailable.'); return null; }
+  const origin = document.activeElement;
+  return window.focusExpansion.open({title:'New task', mount(host, session) {
+    return taskProjectCreateMount(host, session, slug, initial, task => {
+      if (origin?.isConnected) onCreated?.(task);
+    });
+  }});
+}
+window.taskCreateProjectOpen = taskCreateProjectOpen;
+
 function taskCreateDialog(biz, {parentId=null, onCreated=null, initial={}} = {}) {
+  if (biz && !parentId) {
+    const project = (state.bizs || []).find(b => b.slug === biz);
+    if (!project || (project.id ?? project.business_id) == null) { toast('This task’s project is unavailable.'); return null; }
+    return taskCreateProjectOpen({business_slug:biz,business_id:project.id ?? project.business_id,initial}, onCreated);
+  }
   let editor, submission=null, busy=false;
   modal({title:'New task',width:620,stack:true,body:`<form data-task-create><label>Title<input class="inp" name="title" required maxlength="1000" value="${esc(initial.title || '')}" autocomplete="off"></label>${taskTypeFields(initial)}<button type="submit" hidden>Create</button><p class="ferr" role="alert" hidden></p></form>`,
     actions:[{label:'Cancel',onClick:close=>close()},{label:'Create',primary:true,onClick:async(close,el)=>{

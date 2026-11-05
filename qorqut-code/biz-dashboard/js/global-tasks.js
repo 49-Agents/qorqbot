@@ -1,6 +1,6 @@
 // Global task UI, also embedded above the business aggregate in the Tasks pane.
 // This uses the same typed task operations and revision checks as business tasks.
-function globalTasksMount(host, {agentId = null, heading = null, compact = false, initialTaskId = null, onBack = null, embedded = false, onNavigate = null, renderRelated = null, onCanonical = null} = {}) {
+function globalTasksMount(host, {agentId = null, heading = null, compact = false, initialTaskId = null, initialCreate = false, initialParentId = null, session = null, onCreated = null, onBack = null, embedded = false, onNavigate = null, renderRelated = null, onCanonical = null} = {}) {
   if (!host) return;
   host._globalTasks?.dispose?.();
   const token = {};
@@ -15,8 +15,10 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
     if (!parts) return;
     parts.surface?.dispose(); parts.progress?.dispose?.(); parts.typeEditor?.dispose();
   }
-  token.dispose = () => { token.disposed = true; disposeEditor(); token.stateUnsubscribe?.(); token.stateUnsubscribe = null; };
-  token.dirty = () => false;
+  let leavePrompt = null, child = null;
+  token.dispose = () => { token.disposed = true; leavePrompt?.finish(false); child?.dispose(); disposeEditor(); token.stateUnsubscribe?.(); token.stateUnsubscribe = null; };
+  token.dirty = () => !!child?.controller?.dirty();
+  token.beforeLeave = async () => child ? child.close() : true;
   token.changed = message => {
     if (!current()) return;
     const status = host.querySelector('[data-global-task-status]');
@@ -29,11 +31,39 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
   const goTask = (id, label, task = null) => {
     if (embedded && typeof onNavigate === 'function') return onNavigate({type:'task', id, business_id:task?.business_id ?? null,
       business_slug:task?.business_slug ?? null, label:label || task?.title || id});
-    return open(id);
+    return taskOpenReference({id, business_id:null, label:label || task?.title, task_type:task?.task_type});
   };
   let assignees, rows = [], cursor = null, selected = null, recordSurface = null, editorParts = null;
   let search = '', snoozeFilter = 'active', includeClosed = false, busy = false, attempt = null;
-  let ownerFilter = 'all', filtersPending = false, rowsQuery = null;
+  let ownerFilter = 'all', filtersPending = false, rowsQuery = null, confirming = false;
+  if (initialCreate && session) {
+    session.onDispose(() => token.dispose());
+    session.setBeforeLeave(() => {
+      if (busy || confirming) { message('Please wait for the current save to finish.'); return false; }
+      if (!attempt && !token.dirty()) return true;
+      if (leavePrompt) return leavePrompt.promise;
+      const box = document.createElement('div');
+      box.setAttribute('role', 'group'); box.setAttribute('aria-label', 'Discard Global task');
+      const notice = document.createElement('p');
+      notice.textContent = attempt ? 'This create request may have succeeded. Discarding it cannot undo the request, and you will lose the ability to retry it.' : 'Discard your unsaved changes?';
+      const keep = document.createElement('button'); keep.type = 'button'; keep.textContent = 'Keep editing';
+      const discard = document.createElement('button'); discard.type = 'button'; discard.textContent = 'Discard changes';
+      box.append(notice, keep, discard);
+      const content = host.firstElementChild, previousFocus = document.activeElement;
+      if (content) content.inert = true;
+      host.append(box);
+      let resolve; const promise = new Promise(done => { resolve = done; });
+      const finish = accepted => {
+        if (!leavePrompt) return;
+        leavePrompt = null; box.remove(); if (content) content.inert = false;
+        if (accepted) attempt = null;
+        else if (previousFocus?.isConnected && content?.contains(previousFocus)) previousFocus.focus();
+        resolve(accepted);
+      };
+      leavePrompt = {promise, finish}; keep.onclick = () => finish(false); discard.onclick = () => finish(true); keep.focus();
+      return promise;
+    });
+  }
   token.stateUnsubscribe = taskStateSubscribe((scope, id, snapshot) => {
     if (!current()) { token.stateUnsubscribe?.(); token.stateUnsubscribe = null; return; }
     if (scope !== null) return;
@@ -61,7 +91,7 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
 
   function shell(content) {
     disposeEditor();
-    token.dirty = () => false;
+    token.dirty = () => !!child?.controller?.dirty();
     host.innerHTML = `<section class="global-task-space" aria-label="Global tasks">
       <p class="global-task-heading">${esc(heading || (agentId ? 'Assigned tasks' : 'Global tasks'))}</p>
       <div class="global-task-content">${content}</div><p data-global-task-status role="status" aria-live="polite"></p></section>`;
@@ -92,7 +122,7 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
       <label><input type="checkbox" name="closed" ${includeClosed ? 'checked' : ''}>Include closed and archived</label><button>Search</button></form>`}
       <div class="personal-task-list">${visibleRows.length ? visibleRows.map(row).join('') : '<p>No Global tasks found.</p>'}</div>
       ${cursor ? '<button type="button" data-more>Load more</button>' : ''}`);
-    host.querySelector('[data-new]')?.addEventListener('click', () => edit(null));
+    host.querySelector('[data-new]')?.addEventListener('click', () => window.taskOpenGlobalCreate());
     host.querySelectorAll('[data-owner-filter]').forEach(button => button.onclick = () => { ownerFilter = button.dataset.ownerFilter; load(); });
     host.querySelector('[data-refresh]').onclick = () => load();
     host.querySelector('[data-search]')?.addEventListener('submit', e => {
@@ -105,8 +135,8 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
       taskStateBind(row.querySelector('.ball'), null, task);
       const ball = row.querySelector('.ball');
       if (ball) ball.onclick = event => { event.stopPropagation(); changeState(row.dataset.task); };
-      row.onclick = event => { event.stopPropagation(); open(row.dataset.task); };
-      row.onkeydown = event => { if (event.target === row && ['Enter', ' '].includes(event.key)) { event.preventDefault(); open(row.dataset.task); } };
+      row.onclick = event => { event.stopPropagation(); goTask(row.dataset.task,task?.title,task); };
+      row.onkeydown = event => { if (event.target === row && ['Enter', ' '].includes(event.key)) { event.preventDefault(); goTask(row.dataset.task,task?.title,task); } };
     });
     host.querySelector('[data-more]')?.addEventListener('click', () => load(true));
   }
@@ -194,10 +224,11 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
       <div class="global-task-wide" data-task-tags></div>
       ${task ? `<label><input name="archived" type="checkbox" ${task.archived ? 'checked' : ''}>Archived</label>` : ''}
       <button data-save>${task ? 'Save task' : 'Create task'}</button></form>
-      ${task ? `<section aria-label="Related work"><h4>Linked tasks</h4><div class="task-cross-links"></div><h4>Related work</h4>${task.email_conversation_id ? '<button type="button" data-task-read-email>Historical email reference</button>' : ''}<button type="button" data-add-child>Add child task</button><div class="global-task-related"></div>${[...(task.parent ? [['Parent', task.parent]] : []), ...(task.children || []).map(child => ['Child', child])].map(([role, other]) => `<button type="button" class="chip task-link-chip" data-open-task="${esc(other.id)}">${esc(role)}: ${taskShowsState(other) ? esc(T_LABEL[other.status] || other.status)+' · ' : taskTypeIcon(other.task_type)}${esc(tChipLabel(other.title))}${customerStateChip(other)}</button>`).join(' ') || '<p class="muted">No parent or child tasks.</p>'}${task.children_has_more ? ' <span class="muted">and more</span>' : ''}</section>` : ''}
+      ${task ? `<section aria-label="Related work"><h4>Linked tasks</h4><div class="task-cross-links"></div><h4>Related work</h4>${task.email_conversation_id ? '<button type="button" data-task-read-email>Historical email reference</button>' : ''}<button type="button" data-add-child>Add child task</button><div class="global-task-related"></div><div data-task-family></div></section>` : ''}
       ${task && !special ? '<section aria-label="Task notes"><h4>Progress notes</h4><div data-task-progress></div></section>' : ''}
       <button type="button" data-retry hidden>Retry exact save</button><button type="button" data-reload hidden>Discard edits and reload current task</button>`);
     host.querySelector('[data-back]')?.addEventListener('click', () => {
+      if (initialCreate && session) { void session.close(); return; }
       if(onBack && initialTaskId){onBack();return;}
       list(); load();
     });
@@ -219,14 +250,47 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
       token.moveDialog = handle;
     });
     host.querySelector('[data-task-read-email]')?.addEventListener('click', () => taskEmailOpen(task, null));
-    host.querySelector('[data-add-child]')?.addEventListener('click', () => taskCreateDialog(null, {parentId:task.id, onCreated:()=>open(task.id)}));
+    host.querySelector('[data-add-child]')?.addEventListener('click', () => {
+      if (!embedded) { taskCreateDialog(null, {parentId:task.id, onCreated:()=>open(task.id)}); return; }
+      if (child || !current()) return;
+      const parentContent = host.firstElementChild, scrollTop = host.scrollTop, parentEditor = editorParts;
+      const childHost = document.createElement('div');
+      parentContent.hidden = true; parentContent.inert = true; host.append(childHost);
+      let beforeLeave = () => true, cleanups = [], dead = false;
+      const adapter = {
+        isCurrent: () => !dead && current(),
+        setBeforeLeave(fn) { beforeLeave = fn; },
+        onDispose(fn) { cleanups.push(fn); },
+        async close() {
+          if (dead || !await beforeLeave()) return false;
+          dispose(); return true;
+        },
+      };
+      function dispose() {
+        if (dead) return;
+        dead = true; for (const cleanup of cleanups.splice(0)) cleanup();
+        childHost.remove(); parentContent.hidden = false; parentContent.inert = false;
+        host.scrollTop = scrollTop; child = null;
+      }
+      child = {close: () => adapter.close(), dispose, controller: null};
+      child.controller = globalTasksMount(childHost, {initialCreate: true, initialParentId: task.id, session: adapter,
+        onCreated: async () => {
+          try {
+            const data = await invoke('tasks_get', {task_id: task.id});
+            if (!current() || selected !== task || editorParts !== parentEditor) return;
+            if (!data?.task) throw new Error('Invalid task response');
+            task.children = data.task.children || []; task.children_has_more = data.task.children_has_more;
+            paintFamily();
+          } catch (_) { if (current() && selected === task && editorParts === parentEditor) message('Child created. Refresh the task to update related work.'); }
+        }});
+    });
     const progress = task && !embedded ? taskProgressMount(host.querySelector('[data-task-progress]'), task, null) : null;
     // What the generic controls last agreed with the server on; only a control that differs from it is a user edit.
     const form = host.querySelector('[data-editor]');
     const sortedIds = ids => [...ids].sort();
     const valuesFrom = value => ({title: value.title || '', due: value.due || null, assignee_ids: sortedIds(value.assignee_ids || []), archived: !!value.archived, status: value.status || 'open'});
     const assigneeBoxes = () => [...host.querySelectorAll('[name="assignee"]')];
-    let baseline = task ? valuesFrom(task) : null, surface = null;
+    let baseline = task ? valuesFrom(task) : valuesFrom({assignee_ids: assigned}), surface = null;
     const showValues = values => {
       const f = form.elements;
       f.title.value = values.title; f.due.value = values.due || ''; f.status.value = values.status;
@@ -257,22 +321,30 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
     if (task && embedded && typeof renderRelated === 'function') {
       token.related?.dispose?.(); token.related = renderRelated(host.querySelector('.global-task-related'), task) || null;
     } else if (task) workRelatedChips(host.querySelector('.global-task-related'), null, 'tasks', task.id);
-    host.querySelectorAll('[data-open-task]').forEach(button => button.onclick = () => goTask(button.dataset.openTask, button.title, task));
+    function paintFamily() {
+      const family = host.querySelector('[data-task-family]'); if (!family || !task) return;
+      family.innerHTML = [...(task.parent ? [['Parent', task.parent]] : []), ...(task.children || []).map(item => ['Child', item])].map(([role, other]) => `<button type="button" class="chip task-link-chip" data-open-task="${esc(other.id)}">${esc(role)}: ${taskShowsState(other) ? esc(T_LABEL[other.status] || other.status)+' · ' : taskTypeIcon(other.task_type)}${esc(tChipLabel(other.title))}${customerStateChip(other)}</button>`).join(' ') || '<p class="muted">No parent or child tasks.</p>';
+      if (task.children_has_more) family.innerHTML += ' <span class="muted">and more</span>';
+      family.querySelectorAll('[data-open-task]').forEach(button => button.onclick = () => goTask(button.dataset.openTask, button.title, task));
+    }
+    paintFamily();
     taskSnoozeWire(host);
     const tagPicker = tagPickerMount(host.querySelector('[data-task-tags]'), {biz: null, labels: task?.tags || [], label: 'Tags'});
+    const initialTypeValues = !task ? JSON.stringify(typeEditor.values()) : null;
     token.dirty = () => {
-      if (typeEditor?.dirty?.()) return true;
       try {
+        if (child?.controller?.dirty()) return true;
+        if (task ? typeEditor?.dirty?.() : JSON.stringify(typeEditor.values()) !== initialTypeValues) return true;
         const f = form.elements;
         const assignees = [...host.querySelectorAll('[name="assignee"]:checked')].map(box => box.value);
         const current = valuesFrom({title: f.title?.value || '', due: f.due?.value || null, assignee_ids: assignees,
           archived: !!f.archived?.checked, status: f.status?.value || 'open'});
         if (JSON.stringify(current) !== JSON.stringify(baseline)) return true;
+        if (taskSnoozeChange(host, task || {}) !== undefined) return true;
         if (tagPicker && JSON.stringify(tagNormalize(tagPicker.labels() || [])) !== JSON.stringify(tagNormalize(task?.tags || []))) return true;
       } catch (_) { return true; }
       return false;
     };
-    let confirming = false;
     form.onsubmit = async e => {
       e.preventDefault(); if (busy || attempt || confirming) return;
       const f = form.elements, title = f.title.value.trim();
@@ -281,7 +353,7 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
       try {
         const values = typeEditor.values(), snooze = taskSnoozeChange(host, task || {});
         if (!task) {
-          changes = {title, due: f.due.value || null, assignee_ids: assigneeBoxes().filter(i => i.checked).map(i => i.value), tags: tagPicker.labels(), ...values};
+          changes = {title, due: f.due.value || null, assignee_ids: assigneeBoxes().filter(i => i.checked).map(i => i.value), tags: tagPicker.labels(), ...values, ...(initialParentId != null ? {parent_id: initialParentId} : {})};
           if (taskShowsState(changes)) changes.status = f.status.value;
           if (snooze !== undefined) changes.snoozed_until = snooze;
         } else {
@@ -327,6 +399,9 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
     host.querySelectorAll('input,select,textarea,button').forEach(e => e.disabled = true);
     try {
       const data = await invoke(attempt.name, attempt.args);
+      if (initialCreate && attempt.name === 'tasks_create' && (!data?.task || typeof data.task !== 'object' || typeof data.task.id !== 'string' || !data.task.id.trim() || data.task.id !== attempt.args.id)) {
+        throw Object.assign(new Error('The create response was invalid.'), {code: 'invalid_response'});
+      }
       const apply = attempt.apply;
       const submitted = attempt.args.changes;
       attempt = null;
@@ -334,6 +409,14 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
         const fresh = taskStateObserve(null, data.task);
         // The workspace owns Task subtype adoption. Only the canonical successful response is
         // passed; a handled result has already disposed this editor or deliberately kept it.
+        if (initialCreate && !selected && session) {
+          void refreshTasks();
+          busy = false;
+          token.dirty = () => false;
+          await session.close();
+          if (onCreated) void Promise.resolve().then(() => onCreated(fresh)).catch(() => {});
+          return;
+        }
         if (onCanonical && await onCanonical(fresh, {reload: false, changes: submitted})) return;
         if (apply?.(fresh)) {
           host.querySelectorAll('input,select,textarea,button').forEach(e => e.disabled = false);
@@ -343,14 +426,17 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
     } catch (error) {
       if (!current()) return;
       const conflict = error.code === 'revision_conflict';
-      if (!conflict && error.httpStatus >= 400 && error.httpStatus < 500) {
+      const create = initialCreate && attempt?.name === 'tasks_create';
+      const uncertain = ['request_timeout', 'invalid_response'].includes(error.code) || [408, 429].includes(error.httpStatus);
+      const definiteCreate = !uncertain && (['validation_error', 'forbidden', 'policy_denied', 'invalid_principal', 'not_found', 'revision_conflict'].includes(error.code) || [400, 401, 403, 404, 409, 422].includes(error.httpStatus));
+      if (create ? definiteCreate : !conflict && error.httpStatus >= 400 && error.httpStatus < 500) {
         attempt = null;
         host.querySelectorAll('input,select,textarea,button').forEach(e => e.disabled = false);
         message(uiFailure(error));
         return;
       }
-      message(conflict ? 'Changed since you opened it. Refresh' : "Couldn't confirm. Try again");
-      const button = host.querySelector(conflict ? '[data-reload]' : '[data-retry]');
+      message(conflict && !create ? 'Changed since you opened it. Refresh' : "Couldn't confirm. Try again");
+      const button = host.querySelector(conflict && !create ? '[data-reload]' : '[data-retry]');
       button.hidden = false; button.disabled = false;
     } finally { busy = false; }
   }
@@ -358,12 +444,20 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
   shell('<p>Loading Global tasks…</p>');
   Promise.all([invoke('assignees_list'), loadGlobalAgentProfiles().catch(() => [])]).then(([a]) => {
     if (!current()) return;
-    assignees = a.assignees; list(); initialTaskId ? open(initialTaskId) : load();
+    assignees = a.assignees; if (initialCreate) edit(null); else { list(); initialTaskId ? open(initialTaskId) : load(); }
   }).catch(error => {
     if (!current()) return;
     message(uiFailure(error, {load: true}));
-    const retry = document.createElement('button'); retry.textContent = 'Retry'; retry.onclick = () => globalTasksMount(host, {agentId, heading, compact, initialTaskId, onBack, embedded, onNavigate, renderRelated});
+    const retry = document.createElement('button'); retry.textContent = 'Retry'; retry.onclick = () => globalTasksMount(host, {agentId, heading, compact, initialTaskId, initialCreate, initialParentId, session, onCreated, onBack, embedded, onNavigate, renderRelated, onCanonical});
     host.querySelector('.global-task-content').appendChild(retry);
   });
   return token;
 }
+
+window.taskOpenGlobalCreate = function () {
+  if (typeof embeddedAgentPane !== 'undefined' && embeddedAgentPane) return window.parent.taskOpenGlobalCreate();
+  if (!window.focusExpansion?.open) { toast('Focus is unavailable.'); return null; }
+  return window.focusExpansion.open({title: 'New Global task', mount(host, session) {
+    globalTasksMount(host, {initialCreate: true, session});
+  }});
+};
