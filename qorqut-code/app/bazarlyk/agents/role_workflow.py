@@ -2,7 +2,7 @@
 
 from bazarlyk.agentic.text import bundled
 
-from importlib.resources import files
+from qorqut_agentic.behavior.sources import seed_bytes
 
 import yaml
 
@@ -17,7 +17,7 @@ INSTRUCTIONS = bundled("host", "app/bazarlyk/agentic/assets/role-workflow.md")
 
 def skill_files(*, agentic_view=None):
     if agentic_view is None:
-        return {"SKILL.md": files(__package__).joinpath("skills/role/SKILL.md").read_bytes()}
+        return {"SKILL.md": seed_bytes("host", "app/bazarlyk/agents/skills/role/SKILL.md")}
     body = read_resource(agentic_view, "host", "app/bazarlyk/agents/skills/role/SKILL.md")["content"]
     return {"SKILL.md": body.encode("utf-8")}
 

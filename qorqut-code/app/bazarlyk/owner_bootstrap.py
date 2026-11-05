@@ -25,6 +25,8 @@ than silently dropped, so a session never claims to be up to speed on a brief
 it never saw.
 """
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from bazarlyk.agents.global_scope import reaches_business
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, plain
@@ -36,21 +38,11 @@ MAX_CHARACTERS = 40000
 MAX_INDEX_ITEMS = 50
 
 GUIDANCE = (
-    "Deeper context is fetched on demand: start with context_home, search context_find, then read"
-    " context_object and context_expand. This orientation is an index, not the whole graph.",
-    "Project direction belongs to the owner with Ordubashy, who delegates bounded work to the permanent workers;"
-    " the project's notes are listed with notes_list (target_business_id) and read with notes_get. Projects have no"
-    " resident agents: Ordubashy coordinates execution across projects and the global agents work here when the owner directs them.",
-    "Direct coordination uses agents_message_recipients, agents_message_send and agents_messages_list"
-    " within this project; create and assign same-business tasks when work needs durable follow-up. These"
-    " messages are distinct from the owner_conversation private discussion attached to a task,"
-    " Signoff or email object.",
-    "No autonomous work loop is started and nothing is claimed, announced, handed off or reported"
-    " automatically. Read a task or Signoff only when the owner's current request refers to it.",
-    "A specific owner instruction (for example \"create these tasks\" or \"complete this task\") authorizes that"
-    " Qorqut operation without a second confirmation; ask only for missing scope or a materially different"
-    " action. Tool access alone never authorizes unrelated writes, and current revisions, idempotency keys,"
-    " state transitions and excluded operations still apply.",
+    instruction_text('owner-bootstrap-deeper-context-is-fetched-on-demand-start'),
+    instruction_text('owner-bootstrap-project-direction-belongs-to-the-owner-with'),
+    instruction_text('owner-bootstrap-direct-coordination-uses-agents-message-recipients-agents'),
+    instruction_text('owner-bootstrap-no-autonomous-work-loop-is-started-and'),
+    instruction_text('owner-bootstrap-a-specific-owner-instruction-for-example-create'),
 )
 OWNER_FALLBACK = "the installation owner"
 
@@ -69,10 +61,7 @@ class OwnerSessionBootstrap:
         registry.register(OperationDescriptor(NAME, schema(), effect_kind="read", supports_signoff=False,
             scope_kinds=frozenset({"business"}), exposure=frozenset({"mcp"}),
             read=lambda ctx, arguments, options, uow: self.read(ctx, uow),
-            description="Orientation for an owner-directed code session: the bound project, its coordinator,"
-                        " its engineering authority, registered repositories and code root, the shared"
-                        " published Context home, and a bounded index of further context. Returns no tasks,"
-                        " Signoffs or inbox data and changes nothing."))
+            description=instruction_text('owner-bootstrap-orientation-for-an-owner-directed-code-session')))
         return self
 
     def read(self, ctx, uow):

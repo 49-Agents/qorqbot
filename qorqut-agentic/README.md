@@ -24,6 +24,10 @@ Initialization creates an `agentic` Git branch. `open` fails for missing stores
 and does not repair state. History follows ordinary Git branch and detached-HEAD
 behavior without imposing a branch naming policy. Operations preserve existing commits and remain local.
 
+Shipped registered-agent instructions, workspace composition and native tool guidance
+are owned here. See [instruction ownership](docs/RUNTIME-INSTRUCTIONS.md) for the
+source indexes, managed delivery, preserved instance records and upgrade behavior.
+
 The distribution contains a five-area authored tree at
 `qorqut_agentic/resources/defaults/`. A host's trusted fresh installer copies
 these defaults into an empty authored tree. Protected role, operations and

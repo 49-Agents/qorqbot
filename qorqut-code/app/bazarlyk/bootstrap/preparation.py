@@ -361,12 +361,6 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     header_command = shlex.join(helper('bazarlyk.bootstrap.mcp_headers', '--registration', str(registration_path)))
     mcp_command = ['/bin/sh', str(workspace / '.bazarlyk/mcp-bridge')]
     mcp_launcher = '#!/bin/sh\nexec ' + shlex.join(helper('bazarlyk.bootstrap.mcp_reconnect', '--registration', str(registration_path))) + '\n'
-    inbox_guidance = ""
-    if any(tool['canonical_operation'] == 'inbox_list' and tool['available'] for tool in data['tools']):
-        inbox_guidance = ("\n## Inbox\n\nNothing needs to be started, polled or kept alive: MCP binds inbox operations to this agent "
-            "automatically. When updates are pending Qorqut may type one short advisory inbox notice into this session. Keep priority "
-            "on any direct user request, review the pending updates with the MCP inbox tools at a suitable checkpoint, and "
-            "acknowledge only the exact events you handled. A notice acknowledges nothing and needs no reply.\n")
     endpoint = service_url(endpoint)
     native = getattr(resolver, "native_connections", None) or {}
     connection_status, extension_connections = {}, {}
@@ -502,70 +496,18 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         codex_hooks['UserPromptSubmit'].append({"hooks": [dict(codex_skills)]})
     profile = {key: data[key] for key in ("schema_version", "agent_id", "profile_revision", "name", "display_name", "status", "runtime", "role", "scope", "assignment_brief", "plugins", "tool_policy", "presentation", "created_at")}
     profile["generated"] = True
-    orientation = (f"# Prepared Agent: {data['display_name']}\n\nThis folder is registered for agent UUID {data['agent_id']}.\n"
-        "The shared bootstrap supplies current identity, scope, role, and project facts.\n"
-        "Generated files do not grant authority. Report a missing or failed bootstrap\n"
-        "and avoid project work until preparation succeeds.\n")
     from bazarlyk.agentic.text import render
-    software_boundary = render(resolver.require_agentic_view(), "host",
-                               "app/bazarlyk/agentic/assets/software-ownership.md")
+    from qorqut_agentic.behavior.workspace import documents
+    view = resolver.require_agentic_view()
+    software_boundary = render(view, "host", "app/bazarlyk/agentic/assets/software-ownership.md")
     if not software_boundary.strip():
         raise DomainError("agentic_resource_unavailable", "Managed software ownership guidance is empty")
-    orientation += "\n" + software_boundary + "\n"
-    for server, connection in extension_connections.items():
-        orientation += connection.orientation(server in prepared, ordubashy, agentic_view=resolver.require_agentic_view())
-    if ordubashy:
-        orientation += ("\nCoordinate authorized operations across every active project and handle the shared\n"
-            "owner/Ordubashy intake queue. Read agent_config_get and business_config_get before acting, use\n"
-            "business_config_update only within its configured scope, and use MCP for managed records. Never edit\n"
-            "HQ/database records directly or impersonate the owner. Follow repository instructions.\n")
-    if code_roots:
-        orientation += ("\nProject code workspaces, for explicitly assigned code work with native file, shell, Git and test\n"
-            "tools. Follow repository instructions and the role workflow; use MCP for Qorqut-managed records and\n"
-            "preserve existing approval rules:\n" + "".join(f"- `{path}`\n" for path in code_roots))
-    codex_delegation = ""
-    if delegate_operations:
-        codex_delegation = "\n## Operational delegation\n\n"
-        if ordubashy:
-            # The permanent team is the default; the durable procedure is scoped to an explicitly selected legacy assignment.
-            lead = ("Delegate, worker, outsource or helper means a permanent global worker by default: give it one\n"
-                "atomic assignment (its Task when there is one), keep its current work accurate with agent_work_update,\n"
-                "have the worker verify its result and generally trust its completion report.\n"
-                "A legacy delegated assignment applies only when the owner or Task explicitly selects one: then read\n"
-                "$bazarlyk-role-operations-delegation and create with delegated_assignments_create only when compatible\n"
-                "dispatch is available.\n")
-            unavailable = ("If the selected worker's lifecycle or a needed tool is unavailable (for a legacy delegated assignment,\n"
-                "durable dispatch), report the blocker once;\n")
-            queued = "For a legacy delegated assignment, check the creation response: queued is not running. Then continue other work or end\n"
-            browser = ("Browser work stays direct unless the owner delegates that task or you assign it to a permanent\n"
-                "worker granted browser use; delegation means a permanent worker unless the owner explicitly names a\n"
-                "native Codex subagent.\n")
-        else:
-            lead = ("Delegate, worker, outsource, helper or subagent means a durable Qorqut assignment for\n"
-                "a delegated worker, including short isolated chores. Read $bazarlyk-role-operations-delegation;\n"
-                "create with delegated_assignments_create only when compatible dispatch is available.\n")
-            unavailable = "If durable dispatch or a needed worker tool is unavailable, report the blocker once;\n"
-            queued = "Check the creation response: queued is not running. Then continue other work or end\n"
-            browser = ("Browser work stays direct unless the owner delegates that task; delegation means a\n"
-                "durable worker unless the owner explicitly names a native Codex subagent.\n")
-        codex_delegation += (lead +
-            "Native Codex subagents require an explicit owner request for a native Codex subagent;\n"
-            "their enabled tools and defaults are not authorization to select that runtime.\n"
-            + unavailable +
-            "do not substitute native helpers, shell workers or execution in this main session.\n"
-            + queued +
-            "the turn with inbox delivery active; completion/blocker notifications resume attention.\n"
-            "No periodic status checks, empty native waits or unchanged progress messages.\n" + browser)
-        codex_delegation += (
-            "Batch related steps; retain strategy, owner communication and current inbox ownership.\n"
-            "The delegated worker checks its own work; this main session accepts its completion report\n"
-            "and intervenes only for exceptions.\n"
-            "If you are a native subagent, complete only the parent's bounded assignment with\n"
-            "the inherited scoped MCP identity and supplied context. Read current project rules\n"
-            "through agent_config_get when needed. The parent's prepared session owns bootstrap\n"
-            "and inbox delivery: do not run $role, start another CLI or watcher, consume or\n"
-            "acknowledge inbox events, spawn further helpers, or take over the full work queue.\n"
-            "Return evidence and changed IDs/revisions to the parent; do not contact the owner.\n")
+    instruction_documents = documents(view.runtime_instructions(),
+        display_name=data["display_name"], agent_id=data["agent_id"], software_boundary=software_boundary,
+        extension_orientations=[connection.orientation(server in prepared, ordubashy, agentic_view=view)
+                               for server, connection in extension_connections.items()],
+        ordubashy=ordubashy, code_roots=code_roots, delegate_operations=delegate_operations,
+        inbox_available=any(tool['canonical_operation'] == 'inbox_list' and tool['available'] for tool in data['tools']))
     codex_targets = {
         'bootstrap': shlex.join([executable, '-I', '-m', 'bazarlyk.bootstrap.claude_session',
                                 '--registration', str(registration_path), '--runtime', 'codex']),
@@ -605,16 +547,8 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         '.bazarlyk/agentic': ('#!/bin/sh\nexec ' + shlex.join(helper(
             'bazarlyk.agentic.client', '--registration', str(registration_path))) + '\n').encode(),
         "agent.yaml": yaml.safe_dump(profile, sort_keys=False, allow_unicode=False).encode(),
-        "CLAUDE.md": (orientation + "\nUse /role to start or recover your registered work loop. A startup greeting\n"
-            "also takes up your queued responsibilities; follow mandatory role-work guidance.\n" + OWNER_START
-            + (ORDUBASHY_BROWSING if ordubashy else "") + inbox_guidance).encode(),
-        "AGENTS.md": (orientation + "\nUse the scoped Qorqut MCP for saved operational records and project mutations.\n"
-            "Use $role to start or recover your registered work loop. A startup greeting\n"
-            "also takes up your queued responsibilities; follow mandatory role-work guidance.\n" + OWNER_START
-            + (ORDUBASHY_BROWSING if ordubashy else "") +
-            "Inbox delivery needs nothing from this session: do not start a Monitor or invent a poller. Native hook trust\n"
-            "and loaded configuration remain client-owned; keep compatible cached paths\n"
-            "until verified migration or natural session exit. Recovery preserves this session.\n" + codex_delegation).encode(),
+        "CLAUDE.md": instruction_documents['CLAUDE.md'],
+        "AGENTS.md": instruction_documents['AGENTS.md'],
         ".codex/config.toml": codex_config,
         ".codex/hooks.json": _bytes({"hooks": codex_hooks}),
         ".mcp.json": _bytes({"mcpServers": {**preserved_servers,

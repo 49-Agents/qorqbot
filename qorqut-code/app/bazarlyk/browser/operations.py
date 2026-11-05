@@ -1,5 +1,7 @@
 """MCP registration of the restricted browser surface: own browsers, managed Global desktops and assignment turns."""
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from qorqut_operations.application import OperationDescriptor
 
 
@@ -23,15 +25,15 @@ def register_browser_operation(runtime):
         "properties": {
             "action": {"enum": ["acquire", "status", "command", "checkpoint", "renew",
                                  "release", "artifact", "reconcile", "list"]},
-            "protocol": {"enum": ["handles", "legacy"], "default": "legacy", "description": "Use handles on acquire for compact replies and server-held credentials. Default legacy preserves unrefreshed callers."},
-            "turn_id": {**_UUID, "description": "Legacy callers only; omit when using handle."},
-            "lease_id": {**_UUID, "description": "Legacy callers only; omit when using handle."},
-            "turn_token": {"type": ["string", "null"], "maxLength": 128, "description": "Legacy callers only; omit when using handle."},
-            "consumer_id": {**_UUID, "description": "Optional UUID of your own choosing, given on acquire (or a handle-less command) to keep separate tasks apart; omit it for the default. Any UUID works and none is looked up or verified. Later calls use the returned handle."},
-            "browser_id": {"type": ["string", "null"], "pattern": "^[a-z][a-z0-9-]{0,62}$", "description": "Ordubashy only, on acquire with protocol=handles: the id from action=list of the exact browser to control. Omit for your own configured browser (the default). The returned handle is bound to that browser; later calls cannot change it."},
-            "browser_key": {"type": ["string", "null"], "maxLength": 200, "description": "Durable workers use the exact assignment target. Native helpers should omit this field; the server selects the parent configured browser."},
-            "handle": {"type": ["string", "null"], "pattern": "^b[a-f0-9]{12}$", "description": "Short browser handle returned by acquire; use it for subsequent actions. Configured-browser handles never expire; a durable worker's handle lasts as long as its turn. Server retains lease credentials."},
-            "action_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 200, "description": "Stable action identity, reused exactly for reconciliation; defaults to the command idempotency_key."}, "command": {"type": ["array", "null"], "items": {"type": "string", "maxLength": 2000}, "maxItems": 32},
+            "protocol": {"enum": ["handles", "legacy"], "default": "legacy", "description": instruction_text('operations-use-handles-on-acquire-for-compact-replies-and')},
+            "turn_id": {**_UUID, "description": instruction_text('operations-legacy-callers-only-omit-when-using-handle')},
+            "lease_id": {**_UUID, "description": instruction_text('operations-legacy-callers-only-omit-when-using-handle')},
+            "turn_token": {"type": ["string", "null"], "maxLength": 128, "description": instruction_text('operations-legacy-callers-only-omit-when-using-handle')},
+            "consumer_id": {**_UUID, "description": instruction_text('operations-optional-uuid-of-your-own-choosing-given-on')},
+            "browser_id": {"type": ["string", "null"], "pattern": "^[a-z][a-z0-9-]{0,62}$", "description": instruction_text('operations-ordubashy-only-on-acquire-with-protocol-handles-the')},
+            "browser_key": {"type": ["string", "null"], "maxLength": 200, "description": instruction_text('operations-durable-workers-use-the-exact-assignment-target-native')},
+            "handle": {"type": ["string", "null"], "pattern": "^b[a-f0-9]{12}$", "description": instruction_text('operations-short-browser-handle-returned-by-acquire-use-it')},
+            "action_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 200, "description": instruction_text('operations-stable-action-identity-reused-exactly-for-reconciliation-defaults')}, "command": {"type": ["array", "null"], "items": {"type": "string", "maxLength": 2000}, "maxItems": 32},
             "checkpoint": {"type": ["object", "null"]}, "last_action": _TEXT,
             "pending_outcome": {"type": ["object", "null"]}, "next_action": _TEXT,
             "lease_seconds": {"type": ["integer", "null"], "minimum": 30, "maximum": 900},
@@ -45,7 +47,7 @@ def register_browser_operation(runtime):
         # are the actual gate. Browser use is never a delegation capability.
         exposure=frozenset({"mcp"}), global_capability="read_global_context",
         resolve_namespace=resolve_namespace,
-        description="Use a browser over trusted MCP. Native callers use their own configured browser lease-free: acquire returns a handle at once, command runs immediately, and release is a no-op; nothing waits or needs reconciling. A timed-out command returns an error: inspect the page before repeating a state-changing action. Projects have no browsers. Durable workers use an exclusive turn on their assignment's configured browser; the handle needs renew, release, and reconcile of an uncertain action before retry. Acquire with protocol=handles, then use handle for command/release. Handle callers never pass lease IDs or tokens, and no browser endpoint is returned. Ordubashy alone may call action=list for the managed Global browsers (id, label) and acquire any of them by browser_id; listing or referencing a browser in chat takes no turn. Waiting releases execution capacity and never grants shell or arbitrary network access.",
+        description=instruction_text('operations-use-a-browser-over-trusted-mcp-native-callers'),
         prepare=unavailable, apply=unavailable))
     return runtime
 
@@ -65,20 +67,12 @@ def register_agent_browser_management(runtime):
     runtime.registry.register(OperationDescriptor(AGENT_BROWSER_MANAGE, {
         "type": "object", "additionalProperties": False,
         "properties": {
-            "agent_id": {"type": "string", "format": "uuid", "description": "The active permanent worker whose own browser to administer."},
+            "agent_id": {"type": "string", "format": "uuid", "description": instruction_text('operations-the-active-permanent-worker-whose-own-browser-to')},
             "action": {"enum": ["status", "ensure", "repair", "restart", "stop"]},
         },
         "required": ["agent_id", "action"],
     }, version=1, effect_kind="records", supports_signoff=False, scope_kinds=frozenset({"global"}),
         exposure=frozenset({"mcp"}), global_capability="read_global_context", resolve_namespace=resolve_namespace,
-        description="Set up, diagnose, repair, restart or stop an active worker's own configured browser (Ordubashy only; no owner "
-                    "approval is needed for this routine maintenance). status changes nothing. ensure creates a dedicated headless "
-                    "managed browser when the worker has none, or starts a stopped owned one, and leaves a healthy browser alone. "
-                    "repair also restores a missing target file from saved ownership and restarts an owned browser that does not "
-                    "respond. restart and stop act only on the exact owned browser and are refused while a browser command is "
-                    "running. Profiles, logins and conversations are always preserved; nothing is ever deleted. Mutations need an "
-                    "idempotency_key and report ready only after a real CDP health check. A pre-existing browser without a "
-                    "registered service binding answers browser_management_unconfigured: that is an installation step, not a "
-                    "missing permission. This grants no authority to spend, submit forms or act as the owner.",
+        description=instruction_text('operations-set-up-diagnose-repair-restart-or-stop-an'),
         prepare=unavailable, apply=unavailable))
     return runtime

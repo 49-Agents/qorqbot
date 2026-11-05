@@ -525,6 +525,7 @@ class AgentConfigResolver:
         config_id = "sha256:" + canonical_hash({"fingerprint": snapshot["fingerprint"],
                                                "native_guidance_digest": native_guidance_digest})
         tools = effective_tool_policy(profile, role, self.registry, packages=packages)
+        tools = view.tool_instructions().metadata(tools)
         mandatory = compose_context(profile, role, sources, effective_config_id=config_id,
             workspace=snapshot["row"]["workspace"], business=snapshot["business"],
             allowed_businesses=tuple(snapshot["businesses"]), owner_name=snapshot["owner_name"],
@@ -642,7 +643,7 @@ class AgentConfigResolver:
     def briefing(self, principal: Principal, config: dict) -> dict:
         builder = getattr(self, "work_briefing", None)
         if builder is None:
-            return {"rendered": "# Live Work Briefing\nWork briefing is unavailable in this configuration-only runtime. Use domain tools to retrieve current work.",
+            return {"rendered": self.require_agentic_view().runtime_instructions().render('briefing-runtime-unavailable'),
                     "available": False}
         return builder.build(principal, config)
 

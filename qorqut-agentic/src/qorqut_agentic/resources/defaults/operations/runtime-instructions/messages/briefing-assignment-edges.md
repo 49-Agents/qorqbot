@@ -1,0 +1,1 @@
+Use task assignment tools for assignment edges and the relevant domain tools for item content. Archive items; removing an edge does not delete an item.

@@ -11,6 +11,8 @@ never follows an item and never acknowledges an inbox event."""
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 import json
@@ -24,9 +26,7 @@ from qorqut_operations.roles import ORDUBASHY_ROLE
 
 BODY = {"type": "string", "minLength": 1, "maxLength": 20000}
 RELAY_SOURCE = schema({"provider": {"enum": ["claude", "codex"]}, "session_id": IDENTITY, "message_id": IDENTITY})
-RELAY = {"description": "Optional attribution of a relayed statement. The registered coordinator may record an explicit "
-         "owner statement, or report what another registered agent said. The recorder is always kept; this is "
-         "attribution only and never approval.",
+RELAY = {"description": instruction_text('threads-optional-attribution-of-a-relayed-statement-the-registered'),
          "oneOf": [
              schema({"kind": {"const": "explicit_owner_statement"}, "owner_id": IDENTITY,
                      "statement_text": {"type": "string", "minLength": 1, "maxLength": 20000}, "source": RELAY_SOURCE},

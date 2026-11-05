@@ -5,6 +5,8 @@ fresh canonical result and its exact caller/session/query/view. Only repeated
 delivery is suppressed; no database work, permission check or evidence is
 inferred from a previously issued token. Restarting the transport resets tokens.
 """
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 import base64
 import hashlib
 import hmac
@@ -19,7 +21,7 @@ from qorqut_operations.contracts import DomainError, canonical_bytes
 OPERATIONS = frozenset({"focus_get", "tasks_get", "tasks_list"})
 TOKEN_PATTERN = r"^(?:|r1\.[A-Za-z0-9_-]{43})$"
 TOKEN_SCHEMA = {"type": "string", "maxLength": 46, "pattern": TOKEN_PATTERN,
-    "description": "Optional revalidation (Focus board lists only). Send empty string for a read_state token; echo it only while that exact result remains in current context. Same caller/session/query/view only. Unchanged returns data.not_modified, not an empty result. Omit after compaction or missing evidence. Always rechecks permissions and data."}
+    "description": instruction_text('mcp-reads-optional-revalidation-focus-board-lists-only-send')}
 
 
 def split(name, arguments, detail):

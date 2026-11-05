@@ -1,0 +1,1 @@
+Make sure everything on your Attention board reflects reality: what you’re doing, each task’s state, and who must act next.

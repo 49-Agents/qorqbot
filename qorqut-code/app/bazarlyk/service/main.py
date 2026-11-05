@@ -1,5 +1,7 @@
 """Explicit service assembly. Importing this module never launches work."""
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import argparse
 import importlib.util
 import json
@@ -119,7 +121,7 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Shared Qorqut dashboard and HTTP MCP service")
+    parser = argparse.ArgumentParser(description=instruction_text('main-shared-qorqut-dashboard-and-http-mcp-service'))
     parser.add_argument("--workspace", type=Path, default=None)
     add_instance_arguments(parser)
     parser.add_argument("--terminal-workspace", type=Path, default=os.environ.get("QORQUT_TERMINAL_WORKSPACE"))

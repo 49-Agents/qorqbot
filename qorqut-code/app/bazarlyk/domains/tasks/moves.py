@@ -14,6 +14,8 @@ bypassed by this operation. A replay re-checks the destination and the identity 
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from dataclasses import replace
 
 from qorqut_operations.application import OperationDescriptor
@@ -37,10 +39,10 @@ VISIBILITY = ("Ordinary access to these Tasks follows the destination project's 
               "membership and no new access.")
 
 SOURCE = {"source_business_id": {"anyOf": [UUID, {"type": "null"}],
-                                 "description": "The project the Tasks are in now: its UUID, or null for Global."}}
-SELECTION = {**SOURCE, "destination_project_id": {**UUID, "description": "The active destination project; never inferred."},
+                                 "description": instruction_text('moves-the-project-the-tasks-are-in-now-its')}}
+SELECTION = {**SOURCE, "destination_project_id": {**UUID, "description": instruction_text('moves-the-active-destination-project-never-inferred')},
              "task_ids": {"type": "array", "items": IDENTITY, "minItems": 1, "maxItems": 100, "uniqueItems": True,
-                          "description": "Root Tasks to move with all of their descendants (1 to 100, at most 1000 in total)."}}
+                          "description": instruction_text('moves-root-tasks-to-move-with-all-of-their')}}
 
 
 def move_namespace(ctx, args):
@@ -69,21 +71,15 @@ class TaskMoves:
         registry = registry or self.application.registry
         registry.register(OperationDescriptor(TARGETS, schema(SOURCE, ("source_business_id",)), **COMMON, effect_kind="read",
             read=lambda ctx, args, options, uow: self.targets(ctx, args, uow),
-            description="Owner and configured Ordubashy: the active projects Tasks may be moved into from this source (a project "
-                        "UUID or null for Global), by name. Never truncated: more than 1000 is result_too_large."))
+            description=instruction_text('moves-owner-and-configured-ordubashy-the-active-projects-tasks')))
         registry.register(OperationDescriptor(PREVIEW, schema(SELECTION, ("source_business_id", "destination_project_id", "task_ids")),
             **COMMON, effect_kind="read", read=lambda ctx, args, options, uow: self.preview(ctx, args, uow),
-            description="Owner and configured Ordubashy: read exactly what moving these Tasks and their descendants into the "
-                        "destination project would carry, the parent detachment of each root, the visibility consequence and "
-                        "every blocker. Writes nothing. The token binds the apply to this exact state."))
+            description=instruction_text('moves-owner-and-configured-ordubashy-read-exactly-what-moving')))
         registry.register(OperationDescriptor(MOVE, schema({**SELECTION, "preview_token": {"type": "string", "minLength": 1,
                                                                                             "maxLength": 200}},
                                                            ("source_business_id", "destination_project_id", "task_ids", "preview_token")),
             **COMMON, prepare=self.prepare, apply=self.apply, replay_validator=self.replay,
-            description="Owner and configured Ordubashy: move the previewed Tasks and all descendants into the destination "
-                        "project in one transaction, keeping every Task id, internal parent, discussion, private conversation "
-                        "and link. Requires the preview token and an idempotency key; a changed state is revision_conflict "
-                        "(preview again) and an incompatible one is move_blocked."))
+            description=instruction_text('moves-owner-and-configured-ordubashy-move-the-previewed-tasks')))
         self.application.task_moves = self
         return self
 

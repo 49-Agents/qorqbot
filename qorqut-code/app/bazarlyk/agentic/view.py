@@ -136,6 +136,13 @@ class HostAgenticView:
             if asset["template"] and self._packages[package_id]["native"]["enabled"]:
                 _invalid("Imported template resources must be isolated in inactive packages")
             self._assets.setdefault((source_id, path), []).append(asset)
+            if "native_source" in asset:
+                from qorqut_agentic.behavior.sources import location
+                alias = asset["native_source"]
+                if (set(alias) != {"source_id", "path"} or alias["source_id"] not in self._sources
+                        or source_id != "roles" or location(alias["source_id"], alias["path"]) != path):
+                    _invalid("Invalid instruction source alias")
+                self._assets.setdefault((alias["source_id"], alias["path"]), []).append(asset)
         self._bindings = {}
         for binding in inv["bindings"]:
             key = binding["kind"], identifier(binding["native_id"])
@@ -269,6 +276,13 @@ class HostAgenticView:
                 return _bytes(value).decode("utf-8")
             return from_catalog(resource)
 
+        return self.consistent(read)
+
+    def tool_instructions(self):
+        """Current tool wording, independent of the registered tool's authority."""
+        from qorqut_agentic.behavior.tool_help import ToolInstructions
+        def read():
+            return ToolInstructions(_bytes(self.resource("roles", "operations/tool-instructions/messages.json")))
         return self.consistent(read)
 
     def role_brief(self, native_package) -> dict:

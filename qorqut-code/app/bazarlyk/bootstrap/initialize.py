@@ -28,6 +28,8 @@ first write like any other: the incomplete instance stays, with no receipt."""
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.seeds import runtime_text as runtime_seed
+
 import argparse
 import hashlib
 import importlib.metadata as metadata
@@ -57,8 +59,8 @@ COMPONENT_SOURCES = {"app": ("qorqut-code", "app"), "operations_engine": ("qorqu
                      "context_engine": ("qorqut-context", ""), "dashboard": ("biz-dashboard", ""), "roles": ("qorqut-agentic", "src/qorqut_agentic/resources/defaults")}
 # The authored role sources published into the catalog; only the first and last are registered as agents.
 ROLES = ("ordubashy", "global-worker", "learning-applier")
-AGENTS = (("ordubashy", "ordubashy", "Ordubashy", "Coordinate the owner's work across projects and register workers when asked."),
-          ("learning-applier", "learning-applier", "Learning Applier", "Extract evidence-backed agentic proposals, review them with the owner and apply the accepted ones."))
+AGENTS = (("ordubashy", "ordubashy", "Ordubashy", runtime_seed('initial-ordubashy-assignment')),
+          ("learning-applier", "learning-applier", "Learning Applier", runtime_seed('initial-learning-assignment')))
 # The shipped profile grants: the Overseer additionally reads its dedicated experience sources, which the ordinary
 # global read does not imply. No other role is broadened.
 AGENT_CAPABILITIES = {"ordubashy": ["read_global_context", "manage_agentic_layer"],

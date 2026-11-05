@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "tool-instructions",
+  "name": "Tool instructions",
+  "description": "Canonical native tool descriptions and schema guidance. Text does not grant authority.",
+  "entries": [
+    {
+      "id": "messages",
+      "kind": "instruction",
+      "path": "messages.json",
+      "description": "Native tool and schema instructions",
+      "when_to_use": "Current registered tool discovery and exact schema reads."
+    }
+  ]
+}

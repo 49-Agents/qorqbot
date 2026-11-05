@@ -11,6 +11,8 @@ disclosed nor leave an unread marker nobody can clear. The separately invoked ma
 ``bazarlyk.maintenance.private_peer_cleanup`` is the only thing that removes those rows. Team notes are unchanged.
 """
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import json
 
 from qorqut_operations.application import OperationDescriptor
@@ -122,16 +124,16 @@ class PrivateConversations:
         registry.register(OperationDescriptor('owner_conversation_peers', schema(FIELDS, ('source',)),
             **common, owner_only=True, exposure=frozenset({'dashboard', 'worker'}), effect_kind='read',
             read=lambda c, a, o, u: self.peers(c, a, u),
-            description='Show the owner’s one private channel on this object, Ordubashy’s, and its unread state. No other peer exists. Does not mark messages read.'))
+            description=instruction_text('private-conversations-show-the-owner-s-one-private-channel')))
         registry.register(OperationDescriptor('owner_conversation_get', schema({**FIELDS,
             'before': {'type': 'integer', 'minimum': 1}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}}, ('source',)),
             **common, effect_kind='read', read=lambda c, a, o, u: self.read(c, a, u),
-            description='Read the private owner–Ordubashy conversation on one object. It is the only private channel: agent_id and peer_role may only restate Ordubashy.'))
+            description=instruction_text('private-conversations-read-the-private-owner-ordubashy-conversation-on')))
         registry.register(OperationDescriptor('owner_conversation_send', schema({**FIELDS,
             'text': {'type': 'string', 'minLength': 1, 'maxLength': 20000}, 'summary': SUMMARY,
             'expected_conversation_revision': {'type': 'integer', 'minimum': 1}}, ('source', 'text')),
             **common, prepare=self.prepare, apply=self.apply, replay_validator=self.validate_replay,
-            description='Send one private message to the owner–Ordubashy channel on this object. It never posts to the team discussion and never changes the source.'))
+            description=instruction_text('private-conversations-send-one-private-message-to-the-owner')))
         registry.register(OperationDescriptor('owner_conversation_mark_read', schema({**FIELDS,
             'sequence': {'type': 'integer', 'minimum': 0}}, ('source', 'sequence')),
             supports_signoff=False, scope_kinds=frozenset({'business', 'global'}),
@@ -139,7 +141,7 @@ class PrivateConversations:
             exposure=frozenset({'dashboard', 'worker'}),
             resolve_namespace=common['resolve_namespace'], prepare=self.prepare_mark, apply=self.apply_mark,
             replay_validator=self.validate_replay,
-            description='Record the owner’s private read position up to a sequence the server already returned.'))
+            description=instruction_text('private-conversations-record-the-owner-s-private-read-position')))
         from .thread_views import directory, related
         registry.register(OperationDescriptor('owner_conversations_list', schema({
             'scope': {'const': 'global'}, 'before': {'type': 'integer', 'minimum': 1},
@@ -147,13 +149,13 @@ class PrivateConversations:
             supports_signoff=False, scope_kinds=frozenset({'global'}), global_capability='read_global_context',
             resolve_namespace=lambda c, a: 'global', owner_only=True, exposure=frozenset({'dashboard', 'worker'}),
             effect_kind='read', read=lambda c, a, o, u: directory(self, c, a, u),
-            description='List readable owner–Ordubashy threads by their last real message. Does not mark them read.'))
+            description=instruction_text('private-conversations-list-readable-owner-ordubashy-threads-by-their')))
         registry.register(OperationDescriptor('owner_conversation_related', schema({**FIELDS,
             'offset': {'type': 'integer', 'minimum': 0},
             'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}}, ('source',)),
             **common, owner_only=True, exposure=frozenset({'dashboard', 'worker'}), effect_kind='read',
             read=lambda c, a, o, u: related(self, c, a, u),
-            description='Read related records for visual thread context. Never creates conversation messages.'))
+            description=instruction_text('private-conversations-read-related-records-for-visual-thread-context')))
         self.app.private_conversations = self
         return self
 

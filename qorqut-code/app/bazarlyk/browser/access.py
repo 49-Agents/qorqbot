@@ -466,11 +466,10 @@ class BrowserAccess:
                 endpoint, executable = browser.load_target(agent_workspace_of(
                     self.runtime.paths, parent_principal_id, profile["home_business_id"], profile["slug"]))
             except browser.BrowserNotConfigured:
-                raise DomainError("browser_not_configured", "You have no browser configured. Tell Ordubashy; he can set one "
-                                  "up with agent_browser_manage. Do not retry or install anything yourself.") from None
+                raise DomainError("browser_not_configured", self.runtime.resolver.require_agentic_view().runtime_instructions().render('browser-worker-unconfigured')) from None
             except browser.BrowserError as exc:
                 raise DomainError("browser_configuration_invalid", "Your configured browser is unusable (" + str(exc) +
-                                  ") Tell Ordubashy; he can diagnose and repair it with agent_browser_manage.") from None
+                                  self.runtime.resolver.require_agentic_view().runtime_instructions().render('browser-worker-repair')) from None
             return {"cdp_endpoint": endpoint, "generation": "configured", "instance": browser_key,
                     "runtime_dir": str(browser.runtime_directory(executable)), "browser_key": browser_key}
         raise DomainError("forbidden", "Browser target is not an approved configured target")

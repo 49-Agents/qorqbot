@@ -7,6 +7,8 @@ Context's history is its published Git graph and is read with ``context_object``
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from qorqut_business_docs_versioning import HistoryStore, NotFound
 
 from qorqut_operations.application import OperationDescriptor
@@ -69,14 +71,12 @@ class DocumentHistory:
                     "before_version": VERSION, "limit": LIMIT}, ("source_kind", "source_id")),
             scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
             resolve_namespace=lambda c, _a: "business:" + c.business_id if c.business_id else "global",
-            description="Owner: shared content history of one document in the selected scope: one version, a diff "
-                        "between two versions, or a page of version metadata (no contents).",
+            description=instruction_text('reads-owner-shared-content-history-of-one-document-in'),
             read=self.get, **common))
         registry.register(OperationDescriptor("business_history_list",
             schema({"source": {"enum": ["core"]}, "before_sequence": VERSION, "limit": LIMIT}),
             scope_kinds=frozenset({"business"}), resolve_namespace=lambda c, _a: "business:" + c.business_id,
-            description="Owner: the selected project's recorded activity facts, newest first, from the core source "
-                        "and its sequence cursor.",
+            description=instruction_text('reads-owner-the-selected-project-s-recorded-activity-facts'),
             read=self.events, **common))
         return self
 

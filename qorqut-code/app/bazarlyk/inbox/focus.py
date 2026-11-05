@@ -1,4 +1,6 @@
 """Ordubashy's owner-facing board. References and handoffs, never authority."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
@@ -35,11 +37,11 @@ class FocusService:
         operations = {
             'focus_show': ({'status': {'type': 'string', 'maxLength': 2000},
                 'items': {'type': 'array', 'maxItems': 20, 'items': item_schema(self.items.kinds)}}, ('status', 'items'),
-                'Replace your ordered Focus cards with current object references and why they matter. Keeps any pending browser input. Use your session inbox consumer_id and freshly read revision.'),
-            'focus_clear': ({}, (), 'Clear Focus and explicitly cancel pending browser input. Does not complete tasks, dismiss signoffs or approve actions.'),
+                instruction_text('focus-replace-your-ordered-focus-cards-with-current-object')),
+            'focus_clear': ({}, (), instruction_text('focus-clear-focus-and-explicitly-cancel-pending-browser-input')),
             'focus_browser_input': ({'prompt': TEXT, 'app': {'type': 'string', 'minLength': 1, 'maxLength': 200},
                 'tab': {'type': 'string', 'minLength': 1, 'maxLength': 500}}, ('prompt', 'app', 'tab'),
-                'Ask the owner for browser input on the identified app/tab, after finishing the current browser command. Pauses automation until owner Done. No URL or approval authority; describe the actual tab from your last browser observation.'),
+                instruction_text('focus-ask-the-owner-for-browser-input-on-the')),
         }
         for name, (fields, required, description) in operations.items():
             self.app.registry.register(OperationDescriptor(name, schema({**shared, **fields},

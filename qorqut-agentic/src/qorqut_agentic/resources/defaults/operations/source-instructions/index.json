@@ -1,0 +1,297 @@
+{
+  "format": 1,
+  "entries": [
+    {
+      "source": "email",
+      "path": "plugin.yaml"
+    },
+    {
+      "source": "email",
+      "path": "rules.yaml"
+    },
+    {
+      "source": "email",
+      "path": "skills/email-management/SKILL.md"
+    },
+    {
+      "source": "email",
+      "path": "skills/email-management/instance-template/SKILL.md"
+    },
+    {
+      "source": "email",
+      "path": "skills/email-management/instance-template/inboxes/README.md"
+    },
+    {
+      "source": "email",
+      "path": "skills/email-management/instance-template/instructions.md"
+    },
+    {
+      "source": "email",
+      "path": "skills/email-management/instance-template/providers/README.md"
+    },
+    {
+      "source": "email",
+      "path": "tools.yaml"
+    },
+    {
+      "source": "fastmail",
+      "path": "qorqut_fastmail/resources/email-management/providers/fastmail.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/backlog.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/capability-handoffs.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/code-root.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/completion-report.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/configuration-header.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/context-evidence.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/context-provenance.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/context-reads.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/context-unavailable.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/current-configuration.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/environment-get.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/environment-list.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/environment-set.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/files-link-guidance.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/identity.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/inbox-session-note.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/inbox.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/learning-review.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/legacy-working-memory.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/operation-batches.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/owner-decisions.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/plugins.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/private-owner-replies.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/project-aliases.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/project-briefing.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/role-workflow.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/scope.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/selected-project.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/selected-scope.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/signoff-evidence.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/software-ownership.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/startup.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/task-assignment.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/task-overview.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/task-relations.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/team-queue.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/thread-replies.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/toolkit.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/trusted-handoffs.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/viewbox-guidance.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/working-memory.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agentic/assets/workspace.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agents/skills/cleanup/SKILL.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/agents/skills/role/SKILL.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/bootstrap/instructions/agent-foundation.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/bootstrap/instructions/ecosystem.md"
+    },
+    {
+      "source": "host",
+      "path": "app/bazarlyk/bootstrap/instructions/operating/ecosystem-agent.md"
+    },
+    {
+      "source": "host",
+      "path": "app/plugins/agent-terminal-control/config.schema.json"
+    },
+    {
+      "source": "host",
+      "path": "app/plugins/agent-terminal-control/plugin.yaml"
+    },
+    {
+      "source": "host",
+      "path": "app/plugins/agent-terminal-control/rules.yaml"
+    },
+    {
+      "source": "host",
+      "path": "app/plugins/agent-terminal-control/skills/agent-terminal-control/SKILL.md"
+    },
+    {
+      "source": "host",
+      "path": "app/plugins/agent-terminal-control/tools.yaml"
+    },
+    {
+      "source": "host",
+      "path": "app/templates/plugins/basic/.gitignore"
+    },
+    {
+      "source": "host",
+      "path": "app/templates/plugins/basic/README.md"
+    },
+    {
+      "source": "host",
+      "path": "app/templates/plugins/basic/plugin.yaml"
+    },
+    {
+      "source": "host",
+      "path": "app/templates/plugins/basic/rules.yaml"
+    },
+    {
+      "source": "host",
+      "path": "app/templates/plugins/basic/schemas/config.schema.json"
+    },
+    {
+      "source": "host",
+      "path": "app/templates/plugins/basic/skills/example-procedure/SKILL.md"
+    },
+    {
+      "source": "host",
+      "path": "app/templates/plugins/basic/tools.yaml"
+    },
+    {
+      "source": "telegram",
+      "path": "qorqut_telegram/optional/roles/BRIEF-SECTION.md"
+    },
+    {
+      "source": "telegram",
+      "path": "qorqut_telegram/optional/roles/CONNECTOR.md"
+    },
+    {
+      "source": "telegram",
+      "path": "qorqut_telegram/optional/roles/skills/telegram-owner-communication/SKILL.md"
+    },
+    {
+      "source": "telegram",
+      "path": "qorqut_telegram/resources/telegram-replies.md"
+    },
+    {
+      "source": "whatsapp",
+      "path": "qorqut_whatsapp/guidance.md"
+    }
+  ]
+}

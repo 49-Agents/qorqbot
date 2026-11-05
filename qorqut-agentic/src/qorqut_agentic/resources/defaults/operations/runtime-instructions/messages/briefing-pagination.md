@@ -1,0 +1,1 @@
+{{VALUE0}} has more results for {{VALUE1}}. Run that query and follow next_cursor; this briefing is not a complete inventory.

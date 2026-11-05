@@ -1,4 +1,7 @@
 """Persistent attention board for the configured Ordubashy."""
+
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 from dataclasses import replace
 import json
 
@@ -7,9 +10,6 @@ from qorqut_operations.application.plans import PlanBuilder, page, schema, times
 from qorqut_operations.contracts import DomainError, InvocationOptions, Principal, new_id, plain
 from qorqut_operations.discussion import emit_event
 from bazarlyk.management.identity import configured_ordubashy, is_active_installation_owner
-
-BOARD_TRANSITION_HINT = ('Make sure everything on your Attention board reflects reality: what you’re doing, '
-                         'each task’s state, and who must act next.')
 
 ID = {'type': 'string', 'minLength': 1, 'maxLength': 200}
 REF = schema({'type': ID, 'id': ID, 'business_id': {'type': ['string', 'null']}}, ('type', 'id', 'business_id'))
@@ -42,7 +42,7 @@ class Attention:
         shared = {'scope': {'const': 'global'}, 'agent_id': ID}
         self.app.registry.register(OperationDescriptor('attention_get', schema({**shared,
             'projection': {'enum': ['detail', 'summary', 'focus'],
-                'description': 'detail includes full Tasks; summary returns board rows; focus omits memberships.'},
+                'description': instruction_text('attention-detail-includes-full-tasks-summary-returns-board-rows')},
             'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}, 'cursor': {'type': 'string', 'maxLength': 2000}}),
             **common, effect_kind='read', read=lambda c,a,o,u: self.read(c,a,u)))
         ops = {
@@ -437,20 +437,20 @@ class Attention:
             if ctx.principal_id != agent:
                 return None
             if status == 'working':
-                return BOARD_TRANSITION_HINT
+                return self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-board-transition')
             state = self.state(uow, agent)
             ref = {'type': 'task', 'id': args.get('task_id'), 'business_id': ctx.business_id}
             if state['focus_json'] and ref in (state['focus_json'], state['work_task_json']):
-                return 'Clear or change your focus.'
+                return self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-focus-transition')
         return None
 
     def add_result(self, ctx, task, uow):
         # The full board, without each Task's comment thread.
         result = self.read(ctx, {}, uow, notes=False)
         if ctx.principal_kind == 'agent':
-            result['agent_hint'] = BOARD_TRANSITION_HINT
+            result['agent_hint'] = self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-board-transition')
             if not task.get('worker_ids'):
-                result['agent_hint'] += ' Set who must act next.'
+                result['agent_hint'] += self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-next-actor')
         return result
 
     def apply(self, ctx, plan, uow):
@@ -500,7 +500,7 @@ class Attention:
         # A mutation receipt confirms focus and revision; it does not rebuild the board.
         result = self.read(ctx,{'projection':'focus'},uow)
         if op == 'attention_focus_set' and ctx.principal_kind == 'agent':
-            result['agent_hint'] = BOARD_TRANSITION_HINT
+            result['agent_hint'] = self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-board-transition')
         return result
 
 

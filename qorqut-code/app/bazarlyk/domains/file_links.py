@@ -11,6 +11,8 @@ origin the owner uses.
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import posixpath
 from uuid import UUID as _UUID
 
@@ -21,16 +23,7 @@ from bazarlyk.file_viewer.paths import MAX_LABEL_CHARS, MAX_PATH_CHARS, markdown
 from qorqut_operations.application.plans import UUID, schema
 
 DESCRIPTION = (
-    "Build an ordinary link the owner can click to read a file in the Qorqut file viewer. Give exactly one of path "
-    "or document_id. A path is the file's absolute path under this instance's operations root (best when you know it), "
-    "or relative to that root with its first folder kept: projects/<slug>/hq/notes/report.md or "
-    "agents/<agent>/scratch/report.md, never starting at the project slug. document_id is a registered document "
-    "readable in your current scope (Global agents select a project with business_id as usual). Optional label; "
-    "optional version (document_id only) links one saved version instead of the current file. Returns viewer_url "
-    "(root-relative) and a ready Markdown link: paste the returned markdown into your reply unchanged and never build "
-    "the URL by hand. For a path this only builds text: nothing is read, listed or verified, and the viewer checks the "
-    "file when the owner opens it, so never claim the file exists because a link was built. Grants no file access; "
-    "only the owner's viewer reads content. Read-only.")
+    instruction_text('file-links-build-an-ordinary-link-the-owner-can'))
 
 
 def namespace(ctx, _arguments):

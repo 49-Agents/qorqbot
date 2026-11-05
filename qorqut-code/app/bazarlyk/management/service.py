@@ -1,4 +1,6 @@
 """Small canonical management intake over messages and input Signoffs."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 import json
 
 from qorqut_operations.conversations import SUMMARY, normalize_summary
@@ -38,27 +40,27 @@ class ManagementService:
         registry.register(OperationDescriptor('management_list', schema({**SCOPE,
             'all_items': {'type': 'boolean'}, 'attention_destination': {'enum': ['management', 'owner']},
             'disposition': {'enum': ['pending', 'resolved', 'dismissed']}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}, 'cursor': {'type': 'string', 'maxLength': 200}}, ()),
-            **common, effect_kind='read', supports_signoff=False, description='List authorized management intake with source links and actual attribution.', read=self.list))
+            **common, effect_kind='read', supports_signoff=False, description=instruction_text('service-list-authorized-management-intake-with-source-links-and'), read=self.list))
         registry.register(OperationDescriptor('management_get', schema({**SCOPE, 'routing_id': UUID}, ('routing_id',)),
-            **common, effect_kind='read', supports_signoff=False, description='Read one authorized management intake item.', read=self.get))
+            **common, effect_kind='read', supports_signoff=False, description=instruction_text('service-read-one-authorized-management-intake-item'), read=self.get))
         registry.register(OperationDescriptor('management_route', schema({**SCOPE, 'source_type': {'enum': ['signoffs', 'agent_messages']},
             'source_id': {'type': 'string', 'minLength': 1, 'maxLength': 200}, 'attention_destination': {'enum': ['management', 'owner']},
             'escalation_reason': {'type': 'string', 'maxLength': 4000}, 'recommendation': {'type': 'string', 'maxLength': 8000},
             'deadline': {'type': ['string', 'null'], 'format': 'date-time'}, 'management_allowed': {'type': 'boolean'},
             'expected_routing_revision':{'type':'integer','minimum':1}},
             ('source_type', 'source_id', 'attention_destination')),
-            **common, supports_signoff=False, description='Route one canonical message or input request to management or owner attention.', prepare=self.prepare_route, apply=self.apply_route))
+            **common, supports_signoff=False, description=instruction_text('service-route-one-canonical-message-or-input-request-to'), prepare=self.prepare_route, apply=self.apply_route))
         registry.register(OperationDescriptor('management_message_send', schema({**SCOPE, 'summary': SUMMARY, 'message': {'type': 'string', 'minLength': 1, 'maxLength': 16000},
             'escalation_reason': {'type': 'string', 'maxLength': 4000}, 'recommendation': {'type': 'string', 'maxLength': 8000}}, ('message',)),
-            **common, supports_signoff=False, description='Send a durable management message to the exact configured coordinator.', prepare=self.prepare_message, apply=self.apply_message))
+            **common, supports_signoff=False, description=instruction_text('service-send-a-durable-management-message-to-the-exact'), prepare=self.prepare_message, apply=self.apply_message))
         registry.register(OperationDescriptor('management_coordinator_set', schema({'coordinator_id': UUID}, ('coordinator_id',)),
             scope_kinds=frozenset({'global'}), exposure=frozenset({'dashboard', 'worker'}), owner_only=True,
-            global_capability='read_global_context', supports_signoff=False, description='Set the one installation management coordinator. The target must be an active Ordubashy.',
+            global_capability='read_global_context', supports_signoff=False, description=instruction_text('service-set-the-one-installation-management-coordinator-the-target'),
             prepare=self.prepare_coordinator, apply=self.apply_coordinator))
         registry.register(OperationDescriptor('management_resolve', schema({**SCOPE, 'routing_id': UUID,
             'disposition': {'enum': ['resolved', 'dismissed']}},
             ('routing_id', 'disposition')), **common, supports_signoff=False,
-            description='Resolve or dismiss a management route while retaining its immutable canonical source.',
+            description=instruction_text('service-resolve-or-dismiss-a-management-route-while-retaining'),
             prepare=self.prepare_resolve, apply=self.apply_resolve))
         self.app.management = self
         return self
