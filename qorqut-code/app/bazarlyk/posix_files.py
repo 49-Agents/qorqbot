@@ -78,17 +78,50 @@ def prepare_publication(staging) -> None:
     staging = Path(staging)
     staging.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd = os.open(staging, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
-    info = os.fstat(fd)
-    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+            raise DomainError("unsafe_path", "The publication staging directory must be private to this user")
+        for name in os.listdir(fd):
+            if name.startswith(".publish-"):
+                os.unlink(name, dir_fd=fd)
+    except BaseException:
         os.close(fd)
-        raise DomainError("unsafe_path", "The publication staging directory must be private to this user")
-    for name in os.listdir(fd):
-        if name.startswith(".publish-"):
-            os.unlink(name, dir_fd=fd)
+        raise
     previous = _staging.pop("fd", None)
     if previous is not None:
         os.close(previous)
     _staging["fd"] = fd
+
+
+def _staging_fd() -> int:
+    staging = _staging.get("fd")
+    if staging is None:
+        raise DomainError("unsupported_platform", "Publication staging was not prepared for this update")
+    return staging
+
+
+def _cross_device(directory=None) -> OSError:
+    where = f" ({directory})" if directory is not None else ""
+    return OSError(errno.EXDEV, "The publication staging directory is on a different file system" + where)
+
+
+def require_same_device(*directories) -> None:
+    """Refuse, before any effect, a macOS publication destination on another file system than the staging directory.
+
+    A read-only preflight for callers that publish several files in a row: each directory is opened without following
+    a symlink and its device is compared with the already-validated staging descriptor, so a mismatch is found before
+    the first publication rather than by the one that happens to need staging (a no-op on Linux)."""
+    if not _darwin():
+        return
+    device = os.fstat(_staging_fd()).st_dev
+    for directory in directories:
+        fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            if os.fstat(fd).st_dev != device:
+                raise _cross_device(directory)
+        finally:
+            os.close(fd)
 
 
 class Pending:
@@ -105,11 +138,9 @@ def anonymous_file(dir_fd: int, *, read: bool = False) -> Pending:
         return Pending(os.open(".", access | os.O_TMPFILE, 0o600, dir_fd=dir_fd))
     if not _darwin():
         require_anonymous_publication()
-    staging = _staging.get("fd")
-    if staging is None:
-        raise DomainError("unsupported_platform", "Publication staging was not prepared for this update")
+    staging = _staging_fd()
     if os.fstat(staging).st_dev != os.fstat(dir_fd).st_dev:
-        raise OSError(errno.EXDEV, "The publication staging directory is on a different file system")
+        raise _cross_device()
     import secrets
     name = ".publish-" + secrets.token_hex(16)
     fd = os.open(name, access | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=staging)
