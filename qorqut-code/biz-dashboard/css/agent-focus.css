@@ -228,6 +228,7 @@
 .agfocus-close svg,.rw-head.rw-close-first .rw-close svg{width:13px;height:13px}
 .rw-head.rw-close-first .rw-close{margin-right:6px}
 .agfocus-surface-body{flex:1;min-height:0;min-width:0;max-width:100%;overflow:auto;display:flex;flex-direction:column;box-sizing:border-box;border:1px solid var(--line-2);border-radius:10px;background:var(--surface)}
+.agfocus-expansion-content{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column}
 .agfocus-surface-body > .agvb{flex:1;min-height:0}
 .agfocus-surface-body .agvb-frameview{min-height:240px}
 .agfocus-surface-body .agfocus-desktop-view{padding:0 0 10px}

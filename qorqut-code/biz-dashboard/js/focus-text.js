@@ -240,7 +240,6 @@ const focusText = (() => {
     if (!ready(p) || text.length > MAX_CHARS) return false;
     const s = state(p.agentId);
     if (p.focusDetail) p.focusDetail.back();
-    if (p.surface) agpadSurfaceClose(p);
     const first = sequence($('.agfocus-items', p.focusMount)).find(e => e.kind === 'card')?.id ?? null;
     const k = first ? s.cardIds.indexOf(first) : -1;
     const block = {id: newRequestId(), text, before_id: first, after_id: k > 0 ? s.cardIds[k - 1] : null};
