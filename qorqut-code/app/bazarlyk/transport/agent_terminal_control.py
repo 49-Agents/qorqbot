@@ -1,6 +1,7 @@
 """Host tmux adapter: registered targets only; no caller-provided commands."""
 import hashlib
 import json
+import logging
 import os
 import sys
 import threading
@@ -145,6 +146,10 @@ class AgentTerminalBackend:
                         if group != foreground:
                             continue
                         name = process_info.name(int(process.name))
+                        # Only the client's own arguments are read: a CLI's short-lived helpers (MCP servers started
+                        # through npx, for example) share its group, and macOS refuses their arguments while they exec.
+                        if name not in CLIENT_PROCESSES[client]:
+                            continue
                         args = [arg.encode() for arg in process_info.cmdline(int(process.name))]
                     else:
                         stat = (process / 'stat').read_text()
@@ -286,7 +291,14 @@ class AgentTerminalBackend:
         broker, _, session, _, _ = self.selected(row)
         until = time.monotonic()+self.timeout
         while time.monotonic()<until:
-            snap = self.snapshot(row)
+            try:
+                snap = self.snapshot(row)
+            except DomainError as exc:
+                # A process changing while it is observed is retried; the observation itself never acts.
+                if exc.code != 'operation_unavailable' or not isinstance(exc.__cause__, OSError):
+                    raise
+                self.sleep(.2)
+                continue
             code, screen = broker.tmux('capture-pane','-p','-t',snap['pane_id'],'-S','-30')
             if not code and ('Blocked by hook' in screen or 'reprepare_required' in screen):
                 raise DomainError('reprepare_required', 'Agent preparation failed')
@@ -322,7 +334,7 @@ class AgentTerminalBackend:
         # The selection this action was authorized against, read before the old pane is touched; start/restart may resume only
         # exactly this one, never whichever selection exists after the old terminal is gone.
         authorized = expected.get('selection_revision')
-        broker, key, session, _, business = self.selected(row)
+        broker, key, session, workspace, business = self.selected(row)
         if action=='ping':
             return self._ping(row, message, input_key or f"terminal-action:{uuid4()}", launcher)
         if action in {'kill','restart'}:
@@ -344,6 +356,13 @@ class AgentTerminalBackend:
         # whose runtime is not a supported client.
         if launcher is None:
             raise DomainError('unsupported_runtime', 'Terminal control supports Claude Code and Codex agents only')
+        # With the owner's consent, the CLI's folder-trust prompt is answered in its own file before launch, so the readiness
+        # wait below reaches the composer instead of stopping at a prompt it must never type into. No consent: unchanged.
+        try:
+            from bazarlyk import agent_trust
+            agent_trust.ensure(self.runtime.paths.runtime, workspace)
+        except (OSError, DomainError):
+            logging.getLogger(__name__).warning('Agent folder trust could not be recorded', exc_info=True)
         # An agent with a selected native conversation is resumed as exactly that conversation, with no role bootstrap; a
         # launch that cannot be proved safe is refused, never replaced by a fresh conversation. That path verifies the pane's
         # shell by process identity and does its own line-clear, so nothing is typed before it has.
