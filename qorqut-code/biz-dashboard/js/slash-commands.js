@@ -69,7 +69,8 @@ const slashCommands = (() => {
     input.addEventListener('blur', onBlur);
     menu.addEventListener('mousedown', onPick);
     return {
-      refresh: paint,
+      // A catalog that arrives after typing started: show it if the owner is still typing a command.
+      refresh() { if (document.activeElement === input) paint(); },
       dispose() {
         input.removeEventListener('input', onInput); input.removeEventListener('keydown', onKey, true);
         input.removeEventListener('blur', onBlur); menu.remove();
