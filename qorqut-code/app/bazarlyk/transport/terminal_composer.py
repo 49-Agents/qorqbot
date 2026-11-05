@@ -258,7 +258,9 @@ def _holds_paste(client, rows, first, text, cursor):
     marker = MARKERS[client]
     match = marker.match(_text(rows[first]))
     end = None
-    head = _content(_text(_typed(rows[first])), match, True)
+    # The placeholder is judged on the whole raw row, before any dim run is dropped: a client may draw it dim, and a row that
+    # only starts like a placeholder (extra text, a suggestion, a menu item) is not one.
+    head = _content(_text(rows[first]), match, True)
     if PLACEHOLDER.match(head):
         end = first if _placeholder_fits(head, text) else None
     else:

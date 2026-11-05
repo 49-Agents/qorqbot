@@ -22,6 +22,20 @@ const slashCommands = (() => {
     return name ? commands.find(item => item.name.toLowerCase() === name.toLowerCase()) || null : null;
   }
 
+  // Whether a sent command leaves a menu or panel to finish in the agent's Terminal. `/model <name>` on Claude Code switches the
+  // model at once; only a bare `/model` opens its menu. Every other "terminal" command opens one.
+  function opensTerminal(item, text, provider) {
+    if (!item || item.where !== 'terminal') return false;
+    if (provider === 'claude' && item.name.toLowerCase() === '/model') return !/^\/\S+\s+\S/.test(String(text).trim());
+    return true;
+  }
+  // The shared Codex server takes plain text, so it cannot run a Codex command: the message to show instead of sending one
+  // (null when the session is a Terminal or the text is not a known command). The backend refuses it too.
+  function sharedServerRefusal(session, item, label) {
+    if (!item || session?.provider !== 'codex' || session?.transport !== 'codex_queue') return null;
+    return `${item.name} runs only in ${label}’s Terminal. Open Terminal and run it there.`;
+  }
+
   // `options.commands()` returns the current catalog (or null while unknown).
   function attach({input, form, commands}) {
     const menu = document.createElement('div');
@@ -77,6 +91,6 @@ const slashCommands = (() => {
       },
     };
   }
-  return {match, command, attach, MAX_SHOWN};
+  return {match, command, opensTerminal, sharedServerRefusal, attach, MAX_SHOWN};
 })();
 if (typeof module !== 'undefined') module.exports = slashCommands;

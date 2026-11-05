@@ -28,3 +28,28 @@ test('a sent text is matched to the command it runs', () => {
   assert.equal(slash.command(catalog, '/unknown'), null);
   assert.equal(slash.command(catalog, 'please /compact'), null);
 });
+
+test('only a bare /model, or another menu command, is finished in the Terminal', () => {
+  const opens = (text, provider) => slash.opensTerminal(slash.command(catalog, text), text, provider);
+  assert.equal(opens('/model', 'claude'), true);
+  assert.equal(opens('/model   ', 'claude'), true);
+  assert.equal(opens('/model sonnet', 'claude'), false);
+  assert.equal(opens(' /MODEL\nopus', 'claude'), false);
+  assert.equal(opens('/model sonnet', 'codex'), true);
+  assert.equal(opens('/cost now', 'claude'), true);
+  assert.equal(opens('/compact', 'claude'), false);
+  assert.equal(opens('/unknown', 'claude'), false);
+});
+
+test('a known command is not sent to a shared Codex server', () => {
+  const codex = [{name: '/compact', where: 'chat'}, {name: '/model', where: 'terminal'}];
+  const shared = {provider: 'codex', transport: 'codex_queue'};
+  const refusal = (session, text) => slash.sharedServerRefusal(session, slash.command(codex, text), 'Ada');
+  assert.equal(refusal(shared, '/compact now'), '/compact runs only in Ada’s Terminal. Open Terminal and run it there.');
+  assert.match(refusal(shared, '/model'), /^\/model runs only in Ada’s Terminal/);
+  assert.equal(refusal(shared, '/tmp/foo'), null);
+  assert.equal(refusal(shared, 'run /compact'), null);
+  assert.equal(refusal({provider: 'codex', transport: 'terminal'}, '/compact'), null);
+  assert.equal(refusal({provider: 'claude', transport: 'terminal'}, '/compact'), null);
+  assert.equal(refusal(null, '/compact'), null);
+});
