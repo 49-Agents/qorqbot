@@ -5,7 +5,7 @@ const { test } = require('node:test');
 const { plan, STARTING_FOR_MS } = require('../js/agent-start.js');
 
 const offline = {state: 'offline', reason: 'no_session'};
-const granted = {granted: true, autostart: true};
+const granted = {granted: true};
 
 test('a live or unloaded session offers nothing', () => {
   assert.deepEqual(plan(null, granted), {kind: 'none'});
@@ -14,24 +14,19 @@ test('a live or unloaded session offers nothing', () => {
 
 test('offline reasons a start cannot fix offer nothing', () => {
   for (const reason of ['capture_disabled', 'unsupported_runtime', 'native_only', 'other_conversation', 'selection_required', 'registering']) {
-    assert.equal(plan({state: 'offline', reason}, granted, {isLead: true}).kind, 'none', reason);
+    assert.equal(plan({state: 'offline', reason}, granted).kind, 'none', reason);
   }
 });
 
-test('without consent the owner is offered Start, which asks first, and nothing starts by itself', () => {
-  for (const trust of [null, {granted: false, autostart: false}]) {
-    assert.deepEqual(plan(offline, trust, {isLead: true}), {kind: 'start', auto: false, needsConsent: true});
+test('without consent Start asks first', () => {
+  for (const trust of [null, {granted: false}]) {
+    assert.deepEqual(plan(offline, trust), {kind: 'start', needsConsent: true});
   }
 });
 
-test('with consent the lead agent starts by itself once', () => {
-  assert.deepEqual(plan(offline, granted, {isLead: true}), {kind: 'start', auto: true, needsConsent: false});
-  assert.equal(plan(offline, granted, {isLead: true, autoTried: true}).auto, false);
-});
-
-test('other agents and an explicitly stopped lead wait for the button', () => {
-  assert.equal(plan(offline, granted, {isLead: false}).auto, false);
-  assert.equal(plan(offline, {granted: true, autostart: false}, {isLead: true}).auto, false);
+test('with consent Start is offered and nothing starts by itself', () => {
+  assert.deepEqual(plan(offline, granted), {kind: 'start', needsConsent: false});
+  assert.ok(!('auto' in plan(offline, granted)));
 });
 
 test('a start shows starting, then a failure once the wait runs out', () => {

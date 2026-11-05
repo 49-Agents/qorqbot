@@ -1,7 +1,9 @@
 """The owner's one-time consent for Qorqbot to start Claude Code and Codex in its own agent folders.
 
 Each CLI asks once per folder whether to trust it, and Codex also asks the owner to review the hooks Qorqbot prepares. An
-automated start never types into those prompts, so without this consent Chat cannot bring an agent online by itself.
+automated start never types into those prompts, so without this consent Chat's Start button cannot bring an agent online.
+The same consent lets the owner type ``claude`` or ``codex`` in an agent's own terminal without those prompts. Qorqbot never
+starts an agent by itself: every start is the owner's, from Chat's Start button or the agent's terminal.
 
 With consent, given on one dashboard screen that names both effects:
 
@@ -157,11 +159,10 @@ def ensure(runtime_directory, folder, environ=None) -> dict | None:
 
 
 def owner_view(runtime, change=None, agent_id=None, environ=None) -> dict:
-    """The dashboard's view: consent, which CLIs are set up, and whether ``agent_id`` may be started automatically.
+    """The dashboard's view: consent and which CLIs are set up.
 
     Granting records folder trust for every active global agent's workspace at once; agents prepared later are trusted
-    when they are started (``AgentTerminalBackend``). Automatic start respects an explicit stop or pause: an agent whose
-    session intent the owner or Ordubashy set to ``stopped`` or ``paused`` waits for the Start button."""
+    when they are started (``AgentTerminalBackend``). ``agent_id`` is accepted for compatibility and not used."""
     from bazarlyk.agents.global_scope import active_global
     from bazarlyk.composition.locations import agent_workspace
     saved = consent(runtime.paths.runtime, change)
@@ -173,13 +174,7 @@ def owner_view(runtime, change=None, agent_id=None, environ=None) -> dict:
                 if active_global(uow.connection, row["agent_id"]) is not None]
         for identity in rows:
             results[identity] = ensure(runtime.paths.runtime, agent_workspace(runtime.paths, identity, None), environ)
-    autostart = False
-    if agent_id is not None and saved["granted"]:
-        with runtime.database.read() as uow:
-            intent = uow.connection.execute("SELECT desired_state FROM native_session_owners WHERE agent_id=?",
-                                            (agent_id,)).fetchone()
-        autostart = intent is None or intent["desired_state"] not in ("stopped", "paused")
-    return {**saved, "clients": clients(environ), "autostart": autostart, **({"recorded": results} if results else {})}
+    return {**saved, "clients": clients(environ), **({"recorded": results} if results else {})}
 
 
 def clients(environ=None) -> dict:

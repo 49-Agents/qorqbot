@@ -194,21 +194,17 @@ class OwnerViewTests(Base):
                 mock.patch("bazarlyk.composition.locations.agent_workspace", lambda paths, identity, business: self.root / "agents" / identity):
             return trust.owner_view(runtime, change, agent_id, self.environ)
 
-    def test_no_consent_means_no_autostart(self):
+    def test_view_without_consent(self):
         view = self.view(self.runtime_object([]))
-        self.assertEqual((view["granted"], view["autostart"]), (False, False))
+        self.assertFalse(view["granted"])
+        self.assertNotIn("autostart", view)
 
     def test_grant_trusts_active_global_agents_only(self):
         self.claude({"projects": {}})
         view = self.view(self.runtime_object([]), {"granted": True})
         self.assertEqual(set(view["recorded"]), {"lead"})
-        self.assertTrue(view["autostart"])
-
-    def test_an_explicit_stop_or_pause_waits_for_the_button(self):
-        trust.consent(self.runtime, {"granted": True})
-        for state, expected in (("running", True), ("stopped", False), ("paused", False)):
-            with self.subTest(state=state):
-                self.assertEqual(self.view(self.runtime_object([("lead", state)]))["autostart"], expected)
+        self.assertTrue(view["granted"])
+        self.assertNotIn("autostart", view)
 
 
 if __name__ == "__main__":
