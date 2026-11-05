@@ -120,3 +120,6 @@
 .calendar-status-note:empty { display:none; }
 .calendar-page button.calendar-event:not(.calendar-queue-event)[class*=calendar-status-] strong { padding-right:16px; }
 .calendar-today button.calendar-queue-event .calendar-status-mark { position:absolute; right:2px; top:2px; margin:0; }
+
+.calendar-focus-content { padding: 16px; overflow-wrap: anywhere; }
+.calendar-focus-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
