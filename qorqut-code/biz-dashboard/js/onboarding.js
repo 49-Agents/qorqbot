@@ -64,7 +64,7 @@ const onboarding = (() => {
       hint: 'Take this walkthrough again, or one chapter of it, anytime with the ? button at the bottom left.',
       target: () => document.querySelector('[data-global-settings]')},
     // No target: the whole screen dims and the promise stands on its own.
-    {id: 'privacy', chapter: 'connect', title: 'your data stays yours', wide: true,
+    {id: 'privacy', chapter: 'connect', title: 'your data stays yours', wide: true, standalone: true,
       body: '<b class="onboarding-promise">Qorqbot collects nothing.</b> No Qorqbot account, no tracking, no Qorqbot servers. It runs on this computer, and everything it keeps stays here.',
       instructions: ['When you connect Gmail or Google, you sign in on Google’s own page. Qorqbot never sees or stores your passwords.',
         'Every connector is optional. Turn any of them off at any time in Settings.',
@@ -298,7 +298,9 @@ const onboarding = (() => {
       if (isCurrent(token)) paintConsent();
       return;
     }
-    if (!step.target() && !step.terminal) {
+    // A standalone step dims the whole screen. Every other step opens its agent view first, because its target (Chat's
+    // composer, for example) may not exist until then.
+    if (step.standalone) {
       if (step.id === 'privacy' && (state.scope !== 'global' || state.globalTab !== 'settings')) await selectGlobal('settings');
       return;
     }
