@@ -23,8 +23,9 @@ for(const embedded of [false,true])test(`project and Global details route canoni
 test('unknown or conflicting project identity cannot fall back to Global',async()=>{
  const {ctx,calls,errors}=harness();
  assert.equal(await ctx.taskOpenReference({id:'x',business_id:'missing'}),false);
+ assert.equal(await ctx.taskOpenReference({id:'x',business_id:'missing',business_slug:'not-accessible'}),false);
  assert.equal(await ctx.taskOpenReference({id:'x',business_id:'p1',business_slug:'other'}),false);
- assert.equal(calls.length,0);assert.equal(errors.length,2);
+ assert.equal(calls.length,0);assert.equal(errors.length,3);
 });
 test('progress references preserve scope and beforeOpen refusal',async()=>{
  const {ctx,calls}=harness();vm.runInContext(read('task-progress'),ctx);
@@ -41,7 +42,8 @@ test('work links use canonical scope without a Task overlay',async()=>{
  await ctx.workOpenLink({biz:'project',error:e=>{throw e;}},{resource_type:'tasks',resource_id:'x'});
  await ctx.workOpenLink({biz:null,error:e=>{throw e;}},{resource_type:'tasks',resource_id:'y'});
  await ctx.taskLinkOpen({task_id:'z',business_id:'p1',business_slug:'project'});
- assert.deepEqual(plain(calls).map(c=>[c.id,c.business_id]),[['x','p1'],['y',null],['z','p1']]);
+ await ctx.taskLinkOpen({task_id:'old-global'});
+ assert.deepEqual(plain(calls).map(c=>[c.id,c.business_id]),[['x','p1'],['y',null],['z','p1'],['old-global',null]]);
 });
 
 test('existing Focus record guard prevents displacement and retains the controls',async()=>{
