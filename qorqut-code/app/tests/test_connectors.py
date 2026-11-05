@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import shlex
 import shutil
+import stat
 import subprocess
 import tempfile
 from types import SimpleNamespace
@@ -25,7 +26,7 @@ class FakeProbe:
     def __init__(self, result=None, checking=False):
         self.result, self.checking, self.refreshed = result, checking, []
 
-    def view(self, environ, refresh=False):
+    def view(self, environ, refresh=False, cache=None):
         self.refreshed.append(refresh)
         return {"checking": self.checking, "result": self.result}
 
@@ -259,6 +260,35 @@ class ClaudeProbeTest(unittest.TestCase):
         probe.view({"HOME": "/home/owner"})
         probe._thread.join()
         self.assertEqual(len(calls), 4)
+
+    def test_the_last_result_is_kept_across_restarts(self):
+        directory = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, directory)
+        cache = directory / "connectors-status.json"
+
+        def run(command, **options):
+            if command[1] == "auth":
+                return SimpleNamespace(returncode=0, stdout=json.dumps({"loggedIn": True}))
+            return SimpleNamespace(returncode=0, stdout=CLAUDE_LIST)
+
+        first = connectors.ClaudeProbe(run=run)
+        self.assertIsNone(first.view({}, cache=cache)["result"])
+        first._thread.join()
+        self.assertEqual(stat.S_IMODE(cache.stat().st_mode), 0o600)
+        # A new server process: the saved result shows at once while a fresh check runs.
+        second = connectors.ClaudeProbe(run=lambda command, **options: SimpleNamespace(returncode=1, stdout=""))
+        shown = second.view({}, cache=cache)
+        self.assertTrue(shown["checking"])
+        self.assertEqual(shown["result"]["connectors"]["Gmail"], "connected")
+        second._thread.join()
+
+    def test_a_damaged_saved_result_is_ignored(self):
+        directory = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, directory)
+        cache = directory / "connectors-status.json"
+        for content in ("not json", "[]", json.dumps({"available": True})):
+            cache.write_text(content)
+            self.assertIsNone(connectors._read_cached(cache))
 
     def test_missing_or_failing_claude(self):
         def missing(command, **options):
