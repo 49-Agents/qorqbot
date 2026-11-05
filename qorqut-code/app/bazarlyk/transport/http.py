@@ -398,6 +398,17 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
+            if parts == ["root", "testing-mode"] and request.method in {"GET", "POST"}:
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "Testing mode is for the owner's dashboard")
+                from bazarlyk.dashboard_preferences import testing_mode
+                body = await read_json(request, limit=65536) if request.method == "POST" else None
+                if body is not None and not isinstance(body, dict):
+                    raise DomainError("validation_error", "Testing mode must be an object")
+                data = await anyio.to_thread.run_sync(partial(testing_mode, self.runtime.paths.runtime, actor.principal.id, body))
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
             if parts == ["root", "calendar-statuses"] and request.method in {"GET", "POST"}:
                 if request.headers.get("authorization") is not None:
                     raise DomainError("forbidden", "Calendar statuses are for the owner's dashboard")

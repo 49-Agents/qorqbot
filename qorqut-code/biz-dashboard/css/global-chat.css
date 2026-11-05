@@ -3,9 +3,6 @@
 .gchat { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; width: 100%; color: var(--fg); font-size: 15.75px; --chat-top-inset: calc(var(--ag-ctl, 30px) + 8px); }
 .gchat-top { position:absolute; top:4px; left:4px; z-index:2; display:flex; align-items:center; gap:8px; max-width:calc(100% - 8px); padding:5px 9px; border:0; border-radius:6px; background:color-mix(in srgb, var(--bg) 68%, transparent); backdrop-filter:blur(8px); pointer-events:none; font-size:12px; }
 .gchat-name { font-weight: 500; letter-spacing: -.011em; }
-.gchat-top.gchat-identity { padding:4px; background:none; backdrop-filter:none; }
-.gchat-identity .identity-avatar { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; padding:0; border:0; background:none; }
-.gchat-identity .identity-avatar svg { width:20px; height:20px; }
 .gchat-status { font-size: 11px; color: var(--fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .gchat-status[data-state="error"] { color: var(--danger); }
 .gchat-status[data-state="ready"] { color: var(--fg); }
@@ -40,7 +37,6 @@
 
 /* Session controls stay over their own surface, outside chat scroll and terminal output. */
 .gchat-session-switch { display:flex; align-items:center; gap:4px; position:absolute; top:0; right:0; z-index:3; max-width:calc(100% - 8px); overflow-x:auto; scrollbar-width:thin; border-radius:12px; background:color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter:blur(8px); }
-.gchat:has(> .gchat-session-switch) > .gchat-top { max-width:calc(100% - 3 * var(--ag-ctl, 30px) - 24px); }
 .gchat-terminal > .gchat-top { max-width:calc(100% - 3 * var(--ag-ctl, 30px) - 24px); }
 .gchat-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .gchat-paired-record{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;height:100%;box-sizing:border-box}

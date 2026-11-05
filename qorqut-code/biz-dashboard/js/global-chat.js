@@ -187,9 +187,8 @@ function mountGlobalChat(pane, agent, options = {}) {
   const cleanups = [];
   const reads = new AbortController();
 
-  // Native shell: header, view switch and the session line stay here; every message, composer and preview is the shared view.
+  // Native shell: view switch and the session line stay here; every message, composer and preview is the shared view.
   pane.innerHTML = `<div class="gchat" data-global-chat="${esc(agentId)}">
-    <header class="gchat-top gchat-identity">${identityAvatar('agent', label, {...agent, ...agent.presentation})}</header>
     ${options.openTerminal ? `<div class="gchat-session-switch">${globalChatViewToggle()}</div>` : ''}
   </div>`;
   const root = pane.firstElementChild;

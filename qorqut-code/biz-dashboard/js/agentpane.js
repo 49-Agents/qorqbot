@@ -469,10 +469,12 @@ function agpadSetView(p, view, leaveChecked = false) {
     if (AGPAD_FOCUS_SURFACES.has(view)) return agpadSurfaceRequest(p, view, leaveChecked);
     if (view === "focus" && p.view === "focus" && p.surface) { agpadSurfaceClose(p); return; }
   }
-  if (!leaveChecked && p.workspaceFrame && typeof agentWorkspaceCanLeave === 'function') {
-    const frame = p.workspaceFrame;
+  if (!leaveChecked && (p.workspaceFrame || p.journalMount) && typeof agentWorkspaceCanLeave === 'function') {
+    // Resume only against the exact screen the guard inspected: a replaced frame or Journal mount was
+    // never checked for unsaved edits, so its own guard has to run instead of this one's result.
+    const frame = p.workspaceFrame, journal = p.journalMount;
     return agentWorkspaceCanLeave(p).then(ok => {
-      if (ok && _agpad === p && p.workspaceFrame === frame) agpadSetView(p, view, true);
+      if (ok && _agpad === p && p.workspaceFrame === frame && p.journalMount === journal) agpadSetView(p, view, true);
     });
   }
   if (p.workspaceFrame && typeof agentWorkspacePairedDetach === 'function') agentWorkspacePairedDetach(p.workspaceFrame.contentWindow);
@@ -526,6 +528,8 @@ function agpadSurfaceRequest(p, kind, leaveChecked) {
   open();
 }
 
+// The expanded item's title beside its pill Close. Each mode is opened and closed from the persistent launcher row.
+const AGPAD_SURFACE_TITLE = {browser: "Browser", desktop: "Desktop", viewbox: "Viewbox"};
 function agpadSurfaceOpen(p, kind) {
   if (!AGPAD_FOCUS_SURFACES.has(kind) || !p.views.includes(kind) || !agentPaneViewAllowed(p.workspaceRole, kind)) return;
   const board = p.focusMount, host = board?.querySelector(":scope > .agfocus-surface");
@@ -541,7 +545,10 @@ function agpadSurfaceOpen(p, kind) {
     reset: () => surface.cleanups.splice(0).reverse().forEach(fn => fn())};
   p.surface = surface;
   board.classList.add("agfocus-surface-open");
+  const title = AGPAD_SURFACE_TITLE[kind] || "";
   host.hidden = false;
+  host.setAttribute("aria-label", title);
+  $(".agfocus-surface-title", host).textContent = title;
   p.pendingView = null;
   if (kind === "browser" || kind === "desktop") {
     p.browserMode = kind;
@@ -553,7 +560,7 @@ function agpadSurfaceOpen(p, kind) {
   else if (kind === "browser" && typeof agbrowserMount === "function") agbrowserMount(p, false, surface.ctx);
   else if (kind === "viewbox" && typeof agviewboxMount === "function") agviewboxMount(p, surface.ctx);
   agpadSurfacePaint(p);
-  if (!switching) $("[data-surface-back]", host)?.focus({preventScroll: true});
+  if (!switching) $("[data-surface-close]", host)?.focus({preventScroll: true});
 }
 
 // Everything the surface owns (frames, observers, listeners, requests) is released here; Focus's own DOM and state stay.

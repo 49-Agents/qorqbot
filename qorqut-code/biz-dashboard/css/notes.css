@@ -6,9 +6,9 @@
 
 
 
-:is(.tasks, .agent-pane-embedded) .tbody.nt { padding: 0; }
-:is(.tasks, .agent-pane-embedded) .tbody.nt.nt-home { overflow-y: auto; }
-:is(.tasks, .agent-pane-embedded) .tbody.nt.nt-detail { overflow: hidden; display: flex; flex-direction: row; min-height: 0; }
+:is(.tasks, .agent-pane-embedded, .agent-journal-host) .tbody.nt { padding: 0; }
+:is(.tasks, .agent-pane-embedded, .agent-journal-host) .tbody.nt.nt-home { overflow-y: auto; }
+:is(.tasks, .agent-pane-embedded, .agent-journal-host) .tbody.nt.nt-detail { overflow: hidden; display: flex; flex-direction: row; min-height: 0; }
 
 /* sidebar's "Pinned" group label (jreyebrow's detail-view analog — the homepage uses .jreyebrow
    itself now, not this) */
@@ -170,23 +170,24 @@
 .agent-pane-embedded #content:has(> .nt) { padding:0; overflow:hidden; }
 .agent-pane-embedded #content > .nt { flex:1; min-height:0; width:100%; }
 
-/* Journal uses the agent pane's width, with a compact header above the writing area. */
+/* Journal uses the agent pane's width, with a compact header above the writing area. The same rules serve
+   the agent-pane-embedded document and the Journal mounted natively in the agent pane. */
 .ntside[hidden] { display:none; }
 .ntnavtoggle { margin-top:4px; }
-.agent-pane-embedded .ntside { width:220px; }
-.agent-pane-embedded .ntedinner { padding:16px 16px 64px; }
-.agent-pane-embedded .nt .ntedhead { gap:8px; align-items:center; }
-.agent-pane-embedded .nt .nttitlein { flex:1 1 0; min-width:0; font-size:20px; line-height:1.3; padding:1.5px; }
-.agent-pane-embedded .ntnavtoggle { margin:0; }
-.agent-pane-embedded .ntedctrls { width:100%; justify-content:flex-end; gap:6px; padding-top:0; }
-.agent-pane-embedded .ntedctrls .btn { min-height:28px; padding:4px 10px; font-size:11px; }
-.agent-pane-embedded .nticon { width:28px; height:28px; border-radius:9px; }
-.agent-pane-embedded .ntmeta { margin-top:8px; padding:0 0 6px; font-size:11px; }
-.agent-pane-embedded .nthr { margin-bottom:12px; }
-.agent-pane-embedded .nteditorhint { margin:0 0 16px; font-size:10px; }
+:is(.agent-pane-embedded, .agent-journal-host) .ntside { width:220px; }
+:is(.agent-pane-embedded, .agent-journal-host) .ntedinner { padding:16px 16px 64px; }
+:is(.agent-pane-embedded, .agent-journal-host) .nt .ntedhead { gap:8px; align-items:center; }
+:is(.agent-pane-embedded, .agent-journal-host) .nt .nttitlein { flex:1 1 0; min-width:0; font-size:20px; line-height:1.3; padding:1.5px; }
+:is(.agent-pane-embedded, .agent-journal-host) .ntnavtoggle { margin:0; }
+:is(.agent-pane-embedded, .agent-journal-host) .ntedctrls { width:100%; justify-content:flex-end; gap:6px; padding-top:0; }
+:is(.agent-pane-embedded, .agent-journal-host) .ntedctrls .btn { min-height:28px; padding:4px 10px; font-size:11px; }
+:is(.agent-pane-embedded, .agent-journal-host) .nticon { width:28px; height:28px; border-radius:9px; }
+:is(.agent-pane-embedded, .agent-journal-host) .ntmeta { margin-top:8px; padding:0 0 6px; font-size:11px; }
+:is(.agent-pane-embedded, .agent-journal-host) .nthr { margin-bottom:12px; }
+:is(.agent-pane-embedded, .agent-journal-host) .nteditorhint { margin:0 0 16px; font-size:10px; }
 @media(max-width:760px) {
-  .agent-pane-embedded .nt .ntside { top:52px; width:min(280px,100%); border-right:1px solid var(--line); box-shadow:var(--shadow-float); }
+  :is(.agent-pane-embedded, .agent-journal-host) .nt .ntside { top:52px; width:min(280px,100%); border-right:1px solid var(--line); box-shadow:var(--shadow-float); }
 }
 @media(min-width:600px) {
-  .agent-pane-embedded .ntedctrls { width:auto; }
+  :is(.agent-pane-embedded, .agent-journal-host) .ntedctrls { width:auto; }
 }

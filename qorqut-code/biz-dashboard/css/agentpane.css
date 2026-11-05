@@ -19,6 +19,18 @@
   .split.global-agents.agsplit { grid-template-columns: 134px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
   .split.global-agents.agsplit.pad-off { grid-template-columns: 134px minmax(0, 1fr) 0; }
 }
+/* Testing mode OFF: the roster stays, while the unavailable Overseer replaces the
+   session and right-hand workspace with one centered state. Nothing is mounted
+   behind it and no third/fourth column is reserved. */
+.split.global-agents.agsplit.overseer-gated { grid-template-columns: 114px minmax(0, 1fr); }
+.split.global-agents.agsplit.overseer-gated.nav-off { grid-template-columns: 0 minmax(0, 1fr); }
+@media (min-width: 1000px) {
+  .split.global-agents.agsplit.overseer-gated { grid-template-columns: 134px minmax(0, 1fr); }
+  .split.global-agents.agsplit.overseer-gated.nav-off { grid-template-columns: 0 minmax(0, 1fr); }
+}
+.overseer-gated > .global-agent-session,
+.overseer-gated > .agent-pane-divider,
+.overseer-gated > .agpad { display: none; }
 .agsplit:not(.pad-off) > .chat.termmode { padding-left: 24px; padding-right: 24px; }
 .agsplit.pad-off > .agent-pane-divider { display: none; }
 

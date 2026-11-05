@@ -48,7 +48,10 @@ Check: `node tests/test_signoff_previews_browser.js`.
 
 The Focus toolbar keeps Browser/Desktop fixed on the left and shows pending
 Signoffs in a scrolling row on the right. Each opens the existing review window;
-only a decision removes it. Viewbox links still open their existing Focus detail.
+only a decision removes it. Browser, Desktop and Viewbox open inside the board below
+that row, filling its height under the same pill Close, and the toolbar switches
+between them; a surface carries no browser-versus-desktop switch or reconnect of its
+own. Viewbox links still open their existing Focus detail.
 Check: `node tests/test_focus_signoff_queue_browser.js`.
 
 ## Setup and lifecycle
@@ -112,6 +115,14 @@ rollback contract is in the host's [`docs/INSTALLATION.md`](../docs/INSTALLATION
   falls back to Ordubashy. Terminal opens a plain shell at the configured Qorqut
   workspace with no agent profile, inbox, preparation, credential or transcript
   capture. Check: `node tests/test_global_roster_browser.js`.
+- **Testing mode.** Global Settings has one owner-wide Testing mode switch, off by
+  default, stored per owner in the runtime's dashboard preferences and read/written
+  through `GET|POST /api/root/testing-mode`. While it is off, Overseer stays in the
+  Global roster with a dimmed avatar and an accessible "Available in testing
+  mode only" label; selecting it shows one restrained centered availability
+  state instead of mounting its chat, terminal or agent pane. Saved pins and other preferences are untouched, and a
+  failed or unknown preference read stays closed. Turning it back on restores the
+  normal Overseer view without stopping any backend session.
 - **Agent-pane views.** Context is the Learning Applier's first tab (graph and
   object details, People, Learning, Filed context, source editing and Upload);
   Tables, Calendar, Costs and Charts are shared-drawer tabs. Old `#/global/context`,
@@ -144,25 +155,27 @@ persistent cards over Tasks, Signoffs and URL references.
 - Snooze presets are 1h, 3h, Tomorrow, Day after tomorrow, Saturday, Monday, In a
   week and In 2 weeks; hour choices are elapsed time and calendar choices are 6 AM
   San Juan time. Check: `node tests/test_focus_snooze_presets.js`.
-- Clicking a row opens its single Ordubashy conversation in the shared record
-  workspace dock (height remembered at `ag:focus-thread-height:v1`); Ctrl/Cmd+click
-  opens the source in a new tab. Chat is the fresh-selection default; the record-type
-  icon tab shows that record's full-width dashboard, Back restores a prior record's tab
-  and edits, and Escape closes. There is no worker, peer or agent-discussion channel.
+- Clicking a row expands that record in the board, under the persistent launcher row,
+  and fills the board's height; Ctrl/Cmd+click opens the source in a new tab. Its
+  header leads with a pill Close (there is no back-to-Pinned control), and Chat is the
+  fresh-selection default; the record-type icon tab shows that record's full-width
+  dashboard, Back restores a prior record's tab and edits, and Escape closes. The agent
+  Chat beside the pane keeps running while a record is open. There is no worker, peer or
+  agent-discussion channel.
   Reads and sends use `owner_conversation_get`, `owner_conversation_send` and
   `owner_conversation_mark_read`; only a visible Chat selection/load through the latest
   sequence acknowledges it. Source-keyed drafts survive closing and reopening the record. See
   [the record workspace](docs/RECORD-WORKSPACE.md). Checks:
   `tests/test_private_channels_browser.js`, `tests/test_record_workspace_browser.js`,
   `tests/test_focus_conversations_browser.js`.
-- The attention strip above the list shows unread reply controls, with pending
-  Signoffs in a separate queue below it (`/root/attention-queue`). Reply
+- Under the launcher row, the attention strip shows unread reply controls, with pending
+  Signoffs in a separate queue beside it (`/root/attention-queue`). Reply
   notifications poll `/root/reply-notifications` every 10 seconds while visible and
   every 30 seconds hidden. Checks: `tests/test_attention_queue_browser.js`,
   `tests/test_owner_attention_browser.js`, `tests/test_reply_notifications_browser.js`.
   The shared refresh rule is in [dashboard refresh coalescing](docs/PERFORMANCE_REFRESH.md).
-- Focus shows a compact queue of today's calendar events above the attention queue
-  (see [Calendar](#calendar)).
+- Focus shows a compact queue of today's calendar events below the launcher/attention
+  row; it is hidden while a record or a surface is expanded (see [Calendar](#calendar)).
 - Task state circles update optimistically (a dashed outline marks saving), serialize
   per task and reconcile on failure. Check: `node tests/test_task_state.js`.
 - Story and Email Task types show an icon in place of the state ball, with no
@@ -214,26 +227,15 @@ the persistent native Chat (`js/global-chat.js`) over
 Checks: `tests/test_global_chat_browser.js`, `tests/test_chat_view_browser.js`,
 `tests/test_chat_parity_browser.js`, `node tests/test_safe_links.js`.
 
-### Terminal and composer
-
-Pages other than Global → Agents have a bottom-right quick composer
-(`js/workspace-composer.js`). It sends the text as a native Chat message to the
-selected global agent (Ordubashy by default) over
-`/api/root/agents/<agent_id>/chat/messages`, exactly as the Chat view does: it reads
-the agent's current Chat binding, then posts with an `idempotency_key` and
-`expected_binding`. A retry of the same text reuses its key and binding; a refusal
-stores nothing and the next send starts fresh, while an unconfirmed outcome keeps the
-key. Drafts are kept per scope and agent, control characters are rejected, and
-Ctrl+Enter does not submit. Show terminal is separate and optional: it opens a
-resizable terminal viewer above the composer and never carries the message.
+### Retained components
 
 No normal Broadcast or Working Memory entry point is currently exposed in the
 navigation. Their modules (`js/broadcast.js`, `css/broadcast.css`,
 `js/working-memory.js`) and draft lifecycle are retained, and they are covered only
 as components mounted directly in a test page, not as reachable features. Checks:
-`tests/test_workspace_composer_browser.js`, `tests/test_terminal_browser.js`,
-`tests/test_broadcast_browser.js` and `tests/test_broadcast_real_browser.js`
-(direct `renderBroadcast` mounts), `tests/test_working_memory_browser.js` (direct
+`tests/test_terminal_browser.js`, `tests/test_broadcast_browser.js` and
+`tests/test_broadcast_real_browser.js` (direct `renderBroadcast` mounts),
+`tests/test_working_memory_browser.js` (direct
 `workingMemoryMount`), `python3 -m pytest -q tests/test_broadcast_submit.py` (isolated
 tmux; `QORQUT_TEST_CODEX_INPUT=1` also checks a local Codex `/status`).
 
@@ -267,7 +269,8 @@ without the endpoint, or with an empty list, is core-only and loads nothing.
 
 Every registered agent's pane has a Viewbox tab (`js/agent-viewbox.js`,
 `css/agent-viewbox.css`) right after Focus: the agent's latest 30 placed links, newest
-first, in a resizable same-pane frame with Back, Fit and Open in new tab. It reads the
+first, in a resizable same-pane frame with Back, Fit and Open in new tab. For an agent
+with Focus, the launcher row opens the same Viewbox inside the board. It reads the
 owner-only `GET /api/root/agents/<id>/viewbox` on mount and on the visible-pane
 cadence. Only exact same-origin `/files/view` and `/tables/view` are framed
 unsandboxed; every other URL is sandboxed. `tables-view.html` is the minimal read-only
@@ -282,7 +285,7 @@ owner table page. Checks: `tests/test_agent_viewbox_browser.js` (stub API) and
   Icons v14 (CC0); brand rights remain with their respective owners. Check:
   `tests/test_current_work_cards_browser.js`.
 - **Working memory** (retained module, no current navigation entry; see
-  [Terminal and composer](#terminal-and-composer)) shows the agent's cross-session handoff with a Global/project
+  [Retained components](#retained-components)) shows the agent's cross-session handoff with a Global/project
   selector; owners can inspect history, correct text and restore a historical version as
   a new checked version. Drafts survive navigation and conflicts preserve edits. Check
   (component mount only): `tests/test_working_memory_browser.js`.
