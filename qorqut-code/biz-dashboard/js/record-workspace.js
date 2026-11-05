@@ -294,10 +294,7 @@ function recordWorkspaceMount(host, options = {}) {
     paintMove(item);
     item.recordEl.querySelector('.rw-close').onclick = () => { void close(); };
     item.tabs.querySelectorAll('[data-rw-tab]').forEach(tab => {
-      tab.onclick = async () => {
-        if (item.moveDialog && !await leaveMove(item)) return;
-        if (!disposed && item.alive && entry() === item) selectTab(item, tab.dataset.rwTab);
-      };
+      tab.onclick = () => selectTab(item, tab.dataset.rwTab);
       tab.onkeydown = event => tabKey(item, event);
     });
     if (item.tab === 'dashboard') item.dashHost.hidden = false; else item.chatHost.hidden = false;
