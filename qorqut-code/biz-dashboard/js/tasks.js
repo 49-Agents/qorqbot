@@ -1137,7 +1137,8 @@ function taskProjectCreateMount(host, session, biz, initial, onCreated) {
       }
       busy = true; error.hidden = true; submit.disabled = true;
       form.querySelectorAll('input,select,textarea').forEach(el => { el.disabled = true; });
-      const {task} = await workCall(biz, 'tasks_create', submission);
+      const {task} = await workCall(biz, 'tasks_create', submission, {idempotency_key:submission.idempotency_key});
+      if (typeof task?.id !== 'string' || !task.id.trim()) throw Object.assign(new Error('Invalid create result.'), {code:'invalid_response'});
       submission = null;
       try { tGen++; clearEtagCache(); void refreshTasks(); } catch (_) { /* refresh is independent of creation */ }
       if (!alive) return;
@@ -1146,7 +1147,8 @@ function taskProjectCreateMount(host, session, biz, initial, onCreated) {
       onCreated?.(task);
     } catch (failure) {
       if (!alive) return;
-      const decided = ['validation_error','forbidden','not_found','revision_conflict'].includes(failure.code);
+      const uncertain = [408,429].includes(failure.httpStatus) || failure.httpStatus >= 500 || ['request_timeout','invalid_response'].includes(failure.code);
+      const decided = !uncertain && ['validation_error','forbidden','not_found','revision_conflict'].includes(failure.code);
       if (decided) submission = null;
       error.textContent = submission ? 'Could not confirm creation. Retry to send the same request safely.' : uiFailure(failure);
       error.hidden = false;

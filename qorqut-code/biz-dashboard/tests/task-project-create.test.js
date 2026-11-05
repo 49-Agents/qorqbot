@@ -50,3 +50,22 @@ test('an in-flight create refuses closing until the request settles',async()=>{
  const creating=h.form.onsubmit({preventDefault(){}});await tick();assert.equal(await session.close(),false);
  release({task:{id:'created'}});await creating;assert.equal(h.refreshes,1);
 });
+
+test('real workCall sends the identical network key and payload after a lost response',async()=>{
+ const h=setup(), sent=[];let count=0;
+ h.ctx.coreData=value=>value;h.ctx.post=async(url,body)=>{if(url.endsWith('/assignees_list'))return {assignees:[]};sent.push({url,body});if(!count++)throw Error('lost');return {task:{id:'made'}};};
+ const source=fs.readFileSync(require.resolve('../js/work-groups.js'),'utf8');
+ const start=source.indexOf('async function workCall('),end=source.indexOf('// The shared item',start);vm.runInContext(source.slice(start,end),h.ctx);
+ let result;await h.ctx.taskCreateDialog('project',{onCreated:task=>result=task});h.title.value='Network test';
+ await h.form.onsubmit({preventDefault(){}});await h.form.onsubmit({preventDefault(){}});
+ assert.equal(sent.length,2);assert.deepEqual(sent[0],sent[1]);assert.equal(sent[0].body.idempotency_key,'key-1');assert.equal(result.id,'made');
+});
+for(const failure of [{malformed:true},{httpStatus:408,code:'validation_error'},{httpStatus:429,code:'forbidden'},{code:'request_timeout'},{code:'invalid_response'}])
+ test('unconfirmed create retains its request: '+JSON.stringify(failure),async()=>{
+  const h=setup(),calls=[];let count=0,created=0;
+  h.ctx.workCall=async(biz,op,args,options)=>{if(op==='assignees_list')return {assignees:[]};calls.push({args,options});
+   if(!count++){if(failure.malformed)return {};throw Object.assign(Error('uncertain'),failure);}return {task:{id:'made'}};};
+  await h.ctx.taskCreateDialog('project',{onCreated:()=>created++});h.title.value='Draft';
+  await h.form.onsubmit({preventDefault(){}});assert.equal(created,0);assert.equal(h.refreshes,0);assert.equal(h.submit.textContent,'Retry');
+  await h.form.onsubmit({preventDefault(){}});assert.equal(created,1);assert.deepEqual(calls[0],calls[1]);assert.equal(calls[0].options.idempotency_key,'key-1');
+ });
