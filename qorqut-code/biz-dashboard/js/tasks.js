@@ -1048,6 +1048,7 @@ function taskTypeMount(host, biz, task = {}) {
   const type=host.querySelector('[data-task-type]');
   const customerBox=host.querySelector('[data-task-customer]'), overviewField=host.querySelector('[data-task-overview-field]');
   const originalType=task.task_type || 'task', ownedElsewhere=!!task.id && ['story','customer'].includes(originalType);
+  let disposed=false, confirmation=null;
   let statesLoaded=false;
   const states=customerStatesMount(customerBox,biz);
   function update(){
@@ -1068,7 +1069,29 @@ function taskTypeMount(host, biz, task = {}) {
     // Converting a Customer away clears its kind, state and profile; the owner confirms that first.
     async confirmConversion(){
       if(originalType!=='customer' || type.value==='customer')return true;
-      return taskConfirm({title:'Remove customer details?',message:`Changing this Customer to ${TASK_TYPE_LABELS[type.value]} clears its kind, state, profile and notes. Its conversation and links stay.`,confirmLabel:'Change type'});
+      const selectedType=type.value;
+      const message=`Changing this Customer to ${TASK_TYPE_LABELS[selectedType]} clears its kind, state, profile and notes. Its conversation and links stay.`;
+      if(!host.closest('.agfocus'))return taskConfirm({title:'Remove customer details?',message,confirmLabel:'Change type'});
+      if(disposed || !host.isConnected || confirmation)return false;
+      const children=[...host.children].map(node=>({node,hidden:node.hidden,inert:node.inert}));
+      const panel=document.createElement('section');panel.className='task-type-confirm';panel.setAttribute('aria-label','Remove customer details?');
+      const heading=document.createElement('h3');heading.textContent='Remove customer details?';
+      const text=document.createElement('p');text.textContent=message;
+      const cancel=document.createElement('button');cancel.type='button';cancel.className='quiet';cancel.textContent='Cancel';
+      const accept=document.createElement('button');accept.type='button';accept.className='btn';accept.textContent='Change type';
+      panel.append(heading,text,cancel,accept);children.forEach(({node})=>{node.hidden=true;node.inert=true;});host.append(panel);
+      return new Promise(resolve=>{
+        const finish=accepted=>{
+          if(!confirmation)return;
+          confirmation=null;panel.remove();children.forEach(({node,hidden,inert})=>{node.hidden=hidden;node.inert=inert;});
+          const ok=accepted && !disposed && host.isConnected && type.value===selectedType;
+          if(!disposed && host.isConnected)type.focus?.();
+          resolve(ok);
+        };
+        confirmation=finish;cancel.onclick=()=>finish(false);accept.onclick=()=>finish(true);
+        panel.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();finish(false);}};
+        cancel.focus();
+      });
     },
     values(){
       // The legacy email link is display-only: it is never sent in a create, update or type change.
@@ -1081,7 +1104,7 @@ function taskTypeMount(host, biz, task = {}) {
     },
     // True while the editor holds a change that has not been saved.
     dirty(){try{return Object.keys(taskTypeChanges(task,this.values())).length>0;}catch(_){return true;}},
-    dispose(){states.dispose();},
+    dispose(){disposed=true;confirmation?.(false);states.dispose();},
   };
 }
 function taskEmailOpen(task) {
