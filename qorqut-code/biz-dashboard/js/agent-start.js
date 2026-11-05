@@ -1,4 +1,4 @@
-// Starting an agent from Chat: the owner's one-time trust consent, the Start button and the automatic start of Ordubashy.
+// Starting an agent from Chat: the owner's one-time trust consent and the Start button. Nothing starts by itself.
 // `agentStartPlan` is pure (unit tested with `node --test biz-dashboard/tests/*.test.js`); the rest calls the dashboard API.
 // A start is the existing owner-authorized `agent_terminal_start` operation, dispatched by the service's terminal controller.
 const agentStartPlan = (() => {
@@ -7,15 +7,14 @@ const agentStartPlan = (() => {
     'selection_required', 'registering']);
   const STARTING_FOR_MS = 90000;
   // `session` is Chat's session view; `trust` the /root/agent-trust view (or null when unread); `local` this Chat's own state:
-  // {startedAt, autoTried, error, isLead, now}. Returns what Chat shows while the agent is offline.
+  // {startedAt, error, now}. Returns what Chat shows while the agent is offline.
   function plan(session, trust, local = {}) {
     if (!session || session.state === 'live' || NOT_STARTABLE.has(session.reason)) return {kind: 'none'};
     const now = local.now ?? Date.now();
     if (local.startedAt && now - local.startedAt < STARTING_FOR_MS) return {kind: 'starting'};
     if (local.error) return {kind: 'failed', error: local.error};
     if (local.startedAt) return {kind: 'failed', error: 'The agent did not come online. Open the terminal to see what it is waiting for.'};
-    const auto = !!(local.isLead && trust?.granted && trust.autostart && !local.autoTried);
-    return {kind: 'start', auto, needsConsent: !trust?.granted};
+    return {kind: 'start', needsConsent: !trust?.granted};
   }
   return {plan, NOT_STARTABLE, STARTING_FOR_MS};
 })();

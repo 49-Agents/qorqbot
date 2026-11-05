@@ -9,7 +9,7 @@ const GLOBAL_CHAT_SENDS = new Map();            // scope -> {text, key, pin}: th
 const GLOBAL_CHAT_INFLIGHT = new Map();         // scope -> {text, promise} of a send still waiting for its response
 const GLOBAL_CHAT_RESENDS = new Map();          // undelivered input id -> {key, pin}: identity of an explicit resend
 const GLOBAL_CHAT_HIDDEN = new Set();           // settled inputs the owner dismissed or already resent
-const GLOBAL_CHAT_STARTS = new Map();           // agent id -> {startedAt, autoTried, error}: Chat's start attempts for this page
+const GLOBAL_CHAT_STARTS = new Map();           // agent id -> {startedAt, error}: Chat's start attempts for this page
 // scope -> {records, consumed}: owner messages accepted by the backend whose transcript entry has not been seen yet. Browser-only and
 // presentation-only: a record keeps the sent text visible until its exact native user entry arrives, and never touches receipts.
 const GLOBAL_CHAT_ACCEPTED = new Map();
@@ -185,9 +185,8 @@ function mountGlobalChat(pane, agent, options = {}) {
   let disposed = false, loading = false, again = false, generation = 0, finished = false, reading = 0;
   let bannerText = '', reconnecting = false, olderBusy = false, view = null;
   let pairedHost = null, pairedConversation = null, pairedGeneration = 0;
-  // Starting from Chat is offered where Chat sits beside the agent's own Terminal; only Ordubashy starts by itself.
+  // Starting from Chat is offered where Chat sits beside the agent's own Terminal. Only the owner starts an agent.
   const canStart = !!options.openTerminal && typeof agentStart !== 'undefined';
-  const isLead = (agent.role?.id || agent.role_id) === 'ordubashy';
   let trust = null;
   const cleanups = [];
   const reads = new AbortController();
@@ -371,18 +370,17 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (start.kind === 'start') return {key: 'offline', line: `${label} is offline.`};
     return {key: 'offline', line: direction};
   }
-  // ---- starting the agent from Chat (agent-start.js): the button, the owner's one-time consent and Ordubashy's own start
-  const startState = () => GLOBAL_CHAT_STARTS.get(agentId) || {startedAt: 0, autoTried: false, error: ''};
-  const startPlan = () => canStart ? agentStartPlan.plan(session, trust, {...startState(), isLead}) : {kind: 'none'};
-  async function runStart(auto) {
+  // ---- starting the agent from Chat (agent-start.js): the button and the owner's one-time consent
+  const startState = () => GLOBAL_CHAT_STARTS.get(agentId) || {startedAt: 0, error: ''};
+  const startPlan = () => canStart ? agentStartPlan.plan(session, trust, startState()) : {kind: 'none'};
+  async function runStart() {
     if (startPlan().kind === 'starting') return;
     if (!trust?.granted) {
-      if (auto) return;
       const view = await agentStart.consent(agentId, label);
       if (!view || disposed) return;
       trust = view;
     }
-    GLOBAL_CHAT_STARTS.set(agentId, {...startState(), startedAt: Date.now(), error: '', autoTried: startState().autoTried || auto});
+    GLOBAL_CHAT_STARTS.set(agentId, {startedAt: Date.now(), error: ''});
     paint();
     try { await agentStart.start(agentId); }
     catch (error) { GLOBAL_CHAT_STARTS.set(agentId, {...startState(), startedAt: 0, error: error.message}); }
@@ -390,15 +388,9 @@ function mountGlobalChat(pane, agent, options = {}) {
     // The plan turns a start that never came online into a failure once its wait runs out.
     setTimeout(() => paint(), agentStartPlan.STARTING_FOR_MS + 100);
   }
-  function startIfDue() {
-    // Online: the attempt is over. autoTried stays, so an agent the owner exits in Terminal is not restarted behind them.
-    if (session?.state === 'live' && (startState().startedAt || startState().error)) {
-      GLOBAL_CHAT_STARTS.set(agentId, {...startState(), startedAt: 0, error: ''});
-    }
-    const start = startPlan();
-    if (start.kind !== 'start' || !start.auto) return;
-    GLOBAL_CHAT_STARTS.set(agentId, {...startState(), autoTried: true});
-    void runStart(true);
+  // Online: the attempt is over, so a later exit offers Start again instead of a stale "starting" or failure.
+  function settleStart() {
+    if (session?.state === 'live' && (startState().startedAt || startState().error)) GLOBAL_CHAT_STARTS.delete(agentId);
   }
   // Names the programs that connect: any supported CLI started in this agent's own terminal, the agent's default first.
   function startHint() {
@@ -439,9 +431,9 @@ function mountGlobalChat(pane, agent, options = {}) {
       older: {visible: older != null, disabled: olderBusy},
       empty: emptyState(),
     }, {scroll});
-    startIfDue();
+    settleStart();
   }
-  listen(startButton, 'click', () => void runStart(false));
+  listen(startButton, 'click', () => void runStart());
   const paintEntries = scroll => paint({entries: orderedEntries()}, scroll);
   const paintInputs = () => paint();
   const paintSession = () => paint();
@@ -597,7 +589,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     },
     onEmptyAction: action => {
       if (action === 'terminal') options.openTerminal?.();
-      else if (action === 'start') void runStart(false);
+      else if (action === 'start') void runStart();
     },
   });
   paint();
