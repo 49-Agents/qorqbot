@@ -6,7 +6,6 @@ uses a guarded native Git transaction and publishes the live index. Activation i
 from __future__ import annotations
 
 import base64
-import ctypes
 import hashlib
 import json
 import os
@@ -734,11 +733,9 @@ def _index_state(gitfd, journal, original, final):
             os.close(lockfd)
 
 
-def _link_index(gitfd, fd):
-    libc = ctypes.CDLL(None, use_errno=True)
-    if libc.linkat(-100, os.fsencode('/proc/self/fd/' + str(fd)), gitfd, b'index.lock', 0x400) != 0:
-        error = ctypes.get_errno()
-        raise OSError(error, os.strerror(error), 'index.lock')
+def _link_index(gitfd, pending):
+    from bazarlyk import posix_files
+    posix_files.publish(pending, gitfd, 'index.lock')
 
 
 def _replace_index(gitfd):
@@ -762,7 +759,9 @@ def _index_effect(gitfd, path, journal, original, final, check):
         else:
             if state == 'original':
                 check(None, expected='original')
-                fd = os.open('.', os.O_RDWR | os.O_TMPFILE | os.O_CLOEXEC, 0o600, dir_fd=gitfd)
+                from bazarlyk import posix_files
+                pending = posix_files.anonymous_file(gitfd, read=True)
+                fd = pending.fd
                 try:
                     view = memoryview(final)
                     while view:
@@ -780,13 +779,13 @@ def _index_effect(gitfd, path, journal, original, final, check):
                     journal['phase'] = 'index_publishing'
                     files._journal_write(path, journal)
                     check(None, expected='original')
-                    _link_index(gitfd, fd)
+                    _link_index(gitfd, pending)
                     os.fsync(gitfd)
                     lockfd = fd
                     fd = None
                 finally:
                     if fd is not None:
-                        os.close(fd)
+                        posix_files.discard(pending)
             os.fsync(gitfd)
             check(lockfd, expected='locked')
             oldfd, oldidentity, oldraw = _read_index_at(gitfd, 'index')

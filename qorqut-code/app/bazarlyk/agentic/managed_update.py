@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import base64
 from copy import deepcopy
-import ctypes
 import json
 import os
 from pathlib import Path
@@ -22,6 +21,7 @@ from . import (layout_activation, layout_files, layout_git, layout_intent, manag
                managed_runtime_evidence, provisioning)
 from .installation import MAX_RECORD, open_installation
 from .layout_inspection import inspect_git, inspect_runtime
+from bazarlyk import posix_files
 from .layout_intent import MAX_INTENT_BYTES, _conflict
 from .layout_runtime import _offline_reader
 from .support import canonical, digest
@@ -38,23 +38,20 @@ def _publish_intent(path, raw):
         return
     parent = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        fd = os.open('.', os.O_WRONLY | os.O_TMPFILE | os.O_CLOEXEC, 0o600, dir_fd=parent)
+        pending = posix_files.anonymous_file(parent)
         try:
             view = memoryview(raw)
             while view:
-                count = os.write(fd, view)
+                count = os.write(pending.fd, view)
                 if count <= 0:
                     raise OSError('short intent write')
                 view = view[count:]
-            os.fchmod(fd, 0o600)
-            os.fsync(fd)
-            libc = ctypes.CDLL(None, use_errno=True)
-            if libc.linkat(-100, os.fsencode('/proc/self/fd/' + str(fd)), parent, os.fsencode(path.name), 0x400) != 0:
-                error = ctypes.get_errno()
-                raise OSError(error, os.strerror(error))
+            os.fchmod(pending.fd, 0o600)
+            os.fsync(pending.fd)
+            posix_files.publish(pending, parent, path.name)
             os.fsync(parent)
         finally:
-            os.close(fd)
+            posix_files.discard(pending)
     finally:
         os.close(parent)
 
@@ -416,6 +413,7 @@ def apply(paths, plan, *, attribution, acknowledge_grants=False):
         raise _conflict('Managed grant acknowledgement changed')
     pd = wanted['plan_digest']
     with Store(paths.agentic_runtime).lock(exclusive=True, timeout=10):
+        posix_files.prepare_publication(Path(paths.agentic_runtime) / 'publish-staging')
         evidence = managed_journal.discover(paths)
         pair = evidence.get(pd)
         if pair and 'journal' in pair and managed_journal.read(pair['journal'])['phase'] == 'complete':
