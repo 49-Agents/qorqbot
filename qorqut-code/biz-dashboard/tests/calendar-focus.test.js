@@ -53,9 +53,10 @@ function harness() {
   };
   const occurrence = {connection_id:'conn',calendar_id:'cal',id:'occ',revision:'rev',title:'Meeting',start:'2026-11-05T15:00:00Z',end:'2026-11-05T16:00:00Z',series_id:'series',recurrence:[],attendees:[{email:'me@example.com',status:'needsAction'}],organizer:'owner@example.com',default_reminders:true,reminders:[]};
   const calendar = {id:'cal',connection_id:'conn',writable:true,provider:'google',name:'Work',organizers:['me@example.com']};
-  const context = {window:{focusExpansion:{async open(spec) {
-    const host = new Element(); let current = true, before = () => true, dispose = () => {};
-    session = {host,isCurrent:()=>current,setTitle(t){this.title=t;},setBeforeLeave(fn){before=fn;},onDispose(fn){dispose=fn;},async close(){if (!await before()) return false; current=false; dispose(); return true;},attempt:async()=>before()};
+  const windowListeners = new Set();
+  const context = {window:{addEventListener:(name,fn)=>{if(name==='focus') windowListeners.add(fn);},removeEventListener:(name,fn)=>windowListeners.delete(fn),focusExpansion:{async open(spec) {
+    const host = new Element(); let current = true, before = () => true, disposers = [];
+    session = {host,isCurrent:()=>current,setTitle(t){this.title=t;},setBeforeLeave(fn){before=fn;},onDispose(fn){disposers.push(fn);},async close(){if (!await before()) return false; current=false; disposers.forEach(fn=>fn()); return true;},attempt:async()=>before()};
     spec.mount(host,session); return session;
   }}},document,$,console,Intl,Date,Map,Set,Promise,JSON,Object,Array,Number,String,RegExp,Error,
     FormData:class { constructor(form) { this.items = Object.values(form.elements).filter(f => !f.disabled && (f.type !== 'checkbox' || f.checked)).map(f => [f.name,f.value]); } [Symbol.iterator]() {return this.items[Symbol.iterator]();} },
@@ -65,7 +66,7 @@ function harness() {
   const run = code => vm.runInContext(code,context);
   const flush = async () => { for(let i=0;i<8;i++) await Promise.resolve(); };
   const button = label => session.host.firstElementChild.footer.children.find(b=>b.textContent===label);
-  return {context,run,occurrence,calendar,calls,notices,flush,button,get session(){return session;},success: operation => {successOperation=operation;},setOwner: value => {owner=value;},choose: label => { const prompt=session.host.children.at(-1); const option=prompt.children.find(b=>b.textContent===label); assert.ok(option); option.onclick(); },defer:()=>{deferRead=true;},resolveRead:()=>resolveRead(),respond:()=>rejectResponse(Error('Provider mutation intentionally rejected'))};
+  return {context,run,occurrence,calendar,calls,notices,flush,button,get session(){return session;},focusWindow:()=>{for (const fn of windowListeners) fn();},success: operation => {successOperation=operation;},setOwner: value => {owner=value;},choose: label => { const prompt=session.host.children.at(-1); const option=prompt.children.find(b=>b.textContent===label); assert.ok(option); option.onclick(); },defer:()=>{deferRead=true;},resolveRead:()=>resolveRead(),respond:()=>rejectResponse(Error('Provider mutation intentionally rejected'))};
 }
 
 test('detail, occurrence status, RSVP and pending navigation use Focus', async () => {
@@ -248,4 +249,47 @@ test('uncertain personal statuses remain separate for recurring occurrences', as
   assert.equal(h.run('calendarAttempts.size'),2);
   const starts=h.run('[...calendarAttempts.values()].map(a => a.args.target.occurrence_start)');
   assert.deepEqual(Array.from(starts),['2026-11-05T15:00:00.000Z','2026-11-06T15:00:00.000Z']);
+});
+
+test('ordinary update, delete and RSVP controls offer the stored request after reopening', async () => {
+  for (const operation of ['calendar_event_update','calendar_event_delete','calendar_event_respond']) {
+    const h=harness(); h.context.event=h.occurrence; h.context.calendars=[h.calendar]; await h.run('calendarStatuses.refresh()');
+    const open = async () => { await h.run('calendarOpen(event, calendars, () => {})'); await h.flush();
+      if (operation === 'calendar_event_update') { await h.button('Edit').onclick(); h.session.host.firstElementChild.form.elements.title.value='Changed'; }
+      if (operation === 'calendar_event_delete') await h.button('Delete').onclick(); };
+    const label=operation === 'calendar_event_update' ? 'Save' : operation === 'calendar_event_delete' ? 'Delete' : 'Accept';
+    await open(); const firstClick=h.button(label).onclick(); await h.flush(); if(operation === 'calendar_event_respond') h.respond(); await firstClick;
+    const first=h.calls.at(-1), close=h.session.close(); await h.flush();
+    if(operation === 'calendar_event_update') h.choose('Discard changes'); await close;
+    await open(); const prior=h.calls.length, click=h.button(label).onclick(); await h.flush();
+    assert.equal(h.calls.length,prior); h.success(operation); h.choose('Retry same request'); await click;
+    assert.deepEqual(h.calls.at(-1).args,first.args); assert.equal(h.run('calendarAttempts.size'),0);
+  }
+});
+
+test('ordinary status save offers the retained occurrence request after reopening', async () => {
+  const h=harness(); h.context.event=h.occurrence; h.context.calendars=[h.calendar]; await h.run('calendarStatuses.refresh()');
+  const open=async()=>{await h.run('calendarOpen(event, calendars, () => {})'); await h.flush(); const root=h.session.host.firstElementChild; root.select.value='completed'; root.select.onchange(); return root;};
+  let root=await open(); await root.save.onclick(); const first=h.calls.at(-1);
+  const close=h.session.close(); await h.flush(); h.choose('Discard changes'); await close;
+  root=await open(); const prior=h.calls.length, save=root.save.onclick(); await h.flush(); assert.equal(h.calls.length,prior);
+  h.choose('Retry same request'); await save; assert.deepEqual(h.calls.at(-1).args,first.args); assert.equal(h.run('calendarAttempts.size'),1);
+});
+
+test('a refresh exception cannot turn a confirmed write into an uncertain attempt', async () => {
+  const h=harness(); h.context.event=h.occurrence; h.context.calendars=[h.calendar]; h.context.throwRefresh=()=>{throw Error('paint failed');};
+  await h.run('calendarStatuses.refresh()'); await h.run('calendarOpen(event, calendars, throwRefresh)'); await h.flush();
+  h.success('calendar_event_delete'); await h.button('Delete').onclick(); await h.button('Delete').onclick();
+  assert.equal(h.run('calendarAttempts.size'),0); assert.equal(h.session.isCurrent(),false);
+});
+
+test('window focus immediately hides recovery rows until owner revalidation', async () => {
+  const h=harness(); h.context.event=h.occurrence; h.context.calendars=[h.calendar];
+  await h.run('calendarStatuses.refresh()'); await h.run('calendarOpen(event, calendars, () => {})'); await h.flush();
+  await h.button('Delete').onclick(); await h.button('Delete').onclick(); await h.session.close();
+  await h.run('calendarReviewOpen(document.activeElement)'); await h.flush(); const panel=h.session.host.children.at(-1), list=panel.children[2];
+  assert.equal(list.children.length,1); h.setOwner(null); h.focusWindow(); assert.equal(list.children.length,0); await h.flush();
+  assert.equal(panel.children[3].hidden,false); assert.match(panel.children[1].textContent,/owner session/i);
+  h.setOwner('owner-b'); await panel.children[3].onclick(); assert.equal(list.children.length,0);
+  h.setOwner('owner-a'); h.focusWindow(); await h.flush(); assert.equal(list.children.length,1);
 });

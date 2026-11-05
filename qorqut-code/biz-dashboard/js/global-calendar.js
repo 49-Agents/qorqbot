@@ -156,8 +156,6 @@ async function calendarRunAttempt(attempt, refresh) {
   try {
     if (attempt.operation === 'personal_status') await calendarStatuses.save(attempt.args.target,attempt.args.status,attempt.args.revision,attempt.key);
     else await calendarCall(attempt.operation,attempt.args,attempt.key);
-    calendarAttempts.delete(attempt.id); calendarAttemptsChanged();
-    if (attempt.operation !== 'personal_status') calendarChanged(refresh);
   } catch (error) {
     if (calendarDefiniteFailure(error)) calendarAttempts.delete(attempt.id);
     else calendarAttempts.set(attempt.id,attempt);
@@ -165,10 +163,29 @@ async function calendarRunAttempt(attempt, refresh) {
     if (!calendarDefiniteFailure(error)) error.message = `The outcome is unconfirmed. Review unconfirmed calendar changes to retry the same request. ${error.message || ''}`;
     throw error;
   }
+  calendarAttempts.delete(attempt.id); calendarAttemptsChanged();
+  if (attempt.operation !== 'personal_status') {
+    try { calendarChanged(refresh); } catch (error) { console.error(error); }
+  }
+
 }
 const calendarAttempt = (operation,args,key,event,calendar) => ({id:newRequestId(),operation,args,key,
   title:event?.title || args.title || 'Untitled event', start:event?.start || args.start || '', calendar:calendar?.name || args.calendar_id || '',
   occurrence:event ? calendarStatusTarget(event).occurrence_start : ''});
+
+async function calendarSubmitAttempt(attempt, refresh, surface) {
+  const owner = await calendarOwner();
+  if (attempt.owner && attempt.owner !== owner) throw new Error('Owner session changed. Try again.');
+  attempt.owner = owner;
+  const previous = calendarOwnerAttempts(owner).find(old => old.operation === attempt.operation && old.occurrence === attempt.occurrence && JSON.stringify(old.args) === JSON.stringify(attempt.args));
+  if (previous) {
+    const choice = await surface.chooseAttempt(attempt.operation === 'calendar_event_create');
+    if (choice === 'cancel') return false;
+    if (choice === 'retry') { await calendarRunAttempt(previous,refresh); return true; }
+  }
+  await calendarRunAttempt(attempt,refresh);
+  return true;
+}
 
 // A provider write invalidates every mounted calendar view and the shared excerpt cache.
 const calendarChanges = new Set();
@@ -505,16 +522,16 @@ async function calendarSurface(title, origin, mount) {
         cleanup = spec.onOpen?.(el) || (() => {});
       },
       async back(callback) { if (await leave() && surface.current()) await callback(); },
-      async chooseCreate() {
+      async chooseAttempt(isCreate) {
         return new Promise(resolve => {
-          const content = host.firstElementChild, box = document.createElement('div'); box.className = 'calendar-leave-choice'; box.setAttribute('role','group'); box.setAttribute('aria-label','Unconfirmed matching event');
-          const text = document.createElement('p'); text.textContent = 'A matching create is unconfirmed. Review it to retry the same request, or create a separate event.';
-          const review = document.createElement('button'); review.type = 'button'; review.textContent = 'Review previous request';
+          const content = host.firstElementChild, box = document.createElement('div'); box.className = 'calendar-leave-choice'; box.setAttribute('role','group'); box.setAttribute('aria-label','Unconfirmed matching calendar change');
+          const text = document.createElement('p'); text.textContent = 'A matching calendar change is unconfirmed. Retry the original request or cancel.';
+          const review = document.createElement('button'); review.type = 'button'; review.textContent = 'Retry same request';
           const separate = document.createElement('button'); separate.type = 'button'; separate.textContent = 'Create separate event';
           const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'Cancel';
           const finish = value => { box.remove(); if (content) content.inert = false; resolve(value); };
-          review.onclick = () => finish('review'); separate.onclick = () => finish('separate'); cancel.onclick = () => finish('cancel');
-          box.append(text,review,separate,cancel); if (content) content.inert = true; host.append(box); review.focus();
+          review.onclick = () => finish('retry'); separate.onclick = () => finish('separate'); cancel.onclick = () => finish('cancel');
+          box.append(text,review); if (isCreate) box.append(separate); box.append(cancel); if (content) content.inert = true; host.append(box); review.focus();
         });
       },
       async review(onBack = null) {
@@ -526,8 +543,11 @@ async function calendarSurface(title, origin, mount) {
         const title = document.createElement('h2'); title.textContent = 'Unconfirmed calendar changes'; panel.append(title);
         const note = document.createElement('p'); note.textContent = 'These changes may already have happened. Retry only the same request, or forget its local reminder.'; panel.append(note);
         const list = document.createElement('div'); panel.append(list);
+        const sessionRetry = document.createElement('button'); sessionRetry.type = 'button'; sessionRetry.textContent = 'Retry owner session'; sessionRetry.hidden = true; panel.append(sessionRetry);
         const back = document.createElement('button'); back.type = 'button'; back.textContent = 'Back'; panel.append(back);
-        const finish = () => { panel.remove(); if (content) content.inert = false; back.onclick = null; onBack?.(); };
+        let panelActive = true, verification = 0;
+        const finish = () => { panelActive = false; verification++; window.removeEventListener('focus',reverify); panel.remove(); if (content) content.inert = false; back.onclick = null; onBack?.(); };
+        session.onDispose(() => { panelActive = false; verification++; window.removeEventListener('focus',reverify); });
         back.onclick = finish;
         if (content) content.inert = true; host.append(panel);
         const paint = () => {
@@ -540,9 +560,9 @@ async function calendarSurface(title, origin, mount) {
             const explanation = document.createElement('small'); explanation.textContent = 'Forgetting removes only this local reminder; it does not undo or cancel the calendar operation.';
             const error = document.createElement('p'); error.setAttribute('role','alert');
             retry.onclick = async () => {
-              if (busy) return; busy++; retry.disabled = forget.disabled = back.disabled = true;
-              try { if (await calendarOwner() !== owner) { list.replaceChildren(); note.textContent = 'Owner session changed. Reopen this list.'; return; } await calendarRunAttempt(attempt, () => {}); if (surface.current()) paint(); }
-              catch (e) { if (!calendarAttempts.has(attempt.id)) paint(); else error.textContent = e.message; }
+              if (busy) return; busy++; const check = verification; retry.disabled = forget.disabled = back.disabled = true;
+              try { if (await calendarOwner() !== owner) { list.replaceChildren(); note.textContent = 'Owner session changed. Reopen this list.'; return; } await calendarRunAttempt(attempt, () => {}); if (surface.current() && panelActive && check === verification) paint(); }
+              catch (e) { if (panelActive && check === verification) { if (!calendarAttempts.has(attempt.id)) paint(); else error.textContent = e.message; } }
               finally { busy--; retry.disabled = forget.disabled = back.disabled = false; }
             };
             forget.onclick = async () => {
@@ -552,6 +572,19 @@ async function calendarSurface(title, origin, mount) {
             row.append(label,retry,forget,explanation,error); list.append(row);
           }
         };
+        const reverify = async () => {
+          const check = ++verification; list.replaceChildren(); sessionRetry.hidden = true;
+          note.textContent = 'Verifying owner session…';
+          try {
+            const verified = await calendarOwner();
+            if (!panelActive || check !== verification) return;
+            owner = verified; note.textContent = 'These changes may already have happened. Retry only the same request, or forget its local reminder.'; paint();
+          } catch (error) {
+            if (!panelActive || check !== verification) return;
+            note.textContent = error.message; sessionRetry.hidden = false;
+          }
+        };
+        sessionRetry.onclick = reverify; window.addEventListener('focus',reverify);
         paint(); back.focus();
       },
       async close() { await session.close(); },
@@ -586,7 +619,7 @@ async function calendarOpen(event, calendars, refresh, clicked = event, origin =
         const responseActions = attendee ? ['accepted','tentative','declined'].map(response => { const key = newRequestId(), attempt = calendarAttempt('calendar_event_respond',{...calendarTarget(event),attendee:attendee.email,response},key,clicked,calendar); return ({
           label:({accepted:'Accept',tentative:'Maybe',declined:'Decline'})[response], onClick:async (close, el) => {
             el.querySelectorAll('.mfoot button').forEach(button => button.disabled = true);
-            try { await calendarRunAttempt(attempt,refresh); close(); }
+            try { if (await calendarSubmitAttempt(attempt,refresh,surface)) close(); else el.querySelectorAll('.mfoot button').forEach(button => button.disabled = false); }
             catch (error) { $('.calendar-detail-error',el).textContent = error.message; el.querySelectorAll('.mfoot button').forEach(button => button.disabled = false); }
           }}); }) : [];
         await surface.show({title:event.title || 'Event', body:`<div class="calendar-detail">
@@ -650,7 +683,7 @@ function calendarStatusEditor(el, target, surface, clicked, calendar) {
     if (payload !== lastPayload) { requestId = newRequestId(); lastPayload = payload; attempt = calendarAttempt('personal_status',{target,status:chosen,revision:revision()},requestId,clicked,calendar); }
     busy = true; surface.setBusy(true); note.textContent = 'Saving…'; sync();
     try {
-      await calendarRunAttempt(attempt,null); displayed = calendarStatuses.get(target); dirty = false;
+      if (!await calendarSubmitAttempt(attempt,null,surface)) { note.textContent = 'Retry cancelled; the outcome remains unconfirmed.'; return; } displayed = calendarStatuses.get(target); dirty = false;
       note.textContent = `Saved: ${calendarStatusLabels[displayed.status]}.`;
     } catch (error) {
       if (calendarStatuses.state.denied) note.textContent = calendarStatuses.state.error;
@@ -673,7 +706,7 @@ function calendarDelete(event, refresh, surface, back, clicked = event, calendar
   return surface.show({title:'Delete event?',onBack:() => surface.close(),body:`<p>${esc(event.title)}${event.recurrence.length ? ' (whole series)' : ''}</p><p>Guests receive the provider’s cancellation notice.</p><p class="calendar-detail-error" role="alert"></p>`,actions:[
     {label:'Cancel',navigation:true,onClick:() => surface.back(back)}, {label:'Delete',primary:true,onClick:async (close,el) => {
       const button = $('.mfoot .primary',el); button.disabled = true;
-      try { await calendarRunAttempt(attempt,refresh); close(); }
+      try { if (await calendarSubmitAttempt(attempt,refresh,surface)) close(); else button.disabled = false; }
       catch (error) { $('.calendar-detail-error',el).textContent = error.message; button.disabled = false; }
     }}]});
 }
@@ -730,14 +763,9 @@ function calendarEdit(event, calendars, refresh, calendarDate = new Date(), orig
       const payload = JSON.stringify(args);
       let owner;
       try { owner = await calendarOwner(); } catch (error) { $('.calendar-detail-error',el).textContent = error.message; return; }
-      if (!event && calendarOwnerAttempts(owner).some(a => a.operation === 'calendar_event_create' && JSON.stringify(a.args) === payload)) {
-        const choice = await surface.chooseCreate();
-        if (choice === 'review') { await surface.review(); return; }
-        if (choice !== 'separate') return;
-      }
       if (!event || payload !== lastPayload) { key = newRequestId(); lastPayload = payload; attempt = calendarAttempt(event ? 'calendar_event_update' : 'calendar_event_create',args,key,clicked,selected); attempt.owner = owner; }
       const button = $('.mfoot .primary',el); button.disabled = true;
-      try { await calendarRunAttempt(attempt,refresh); surface.setDirty(() => false); close(); }
+      try { if (await calendarSubmitAttempt(attempt,refresh,surface)) { surface.setDirty(() => false); close(); } else button.disabled = false; }
       catch (error) { $('.calendar-detail-error',el).textContent = error.message; button.disabled = false; }
     }}],onOpen:el => {
       const form = $('form',el), f = form.elements;
