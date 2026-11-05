@@ -13,7 +13,7 @@ async function renderSettings(c) {
   pane.innerHTML = `
     ${global ? '<div data-connectors-slot></div>' : ''}
     ${global ? `<section class="onboarding-settings"><div><h2>find your way around</h2><p>A quick, interactive introduction to your workspace. Replay all of it, or one chapter.</p><div class="onboarding-settings-chapters" aria-label="replay one chapter">${onboarding.chapters().map(c => `<button type="button" class="quiet" data-onboarding-chapter="${esc(c.id)}">${esc(c.title)}</button>`).join('')}</div></div><button type="button" class="quiet" data-onboarding-replay>restart walkthrough</button></section>` : ''}
-    ${global ? `<section class="cx-trust" data-agent-trust hidden><div><h2>start agents for me</h2><p data-agent-trust-text></p></div><button type="button" class="quiet" data-agent-trust-toggle></button></section>` : ''}
+    ${global ? `<section class="cx-trust" data-agent-trust hidden><div><h2>trusted agent folders</h2><p data-agent-trust-text></p></div><button type="button" class="quiet" data-agent-trust-toggle></button></section>` : ''}
     <div class="set-head"><div>
       <h1 class="set-title">${global ? "Global environment" : "Environment"}</h1>
       <div class="muted small">${global ? "Shared defaults for all projects and Global agents. Projects can override individual values." : "Global values are inherited automatically. Override a value for this project, or use Global again."}</div>
@@ -41,8 +41,8 @@ async function renderSettings(c) {
   await loadEnv(p);
 }
 
-// The owner's consent for Qorqbot to start agents itself (bazarlyk.agent_trust). Turning it off restores Codex's own hook
-// review for new launches and stops Ordubashy starting by itself; Chat's Start button then asks again.
+// The owner's consent that Qorqbot's own agent folders are trusted (bazarlyk.agent_trust): claude and codex then open there
+// without their trust and hook-review prompts. Turning it off restores Codex's own hook review for new launches.
 async function paintAgentTrust(pane) {
   const section = pane.querySelector('[data-agent-trust]');
   if (!section) return;
@@ -52,8 +52,8 @@ async function paintAgentTrust(pane) {
   if (!section.isConnected) return;
   section.hidden = false;
   text.textContent = view.granted
-    ? 'On. Qorqbot starts Ordubashy when it is offline, in its own trusted agent folders, and runs its own hooks without a Codex review.'
-    : 'Off. Agents start only when you press Start in Chat, after you allow it once.';
+    ? 'On. Claude Code and Codex open in Qorqbot’s agent folders without the folder-trust or hook-review prompt, whether you type claude or codex in an agent’s Terminal or press Start in Chat.'
+    : 'Off. The first time an agent starts in its folder, Claude Code asks whether to trust it and Codex asks you to review its hooks.';
   toggle.textContent = view.granted ? 'turn off' : 'turn on';
   toggle.disabled = false;
   toggle.onclick = async () => {
