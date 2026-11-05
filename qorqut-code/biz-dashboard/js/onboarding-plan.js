@@ -28,15 +28,13 @@ const onboardingPlan = (() => {
     const index = steps.findIndex(step => saveId(step) === saved.step);
     return index < 0 ? 0 : index;
   }
-  // The launch step's reading of Ordubashy's Chat (global-chat.js): `state` is the status line's data-state, `startLabel` the
-  // visible Start control's text (none when Chat offers no start), `error` the status text shown after a failed start.
-  function launchPhase({state, startLabel = '', error = ''} = {}) {
-    if (state === 'live' || state === 'working') return {phase: 'online'};
-    if (state === 'starting') return {phase: 'starting'};
-    if (!state || state === 'loading') return {phase: 'checking'};
-    if (/^try again$/i.test(startLabel.trim())) return {phase: 'failed', error};
-    if (startLabel.trim()) return {phase: 'offline'};
-    return {phase: 'unavailable'};
+  // The launch step's reading of Ordubashy's Chat session (GET .../chat?limit=1): `session` is that response's session,
+  // or null before the first read. Online means Chat can send to him.
+  function launchPhase(session) {
+    if (!session) return 'checking';
+    if (session.state === 'live' && session.can_send) return 'online';
+    if (session.state === 'live') return 'connecting';
+    return 'waiting';
   }
   return {chapters, chapterAt, nextChapter, resumeIndex, saveId, launchPhase};
 })();

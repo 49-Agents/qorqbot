@@ -6,17 +6,22 @@ const onboarding = (() => {
   const pane = () => document.querySelector('#agpad');
   const steps = [
     {id: 'assistant', chapter: 'online', title: 'meet ordubashy',
-      body: 'Ordubashy is your lead agent. Give him a goal. He carries the work forward, hands parts to helpers and brings decisions back to you. Next, you start him.',
+      body: 'Ordubashy is your lead agent. Give him a goal. He carries the work forward, hands parts to helpers and brings decisions back to you. Next, you start him in his own terminal.',
       target: () => agentButton('ordubashy')},
-    // The launch itself: the card's button presses Chat's own Start, and next stays locked until he is online.
-    {id: 'start', chapter: 'online', title: 'start ordubashy', launch: true,
-      body: 'Ordubashy runs in Claude Code or Codex, here on your computer. Start him now. This takes up to a minute.',
-      instructions: ['The first time, Qorqbot asks once whether it may start its agents for you.',
-        'He opens in his own terminal and connects to this Chat by himself.'],
-      hint: 'Claude Code or Codex must be installed and signed in once.',
+    // Once per installation: trust Qorqbot's own agent folders, so claude and codex skip their first-run prompts there.
+    {id: 'start', chapter: 'online', title: 'allow qorqbot’s folders', consent: true,
+      body: 'Claude Code and Codex ask before they work in a new folder. Allow Qorqbot’s own agent folders once, and they open straight into the session from now on.',
+      instructions: ['Only the folders Qorqbot prepares for its agents are trusted. Your other projects are not changed.',
+        'You can turn this off in Settings.'],
+      target: () => null},
+    // The launch itself, the way the owner will do it every time: claude or codex, typed in his own terminal.
+    {id: 'terminal', chapter: 'online', title: 'start ordubashy', launch: true, terminal: true,
+      body: 'This is Ordubashy’s own terminal. Click in it, type <code>claude</code> or <code>codex</code> and press Enter.',
+      instructions: ['<code>claude</code> runs him in Claude Code, <code>codex</code> in Codex. Use the one you are signed in to.',
+        'He connects to Chat by himself. This is how you start him every time.'],
+      prompts: 'First time in this folder? Claude asks to trust it: press ↓, then Enter on “Yes, I trust this folder”. Codex asks you to review hooks: choose to trust them.',
       online: 'Ordubashy is online. He is setting himself up and will answer in Chat in a moment.',
-      target: () => document.querySelector('#global-agent-terminal .gchat-session')
-        || document.querySelector('#global-agent-terminal .gchat-composer')},
+      target: () => document.querySelector('#global-agent-terminal .gchat-terminal')},
     {id: 'chat', chapter: 'online', title: 'say hello',
       body: 'Once he is connected, type “hi, what can you help me with?” in the message box and press send.',
       hint: 'Wait for his reply, then continue. To watch him work, the >_ icon above Chat opens his Terminal.',
@@ -78,7 +83,7 @@ const onboarding = (() => {
   ];
   let root = null, card = null, target = null, index = 0, generation = 0, busy = false;
   let saved = null, writes = Promise.resolve(), observer = null, resize = null, frame = 0, previousFocus = null;
-  let targetDescription = null, welcome = false, booted = false, savedInert = false;
+  let targetDescription = null, welcome = false, booted = false, savedInert = false, skippedConsent = false;
   const visible = el => !!el?.isConnected && !!el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
   const findAgent = role => globalAgentProfiles.find(a => globalRosterAgent(a) && (a.role?.id || a.role_id) === role);
   const agentButton = role => { const id = findAgent(role)?.agent_id; return id ? document.querySelector(`[data-global-agent="${CSS.escape(id)}"]`) : null; };
@@ -167,6 +172,8 @@ const onboarding = (() => {
   }
   function keydown(event) {
     if (!root || appDialog()) return;
+    // Keys typed in the highlighted area (Ordubashy's terminal) belong to it: Esc and Tab are the CLI's own keys there.
+    if (target?.contains(event.target)) return;
     if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); exit(); }
     if (event.key !== 'Tab') return;
     const list = focusables(); if (!list.length) return;
@@ -174,45 +181,54 @@ const onboarding = (() => {
     event.preventDefault(); list[next].focus();
   }
   function schedule() { if (root && !frame) frame = requestAnimationFrame(() => { frame = 0; position(); }); }
-  // Ordubashy's Chat (global-chat.js): its status line and whichever Start control it shows while he is offline.
-  const chatStart = () => [...document.querySelectorAll('#global-agent-terminal .gchat-start, #global-agent-terminal [data-empty-action="start"]')]
-    .find(visible) || null;
   const LAUNCH_TEXT = {
     checking: 'Checking whether Ordubashy is running…',
-    offline: 'Offline. Press Start Ordubashy.',
-    starting: 'Starting Ordubashy in his terminal…',
+    waiting: 'Waiting for you to type claude or codex…',
+    connecting: 'He started. Connecting to Chat…',
     online: 'Online',
-    unavailable: 'Chat can’t start him here. Open his >_ terminal and type claude or codex.',
   };
-  // The launch step's live panel. Next unlocks once he is online, when Chat can't start him, or after "start later".
+  let launchSession = null, launchTimer = 0, trustView = null;
+  // The launch step follows Ordubashy's Chat session from the API, because Chat itself is not mounted while Terminal shows.
+  function watchLaunch(token) {
+    clearTimeout(launchTimer);
+    const assistant = findAgent('ordubashy');
+    if (!assistant || !isCurrent(token)) return;
+    api(`${globalChatBase(assistant.agent_id)}?limit=1`, {signal: AbortSignal.timeout(4000)})
+      .then(data => { if (isCurrent(token)) { launchSession = coreData(data).session || {state: 'offline'}; paintLaunch(); } })
+      .catch(() => {})
+      .finally(() => { if (isCurrent(token)) launchTimer = setTimeout(() => watchLaunch(token), 2000); });
+  }
   function paintLaunch() {
-    const panel = card.querySelector('[data-launch]'); if (!panel) return;
-    const line = document.querySelector('#global-agent-terminal .gchat-session');
-    const control = chatStart();
-    const {phase, error} = onboardingPlan.launchPhase({state: line?.dataset.state, startLabel: control?.textContent || '',
-      error: line?.querySelector('.gchat-session-text')?.textContent || ''});
-    if (panel.dataset.phase !== phase || (phase === 'failed' && panel.dataset.error !== error)) {
-      panel.dataset.phase = phase; panel.dataset.error = error || '';
-      panel.querySelector('[data-launch-text]').textContent = phase === 'failed' ? (error || 'Ordubashy didn’t start.') : LAUNCH_TEXT[phase];
-      const button = panel.querySelector('[data-launch-start]');
-      button.hidden = !['offline', 'failed', 'starting'].includes(phase);
-      button.disabled = phase === 'starting';
-      button.textContent = phase === 'failed' ? 'try again' : phase === 'starting' ? 'starting…' : 'start ordubashy';
+    const panel = card?.querySelector('[data-launch]'); if (!panel) return;
+    const phase = onboardingPlan.launchPhase(launchSession);
+    if (panel.dataset.phase !== phase) {
+      panel.dataset.phase = phase;
+      panel.querySelector('[data-launch-text]').textContent = LAUNCH_TEXT[phase];
       if (phase === 'online') {
         card.querySelector('#onboarding-description').textContent = steps[index].online;
         card.querySelector('.onboarding-instructions')?.remove();
+        card.querySelector('[data-launch-prompts]')?.remove();
         const hint = card.querySelector('.onboarding-hint'); if (hint) hint.textContent = 'Press next to say hello.';
       }
     }
-    // Offer "start later" once a start was tried and he is still not online (declined, failed or never connected).
-    const later = card.querySelector('[data-launch-later]');
-    if (later) later.hidden = !(phase === 'failed' || (card.dataset.pressed && phase === 'offline' && !appDialog()));
+    const later = card.querySelector('[data-launch-later]'); if (later) later.hidden = phase === 'online';
     const next = card.querySelector('[data-tour-next]');
-    if (next && !busy) next.disabled = !['online', 'unavailable'].includes(phase);
+    if (next && !busy) next.disabled = phase !== 'online';
+  }
+  // The consent step: allowed already, or the button that asks (agent-start.js). Next unlocks once it is given.
+  function paintConsent() {
+    const panel = card?.querySelector('[data-consent]'); if (!panel) return;
+    const granted = !!trustView?.granted;
+    panel.dataset.phase = trustView ? (granted ? 'online' : 'waiting') : 'checking';
+    panel.querySelector('[data-launch-text]').textContent = !trustView ? 'Checking…' : granted ? 'Allowed. Claude Code and Codex open without asking.' : 'Not allowed yet.';
+    panel.querySelector('[data-consent-allow]').hidden = granted || !trustView;
+    const next = card.querySelector('[data-tour-next]');
+    if (next && !busy) next.disabled = !granted;
   }
   function position() {
     if (!root) return;
     if (!welcome && steps[index].launch) paintLaunch();
+    if (!welcome && steps[index].consent) paintConsent();
     root.classList.toggle('is-paused', appDialog());
     if (!welcome) describeTarget(visible(steps[index].target()) ? steps[index].target() : null);
     const w = document.documentElement.clientWidth, h = window.visualViewport?.height || innerHeight;
@@ -277,7 +293,12 @@ const onboarding = (() => {
       if (isCurrent(token)) step.target().scrollIntoView({block: 'center', behavior: 'auto'});
       return;
     }
-    if (!step.target()) {
+    if (step.consent) {
+      try { trustView = await agentStart.read(null); } catch (_) { trustView = {granted: false}; }
+      if (isCurrent(token)) paintConsent();
+      return;
+    }
+    if (!step.target() && !step.terminal) {
       if (step.id === 'privacy' && (state.scope !== 'global' || state.globalTab !== 'settings')) await selectGlobal('settings');
       return;
     }
@@ -291,7 +312,8 @@ const onboarding = (() => {
     const opened = await globalAgentsNavigate(assistant.agent_id, step.view ? {view: step.view} : {});
     if (!isCurrent(token)) return;
     if (!opened) throw new Error('Finish your open edit first, then continue the walkthrough.');
-    if (['start', 'chat', 'projects'].includes(step.id)) globalAgentViewActive?.showChat();
+    if (step.terminal) globalAgentViewActive?.showTerminal();
+    else if (['chat', 'projects'].includes(step.id)) globalAgentViewActive?.showChat();
     if (step.view && _agpad?.workspaceFrame) await _agpad.workspaceFrame.workspaceReady;
     if (!isCurrent(token)) return;
     await waitFor(() => visible(step.target()) && step.target());
@@ -307,25 +329,28 @@ const onboarding = (() => {
     }
     index = Math.max(0, Math.min(next, steps.length-1)); const step = steps[index];
     card.style.opacity = '0';
-    setWelcome(false); describeTarget(null); card.classList.toggle('is-wide', !!step.wide); delete card.dataset.pressed;
+    setWelcome(false); describeTarget(null); card.classList.toggle('is-wide', !!step.wide); launchSession = null; clearTimeout(launchTimer);
     persist('in_progress').catch(() => {});
     const chapter = onboardingPlan.chapterAt(steps, index), following = onboardingPlan.nextChapter(steps, index);
     card.innerHTML = `<div class="onboarding-step-head"><span class="onboarding-chapter">${chapterTitles[chapter.id]}</span><span class="onboarding-count">${String(chapter.number).padStart(2,'0')} <span>/ ${String(chapter.total).padStart(2,'0')}</span></span></div>
       <div class="onboarding-progress" aria-label="chapter ${chapter.number} of ${chapter.total}, step ${chapter.step} of ${chapter.count}">${steps.slice(chapter.start, chapter.end + 1).map((_,i)=>`<i class="${chapter.start+i<=index?'done':''}"></i>`).join('')}</div>
       <h2 id="onboarding-title">${step.title}</h2><p id="onboarding-description">${step.body}</p>${step.instructions ? `<ol class="onboarding-instructions">${step.instructions.map(text => `<li>${text}</li>`).join('')}</ol>` : ''}${step.hint ? `<p class="onboarding-hint">${step.hint}</p>` : ''}
       ${step.action?`<button type="button" class="onboarding-action" data-tour-action disabled>${step.action}<span aria-hidden="true">↗</span></button>`:''}
-      ${step.launch?`<div class="onboarding-launch" data-launch data-phase=""><p class="onboarding-launch-status"><span class="onboarding-launch-dot" aria-hidden="true"></span><span data-launch-text role="status">${LAUNCH_TEXT.checking}</span></p><button type="button" class="onboarding-launch-start" data-launch-start hidden>start ordubashy</button><button type="button" class="ghost onboarding-launch-later" data-launch-later hidden>start later and continue the tour</button></div>`:''}
+      ${step.launch?`<div class="onboarding-launch" data-launch data-phase=""><p class="onboarding-launch-status"><span class="onboarding-launch-dot" aria-hidden="true"></span><span data-launch-text role="status">${LAUNCH_TEXT.checking}</span></p>${skippedConsent && step.prompts ? `<p class="onboarding-launch-prompts" data-launch-prompts>${step.prompts}</p>` : ''}<button type="button" class="ghost onboarding-launch-later" data-launch-later>start him later and continue the tour</button></div>`:''}
+      ${step.consent?`<div class="onboarding-launch" data-consent data-phase="checking"><p class="onboarding-launch-status"><span class="onboarding-launch-dot" aria-hidden="true"></span><span data-launch-text role="status">Checking…</span></p><button type="button" class="onboarding-launch-start" data-consent-allow hidden>allow</button><button type="button" class="ghost onboarding-launch-later" data-consent-skip>not now, I’ll answer the prompts myself</button></div>`:''}
       <p class="onboarding-notice" data-tour-notice role="status">Opening this part of your workspace…</p>
       <div class="onboarding-footer"><div><button type="button" class="ghost onboarding-skip" data-tour-skip>skip</button>${following >= 0 ? '<button type="button" class="ghost onboarding-skip" data-tour-chapter>skip chapter</button>' : ''}</div><div><button type="button" class="ghost" data-tour-back ${index?'':'disabled'}>back</button><button type="button" data-tour-next disabled>${index===steps.length-1?'done':'next'}</button></div></div>`;
     card.querySelector('[data-tour-skip]').onclick = () => exit();
     card.querySelector('[data-tour-back]').onclick = () => showStep(index-1);
     const skipChapter = card.querySelector('[data-tour-chapter]'); if (skipChapter) skipChapter.onclick = () => showStep(following);
     card.querySelector('[data-tour-next]').onclick = () => index===steps.length-1 ? exit('completed') : showStep(index+1);
-    card.querySelector('[data-launch-start]')?.addEventListener('click', () => {
-      // Chat's own Start: the same consent, start and retry the owner gets outside the walkthrough.
-      const control = chatStart(); if (!control) return;
-      card.dataset.pressed = '1'; control.click(); schedule();
+    card.querySelector('[data-consent-allow]')?.addEventListener('click', async () => {
+      const view = await agentStart.consent(null, 'Ordubashy');
+      if (!isCurrent(token)) return;
+      if (view) { trustView = view; skippedConsent = false; }
+      paintConsent(); schedule();
     });
+    card.querySelector('[data-consent-skip]')?.addEventListener('click', () => { skippedConsent = true; showStep(index + 1); });
     card.querySelector('[data-launch-later]')?.addEventListener('click', () => {
       const following = onboardingPlan.nextChapter(steps, index); showStep(following >= 0 ? following : index + 1);
     });
@@ -343,11 +368,12 @@ const onboarding = (() => {
     finally {
       if (isCurrent(token)) {
         busy = false; card.querySelector('[data-tour-next]').disabled = false;
-        if (step.launch) paintLaunch();
+        if (step.launch) { paintLaunch(); watchLaunch(token); }
+        if (step.consent) paintConsent();
         const action = card.querySelector('[data-tour-action]'); if (action) action.disabled = false;
         position(); card.style.opacity = '1';
         if (motion) card.animate([{opacity: 0, transform: 'translateY(5px)'}, {opacity: 1, transform: 'translateY(0)'}], {duration: 260, easing: 'ease-out'});
-        const next = card.querySelector('[data-tour-next]'), launch = card.querySelector('[data-launch-start]:not([hidden])');
+        const next = card.querySelector('[data-tour-next]'), launch = card.querySelector('[data-consent-allow]:not([hidden])');
         (next.disabled && launch ? launch : next).focus({preventScroll: true});
       }
     }
