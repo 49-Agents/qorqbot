@@ -41,8 +41,8 @@ def parse_index(raw: bytes) -> list[dict]:
         if len(raw) > MAX_TEXT_BYTES:
             raise ValueError("Index exceeds its byte limit")
         data = json.loads(raw.decode("utf-8"), object_pairs_hook=_object)
-        if not isinstance(data, dict) or set(data) != {"schema_version", "entries"} or (type(data["schema_version"]) is not int or data["schema_version"] != 1):
-            raise ValueError("Expected schema_version 1 and entries")
+        if not isinstance(data, dict) or set(data) != {"schema_version", "entries"} or (type(data["schema_version"]) is not int or data["schema_version"] not in (1, 2)):
+            raise ValueError("Expected instruction schema_version 1 or 2 and entries")
         if not isinstance(data["entries"], list) or len(data["entries"]) > 512:
             raise ValueError("Expected a bounded entries list")
         paths, identifiers = set(), set()
