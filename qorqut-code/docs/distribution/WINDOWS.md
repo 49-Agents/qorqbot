@@ -17,7 +17,7 @@ Inside Ubuntu install the application prerequisites:
 
 ```sh
 sudo apt update
-sudo apt install python3.12 python3.12-venv git
+sudo apt install python3.12 python3.12-venv git tmux
 ```
 
 Download/extract the supplied Linux TAR.GZ **inside your Ubuntu home**, for example
@@ -33,12 +33,17 @@ cd qorqbot
 ./qorqbot
 ```
 
-Open `http://localhost:1049` in your Windows browser. If you change the app port,
-use that port. Standard WSL localhost forwarding is required; no firewall or
+The dashboard opens in your Windows browser at `http://localhost:1049` (through
+`wslview` if installed, otherwise `explorer.exe`). If it does not open, open that
+address yourself. `--no-open` skips the browser and `--port` picks another port;
+later starts reuse the last port so running agents keep their address. Your first
+visit offers a walkthrough that starts your first agent and tours the workspace. Standard WSL localhost forwarding is required; no firewall or
 network configuration is changed by Qorqbot. Ctrl+C stops the foreground app.
 Use `./qorqbot stop`, `status` or `verify` inside the Ubuntu folder as needed.
 
-For later starts, open Ubuntu and run `cd ~/qorqbot && ./qorqbot`. All application
+For later starts, open Ubuntu and run `cd ~/qorqbot && ./qorqbot`, or run
+`./qorqbot install-command` once and then just `qorqbot` from any folder. It writes
+`~/.local/bin/qorqbot`; Ubuntu adds that folder to PATH for new terminals once it exists. All application
 state stays under that Linux folder, including `instance/operations/`. Keep it
 at the same path after setup. Back up the stopped folder before updates/removal.
 Do not unregister the WSL distro as an application-uninstall method: that would

@@ -45,3 +45,12 @@ td { padding: 6px 8px 6px 0; vertical-align: top; border-top: 1px solid var(--li
 td:first-child { color: var(--muted); white-space: nowrap; width: 34%; }
 [hidden] { display: none !important; }
 .spaced { margin-top: 12px; }
+
+.checklist-title { font-size: 13px; font-weight: 600; margin: 16px 0 6px; }
+.checklist-title:first-child { margin-top: 0; }
+.checklist-title + .hint { margin: 0 0 6px; }
+#checklist-tools, #checklist-agents { margin-bottom: 12px; }
+ol.steps li .note { color: var(--muted); font-size: 12px; }
+ol.steps li a { font-size: 12px; margin-left: auto; }
+.spaced-bottom { margin-bottom: 12px; }
+.checking { margin: 4px 0 0; }
