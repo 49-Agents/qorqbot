@@ -152,7 +152,8 @@ test('uncertain reminder dismissal remains retryable after disposal with identic
   let host=new Node(),view=context.mount(host,reminder);await new Promise(resolve=>setImmediate(resolve));
   find(host,'Dismiss').onclick();await new Promise(resolve=>setImmediate(resolve));view.dispose();
   host=new Node();view=context.mount(host,reminder);await new Promise(resolve=>setImmediate(resolve));assert.equal(writes.length,1);
-  find(host,'Retry the same request').onclick();await new Promise(resolve=>setImmediate(resolve));
+  find(host,'Dismiss').onclick();await new Promise(resolve=>setImmediate(resolve));assert.equal(writes.length,1);
+  find(host,'Retry same request').onclick();await new Promise(resolve=>setImmediate(resolve));
   assert.equal(writes.length,2);assert.deepEqual(writes[1],writes[0]);assert.equal(writes[0].args.occurrence_id,'occ-1');view.dispose();
 });
 
@@ -249,4 +250,54 @@ test('Focus exposes recovery when the due reminder is gone and rechecks owner on
   assert.match(host.innerHTML,/Unconfirmed reminder changes/);
   listeners.click({target:{closest:selector=>selector==='[data-reminder-recovery]'?{}:null}});assert.equal(opened,1);
   dispose();
+});
+
+test('ordinary reminder Create prompts for retry or deliberate separate creation after an uncertain result', async () => {
+  class Node {
+    constructor(){this.children=[];this.isConnected=true;this.hidden=false;this.disabled=false;}
+    append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} setAttribute(){} focus(){}
+  }
+  const makeHost=()=>{
+    const host=new Node(),form=new Node(),message=new Node(),pending=new Node(),confirm=new Node(),save=new Node(),cancel=new Node(),stay=new Node(),discard=new Node();
+    const fields=[['text','same'],['repeat','once'],['at','2099-01-01T10:00'],['weekday','0'],['time','09:00'],['cron',''],['timezone','UTC'],['critical',''],['linktype',''],['linkscope',''],['linkid','']].map(([name,value])=>({name,value,type:name==='critical'?'checkbox':'text',checked:false}));
+    for(const f of fields)fields[f.name]=f;form.elements=fields;form.querySelector=()=>message;form.querySelectorAll=()=>[];
+    confirm.querySelector=selector=>selector==='[data-stay]'?stay:discard;
+    const nodes={'.rem-form':form,'.rem-editor-confirm':confirm,'.rem-editor-pending':pending,'.rem-editor-save':save,'.rem-editor-cancel':cancel};
+    host.querySelector=selector=>nodes[selector];return {host,form,pending,save};
+  };
+  let key=0, fail=true;const writes=[];
+  const context={document:{createElement:()=>new Node(),dispatchEvent(){}},Event:class{},embeddedAgentPane:true,
+    window:{addEventListener(){},removeEventListener(){}},state:{session:{principal_id:'owner'},bizs:[]},
+    loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),newRequestId:()=>`key-${++key}`,
+    post:async(path,args)=>{writes.push({path,args:{...args}});if(fail)throw new Error('lost');return {reminder:{id:'created'}};},
+    coreData:x=>x,esc:String,uiFailure:()=> 'retry',Intl,Date};
+  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.editor=remindersEditor;',context);
+  const session={setTitle(){},setBeforeLeave(){},onDispose(){},isCurrent:()=>true};
+  const flush=()=>new Promise(resolve=>setImmediate(resolve));
+  let h=makeHost();context.editor(null,{host:h.host,session,onCancel(){},onSaved(){}});await flush();
+  h.save.onclick();await flush();assert.equal(writes.length,1);
+  h=makeHost();context.editor(null,{host:h.host,session,onCancel(){},onSaved(){}});await flush();assert.equal(writes.length,1);
+  h.save.onclick();await flush();assert.equal(writes.length,1);
+  const find=(node,text)=>node.textContent===text ? node : node.children.map(child=>find(child,text)).find(Boolean);
+  fail=false;find(h.pending,'Retry same request').onclick();await flush();assert.deepEqual(writes[1],writes[0]);
+  fail=true;h.save.onclick();await flush();assert.equal(writes.length,3);
+  h.save.onclick();await flush();assert.equal(writes.length,3);
+  fail=false;find(h.pending,'Create separate').onclick();await flush();
+  assert.equal(writes.length,4);assert.notEqual(writes[2].args.idempotency_key,writes[3].args.idempotency_key);
+  assert.equal(writes[2].args.text,writes[3].args.text);
+});
+
+test('ordinary dismissal of a different recurring occurrence uses a separate request', async () => {
+  class Node {constructor(){this.children=[];this.isConnected=true;} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} remove(){this.isConnected=false;} setAttribute(){}}
+  let current={reminder_id:'r',revision:4,state:'due',occurrence_id:'one',text:'Repeat'}, key=0;const writes=[];
+  const context={document:{createElement:()=>new Node(),dispatchEvent(){}},window:{addEventListener(){},removeEventListener(){}},Event:class{},embeddedAgentPane:true,
+    state:{session:{principal_id:'owner'},bizs:[]},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),newRequestId:()=>`key-${++key}`,
+    post:async(path,args)=>{if(path.endsWith('reminders_get'))return {reminder:current};writes.push({...args});throw new Error('lost');},
+    coreData:x=>x,accessLost:()=>false,sourceGone:()=>false,uiFailure:()=> 'retry',Intl,Date};
+  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.mount=remindersDetailMount;',context);
+  const find=(n,t)=>n.textContent===t?n:n.children.map(c=>find(c,t)).find(Boolean),flush=()=>new Promise(resolve=>setImmediate(resolve));
+  let host=new Node(),view=context.mount(host,current);await flush();find(host,'Dismiss').onclick();await flush();view.dispose();
+  current={...current,occurrence_id:'two'};host=new Node();view=context.mount(host,current);await flush();
+  find(host,'Dismiss').onclick();await flush();assert.equal(writes.length,2);
+  assert.equal(writes[0].occurrence_id,'one');assert.equal(writes[1].occurrence_id,'two');assert.notEqual(writes[0].idempotency_key,writes[1].idempotency_key);view.dispose();
 });
