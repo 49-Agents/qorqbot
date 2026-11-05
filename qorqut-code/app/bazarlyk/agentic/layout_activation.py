@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import base64
-import ctypes
 import json
 import os
 from pathlib import Path
@@ -135,16 +134,14 @@ def _probe(parent):
     os.chmod(directory, 0o700)
     fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        temp = os.open('.', os.O_RDWR | os.O_TMPFILE | os.O_CLOEXEC, 0o600, dir_fd=fd)
+        from bazarlyk import posix_files
+        pending = posix_files.anonymous_file(fd, read=True)
         try:
-            os.write(temp, b'probe')
-            os.fsync(temp)
-            libc = ctypes.CDLL(None, use_errno=True)
-            if libc.linkat(-100, os.fsencode('/proc/self/fd/' + str(temp)), fd, b'one', 0x400) != 0:
-                error = ctypes.get_errno()
-                raise OSError(error, os.strerror(error))
+            os.write(pending.fd, b'probe')
+            os.fsync(pending.fd)
+            posix_files.publish(pending, fd, 'one')
         finally:
-            os.close(temp)
+            posix_files.discard(pending)
         try:
             os.link('one', 'two', src_dir_fd=fd, dst_dir_fd=fd, follow_symlinks=False)
             try:
@@ -292,6 +289,8 @@ def apply(paths, plan, *, attribution):
         raise DomainError('invalid_plan', 'A complete fingerprinted layout plan is required')
     pd = plan['plan_digest']
     with Store(paths.agentic_runtime).lock(exclusive=True, timeout=10):
+        from bazarlyk.posix_files import prepare_publication
+        prepare_publication(Path(paths.agentic_runtime) / 'publish-staging')
         intents = layout_intent.retained_intents(paths)
         pending = layout_intent.incomplete_intents(paths)
         matches = [i for i in intents if i['plan']['plan_digest'] == pd]
