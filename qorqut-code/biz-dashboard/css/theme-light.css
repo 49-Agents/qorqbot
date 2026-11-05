@@ -1,0 +1,47 @@
+/* Light theme (Settings > Appearance; js/appearance.js sets data-theme on <html>). The dashboard is designed dark: these
+   overrides swap the shared tokens and the few surfaces that hard-code dark colours. */
+:root[data-theme="light"] {
+  --bg: #f6f5f2;
+  --surface: #ffffff;
+  --elevated: #ffffff;
+  --line: rgba(0,0,0,.07);
+  --line-2: rgba(0,0,0,.12);
+  --hover: rgba(0,0,0,.045);
+  --wash: rgba(0,0,0,.022);
+  --fg: #17171a;
+  --fg-2: #5d5d63;
+  --fg-3: rgba(93,93,99,.72);
+  --accent: #1b1b1d;
+  --accent-fg: #fafafa;
+  --ok: #2e8553;
+  --warn: #9b6a17;
+  --danger: #c03636;
+  --shadow-float: 0 4px 8px rgba(0,0,0,.05), 0 24px 64px -16px rgba(0,0,0,.18);
+}
+
+/* Filled buttons turn white on hover in the dark design; in light that hides the label. */
+:root[data-theme="light"] button:hover, :root[data-theme="light"] button.primary:hover,
+:root[data-theme="light"] .btn:hover, :root[data-theme="light"] button.ghost:hover, :root[data-theme="light"] .ghost:hover {
+  background: #3a3a3e; color: var(--accent-fg); }
+:root[data-theme="light"] button.quiet:hover, :root[data-theme="light"] .btn.quiet:hover {
+  background: var(--hover); color: var(--fg); border-color: var(--fg-3); }
+:root[data-theme="light"] .ttab:hover { background: var(--hover); color: var(--fg); }
+:root[data-theme="light"] .st-nav button:hover, :root[data-theme="light"] .st-choice button:hover { background: var(--hover); color: var(--fg); }
+:root[data-theme="light"] button.cx-link:hover { background: none; color: var(--fg); }
+
+/* Selected tab and Chat/Terminal fills (hard-coded for dark in tasks.css, global-chat.css, agent-workspace.css). */
+:root[data-theme="light"] .tind,
+:root[data-theme="light"] .gchat-view-toggle .ttab[aria-pressed="true"],
+:root[data-theme="light"] .agent-workspace-app .gchat-view-toggle .ttab[aria-pressed="true"],
+:root[data-theme="light"] .agent-workspace-app .agpad .tind { background: rgba(0,0,0,.07); }
+:root[data-theme="light"] .agpad .ttab[data-attention="true"]::after { background: var(--fg); }
+:root[data-theme="light"] .chat-unread-dot { background: var(--fg); box-shadow: none; }
+
+/* The agents' artwork is drawn in white for a dark page: a hairline keeps its shape on a light one. */
+:root[data-theme="light"] svg.qorqbot-agent { filter: drop-shadow(0 0 .6px rgba(0,0,0,.55)) drop-shadow(0 0 .6px rgba(0,0,0,.35)); }
+
+/* Settings and connectors */
+:root[data-theme="light"] .st-choice button[aria-checked="true"] { box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+:root[data-theme="light"] .st-switch i { background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+:root[data-theme="light"] .envadd:hover { border-color: rgba(0,0,0,.25); }
+:root[data-theme="light"] .agents-menu, :root[data-theme="light"] .cmenu { border-color: var(--line-2); }
