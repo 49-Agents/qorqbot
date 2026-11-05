@@ -32,6 +32,12 @@ window.sgFocusOpen = (title, options, afterClose) => window.focusExpansion.open(
   return ()=>{finish(false);view.dispose();afterClose?.();};
 }});
 window.sgAttentionNavigate = async (slug, id) => {
+  if (typeof embeddedAgentPane !== 'undefined' && embeddedAgentPane) {
+    try {
+      if (parent === window || typeof parent.sgAttentionNavigate !== 'function') throw new Error('The Focus pane is unavailable.');
+      return await parent.sgAttentionNavigate(slug || null, id || null);
+    } catch (error) { throw new Error(error?.message || 'The Focus pane is unavailable.'); }
+  }
   await Promise.resolve();
   return sgFocusOpen('Signoffs', {workspace:()=>slug || 'scope:global', global:!slug, execution:true,
     ...(id?{item:()=>({id,businessId:slug ? (state.bizs.find(b=>b.slug===slug)?.id || state.bizs.find(b=>b.slug===slug)?.business_id) : null})}:{})});

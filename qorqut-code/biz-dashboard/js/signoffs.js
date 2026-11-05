@@ -1083,7 +1083,7 @@ function sgCreateView(options) {
       if ([...messageEdits.values()].some(edit => edit.saving || edit.receipt)) return true;
       if ([...(sg.mount?.querySelectorAll('.sg-conversation[data-conversation]') || [])].some(host => host._conversation?.state.sending)) return true;
       if ([...ownedWrites].some(key => sg.busy.has(key) || sg.executions.has(key))) return true;
-      const ids = [...new Set([...sg.items.keys(), ...(options.item?.()?.id ? [options.item().id] : [])])];
+      const ids = [...new Set([...(sg.selected ? [sg.selected] : []), ...(options.item?.()?.id ? [options.item().id] : [])])];
       return ids.some(id => [...sg.busy.keys()].some(key => key.startsWith(`${sg.slug}:${id}:`)) ||
         sg.executions.has(`${sg.slug}:${id}:execution`));
     },

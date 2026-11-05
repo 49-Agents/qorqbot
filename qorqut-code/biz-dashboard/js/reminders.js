@@ -56,6 +56,28 @@ function remRecurrenceText(recurrence) {
 const remLinkText = link => link ? `${({task: 'Work', email: 'Email', project: 'Project', table: 'Table', signoff: 'Signoff', action: 'Action'}[link.type] || link.type)} ${link.id}` : '';
 const remWho = reminder => reminder.recipient_name || reminder.recipient_display_name || (reminder.recipient_id && reminder.recipient_id === remSelf() ? 'You' : reminder.recipient_id) || '—';
 const remFail = error => /conflict|stale|revision|precondition|state_changed|occurrence/i.test(String(error?.code || ''));
+// Uncertain writes survive view disposal in memory, scoped to the current owner and route.
+const remAttempts = new Map();
+const remAttemptGroup = (reminder, biz, kind) => JSON.stringify([remSelf(), remPath(reminder, 'reminders_get', biz), kind, remId(reminder)]);
+const remAttempt = (reminder, biz, kind, op, args) => {
+  const group = remAttemptGroup(reminder, biz, kind);
+  const identity = JSON.stringify([group, reminder?.occurrence_id ?? null, op, args]);
+  return remAttempts.get(identity) || {identity, group, owner:remSelf(), occurrence:reminder?.occurrence_id ?? null, path:remPath(reminder, op, biz), op, args:{...args, idempotency_key:newRequestId()}};
+};
+async function remSubmitAttempt(attempt) {
+  if (remSelf() !== attempt.owner) throw new Error('The reminder belongs to a different session.');
+  try {
+    const data = coreData(await post(attempt.path, attempt.args));
+    remAttempts.delete(attempt.identity);
+    return data;
+  } catch (error) {
+    if (!error.code || error.code === 'invalid_response' || error.httpStatus >= 500) remAttempts.set(attempt.identity, attempt);
+    else remAttempts.delete(attempt.identity);
+    throw error;
+  }
+}
+const remPending = (reminder, biz, kind) => [...remAttempts.values()].filter(a => a.group === remAttemptGroup(reminder, biz, kind));
+
 
 // Snooze presets use the viewer's own clock and write an explicit offset.
 const REM_SNOOZES = [['1h', '1 hour'], ['3h', '3 hours'], ['tomorrow', 'Tomorrow 9:00'], ['week', 'Next week']];
@@ -69,7 +91,7 @@ const remInputOf = date => `${date.getFullYear()}-${remPad(date.getMonth() + 1)}
 // ---------------------------------------------------------------- detail (shared by modal and record reader)
 // Controller for one reminder. `opts.onChange(reminder|null, op)` runs after an applied or refreshed result.
 function remindersDetailMount(host, initial, opts = {}) {
-  let current = remNormalize(initial), busy = false, retry = null, error = '', gone = false, snoozeOpen = false, confirmCancel = false, disposed = false;
+  let current = remNormalize(initial), busy = false, error = '', gone = false, snoozeOpen = false, confirmCancel = false, disposed = false;
   const box = document.createElement('div');
   box.className = 'rem-detail';
   host.append(box);
@@ -103,6 +125,12 @@ function remindersDetailMount(host, initial, opts = {}) {
     box.append(list);
     const message = node('p', 'ferr rem-error', error); message.setAttribute('role', 'alert'); message.hidden = !error;
     box.append(message);
+    for (const attempt of remPending(initial, opts.biz, 'detail')) {
+      const pending = node('div', 'rem-pending');
+      pending.append(node('p', 'rem-note', `The result of ${attempt.op.replace('reminders_', '')} could not be confirmed${attempt.args.occurrence_id ? ' for occurrence ' + attempt.args.occurrence_id : ''}.`));
+      const check = node('button', 'quiet', 'Retry the same request'); check.type='button'; check.disabled=busy;
+      check.onclick=()=>void run(attempt.op, {}, attempt); pending.append(check); box.append(pending);
+    }
     if (gone) { box.append(node('p', 'muted', 'This reminder is no longer available.')); return; }
     if (!mutable) return;
     const actions = node('div', 'rem-actions');
@@ -160,19 +188,17 @@ function remindersDetailMount(host, initial, opts = {}) {
     return refreshed;
   }
   // The key is reused only to retry the identical failed-in-transit request.
-  async function run(op, extra) {
-    if (busy || !remMutable(current)) return;
-    const args = {reminder_id: remId(current), revision: current.revision, ...extra}, signature = op + JSON.stringify(args);
-    const key = retry?.signature === signature ? retry.key : newRequestId();
+  async function run(op, extra, saved = null) {
+    if (busy || (!saved && !remMutable(current))) return;
+    const args = {reminder_id: remId(current), revision: current.revision, ...extra};
+    const attempt = saved || remAttempt(current, opts.biz, 'detail', op, args);
     busy = true; error = ''; paint();
     try {
-      const data = await remCall(current, op, {...args, idempotency_key: key}, opts.biz);
-      retry = null; snoozeOpen = false; confirmCancel = false;
-      if (data.reminder) current = remNormalize(data.reminder); else await reload();
+      const data = await remSubmitAttempt(attempt);
+      snoozeOpen = false; confirmCancel = false;
+      if (saved || !data.reminder) await reload(); else current = remNormalize(data.reminder);
       opts.onChange?.(current, op);
     } catch (failure) {
-      const transient = !failure.code || failure.code === 'invalid_response' || failure.httpStatus >= 500;
-      retry = transient ? {signature, key} : null;
       if (alive()) {
         if (accessLost(failure) || sourceGone(failure)) { gone = true; opts.onChange?.(null, op); }
         else if (remFail(failure)) { if (await reload()) error = 'This reminder changed since you opened it. It was refreshed; check and try again.'; }
@@ -238,7 +264,7 @@ function remindersEditor(reminder = null, opts = {}) {
       <label>Project<select class="inp" name="linkscope"><option value="">Global</option>${(state.bizs || []).filter(b => b.id || b.business_id).map(b => option(b.id || b.business_id, b.name || b.slug, false)).join('')}</select></label>
       <label class="rem-wide">Item ID<input class="inp" name="linkid"></label></div>`}
     <p class="ferr rem-wide" role="alert" hidden></p></form>`;
-  let attempt = null, initialSchedule = null;
+  let initialSchedule = null;
   const scheduleOf = form => JSON.stringify(['repeat', 'at', 'weekday', 'time', 'cron', 'timezone'].map(name => form.elements[name]?.value ?? ''));
   if (!opts.host || !opts.session) {
     return window.focusExpansion.open({title: editing ? 'Edit reminder' : 'New reminder', mount(host, session) {
@@ -247,24 +273,51 @@ function remindersEditor(reminder = null, opts = {}) {
   }
   const el = opts.host, session = opts.session;
   session.setTitle(editing ? 'Edit reminder' : 'New reminder');
-  el.innerHTML = body + `<div class="rem-actions"><button type="button" class="quiet rem-editor-cancel">Cancel</button><button type="button" class="primary rem-editor-save">${editing ? 'Save' : 'Create reminder'}</button></div><div class="rem-editor-confirm" hidden><p>Discard your changes?</p><button type="button" class="quiet" data-stay>Keep editing</button><button type="button" class="danger" data-discard>Discard</button></div>`;
+  el.innerHTML = body + `<div class="rem-actions"><button type="button" class="quiet rem-editor-cancel">Cancel</button><button type="button" class="primary rem-editor-save">${editing ? 'Save' : 'Create reminder'}</button></div><div class="rem-editor-pending"></div><div class="rem-editor-confirm" hidden><p>Discard your changes?</p><button type="button" class="quiet" data-stay>Keep editing</button><button type="button" class="danger" data-discard>Discard</button></div>`;
   const form = el.querySelector('.rem-form'), confirmBox = el.querySelector('.rem-editor-confirm');
-  let busy = false, initial = '', pendingConfirm = null;
+  let busy = false, initial = '', pendingConfirm = null, pendingPromise = null;
   const snapshot = () => JSON.stringify([...form.elements].map(f => [f.name, f.type === 'checkbox' ? f.checked : f.value]));
   const guard = async () => {
     if (busy) return false;
+    if (pendingPromise) return pendingPromise;
     if (snapshot() === initial) return true;
-    if (pendingConfirm) return false;
     confirmBox.hidden = false;
-    return new Promise(resolve => { pendingConfirm = resolve; });
+    pendingPromise = new Promise(resolve => { pendingConfirm = resolve; });
+    return pendingPromise;
   };
-  const answer = value => { confirmBox.hidden = true; const resolve = pendingConfirm; pendingConfirm = null; resolve?.(value); };
+  const answer = value => { confirmBox.hidden = true; const resolve = pendingConfirm; pendingConfirm = null; pendingPromise = null; resolve?.(value); };
   confirmBox.querySelector('[data-stay]').onclick = () => answer(false);
   confirmBox.querySelector('[data-discard]').onclick = () => { initial = snapshot(); answer(true); };
   session.onDispose(() => answer(false));
   session.setBeforeLeave(guard);
   el.querySelector('.rem-editor-cancel').onclick = async () => { if (await guard()) opts.onCancel?.(); };
   el.querySelector('.rem-editor-save').onclick = () => void save(() => { initial = snapshot(); opts.onCancel?.(); }, el);
+  const pendingBox = el.querySelector('.rem-editor-pending');
+  function paintPending() {
+    pendingBox.replaceChildren();
+    for (const attempt of remPending(reminder, opts.biz, 'editor')) {
+      const note = document.createElement('p'); note.textContent='A previous reminder save' + (attempt.occurrence ? ' for occurrence ' + attempt.occurrence : '') + ' could not be confirmed.';
+      const retry = document.createElement('button'); retry.type='button'; retry.className='quiet'; retry.textContent='Retry the same request'; retry.disabled=busy;
+      retry.onclick=()=>void submitAttempt(attempt); pendingBox.append(note,retry);
+    }
+  }
+  async function submitAttempt(attempt) {
+    if (busy) return;
+    const button=el.querySelector('.rem-editor-save'), message=form.querySelector('p.ferr');
+    button.disabled=true; busy=true; form.inert=true; paintPending();
+    try {
+      const data=await remSubmitAttempt(attempt);
+      const saved=data.reminder ? remNormalize(data.reminder) : null;
+      if (!editing && saved && saved.recipient_id && remSelf() && saved.recipient_id !== remSelf()) toast('Reminder set for ' + remWho(saved) + '. Only your own reminders are listed here.');
+      initial=snapshot(); busy=false;
+      if (opts.onSaved) opts.onSaved(saved); else opts.onCancel?.();
+    } catch (failure) {
+      const transient = !failure.code || failure.code === 'invalid_response' || failure.httpStatus >= 500;
+      message.textContent=remFail(failure) ? 'This reminder changed since you opened it. Close this form and reopen it.' : failure.message && failure.code && !transient ? failure.message : uiFailure(failure);
+      message.hidden=false;
+    } finally { busy=false; form.inert=false; button.disabled=false; if (form.isConnected) paintPending(); }
+  }
+  paintPending();
   const sync = () => form.querySelectorAll('[data-when]').forEach(label => { label.hidden = !label.dataset.when.split(' ').includes(form.elements.repeat.value); });
   form.elements.repeat.onchange = sync; sync();
   initialSchedule = scheduleOf(form);
@@ -333,20 +386,8 @@ function remindersEditor(reminder = null, opts = {}) {
       if (recipient && recipient !== remSelf()) args.recipient_id = recipient;
       if (linked) args.linked_item = linked;
     }
-    const signature = JSON.stringify(args), key = attempt?.signature === signature ? attempt.key : newRequestId();
-    button.disabled = true; busy = true;
-    try {
-      const data = await remCall(reminder, editing ? 'reminders_update' : 'reminders_create', {...args, idempotency_key: key}, opts.biz);
-      attempt = null;
-      const saved = data.reminder ? remNormalize(data.reminder) : null;
-      if (!editing && saved && saved.recipient_id && remSelf() && saved.recipient_id !== remSelf()) toast('Reminder set for ' + remWho(saved) + '. Only your own reminders are listed here.');
-      initial = snapshot(); busy = false;
-      if (opts.onSaved) opts.onSaved(saved); else close();
-    } catch (failure) {
-      const transient = !failure.code || failure.code === 'invalid_response' || failure.httpStatus >= 500;
-      attempt = transient ? {signature, key} : null;
-      fail(remFail(failure) ? 'This reminder changed since you opened it. Close this form and reopen it.' : failure.message && failure.code && !transient ? failure.message : uiFailure(failure));
-    } finally { busy = false; button.disabled = false; }
+    const op = editing ? 'reminders_update' : 'reminders_create';
+    await submitAttempt(remAttempt(reminder, opts.biz, 'editor', op, args));
   }
 }
 
