@@ -1087,7 +1087,102 @@ function taskTypeMount(host, biz, task = {}) {
 function taskEmailOpen(task) {
   if(task.email_conversation_id)historicalEmailOpen();
 }
+
+// The Project creation controller owns only its Focus content. No callback or
+// DOM node crosses from an embedded document into the parent.
+function taskProjectCreateMount(host, session, biz, initial, onCreated) {
+  host.innerHTML = `<section class="task-create-project"><form data-project-create><label>Title<input class="inp" name="title" required maxlength="1000" value="${esc(initial.title || '')}" autocomplete="off"></label>${taskTypeFields(initial)}<p class="ferr" role="alert" data-project-error hidden></p><div class="task-inline-actions"><button type="button" class="quiet" data-project-cancel>Cancel</button><button type="submit" class="btn" data-project-submit>Create</button></div></form><section data-project-discard hidden aria-label="Discard task draft"><p data-project-discard-message></p><button type="button" class="quiet" data-project-keep>Keep editing</button><button type="button" class="btn" data-project-discard-confirm>Discard</button></section></section>`;
+  const form = host.querySelector('[data-project-create]'), error = host.querySelector('[data-project-error]');
+  const panel = host.querySelector('[data-project-discard]'), submit = host.querySelector('[data-project-submit]');
+  const editor = taskTypeMount(form, biz, initial);
+  let alive = true, busy = false, submission = null, decision = null;
+  const title = form.elements.title;
+  const baselineTitle = title.value;
+  let baseline;
+  try { baseline = JSON.stringify(editor.values()); } catch (_) { baseline = null; }
+  const dirty = () => {
+    try { return title.value !== baselineTitle || baseline === null || JSON.stringify(editor.values()) !== baseline; }
+    catch (_) { return true; }
+  };
+  const restore = () => { panel.hidden = true; form.hidden = false; form.inert = false; title.focus(); };
+  const settle = value => { const resolve = decision; decision = null; if (resolve) resolve(value); };
+  const beforeLeave = () => {
+    if (busy) return false;
+    if (!submission && !dirty()) return true;
+    if (decision) return false;
+    form.hidden = true; form.inert = true; panel.hidden = false;
+    host.querySelector('[data-project-discard-message]').textContent = submission
+      ? 'The request may have succeeded. Discarding this draft does not undo it. Keep editing to retry the same request.'
+      : 'Discard this unsaved task?';
+    host.querySelector('[data-project-keep]').focus();
+    return new Promise(resolve => { decision = resolve; });
+  };
+  host.querySelector('[data-project-keep]').onclick = () => { restore(); settle(false); };
+  host.querySelector('[data-project-discard-confirm]').onclick = () => settle(true);
+  host.querySelector('[data-project-cancel]').onclick = () => { void session.close(); };
+  session.setBeforeLeave(beforeLeave);
+  form.onsubmit = async event => {
+    event.preventDefault();
+    if (busy || !alive) return;
+    try {
+      if (!submission) {
+        if (!form.reportValidity()) return;
+        const values = editor.values(), taskTitle = title.value.trim();
+        if (!taskTitle) { error.textContent = 'A title is required.'; error.hidden = false; return; }
+        busy = true;
+        const {assignees} = await workCall(biz, 'assignees_list');
+        if (!alive) return;
+        const owner = assignees.find(person => person.is_owner);
+        submission = {title:taskTitle,...values,assignee_ids:owner?[owner.id]:[],idempotency_key:newRequestId()};
+      }
+      busy = true; error.hidden = true; submit.disabled = true;
+      form.querySelectorAll('input,select,textarea').forEach(el => { el.disabled = true; });
+      const {task} = await workCall(biz, 'tasks_create', submission);
+      submission = null;
+      try { tGen++; clearEtagCache(); void refreshTasks(); } catch (_) { /* refresh is independent of creation */ }
+      if (!alive) return;
+      session.setBeforeLeave(null);
+      await session.close();
+      onCreated?.(task);
+    } catch (failure) {
+      if (!alive) return;
+      const decided = ['validation_error','forbidden','not_found','revision_conflict'].includes(failure.code);
+      if (decided) submission = null;
+      error.textContent = submission ? 'Could not confirm creation. Retry to send the same request safely.' : uiFailure(failure);
+      error.hidden = false;
+      form.querySelectorAll('input,select,textarea').forEach(el => { el.disabled = !!submission; });
+      submit.textContent = submission ? 'Retry' : 'Create';
+    } finally { busy = false; if (alive) submit.disabled = false; }
+  };
+  title.focus();
+  return () => { alive = false; settle(false); editor.dispose(); };
+}
+
+async function taskCreateProjectOpen(request, onCreated = null) {
+  const slug = request?.business_slug, id = request?.business_id;
+  let initial;
+  try { initial = JSON.parse(JSON.stringify(request?.initial || {})); }
+  catch (_) { toast('This task draft is unavailable.'); return null; }
+  if (typeof embeddedAgentPane !== 'undefined' && embeddedAgentPane) {
+    return parent.taskCreateProjectOpen({business_slug:slug,business_id:id,initial});
+  }
+  const project = (state.bizs || []).find(b => b.slug === slug && (b.id ?? b.business_id) === id);
+  if (!project || !slug || id == null) { toast('This task’s project is unavailable.'); return null; }
+  const origin = document.activeElement;
+  return window.focusExpansion.open({title:'New task', mount(host, session) {
+    return taskProjectCreateMount(host, session, slug, initial, task => {
+      if (origin?.isConnected) onCreated?.(task);
+    });
+  }});
+}
+window.taskCreateProjectOpen = taskCreateProjectOpen;
+
 function taskCreateDialog(biz, {parentId=null, onCreated=null, initial={}} = {}) {
+  if (biz && !parentId) {
+    const project = (state.bizs || []).find(b => b.slug === biz);
+    if (!project || (project.id ?? project.business_id) == null) { toast('This task’s project is unavailable.'); return null; }
+    return taskCreateProjectOpen({business_slug:biz,business_id:project.id ?? project.business_id,initial}, onCreated);
+  }
   let editor, submission=null, busy=false;
   modal({title:'New task',width:620,stack:true,body:`<form data-task-create><label>Title<input class="inp" name="title" required maxlength="1000" value="${esc(initial.title || '')}" autocomplete="off"></label>${taskTypeFields(initial)}<button type="submit" hidden>Create</button><p class="ferr" role="alert" hidden></p></form>`,
     actions:[{label:'Cancel',onClick:close=>close()},{label:'Create',primary:true,onClick:async(close,el)=>{

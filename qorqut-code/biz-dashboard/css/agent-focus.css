@@ -229,6 +229,11 @@
 .rw-head.rw-close-first .rw-close{margin-right:6px}
 .agfocus-surface-body{flex:1;min-height:0;min-width:0;max-width:100%;overflow:auto;display:flex;flex-direction:column;box-sizing:border-box;border:1px solid var(--line-2);border-radius:10px;background:var(--surface)}
 .agfocus-expansion-content{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column}
+.task-create-project{padding:16px;overflow:auto}
+.task-create-project form{display:grid;gap:12px}
+.task-create-project form>label{display:grid;gap:5px}
+.task-create-project .task-inline-actions{display:flex;justify-content:flex-end;gap:8px}
+.task-create-project [data-project-discard] button+button{margin-left:8px}
 .agfocus-surface-body > .agvb{flex:1;min-height:0}
 .agfocus-surface-body .agvb-frameview{min-height:240px}
 .agfocus-surface-body .agfocus-desktop-view{padding:0 0 10px}
