@@ -130,7 +130,7 @@ const attentionQueue=(()=>{
       void Promise.resolve(mount.opener(summary)).catch(()=>{});
       return;
     }
-    void open({kind:'signoff',signoff_id:s.id,business_id:s.review_business_id,category:s.category,globalReview:true}).catch(e=>toast(e.message));
+    void open({kind:'signoff',signoff_id:s.id,business_id:s.review_business_id,category:s.category,globalReview:true,proposal_revision:s.proposal_revision,payload_hash:s.payload_hash,actionable:s.actionable}).catch(e=>toast(e.message));
   }
   async function loadQueue(){
     loading=true;const request=++generation;
@@ -198,8 +198,13 @@ const attentionQueue=(()=>{
       // Native/private read cursors clear the queue only after the conversation actually loads.
       // Legacy Telegram/capture entries have no read cursor: show their exact text before clearing.
       if(item.kind==='global' && !item.chat){
-        modal({title:esc(item.agent_name),body:`<p class="attention-message">${esc(item.body || item.text)}</p>`,
-          actions:[{label:'Open chat',onClick:close=>{close();void replyNotifications.open(item);}}],onOpen:()=>acknowledge(item.viewed_ids)});
+        await window.focusExpansion.open({title:item.agent_name,agentId:item.agent_id,mount(host,session){
+          const message=document.createElement('p');message.className='attention-message';message.textContent=item.body || item.text || '';
+          const button=document.createElement('button');button.type='button';button.className='quiet';button.textContent='Open chat';
+          button.onclick=()=>void replyNotifications.open(item);
+          host.append(message,button);void acknowledge(item.viewed_ids);
+          return ()=>{button.onclick=null;};
+        }});
       }else{
         const chat=item.chat && document.querySelector(`[data-global-chat="${CSS.escape(item.agent_id)}"]`);
         if(chat?.getClientRects().length && !chat.closest('[hidden],[inert],[aria-hidden="true"]') && getComputedStyle(chat).visibility!=='hidden'){
@@ -210,14 +215,9 @@ const attentionQueue=(()=>{
       }
       return;
     }
-    let view,host;
-    modal({title:'Signoff',width:760,stack:true,body:'<div class="attention-signoff-view"></div>',onOpen:el=>{
-      host=el.querySelector('.attention-signoff-view');
-      view=sgCreateView({active:()=>host.isConnected,body:()=>host,workspace:()=>item.biz || 'scope:global',
-        global:item.globalReview || !item.business_id,category:item.category,item:()=>({id:item.signoff_id,businessId:item.business_id}),
-        waitingOnly:false,execution:true});
-      view.paint();
-    },onClose:()=>{view?.dispose();void refreshSignoffs();}});
+    await sgFocusOpen('Signoff', {workspace:()=>item.biz || 'scope:global',
+      global:item.globalReview || !item.business_id,category:item.category,item:()=>({id:item.signoff_id,businessId:item.business_id}),
+      waitingOnly:false,execution:true,...(item.proposal_revision != null && item.payload_hash ? {expectedBinding:{signoff_id:item.signoff_id,proposal_revision:item.proposal_revision,payload_hash:item.payload_hash,actionable:item.actionable !== false}} : {})}, () => { void refreshSignoffs(); });
   }
   function dismiss(event){
     const target=event.target.closest('[data-attention-key]');
@@ -230,14 +230,14 @@ const attentionQueue=(()=>{
     const target=event.target.closest('button');if(!target)return;
     if(target.hasAttribute('data-attention-retry')){void refresh();return;}
     if(target.hasAttribute('data-attention-more')){
-      let host;
-      modal({title:'New attention',width:540,body:`<div class="attention-all">${remaining().map(button).join('')}</div>`,
-        onOpen:el=>{host=el.querySelector('.attention-all');lists.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);},
-        onClose:()=>{lists.delete(host);host?.removeEventListener('click',clicks);host?.removeEventListener('contextmenu',dismiss);}});return;
+      void window.focusExpansion.open({title:'New attention',mount(host){
+        host.classList.add('attention-all');host.innerHTML=remaining().map(button).join('');
+        lists.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);
+        return ()=>{lists.delete(host);host.removeEventListener('click',clicks);host.removeEventListener('contextmenu',dismiss);};
+      }});return;
     }
     const item=items.find(row=>row.id===target.dataset.attentionKey);
     if(item){
-      if((item.kind==='viewbox' || item.kind==='global' && item.chat) && target.closest('.attention-all'))_modal?.close();
       void open(item).catch(e=>toast(e.message));
     }
   }
