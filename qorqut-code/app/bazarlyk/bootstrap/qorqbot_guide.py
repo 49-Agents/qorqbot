@@ -136,6 +136,9 @@ Five chapters: get online, your workspace, projects and decisions, make it yours
 
 - **Chat says offline or "Not available to send"**: start the agent in its Terminal (above). If the terminal shows a
   prompt (trust, hooks, sign-in, an update), answer it there.
+- **Start says the agent's terminal is not in the agent's own folder**: the terminal was moved with `cd`. Go to the
+  agent's **>_** Terminal, return it to the folder named in the message, then press Start again; Qorqbot never changes
+  folders or types commands for the owner.
 - **Start fails or the agent never comes online**: open the agent's **>_** Terminal and read what it is waiting for.
   Claude Code or Codex must be installed and signed in once in a normal terminal (`claude` / `codex`).
 - **A message shows as not delivered or unconfirmed**: check the Terminal; if the CLI is showing a menu or dialog, finish
