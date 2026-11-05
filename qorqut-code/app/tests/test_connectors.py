@@ -111,7 +111,8 @@ class ConnectorsTest(unittest.TestCase):
     def test_view_combines_statuses(self):
         connectors.set_enabled(self.runtime_dir, "chrome", True, self.environ)
         probe = FakeProbe({"available": True, "connectors": connectors.parse_claude_list(CLAUDE_LIST)})
-        with mock.patch.object(connectors, "_browser_status", return_value={"status": "connected"}):
+        with mock.patch.object(connectors, "_browser_status", return_value={"status": "connected"}), \
+                mock.patch.object(connectors, "chrome_extension_installed", return_value=True):
             result = connectors.view(self.runtime, environ=self.environ, probe=probe)
         status = {item["id"]: item["status"] for item in result["connectors"]}
         self.assertEqual(status["chrome"], "connected")
@@ -121,6 +122,29 @@ class ConnectorsTest(unittest.TestCase):
         self.assertEqual(status["google_calendar"], "not_added")
         self.assertEqual(status["whatsapp"], "coming_soon" if connectors.host_platform() == "darwin" else "not_installed")
         self.assertNotIn("claude_name", result["connectors"][3])
+
+    def test_chrome_needs_its_extension_and_the_helper_browser_is_only_suggested(self):
+        probe = FakeProbe({"available": True, "connectors": {}})
+        with mock.patch.object(connectors, "_browser_status", return_value={"status": "connected"}), \
+                mock.patch.object(connectors, "chrome_extension_installed", return_value=False):
+            off = {item["id"]: item for item in connectors.view(self.runtime, environ=self.environ, probe=probe)["connectors"]}
+            connectors.set_enabled(self.runtime_dir, "chrome", True, self.environ)
+            on = {item["id"]: item for item in connectors.view(self.runtime, environ=self.environ, probe=probe)["connectors"]}
+        self.assertEqual((off["chrome"]["status"], off["chrome"]["extension"]), ("off", False))
+        self.assertEqual(on["chrome"]["status"], "needs_extension")
+        self.assertEqual([i["id"] for i in on.values() if i["tier"] == "recommended"], ["chrome", "playwright", "gmail"])
+        self.assertEqual(on["browser"]["tier"], "suggested")
+
+    def test_chrome_extension_is_found_in_any_profile(self):
+        home = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, home)
+        self.assertFalse(connectors.chrome_extension_installed(str(home)))
+        self.assertFalse(connectors.chrome_extension_installed(None))
+        chrome = home / "Library/Application Support/Google/Chrome"
+        (chrome / "Default/Extensions/someotherextension").mkdir(parents=True)
+        self.assertFalse(connectors.chrome_extension_installed(str(home)))
+        (chrome / "Profile 1/Extensions" / connectors.CLAUDE_IN_CHROME).mkdir(parents=True)
+        self.assertTrue(connectors.chrome_extension_installed(str(home)))
 
     def test_view_before_first_check_and_without_claude(self):
         with mock.patch.object(connectors, "_browser_status", return_value={"status": "connected"}):

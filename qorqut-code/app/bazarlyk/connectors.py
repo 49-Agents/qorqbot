@@ -41,10 +41,12 @@ PROBE_FRESH_FOR = 60
 _CHANGES = threading.Lock()
 
 CATALOG = (
-    {"id": "browser", "kind": "install", "tier": "recommended", "clients": ["claude-code", "codex"]},
+    # Ordubashy browses in the owner's Chrome (signed-in sites) and with Playwright; the managed agent browser serves
+    # helper workers, so it is suggested rather than recommended.
     {"id": "chrome", "kind": "local", "tier": "recommended", "clients": ["claude-code"]},
     {"id": "playwright", "kind": "local", "tier": "recommended", "clients": ["claude-code", "codex"]},
     {"id": "gmail", "kind": "claude", "tier": "recommended", "clients": ["claude-code"], "claude_name": "Gmail"},
+    {"id": "browser", "kind": "install", "tier": "suggested", "clients": ["claude-code", "codex"]},
     {"id": "google_calendar", "kind": "claude", "tier": "suggested", "clients": ["claude-code"],
      "claude_name": "Google Calendar"},
     {"id": "google_drive", "kind": "claude", "tier": "suggested", "clients": ["claude-code"], "claude_name": "Google Drive"},
@@ -282,6 +284,23 @@ def host_platform(proc_version="/proc/version") -> str:
 
 
 AGENT_BROWSER_PACKAGE = "agent-browser@0.38.1"
+# The Claude in Chrome extension, as Claude Code's native messaging host allows it (com.anthropic.claude_code_browser_extension).
+CLAUDE_IN_CHROME = "fcoeoabgfenejglbffodgkkbkcdhcgfn"
+
+
+def chrome_extension_installed(home) -> bool:
+    """Whether any Google Chrome profile of the owner has the Claude in Chrome extension installed."""
+    if not home:
+        return False
+    roots = (Path(home) / "Library/Application Support/Google/Chrome", Path(home) / ".config/google-chrome")
+    for root in roots:
+        try:
+            profiles = list(root.iterdir())
+        except OSError:
+            continue
+        if any((profile / "Extensions" / CLAUDE_IN_CHROME).is_dir() for profile in profiles):
+            return True
+    return False
 
 
 def _browser_status() -> dict:
@@ -310,6 +329,11 @@ def view(runtime, *, refresh=False, environ=None, probe=None) -> dict:
         elif entry["id"] == "chrome" and platform == "wsl" and entry["id"] not in state["enabled"]:
             # Claude in Chrome reaches a Chrome on the same system; WSL's Linux side cannot reach Windows' Chrome.
             item["status"] = "unsupported"
+        elif entry["id"] == "chrome":
+            # On is not enough: Claude in Chrome also needs its extension in one of the owner's Chrome profiles.
+            item["extension"] = chrome_extension_installed(_probe_environment(environ).get("HOME"))
+            item["status"] = ("off" if entry["id"] not in state["enabled"]
+                              else "connected" if item["extension"] else "needs_extension")
         elif entry["kind"] == "local":
             item["status"] = "connected" if entry["id"] in state["enabled"] else "off"
         elif entry["kind"] == "extension":

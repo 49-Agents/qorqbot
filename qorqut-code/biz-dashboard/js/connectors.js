@@ -18,15 +18,16 @@ const connectorsModel = (() => {
   };
   // Owner-facing copy. `does` is what agents can do with it, `why` why it helps, `privacy` what it can see and where it runs.
   const COPY = {
-    browser: {name: 'Agent browser', does: 'Agents open websites, read pages, fill in forms and take screenshots in a browser of their own.',
-      why: 'Most real work touches the web: research, bookings, checking a dashboard.',
+    browser: {name: 'Helper browser', does: 'Helper agents Ordubashy hands work to get a separate, signed-out browser of their own for web tasks.',
+      why: 'Lets background helpers research and fill in forms without touching your own browser.',
       privacy: 'Runs on this computer in a separate browser profile. Nothing you are signed in to is shared with it.',
       needs: 'Needs Google Chrome and the free agent-browser command.'},
-    chrome: {name: 'Your Chrome', does: 'Agents work in your own Chrome, on sites you are already signed in to, only where you allow it.',
-      why: 'Some sites need your login. This way an agent never needs your password.',
+    chrome: {name: 'Your Chrome', does: 'Ordubashy opens and reads sites in your own Chrome, where you are already signed in (LinkedIn, Gmail on the web, your dashboards), only where you allow it.',
+      why: 'Most useful sites need your login. This way an agent never needs your password.',
       privacy: 'Runs in your Chrome on this computer. You choose in the extension which sites Claude may use.',
       needs: 'Needs Claude Code on a paid Claude plan and the Claude in Chrome extension.',
-      steps: ['Install the Claude in Chrome extension and sign in to it with your Claude account.', 'Press Turn on here.', 'Your agents use it from their next start.']},
+      steps: ['Install the Claude in Chrome extension and sign in to it with your Claude account.', 'Press Turn on here.', 'Your agents use it from their next start.'],
+      install: 'https://chromewebstore.google.com/detail/claude/fcoeoabgfenejglbffodgkkbkcdhcgfn'},
     playwright: {name: 'Playwright', does: 'Agents drive a separate, clean browser step by step: test your website, repeat a web task, save pages.',
       why: 'The most reliable way to check a site or do the same web task many times.',
       privacy: 'Runs locally through npx with its own browser. Your Chrome profile and passwords are never used.',
@@ -54,13 +55,13 @@ const connectorsModel = (() => {
     checking: {label: 'Checking…', tone: 'idle'}, unavailable: {label: 'Unavailable', tone: 'warn'},
     unknown: {label: 'Unknown', tone: 'idle'}, not_installed: {label: 'Not installed', tone: 'idle'},
     not_set_up: {label: 'Not set up', tone: 'idle'}, not_paired: {label: 'Not linked', tone: 'warn'},
-    unsupported: {label: 'Not on Windows', tone: 'idle'}, coming_soon: {label: 'Coming soon on Mac', tone: 'idle'}, needs_install: {label: 'Needs a quick install', tone: 'warn'},
+    unsupported: {label: 'Not on Windows', tone: 'idle'}, needs_extension: {label: 'Needs the Chrome extension', tone: 'warn'}, coming_soon: {label: 'Coming soon on Mac', tone: 'idle'}, needs_install: {label: 'Needs a quick install', tone: 'warn'},
   };
   const status = item => STATUS[item.status] || STATUS.unknown;
   // What the card's main button does: 'toggle' (on/off here), 'claude' (connect on claude.ai), 'none'.
   function action(item) {
     if (item.status === 'unsupported' || item.status === 'coming_soon') return {kind: 'none'};
-    if (item.kind === 'local') return {kind: 'toggle', label: item.status === 'connected' ? 'Turn off' : 'Turn on'};
+    if (item.kind === 'local') return {kind: 'toggle', label: ['connected', 'needs_extension'].includes(item.status) ? 'Turn off' : 'Turn on'};
     if (item.kind === 'claude') {
       if (item.status === 'connected') return {kind: 'claude', label: 'Manage', quiet: true};
       if (item.status === 'unavailable' || item.status === 'checking') return {kind: 'none'};
@@ -75,6 +76,8 @@ const connectorsModel = (() => {
     return {text, tone: ['not_added', 'not_installed', 'unsupported', 'coming_soon', 'checking'].includes(item.status) ? 'info' : 'warn'};
   }
   function noteText(item) {
+    if (item.id === 'chrome' && item.status === 'needs_extension') return 'On, but the Claude in Chrome extension isn’t installed in your Chrome yet. Install it from the Chrome Web Store and sign in to it with your Claude account.';
+    if (item.id === 'chrome' && item.status === 'off' && item.extension === false) return 'Also needs the Claude in Chrome extension in your Chrome.';
     if (item.id === 'chrome' && item.status === 'unsupported') return 'Claude in Chrome can’t reach Windows Chrome from Qorqbot’s Linux side (WSL). Use Playwright instead.';
     if (item.kind === 'claude' && item.status === 'unavailable')
       return item.reason === 'claude_missing' ? 'Install Claude Code and sign in with your Claude account to use Claude’s connectors.'
@@ -131,6 +134,7 @@ const connectorsPanel = (() => {
         ${button}</div>
       <p class="cx-does">${esc(copy.does)}</p>
       ${note ? `<p class="cx-note" data-tone="${note.tone}">${esc(note.text)}</p>` : ''}
+      ${item.id === 'chrome' && item.extension === false && copy.install ? `<a class="cx-get" href="${esc(copy.install)}" target="_blank" rel="noopener noreferrer">Get Claude in Chrome</a>` : ''}
       ${item.install && item.missing?.includes('agent_browser') ? `<div class="cx-command"><code>${esc(item.install)}</code><button type="button" class="quiet" data-cx-copy="${esc(item.install)}">Copy</button></div>` : ''}
       <details class="cx-more"><summary>Why it helps and what it can see</summary>
         <p><b>Why:</b> ${esc(copy.why || '')}</p><p><b>Privacy:</b> ${esc(copy.privacy || '')}</p>
