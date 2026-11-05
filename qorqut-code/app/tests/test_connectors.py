@@ -275,13 +275,16 @@ class ClaudeProbeTest(unittest.TestCase):
 
 
 class AgentShellTest(unittest.TestCase):
-    """The generated wrappers, run in the system bash (3.2 on macOS) against stand-in CLIs that print their arguments."""
+    """The generated wrappers, run in the system bash (3.2 on macOS) against stand-in CLIs that print their arguments, from
+    the agent's workspace root. Where they apply is tested in test_agent_shell_scope.py."""
 
     def setUp(self):
         self.directory = Path(tempfile.mkdtemp(prefix="agent shell "))
         self.addCleanup(shutil.rmtree, self.directory)
         self.runtime_dir = self.directory / "runtime"
         self.runtime_dir.mkdir()
+        self.workspace = self.directory / "agent workspace"
+        self.workspace.mkdir()
         bin_dir = self.directory / "bin"
         bin_dir.mkdir()
         for name in ("claude", "codex", "npx"):
@@ -296,11 +299,12 @@ class AgentShellTest(unittest.TestCase):
         self.trusted = self.directory / "trust ran"
         self.shell.write_text(agent_shell(shlex.quote(str(self.directory / "launch settings.json")), shlex.quote(str(self.marker)),
                                           shlex.quote(str(connectors.launch_path(self.runtime_dir))),
+                                          shlex.quote(str(self.workspace)),
                                           "touch " + shlex.quote(str(self.trusted))))
 
     def run_shell(self, command):
         return subprocess.run(["/bin/bash", "-c", ". \"$1\"; " + command, "bash", str(self.shell)], capture_output=True,
-                              text=True, check=True, env=self.environ).stdout.splitlines()
+                              text=True, check=True, env=self.environ, cwd=self.workspace).stdout.splitlines()
 
     def test_without_connectors_or_consent(self):
         claude, codex = self.run_shell("claude 'hello there'; codex resume --last")
@@ -329,7 +333,8 @@ class AgentShellTest(unittest.TestCase):
         from bazarlyk.bootstrap.preparation import agent_shell
         self.marker.write_text("{}")
         self.shell.write_text(agent_shell(shlex.quote(str(self.directory / "launch settings.json")), shlex.quote(str(self.marker)),
-                                          shlex.quote(str(connectors.launch_path(self.runtime_dir))), "false"))
+                                          shlex.quote(str(connectors.launch_path(self.runtime_dir))),
+                                          shlex.quote(str(self.workspace)), "false"))
         claude, = self.run_shell("claude hi")
         self.assertTrue(claude.startswith("claude|--settings|"))
 
@@ -377,18 +382,20 @@ class ZshAgentShellTest(unittest.TestCase):
         self.runtime_dir = self.directory / "runtime"
         self.runtime_dir.mkdir()
         self.marker = marker_path(self.runtime_dir)
-        self.prepared = self.directory / "workspace/.bazarlyk/zsh"
+        self.workspace = self.directory / "workspace"
+        self.prepared = self.workspace / ".bazarlyk/zsh"
         self.prepared.mkdir(parents=True)
         (self.prepared / ".zshenv").write_text(ZSH_ENV)
         (self.prepared / ".zshrc").write_text(agent_zshrc(shlex.quote(str(self.directory / "launch settings.json")),
                                                           shlex.quote(str(self.marker)),
-                                                          shlex.quote(str(connectors.launch_path(self.runtime_dir)))))
+                                                          shlex.quote(str(connectors.launch_path(self.runtime_dir))),
+                                                          shlex.quote(str(self.workspace))))
 
     def run_zsh(self, command, user_zdotdir=""):
         environ = {"HOME": str(self.home), "PATH": "/usr/bin:/bin", "ZDOTDIR": str(self.prepared),
                    "QORQBOT_USER_ZDOTDIR": user_zdotdir, "TERM": "dumb"}
         return subprocess.run(["zsh", "-i", "-c", command], capture_output=True, text=True, env=environ,
-                              check=True, timeout=30).stdout.splitlines()
+                              check=True, timeout=30, cwd=self.workspace).stdout.splitlines()
 
     def test_owner_setup_loads_and_wrappers_apply(self):
         connectors.set_enabled(self.runtime_dir, "chrome", True, {"PATH": str(self.home / "bin")})

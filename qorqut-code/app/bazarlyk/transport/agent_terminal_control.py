@@ -370,8 +370,9 @@ class AgentTerminalBackend:
         # whose runtime is not a supported client.
         if launcher is None:
             raise DomainError('unsupported_runtime', 'Terminal control supports Claude Code and Codex agents only')
-        # With the owner's consent, the CLI's folder-trust prompt is answered in its own file before launch, so the readiness
-        # wait below reaches the composer instead of stopping at a prompt it must never type into. No consent: unchanged.
+        # With the owner's consent, the CLI's folder-trust prompt for the workspace is answered in its own file before launch,
+        # so the readiness wait below reaches the composer instead of stopping at a prompt it must never type into. A prompt
+        # about an enclosing repository is the owner's to answer in the terminal. No consent: unchanged.
         try:
             from bazarlyk import agent_trust
             agent_trust.ensure(self.runtime.paths.runtime, workspace)

@@ -8,10 +8,12 @@ const onboarding = (() => {
     {id: 'assistant', chapter: 'online', title: 'meet ordubashy',
       body: 'Ordubashy is your lead agent. Give him a goal. He carries the work forward, hands parts to helpers and brings decisions back to you. Next, you start him in his own terminal.',
       target: () => agentButton('ordubashy')},
-    // Once per installation: trust Qorqbot's own agent folders, so claude and codex skip their first-run prompts there.
+    // Once per installation: trust Qorqbot's own agent folders, so claude and codex skip their folder-trust and hook-review
+    // prompts there. A CLI can still ask about an enclosing repository; the owner answers that in the terminal.
     {id: 'start', chapter: 'online', title: 'allow qorqbot’s folders', consent: true,
-      body: 'Claude Code and Codex ask before they work in a new folder. Allow Qorqbot’s own agent folders once, and they open straight into the session from now on.',
+      body: 'Claude Code and Codex ask before they work in a new folder. Allow Qorqbot’s own agent folders once, and they can open straight into the session from now on.',
       instructions: ['Only the folders Qorqbot prepares for its agents are trusted. Your other projects are not changed.',
+        'Claude Code or Codex can still ask about a larger folder around an agent, such as the git repository it sits in. Qorqbot does not answer that for you: you decide in the terminal.',
         'You can turn this off in Settings.'],
       target: () => null},
     // The launch itself, the way the owner will do it every time: claude or codex, typed in his own terminal.
@@ -19,7 +21,7 @@ const onboarding = (() => {
       body: 'This is Ordubashy’s own terminal. Click in it, type <code>claude</code> or <code>codex</code> and press Enter.',
       instructions: ['<code>claude</code> runs him in Claude Code, <code>codex</code> in Codex. Use the one you are signed in to.',
         'He connects to Chat by himself. This is how you start him every time.'],
-      prompts: 'First time in this folder? Claude asks to trust it: press ↓, then Enter on “Yes, I trust this folder”. Codex asks you to review hooks: choose to trust them.',
+      prompts: 'First time in this folder? Claude asks to trust it: press ↓, then Enter on “Yes, I trust this folder”. Codex asks you to review hooks: choose to trust them. If either asks about a larger folder around this one, such as a git repository, read the question and answer it yourself.',
       online: 'Ordubashy is online. He is setting himself up and will answer in Chat in a moment.',
       target: () => document.querySelector('#global-agent-terminal .gchat-terminal')},
     {id: 'chat', chapter: 'online', title: 'say hello',
@@ -170,13 +172,9 @@ const onboarding = (() => {
   }
   function keydown(event) {
     if (!root || appDialog()) return;
-    // Keys typed in the highlighted area (Ordubashy's terminal) belong to it: Esc and Tab are the CLI's own keys there.
-    if (target?.contains(event.target)) return;
-    if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); exit(); }
-    if (event.key !== 'Tab') return;
-    const list = focusables(); if (!list.length) return;
-    const at = list.indexOf(document.activeElement), next = (at + (event.shiftKey ? -1 : 1) + list.length) % list.length;
-    event.preventDefault(); list[next].focus();
+    // Keys typed in the terminal step's highlighted area (Ordubashy's terminal) belong to it: Esc and Tab are the CLI's own
+    // keys there. On every other step they belong to the tour (onboardingPlan.handleKey).
+    onboardingPlan.handleKey(event, {step: steps[index], target, active: document.activeElement, focusables, exit: () => exit()});
   }
   function schedule() { if (root && !frame) frame = requestAnimationFrame(() => { frame = 0; position(); }); }
   const LAUNCH_TEXT = {
@@ -218,7 +216,7 @@ const onboarding = (() => {
     const panel = card?.querySelector('[data-consent]'); if (!panel) return;
     const granted = !!trustView?.granted;
     panel.dataset.phase = trustView ? (granted ? 'online' : 'waiting') : 'checking';
-    panel.querySelector('[data-launch-text]').textContent = !trustView ? 'Checking…' : granted ? 'Allowed. Claude Code and Codex open without asking.' : 'Not allowed yet.';
+    panel.querySelector('[data-launch-text]').textContent = !trustView ? 'Checking…' : granted ? 'Allowed for Qorqbot’s agent folders. A CLI may still ask about a larger folder.' : 'Not allowed yet.';
     panel.querySelector('[data-consent-allow]').hidden = granted || !trustView;
     const next = card.querySelector('[data-tour-next]');
     if (next && !busy) next.disabled = !granted;
