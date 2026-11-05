@@ -37,12 +37,15 @@ jobs:
           RELEASE_WORK: ${{ runner.temp }}/qorqbot-release
         run: |
           mkdir -p "$RELEASE_WORK"
+          # One version for this run; later steps read it from the environment to find the same archive.
+          CHECK_VERSION="$(python qorqut-code/tools/distribution/build_version.py 1.3.0 check --commit "$GITHUB_SHA")"
+          echo "CHECK_VERSION=$CHECK_VERSION" >> "$GITHUB_ENV"
           python qorqut-code/tools/export-unified.py --repository "$GITHUB_WORKSPACE" --commit "$GITHUB_SHA" --with-fastmail --output "$RELEASE_WORK/source"
           python qorqut-code/tools/distribution/runtime_source.py project --source "$RELEASE_WORK/source" --output "$RELEASE_WORK/runtime-source" --report "$RELEASE_WORK/projection.json"
           python qorqut-code/tools/prepare-local.py --source-root "$RELEASE_WORK/runtime-source" --output "$RELEASE_WORK/prepared" --with-google-calendar
           python qorqut-code/tools/distribution/runtime_source.py audit --prepared "$RELEASE_WORK/prepared" --report "$RELEASE_WORK/contents.json"
-          python qorqut-code/tools/distribution/native_build.py --prepared "$RELEASE_WORK/prepared" --output "$RELEASE_WORK/package" --report "$RELEASE_WORK/build.json" --version "$(python qorqut-code/tools/distribution/build_version.py 1.3.0 check --commit "$GITHUB_SHA")"
-          python qorqut-code/tools/distribution/check_native.py --archive "$RELEASE_WORK/package/qorqbot-1.3.0-check.${GITHUB_SHA:0:12}-ubuntu24-x86_64.tar.gz" --output "$RELEASE_WORK/acceptance"
+          python qorqut-code/tools/distribution/native_build.py --prepared "$RELEASE_WORK/prepared" --output "$RELEASE_WORK/package" --report "$RELEASE_WORK/build.json" --version "$CHECK_VERSION"
+          python qorqut-code/tools/distribution/check_native.py --archive "$RELEASE_WORK/package/qorqbot-${CHECK_VERSION}-ubuntu24-x86_64.tar.gz" --output "$RELEASE_WORK/acceptance"
       - name: Build and qualify optional connectors
         env:
           RELEASE_WORK: ${{ runner.temp }}/qorqbot-release
@@ -70,6 +73,6 @@ jobs:
           wheel_args=()
           for wheel in "${whatsapp_wheels[@]}"; do wheel_args+=(--wheel "$wheel"); done
           python qorqut-code/tools/distribution/extension_bundle.py --id whatsapp "${wheel_args[@]}" --output "$optional/bundles/whatsapp.tar.gz" > "$optional/whatsapp.json"
-          python qorqut-code/tools/distribution/check_optional_extensions.py --archive "$RELEASE_WORK/package/qorqbot-1.3.0-check.${GITHUB_SHA:0:12}-ubuntu24-x86_64.tar.gz" --bundle "whatsapp=$optional/bundles/whatsapp.tar.gz" --bundle "telegram=$optional/bundles/telegram.tar.gz" --bundle "fastmail=$optional/bundles/fastmail.tar.gz" --report-directory "$RELEASE_WORK/optional-acceptance"
+          python qorqut-code/tools/distribution/check_optional_extensions.py --archive "$RELEASE_WORK/package/qorqbot-${CHECK_VERSION}-ubuntu24-x86_64.tar.gz" --bundle "whatsapp=$optional/bundles/whatsapp.tar.gz" --bundle "telegram=$optional/bundles/telegram.tar.gz" --bundle "fastmail=$optional/bundles/fastmail.tar.gz" --report-directory "$RELEASE_WORK/optional-acceptance"
       # These jobs validate locally built candidates. They never publish a GitHub
       # Release, modify repository settings, or deploy an installation.
