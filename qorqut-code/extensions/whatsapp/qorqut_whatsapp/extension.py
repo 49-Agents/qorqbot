@@ -27,7 +27,7 @@ def register_program(programs, operations):
         "chat_id": {"type": "string", "minLength": 3, "maxLength": 160},
         "text": {"type": "string", "minLength": 1, "maxLength": 16384}},
         ("scope", "account_ref", "chat_id", "text")), program.run, {}, (), (), scope_kinds=("global",),
-        external=True, recover=program.recover, timeout_seconds=120, routine_allowed=False))
+        external=True, recover=program.recover, timeout_seconds=120, routine_allowed=False, background_queue="whatsapp"))
     return program
 
 

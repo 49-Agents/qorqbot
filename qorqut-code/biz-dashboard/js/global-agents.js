@@ -81,6 +81,8 @@ const globalRosterAgent = agent => globalActiveProfile(agent) && GLOBAL_AGENT_RO
   && agent.home_business_id == null && agent.scope?.kind === 'ecosystem';
 // Retired or unknown agents are history, not something to open or start.
 const GLOBAL_AGENT_UNAVAILABLE = 'This agent is no longer active. Its history is kept.';
+// Question mark in a circle, matching the stroke weight of the Terminal and Settings icons.
+const GLOBAL_GUIDE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.3-2.4 3.8"/><path d="M12 17h.01"/></svg>';
 const GLOBAL_TERMINAL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>';
 // An agent profile link opens an active global agent; any other agent is history only.
 async function agentProfileOpen(agentId) {
@@ -122,6 +124,7 @@ async function renderGlobalAgents(c) {
           <div class="global-roster" id="global-agent-list"></div>
         </div>
         <div class="crows global-workspace-terminals">
+          <button class="item agent global-workspace-guide" type="button" data-global-guide title="Walkthrough" aria-label="Walkthrough"><span class="nm">${GLOBAL_GUIDE_ICON}</span></button>
           <button class="item agent global-workspace-terminal" type="button" data-global-agent="${GLOBAL_WORKSPACE_TERMINAL}" aria-pressed="false" aria-label="Terminal"><span class="nm">${GLOBAL_TERMINAL_ICON}</span></button>
           <button class="item agent global-workspace-settings" type="button" data-global-settings title="Settings" aria-label="Settings"><span class="nm">${GLOBAL_ICONS.settings}</span></button>
         </div>
@@ -275,6 +278,7 @@ async function renderGlobalAgents(c) {
     paintOverseerEntry();
   });
   nav.querySelector('[data-global-settings]').onclick = () => goGlobalTab('settings');
+  nav.querySelector('[data-global-guide]').onclick = () => onboarding.open();
   nav.querySelector('.global-nav-body').onclick = event => {
     const button = event.target.closest('[data-global-agent]');
     if (!button) return;

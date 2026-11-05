@@ -1,11 +1,12 @@
-"""Serial durable background computation, followed by exact core mutations."""
+"""Durable background computation, serial within each configured queue, followed by exact core mutations."""
 
 from __future__ import annotations
 
 from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from threading import Event, Lock, Thread
+from threading import Event, Lock, Thread, current_thread
+from types import MappingProxyType
 import time
 from typing import Protocol
 from uuid import UUID, uuid5
@@ -99,7 +100,7 @@ class JobObserver(Protocol):
 
 class BackgroundService:
     def __init__(self, application, programs, authority, *, locks: LockPaths, job_observer: JobObserver | None = None,
-                 scheduler=None, clock=None, interval=5):
+                 scheduler=None, clock=None, interval=5, queues=None):
         if not isinstance(locks, LockPaths):
             raise TypeError("The background service needs explicit LockPaths for its serial execution claim")
         self.app, self.database = application, application.database
@@ -107,7 +108,29 @@ class BackgroundService:
         self.locks, self.job_observer = locks, job_observer
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.interval = interval
-        self._stop, self._wake, self._lock = Event(), Event(), Lock()
+        # Routing is host configuration, not part of the frozen program definition or caller-controlled job arguments.
+        routing = {}
+        names = ["general"]
+        for name, kinds in (queues or {}).items():
+            if not isinstance(name, str) or not name.isascii() or not name.isidentifier() or name == "general":
+                raise ValueError("Background queues need unique identifier names other than general")
+            if isinstance(kinds, str):
+                raise ValueError("Queue kinds must be a collection of program names")
+            names.append(name)
+            for kind in kinds:
+                if not isinstance(kind, str) or not kind or kind in routing:
+                    raise ValueError("Every program kind belongs to exactly one background queue")
+                routing[kind] = name
+        self.queues = tuple(names)
+        self._routing = MappingProxyType(routing)
+        self._queue_sql = ("CASE kind " + " ".join("WHEN ? THEN ?" for _ in routing) + " ELSE 'general' END"
+                           if routing else "'general'")
+        self._queue_parameters = tuple(value for pair in routing.items() for value in pair)
+        self._stop, self._wake = Event(), Event()
+        self._queue_locks = {name: Lock() for name in self.queues}
+        self._queue_wakes = {name: Event() for name in self.queues}
+        self._lifecycle_lock, self._scheduler_lock = Lock(), Lock()
+        self._threads = {}
         self._thread = None
         self.scheduler = scheduler
         self.last_error = None
@@ -119,9 +142,23 @@ class BackgroundService:
             review_business_id=row["business_id"], initiated_by_principal_id=row["initiated_by_principal_id"],
             job_id=row["id"], uow=uow)
 
-    def _serial_id(self):
+    def _queue_for(self, kind):
+        return self._routing.get(kind, "general")
+
+    def _serial_id(self, queue="general"):
         with self.database.read() as uow:
-            return str(uuid5(UUID(self.authority.installation(uow)), "background-serial-execution"))
+            name = "background-serial-execution" + ("" if queue == "general" else ":" + queue)
+            return str(uuid5(UUID(self.authority.installation(uow)), name))
+
+    def _next_job(self, uow, queue=None):
+        predicate = "" if queue is None else "AND (" + self._queue_sql + ")=? "
+        parameters = () if queue is None else (*self._queue_parameters, queue)
+        return decode_row(uow.connection.execute("SELECT * FROM jobs WHERE state IN "
+            "('queued','running','applying','waiting_signoff','cancel_requested') "
+            "AND (next_retry_at IS NULL OR next_retry_at<=?) " + predicate + "ORDER BY "
+            "CASE WHEN next_retry_at IS NULL AND json_extract(definition_ref_json,'$.trigger')='manual' THEN 0 ELSE 1 END, "
+            "COALESCE(next_retry_at,created_at),created_at,rowid LIMIT 1",
+            (self.clock().isoformat().replace('+00:00','Z'), *parameters)).fetchone())
 
     def _update(self, row, values, uow):
         return uow.repository("jobs", business_id=row["business_id"]).update(row["id"], values, expected_revision=row["revision"])
@@ -243,18 +280,30 @@ class BackgroundService:
             except Exception:
                 pass  # Reporting cannot change a job's saved execution outcome.
 
-    def run_one(self, job_id=None):
+    def run_one(self, job_id=None, *, queue=None):
+        if queue is not None and queue not in self.queues:
+            raise ValueError("Unknown background queue")
         admission = self.app.writer_admission.writer() if self.app.writer_admission is not None else nullcontext()
         try:
             with admission:
-                return self._run_one_admitted(job_id)
+                return self._run_one_admitted(job_id, queue)
         except DomainError as exc:
             if exc.code == "maintenance":
                 return None
             raise
 
-    def _run_one_admitted(self, job_id=None):
-        if not self._lock.acquire(blocking=False):
+    def _run_one_admitted(self, job_id=None, queue=None):
+        if queue is None:
+            # Explicit recovery/manual calls resolve the same queue as the automatic workers. This read is only
+            # routing: selection, state and kind are checked again under that queue's process-wide claim.
+            with self.database.read() as uow:
+                row = (decode_row(uow.connection.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone())
+                       if job_id else self._next_job(uow))
+            if not row:
+                return None
+            queue = self._queue_for(row["kind"])
+        lock = self._queue_locks[queue]
+        if not lock.acquire(blocking=False):
             return None
         try:
             # Every nested database.transaction() in this method's call tree
@@ -266,56 +315,63 @@ class BackgroundService:
             # this with the output's own real operation name for its own
             # nested writes, then this resumes once it returns.
             with self.database.observe("jobs_run"):
-                return self._run_admitted_job(job_id)
-        finally:
-            self._lock.release()
-
-    def _run_admitted_job(self, job_id):
-        try:
-            with application_claim(self.locks, self._serial_id()):
-                with self.database.transaction() as uow:
-                    self.app.ensure_writes_open(uow)
-                    if job_id:
-                        row = decode_row(uow.connection.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone())
-                    else:
-                        row = decode_row(uow.connection.execute("SELECT * FROM jobs WHERE state IN "
-                            "('queued','running','applying','waiting_signoff','cancel_requested') "
-                            "AND (next_retry_at IS NULL OR next_retry_at<=?) ORDER BY "
-                            "CASE WHEN json_extract(definition_ref_json,'$.trigger')='manual' THEN 0 ELSE 1 END, created_at,rowid LIMIT 1",
-                            (self.clock().isoformat().replace('+00:00','Z'),)).fetchone())
-                    if not row or row["state"] in {"succeeded", "cancelled", "failed"}:
+                try:
+                    # Keep the claim through failure/deferral bookkeeping as well as provider work. Another process
+                    # must not recover a running row while its first executor is still recording the outcome.
+                    with application_claim(self.locks, self._serial_id(queue)):
+                        return self._run_admitted_job(job_id, queue)
+                except DomainError as exc:
+                    if exc.code == "busy":
                         return None
-                    program = self.programs.require(row["kind"])
-                    self.authority.require_worker(row["principal_id"], row["business_id"], uow)
-                    if row["definition_ref_json"].get("digest") != program.definition["digest"]:
-                        raise DomainError("policy_denied", "Registered program definition changed before dispatch")
-                    if row["state"] == "cancel_requested":
-                        raise DomainError("cancelled", "Owner stopped this routine")
-                    timeout = min(7200, row["definition_ref_json"].get("run_timeout_seconds", program.timeout_seconds))
-                    frozen = "outputs" in (row["result_json"] or {})
-                    row = self._update(row, {"state": "applying" if frozen else "running", "claimed_by": self.instance_id,
-                        "lease_until": (self.clock() + timedelta(seconds=timeout + 30)).isoformat().replace('+00:00','Z'),
-                        "attempts": row["attempts"] + (not frozen)}, uow)
-                    run_id = row["definition_ref_json"].get("routine_run_id")
-                    if run_id:
-                        runs = uow.repository("routine_runs", business_id=row["business_id"])
-                        run = runs.get(run_id, required=True)
-                        if run["state"] == "queued":
-                            runs.update(run_id, {"state": "running", "started_at": utc_now()}, expected_revision=run["revision"])
-                control = JobControl(self, row, time.monotonic() + timeout)
-                if not frozen:
-                    control.check()
-                    compute = program.recover if program.external and row["attempts"] > 1 else program.run
-                    result = compute(control, plain(row["arguments_json"]))
-                    if isinstance(result, ProgramPending):
-                        self._defer(row["id"], result.retry_after)
-                        return {"job_id": row["id"], "state": "queued"}
-                    row = self._freeze(row, result)
-                done = self._apply_outputs(row, control)
-                if done:
-                    committed = self._committed(row)
-                    self._observe(committed, (committed["result_json"] or {}).get("completion_error") if committed else None)
-                return {"job_id": row["id"], "state": ("failed" if row["result_json"].get("completion_error") else "succeeded") if done else "waiting_signoff"}
+                    raise
+        finally:
+            lock.release()
+
+    def _run_admitted_job(self, job_id, queue):
+        try:
+            if self._stop.is_set():
+                return None
+            with self.database.transaction() as uow:
+                self.app.ensure_writes_open(uow)
+                if job_id:
+                    row = decode_row(uow.connection.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone())
+                else:
+                    row = self._next_job(uow, queue)
+                if not row or row["state"] in {"succeeded", "cancelled", "failed"}:
+                    return None
+                if self._queue_for(row["kind"]) != queue:
+                    return None
+                program = self.programs.require(row["kind"])
+                self.authority.require_worker(row["principal_id"], row["business_id"], uow)
+                if row["definition_ref_json"].get("digest") != program.definition["digest"]:
+                    raise DomainError("policy_denied", "Registered program definition changed before dispatch")
+                if row["state"] == "cancel_requested":
+                    raise DomainError("cancelled", "Owner stopped this routine")
+                timeout = min(7200, row["definition_ref_json"].get("run_timeout_seconds", program.timeout_seconds))
+                frozen = "outputs" in (row["result_json"] or {})
+                row = self._update(row, {"state": "applying" if frozen else "running", "claimed_by": self.instance_id,
+                    "lease_until": (self.clock() + timedelta(seconds=timeout + 30)).isoformat().replace('+00:00','Z'),
+                    "attempts": row["attempts"] + (not frozen)}, uow)
+                run_id = row["definition_ref_json"].get("routine_run_id")
+                if run_id:
+                    runs = uow.repository("routine_runs", business_id=row["business_id"])
+                    run = runs.get(run_id, required=True)
+                    if run["state"] == "queued":
+                        runs.update(run_id, {"state": "running", "started_at": utc_now()}, expected_revision=run["revision"])
+            control = JobControl(self, row, time.monotonic() + timeout)
+            if not frozen:
+                control.check()
+                compute = program.recover if program.external and row["attempts"] > 1 else program.run
+                result = compute(control, plain(row["arguments_json"]))
+                if isinstance(result, ProgramPending):
+                    self._defer(row["id"], result.retry_after)
+                    return {"job_id": row["id"], "state": "queued"}
+                row = self._freeze(row, result)
+            done = self._apply_outputs(row, control)
+            if done:
+                committed = self._committed(row)
+                self._observe(committed, (committed["result_json"] or {}).get("completion_error") if committed else None)
+            return {"job_id": row["id"], "state": ("failed" if row["result_json"].get("completion_error") else "succeeded") if done else "waiting_signoff"}
         except DomainError as exc:
             nonterminal = exc.code in {"busy", "service_stopping"}
             if nonterminal:
@@ -341,14 +397,22 @@ class BackgroundService:
             self._observe(self._committed(locals().get('row')), {'code': 'background_failed'})
             raise
 
-    def tick(self):
-        if self.scheduler:
+    def _schedule(self):
+        if not self.scheduler:
+            return
+        with self._scheduler_lock:
             try:
-                self.scheduler.tick(self.clock())
+                queued = self.scheduler.tick(self.clock())
                 self.scheduler_error = None
+                if queued:
+                    for wake in self._queue_wakes.values():
+                        wake.set()
             except Exception:
                 self.scheduler_error = "Routine scheduling is unavailable"
                 raise
+
+    def tick(self):
+        self._schedule()
         return self.run_one()
 
     def routine_status(self, context):
@@ -389,36 +453,77 @@ class BackgroundService:
     def status(self, business_id=None):
         with self.database.read() as uow:
             rows = uow.repository("jobs", business_id=business_id).list(limit=20, order_by=("created_at", "id"), descending=True)
-            current = decode_row(uow.connection.execute("SELECT * FROM jobs WHERE business_id IS ? "
-                "AND state IN ('running','applying') ORDER BY created_at,rowid LIMIT 1", (business_id,)).fetchone())
-            queued = uow.connection.execute("SELECT count(*) FROM jobs WHERE business_id IS ? AND state='queued'", (business_id,)).fetchone()[0]
-        return {"current": current, "queued": queued, "recent": rows, "error": self.last_error,
+            running = [decode_row(row) for row in uow.connection.execute("SELECT * FROM jobs WHERE business_id IS ? "
+                "AND state IN ('running','applying') ORDER BY created_at,rowid", (business_id,))]
+            counts = uow.connection.execute("SELECT kind,count(*) FROM jobs WHERE business_id IS ? AND state='queued' "
+                "GROUP BY kind", (business_id,)).fetchall()
+        queues = {name: {"running": [row["id"] for row in running if self._queue_for(row["kind"]) == name],
+                         "queued": sum(count for kind, count in counts if self._queue_for(kind) == name)} for name in self.queues}
+        return {"current": next(iter(running), None), "running": running, "queues": queues,
+                "queued": sum(count for _, count in counts), "recent": rows, "error": self.last_error,
                 "invalid": [row for row in (self.scheduler.errors if self.scheduler else []) if row["business_id"] == business_id]}
 
     def kick(self):
         self._wake.set()
+        for wake in self._queue_wakes.values():
+            wake.set()
+
+    def is_running(self):
+        return any(thread and thread.is_alive() for thread in (self._thread, *self._threads.values()))
+
+    def is_worker_thread(self):
+        return current_thread() in (self._thread, *self._threads.values())
 
     def start(self):
-        if self._thread and self._thread.is_alive():
-            return
-        self._stop.clear()
-        self._thread = Thread(target=self._work, name="operations-background", daemon=True)
-        self._thread.start()
+        with self._lifecycle_lock:
+            if self._stop.is_set() and self.is_running():
+                raise TimeoutError("Background workers are still stopping")
+            self._stop.clear()
+            for queue in self.queues:
+                thread = self._threads.get(queue)
+                if not thread or not thread.is_alive():
+                    thread = Thread(target=self._work_queue, args=(queue,), name="background-" + queue, daemon=True)
+                    self._threads[queue] = thread
+                    thread.start()
+            if not self._thread or not self._thread.is_alive():
+                self._thread = Thread(target=self._work, name="background-scheduler", daemon=True)
+                self._thread.start()
 
     def _work(self):
+        # Scheduling has no provider work. It must keep admitting due jobs even when the general queue is occupied.
         while not self._stop.is_set():
+            self._wake.clear()
+            if self._stop.is_set():
+                break
             try:
-                result = self.tick()
+                self._schedule()
+            except Exception as exc:
+                self.last_error = type(exc).__name__
+            self._wake.wait(self.interval)
+
+    def _work_queue(self, queue):
+        wake = self._queue_wakes[queue]
+        while not self._stop.is_set():
+            wake.clear()
+            if self._stop.is_set():
+                break
+            try:
+                result = self.run_one(queue=queue)
             except Exception as exc:
                 self.last_error, result = type(exc).__name__, None
-            self._wake.wait(0.05 if result and result.get("state") == "succeeded" else self.interval)
-            self._wake.clear()
+            wake.wait(0.05 if result and result.get("state") == "succeeded" else self.interval)
 
     def stop(self, timeout=190):
-        self._stop.set()
-        self._wake.set()
-        if self._thread:
-            self._thread.join(timeout)
-            if self._thread.is_alive():
+        if self.is_worker_thread():
+            raise RuntimeError("A background worker cannot drain itself")
+        deadline = time.monotonic() + timeout
+        with self._lifecycle_lock:
+            self._stop.set()
+            self.kick()
+            for thread in (self._thread, *self._threads.values()):
+                if thread and thread.ident is not None:
+                    thread.join(max(0, deadline - time.monotonic()))
+            if self.is_running():
                 raise TimeoutError("Background program did not finish its bounded cancellation")
             self._thread = None
+            self._threads.clear()

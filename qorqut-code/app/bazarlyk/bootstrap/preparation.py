@@ -38,6 +38,8 @@ LEGACY_PLUGINS = {"biz-agents-manager@bazarlyk", "biz-agents-marketing@bazarlyk"
 # External MCP connections come only from installed extensions (resolver.native_connections); a registered role may
 # declare one by name, and any name that no installed extension provides is refused (see external_connections). A
 # previously prepared entry stays managed (see previous_connections) and is removed on the next authorized preparation.
+# The one exception is the owner's own choice of local connectors (bazarlyk.connectors): the agent shell adds them at
+# launch from the owner's connector file, never through the projection.
 INTEGRATION_DIRECTORY = ".bazarlyk/integrations"
 
 def compatibility_report(version: str) -> dict:
@@ -217,7 +219,16 @@ def skill_projection(resolver, data) -> tuple[dict, dict]:
             raise DomainError("agentic_revision_conflict", "Managed skills changed after configuration resolution", retryable=True)
         return files, selected
 
-    return view.consistent(read, revision=data["agentic_catalog_revision"])
+    files, selected = view.consistent(read, revision=data["agentic_catalog_revision"])
+    # The core-generated Qorqbot guide travels with the managed skills, so full preparation and skill refresh both keep it.
+    from . import qorqbot_guide
+    return {**files, **qorqbot_guide.skill_files()}, selected
+
+
+def core_generated_skill(name: str) -> bool:
+    """A skill folder Qorqut writes itself, outside the agent's managed skill selection (bootstrap/qorqbot_guide.py)."""
+    from . import qorqbot_guide
+    return name == qorqbot_guide.SKILL_NAME
 
 
 def seed_instance_guidance(resolver, data) -> dict:
@@ -236,6 +247,74 @@ def seed_instance_guidance(resolver, data) -> dict:
             validated[grant["id"]] = {"path": str(root), "seeded": False, "source": "agentic"}
     resolver.check_agentic_revision(data["agentic_catalog_revision"])
     return validated
+
+
+def _cli_wrappers(launch_settings: str, consent_marker: str, connector_launch: str, trust_command: str = ":") -> str:
+    """The claude and codex wrappers, valid in both bash and zsh. Every argument is already shell-quoted.
+
+    ``trust_command`` re-records folder trust for this workspace before each launch while the owner's consent exists
+    (``python -m bazarlyk.agent_trust ensure``): another program that rewrites ``~/.claude.json`` from an older copy, such
+    as another running Claude Code session, can drop the entry between the consent and the owner typing claude."""
+    return (
+        'unalias claude codex 2>/dev/null || true\n'
+        '_qorqbot_connectors() { QORQBOT_CLAUDE_ARGS=(); QORQBOT_CODEX_ARGS=(); '
+        'if [ -f ' + connector_launch + ' ]; then . ' + connector_launch + '; fi; '
+        'if [ -f ' + consent_marker + ' ]; then ' + trust_command + ' >/dev/null 2>&1 || true; fi; }\n'
+        # A bare claude or codex, as the owner types it in the agent's terminal, opens with the role prompt Start would
+        # type: the agent takes up its work, and Codex writes the session file Chat needs (it does so only on a first turn).
+        # Start itself types the prompt after launch and sets QORQBOT_ROLE_SENT so it is not sent twice.
+        # --mcp-config takes several values; the --settings option after it ends that list before the caller's arguments.
+        'claude() { _qorqbot_connectors; if [ $# -eq 0 ] && [ -z "${QORQBOT_ROLE_SENT:-}" ]; then set -- /role; fi; '
+        'command claude "${QORQBOT_CLAUDE_ARGS[@]}" --settings ' + launch_settings + ' "$@"; }\n'
+        'codex() { _qorqbot_connectors; if [ $# -eq 0 ] && [ -z "${QORQBOT_ROLE_SENT:-}" ]; then set -- \'$role\'; fi; '
+        'if [ -f ' + consent_marker + ' ]; then '
+        'command codex --dangerously-bypass-hook-trust "${QORQBOT_CODEX_ARGS[@]}" "$@"; '
+        'else command codex "${QORQBOT_CODEX_ARGS[@]}" "$@"; fi; }\n'
+    )
+
+
+def agent_shell(launch_settings: str, consent_marker: str, connector_launch: str, trust_command: str = ":") -> str:
+    """The prepared bash agent shell (``bash --rcfile``)."""
+    return ('# Generated Qorqut agent shell; keep personal shell setup.\n'
+            'if [ -f "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi\n'
+            + _cli_wrappers(launch_settings, consent_marker, connector_launch, trust_command))
+
+
+# zsh (the macOS default) has no --rcfile: an agent terminal starts with ZDOTDIR at .bazarlyk/zsh (transport/terminals.py).
+# These files load the owner's own .zshenv and .zshrc from their usual folder first, then add the wrappers, and leave
+# ZDOTDIR as the owner had it so shells started from the agent terminal behave normally.
+ZSH_ENV = (
+    '# Generated Qorqut agent shell for zsh; loads your own .zshenv.\n'
+    '_qorqbot_zdotdir="$ZDOTDIR"\n'
+    'ZDOTDIR="${QORQBOT_USER_ZDOTDIR:-$HOME}"\n'
+    'if [ -f "$ZDOTDIR/.zshenv" ]; then . "$ZDOTDIR/.zshenv"; fi\n'
+    'QORQBOT_USER_ZDOTDIR="$ZDOTDIR"\n'
+    'ZDOTDIR="$_qorqbot_zdotdir"\n'
+    'unset _qorqbot_zdotdir\n'
+)
+
+
+def agent_zshrc(launch_settings: str, consent_marker: str, connector_launch: str, trust_command: str = ":") -> str:
+    return ('# Generated Qorqut agent shell for zsh; loads your own .zshrc.\n'
+            'ZDOTDIR="${QORQBOT_USER_ZDOTDIR:-$HOME}"\n'
+            'if [ -f "$ZDOTDIR/.zshrc" ]; then . "$ZDOTDIR/.zshrc"; fi\n'
+            'if [ "$ZDOTDIR" = "$HOME" ]; then unset ZDOTDIR; fi\n'
+            'unset QORQBOT_USER_ZDOTDIR\n'
+            + _cli_wrappers(launch_settings, consent_marker, connector_launch, trust_command))
+
+
+# What an agent tells the owner about starting it. Its own "/role" instruction is about its work loop, and in a real
+# run Ordubashy passed it on to the owner as the way to start him.
+OWNER_START = ("/role and $role are for you, not the owner. The owner starts you from the Qorqbot dashboard: your own\n"
+               "terminal there (the >_ button above your Chat), typing claude or codex, or the Start button in Chat. When the\n"
+               "owner asks how to use Qorqbot, answer from the bazarlyk-qorqbot-guide skill; never send them to another\n"
+               "terminal window, to cd into this folder or to type /role.\n")
+# Ordubashy has no managed browser of his own (those belong to helper workers). The owner's connectors give him two.
+ORDUBASHY_BROWSING = ("For a web page the owner is signed in to (LinkedIn, webmail, their dashboards), use the Claude in Chrome\n"
+                      "tools when they are available: they act in the owner's own Chrome and its sessions, only on sites the owner\n"
+                      "allows there. For other pages, or without them, use the Playwright tools, a separate signed-out browser.\n"
+                      "Neither needs a managed browser. Never sign in or type a password yourself. If neither is available, ask\n"
+                      "the owner to turn on Your Chrome or Playwright in Settings > Connect your tools and start you again.\n")
 
 
 def build_projection(resolver, config, *, registration_id: str, endpoint: str, interpreter: str,
@@ -509,10 +588,12 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
             'bazarlyk.agentic.client', '--registration', str(registration_path))) + '\n').encode(),
         "agent.yaml": yaml.safe_dump(profile, sort_keys=False, allow_unicode=False).encode(),
         "CLAUDE.md": (orientation + "\nUse /role to start or recover your registered work loop. A startup greeting\n"
-            "also takes up your queued responsibilities; follow mandatory role-work guidance.\n" + inbox_guidance).encode(),
+            "also takes up your queued responsibilities; follow mandatory role-work guidance.\n" + OWNER_START
+            + (ORDUBASHY_BROWSING if ordubashy else "") + inbox_guidance).encode(),
         "AGENTS.md": (orientation + "\nUse the scoped Qorqut MCP for saved operational records and project mutations.\n"
             "Use $role to start or recover your registered work loop. A startup greeting\n"
-            "also takes up your queued responsibilities; follow mandatory role-work guidance.\n"
+            "also takes up your queued responsibilities; follow mandatory role-work guidance.\n" + OWNER_START
+            + (ORDUBASHY_BROWSING if ordubashy else "") +
             "Inbox delivery needs nothing from this session: do not start a Monitor or invent a poller. Native hook trust\n"
             "and loaded configuration remain client-owned; keep compatible cached paths\n"
             "until verified migration or natural session exit. Recovery preserves this session.\n" + codex_delegation).encode(),
@@ -535,12 +616,18 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     claude_mode = "bypassPermissions" if data["scope"]["kind"] == "ecosystem" else "dontAsk"
     files[".bazarlyk/claude-launch-settings.json"] = _bytes({"permissions": {"defaultMode": claude_mode}})
     launch_settings = shlex.quote(str(workspace / ".bazarlyk/claude-launch-settings.json"))
-    files[".bazarlyk/agent-shell.bash"] = (
-        '# Generated Qorqut agent shell; keep personal shell setup.\n'
-        'if [ -f "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi\n'
-        'unalias claude 2>/dev/null || true\n'
-        'claude() { command claude --settings ' + launch_settings + ' "$@"; }\n'
-    ).encode()
+    from bazarlyk.agent_trust import marker_path
+    # Codex runs Qorqbot's prepared hooks without a separate review only while the owner's consent file exists
+    # (bazarlyk.agent_trust); removing it restores Codex's own hook review for the next launch.
+    consent_marker = shlex.quote(str(marker_path(resolver.paths.runtime)))
+    from bazarlyk.connectors import launch_path
+    # Local connectors the owner turned on (bazarlyk.connectors) are read at each launch, so a change needs no preparation.
+    connector_launch = shlex.quote(str(launch_path(resolver.paths.runtime)))
+    trust_command = " ".join(shlex.quote(part) for part in (
+        executable, "-I", "-m", "bazarlyk.agent_trust", "ensure", "--runtime", str(resolver.paths.runtime), "--folder", str(workspace)))
+    files[".bazarlyk/agent-shell.bash"] = agent_shell(launch_settings, consent_marker, connector_launch, trust_command).encode()
+    files[".bazarlyk/zsh/.zshenv"] = ZSH_ENV.encode()
+    files[".bazarlyk/zsh/.zshrc"] = agent_zshrc(launch_settings, consent_marker, connector_launch, trust_command).encode()
     for name in extension_files:
         if name in files:
             raise DomainError("invalid_configuration", "An extension helper duplicates a generated file")
@@ -606,7 +693,7 @@ def inspect_projection(workspace: Path, projection: dict, *, runtime="claude-cod
             for child in sorted(path.rglob("*")):
                 if (child.is_file() or child.is_symlink()) and child.relative_to(workspace).as_posix() not in expected:
                     drift.append(child.relative_to(workspace).as_posix())
-            if path.name not in projection.get("selected_skills", {}):
+            if path.name not in projection.get("selected_skills", {}) and not core_generated_skill(path.name):
                 drift.append(path.relative_to(workspace).as_posix())
     for name in ((".claude/settings.json", ".claude/settings.local.json") if runtime == "claude-code" else ()):
         if path_has_symlink(workspace / name):
@@ -676,7 +763,7 @@ def _prepare_agent_locked(resolver, principal: Principal, *, endpoint: str, vers
         raise DomainError("validation_error", "Codex permission mode must be scoped or bypass")
     unmanaged = []
     for path in managed_skill_directories(workspace):
-        if path.name not in old.get("selected_skills", {}):
+        if path.name not in old.get("selected_skills", {}) and not core_generated_skill(path.name):
             unmanaged.append(path.name)
     if unmanaged:
         raise DomainError("projection_conflict", "Unknown manually added skills at Qorqut-managed names require reconciliation", details={"skills": unmanaged})

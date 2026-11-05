@@ -62,6 +62,8 @@ STATUS_ROWS_ABOVE = 2
 FOOTER_PHRASES = (
     "for shortcuts", "context left", "context used", "shift+tab", "ctrl+", "esc to", "tab to", "accept edits",
     "plan mode", "bypass permissions", "auto-accept", "tokens", "/status", "? for",
+    # Codex 0.166 keeps "⚠ N warnings · f2 to view" on its own bottom row while the composer holds text.
+    "f2 to view",
 )
 # Codex's configurable status line (``  <model> · <directory>``), drawn in explicit 256-colour/RGB tints below the
 # composer and its blank separator row. Its colours are not the gray "dim" range, so it is recognized by shape instead.
@@ -196,9 +198,10 @@ def _footer(cells):
 def _codex_status_line(cells):
     """Codex's status line: indented, ``<label> · <path>``-shaped, with no default-coloured character and some tint.
 
-    Text typed or pasted into the composer is drawn in the default colour, so it never has this shape."""
+    Text typed or pasted into the composer is drawn in the default colour, so it never has this shape. Codex 0.166 draws
+    the separators themselves in the default colour; only the separator character may be plain."""
     text = _text(cells)
-    visible = [style for char, style in cells if char.strip()]
+    visible = [style for char, style in cells if char.strip() and char != STATUS_SEPARATOR.strip()]
     return (text[:1].isspace() and STATUS_SEPARATOR in text and "plain" not in visible and "tinted" in visible)
 
 

@@ -80,7 +80,7 @@ const QORQBOT_MUSTACHES = {
 };
 function qorqbotAgentVariant(m) {
   const role=m?.role?.id || m?.role_id || m?.kind;
-  if(role==='ordubashy')return {body:'round',mustache:'classic',eyeOffset:-10};
+  if(role==='ordubashy')return {body:'round',mustache:'classic',eyeOffset:-10,featureColor:'#000'};
   if(role==='learning-applier')return {body:'brain',mustache:'classic'};
   return {body:'round',mustache:'classic'};
 }
