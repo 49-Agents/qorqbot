@@ -36,7 +36,7 @@ function taskMoveInvalidate(ids, sourceBusinessId, destination) {
 // task: {id, title, task_type?}; sourceBusinessId: the record's canonical scope (null is Global, undefined refuses).
 // onMoved(reference, result) runs only while the dialog is still open; the invalidation above always runs.
 // onMovedElsewhere(reference) is the owner's choice to open a record the server reports as already moved.
-function taskMoveOpen({task, sourceBusinessId, sourceName = '', onMoved = null, sourceSlug = null, onSourceLost = null, onSourceMoved = null, onMovedElsewhere = null, onClosed = null} = {}) {
+function taskMoveOpen({task, sourceBusinessId, sourceName = '', onMoved = null, sourceSlug = null, onSourceLost = null, onSourceMoved = null, onMovedElsewhere = null, onClosed = null, hostedContent = null, onRequestClose = null} = {}) {
   if (!task?.id || sourceBusinessId === undefined) { toast('This record’s project is unavailable.'); return null; }
   const taskIds = [String(task.id)];
   let alive = true, closeModal = null, el = null;
@@ -56,7 +56,7 @@ function taskMoveOpen({task, sourceBusinessId, sourceName = '', onMoved = null, 
     if (!el || !alive) return;
     const sel = select(), source = preview?.source?.name || sourceName || (sourceBusinessId == null ? 'Global' : 'its current project');
     el.querySelector('[data-move-source]').textContent = `Move “${label(task.title || task.id)}” from ${source}.`;
-    sel.disabled = pending || !targets || !targets.length;
+    sel.disabled = pending || (!!hostedContent && !!attempt) || !targets || !targets.length;
     if (targets && sel.dataset.ready !== 'yes') {
       sel.replaceChildren(new Option(targets.length ? 'Choose a project…' : 'No other active projects', ''));
       for (const project of targets) sel.append(new Option(project.name, project.id));
@@ -86,7 +86,7 @@ function taskMoveOpen({task, sourceBusinessId, sourceName = '', onMoved = null, 
     confirm.disabled = !ok;
     confirm.textContent = pending ? 'Moving…' : 'Move';
     el.querySelector('[data-move-cancel]').textContent = pending ? 'Close' : 'Cancel';
-    if (pending) box.append(taskMoveText('p', 'muted tmove-pending', 'Closing this dialog does not cancel the move; it stays in progress.'));
+    if (pending) box.append(taskMoveText('p', 'muted tmove-pending', hostedContent ? 'The move is in progress.' : 'Closing this dialog does not cancel the move; it stays in progress.'));
     el.querySelector('.tmove').setAttribute('aria-busy', String(pending || previewLoading));
   }
   function taskMoveText(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; node.textContent = text; return node; }
@@ -218,16 +218,26 @@ function taskMoveOpen({task, sourceBusinessId, sourceName = '', onMoved = null, 
     }
   }
 
+  function setup(root) {
+    el = root;
+    const foot = el.querySelectorAll('.mfoot button');
+    foot[0].dataset.moveCancel = ''; foot[1].dataset.moveConfirm = ''; foot[1].disabled = true;
+    select().onchange = () => { destinationId = select().value; moved = null; void loadPreview(); };
+    paint(); void loadTargets();
+  }
+  function cleanup() { if (!alive) return; alive = false; previewGeneration++; el = null; onClosed?.(); }
+  if (hostedContent) {
+    hostedContent.innerHTML = `<h3>Move to project</h3>${body}<div class="mfoot"><button type="button" class="quiet">Cancel</button><button type="button" class="primary">Move</button></div>`;
+    closeModal = () => { cleanup(); hostedContent.replaceChildren(); };
+    const buttons = hostedContent.querySelectorAll('.mfoot button');
+    buttons[0].onclick = () => onRequestClose ? onRequestClose() : closeModal();
+    buttons[1].onclick = () => void submit();
+    setup(hostedContent);
+    return {close: closeModal, el: hostedContent, status: () => ({pending, uncertain: !!attempt && !pending}), retry: () => void submit()};
+  }
   const dialog = modal({title: 'Move to project', width: 560, stack: true, body,
     actions: [{label: 'Cancel', onClick: close => close()}, {label: 'Move', primary: true, onClick: () => void submit()}],
-    onOpen: root => {
-      el = root;
-      const foot = el.querySelectorAll('.mfoot button');
-      foot[0].dataset.moveCancel = ''; foot[1].dataset.moveConfirm = ''; foot[1].disabled = true;
-      select().onchange = () => { destinationId = select().value; moved = null; void loadPreview(); };
-      paint(); void loadTargets();
-    },
-    onClose: () => { alive = false; previewGeneration++; el = null; onClosed?.(); }});
+    onOpen: setup, onClose: cleanup});
   closeModal = dialog.close;
   return {close: dialog.close, el: dialog.el};
 }
