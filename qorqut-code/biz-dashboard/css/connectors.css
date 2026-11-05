@@ -75,22 +75,62 @@ button.cx-link:hover { background: none; color: var(--fg); transform: none; }
 .cx-panel-rows { margin: 0; padding: 0; border: 0; gap: 12px; }
 .cx-panel-rows .cx-head p { max-width: none; }
 .cx-rows { display: grid; border: 1px solid var(--line-2); border-radius: var(--r-lg); overflow: hidden; background: var(--wash); }
-.cx-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 14px 18px; border-top: 1px solid var(--line-2); }
+.cx-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) 150px 150px; column-gap: 14px; row-gap: 10px; align-items: start; padding: 14px 18px; border-top: 1px solid var(--line-2); }
 .cx-row:first-child { border-top: 0; }
 .cx-row-main { min-width: 0; display: grid; gap: 4px; }
 .cx-row-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .cx-panel .cx-row h3 { margin: 0; font-size: 13.5px; font-weight: 600; text-transform: none; color: var(--fg); }
 .cx-row-does { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--fg-2); }
 .cx-row .cx-more { margin-top: 2px; padding-top: 0; border-top: 0; }
-.cx-row-action { padding-top: 2px; }
-.cx-row-action button { height: 30px; padding: 0 13px; font-size: 12px; }
+/* Claude and Codex columns: one cell each, or one cell across both for things they share. */
+.cx-thead { display: grid; grid-template-columns: 34px minmax(0, 1fr) 150px 150px; column-gap: 14px; padding: 0 19px; margin-bottom: -6px; font: 10px var(--mono); text-transform: uppercase; letter-spacing: .07em; color: var(--fg-3); }
+.cx-cell { display: grid; gap: 6px; justify-items: start; align-content: start; padding-top: 2px; min-width: 0; }
+.cx-cell-both { grid-column: 3 / span 2; }
+.cx-cell button { height: 28px; padding: 0 12px; font-size: 11.5px; }
+.cx-cell[data-tone="none"] .cx-status { color: var(--fg-3); }
+.cx-cell[data-tone="none"] .cx-status::before { background: transparent; border: 1px solid var(--fg-3); width: 5px; height: 5px; }
+.cx-hint { font-size: 11px; line-height: 1.4; color: var(--fg-3); }
+.cx-col-label { display: none; font: 9.5px var(--mono); text-transform: uppercase; letter-spacing: .07em; color: var(--fg-3); }
+.cx-clients { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cx-clients > div { padding: 10px 12px; border-radius: var(--r-sm); border: 1px solid var(--line-2); background: var(--wash); font-size: 12px; line-height: 1.5; color: var(--fg-2); }
+.cx-clients b { color: var(--fg); font-weight: 600; }
+/* The guided Claude connect: the row is outlined and the current step marked. */
+.cx-row[data-cx-guiding] { background: var(--elevated); box-shadow: inset 0 0 0 2px var(--accent); animation: cx-guide-pulse 1.8s ease-in-out 3; }
+@keyframes cx-guide-pulse { 50% { box-shadow: inset 0 0 0 4px var(--accent); } }
+.cx-guide { grid-column: 2 / -1; padding: 12px 14px; border-radius: var(--r); border: 1px solid var(--line-2); background: var(--bg); }
+.cx-guide-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; font-size: 12.5px; }
+.cx-guide ol { margin: 0 0 8px; padding-left: 20px; display: grid; gap: 4px; font-size: 12.5px; line-height: 1.5; }
+.cx-guide li[data-step="done"] { color: var(--fg-3); text-decoration: line-through; text-decoration-color: var(--line-2); }
+.cx-guide li[data-step="current"] { color: var(--fg); font-weight: 600; background: var(--hover); border-radius: 6px; padding: 2px 6px; margin-left: -6px; }
+.cx-guide li[data-step="todo"] { color: var(--fg-2); }
+.cx-guide p { margin: 0; }
+.cx-guide a { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
+.cx-sub { margin: -2px 0 0; }
+.cx-extras { display: flex; flex-wrap: wrap; gap: 6px; }
+.cx-extra { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: var(--r-full); border: 1px solid var(--line-2); background: var(--wash); font-size: 12px; color: var(--fg); }
+.cx-extra .cx-status { gap: 0; }
+.cx-extra em { font-style: normal; font-size: 11px; color: var(--warn); }
+/* Chat's top bar: the connectors an agent's client can use (js/connectors.js agentToolsHTML). */
+.gchat-tools { min-width: 0; padding-left: 4px; }
+.gchat-tools .agent-tools { flex-wrap: nowrap; margin: 0; }
+.agent-tools { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 8px; vertical-align: middle; }
+.agent-tool { font-size: 10.5px; line-height: 1; padding: 3px 7px; border-radius: var(--r-full); border: 1px solid var(--line-2); color: var(--fg-2); background: var(--wash); white-space: nowrap; }
+.agent-tool-missing { color: var(--fg-3); border-style: dashed; }
+.agent-tool-none { color: var(--fg-3); }
 @media (max-width: 600px) {
-  .cx-row { grid-template-columns: 34px minmax(0, 1fr); }
-  .cx-row-action { grid-column: 2; }
+  .cx-row { grid-template-columns: 34px minmax(0, 1fr) minmax(0, 1fr); }
+  .cx-row-main { grid-column: 2 / -1; }
+  .cx-cell[data-cx-col="claude"] { grid-column: 2; }
+  .cx-cell[data-cx-col="codex"] { grid-column: 3; }
+  .cx-cell-both { grid-column: 2 / -1; }
+  .cx-col-label { display: block; }
+  .cx-thead { display: none; }
+  .cx-clients { grid-template-columns: 1fr; }
+  .cx-guide { grid-column: 1 / -1; }
   .cx-trust { flex-direction: column; align-items: flex-start; }
   .cx-privacy { grid-template-columns: 1fr; padding: 18px; }
   .cx-head { flex-direction: column; align-items: flex-start; }
   .cx-progress { justify-items: start; }
   .cx-grid { grid-template-columns: minmax(0, 1fr); }
 }
-@media (prefers-reduced-motion: reduce) { .cx-card, .cx-progress-bar i { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .cx-card, .cx-progress-bar i { transition: none; } .cx-row[data-cx-guiding] { animation: none; } }

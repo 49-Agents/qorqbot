@@ -22,6 +22,22 @@ plugin:playwright:playwright: npx @playwright/mcp@latest - ✔ Connected
 """
 
 
+class NoCodex:
+    """Codex as seen when it is not installed; tests never run the real `codex`."""
+
+    def servers(self, environ, fresh=False):
+        return {"available": False, "reason": "codex_missing", "servers": []}
+
+    def sign_in(self, connector_id):
+        return None
+
+
+def setUpModule():
+    patcher = mock.patch.object(connectors.codex_connectors, "CODEX", NoCodex())
+    patcher.start()
+    unittest.addModuleCleanup(patcher.stop)
+
+
 class FakeProbe:
     def __init__(self, result=None, checking=False):
         self.result, self.checking, self.refreshed = result, checking, []
@@ -46,7 +62,7 @@ class ConnectorsTest(unittest.TestCase):
         self.runtime = SimpleNamespace(paths=SimpleNamespace(runtime=self.runtime_dir), resolver=SimpleNamespace(native_connections={}))
 
     def test_nothing_is_enabled_by_default(self):
-        self.assertEqual(connectors.load(self.runtime_dir), {"version": 1, "enabled": {}})
+        self.assertEqual(connectors.load(self.runtime_dir), {"version": 1, "enabled": {}, "codex_added": {}})
         self.assertFalse(connectors.launch_path(self.runtime_dir).exists())
 
     def test_enable_playwright_writes_private_launch_files(self):

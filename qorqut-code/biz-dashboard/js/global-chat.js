@@ -207,6 +207,10 @@ function mountGlobalChat(pane, agent, options = {}) {
   const startButton = document.createElement('button');
   startButton.type = 'button'; startButton.className = 'quiet gchat-start'; startButton.hidden = true;
   sessionLine.append(startButton);
+  // Which connectors this agent's client can use (Claude and Codex agents have different ones); filled once the session is known.
+  const toolsSlot = document.createElement('span');
+  toolsSlot.className = 'gchat-tools';
+  $q('.gchat-session-switch')?.prepend(toolsSlot);
 
   const live = () => !disposed && (root.isConnected || !!pairedHost?.isConnected);
   const originPane = typeof _agpad !== 'undefined' ? _agpad : null;
@@ -428,6 +432,12 @@ function mountGlobalChat(pane, agent, options = {}) {
   function paint(patch = {}, scroll = 'preserve') {
     if (disposed) return;
     const summary = sessionSummary(), working = summary.key === 'working' && !streamDown && !finished;
+    // An offline agent keeps the client it last ran in `selection`.
+    const provider = session?.provider || session?.selection?.provider || conversation?.provider;
+    const runtime = provider === 'claude' ? 'claude-code' : provider === 'codex' ? 'codex' : '';
+    if (toolsSlot.isConnected && toolsSlot.dataset.agentTools !== runtime && typeof agentToolsHTML === 'function') {
+      toolsSlot.dataset.agentTools = runtime; toolsSlot.innerHTML = runtime ? agentToolsHTML(runtime) : '';
+    }
     sessionLine.dataset.state = streamDown && summary.key === 'working' ? 'live' : summary.key;
     sessionLine.classList.toggle('gchat-session-working', working);
     sessionText.textContent = finished ? 'This chat is no longer available.' : summary.line;
