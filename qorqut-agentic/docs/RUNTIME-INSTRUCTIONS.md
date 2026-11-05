@@ -34,6 +34,10 @@ verifies those aliases, records Agentic as the actual supplier, and preserves th
 native package identity separately. Moving a supplier does not replace an existing
 local catalog edit. Connector prose ships as data; selecting a connector and
 registering its code and tools remain separate host operations.
+Connector index version 2 explicitly selects Agentic-supplied prose. Bundles carry
+the index and renderer contract; the installer verifies the declared resources
+against the current core before installing wheels. Older installers refuse these
+bundles instead of installing a connector with missing instructions.
 
 Three shared documents (`foundation`, `ecosystem-agent`, `ecosystem`) remain
 registered Operations records after their initial seed. Saved agent assignment

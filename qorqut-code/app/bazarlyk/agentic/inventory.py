@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from copy import deepcopy
 import posixpath
 import re
@@ -212,12 +213,16 @@ class Inventory:
         if not self.exists(source, index_path):
             return
         self.put(source, package, index_path, kind="metadata")
-        entries = parse_index(self.read(source, index_path))
+        index_body = self.read(source, index_path)
+        entries = parse_index(index_body)
+        agentic_supplied = json.loads(index_body)["schema_version"] == 2
         prefix = posixpath.dirname(index_path) + "/"
         indexed = set()
         trees, sites = {}, {}
         for entry in entries:
             path, site = entry["path"], entry["source_site"]
+            if agentic_supplied and instruction_sources.location(source.id, path) is None:
+                raise ImportFailure("invalid_text_index", "Agentic-supplied declaration has no canonical source alias", path=path)
             source_path, symbol = site.split(":")
             if not path.startswith(prefix) or source_path not in source_paths:
                 raise ImportFailure("invalid_text_index", "Declaration is outside the bounded source contract", path=path, source_site=site)
