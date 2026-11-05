@@ -81,11 +81,28 @@ def codex_file(env) -> Path:
     return Path(env["CODEX_HOME"] or Path(env["HOME"]) / ".codex") / "config.toml"
 
 
+def git_root(folder):
+    """The nearest enclosing folder with a ``.git`` entry (directory or file), or None."""
+    current = Path(folder)
+    for candidate in (current, *current.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
 def folder_keys(folder) -> list[str]:
-    """The folder as given and as resolved: both CLIs key trust by the working directory they see."""
-    given = os.path.abspath(str(folder))
-    resolved = os.path.realpath(given)
-    return [given] if given == resolved else [given, resolved]
+    """The folder as given and as resolved, and the git repository that contains it.
+
+    Claude Code keys its trust dialog by the project root, which is the enclosing git repository when there is one: an agent
+    folder inside Qorqbot's operations repository is asked about as that repository, so trusting only the agent folder
+    still showed the dialog. The repository is Qorqbot's own (``instance/operations``); nothing outside it is trusted."""
+    keys = []
+    for path in (os.path.abspath(str(folder)), os.path.realpath(os.path.abspath(str(folder)))):
+        root = git_root(path)
+        for key in (path, str(root) if root is not None else None):
+            if key and key not in keys:
+                keys.append(key)
+    return keys
 
 
 def trust_claude(path: Path, folders) -> str:

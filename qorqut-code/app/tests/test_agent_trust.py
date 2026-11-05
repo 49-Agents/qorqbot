@@ -208,6 +208,23 @@ class OwnerViewTests(Base):
         self.assertNotIn("autostart", view)
 
 
+class FolderKeysTest(unittest.TestCase):
+    def test_the_enclosing_git_repository_is_trusted_too(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        operations = root / "instance" / "operations"
+        agent = operations / "agents" / "a1"
+        agent.mkdir(parents=True)
+        self.assertEqual(trust.folder_keys(agent), [os.path.abspath(agent)] if os.path.realpath(agent) == os.path.abspath(agent)
+                         else [os.path.abspath(agent), os.path.realpath(agent)])
+        (operations / ".git").mkdir()
+        keys = trust.folder_keys(agent)
+        self.assertIn(os.path.abspath(agent), keys)
+        self.assertIn(os.path.abspath(operations), keys)
+        self.assertNotIn(os.path.abspath(root / "instance"), keys)
+        self.assertEqual(len(keys), len(set(keys)))
+
+
 class MainTest(unittest.TestCase):
     """What an agent shell runs before claude or codex."""
 
