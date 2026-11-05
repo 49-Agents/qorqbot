@@ -6,7 +6,13 @@ const attentionQueue=(()=>{
   let queueOkAt=0,signoffOkAt=0;
   let signoffs=[],signoffsLoading=false,signoffsError='',signoffTimer,signoffPromise=null,signoffAgain=false;
   // Due reminders addressed to the owner. Opening or reading one never changes it; only an explicit dismiss/snooze/cancel does.
-  let dueReminders=[],remindersError='';
+  let dueReminders=[],remindersError='',recoveryCount=0,recoveryError=false,recoveryGeneration=0;
+  async function refreshReminderRecovery(){
+    const request=++recoveryGeneration; recoveryCount=0; recoveryError=false; paintSignoffs();
+    try { const owner=await remVerifiedOwner(); if(request===recoveryGeneration) recoveryCount=[...remAttempts.values()].filter(a=>a.owner===owner).length; }
+    catch (_) { if(request===recoveryGeneration) recoveryError=remAttempts.size>0; }
+    if(request===recoveryGeneration)paintSignoffs();
+  }
   const reminderIcon=typeof SG_BELL==='string' ? SG_BELL : '';
   const viewedIds=item=>item.viewed_ids?.length?item.viewed_ids:[item.id];
   const remaining=()=>items.filter(item=>!viewedIds(item).every(id=>acknowledged.has(id)));
@@ -64,7 +70,8 @@ const attentionQueue=(()=>{
       if(!host.isConnected){signoffMounts.delete(host);continue;}
       // Due reminders lead the strip, ahead of Signoff and email chips, until explicitly handled.
       const due=dueReminders.map(r=>`<button type="button" class="focus-signoff-chip focus-reminder-chip" data-reminder-key="${esc(r.reminder_id)}" data-reminder-state="due" aria-label="${esc('Reminder due: '+r.text)}" title="${esc(r.text)}">${reminderIcon}</button>`).join('');
-      const markup=due+signoffs.map(s=>{const title=mount.name?.(s.id)||s.title;return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" aria-label="Review ${esc(title)}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
+      const recovery=recoveryCount ? '<button type="button" class="quiet" data-reminder-recovery>Unconfirmed reminder changes</button>' : recoveryError ? '<button type="button" class="quiet" data-reminder-recovery-check>Retry reminder session</button>' : '';
+      const markup=due+recovery+signoffs.map(s=>{const title=mount.name?.(s.id)||s.title;return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" aria-label="Review ${esc(title)}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
       const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'')+(remindersError?'<button type="button" class="quiet" data-reminders-retry>Retry reminders</button>':'');
       if(host._signoffHTML!==html){host.innerHTML=html;host._signoffHTML=html;}
       host.hidden=!markup && !signoffsError && !remindersError;
@@ -112,6 +119,8 @@ const attentionQueue=(()=>{
     return signoffPromise;
   }
   function signoffClick(event){
+    if(event.target.closest('[data-reminder-recovery-check]')){void refreshReminderRecovery();return;}
+    if(event.target.closest('[data-reminder-recovery]')){void remindersOpenUnconfirmed();return;}
     if(event.target.closest('[data-signoffs-retry],[data-reminders-retry]')){void refreshSignoffs();return;}
     const reminderKey=event.target.closest('[data-reminder-key]')?.dataset.reminderKey;
     if(reminderKey){
@@ -241,11 +250,12 @@ const attentionQueue=(()=>{
       void open(item).catch(e=>toast(e.message));
     }
   }
+  document.addEventListener('reminder-attempts-changed',()=>{if(signoffMounts.size)void refreshReminderRecovery();});
   document.addEventListener('reply-notifications-changed',()=>{if(mounts.size)void refresh();});
-  window.addEventListener('focus',()=>{if(mounts.size)void refresh();void refreshSignoffs();});
+  window.addEventListener('focus',()=>{if(mounts.size)void refresh();void refreshSignoffs();if(signoffMounts.size)void refreshReminderRecovery();});
   if(typeof onChange==='function')onChange(['signoffs'],null,()=>{void refreshSignoffs();});
   return {signoffViewed,viewboxViewed,refresh,refreshSignoffs,paintSignoffs,
-    mountSignoffs(host,name,opener){signoffMounts.set(host,{name,opener});host.addEventListener('click',signoffClick);paintSignoffs();void refreshSignoffs(true);
+    mountSignoffs(host,name,opener){signoffMounts.set(host,{name,opener});host.addEventListener('click',signoffClick);paintSignoffs();void refreshSignoffs(true);void refreshReminderRecovery();
       return ()=>{signoffMounts.delete(host);host.removeEventListener('click',signoffClick);if(!signoffMounts.size)clearTimeout(signoffTimer);};},
     mount(host){mounts.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);paint(host);void refresh(true);
     return ()=>{mounts.delete(host);host.removeEventListener('click',clicks);host.removeEventListener('contextmenu',dismiss);if(!mounts.size)clearTimeout(timer);};}};
