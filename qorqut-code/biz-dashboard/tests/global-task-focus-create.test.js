@@ -48,3 +48,11 @@ test('Global list New opens the parent entry point',async()=>{
  const h=harness();let invoked=0;h.ctx.window.taskOpenGlobalCreate=()=>{invoked++;};
  h.ctx.globalTasksMount(h.host);await tick();await tick();h.newButton.onclick();assert.equal(invoked,1);assert.equal(h.writes.length,0);
 });
+for (const outcome of ['malformed', 'timeout', 'rate-limit', 'coded-timeout']) test(`${outcome} create retains the exact request for retry`,async()=>{
+ const h=await opened();h.fields.title.value='Draft';h.form.onsubmit({preventDefault(){}});await tick();
+ if(outcome==='malformed')h.pending[0].resolve({task:null});
+ else h.pending[0].reject(Object.assign(Error(outcome),outcome==='coded-timeout'?{code:'request_timeout',httpStatus:400}:{httpStatus:outcome==='timeout'?408:429}));
+ await tick();assert.equal(h.session.closed,0);assert.equal(h.calls.includes('refresh'),false);assert.equal(h.retry.hidden,false);
+ h.retry.onclick();await tick();assert.deepEqual(JSON.parse(JSON.stringify(h.writes[1])),JSON.parse(JSON.stringify(h.writes[0])));
+ h.pending[1].resolve({task:{id:'id-1'}});await tick();await tick();assert.equal(h.session.closed,1);
+});
