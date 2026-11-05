@@ -358,7 +358,7 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
     host.querySelectorAll('input,select,textarea,button').forEach(e => e.disabled = true);
     try {
       const data = await invoke(attempt.name, attempt.args);
-      if (initialCreate && attempt.name === 'tasks_create' && (!data?.task || typeof data.task !== 'object' || typeof data.task.id !== 'string' || !data.task.id.trim())) {
+      if (initialCreate && attempt.name === 'tasks_create' && (!data?.task || typeof data.task !== 'object' || typeof data.task.id !== 'string' || !data.task.id.trim() || data.task.id !== attempt.args.id)) {
         throw Object.assign(new Error('The create response was invalid.'), {code: 'invalid_response'});
       }
       const apply = attempt.apply;
