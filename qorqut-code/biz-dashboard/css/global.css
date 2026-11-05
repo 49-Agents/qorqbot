@@ -80,3 +80,12 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 .global-agents .global-workspace-terminal .nm, .global-agents .global-workspace-settings .nm, .global-agents .global-workspace-guide .nm { gap: 6px; }
 .global-heading-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; max-width: 866px; }
 .global-heading-row h1 { margin-bottom: 0; }
+
+/* Projects page (js/global.js renderProjects) */
+.projects-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 10px; }
+.projects-intro h1 { margin: 0 0 6px; font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
+.projects-intro p { margin: 0; max-width: 640px; font-size: 13.5px; line-height: 1.6; color: var(--fg-2); }
+.projects-intro button { flex: none; }
+.projects-how { margin: 0 0 22px; padding: 12px 14px; max-width: 760px; border-radius: var(--r); border: 1px solid var(--line-2); background: var(--wash); font-size: 12.5px; line-height: 1.55; color: var(--fg-2); }
+.projects-how b { color: var(--fg); font-weight: 500; }
+.projects-section { margin: 26px 0 12px; font-size: 14px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--fg); }
