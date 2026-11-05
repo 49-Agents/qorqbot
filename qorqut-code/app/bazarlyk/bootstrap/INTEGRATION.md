@@ -146,6 +146,27 @@ restricted permission profile; legacy personal `sandbox_mode` settings override
 such profiles and must be reconciled by the owner. Do not disable the sandbox or
 silently grant hook trust.
 
+Owner consent (`bazarlyk/agent_trust.py`) is the one exception, and it is
+explicit, not silent: on one dashboard screen the owner allows Qorqbot to start
+agents itself. Qorqbot then records folder trust for its prepared agent
+workspaces only (`~/.claude.json`, `~/.codex/config.toml`) and the prepared
+agent shell runs Codex with `--dangerously-bypass-hook-trust` while the consent
+file `<runtime>/agent-trust.json` exists. Revoking it in Settings deletes the
+file, so new Codex launches return to native hook review. Without consent nothing
+changes and the `/hooks` review above still applies.
+
+Local connectors (`bazarlyk/connectors.py`) are the one exception to external
+MCP servers coming only from installed extensions. In Settings, Connectors the
+owner turns on Playwright (an MCP server started with `npx`) or Claude in Chrome
+(`--chrome`). Qorqbot records the choice in `<runtime>/connectors.json` and
+writes `<runtime>/connectors/launch.bash`, and the prepared agent shell reads that
+file at every launch. These reach Qorqbot's agents only, never the projection or
+the owner's other projects, and turning one off applies at the next start. Claude
+account connectors (Gmail, Calendar, Drive and others) belong to the owner's
+Claude account. Qorqbot only reads `claude mcp list` to show their status.
+Business-scoped agents run Claude with `dontAsk` and the prepared allow list, so
+a connector's tools reach Global agents such as Ordubashy first.
+
 Codex reviews the exact hook definition, including its command. Embedding an
 archive release's Python path in that command invalidated trust whenever agents
 were prepared against a new release. MCP could remain connected while bootstrap,

@@ -60,7 +60,7 @@ class FilingPrograms:
         """The two final definitions: the filing and instruction completion programs, with only the receipt as output."""
         run = self.run
         programs.register(Program(FILE, 2, ARGUMENTS, run, {RECEIPT: "allow"}, (RECEIPT,), FILE_RESOURCES,
-                                  scope_kinds=("business", "global"), global_capabilities=("read_global_context",)))
+                                  scope_kinds=("business", "global"), global_capabilities=("read_global_context",), background_queue="context"))
         programs.register(Program(INSTRUCT, 1, ARGUMENTS, run, {RECEIPT: "allow"}, (RECEIPT,), INSTRUCT_RESOURCES,
-                                  scope_kinds=("business", "global"), global_capabilities=("read_global_context",)))
+                                  scope_kinds=("business", "global"), global_capabilities=("read_global_context",), background_queue="context"))
         return programs

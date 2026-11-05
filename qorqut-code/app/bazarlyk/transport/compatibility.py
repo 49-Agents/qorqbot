@@ -980,7 +980,7 @@ class DashboardCompatibility:
         if not self.background:
             return {"current": None, "queued": 0, "invalid": [], "error": "Background service is not attached"}
         status = self.background.status(None if global_scope else context.business_id)
-        return {"current": status["current"], "queued": status["queued"], "invalid": status["invalid"]}
+        return {key: status[key] for key in ("current", "running", "queues", "queued", "invalid")}
 
     def routine_get(self, request, context, tail, *, global_scope=False):
         scope = {"scope": "global"} if global_scope else {}

@@ -324,24 +324,19 @@ def _apply_file(rootfd, journal, effect, originals, targets):
             if _expected_file(fd, name, (body, mode), path) is not None:
                 os.fsync(fd)
                 return
-            # O_TMPFILE has no named partial file to adopt or delete after interruption.
-            temp = os.open('.', os.O_WRONLY | os.O_TMPFILE | os.O_CLOEXEC, 0o600, dir_fd=fd)
+            # Never a named partial file at the destination to adopt or delete after interruption (posix_files).
+            from bazarlyk import posix_files
+            pending = posix_files.anonymous_file(fd)
             try:
                 view = memoryview(body)
                 while view:
-                    view = view[os.write(temp, view):]
-                os.fchmod(temp, mode)
-                os.fsync(temp)
-                import ctypes
-                # Linux procfs linkat avoids requiring CAP_DAC_READ_SEARCH. If
-                # O_TMPFILE or procfs is unavailable, publication fails closed.
-                libc = ctypes.CDLL(None, use_errno=True)
-                if libc.linkat(-100, os.fsencode('/proc/self/fd/' + str(temp)), fd, os.fsencode(name), 0x400) != 0:
-                    errno = ctypes.get_errno()
-                    raise OSError(errno, os.strerror(errno), path)
+                    view = view[os.write(pending.fd, view):]
+                os.fchmod(pending.fd, mode)
+                os.fsync(pending.fd)
+                posix_files.publish(pending, fd, name)
                 os.fsync(fd)
             finally:
-                os.close(temp)
+                posix_files.discard(pending)
         else:
             # The immutable plan fixes all destination copies, including split manifests.
             for target in effect['targets']:

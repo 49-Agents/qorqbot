@@ -20,6 +20,27 @@
     <ol class="steps" id="steps"></ol>
   </section>
 
+  <section class="card" id="checklist-card" hidden>
+    <h2 class="checklist-title">Needed to run Qorqbot</h2>
+    <ol class="steps" id="checklist-tools"></ol>
+    <div id="homebrew-block" hidden>
+      <p class="message">Homebrew is not installed. Install it from brew.sh first, then run the command below.</p>
+      <div class="actions spaced-bottom"><button data-action="open-homebrew">Open brew.sh</button></div>
+    </div>
+    <div id="checklist-command-block" hidden>
+      <p class="hint">Run this in Terminal:</p>
+      <pre id="checklist-command"></pre>
+      <div class="actions">
+        <button class="primary" data-action="copy-command">Copy Command</button>
+        <button data-action="open-terminal">Open Terminal</button>
+      </div>
+    </div>
+    <h2 class="checklist-title">Needed to chat with an agent</h2>
+    <p class="hint">Install one or both and sign in once in Terminal. You can do this later; the walkthrough shows when.</p>
+    <ol class="steps" id="checklist-agents"></ol>
+    <p class="hint checking">This list updates by itself. Qorqbot starts as soon as everything needed to run it is installed.</p>
+  </section>
+
   <section class="card" id="choice-card" hidden>
     <p class="message" id="choice-message"></p>
     <div class="actions" id="choice-buttons"></div>

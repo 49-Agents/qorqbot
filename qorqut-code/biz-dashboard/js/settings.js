@@ -24,6 +24,9 @@ async function renderSettings(c) {
       </label>
     </section>
     <div class="set-note muted small set-testing-note" id="set-testing-note" role="status"></div>` : ''}
+    ${global ? '<div data-connectors-slot></div>' : ''}
+    ${global ? `<section class="onboarding-settings"><div><h2>find your way around</h2><p>A quick, interactive introduction to your workspace. Replay all of it, or one chapter.</p><div class="onboarding-settings-chapters" aria-label="replay one chapter">${onboarding.chapters().map(c => `<button type="button" class="quiet" data-onboarding-chapter="${esc(c.id)}">${esc(c.title)}</button>`).join('')}</div></div><button type="button" class="quiet" data-onboarding-replay>restart walkthrough</button></section>` : ''}
+    ${global ? `<section class="cx-trust" data-agent-trust hidden><div><h2>trusted agent folders</h2><p data-agent-trust-text></p></div><button type="button" class="quiet" data-agent-trust-toggle></button></section>` : ''}
     <div class="set-head"><div>
       <h1 class="set-title">${global ? "Global environment" : "Environment"}</h1>
       <div class="muted small">${global ? "Shared defaults for all projects and Global agents. Projects can override individual values." : "Global values are inherited automatically. Override a value for this project, or use Global again."}</div>
@@ -45,6 +48,15 @@ async function renderSettings(c) {
     });
     void loadTestingMode(p, true);
   }
+  pane.querySelector('[data-onboarding-replay]')?.addEventListener('click', () => {
+    if (p.dirty || p.saving) { toast('Save your environment changes before starting the walkthrough.'); return; }
+    onboarding.start();
+  });
+  pane.querySelectorAll('[data-onboarding-chapter]').forEach(button => button.addEventListener('click', () => {
+    if (p.dirty || p.saving) { toast('Save your environment changes before starting the walkthrough.'); return; }
+    onboarding.start(button.dataset.onboardingChapter);
+  }));
+  if (global) { connectorsPanel.mount(pane.querySelector('[data-connectors-slot]')); void paintAgentTrust(pane); }
   pane.querySelector("#envsave").onclick = () => saveEnv(p);
   pane.querySelector("#envadd").onclick = () => {
     p.rows.push({ key: "", value: "" }); envDirty(p); paintEnv(p);
@@ -114,6 +126,31 @@ async function saveTestingMode(p) {
     testing.saving = false;
     if (p.pane.isConnected && p.testing === testing) paintTestingMode(p);
   }
+}
+
+// The owner's consent that Qorqbot's own agent folders are trusted (bazarlyk.agent_trust): claude and codex then open there
+// without their trust and hook-review prompts. Turning it off restores Codex's own hook review for new launches.
+async function paintAgentTrust(pane) {
+  const section = pane.querySelector('[data-agent-trust]');
+  if (!section) return;
+  const text = section.querySelector('[data-agent-trust-text]'), toggle = section.querySelector('[data-agent-trust-toggle]');
+  let view;
+  try { view = coreData(await api('/root/agent-trust')); } catch (_) { return; }
+  if (!section.isConnected) return;
+  section.hidden = false;
+  text.textContent = view.granted
+    ? 'On. Claude Code and Codex open in Qorqbot’s agent folders without the folder-trust or hook-review prompt, whether you type claude or codex in an agent’s Terminal or press Start in Chat.'
+    : 'Off. The first time an agent starts in its folder, Claude Code asks whether to trust it and Codex asks you to review its hooks.';
+  toggle.textContent = view.granted ? 'turn off' : 'turn on';
+  toggle.disabled = false;
+  toggle.onclick = async () => {
+    toggle.disabled = true;
+    try {
+      if (view.granted) coreData(await post('/root/agent-trust', {granted: false}));
+      else await agentStart.consent(null, 'Ordubashy');
+    } catch (error) { toast(error.message); }
+    void paintAgentTrust(pane);
+  };
 }
 
 function envError(p, message, retry = false) {
