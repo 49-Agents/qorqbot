@@ -176,7 +176,10 @@
 .rw-action-meta dt{color:var(--fg-2)}
 .rw-action-meta dd{margin:0}
 
+.rw-body[hidden] { display: none; }
 .rw-move-panel, .rw-leave-choice { padding: 16px; }
+.rw-move-panel { flex: 1 1 auto; min-height: 0; min-width: 0; box-sizing: border-box; overflow: auto; overscroll-behavior: contain; }
+.rw-leave-choice { flex: none; }
 .rw-leave-choice { border-top: 1px solid var(--line); }
 .rw-leave-choice button + button { margin-left: 8px; }
 .rw-move-panel .mfoot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
