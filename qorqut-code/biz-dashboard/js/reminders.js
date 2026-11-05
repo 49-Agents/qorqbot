@@ -109,7 +109,7 @@ function remindersDetailMount(host, initial, opts = {}) {
     const add = (label, handler, cls = 'quiet') => { const b = node('button', cls, label); b.type = 'button'; b.disabled = busy; b.onclick = handler; actions.append(b); return b; };
     if (r.state === 'due' && r.occurrence_id) add('Dismiss', () => run('reminders_dismiss', {occurrence_id: r.occurrence_id}), 'primary');
     add('Snooze…', () => { snoozeOpen = !snoozeOpen; confirmCancel = false; paint(); });
-    add('Edit', () => remindersEditor(current, {biz: opts.biz, onSaved: next => { current = remNormalize(next); error = ''; paint(); opts.onChange?.(current, 'reminders_update'); }}));
+    add('Edit', () => (opts.onEdit || remindersEditor)(current, {biz: opts.biz, onSaved: next => { current = remNormalize(next); error = ''; paint(); opts.onChange?.(current, 'reminders_update'); }}));
     add(confirmCancel ? 'Confirm cancel' : 'Cancel reminder', () => {
       if (!confirmCancel) { confirmCancel = true; snoozeOpen = false; paint(); return; }
       run('reminders_cancel', {});
@@ -185,6 +185,7 @@ function remindersDetailMount(host, initial, opts = {}) {
   if (remId(current)) void reload();
   return {
     reminder: () => current,
+    isBusy: () => busy,
     refresh: reload,
     dispose() { disposed = true; box.remove(); },
   };
@@ -192,10 +193,22 @@ function remindersDetailMount(host, initial, opts = {}) {
 
 // A detail dialog for one reminder; closing it never changes the reminder.
 function remindersOpenDetail(reminder, opts = {}) {
-  let view;
-  modal({title: 'Reminder', width: 520, stack: true, body: '<div class="rem-dialog"></div>',
-    onOpen: el => { view = remindersDetailMount(el.querySelector('.rem-dialog'), reminder, opts); },
-    onClose: () => { view?.dispose(); opts.onClose?.(); }});
+  return window.focusExpansion.open({title:'Reminder', mount(host, session) {
+    let view, child;
+    const show = current => {
+      session.setTitle('Reminder');
+      host.replaceChildren();
+      view = remindersDetailMount(host, current, {...opts, onEdit: (item, editOpts) => {
+        view.dispose();
+        remindersEditor(item, {...editOpts, host, session, onCancel: () => show(item), onSaved: saved => {
+          if (saved) editOpts.onSaved?.(saved); show(saved || item);
+        }});
+      }});
+      session.setBeforeLeave(async () => !view.isBusy());
+    };
+    show(reminder);
+    return () => { view?.dispose(); child?.dispose?.(); opts.onClose?.(); };
+  }});
 }
 
 // ---------------------------------------------------------------- editor (create and edit)
@@ -227,26 +240,50 @@ function remindersEditor(reminder = null, opts = {}) {
     <p class="ferr rem-wide" role="alert" hidden></p></form>`;
   let attempt = null, initialSchedule = null;
   const scheduleOf = form => JSON.stringify(['repeat', 'at', 'weekday', 'time', 'cron', 'timezone'].map(name => form.elements[name]?.value ?? ''));
-  modal({title: editing ? 'Edit reminder' : 'New reminder', width: 560, stack: true, body, actions: [
-    {label: 'Cancel', onClick: close => close()},
-    {label: editing ? 'Save' : 'Create reminder', primary: true, onClick: (close, el) => void save(close, el)},
-  ], onOpen: el => {
-    const form = el.querySelector('.rem-form');
-    const sync = () => form.querySelectorAll('[data-when]').forEach(label => { label.hidden = !label.dataset.when.split(' ').includes(form.elements.repeat.value); });
-    form.elements.repeat.onchange = sync; sync();
-    initialSchedule = scheduleOf(form);
-    form.onsubmit = event => event.preventDefault();
-    if (manager) void remRecipients().then(people => {
-      if (!form.isConnected) return;
-      const select = form.elements.recipient, wanted = reminder?.recipient_id || remSelf();
-      const list = people.some(p => p.id === wanted) || !wanted ? people : [{id: wanted, display_name: remWho(reminder || {recipient_id: wanted})}, ...people];
-      select.innerHTML = list.map(p => option(p.id, (p.display_name || p.id) + (p.is_owner ? ' (you)' : ''), p.id === wanted || (!wanted && p.is_owner))).join('');
-      select.disabled = false;
-    }).catch(() => { const note = form.querySelector('p.ferr'); note.textContent = 'Could not load recipients; the reminder will be for you.'; note.hidden = false; });
-  }});
+  if (!opts.host || !opts.session) {
+    return window.focusExpansion.open({title: editing ? 'Edit reminder' : 'New reminder', mount(host, session) {
+      remindersEditor(reminder, {...opts, host, session, onCancel: () => session.close(), onSaved: saved => { opts.onSaved?.(saved); void session.close(); }});
+    }});
+  }
+  const el = opts.host, session = opts.session;
+  session.setTitle(editing ? 'Edit reminder' : 'New reminder');
+  el.innerHTML = body + `<div class="rem-actions"><button type="button" class="quiet rem-editor-cancel">Cancel</button><button type="button" class="primary rem-editor-save">${editing ? 'Save' : 'Create reminder'}</button></div><div class="rem-editor-confirm" hidden><p>Discard your changes?</p><button type="button" class="quiet" data-stay>Keep editing</button><button type="button" class="danger" data-discard>Discard</button></div>`;
+  const form = el.querySelector('.rem-form'), confirmBox = el.querySelector('.rem-editor-confirm');
+  let busy = false, initial = '', pendingConfirm = null;
+  const snapshot = () => JSON.stringify([...form.elements].map(f => [f.name, f.type === 'checkbox' ? f.checked : f.value]));
+  const guard = async () => {
+    if (busy) return false;
+    if (snapshot() === initial) return true;
+    if (pendingConfirm) return false;
+    confirmBox.hidden = false;
+    return new Promise(resolve => { pendingConfirm = resolve; });
+  };
+  const answer = value => { confirmBox.hidden = true; const resolve = pendingConfirm; pendingConfirm = null; resolve?.(value); };
+  confirmBox.querySelector('[data-stay]').onclick = () => answer(false);
+  confirmBox.querySelector('[data-discard]').onclick = () => { initial = snapshot(); answer(true); };
+  session.onDispose(() => answer(false));
+  session.setBeforeLeave(guard);
+  el.querySelector('.rem-editor-cancel').onclick = async () => { if (await guard()) opts.onCancel?.(); };
+  el.querySelector('.rem-editor-save').onclick = () => void save(() => { initial = snapshot(); opts.onCancel?.(); }, el);
+  const sync = () => form.querySelectorAll('[data-when]').forEach(label => { label.hidden = !label.dataset.when.split(' ').includes(form.elements.repeat.value); });
+  form.elements.repeat.onchange = sync; sync();
+  initialSchedule = scheduleOf(form);
+  form.onsubmit = event => event.preventDefault();
+  initial = snapshot();
+  if (manager) void remRecipients().then(people => {
+    if (!form.isConnected || !session.isCurrent()) return;
+    const select = form.elements.recipient, wanted = reminder?.recipient_id || remSelf();
+    const list = people.some(p => p.id === wanted) || !wanted ? people : [{id: wanted, display_name: remWho(reminder || {recipient_id: wanted})}, ...people];
+    select.innerHTML = list.map(p => option(p.id, (p.display_name || p.id) + (p.is_owner ? ' (you)' : ''), p.id === wanted || (!wanted && p.is_owner))).join('');
+    select.disabled = false;
+    const baseline = JSON.parse(initial);
+    const index = [...form.elements].indexOf(select);
+    if (index >= 0) baseline[index] = [select.name, select.value];
+    initial = JSON.stringify(baseline);
+  }).catch(() => { if (!form.isConnected || !session.isCurrent()) return; const note = form.querySelector('p.ferr'); note.textContent = 'Could not load recipients; the reminder will be for you.'; note.hidden = false; });
 
   async function save(close, el) {
-    const form = el.querySelector('.rem-form'), message = form.querySelector('p.ferr'), button = el.querySelector('.mfoot .primary');
+    const form = el.querySelector('.rem-form'), message = form.querySelector('p.ferr'), button = el.querySelector('.rem-editor-save');
     const fail = text => { message.textContent = text; message.hidden = false; };
     const f = form.elements, text = f.text.value.trim(), kind = f.repeat.value;
     message.hidden = true;
@@ -297,18 +334,19 @@ function remindersEditor(reminder = null, opts = {}) {
       if (linked) args.linked_item = linked;
     }
     const signature = JSON.stringify(args), key = attempt?.signature === signature ? attempt.key : newRequestId();
-    button.disabled = true;
+    button.disabled = true; busy = true;
     try {
       const data = await remCall(reminder, editing ? 'reminders_update' : 'reminders_create', {...args, idempotency_key: key}, opts.biz);
-      attempt = null; close();
+      attempt = null;
       const saved = data.reminder ? remNormalize(data.reminder) : null;
       if (!editing && saved && saved.recipient_id && remSelf() && saved.recipient_id !== remSelf()) toast('Reminder set for ' + remWho(saved) + '. Only your own reminders are listed here.');
-      opts.onSaved?.(saved);
+      initial = snapshot(); busy = false;
+      if (opts.onSaved) opts.onSaved(saved); else close();
     } catch (failure) {
       const transient = !failure.code || failure.code === 'invalid_response' || failure.httpStatus >= 500;
       attempt = transient ? {signature, key} : null;
       fail(remFail(failure) ? 'This reminder changed since you opened it. Close this form and reopen it.' : failure.message && failure.code && !transient ? failure.message : uiFailure(failure));
-    } finally { button.disabled = false; }
+    } finally { busy = false; button.disabled = false; }
   }
 }
 
@@ -365,7 +403,7 @@ if (typeof embeddedAgentPane === 'undefined' || !embeddedAgentPane) {
 
 // The Reminders button: the owner's upcoming reminders with creation and per-reminder controls.
 function remindersOpenUpcoming(opts = {}) {
-  let rows = [], cursor = null, loading = false, failed = '', host, generation = 0;
+  let rows = [], cursor = null, loading = false, failed = '', host, session, detail, generation = 0;
   const changed = () => opts.onChange?.();
   async function load(append = false) {
     if (loading || !host?.isConnected) return;
@@ -374,18 +412,20 @@ function remindersOpenUpcoming(opts = {}) {
     failed = ''; paint();
     try {
       const data = await remindersOwnerList(['scheduled'], append ? cursor : null, 50);
-      if (own !== generation || !host.isConnected) return;
+      if (own !== generation || !host?.isConnected) return;
       const next = (data.reminders || []).map(remNormalize);
       rows = append ? [...new Map([...rows, ...next].map(r => [r.reminder_id, r])).values()] : next;
       cursor = data.next_cursor || null;
     } catch (failure) { if (own === generation) failed = uiFailure(failure, {load: true}); }
-    finally { if (own === generation) { loading = false; if (host.isConnected) paint(); } }
+    finally { if (own === generation) { loading = false; if (host?.isConnected) paint(); } }
   }
+  let showingList = true;
   function paint() {
+    if (!showingList) return;
     host.replaceChildren();
     const bar = document.createElement('div'); bar.className = 'rem-toolbar';
     const add = document.createElement('button'); add.type = 'button'; add.className = 'primary'; add.textContent = 'New reminder';
-    add.onclick = () => remindersEditor(null, {onSaved: () => { void load(); changed(); }});
+    add.onclick = () => { showingList = false; remindersEditor(null, {host, session, onCancel: showList, onSaved: () => { showList(); void load(); changed(); }}); };
     bar.append(add); host.append(bar);
     if (failed) {
       const message = document.createElement('p'); message.className = 'ferr'; message.setAttribute('role', 'alert'); message.textContent = failed;
@@ -401,7 +441,7 @@ function remindersOpenUpcoming(opts = {}) {
       const meta = document.createElement('span'); meta.className = 'rem-row-meta muted';
       meta.textContent = [remFormatTime(r.next_at || r.at, r.recurrence?.timezone), r.recurrence ? remRecurrenceText(r.recurrence) : '', r.time_critical ? 'Time-critical' : ''].filter(Boolean).join(' · ');
       row.append(title, meta);
-      row.onclick = () => remindersOpenDetail(r, {onChange: () => { void load(); changed(); }});
+      row.onclick = () => showDetail(r);
       list.append(row);
     }
     host.append(list);
@@ -410,7 +450,24 @@ function remindersOpenUpcoming(opts = {}) {
       host.append(more);
     }
   }
-  modal({title: 'Reminders', width: 560, stack: true, body: '<div class="rem-upcoming"></div>',
-    onOpen: el => { host = el.querySelector('.rem-upcoming'); paint(); void load(); },
-    onClose: () => { generation++; host = null; changed(); }});
+  function showList() {
+    detail?.dispose(); detail = null; showingList = true;
+    session.setTitle('Reminders'); session.setBeforeLeave(async () => true);
+    paint();
+  }
+  function showDetail(reminder) {
+    showingList = false; session.setTitle('Reminder'); host.replaceChildren();
+    const back = document.createElement('button'); back.type = 'button'; back.className = 'quiet'; back.textContent = 'Back to reminders';
+    back.onclick = () => { if (!detail.isBusy()) { showList(); void load(); } };
+    host.append(back);
+    detail = remindersDetailMount(host, reminder, {onChange: changed, onEdit: (item, editOpts) => {
+      detail.dispose(); detail = null;
+      remindersEditor(item, {...editOpts, host, session, onCancel: () => showDetail(item), onSaved: saved => { changed(); showDetail(saved || item); }});
+    }});
+    session.setBeforeLeave(async () => !detail.isBusy());
+  }
+  return window.focusExpansion.open({title:'Reminders',mount(element, currentSession) {
+    host=element; session=currentSession; paint(); void load();
+    return () => { generation++; detail?.dispose(); host=null; changed(); };
+  }});
 }
