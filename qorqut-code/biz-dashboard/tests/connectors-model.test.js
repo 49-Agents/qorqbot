@@ -79,3 +79,14 @@ test('whatsapp on a Mac says it is coming and has no button', () => {
   assert.strictEqual(model.status(whatsapp).label, 'Coming soon on Mac');
   assert.deepStrictEqual(model.note(whatsapp), {text: 'The WhatsApp extension is available for Windows (WSL) and Linux. A Mac version is in progress.', tone: 'info'});
 });
+
+test('your chrome without its extension says so and can still be turned off', () => {
+  const chrome = item('chrome', 'local', 'needs_extension', {extension: false});
+  assert.strictEqual(model.status(chrome).label, 'Needs the Chrome extension');
+  assert.strictEqual(model.action(chrome).label, 'Turn off');
+  assert.match(model.note(chrome).text, /Claude in Chrome extension/);
+  assert.strictEqual(model.note(chrome).tone, 'warn');
+  assert.match(model.note(item('chrome', 'local', 'off', {extension: false})).text, /extension/);
+  assert.strictEqual(model.note(item('chrome', 'local', 'off', {extension: true})), null);
+  assert.ok(model.COPY.chrome.install.startsWith('https://chromewebstore.google.com/'));
+});
