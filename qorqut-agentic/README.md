@@ -11,9 +11,6 @@ adapters, native skill projection, execution bridging and Overseer inbox/nudge
 delivery require the following host integration. The combined foundation exposes
 the persistent workflow runner through `layer.workflows` and the JSON CLI.
 
-Startup and hook wording, reminder policy, instruction ordering and completion
-guidance are owned here too. See the [runtime instruction index and ownership guide](docs/RUNTIME-INSTRUCTIONS.md).
-
 ```sh
 python -m pip install .
 printf '%s\n' '{"operation":"lifecycle.initialize","arguments":{"git_user":{"name":"Example","email":"example@example.invalid"}}}' |

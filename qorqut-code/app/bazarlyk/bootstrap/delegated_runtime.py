@@ -414,7 +414,8 @@ class DelegatedRuntime:
                 raise DomainError("invalid_response", "Dispatcher returned an invalid worker lease")
             registration, registration_path = worker_registration(claim, self.registration,
                 state_root=self.state_root)
-            worker_files = (registration_path, Path(registration["workspace"]) / registration["credential_file"])
+            worker_files = (registration_path, Path(registration["workspace"]) / registration["credential_file"],
+                            registration_path.with_name("runtime-instructions.json"))
             self._run_assignment(assignment, claim, registration, registration_path)
         except DomainError as error:
             self._failed(assignment_id, generation, "Worker runtime failed (" + error.code + "): " + (error.message if error.code == "worker_turn_failed" else startup_diagnostic(error.message)))
@@ -457,6 +458,10 @@ class DelegatedRuntime:
                 return
             from qorqut_agentic.behavior.instructions import from_prepared
             instructions = from_prepared(Path(self.registration["workspace"]) / ".bazarlyk/registration.json")
+            # The isolated worker bridge needs the same recovery wording even
+            # while the service is down; it cannot inherit the parent's files.
+            safe_io.atomic_write(registration_path.with_name("runtime-instructions.json"),
+                instructions.bytes(), mode=0o600, enforce_mode=True)
             prompt = _prompt(assignment, events, instructions=instructions, continuation=continuation)
             command = self.command(assignment, registration, registration_path, thread_id)
             try:
