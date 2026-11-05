@@ -56,27 +56,40 @@ function remRecurrenceText(recurrence) {
 const remLinkText = link => link ? `${({task: 'Work', email: 'Email', project: 'Project', table: 'Table', signoff: 'Signoff', action: 'Action'}[link.type] || link.type)} ${link.id}` : '';
 const remWho = reminder => reminder.recipient_name || reminder.recipient_display_name || (reminder.recipient_id && reminder.recipient_id === remSelf() ? 'You' : reminder.recipient_id) || '—';
 const remFail = error => /conflict|stale|revision|precondition|state_changed|occurrence/i.test(String(error?.code || ''));
-// Uncertain writes survive view disposal in memory, scoped to the current owner and route.
+// Uncertain writes remain in memory and are exposed only after a fresh owner-session read.
 const remAttempts = new Map();
-const remAttemptGroup = (reminder, biz, kind) => JSON.stringify([remSelf(), remPath(reminder, 'reminders_get', biz), kind, remId(reminder)]);
-const remAttempt = (reminder, biz, kind, op, args) => {
-  const group = remAttemptGroup(reminder, biz, kind);
-  const identity = JSON.stringify([group, reminder?.occurrence_id ?? null, op, args]);
-  return remAttempts.get(identity) || {identity, group, owner:remSelf(), occurrence:reminder?.occurrence_id ?? null, path:remPath(reminder, op, biz), op, args:{...args, idempotency_key:newRequestId()}};
-};
+const remAttemptChanged = () => document.dispatchEvent(new Event('reminder-attempts-changed'));
+async function remVerifiedOwner() {
+  const session = await loadSession(true);
+  if (!session || session.principal_kind !== 'human' || session.is_owner !== true || !session.principal_id)
+    throw new Error('Could not verify the owner session. Retry.');
+  return session.principal_id;
+}
+const remAttemptGroup = (owner, reminder, biz, kind) => JSON.stringify([owner, remPath(reminder, 'reminders_get', biz), kind, remId(reminder), reminder?.occurrence_id ?? null]);
+async function remAttempt(reminder, biz, kind, op, args) {
+  const owner = await remVerifiedOwner(), group = remAttemptGroup(owner, reminder, biz, kind);
+  const key = newRequestId();
+  return {identity:key, group, owner, occurrence:reminder?.occurrence_id ?? null, path:remPath(reminder, op, biz), op,
+    label:reminder?.text || args.text || 'Reminder', scheduled:args.at || reminder?.due_at || reminder?.at || reminder?.recurrence?.schedule || '',
+    args:{...args, idempotency_key:key}};
+}
+const remUncertain = error => !error.code || ['invalid_response','request_timeout'].includes(error.code) || [408,429].includes(error.httpStatus) || error.httpStatus >= 500;
 async function remSubmitAttempt(attempt) {
-  if (remSelf() !== attempt.owner) throw new Error('The reminder belongs to a different session.');
+  const owner = await remVerifiedOwner();
+  if (owner !== attempt.owner) throw new Error('The reminder belongs to a different owner session.');
   try {
     const data = coreData(await post(attempt.path, attempt.args));
-    remAttempts.delete(attempt.identity);
+    remAttempts.delete(attempt.identity); remAttemptChanged();
     return data;
   } catch (error) {
-    if (!error.code || error.code === 'invalid_response' || error.httpStatus >= 500) remAttempts.set(attempt.identity, attempt);
+    if (remUncertain(error)) remAttempts.set(attempt.identity, attempt);
     else remAttempts.delete(attempt.identity);
+    remAttemptChanged();
     throw error;
   }
 }
-const remPending = (reminder, biz, kind) => [...remAttempts.values()].filter(a => a.group === remAttemptGroup(reminder, biz, kind));
+const remPending = (owner, reminder, biz, kind) => [...remAttempts.values()].filter(a => a.group === remAttemptGroup(owner, reminder, biz, kind));
+const remAttemptLabel = a => [a.label, a.scheduled, a.op.replace('reminders_', ''), a.occurrence ? 'occurrence ' + a.occurrence : ''].filter(Boolean).join(' · ');
 
 
 // Snooze presets use the viewer's own clock and write an explicit offset.
@@ -91,7 +104,7 @@ const remInputOf = date => `${date.getFullYear()}-${remPad(date.getMonth() + 1)}
 // ---------------------------------------------------------------- detail (shared by modal and record reader)
 // Controller for one reminder. `opts.onChange(reminder|null, op)` runs after an applied or refreshed result.
 function remindersDetailMount(host, initial, opts = {}) {
-  let current = remNormalize(initial), busy = false, error = '', gone = false, snoozeOpen = false, confirmCancel = false, disposed = false;
+  let current = remNormalize(initial), busy = false, verifiedOwner = null, error = '', gone = false, snoozeOpen = false, confirmCancel = false, disposed = false;
   const box = document.createElement('div');
   box.className = 'rem-detail';
   host.append(box);
@@ -125,9 +138,9 @@ function remindersDetailMount(host, initial, opts = {}) {
     box.append(list);
     const message = node('p', 'ferr rem-error', error); message.setAttribute('role', 'alert'); message.hidden = !error;
     box.append(message);
-    for (const attempt of remPending(initial, opts.biz, 'detail')) {
+    for (const attempt of verifiedOwner && remSelf()===verifiedOwner ? remPending(verifiedOwner, initial, opts.biz, 'detail') : []) {
       const pending = node('div', 'rem-pending');
-      pending.append(node('p', 'rem-note', `The result of ${attempt.op.replace('reminders_', '')} could not be confirmed${attempt.args.occurrence_id ? ' for occurrence ' + attempt.args.occurrence_id : ''}.`));
+      pending.append(node('p', 'rem-note', `Unconfirmed: ${remAttemptLabel(attempt)}`));
       const check = node('button', 'quiet', 'Retry the same request'); check.type='button'; check.disabled=busy;
       check.onclick=()=>void run(attempt.op, {}, attempt); pending.append(check); box.append(pending);
     }
@@ -191,9 +204,9 @@ function remindersDetailMount(host, initial, opts = {}) {
   async function run(op, extra, saved = null) {
     if (busy || (!saved && !remMutable(current))) return;
     const args = {reminder_id: remId(current), revision: current.revision, ...extra};
-    const attempt = saved || remAttempt(current, opts.biz, 'detail', op, args);
     busy = true; error = ''; paint();
     try {
+      const attempt = saved || await remAttempt(current, opts.biz, 'detail', op, args);
       const data = await remSubmitAttempt(attempt);
       snoozeOpen = false; confirmCancel = false;
       if (saved || !data.reminder) await reload(); else current = remNormalize(data.reminder);
@@ -202,18 +215,26 @@ function remindersDetailMount(host, initial, opts = {}) {
       if (alive()) {
         if (accessLost(failure) || sourceGone(failure)) { gone = true; opts.onChange?.(null, op); }
         else if (remFail(failure)) { if (await reload()) error = 'This reminder changed since you opened it. It was refreshed; check and try again.'; }
-        else error = uiFailure(failure);
+        else error = failure.message || uiFailure(failure);
       }
-    } finally { busy = false; if (alive()) paint(); }
+    } finally { busy = false; await refreshPending(); if (alive()) paint(); }
   }
-  paint();
+  async function refreshPending() {
+    verifiedOwner=null; if (alive()) paint();
+    try { verifiedOwner=await remVerifiedOwner(); }
+    catch (failure) { error=failure.message; }
+    if (alive()) paint();
+  }
+  const onFocus = () => { verifiedOwner=null; if (alive()) paint(); void refreshPending(); };
+  window.addEventListener('focus',onFocus);
+  paint(); void refreshPending();
   // A legacy projection lacks the occurrence and recurrence; read the full reminder at once.
   if (remId(current)) void reload();
   return {
     reminder: () => current,
     isBusy: () => busy,
     refresh: reload,
-    dispose() { disposed = true; box.remove(); },
+    dispose() { disposed = true; window.removeEventListener('focus',onFocus); box.remove(); },
   };
 }
 
@@ -275,7 +296,7 @@ function remindersEditor(reminder = null, opts = {}) {
   session.setTitle(editing ? 'Edit reminder' : 'New reminder');
   el.innerHTML = body + `<div class="rem-actions"><button type="button" class="quiet rem-editor-cancel">Cancel</button><button type="button" class="primary rem-editor-save">${editing ? 'Save' : 'Create reminder'}</button></div><div class="rem-editor-pending"></div><div class="rem-editor-confirm" hidden><p>Discard your changes?</p><button type="button" class="quiet" data-stay>Keep editing</button><button type="button" class="danger" data-discard>Discard</button></div>`;
   const form = el.querySelector('.rem-form'), confirmBox = el.querySelector('.rem-editor-confirm');
-  let busy = false, initial = '', pendingConfirm = null, pendingPromise = null;
+  let busy = false, initial = '', pendingConfirm = null, pendingPromise = null, verifiedOwner = null;
   const snapshot = () => JSON.stringify([...form.elements].map(f => [f.name, f.type === 'checkbox' ? f.checked : f.value]));
   const guard = async () => {
     if (busy) return false;
@@ -295,13 +316,13 @@ function remindersEditor(reminder = null, opts = {}) {
   const pendingBox = el.querySelector('.rem-editor-pending');
   function paintPending() {
     pendingBox.replaceChildren();
-    for (const attempt of remPending(reminder, opts.biz, 'editor')) {
-      const note = document.createElement('p'); note.textContent='A previous reminder save' + (attempt.occurrence ? ' for occurrence ' + attempt.occurrence : '') + ' could not be confirmed.';
+    for (const attempt of verifiedOwner && remSelf()===verifiedOwner ? remPending(verifiedOwner, reminder, opts.biz, 'editor') : []) {
+      const note = document.createElement('p'); note.textContent='Unconfirmed: ' + remAttemptLabel(attempt);
       const retry = document.createElement('button'); retry.type='button'; retry.className='quiet'; retry.textContent='Retry the same request'; retry.disabled=busy;
-      retry.onclick=()=>void submitAttempt(attempt); pendingBox.append(note,retry);
+      retry.onclick=()=>void submitAttempt(attempt, true); pendingBox.append(note,retry);
     }
   }
-  async function submitAttempt(attempt) {
+  async function submitAttempt(attempt, isRetry = false) {
     if (busy) return;
     const button=el.querySelector('.rem-editor-save'), message=form.querySelector('p.ferr');
     button.disabled=true; busy=true; form.inert=true; paintPending();
@@ -309,15 +330,23 @@ function remindersEditor(reminder = null, opts = {}) {
       const data=await remSubmitAttempt(attempt);
       const saved=data.reminder ? remNormalize(data.reminder) : null;
       if (!editing && saved && saved.recipient_id && remSelf() && saved.recipient_id !== remSelf()) toast('Reminder set for ' + remWho(saved) + '. Only your own reminders are listed here.');
-      initial=snapshot(); busy=false;
-      if (opts.onSaved) opts.onSaved(saved); else opts.onCancel?.();
+      if (isRetry) { message.textContent='The earlier request was confirmed. Your current draft is unchanged.'; message.hidden=false; }
+      else { initial=snapshot(); busy=false; if (opts.onSaved) opts.onSaved(saved); else opts.onCancel?.(); }
     } catch (failure) {
-      const transient = !failure.code || failure.code === 'invalid_response' || failure.httpStatus >= 500;
+      const transient = remUncertain(failure);
       message.textContent=remFail(failure) ? 'This reminder changed since you opened it. Close this form and reopen it.' : failure.message && failure.code && !transient ? failure.message : uiFailure(failure);
       message.hidden=false;
-    } finally { busy=false; form.inert=false; button.disabled=false; if (form.isConnected) paintPending(); }
+    } finally { busy=false; form.inert=false; button.disabled=false; await refreshPending(); }
   }
-  paintPending();
+  async function refreshPending() {
+    verifiedOwner=null; if (form.isConnected) paintPending();
+    try { verifiedOwner=await remVerifiedOwner(); }
+    catch (failure) { const message=form.querySelector('p.ferr'); message.textContent=failure.message; message.hidden=false; }
+    if (form.isConnected) paintPending();
+  }
+  const onFocus = () => { verifiedOwner=null; if (form.isConnected) { paintPending(); void refreshPending(); } };
+  window.addEventListener('focus',onFocus); session.onDispose(()=>window.removeEventListener('focus',onFocus));
+  void refreshPending();
   const sync = () => form.querySelectorAll('[data-when]').forEach(label => { label.hidden = !label.dataset.when.split(' ').includes(form.elements.repeat.value); });
   form.elements.repeat.onchange = sync; sync();
   initialSchedule = scheduleOf(form);
@@ -387,8 +416,58 @@ function remindersEditor(reminder = null, opts = {}) {
       if (linked) args.linked_item = linked;
     }
     const op = editing ? 'reminders_update' : 'reminders_create';
-    await submitAttempt(remAttempt(reminder, opts.biz, 'editor', op, args));
+    if (busy) return;
+    busy=true; button.disabled=true; form.inert=true;
+    try { const next=await remAttempt(reminder, opts.biz, 'editor', op, args); busy=false; await submitAttempt(next); }
+    catch (failure) { fail(failure.message || 'Could not verify the owner session. Retry.'); }
+    finally { busy=false; button.disabled=false; form.inert=false; }
   }
+}
+
+// Recovery stays available even if a successful remote dismissal removed the due chip.
+function remindersOpenUnconfirmed() {
+  return window.focusExpansion.open({title:'Unconfirmed reminder changes', mount(host, session) {
+    let disposed=false, busy=false, owner=null, error='', confirming=null;
+    const node=(tag,text)=>{const el=document.createElement(tag); if(text != null)el.textContent=text;return el;};
+    async function refresh(preserveError=false) {
+      owner=null; paint();
+      try { owner=await remVerifiedOwner(); if (!preserveError) error=''; }
+      catch (failure) { error=failure.message; }
+      if (!disposed && session.isCurrent()) paint();
+    }
+    function paint() {
+      if (disposed) return;
+      host.replaceChildren();
+      if (error) { const message=node('p',error);message.setAttribute('role','alert');host.append(message);
+        const retry=node('button','Retry session check');retry.type='button';retry.onclick=()=>void refresh();host.append(retry); }
+      if (!owner) { host.append(node('p','Checking the owner session…'));return; }
+      const attempts=[...remAttempts.values()].filter(a=>a.owner===owner);
+      if (!attempts.length) host.append(node('p','No unconfirmed reminder changes.'));
+      for (const attempt of attempts) {
+        const row=node('div');row.className='rem-pending';row.append(node('p',remAttemptLabel(attempt)));
+        const retry=node('button','Retry same request');retry.type='button';retry.disabled=busy;
+        retry.onclick=async()=>{ if(busy)return;busy=true;error='';paint();
+          try { await remSubmitAttempt(attempt); }
+          catch (failure) { error=failure.message || 'Could not confirm the reminder change. Retry.'; }
+          finally { busy=false;await refresh(true); }
+        };
+        const forget=node('button',confirming===attempt.identity?'Confirm forget':'Forget');forget.type='button';forget.disabled=busy;
+        forget.onclick=async()=>{
+          if(confirming!==attempt.identity){confirming=attempt.identity;paint();return;}
+          busy=true;paint();
+          try { const current=await remVerifiedOwner(); if(current!==attempt.owner)throw new Error('The owner session changed. Retry.');
+            remAttempts.delete(attempt.identity);confirming=null;remAttemptChanged(); }
+          catch(failure){error=failure.message;} finally{busy=false;await refresh(true);}
+        };
+        row.append(retry,forget);
+        if(confirming===attempt.identity)row.append(node('p','Forget removes only this local reminder of the request; it does not undo any remote change.'));
+        host.append(row);
+      }
+    }
+    const onFocus=()=>{owner=null;paint();void refresh();}; window.addEventListener('focus',onFocus);
+    session.setBeforeLeave(async()=>!busy);void refresh();
+    return ()=>{disposed=true;window.removeEventListener('focus',onFocus);};
+  }});
 }
 
 // ---------------------------------------------------------------- owner reads (self only)

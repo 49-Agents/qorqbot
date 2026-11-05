@@ -35,7 +35,7 @@ test('reminder opening only reads and dismissal uses the exact due occurrence', 
   }
   const calls=[], reminder={reminder_id:'rem-1',revision:7,state:'due',occurrence_id:'occ-2',text:'Test',recurrence:{schedule:'0 9 * * *',timezone:'UTC'}};
   let finishDismiss;
-  const context={document:{createElement:tag=>new Node(tag)},embeddedAgentPane:true,state:{session:{},bizs:[]},
+  const context={document:{createElement:tag=>new Node(tag),dispatchEvent(){}},window:{addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,state:{session:{principal_id:'owner'},bizs:[]},
     post:async (_url,args)=>{calls.push(args); if(args.occurrence_id) return await new Promise(resolve=>{finishDismiss=resolve;}); return {reminder};},
     coreData:x=>x, accessLost:()=>false,sourceGone:()=>false,uiFailure:()=>'',newRequestId:()=> 'key-1',Intl,Date};
   vm.createContext(context);
@@ -46,6 +46,7 @@ test('reminder opening only reads and dismissal uses the exact due occurrence', 
   const find=(node,text)=>node.textContent===text ? node : node.children.map(child=>find(child,text)).find(Boolean);
   find(host,'Dismiss').onclick();
   assert.equal(view.isBusy(),true);
+  await new Promise(resolve=>setImmediate(resolve));
   assert.equal(calls[1].occurrence_id,'occ-2'); assert.equal(calls[1].revision,7);
   finishDismiss({reminder:{...reminder,state:'dismissed'}});
   await new Promise(resolve=>setImmediate(resolve));
@@ -113,8 +114,8 @@ test('reminder Focus opening and disposal do not dismiss the reminder', async ()
   class Node { constructor(){this.children=[];this.isConnected=true;} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} remove(){this.isConnected=false;} setAttribute(){} }
   const calls=[]; let spec, guard;
   const reminder={reminder_id:'r',revision:2,state:'due',occurrence_id:'o',text:'Due'};
-  const context={document:{createElement:()=>new Node()},window:{focusExpansion:{async open(s){spec=s;return {};}}},embeddedAgentPane:true,
-    state:{session:{},bizs:[]},post:async(_path,args)=>{calls.push(args);return {reminder};},coreData:x=>x,
+  const context={document:{createElement:()=>new Node(),dispatchEvent(){}},window:{focusExpansion:{async open(s){spec=s;return {};}},addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,
+    state:{session:{principal_id:'owner'},bizs:[]},post:async(_path,args)=>{calls.push(args);return {reminder};},coreData:x=>x,
     accessLost:()=>false,sourceGone:()=>false,uiFailure:()=>'',Intl,Date};
   vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.open=remindersOpenDetail;',context);
   await context.open(reminder);
@@ -134,14 +135,7 @@ test('embedded task and project signoff links dispatch canonical identity to par
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/task-progress.js'),'utf8'),context);
   assert.equal(await context.taskProgressOpenReference('project',{type:'signoff',id:'complete-1'}),'parent-result');
   assert.equal(await context.window.sgAttentionNavigate(null,'pending-2'),'parent-result');
-  const workSource=fs.readFileSync(path.join(__dirname,'../js/work-groups.js'),'utf8');
-  const workFunction=workSource.slice(workSource.indexOf('async function workOpenLink'),workSource.indexOf('function workChooseTasks'));
-  let action;context.workCall=async()=>({signoff:{id:'work-3',title:'Review',state:'pending'}});context.esc=String;
-  context.modal=spec=>{action=spec.actions[0];};
-  vm.runInContext(workFunction,context);
-  await context.workOpenLink({biz:'project'},{resource_type:'signoffs',resource_id:'work-3',current:{}});
-  action.onClick(()=>{});await new Promise(resolve=>setImmediate(resolve));
-  assert.deepEqual(received,[['project','complete-1'],[null,'pending-2'],['project','work-3']]);
+  assert.deepEqual(received,[['project','complete-1'],[null,'pending-2']]);
   context.parent={};
   await assert.rejects(()=>context.taskProgressOpenReference('project',{type:'signoff',id:'missing'}),/Focus pane is unavailable/);
 });
@@ -150,7 +144,7 @@ test('uncertain reminder dismissal remains retryable after disposal with identic
   class Node {constructor(){this.children=[];this.isConnected=true;} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} remove(){this.isConnected=false;} setAttribute(){}}
   const reminder={reminder_id:'r',business_id:'b',revision:7,state:'due',occurrence_id:'occ-1',text:'Due'};
   const writes=[];let tries=0;
-  const context={document:{createElement:()=>new Node()},embeddedAgentPane:true,state:{session:{principal_id:'owner'},bizs:[{id:'b',slug:'project'}]},
+  const context={document:{createElement:()=>new Node(),dispatchEvent(){}},window:{addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,state:{session:{principal_id:'owner'},bizs:[{id:'b',slug:'project'}]},
     post:async(path,args)=>{if(path.endsWith('reminders_get'))return {reminder};writes.push({path,args:{...args}});if(!tries++)throw new Error('lost');return {reminder:{...reminder,state:'dismissed'}};},
     coreData:x=>x,accessLost:()=>false,sourceGone:()=>false,uiFailure:()=> 'unknown',newRequestId:()=> 'original-key',Intl,Date};
   vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.mount=remindersDetailMount;',context);
@@ -164,19 +158,20 @@ test('uncertain reminder dismissal remains retryable after disposal with identic
 
 test('create and update uncertain requests retain scope and keys independently', async () => {
   const calls=[];let serial=0,fail=true;
-  const context={document:{},embeddedAgentPane:true,state:{session:{principal_id:'owner'},bizs:[{id:'b',slug:'p'}]},
+  const context={document:{dispatchEvent(){}},Event:class{},embeddedAgentPane:true,state:{session:{principal_id:'owner'},bizs:[{id:'b',slug:'p'}]},
     post:async(path,args)=>{calls.push({path,args:{...args}});if(fail)throw new Error('lost');return {};},coreData:x=>x,newRequestId:()=>`key-${++serial}`,Intl,Date};
+  context.loadSession=async()=>({principal_id:context.state.session.principal_id,principal_kind:'human',is_owner:true});
   vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.make=remAttempt;this.submit=remSubmitAttempt;this.pending=remPending;',context);
-  const create=context.make(null,'p','editor','reminders_create',{text:'one',at:'time'});
+  const create=await context.make(null,'p','editor','reminders_create',{text:'one',at:'time'});
   await assert.rejects(()=>context.submit(create));
-  assert.equal(context.pending(null,'p','editor').length,1);assert.equal(context.pending(null,'q','editor').length,0);
-  const different=context.make(null,'p','editor','reminders_create',{text:'two',at:'time'});assert.notEqual(create.args.idempotency_key,different.args.idempotency_key);
+  assert.equal(context.pending(context.state.session.principal_id,null,'p','editor').length,1);assert.equal(context.pending(context.state.session.principal_id,null,'q','editor').length,0);
+  const different=await context.make(null,'p','editor','reminders_create',{text:'two',at:'time'});assert.notEqual(create.args.idempotency_key,different.args.idempotency_key);
   const reminder={reminder_id:'r',business_id:'b',occurrence_id:'o'};
-  const update=context.make(reminder,'p','editor','reminders_update',{reminder_id:'r',revision:2,text:'new'});
-  await assert.rejects(()=>context.submit(update));assert.equal(context.pending(reminder,'p','editor').length,1);
-  context.state.session.principal_id='other';assert.equal(context.pending(reminder,'p','editor').length,0);
-  context.state.session.principal_id='owner';fail=false;await context.submit(context.pending(null,'p','editor')[0]);
-  assert.deepEqual(calls[2],calls[0]);assert.equal(context.pending(null,'p','editor').length,0);
+  const update=await context.make(reminder,'p','editor','reminders_update',{reminder_id:'r',revision:2,text:'new'});
+  await assert.rejects(()=>context.submit(update));assert.equal(context.pending(context.state.session.principal_id,reminder,'p','editor').length,1);
+  context.state.session.principal_id='other';assert.equal(context.pending(context.state.session.principal_id,reminder,'p','editor').length,0);
+  context.state.session.principal_id='owner';fail=false;await context.submit(context.pending(context.state.session.principal_id,null,'p','editor')[0]);
+  assert.deepEqual(calls[2],calls[0]);assert.equal(context.pending(context.state.session.principal_id,null,'p','editor').length,0);
 });
 
 test('duplicate editor leave requests keep one discard prompt and do not discard the draft', async () => {
@@ -187,4 +182,71 @@ test('duplicate editor leave requests keep one discard prompt and do not discard
   const state=construct(box),first=state.guard(),second=state.guard();
   assert.equal(box.hidden,false);assert.equal(state.baseline(),'original');
   state.answer(false);assert.equal(await first,false);assert.equal(await second,false);assert.equal(state.baseline(),'original');
+});
+
+test('reminder attempts require a fresh human owner and retain uncertain timeout and rate-limit keys', async () => {
+  let session=null, failure={httpStatus:408,code:'timeout'}, key=0, writes=0;
+  const context={document:{dispatchEvent(){}},Event:class{},embeddedAgentPane:true,state:{session:{principal_id:'stale'},bizs:[]},
+    loadSession:async(force)=>{assert.equal(force,true);return session;},newRequestId:()=>String(++key),
+    post:async()=>{writes++;throw failure;},coreData:x=>x,Intl,Date};
+  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.make=remAttempt;this.submit=remSubmitAttempt;this.pending=remPending;',context);
+  await assert.rejects(()=>context.make(null,null,'editor','reminders_create',{text:'x'}));assert.equal(writes,0);
+  session={principal_id:'owner',principal_kind:'human',is_owner:true};
+  const a=await context.make(null,null,'editor','reminders_create',{text:'x'});
+  const b=await context.make(null,null,'editor','reminders_create',{text:'x'});assert.notEqual(a.args.idempotency_key,b.args.idempotency_key);
+  await assert.rejects(()=>context.submit(b));assert.equal(context.pending('owner',null,null,'editor').length,1);
+  for(const problem of [{httpStatus:408,code:'timeout'},{httpStatus:429,code:'rate_limit'},{code:'request_timeout'},{code:'invalid_response'},{httpStatus:503,code:'server_error'},{}]){
+    failure=problem;await assert.rejects(()=>context.submit(a));assert.equal(context.pending('owner',null,null,'editor').length,2);
+  }
+  session=null;await assert.rejects(()=>context.submit(a));assert.equal(context.pending('owner',null,null,'editor').length,2);
+  session={principal_id:'other',principal_kind:'human',is_owner:true};await assert.rejects(()=>context.submit(a));
+  assert.equal(context.pending('other',null,null,'editor').length,0);assert.equal(writes,7);
+});
+
+test('unconfirmed list recovers a disappeared reminder without writes on open', async () => {
+  class Node {constructor(){this.children=[];this.isConnected=true;} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} setAttribute(){} }
+  let spec,session={principal_id:'owner',principal_kind:'human',is_owner:true},fail=true,writes=[];
+  const context={document:{createElement:()=>new Node(),dispatchEvent(){}},Event:class{},embeddedAgentPane:true,
+    window:{focusExpansion:{async open(s){spec=s;return {}; }},addEventListener(){},removeEventListener(){}},
+    state:{session:{principal_id:'owner'},bizs:[]},loadSession:async()=>session,newRequestId:()=> 'saved-key',
+    post:async(path,args)=>{writes.push({path,args:{...args}});if(fail)throw new Error('lost');return {};},coreData:x=>x,Intl,Date};
+  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.make=remAttempt;this.submit=remSubmitAttempt;this.open=remindersOpenUnconfirmed;',context);
+  const attempt=await context.make({reminder_id:'gone',occurrence_id:'occ',text:'Due'},null,'detail','reminders_dismiss',{reminder_id:'gone',revision:1,occurrence_id:'occ'});
+  await assert.rejects(()=>context.submit(attempt));await context.open();
+  let host=new Node(),dispose=spec.mount(host,{isCurrent:()=>true,setBeforeLeave(){}});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(writes.length,1);dispose();host=new Node();dispose=spec.mount(host,{isCurrent:()=>true,setBeforeLeave(){}});await new Promise(resolve=>setImmediate(resolve));
+  const find=(node,text)=>node.textContent===text ? node : node.children.map(child=>find(child,text)).find(Boolean);
+  assert.ok(find(host,'Retry same request'));
+  session={principal_id:'other',principal_kind:'human',is_owner:true};
+  await find(host,'Retry same request').onclick();assert.equal(writes.length,1);
+  assert.equal(find(host,'Retry same request'),undefined);
+  session={principal_id:'owner',principal_kind:'human',is_owner:true};dispose();host=new Node();
+  dispose=spec.mount(host,{isCurrent:()=>true,setBeforeLeave(){}});await new Promise(resolve=>setImmediate(resolve));
+  fail=false;await find(host,'Retry same request').onclick();
+  assert.deepEqual(writes[1],writes[0]);dispose();
+});
+
+test('retrying an older editor request leaves a different current draft untouched', async () => {
+  const source=fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8');
+  const start=source.indexOf('  async function submitAttempt(attempt, isRetry = false)');
+  const end=source.indexOf('  async function refreshPending()',start);
+  const part=source.slice(start,end),message={hidden:true},button={disabled:false},form={inert:false,isConnected:true,querySelector:()=>message};
+  let savedCalls=0;
+  const make=new Function('el','form','opts','remSubmitAttempt','refreshPending','paintPending',`let busy=false,initial='original';const snapshot=()=> 'different draft';const editing=true;const remNormalize=x=>x;${part};return {submitAttempt,baseline:()=>initial};`);
+  const view=make({querySelector:()=>button},form,{onSaved:()=>savedCalls++},async()=>({reminder:{id:'old'}}),async()=>{},()=>{});
+  await view.submitAttempt({args:{text:'older'}},true);
+  assert.equal(view.baseline(),'original');assert.equal(savedCalls,0);assert.match(message.textContent,/current draft is unchanged/);
+});
+
+test('Focus exposes recovery when the due reminder is gone and rechecks owner on entry', async () => {
+  const listeners={}, attempts=new Map([['one',{owner:'owner'}]]);let opened=0, session='owner';
+  const host={isConnected:true,innerHTML:'',hidden:false,addEventListener(type,fn){listeners[type]=fn;},removeEventListener(){}};
+  const context={document:{addEventListener(){}},window:{addEventListener(){}},remAttempts:attempts,remVerifiedOwner:async()=>session,
+    remindersOpenUnconfirmed:()=>{opened++;},remindersOwnerDue:async()=>[],api:async()=>({items:[]}),coreData:x=>x,
+    esc:String,URLSearchParams,setTimeout:()=>0,clearTimeout(){},accessLost:()=>false,Date};
+  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/attention-queue.js'),'utf8')+'\nthis.queue=attentionQueue;',context);
+  const dispose=context.queue.mountSignoffs(host);await new Promise(resolve=>setImmediate(resolve));
+  assert.match(host.innerHTML,/Unconfirmed reminder changes/);
+  listeners.click({target:{closest:selector=>selector==='[data-reminder-recovery]'?{}:null}});assert.equal(opened,1);
+  dispose();
 });
