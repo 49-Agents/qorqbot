@@ -5,8 +5,6 @@ function agfocusRowHtml(actions = '') {
 
 // Owner Focus presentation; source state and conversations retain their existing writers.
 const AGFOCUS_POLL_MS = 60000;
-const AGFOCUS_THREAD_HEIGHT_KEY = 'ag:focus-thread-height:v1';
-const AGFOCUS_THREAD_MIN_HEIGHT = 180;
 function agfocusPath(p) { return `/me/agents/${encodeURIComponent(p.agentId)}/focus`; }
 function agfocusText(el, value) { if (el && el.textContent !== value) el.textContent = value; }
 function agfocusPageKey(p) { return JSON.stringify([p.focusOffset||0,!!p.focusIncludearchived,!!p.focusIncludedeferred]); }
@@ -271,7 +269,7 @@ function agfocusMount(p) {
   const body = $('#agpad-body', p.el);
   body.innerHTML = `<div class="agfocus"><p class="agfocus-error" role="alert" hidden></p><button type="button" class="quiet" data-focus-retry-move hidden>Retry same move</button><p class="agfocus-sr" data-focus-announcement role="status" aria-live="polite"></p><span class="agfocus-sr" id="agfocus-move-instructions">Use Alt+ArrowUp or Alt+ArrowDown to move one visible row.</span>
 
-    <section class="attention-queue" aria-label="New attention"></section><p class="agfocus-activity muted" hidden></p><section class="agfocus-surface" aria-label="Browser, Desktop or Viewbox" hidden><div class="agfocus-surface-bar"><button type="button" class="quiet" data-surface-back aria-label="Back to Pinned">← Pinned</button></div><div class="agfocus-surface-body"></div></section><header><div class="agfocus-heading"><div class="global-eyebrow">Pinned</div><div class="agfocus-toolbar"><button type="button" class="quiet agfocus-icon" data-focus-add aria-label="Add text to Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div></div><p class="agfocus-empty muted" role="status">Loading Pinned…</p></header><div class="agfocus-layout"><div class="agfocus-items"></div><aside class="agfocus-dock" aria-label="Selected record" hidden><div class="agfocus-dock-content"></div><div class="agfocus-thread-resize" role="separator" aria-orientation="horizontal" aria-label="Record pane height" tabindex="0"></div></aside></div><div class="agfocus-retained" hidden></div><nav class="agfocus-pages" aria-label="Pinned pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
+    <section class="attention-queue" aria-label="New attention"></section><p class="agfocus-activity muted" hidden></p><section class="agfocus-surface" aria-label="Browser, Desktop or Viewbox" hidden><div class="agfocus-surface-bar"><button type="button" class="quiet agfocus-close" data-surface-close aria-label="Close"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg><span>Close</span></button><span class="agfocus-surface-title"></span></div><div class="agfocus-surface-body"></div></section><header><div class="agfocus-heading"><div class="global-eyebrow">Pinned</div><div class="agfocus-toolbar"><button type="button" class="quiet agfocus-icon" data-focus-add aria-label="Add text to Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div></div><p class="agfocus-empty muted" role="status">Loading Pinned…</p></header><div class="agfocus-layout"><div class="agfocus-items"></div><aside class="agfocus-dock" aria-label="Selected record" hidden><div class="agfocus-dock-content"></div></aside></div><div class="agfocus-retained" hidden></div><nav class="agfocus-pages" aria-label="Pinned pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
   p.focusDrafts ||= new Map();
   p.focusCards = new Map();
   p.focusWork=agfocusRestoreWork();
@@ -281,17 +279,19 @@ function agfocusMount(p) {
   let todayCalendar;
   if(p.workspaceScope === 'global' && p.workspaceRole === 'ordubashy') {
     const excerpt=document.createElement('section');
-    board.querySelector('.attention-queue').before(excerpt);
+    // The launchers/attention/signoff row stays the board's first row; the calendar excerpt sits under it.
+    board.querySelector('.attention-queue').after(excerpt);
     todayCalendar=calendarTodayMount(excerpt,()=>agpadSetView(p,'calendar'));
     excerpt.classList.add('agfocus-calendar');
   }
   const disposeQueue=agfocusQueueMount(p,board.querySelector('.attention-queue'));
   // Focus uses the shared record workspace. Its header owns Back, the type and
-  // Chat icon tabs and Close; selecting a row no longer mounts a conversation inside it.
+  // Chat icon tabs and the pill Close; a selected row fills the board below the control row.
   p.focusWorkspacePaired=false;
   p.focusWorkspace=recordWorkspaceMount($('.agfocus-dock-content',board),{
     entry:'focus',
     paired:false,
+    closeFirst:true,
     onPairedSource:(record,parentTable)=>agfocusPairedSource(record,parentTable),
     visible:()=>agpadActive(p) && p.view==='focus' && p.focusMount===board && !board.hidden,
     onClose:()=>agfocusClearSelection(p),
@@ -303,24 +303,30 @@ function agfocusMount(p) {
   const pairedReference=ref=>agfocusOpenPairedReference(p,ref);
   window.agentWorkspacePairedUnavailable=pairedUnavailable;
   window.agentWorkspacePairedReference=pairedReference;
-  const storedHeight=Number(ls(AGFOCUS_THREAD_HEIGHT_KEY));
-  p.focusThreadHeight=Number.isFinite(storedHeight) && storedHeight>=AGFOCUS_THREAD_MIN_HEIGHT ? storedHeight : 320;
-  const disposeResize=agfocusThreadResizeMount(p,board,body);
+  // Focus can sit inside the expanded record; note it so Close can hand it back to the row it came from.
+  p.focusDockHadFocus=false;
+  $('.agfocus-dock',board).addEventListener('focusin',()=>{p.focusDockHadFocus=true;});
   const disposeOrdering=agfocusOrderMount(p,board,$('.agfocus-layout',board));
   const disposeText=agfocusTextHost()?.mount(p,board) || (()=>{});
   p.focusSnoozes ||= new Map();
   p.focusOrderPending ||= false;
   p.focusMoveSubmission ||= null;
   $('[data-focus-retry-move]',board).onclick=()=>agfocusMove(p,null,null,null,true);
-  $('[data-surface-back]',board).onclick=()=>agpadSurfaceClose(p);
+  $('[data-surface-close]',board).onclick=()=>agpadSurfaceClose(p);
   const repliesChanged=()=>{for(const node of p.focusCards.values())agfocusUnread(p,node,node._item);};
   document.addEventListener('reply-notifications-changed',repliesChanged);
+  // An open item's Close is the only way back to the board besides the launcher row; Escape keeps closing the record.
+  const escape=event=>{
+    if(event.key!=='Escape' || p.surface || !p.focusSelected || document.querySelector('.overlay'))return;
+    event.preventDefault();event.stopPropagation();void p.focusWorkspace?.close();
+  };
+  document.addEventListener('keydown',escape);
   p.workspaceDispose=()=>{
-    p.el.classList.remove('agfocus-record-selected');
     todayCalendar?.dispose();
     disposeQueue();
     document.removeEventListener('reply-notifications-changed',repliesChanged);
-    agfocusOverlayClose(p);disposeResize();disposeOrdering();disposeText();p.focusSnoozePopup?.close();p.focusSnoozePopup=null;
+    document.removeEventListener('keydown',escape);
+    disposeOrdering();disposeText();p.focusSnoozePopup?.close();p.focusSnoozePopup=null;
     p.focusWorkspace?.dispose();p.focusWorkspace=null;
     if(window.agentWorkspacePairedUnavailable===pairedUnavailable)delete window.agentWorkspacePairedUnavailable;
     if(window.agentWorkspacePairedReference===pairedReference)delete window.agentWorkspacePairedReference;
@@ -722,7 +728,10 @@ function agfocusPaint(p) {
     const list = $('.agfocus-items',host);
     list?.replaceChildren(); if (list) delete list.dataset.signature;
     p.focusCards?.clear();
-    agfocusOverlayClose(p);
+    // A board with no snapshot has no selected record: the expanded area and its chrome return with the data.
+    p.focusSelected=null;
+    host.classList.remove('agfocus-record-open');
+    $('.agfocus-layout',host)?.classList.remove('agfocus-record-open');
     const dock = $('.agfocus-dock',host); if (dock) dock.hidden = true;
     const empty=$('.agfocus-empty',host);empty.hidden=false;
     agfocusText(empty,p.focusError?'':'Loading Pinned…');
@@ -748,7 +757,6 @@ function agfocusPaint(p) {
       agfocusRowPending(p,p.focusCards.get(item.id));
     }
     agfocusRefreshThreads(p);
-    agfocusThreadHeight(p);
     agfocusDesktopTab(p);return;
   }
   list.dataset.signature=signature;
@@ -897,7 +905,6 @@ function agfocusPaint(p) {
   agfocusTextHost()?.reconcile(p,host,list);
   if(focused?.isConnected && host.contains(focused)){focused.focus({preventScroll:true});if(selection)focused.setSelectionRange(...selection);}
   agfocusRefreshThreads(p);
-  agfocusThreadHeight(p);
   $('[data-focus-more]',host).hidden=data.next_offset==null;
   $('[data-focus-previous]',host).hidden=!p.focusPages?.length;
   $('[data-focus-page]',host).textContent=(p.focusPages?.length || data.next_offset!=null)?'Page '+((p.focusPages?.length||0)+1):'';
@@ -1007,30 +1014,32 @@ async function agfocusWorkspaceMode(p,paired) {
   p.focusWorkspace=recordWorkspaceMount($('.agfocus-dock-content',board),agfocusWorkspaceOptions(p));
   return true;
 }
+// A selected record fills the board below the persistent control row. The record's own header holds
+// its pill Close, title and tabs; the agent Chat beside the pane keeps its state and stays usable.
 function agfocusShowDock(p) {
   const board=p.focusMount;if(!board?.isConnected)return null;
   if(!p.focusWorkspace?.alive?.())p.focusWorkspace=recordWorkspaceMount($('.agfocus-dock-content',board),agfocusWorkspaceOptions(p));
-  const dock=$('.agfocus-dock',board);
-  dock.hidden=false;$('.agfocus-layout',board).classList.add('agfocus-thread-open');
-  if(p.workspaceRole==='ordubashy' && p.focusWorkspacePaired){
-    p.el.classList.add('agfocus-record-selected');
-    $('.agfocus-layout',board).classList.add('agfocus-paired-workspace');
-    agfocusThreadHeight(p);
-    return dock;
-  }
-  agfocusOverlayOpen(p,board,dock,()=>{void p.focusWorkspace?.close();});
-  agfocusThreadHeight(p);
+  const dock=$('.agfocus-dock',board),layout=$('.agfocus-layout',board);
+  if(dock.hidden){p.focusLayoutScroll=layout?.scrollTop || 0;p.focusDockHadFocus=false;}
+  dock.hidden=false;layout.classList.add('agfocus-record-open');board.classList.add('agfocus-record-open');
   return dock;
 }
 function agfocusClearSelection(p) {
-  p.el.classList.remove('agfocus-record-selected');
+  const id=p.focusSelected,board=p.focusMount,dock=board?.isConnected?$('.agfocus-dock',board):null;
+  // Close was pressed inside the expanded record: return focus to the row it came from.
+  const returnFocus=!!id && !!dock && !dock.hidden && !!p.focusDockHadFocus;
   p.focusSelected=null;
+  p.focusDockHadFocus=false;
   p.focusWorkspacePaired=false;
-  const board=p.focusMount;if(!board?.isConnected)return;
-  $('.agfocus-dock',board).hidden=true;
-  $('.agfocus-layout',board).classList.remove('agfocus-thread-open','agfocus-paired-workspace');
-  agfocusOverlayClose(p);
+  if(!board?.isConnected)return;
+  dock.hidden=true;
+  board.classList.remove('agfocus-record-open');
+  const layout=$('.agfocus-layout',board);
+  layout.classList.remove('agfocus-record-open');
+  if(p.focusLayoutScroll!=null && !p.surface)layout.scrollTop=p.focusLayoutScroll;
+  p.focusLayoutScroll=null;
   for(const node of p.focusCards.values()){node.classList.add('agfocus-collapsed');node.setAttribute('aria-expanded','false');}
+  if(returnFocus)p.focusCards.get(id)?.focus?.({preventScroll:true});
 }
 // Eviction, lost access or a source disappearing closes the mounted record without a save prompt.
 function agfocusForceClose(p) {
@@ -1045,6 +1054,7 @@ function agfocusForceClose(p) {
 function agfocusWorkspaceOptions(p) {
   return {entry:'focus',
     paired:!!p.focusWorkspacePaired && p.workspaceRole === 'ordubashy',
+    closeFirst:true,
     onPairedSource:(record,parentTable)=>agfocusPairedSource(record,parentTable),
     visible:()=>agpadActive(p) && p.view==='focus' && p.focusMount && !p.focusMount.hidden,
     onClose:()=>agfocusClearSelection(p),
@@ -1185,7 +1195,6 @@ async function agfocusSelect(p,id) {
   p.focusSelected=id;
   if(previous && previous!==next){previous.classList.add('agfocus-collapsed');previous.setAttribute('aria-expanded','false');}
   next.classList.remove('agfocus-collapsed');next.setAttribute('aria-expanded','true');
-  agfocusThreadHeight(p);
   // An ordinary Task still opens its existing hierarchy; a Project only expands through its chevron.
   if(source?.type==='task' && (agfocusTaskRecord(next._item).task_type!=='story' || p.focusWork?.get(next._item.id)?.expanded!==false))void agfocusExpandWork(p,next._item);
   // A selected CRM expands like a Story unless its entries were collapsed on purpose.
@@ -1197,50 +1206,6 @@ function agfocusRefreshThreads(p) {
   p.focusRefreshThreads=false;
   // Only the open record's Chat is refreshed; the dashboard is not polled.
   p.focusWorkspace?.refresh?.();
-}
-
-function agfocusThreadHeight(p,height) {
-  const board=p.focusMount,dock=board && $('.agfocus-dock',board);
-  if(!dock || dock.hidden || board.hidden)return;
-  if(p.focusOverlay){p.focusOverlay.fit();return;}
-  if(p.workspaceRole==='ordubashy'){dock.style.height='auto';return;}
-  const body=$('#agpad-body',p.el),bodyBox=body.getBoundingClientRect(),layoutBox=$('.agfocus-layout',board).getBoundingClientRect();
-  const available=Math.floor(Math.min(innerHeight,bodyBox.bottom)-Math.max(bodyBox.top,layoutBox.top)-4);
-  // The pane scroll container makes even a shorter-than-minimum viewport reachable.
-  const maximum=Math.max(AGFOCUS_THREAD_MIN_HEIGHT,available);
-  const actual=Math.min(maximum,Math.max(AGFOCUS_THREAD_MIN_HEIGHT,height ?? p.focusThreadHeight));
-  p.focusThreadActual=actual;dock.style.height=actual+'px';
-  const handle=$('.agfocus-thread-resize',dock);
-  handle.setAttribute('aria-valuemin',String(AGFOCUS_THREAD_MIN_HEIGHT));
-  handle.setAttribute('aria-valuemax',String(maximum));
-  handle.setAttribute('aria-valuenow',String(Math.round(actual)));
-  handle.setAttribute('aria-valuetext',Math.round(actual)+' pixels');
-  if(height!==undefined){p.focusThreadHeight=actual;ls(AGFOCUS_THREAD_HEIGHT_KEY,String(actual));}
-}
-
-function agfocusThreadResizeMount(p,board,body) {
-  const handle=$('.agfocus-thread-resize',board);
-  let drag=null,frame=null;
-  const refresh=()=>{if(frame==null)frame=requestAnimationFrame(()=>{frame=null;agfocusThreadHeight(p);});};
-  const begin=event=>{
-    if(event.button!==0)return;
-    event.preventDefault();handle.focus({preventScroll:true});
-    drag={id:event.pointerId,y:event.clientY,height:p.focusThreadActual};handle.setPointerCapture(event.pointerId);
-  };
-  const move=event=>{if(drag && drag.id===event.pointerId)agfocusThreadHeight(p,drag.height+event.clientY-drag.y);};
-  const finish=event=>{if(drag?.id!==event.pointerId)return;if(handle.hasPointerCapture(event.pointerId))handle.releasePointerCapture(event.pointerId);drag=null;};
-  const key=event=>{if(!['ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();agfocusThreadHeight(p,p.focusThreadActual+(event.key==='ArrowUp'?-20:20));};
-  handle.addEventListener('pointerdown',begin);handle.addEventListener('pointermove',move);
-  handle.addEventListener('pointerup',finish);handle.addEventListener('pointercancel',finish);handle.addEventListener('keydown',key);
-  const observer=new ResizeObserver(refresh);observer.observe(body);observer.observe(board);
-  window.addEventListener('resize',refresh);body.addEventListener('scroll',refresh);
-  return ()=>{
-    observer.disconnect();window.removeEventListener('resize',refresh);body.removeEventListener('scroll',refresh);
-    if(frame!=null)cancelAnimationFrame(frame);
-    if(drag && handle.hasPointerCapture(drag.id))handle.releasePointerCapture(drag.id);
-    handle.removeEventListener('pointerdown',begin);handle.removeEventListener('pointermove',move);
-    handle.removeEventListener('pointerup',finish);handle.removeEventListener('pointercancel',finish);handle.removeEventListener('keydown',key);
-  };
 }
 
 function agfocusTaskScopeMissing(item,scope) {
@@ -1398,10 +1363,18 @@ function agfocusDesktopFrameFit(detail, display) {
   schedule();
 }
 
+// The switch and the reconnect belong to the pane's own Desktop view; a Focus surface is opened
+// and reopened from the persistent launcher row, so neither control appears in the expanded area.
+function agfocusDesktopBar(p, ctx) {
+  if (ctx) return '';
+  return '<div class="agbrowser-bar">' + agbrowserModeToggle(p, 'desktop') +
+    '<span class="agbrowser-actions">' + agbrowserReconnectButton('data-desktop-retry') + '</span></div>';
+}
 function agfocusDesktopError(p, body, message, ctx = null) {
-  body.innerHTML = '<section class="agfocus-desktop-view"><div class="agbrowser-bar">' + agbrowserModeToggle(p, 'desktop') +
-    '<span class="agbrowser-actions">' + agbrowserReconnectButton('data-desktop-retry') + '</span></div><p class="ferr" role="alert">' + esc(message) + '</p></section>';
-  $('[data-desktop-retry]', body).onclick = () => agfocusDesktop(p, true, ctx);
+  body.innerHTML = '<section class="agfocus-desktop-view">' + agfocusDesktopBar(p, ctx) +
+    '<p class="ferr" role="alert">' + esc(message) + '</p></section>';
+  const retry = $('[data-desktop-retry]', body);
+  if (retry) retry.onclick = () => agfocusDesktop(p, true, ctx);
   agbrowserWireMode(p, body);
 }
 
@@ -1416,7 +1389,7 @@ async function agfocusDesktop(p, reconnect = false, ctx = null) {
   if (ctx) ctx.reset(); else { p.workspaceDispose?.(); p.workspaceDispose = null; }
   const request = p.desktopRequest = (p.desktopRequest || 0) + 1;
   if (ctx) ctx.onDispose(() => { p.desktopRequest++; });
-  body.innerHTML = '<section class="agfocus-desktop-view"><div class="agbrowser-bar">' + agbrowserModeToggle(p, 'desktop') + '</div><p class="muted" role="status">Connecting to Ordubashy’s desktop…</p></section>';
+  body.innerHTML = '<section class="agfocus-desktop-view">' + agfocusDesktopBar(p, ctx) + '<p class="muted" role="status">Connecting to Ordubashy’s desktop…</p></section>';
   agbrowserWireMode(p, body);
   let data, surfaces;
   try {
@@ -1432,8 +1405,9 @@ async function agfocusDesktop(p, reconnect = false, ctx = null) {
   const surface = surfaces.desktop;
   const desktop = surface && agfocusDesktopURL(surface.url);
   if (!desktop) {
-    body.innerHTML = '<section class="agfocus-desktop-view"><div class="agbrowser-bar">' + agbrowserModeToggle(p, 'desktop') + '<span class="agbrowser-actions">' + agbrowserReconnectButton('data-desktop-retry') + '</span></div><p class="muted" role="status">Desktop is not configured. Set DESKTOP_CONTROL_URL in Global Settings or add Ordubashy’s desktop binding.</p></section>';
-    $('[data-desktop-retry]', body).onclick = () => agfocusDesktop(p, true, ctx);
+    body.innerHTML = '<section class="agfocus-desktop-view">' + agfocusDesktopBar(p, ctx) + '<p class="muted" role="status">Desktop is not configured. Set DESKTOP_CONTROL_URL in Global Settings or add Ordubashy’s desktop binding.</p></section>';
+    const retry = $('[data-desktop-retry]', body);
+    if (retry) retry.onclick = () => agfocusDesktop(p, true, ctx);
     agbrowserWireMode(p, body);
     return;
   }
@@ -1444,7 +1418,7 @@ async function agfocusDesktop(p, reconnect = false, ctx = null) {
   const requestId = browser?.request_id;
   let draft = requestId ? p.focusDrafts.get(requestId) : null;
   if (requestId && !draft) { draft = {note: ''}; p.focusDrafts.set(requestId, draft); }
-  body.innerHTML='<section class="agfocus-desktop-view"><div class="agfocus-desktop-help agbrowser-bar">' + agbrowserModeToggle(p, 'desktop') + '<span class="agbrowser-actions">' + agbrowserReconnectButton('data-desktop-retry') + '</span></div><div class="agfocus-desktop-help agfocus-desktop-notes"></div><iframe class="agfocus-reference-frame agfocus-desktop-frame" aria-label="Desktop control" referrerpolicy="no-referrer" allow="clipboard-read; clipboard-write; fullscreen"></iframe>' +
+  body.innerHTML='<section class="agfocus-desktop-view">' + agfocusDesktopBar(p, ctx) + '<div class="agfocus-desktop-help agfocus-desktop-notes"></div><iframe class="agfocus-reference-frame agfocus-desktop-frame" aria-label="Desktop control" referrerpolicy="no-referrer" allow="clipboard-read; clipboard-write; fullscreen"></iframe>' +
     (pending ? '<div class="agfocus-desktop-completion"><label>Note for Ordubashy <span class="muted">(optional)</span><textarea class="inp agfocus-note" rows="2" maxlength="4000"></textarea></label><button class="btn agfocus-done" type="button">I’m done</button><p class="agfocus-done-error" role="alert" hidden></p><p class="muted">Input completion only. This does not approve a signoff.</p></div>' : '') + '</section>';
   const host = $('.agfocus-desktop-view', body);
   const help = $('.agfocus-desktop-notes', host);
@@ -1459,7 +1433,8 @@ async function agfocusDesktop(p, reconnect = false, ctx = null) {
   const instruction = document.createElement('p');
   instruction.textContent = pending ? 'Complete the input in the desktop, then click “I’m done”.' : (browser?.note || 'No browser input is currently pending.');
   help.appendChild(instruction);
-  $('[data-desktop-retry]', host).onclick = () => agfocusDesktop(p, true, ctx);
+  const retry = $('[data-desktop-retry]', host);
+  if (retry) retry.onclick = () => agfocusDesktop(p, true, ctx);
   agbrowserWireMode(p, host);
   const frame = $('.agfocus-desktop-frame', host);
   frame.dataset.surface = surface.id;

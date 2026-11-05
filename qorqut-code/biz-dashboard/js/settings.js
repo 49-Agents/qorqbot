@@ -5,12 +5,25 @@ const envScope = () => state.scope === "global" ? "global" : state.biz;
 const envCurrent = p => envView === p && p.pane.isConnected && envScope() === p.scope;
 
 async function renderSettings(c) {
+  envView?.testing?.unsubscribe?.();
   const scope = envScope(), global = state.scope === "global";
   const pane = document.createElement("div");
   pane.className = "pane settingspane";
   const p = envView = { pane, scope, global, url: global ? "/root/env" : "/biz/" + encodeURIComponent(state.biz) + "/env",
-    rows: [], inherited: [], loaded: false, saving: false, dirty: false };
+    rows: [], inherited: [], loaded: false, saving: false, dirty: false, testing: null };
   pane.innerHTML = `
+    ${global ? `<section class="set-testing" aria-labelledby="set-testing-title">
+      <div class="set-testing-copy">
+        <h2 class="set-title" id="set-testing-title">Testing mode</h2>
+        <p class="muted small" id="set-testing-desc">Show Overseer in the Global agent roster and enable its chat, terminal and workspace. Off by default.</p>
+      </div>
+      <label class="set-switch" for="set-testing-toggle">
+        <input type="checkbox" id="set-testing-toggle" role="switch" aria-label="Testing mode" aria-describedby="set-testing-desc" disabled>
+        <span class="set-switch-track" aria-hidden="true"></span>
+        <span class="set-switch-label" id="set-testing-state">Loading…</span>
+      </label>
+    </section>
+    <div class="set-note muted small set-testing-note" id="set-testing-note" role="status"></div>` : ''}
     <div class="set-head"><div>
       <h1 class="set-title">${global ? "Global environment" : "Environment"}</h1>
       <div class="muted small">${global ? "Shared defaults for all projects and Global agents. Projects can override individual values." : "Global values are inherited automatically. Override a value for this project, or use Global again."}</div>
@@ -21,12 +34,86 @@ async function renderSettings(c) {
     <div class="set-note muted small" id="envnote" role="status"></div>
     <p class="muted small">Changes apply to new agent sessions and subsequent jobs. Already-running agent sessions keep their current environment.</p>`;
   c.appendChild(pane);
+  if (global) {
+    const testing = p.testing = {
+      toggle: pane.querySelector("#set-testing-toggle"), state: pane.querySelector("#set-testing-state"),
+      note: pane.querySelector("#set-testing-note"), loaded: false, saving: false,
+    };
+    testing.toggle.onchange = () => saveTestingMode(p);
+    testing.unsubscribe = testingModeSubscribe(() => {
+      if (p.pane.isConnected && p.testing === testing && !testing.saving) paintTestingMode(p);
+    });
+    void loadTestingMode(p, true);
+  }
   pane.querySelector("#envsave").onclick = () => saveEnv(p);
   pane.querySelector("#envadd").onclick = () => {
     p.rows.push({ key: "", value: "" }); envDirty(p); paintEnv(p);
     pane.querySelector(".envrow:last-child .ek")?.focus();
   };
   await loadEnv(p);
+}
+
+function testingModeNote(p, message, {error = false, retry = false} = {}) {
+  const testing = p.testing;
+  if (!testing) return;
+  testing.note.textContent = message;
+  testing.note.classList.toggle("error", error && !!message);
+  if (retry) {
+    const button = document.createElement("button");
+    button.type = "button"; button.className = "btn quiet set-testing-retry"; button.textContent = "Retry";
+    button.onclick = () => loadTestingMode(p, true);
+    testing.note.append(" ", button);
+  }
+}
+function paintTestingMode(p) {
+  const testing = p.testing;
+  if (!testing) return;
+  testing.toggle.checked = testingModeEnabled();
+  testing.state.textContent = testingModeEnabled() ? "On" : "Off";
+  testing.toggle.disabled = testing.saving || !testing.loaded;
+}
+async function loadTestingMode(p, retry = false) {
+  const testing = p.testing;
+  if (!testing || testing.saving) return;
+  testing.loaded = false;
+  testing.toggle.disabled = true;
+  testing.state.textContent = "Loading…";
+  testingModeNote(p, "Loading Testing mode…");
+  await testingModeLoad(retry);
+  if (!p.pane.isConnected || p.testing !== testing) return;
+  if (testingModeFailed()) {
+    testing.toggle.checked = false;
+    testing.state.textContent = "Off";
+    testingModeNote(p, testingModeMessage(), {error: true, retry: true});
+    return;
+  }
+  testing.loaded = true;
+  testingModeNote(p, "");
+  paintTestingMode(p);
+}
+async function saveTestingMode(p) {
+  const testing = p.testing;
+  if (!testing || testing.saving || !testing.loaded) return;
+  const wanted = testing.toggle.checked;
+  testing.saving = true;
+  testing.toggle.disabled = true;
+  testing.state.textContent = wanted ? "On" : "Off";
+  testingModeNote(p, "Saving Testing mode…");
+  try {
+    const enabled = await testingModeSet(wanted);
+    if (!p.pane.isConnected || p.testing !== testing) return;
+    testing.toggle.checked = enabled;
+    testing.state.textContent = enabled ? "On" : "Off";
+    testingModeNote(p, enabled ? "Testing mode on. Overseer is available." : "Testing mode off. Overseer is available in testing mode only.");
+  } catch (error) {
+    if (!p.pane.isConnected || p.testing !== testing) return;
+    testing.toggle.checked = testingModeEnabled();
+    testing.state.textContent = testingModeEnabled() ? "On" : "Off";
+    testingModeNote(p, error?.message || "Testing mode could not be saved.", {error: true});
+  } finally {
+    testing.saving = false;
+    if (p.pane.isConnected && p.testing === testing) paintTestingMode(p);
+  }
 }
 
 function envError(p, message, retry = false) {

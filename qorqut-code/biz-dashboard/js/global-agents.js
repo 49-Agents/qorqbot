@@ -1,6 +1,11 @@
 // The Global Agents page lists the supported global agents (including every permanent worker) and the owner's workspace Terminal.
 // Business agents are not resident: they are never listed, selected or started here.
 let globalAgentsGeneration = 0;
+let globalTestingModeUnsubscribe = null;
+const OVERSEER_ROLE = 'learning-applier';
+const overseerRole = agent => (agent?.role?.id || agent?.role_id) === OVERSEER_ROLE;
+const OVERSEER_UNAVAILABLE_LABEL = 'Overseer, available in testing mode only.';
+const OVERSEER_UNAVAILABLE_TITLE = 'Overseer — Available in testing mode only';
 // One page-level listener keeps every visible navigation face looking at the
 // pointer, even over Chat. Only pointer/layout changes schedule a frame.
 let globalAgentGazeRefresh;
@@ -86,13 +91,20 @@ async function agentProfileOpen(agentId) {
   if (!await globalAgentsNavigate(agentId).catch(() => false)) await selectGlobal('agents');
 }
 async function renderGlobalAgents(c) {
+  globalTestingModeUnsubscribe?.();
+  globalTestingModeUnsubscribe = null;
   const generation = ++globalAgentsGeneration;
   const current = () => generation === globalAgentsGeneration && c.isConnected
     && state.scope === 'global' && state.globalTab === 'agents';
   c.innerHTML = '<section class="pane global-content"><div class="global-eyebrow">Global</div><h1>Agents</h1><p class="muted" role="status">Loading agents…</p></section>';
   let agents;
   try {
-    const profiles = globalAgentProfiles.length ? globalAgentProfiles : await loadGlobalAgentProfiles();
+    // Read the owner preference together with the roster, before any Overseer
+    // control is painted or its chat/terminal/workspace is mounted.
+    const [profiles] = await Promise.all([
+      globalAgentProfiles.length ? globalAgentProfiles : loadGlobalAgentProfiles(),
+      testingModeReady(),
+    ]);
     if (!Array.isArray(profiles)) throw new Error('The Global agent list is unavailable.');
     agents = profiles.filter(globalRosterAgent).sort((a, b) => globalAgentNavRank(a) - globalAgentNavRank(b));
   } catch (error) {
@@ -102,6 +114,7 @@ async function renderGlobalAgents(c) {
     return;
   }
   if (!current()) return;
+  const rosterOverseer = agents.find(overseerRole) || null;
   c.innerHTML = `<div class="split global-agents agsplit">
     <div class="listcol"><div class="ctop"><div class="global-eyebrow">Global</div><div class="agent-nav-heading"><h1>Agents</h1><span class="agent-nav-actions">${agentNavButton()}</span></div></div>
       <div class="global-nav-body">
@@ -113,17 +126,34 @@ async function renderGlobalAgents(c) {
           <button class="item agent global-workspace-settings" type="button" data-global-settings title="Settings" aria-label="Settings"><span class="nm">${GLOBAL_ICONS.settings}</span></button>
         </div>
       </div></div>
+    <section class="overseer-coming-soon" id="overseer-coming-soon" aria-label="Overseer" aria-live="polite" hidden>
+      <div class="overseer-coming-soon-box">
+        <h2>Overseer</h2>
+        <p class="overseer-coming-soon-description">Overseer will be managing the agentic layer, tailoring Qorqbot for you on the lowest level.</p>
+        <p class="overseer-coming-soon-hint">Available in testing mode only</p>
+        <p class="overseer-coming-soon-error" role="alert" hidden></p>
+        <button class="quiet overseer-coming-soon-retry" type="button" hidden>Retry</button>
+      </div>
+    </section>
     <section class="global-agent-session" aria-label="Agent session"><div class="chat termmode" id="global-agent-terminal"></div></section>
     <div class="agent-pane-divider" data-agent-pane-divider role="separator" aria-label="Terminal and agent pane divider" aria-orientation="vertical" tabindex="0"></div>
     <aside class="tasks agpad" id="agpad" aria-label="Agent pane"></aside>
   </div>`;
   wireAgentNavToggle(c, 'global');
   const list = $('#global-agent-list', c), pane = $('#global-agent-terminal', c), nav = $('.listcol', c);
+  const comingSoon = $('#overseer-coming-soon', c);
+  const comingSoonError = $('.overseer-coming-soon-error', comingSoon);
+  const comingSoonRetry = $('.overseer-coming-soon-retry', comingSoon);
   // Icon-only rows: the agent name lives in the accessible label, with no visible text, tooltip or presence ball.
-  list.innerHTML = agents.map((agent, index) => `${index > 0 && globalAgentNavRank(agents[index - 1]) < 2 && globalAgentNavRank(agent) >= 2
-    ? '<span class="global-agent-group-divider" aria-hidden="true"></span>' : ''}<button class="item agent" type="button" data-global-agent="${esc(agent.agent_id)}" aria-pressed="false" aria-label="${esc(agent.display_name || agent.name)}">
+  // The unavailable Overseer row keeps its real avatar and gains an explicit hover/accessible status label.
+  list.innerHTML = agents.map((agent, index) => {
+    const gated = overseerRole(agent) && !testingModeEnabled();
+    const name = agent.display_name || agent.name;
+    return `${index > 0 && globalAgentNavRank(agents[index - 1]) < 2 && globalAgentNavRank(agent) >= 2
+      ? '<span class="global-agent-group-divider" aria-hidden="true"></span>' : ''}<button class="item agent${gated ? ' overseer-coming-soon-entry' : ''}" type="button" data-global-agent="${esc(agent.agent_id)}" aria-pressed="false" aria-label="${esc(gated ? OVERSEER_UNAVAILABLE_LABEL : name)}"${gated ? ` title="${esc(OVERSEER_UNAVAILABLE_TITLE)}" data-overseer-coming-soon="1"` : ''}>
     <span class="nm">${globalAgentNavAvatar(agent)}</span><span class="agent-nav-working" data-agent-presence="${esc(agent.agent_id)}" role="img" aria-label="Working" hidden><i></i><i></i><i></i></span>
-  </button>`.replace(/\s*\n\s*/g, '')).join('');
+  </button>`.replace(/\s*\n\s*/g, '');
+  }).join('');
   wireGlobalAgentGaze();
   agentNavPaint(); agentNavRefresh();
   if (typeof replyNotifications !== 'undefined') replyNotifications.paint();
@@ -141,23 +171,79 @@ async function renderGlobalAgents(c) {
   // ---- selection
   // Global Chat displays the same native conversation as Terminal. Switching views only changes the UI.
   const disposeChat = () => agentViewDispose();
+  const root = $('.global-agents', c);
+  let gated = false;
+  const paintComingSoonError = () => {
+    const failed = testingModeFailed();
+    comingSoonError.hidden = !failed;
+    comingSoonError.textContent = failed ? testingModeMessage() : '';
+    comingSoonRetry.hidden = !failed;
+    comingSoonRetry.disabled = false;
+  };
+  const leaveComingSoon = () => {
+    if (comingSoon.hidden) return;
+    comingSoon.hidden = true;
+    root.classList.remove('overseer-gated');
+  };
+  const enterComingSoon = () => {
+    gated = true;
+    // Release only this browser view. The backend agent session, terminal process,
+    // permissions and saved data stay exactly as they were.
+    disposeChat();
+    if (typeof agpadDispose === 'function') agpadDispose();
+    pane.innerHTML = '';
+    pane.dataset.agentPane = 'off';
+    root.classList.add('overseer-gated');
+    comingSoon.hidden = false;
+    paintComingSoonError();
+  };
+  const paintOverseerEntry = () => {
+    if (!rosterOverseer) return;
+    const row = [...list.querySelectorAll('[data-global-agent]')].find(button => button.dataset.globalAgent === rosterOverseer.agent_id);
+    if (!row) return;
+    const unavailable = !testingModeEnabled();
+    row.classList.toggle('overseer-coming-soon-entry', unavailable);
+    row.setAttribute('aria-label', unavailable ? OVERSEER_UNAVAILABLE_LABEL : (rosterOverseer.display_name || rosterOverseer.name));
+    if (unavailable) {
+      row.title = OVERSEER_UNAVAILABLE_TITLE;
+      row.dataset.overseerComingSoon = '1';
+    } else {
+      row.removeAttribute('title');
+      delete row.dataset.overseerComingSoon;
+    }
+  };
+  paintOverseerEntry();
   const select = (agent, requestedView = null, remember = true, leaveChecked = false) => {
     if (!current()) return;
     selectionVersion++;
     const workspace = typeof agent === 'string' ? globalWorkspaceTerminal(agent) : null;
     const id = workspace ? workspace.id : agent?.agent_id;
     if (!id) return;
+    const comingSoonTarget = !workspace && overseerRole(agent) && !testingModeEnabled();
     if (selected === id) {
-      if (requestedView && _agpad?.agentId === id) agpadRequestView(_agpad, requestedView);
-      return;
+      if (comingSoonTarget) {
+        if (!gated) enterComingSoon();
+        return;
+      }
+      if (gated) { gated = false; selected = null; }
+      else {
+        if (requestedView && _agpad?.agentId === id) agpadRequestView(_agpad, requestedView);
+        return;
+      }
     }
-    if (!leaveChecked && typeof agentWorkspaceCanLeave === 'function' && _agpad?.workspaceFrame) {
-      const previous = _agpad;
-      return agentWorkspaceCanLeave(previous).then(ok => { if (ok && _agpad === previous) select(agent, requestedView, remember, true); });
+    if (!leaveChecked && typeof agentWorkspaceCanLeave === 'function' && (_agpad?.workspaceFrame || _agpad?.journalMount)) {
+      const previous = _agpad, frame = previous.workspaceFrame, journal = previous.journalMount;
+      return agentWorkspaceCanLeave(previous).then(ok => {
+        if (ok && _agpad === previous && previous.workspaceFrame === frame && previous.journalMount === journal)
+          select(agent, requestedView, remember, true);
+      });
     }
     selected = id;
     if (remember) ls('ag:scope:global', selected);
     paintSelection();
+    if (comingSoonTarget) { enterComingSoon(); return; }
+    gated = false;
+    leaveComingSoon();
     pane.dataset.agentPane = workspace ? 'off' : 'on';
     disposeChat();
     if (!workspace) mountAgentView(pane, agent, {terminal: {key: agent.agent_id, base: `/root/terminal/${encodeURIComponent(agent.agent_id)}`}, isCurrent: () => current() && selected === agent.agent_id});
@@ -171,6 +257,23 @@ async function renderGlobalAgents(c) {
       isCurrent: () => current() && selected === agent.agent_id,
     });
   };
+  comingSoonRetry.onclick = async () => {
+    comingSoonRetry.disabled = true;
+    comingSoonError.hidden = false;
+    comingSoonError.textContent = 'Retrying Testing mode…';
+    await testingModeLoad(true);
+    if (!current()) return;
+    if (testingModeFailed()) { paintComingSoonError(); return; }
+    renderTab();
+  };
+  // Another tab or device can change the owner preference. Close an active
+  // Overseer view at once; the backend session is never stopped.
+  globalTestingModeUnsubscribe = testingModeSubscribe(() => {
+    if (!current()) return;
+    const chosen = agents.find(agent => agent.agent_id === selected);
+    if (chosen && overseerRole(chosen)) { renderTab(); return; }
+    paintOverseerEntry();
+  });
   nav.querySelector('[data-global-settings]').onclick = () => goGlobalTab('settings');
   nav.querySelector('.global-nav-body').onclick = event => {
     const button = event.target.closest('[data-global-agent]');
@@ -184,11 +287,12 @@ async function renderGlobalAgents(c) {
     if (!current()) return;
     const agent = agents.find(candidate => candidate.agent_id === id);
     if (!agent) throw new Error(GLOBAL_AGENT_UNAVAILABLE);
-    if (selected === id) {
-      if (view && _agpad?.agentId === id && agpadShownView(_agpad) !== view) await agpadSetView(_agpad, view);
-    } else await select(agent, view);
-    // A cancelled unsaved-edit prompt or a newer selection must stay where it is.
-    if (!current() || selected !== id || (view && agpadShownView(_agpad) !== view)) return;
+    const gateTarget = overseerRole(agent) && !testingModeEnabled();
+    await select(agent, gateTarget ? null : view);
+    // A cancelled unsaved-edit prompt, the Testing mode gate or a newer selection
+    // must stay where it is; no chat, terminal or workspace control is focused.
+    if (!current() || selected !== id || gated) return;
+    if (!gateTarget && view && agpadShownView(_agpad) !== view) return;
     if (viewboxItem) agviewboxReveal(_agpad, viewboxItem);
     if (chat) {
       pane.querySelector('[data-chat-return]:not(:disabled)')?.click();

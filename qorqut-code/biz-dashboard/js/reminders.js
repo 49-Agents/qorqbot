@@ -333,6 +333,36 @@ async function remindersOwnerDue() {
   return [...new Map(rows.map(r => [r.reminder_id, r])).values()].sort((a, b) => String(a.due_at || a.at).localeCompare(String(b.due_at || b.at)));
 }
 
+// Show each due occurrence once per page session, including reminders already due when the app opens.
+// The reminder itself remains due until the owner explicitly handles it in the detail view.
+const reminderNotifications = (() => {
+  const seen = new Set();
+  let inflight = null, timer;
+  async function poll() {
+    if (inflight) return inflight;
+    inflight = (async () => {
+      try {
+        for (const reminder of await remindersOwnerDue()) {
+          const key = `${remId(reminder)}:${reminder.occurrence_id || reminder.due_at || reminder.at || ''}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          notify({text: reminder.text || 'Reminder due', reminder: true, ms: 10000,
+            onClick: () => remindersOpenDetail(reminder, {onChange: () => {
+              if (typeof attentionQueue !== 'undefined') void attentionQueue.refreshSignoffs();
+            }})});
+        }
+      } catch (_) { /* Retry on the next poll without losing seen occurrences. */ }
+      finally { inflight = null; clearTimeout(timer); timer = setTimeout(poll, 30000); }
+    })();
+    return inflight;
+  }
+  return {start: poll};
+})();
+if (typeof embeddedAgentPane === 'undefined' || !embeddedAgentPane) {
+  reminderNotifications.start();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) void reminderNotifications.start(); });
+}
+
 // The Reminders button: the owner's upcoming reminders with creation and per-reminder controls.
 function remindersOpenUpcoming(opts = {}) {
   let rows = [], cursor = null, loading = false, failed = '', host, generation = 0;
