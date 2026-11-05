@@ -68,8 +68,7 @@ async function workOpenLink(view, link) {
     else data=await workCall(view.biz,op,{[key]:link.resource_id});
     const item=data.document || data.action || data.signoff || data.asset;
     if(link.resource_type==='signoffs'){
-      modal({title:esc(item.title),body:`<p>${esc(item.state)}</p><div class="work-source">${esc(item.preview?.rationale || 'The prepared proposal is available in Signoffs.')}</div>`,
-        actions:item.state==='pending'?[{label:'Open Signoffs',primary:true,onClick:close=>{close();sgAttentionNavigate(view.biz,item.id);}}]:[]});return;
+      return sgAttentionNavigate(view.biz,item.id);
     }
     if(current.kind==='asset'){
       const url=`/api/biz/${encodeURIComponent(view.biz)}/asset/${item.path.split('/').map(encodeURIComponent).join('/')}`;
