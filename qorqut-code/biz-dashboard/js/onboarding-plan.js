@@ -1,4 +1,4 @@
-// Pure walkthrough navigation: chapters, resume position and progress labels. No DOM access, so it is unit tested
+// Pure walkthrough navigation: chapters, resume position, progress labels and key handling. No DOM access, so it is unit tested
 // with `node --test biz-dashboard/tests/*.test.js`. Each step has an `id`, a `chapter` and optionally a `progressStep`, the id
 // saved for it when it shares progress with an earlier step.
 const onboardingPlan = (() => {
@@ -39,6 +39,19 @@ const onboardingPlan = (() => {
     if (session.state === 'live') return 'connecting';
     return 'waiting';
   }
-  return {chapters, chapterAt, nextChapter, resumeIndex, saveId, launchPhase};
+  // Applies a key press to the tour. Only the terminal step hands Esc and Tab to the highlighted area, because they are the
+  // CLI's own keys there; on every other step Esc closes the tour and Tab stays within it, wherever the focus is.
+  // `tour` is what is on screen: `step`, the highlighted `target` element (or null), `active` (the focused element),
+  // `focusables()` (the elements Tab cycles through, in order) and `exit()`. Returns 'pass' when the key was left alone.
+  function handleKey(event, tour) {
+    if (tour.step?.terminal && tour.target?.contains(event.target)) return 'pass';
+    if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); tour.exit(); return 'exit'; }
+    if (event.key !== 'Tab') return 'pass';
+    const list = tour.focusables(); if (!list.length) return 'pass';
+    const at = list.indexOf(tour.active), next = (at + (event.shiftKey ? -1 : 1) + list.length) % list.length;
+    event.preventDefault(); list[next].focus();
+    return 'tab';
+  }
+  return {chapters, chapterAt, nextChapter, resumeIndex, saveId, launchPhase, handleKey};
 })();
 if (typeof module !== 'undefined') module.exports = onboardingPlan;

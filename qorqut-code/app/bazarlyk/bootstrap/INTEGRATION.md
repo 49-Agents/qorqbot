@@ -149,11 +149,15 @@ silently grant hook trust.
 Owner consent (`bazarlyk/agent_trust.py`) is the one exception, and it is
 explicit, not silent: on one dashboard screen the owner allows Qorqbot to start
 agents itself. Qorqbot then records folder trust for its prepared agent
-workspaces only (`~/.claude.json`, `~/.codex/config.toml`) and the prepared
-agent shell runs Codex with `--dangerously-bypass-hook-trust` while the consent
-file `<runtime>/agent-trust.json` exists. Revoking it in Settings deletes the
-file, so new Codex launches return to native hook review. Without consent nothing
-changes and the `/hooks` review above still applies.
+workspaces only (`~/.claude.json`, `~/.codex/config.toml`): the workspace folder
+as given and, when different, its resolved path. An enclosing git repository
+(Qorqbot's operations repository or an external one) is never recorded, so a CLI
+can still ask the owner to trust it; the owner answers that in the terminal. The
+prepared agent shell runs Codex with `--dangerously-bypass-hook-trust` while the
+consent file `<runtime>/agent-trust.json` exists, and only when the shell is
+physically in the agent's workspace root (see below). Revoking it in Settings
+deletes the file, so new Codex launches return to native hook review. Without
+consent nothing changes and the `/hooks` review above still applies.
 
 Local connectors (`bazarlyk/connectors.py`) are the one exception to external
 MCP servers coming only from installed extensions. In Settings, Connectors the
@@ -436,7 +440,12 @@ tools and carry no generated filesystem deny rules. Its prepared Bash
 terminal loads `.bazarlyk/agent-shell.bash`, which preserves personal `.bashrc`
 and makes plain `claude` pass the prepared launch settings via `--settings`.
 That trusted launch file selects `bypassPermissions`; the local settings keep
-`dontAsk`. Claude ignores bypass when set only in project
+`dontAsk`. The `claude` and `codex` wrappers (bash and zsh) apply that, the
+connector arguments, the trust refresh, the Codex hook-trust bypass and the
+opening `/role` or `$role` prompt only when `pwd -P` equals the physical workspace
+root. From any other folder, a workspace subfolder included, or when the folder
+cannot be determined, they run `command claude "$@"` / `command codex "$@"` with
+exactly the owner's arguments. Claude ignores bypass when set only in project
 settings, so outside the prepared terminal use:
 
 ```

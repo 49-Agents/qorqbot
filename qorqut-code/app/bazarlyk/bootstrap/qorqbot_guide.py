@@ -51,7 +51,13 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
   will not connect to it.
 - The first time in an agent's folder, Claude Code asks whether to trust the folder (press the down arrow, then Enter
   on "Yes, I trust this folder") and Codex asks to review hooks. **Settings > trusted agent folders** turns on a
-  one-time consent that trusts Qorqbot's own agent folders so neither CLI asks; other projects are not changed.
+  one-time consent that marks each agent's own folder as trusted and lets Codex run Qorqbot's hooks there without that
+  review; other projects are not changed. It does not stop every prompt: a CLI can still ask the owner to trust a larger
+  folder around the agent, such as the git repository the agent folders sit in. Qorqbot never trusts that for the owner;
+  the owner reads the question and answers it in the terminal.
+- Qorqbot's setup for `claude` and `codex` (its settings, connectors and the opening role prompt) applies only when the
+  terminal is in the agent's own folder. After `cd` into another folder, or a subfolder of the agent's, they run as the
+  plain commands.
 - Nothing starts by itself. If the session ends (`/exit`, closed CLI, computer restarted), Chat shows the agent as
   offline until the owner starts it again.
 

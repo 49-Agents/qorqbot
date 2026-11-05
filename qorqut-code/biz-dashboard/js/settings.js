@@ -128,8 +128,9 @@ async function saveTestingMode(p) {
   }
 }
 
-// The owner's consent that Qorqbot's own agent folders are trusted (bazarlyk.agent_trust): claude and codex then open there
-// without their trust and hook-review prompts. Turning it off restores Codex's own hook review for new launches.
+// The owner's consent that Qorqbot's own agent folders are trusted (bazarlyk.agent_trust): claude and codex then skip their
+// folder-trust and Codex hook-review prompts for those folders. A CLI can still ask about an enclosing repository, which the
+// owner answers in the terminal. Turning it off restores Codex's own hook review for new launches.
 async function paintAgentTrust(pane) {
   const section = pane.querySelector('[data-agent-trust]');
   if (!section) return;
@@ -139,7 +140,7 @@ async function paintAgentTrust(pane) {
   if (!section.isConnected) return;
   section.hidden = false;
   text.textContent = view.granted
-    ? 'On. Claude Code and Codex open in Qorqbot’s agent folders without the folder-trust or hook-review prompt, whether you type claude or codex in an agent’s Terminal or press Start in Chat.'
+    ? 'On. Each agent’s own folder is marked as trusted in Claude Code and Codex, and Codex runs Qorqbot’s hooks there without its review prompt, whether you type claude or codex in the agent’s Terminal or press Start in Chat. Either CLI can still ask you to trust a larger folder around an agent, such as the git repository it sits in; you decide that in the terminal.'
     : 'Off. The first time an agent starts in its folder, Claude Code asks whether to trust it and Codex asks you to review its hooks.';
   toggle.textContent = view.granted ? 'turn off' : 'turn on';
   toggle.disabled = false;
