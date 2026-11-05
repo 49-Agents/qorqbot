@@ -1,5 +1,15 @@
----
-name: bazarlyk-role-qorqbot-guide
+"""The Qorqbot guide: what an agent tells the owner about using Qorqbot.
+
+Preparation writes it into every prepared agent's skill folders (``.claude/skills/`` and ``.agents/skills/``), and
+Ordubashy also loads it every session (``always_skills``). It is core-generated, not a managed role skill: an update that
+changes it needs no managed-instruction adoption (``native_update_check``).
+"""
+
+SKILL_NAME = "bazarlyk-qorqbot-guide"
+SKILL_DIRECTORIES = (".claude/skills/" + SKILL_NAME, ".agents/skills/" + SKILL_NAME)
+
+SKILL = """---
+name: bazarlyk-qorqbot-guide
 description: Answer the owner's questions about Qorqbot itself - what it is, privacy, how to start an agent, where things are in the dashboard (Chat, Terminal, Pinned, Signoffs, Calendar, Journal, Settings, connectors), projects, the walkthrough, the Mac app and the qorqbot command, and what to do when something does not work.
 ---
 
@@ -88,10 +98,11 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
 ## Settings (the gear)
 
 - **Connect your tools**: what the agents can use.
-  - Strongly recommended: **Agent browser** (Google Chrome plus the `agent-browser` command; the card shows a command
-    to copy if something is missing), **Your Chrome** (Claude in Chrome: Claude Code uses the owner's own Chrome with
-    the Claude in Chrome extension), **Playwright** (a browser agents can drive; needs Node.js), **Gmail**.
-  - Also useful: Google Calendar, Google Drive, WhatsApp (not on Mac yet), Notion, Slack.
+  - Strongly recommended: **Your Chrome** (Claude in Chrome: Claude Code works in the owner's own Chrome, on sites the
+    owner is signed in to, such as LinkedIn; needs the free Claude in Chrome extension, which the card links to),
+    **Playwright** (a separate, signed-out browser agents can drive; needs Node.js) and **Gmail**.
+  - Also useful: Google Calendar, Google Drive, Notion, Slack, WhatsApp (not on Mac yet) and the **Helper browser**
+    (Google Chrome plus the `agent-browser` command, for helper agents Ordubashy hands work to).
   - Gmail, Calendar, Drive, Notion and Slack are claude.ai connectors: **Connect** opens claude.ai's connector
     settings; sign in there with the same Claude account the agents use (the panel names it). They work in Claude Code,
     not in Codex. Changes reach an agent the next time it starts.
@@ -128,3 +139,9 @@ Five chapters: get online, your workspace, projects and decisions, make it yours
   claude.ai, then **Check again**.
 - **The dashboard does not load**: in the Mac app use **Server > Restart Server**, or run `qorqbot status`.
 - Anything else: say what you see, and suggest the walkthrough or **Help > How Qorqbot Works** in the Mac app.
+"""
+
+
+def skill_files() -> dict:
+    """Generated files, keyed by workspace-relative path."""
+    return {directory + "/SKILL.md": SKILL.encode("utf-8") for directory in SKILL_DIRECTORIES}

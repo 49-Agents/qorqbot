@@ -1,6 +1,6 @@
 schema_version: 1
 id: learning-applier
-version: 1.18.0
+version: 1.17.2
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/learning-applier/BRIEF.md
@@ -16,8 +16,6 @@ skills:
   path: operations/imported-role-skills/native/skills/ordubashy-browser-control/SKILL.md
 - id: owner-reminders
   path: operations/imported-role-skills/native/skills/owner-reminders/SKILL.md
-- id: qorqbot-guide
-  path: operations/imported-role-skills/native/skills/qorqbot-guide/SKILL.md
 default_tool_policy:
   agentic_change_propose: allow
   agentic_change_get: allow

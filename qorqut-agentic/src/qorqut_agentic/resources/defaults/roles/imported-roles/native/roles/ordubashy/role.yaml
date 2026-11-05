@@ -1,6 +1,6 @@
 schema_version: 1
 id: ordubashy
-version: 1.76.0
+version: 1.75.1
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/ordubashy/BRIEF.md
@@ -34,8 +34,6 @@ skills:
   path: operations/imported-role-skills/native/skills/action-recording/SKILL.md
 - id: calendar
   path: operations/imported-role-skills/native/skills/calendar/SKILL.md
-- id: qorqbot-guide
-  path: operations/imported-role-skills/native/skills/qorqbot-guide/SKILL.md
 default_tool_policy:
   agentic_change_propose: allow
   agentic_change_get: allow
