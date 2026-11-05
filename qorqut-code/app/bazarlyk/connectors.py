@@ -41,10 +41,12 @@ PROBE_FRESH_FOR = 60
 _CHANGES = threading.Lock()
 
 CATALOG = (
-    {"id": "browser", "kind": "install", "tier": "recommended", "clients": ["claude-code", "codex"]},
+    # Ordubashy browses in the owner's Chrome (signed-in sites) and with Playwright; the managed agent browser serves
+    # helper workers, so it is suggested rather than recommended.
     {"id": "chrome", "kind": "local", "tier": "recommended", "clients": ["claude-code"]},
     {"id": "playwright", "kind": "local", "tier": "recommended", "clients": ["claude-code", "codex"]},
     {"id": "gmail", "kind": "claude", "tier": "recommended", "clients": ["claude-code"], "claude_name": "Gmail"},
+    {"id": "browser", "kind": "install", "tier": "suggested", "clients": ["claude-code", "codex"]},
     {"id": "google_calendar", "kind": "claude", "tier": "suggested", "clients": ["claude-code"],
      "claude_name": "Google Calendar"},
     {"id": "google_drive", "kind": "claude", "tier": "suggested", "clients": ["claude-code"], "claude_name": "Google Drive"},
@@ -188,14 +190,21 @@ def parse_claude_list(text: str) -> dict:
 
 
 class ClaudeProbe:
-    """Runs ``claude mcp list`` in the background (it checks each server, which takes a while) and keeps the last result."""
+    """Runs ``claude mcp list`` in the background (it checks each server, which takes a while) and keeps the last result.
+
+    With ``cache`` (a file in the installation's runtime folder), the last result is also kept across restarts: a new
+    server shows it at once, marked as checking, instead of "Checking…" for every connector until Claude answers."""
 
     def __init__(self, run=subprocess.run, clock=time.monotonic):
         self._run, self._clock, self._lock = run, clock, threading.Lock()
-        self._result, self._checked, self._thread = None, None, None
+        self._result, self._checked, self._thread, self._cache = None, None, None, None
 
-    def view(self, environ, refresh=False) -> dict:
+    def view(self, environ, refresh=False, cache=None) -> dict:
         with self._lock:
+            if cache is not None:
+                self._cache = Path(cache)
+                if self._result is None:
+                    self._result = _read_cached(self._cache)
             fresh = self._checked is not None and self._clock() - self._checked < PROBE_FRESH_FOR
             running = self._thread is not None and self._thread.is_alive()
             if (refresh or not fresh) and not running:
@@ -232,7 +241,25 @@ class ClaudeProbe:
             result = {"available": False, "reason": "claude_failed"}
         result["account"] = account
         with self._lock:
-            self._result, self._checked = result, self._clock()
+            self._result, self._checked, cache = result, self._clock(), self._cache
+        if cache is not None:
+            try:
+                _atomic_write(cache, json.dumps(result).encode(), mode=0o600)
+            except OSError:
+                pass
+
+
+def _read_cached(path):
+    """The last saved result, if it is a well-formed one."""
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("available"), bool):
+        return None
+    if data["available"] and not isinstance(data.get("connectors"), dict):
+        return None
+    return data
 
 
 PROBE = ClaudeProbe()
@@ -282,6 +309,23 @@ def host_platform(proc_version="/proc/version") -> str:
 
 
 AGENT_BROWSER_PACKAGE = "agent-browser@0.38.1"
+# The Claude in Chrome extension, as Claude Code's native messaging host allows it (com.anthropic.claude_code_browser_extension).
+CLAUDE_IN_CHROME = "fcoeoabgfenejglbffodgkkbkcdhcgfn"
+
+
+def chrome_extension_installed(home) -> bool:
+    """Whether any Google Chrome profile of the owner has the Claude in Chrome extension installed."""
+    if not home:
+        return False
+    roots = (Path(home) / "Library/Application Support/Google/Chrome", Path(home) / ".config/google-chrome")
+    for root in roots:
+        try:
+            profiles = list(root.iterdir())
+        except OSError:
+            continue
+        if any((profile / "Extensions" / CLAUDE_IN_CHROME).is_dir() for profile in profiles):
+            return True
+    return False
 
 
 def _browser_status() -> dict:
@@ -300,7 +344,8 @@ def view(runtime, *, refresh=False, environ=None, probe=None) -> dict:
     from bazarlyk.agent_trust import clients
     state = load(runtime.paths.runtime)
     platform = host_platform()
-    claude = (probe or PROBE).view(_probe_environment(environ), refresh=refresh)
+    claude = (probe or PROBE).view(_probe_environment(environ), refresh=refresh,
+                                   cache=Path(runtime.paths.runtime) / "connectors-status.json")
     result = claude["result"]
     items = []
     for entry in CATALOG:
@@ -310,6 +355,11 @@ def view(runtime, *, refresh=False, environ=None, probe=None) -> dict:
         elif entry["id"] == "chrome" and platform == "wsl" and entry["id"] not in state["enabled"]:
             # Claude in Chrome reaches a Chrome on the same system; WSL's Linux side cannot reach Windows' Chrome.
             item["status"] = "unsupported"
+        elif entry["id"] == "chrome":
+            # On is not enough: Claude in Chrome also needs its extension in one of the owner's Chrome profiles.
+            item["extension"] = chrome_extension_installed(_probe_environment(environ).get("HOME"))
+            item["status"] = ("off" if entry["id"] not in state["enabled"]
+                              else "connected" if item["extension"] else "needs_extension")
         elif entry["kind"] == "local":
             item["status"] = "connected" if entry["id"] in state["enabled"] else "off"
         elif entry["kind"] == "extension":

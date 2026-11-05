@@ -28,6 +28,14 @@ const onboardingPlan = (() => {
     const index = steps.findIndex(step => saveId(step) === saved.step);
     return index < 0 ? 0 : index;
   }
-  return {chapters, chapterAt, nextChapter, resumeIndex, saveId};
+  // The launch step's reading of Ordubashy's Chat session (GET .../chat?limit=1): `session` is that response's session,
+  // or null before the first read. Online means Chat can send to him.
+  function launchPhase(session) {
+    if (!session) return 'checking';
+    if (session.state === 'live' && session.can_send) return 'online';
+    if (session.state === 'live') return 'connecting';
+    return 'waiting';
+  }
+  return {chapters, chapterAt, nextChapter, resumeIndex, saveId, launchPhase};
 })();
 if (typeof module !== 'undefined') module.exports = onboardingPlan;

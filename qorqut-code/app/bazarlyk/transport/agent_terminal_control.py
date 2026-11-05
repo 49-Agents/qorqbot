@@ -287,6 +287,20 @@ class AgentTerminalBackend:
         if action=='ping' and snapshot.get('command')!=snapshot.get('client', 'codex'):
             raise DomainError('invalid_transition', 'Direct ping requires the agent\'s verified foreground client')
 
+    def opened_snapshot(self, row, attempts=50):
+        """The pane just opened for a start. A new pane's shell takes a moment (the owner's zsh setup, a prompt theme) before
+        it has a foreground process; until then the pane cannot be read, so it is read again for up to about ten seconds.
+        Anything else that stops the observation still stops the start."""
+        for attempt in range(attempts):
+            try:
+                return self.snapshot(row)
+            except DomainError as exc:
+                if (exc.code != 'operation_unavailable' or not isinstance(exc.__cause__, (OSError, ValueError))
+                        or attempt == attempts - 1):
+                    raise
+            self.sleep(.2)
+        raise DomainError('operation_unavailable', 'Cannot identify the foreground terminal process')
+
     def wait_ready(self, row, client='codex'):
         broker, _, session, _, _ = self.selected(row)
         until = time.monotonic()+self.timeout
@@ -349,7 +363,7 @@ class AgentTerminalBackend:
             owner = uow.repository('installation').get('service')['owner_principal_id']
             context = self.runtime.policy.context_for(owner, business_id=row['home_business_id'], review_business_id=None, uow=uow)
         self.terminals.open(context, business, row['agent_id'])
-        snap = self.snapshot(row)
+        snap = self.opened_snapshot(row)
         if snap.get('command') not in SHELLS:
             raise DomainError('invalid_transition', 'Terminal is not an idle shell')
         # Every agent runs the client its trusted profile runtime names; there is no Codex default, and nothing is typed for one
@@ -378,7 +392,8 @@ class AgentTerminalBackend:
             return 'Startup command submitted; readiness/work is not confirmed'
         client = launcher
         name, role_command = CLIENT_NAMES[client], '/role' if client=='claude' else '$role'
-        broker.submit_input(session, client)
+        # The agent shell's wrapper would otherwise open a bare launch with the role prompt typed again just below.
+        broker.submit_input(session, 'QORQBOT_ROLE_SENT=1 ' + client)
         self.wait_ready(row, client)
         broker.submit_input(session, role_command)
         self.sleep(.2)

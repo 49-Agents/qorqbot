@@ -1,7 +1,9 @@
 """The owner's one-time consent for Qorqbot to start Claude Code and Codex in its own agent folders.
 
 Each CLI asks once per folder whether to trust it, and Codex also asks the owner to review the hooks Qorqbot prepares. An
-automated start never types into those prompts, so without this consent Chat cannot bring an agent online by itself.
+automated start never types into those prompts, so without this consent Chat's Start button cannot bring an agent online.
+The same consent lets the owner type ``claude`` or ``codex`` in an agent's own terminal without those prompts. Qorqbot never
+starts an agent by itself: every start is the owner's, from Chat's Start button or the agent's terminal.
 
 With consent, given on one dashboard screen that names both effects:
 
@@ -79,11 +81,28 @@ def codex_file(env) -> Path:
     return Path(env["CODEX_HOME"] or Path(env["HOME"]) / ".codex") / "config.toml"
 
 
+def git_root(folder):
+    """The nearest enclosing folder with a ``.git`` entry (directory or file), or None."""
+    current = Path(folder)
+    for candidate in (current, *current.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
 def folder_keys(folder) -> list[str]:
-    """The folder as given and as resolved: both CLIs key trust by the working directory they see."""
-    given = os.path.abspath(str(folder))
-    resolved = os.path.realpath(given)
-    return [given] if given == resolved else [given, resolved]
+    """The folder as given and as resolved, and the git repository that contains it.
+
+    Claude Code keys its trust dialog by the project root, which is the enclosing git repository when there is one: an agent
+    folder inside Qorqbot's operations repository is asked about as that repository, so trusting only the agent folder
+    still showed the dialog. The repository is Qorqbot's own (``instance/operations``); nothing outside it is trusted."""
+    keys = []
+    for path in (os.path.abspath(str(folder)), os.path.realpath(os.path.abspath(str(folder)))):
+        root = git_root(path)
+        for key in (path, str(root) if root is not None else None):
+            if key and key not in keys:
+                keys.append(key)
+    return keys
 
 
 def trust_claude(path: Path, folders) -> str:
@@ -157,11 +176,10 @@ def ensure(runtime_directory, folder, environ=None) -> dict | None:
 
 
 def owner_view(runtime, change=None, agent_id=None, environ=None) -> dict:
-    """The dashboard's view: consent, which CLIs are set up, and whether ``agent_id`` may be started automatically.
+    """The dashboard's view: consent and which CLIs are set up.
 
     Granting records folder trust for every active global agent's workspace at once; agents prepared later are trusted
-    when they are started (``AgentTerminalBackend``). Automatic start respects an explicit stop or pause: an agent whose
-    session intent the owner or Ordubashy set to ``stopped`` or ``paused`` waits for the Start button."""
+    when they are started (``AgentTerminalBackend``). ``agent_id`` is accepted for compatibility and not used."""
     from bazarlyk.agents.global_scope import active_global
     from bazarlyk.composition.locations import agent_workspace
     saved = consent(runtime.paths.runtime, change)
@@ -173,13 +191,7 @@ def owner_view(runtime, change=None, agent_id=None, environ=None) -> dict:
                 if active_global(uow.connection, row["agent_id"]) is not None]
         for identity in rows:
             results[identity] = ensure(runtime.paths.runtime, agent_workspace(runtime.paths, identity, None), environ)
-    autostart = False
-    if agent_id is not None and saved["granted"]:
-        with runtime.database.read() as uow:
-            intent = uow.connection.execute("SELECT desired_state FROM native_session_owners WHERE agent_id=?",
-                                            (agent_id,)).fetchone()
-        autostart = intent is None or intent["desired_state"] not in ("stopped", "paused")
-    return {**saved, "clients": clients(environ), "autostart": autostart, **({"recorded": results} if results else {})}
+    return {**saved, "clients": clients(environ), **({"recorded": results} if results else {})}
 
 
 def clients(environ=None) -> dict:
@@ -216,3 +228,24 @@ def _atomic_write(path: Path, content: bytes, *, mode: int) -> None:
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+
+
+def main(argv=None) -> int:
+    """``python -I -m bazarlyk.agent_trust ensure --runtime DIR --folder DIR``, run by an agent shell before claude or codex.
+
+    It never stands in the way of a launch: any failure is ignored and the exit status is always 0."""
+    import argparse
+    parser = argparse.ArgumentParser(prog="bazarlyk.agent_trust")
+    parser.add_argument("command", choices=["ensure"])
+    parser.add_argument("--runtime", required=True)
+    parser.add_argument("--folder", required=True)
+    args = parser.parse_args(argv)
+    try:
+        ensure(args.runtime, args.folder)
+    except Exception:  # noqa: BLE001 - a trust record is a convenience; the CLI still asks if it is missing
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

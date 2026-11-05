@@ -111,6 +111,7 @@ async function renderGlobalAgents(c) {
           <div class="global-roster" id="global-agent-list"></div>
         </div>
         <div class="crows global-workspace-terminals">
+          <button class="item agent global-workspace-projects" type="button" data-global-projects title="Projects" aria-label="Projects"><span class="nm"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span></button>
           <button class="item agent global-workspace-guide" type="button" data-global-guide title="Walkthrough" aria-label="Walkthrough"><span class="nm">${GLOBAL_GUIDE_ICON}</span></button>
           <button class="item agent global-workspace-terminal" type="button" data-global-agent="${GLOBAL_WORKSPACE_TERMINAL}" aria-pressed="false" aria-label="Terminal"><span class="nm">${GLOBAL_TERMINAL_ICON}</span></button>
           <button class="item agent global-workspace-settings" type="button" data-global-settings title="Settings" aria-label="Settings"><span class="nm">${GLOBAL_ICONS.settings}</span></button>
@@ -175,6 +176,7 @@ async function renderGlobalAgents(c) {
     });
   };
   nav.querySelector('[data-global-settings]').onclick = () => goGlobalTab('settings');
+  nav.querySelector('[data-global-projects]').onclick = () => goGlobalTab('projects');
   nav.querySelector('[data-global-guide]').onclick = () => onboarding.open();
   nav.querySelector('.global-nav-body').onclick = event => {
     const button = event.target.closest('[data-global-agent]');

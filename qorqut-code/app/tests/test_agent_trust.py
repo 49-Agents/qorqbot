@@ -2,6 +2,7 @@
 from contextlib import contextmanager
 import json
 import os
+import shutil
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -194,21 +195,57 @@ class OwnerViewTests(Base):
                 mock.patch("bazarlyk.composition.locations.agent_workspace", lambda paths, identity, business: self.root / "agents" / identity):
             return trust.owner_view(runtime, change, agent_id, self.environ)
 
-    def test_no_consent_means_no_autostart(self):
+    def test_view_without_consent(self):
         view = self.view(self.runtime_object([]))
-        self.assertEqual((view["granted"], view["autostart"]), (False, False))
+        self.assertFalse(view["granted"])
+        self.assertNotIn("autostart", view)
 
     def test_grant_trusts_active_global_agents_only(self):
         self.claude({"projects": {}})
         view = self.view(self.runtime_object([]), {"granted": True})
         self.assertEqual(set(view["recorded"]), {"lead"})
-        self.assertTrue(view["autostart"])
+        self.assertTrue(view["granted"])
+        self.assertNotIn("autostart", view)
 
-    def test_an_explicit_stop_or_pause_waits_for_the_button(self):
-        trust.consent(self.runtime, {"granted": True})
-        for state, expected in (("running", True), ("stopped", False), ("paused", False)):
-            with self.subTest(state=state):
-                self.assertEqual(self.view(self.runtime_object([("lead", state)]))["autostart"], expected)
+
+class FolderKeysTest(unittest.TestCase):
+    def test_the_enclosing_git_repository_is_trusted_too(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        operations = root / "instance" / "operations"
+        agent = operations / "agents" / "a1"
+        agent.mkdir(parents=True)
+        self.assertEqual(trust.folder_keys(agent), [os.path.abspath(agent)] if os.path.realpath(agent) == os.path.abspath(agent)
+                         else [os.path.abspath(agent), os.path.realpath(agent)])
+        (operations / ".git").mkdir()
+        keys = trust.folder_keys(agent)
+        self.assertIn(os.path.abspath(agent), keys)
+        self.assertIn(os.path.abspath(operations), keys)
+        self.assertNotIn(os.path.abspath(root / "instance"), keys)
+        self.assertEqual(len(keys), len(set(keys)))
+
+
+class MainTest(unittest.TestCase):
+    """What an agent shell runs before claude or codex."""
+
+    def test_ensure_trusts_the_folder_only_with_consent_and_always_exits_zero(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        runtime, folder = root / "runtime", root / "agent"
+        runtime.mkdir(); folder.mkdir()
+        (root / ".claude.json").write_text(json.dumps({"projects": {}}))
+        argv = ["ensure", "--runtime", str(runtime), "--folder", str(folder)]
+        with mock.patch.dict(os.environ, {"HOME": str(root)}, clear=False):
+            for key in ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "QORQUT_NATIVE_USER_ENV"):
+                os.environ.pop(key, None)
+            self.assertEqual(trust.main(argv), 0)
+            self.assertEqual(json.loads((root / ".claude.json").read_text())["projects"], {})
+            trust.consent(runtime, {"granted": True})
+            self.assertEqual(trust.main(argv), 0)
+            projects = json.loads((root / ".claude.json").read_text())["projects"]
+            self.assertTrue(any(entry.get("hasTrustDialogAccepted") for entry in projects.values()))
+            with mock.patch.object(trust, "ensure", side_effect=OSError("disk")):
+                self.assertEqual(trust.main(argv), 0)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-// Starting an agent from Chat: the owner's one-time trust consent, the Start button and the automatic start of Ordubashy.
+// Starting an agent from Chat: the owner's one-time trust consent and the Start button. Nothing starts by itself.
 // `agentStartPlan` is pure (unit tested with `node --test biz-dashboard/tests/*.test.js`); the rest calls the dashboard API.
 // A start is the existing owner-authorized `agent_terminal_start` operation, dispatched by the service's terminal controller.
 const agentStartPlan = (() => {
@@ -7,15 +7,14 @@ const agentStartPlan = (() => {
     'selection_required', 'registering']);
   const STARTING_FOR_MS = 90000;
   // `session` is Chat's session view; `trust` the /root/agent-trust view (or null when unread); `local` this Chat's own state:
-  // {startedAt, autoTried, error, isLead, now}. Returns what Chat shows while the agent is offline.
+  // {startedAt, error, now}. Returns what Chat shows while the agent is offline.
   function plan(session, trust, local = {}) {
     if (!session || session.state === 'live' || NOT_STARTABLE.has(session.reason)) return {kind: 'none'};
     const now = local.now ?? Date.now();
     if (local.startedAt && now - local.startedAt < STARTING_FOR_MS) return {kind: 'starting'};
     if (local.error) return {kind: 'failed', error: local.error};
     if (local.startedAt) return {kind: 'failed', error: 'The agent did not come online. Open the terminal to see what it is waiting for.'};
-    const auto = !!(local.isLead && trust?.granted && trust.autostart && !local.autoTried);
-    return {kind: 'start', auto, needsConsent: !trust?.granted};
+    return {kind: 'start', needsConsent: !trust?.granted};
   }
   return {plan, NOT_STARTABLE, STARTING_FOR_MS};
 })();
@@ -31,13 +30,14 @@ const agentStart = (() => {
       let settled = false;
       const finish = value => { if (!settled) { settled = true; resolve(value); } };
       modal({
-        title: 'Let Qorqbot start your agents',
+        title: 'Trust Qorqbot’s agent folders',
         width: 520,
-        body: `<p>Qorqbot starts ${esc(label)} for you in Claude Code or Codex, in the folders it prepares for its agents.</p>
-          <p>To do that without stopping at prompts, Qorqbot will:</p>
+        body: `<p>Claude Code and Codex ask before they work in a new folder. Allow this once, and they open straight into
+          the session in the folders Qorqbot prepares for its agents${agentId ? `, starting with ${esc(label)}` : ''}.</p>
+          <p>Qorqbot will:</p>
           <ul><li>mark its own agent folders as trusted in Claude Code and Codex</li>
           <li>run the hooks Qorqbot installs in those folders without asking Codex to review them each time</li></ul>
-          <p class="muted">Your other projects are not changed. You can turn this off in Settings.</p>
+          <p class="muted">Your other projects are not changed. Nothing starts by itself. You can turn this off in Settings.</p>
           <div class="ferr" role="alert" hidden></div>`,
         onClose: () => finish(null),
         actions: [
