@@ -48,5 +48,26 @@ class WaitReadyTest(unittest.TestCase):
         self.assertIn("app-server", raised.exception.message)
 
 
+class OpenedSnapshotTest(unittest.TestCase):
+    def starting_shell(self):
+        error = DomainError("operation_unavailable", "Cannot identify the foreground terminal process")
+        error.__cause__ = ValueError("No foreground process")
+        return error
+
+    def test_a_shell_that_is_still_starting_is_read_again(self):
+        shell = {"pane_id": "%1", "command": "zsh"}
+        self.assertEqual(backend([self.starting_shell(), self.starting_shell(), shell]).opened_snapshot({"agent_id": "a"}), shell)
+
+    def test_it_gives_up_after_its_attempts(self):
+        with self.assertRaises(DomainError):
+            backend([self.starting_shell()] * 3).opened_snapshot({"agent_id": "a"}, attempts=3)
+
+    def test_other_failures_stop_at_once(self):
+        refused = DomainError("operation_unavailable", "A shared app-server is not a terminal viewer")
+        with self.assertRaises(DomainError) as raised:
+            backend([refused]).opened_snapshot({"agent_id": "a"})
+        self.assertIn("app-server", raised.exception.message)
+
+
 if __name__ == "__main__":
     unittest.main()

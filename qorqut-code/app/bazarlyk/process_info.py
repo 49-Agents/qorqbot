@@ -23,6 +23,21 @@ def _psutil():
     return psutil
 
 
+def _terminal(process):
+    """The process's terminal device path. psutil maps devices to paths once and caches that map, while macOS creates
+    a /dev/ttysNNN for each new pseudo-terminal; a terminal opened after the first lookup (a new agent pane) would read
+    as none. A missing terminal therefore rebuilds the map once before it is reported as none."""
+    tty = process.terminal()
+    if tty is None:
+        try:
+            from psutil import _psposix
+            _psposix.get_terminal_map.cache_clear()
+        except (ImportError, AttributeError):
+            return None
+        tty = process.terminal()
+    return tty
+
+
 def _read(pid, operation):
     psutil = _psutil()
     try:
@@ -43,7 +58,7 @@ def fields(pid):
     if not darwin():
         return Path(f'/proc/{int(pid)}/stat').read_text().rsplit(')', 1)[1].split()
     def observe(process):
-        tty = process.terminal()
+        tty = _terminal(process)
         foreground, device = -1, 0
         if tty:
             descriptor = os.open(tty, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY)
