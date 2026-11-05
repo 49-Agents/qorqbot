@@ -16,6 +16,8 @@ Delivery rules, in order of precedence:
   (``not_typed``) and the same source key may be attempted again.
 * Chat inputs wait (durably, in order) for the same conversation to be ready; every other producer attempts once, now, and is
   told ``deferred`` when the session is not ready.
+* The shared Codex server takes plain text only and cannot run a CLI slash command, so an owner Chat input that is one of
+  Codex's built-in commands is refused (``terminal_command``) before anything is stored or typed; it needs the agent's Terminal.
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ from qorqut_operations.contracts import DomainError
 from bazarlyk.inbox.owner_forwarding import forward_owner_message
 
 from . import store
+from .commands import codex_builtin
 from .contracts import (INPUT_TYPES, MAX_TEXT_CHARS, ORIGIN_SYSTEM, RESULT_DEFERRED, RESULT_REJECTED, STATE_FAILED,
                         STATE_SUBMITTED, STATE_SUBMITTING, STATE_UNCERTAIN, STATE_UNDELIVERED, STATE_WAITING, TYPE_CHAT,
                         TYPE_NUDGE, TYPE_RECOVERY, TYPE_TELEGRAM, InputRequest, InputResult, NativeChatError)
@@ -41,6 +44,7 @@ from .sessions import SessionRegistry
 
 LOG = logging.getLogger(__name__)
 NOT_TYPED = "not_typed"
+TERMINAL_COMMAND = "terminal_command"
 
 
 class AgentLocks:
@@ -123,6 +127,10 @@ class InputArbiter:
             session = reconciled.session
             if request.expected_binding and request.expected_binding != session["id"]:
                 return self._refused(request, RESULT_REJECTED, "stale_session", session)
+            if (request.input_type == TYPE_CHAT and session["transport"] == "codex_queue"
+                    and codex_builtin(request.text) is not None):
+                # Decided for a new input only (an exact repeat was answered above) and before a row or a checkpoint exists.
+                return self._refused(request, RESULT_REJECTED, TERMINAL_COMMAND, session)
             marker = secrets.token_hex(16) if request.origin == ORIGIN_SYSTEM else None
             if request.wait and not session["transcript_path"]:
                 # Chat shows the archived conversation; a session with no transcript has none to show, so Chat does not
@@ -339,4 +347,4 @@ class InputArbiter:
                                         metadata=dict(metadata or {})))
 
 
-__all__ = ["AgentLocks", "InputArbiter", "NOT_TYPED", "StaleSession"]
+__all__ = ["AgentLocks", "InputArbiter", "NOT_TYPED", "StaleSession", "TERMINAL_COMMAND"]
