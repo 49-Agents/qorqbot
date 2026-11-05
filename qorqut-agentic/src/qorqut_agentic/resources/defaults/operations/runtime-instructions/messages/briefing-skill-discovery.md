@@ -1,1 +1,1 @@
-Granted procedures (load on demand): 
+Granted procedures (load on demand): {{SKILLS}}

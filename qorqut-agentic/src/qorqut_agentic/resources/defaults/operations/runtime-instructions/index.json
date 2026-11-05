@@ -252,7 +252,9 @@
     {
       "id": "briefing-skill-discovery",
       "path": "messages/briefing-skill-discovery.md",
-      "parameters": [],
+      "parameters": [
+        "SKILLS"
+      ],
       "status": "conditional",
       "trigger": "agents/briefing.py",
       "audience": "registered agent",
