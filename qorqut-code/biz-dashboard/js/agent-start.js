@@ -30,13 +30,14 @@ const agentStart = (() => {
       let settled = false;
       const finish = value => { if (!settled) { settled = true; resolve(value); } };
       modal({
-        title: 'Let Qorqbot start your agents',
+        title: 'Trust Qorqbot’s agent folders',
         width: 520,
-        body: `<p>Qorqbot starts ${esc(label)} for you in Claude Code or Codex, in the folders it prepares for its agents.</p>
-          <p>To do that without stopping at prompts, Qorqbot will:</p>
+        body: `<p>Claude Code and Codex ask before they work in a new folder. Allow this once, and they open straight into
+          the session in the folders Qorqbot prepares for its agents${agentId ? `, starting with ${esc(label)}` : ''}.</p>
+          <p>Qorqbot will:</p>
           <ul><li>mark its own agent folders as trusted in Claude Code and Codex</li>
           <li>run the hooks Qorqbot installs in those folders without asking Codex to review them each time</li></ul>
-          <p class="muted">Your other projects are not changed. You can turn this off in Settings.</p>
+          <p class="muted">Your other projects are not changed. Nothing starts by itself. You can turn this off in Settings.</p>
           <div class="ferr" role="alert" hidden></div>`,
         onClose: () => finish(null),
         actions: [
