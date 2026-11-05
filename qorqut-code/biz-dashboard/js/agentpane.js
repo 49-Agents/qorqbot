@@ -260,16 +260,17 @@ function agpadRequestView(p, view) {
     if (!loading) return false;
     if (!p.viewShown) agpadSetView(p, p.views[0]);
     const pending = p.pendingView = {view};
-    loading.then(() => {
-      if (p.pendingView !== pending) return;
+    return loading.then(() => {
+      if (p.pendingView !== pending) return false;
       p.pendingView = null;
-      if (_agpad === p && workspaceType(view)) agpadRequestView(p, view);
+      if (_agpad === p && workspaceType(view)) return agpadRequestView(p, view);
+      return false;
     });
-    return true;
   }
   if (!p.views.includes(view)) p.views.push(view);
-  agpadSetView(p, view);
-  return true;
+  const result = agpadSetView(p, view);
+  const succeeded = () => _agpad === p && agpadShownView(p) === view;
+  return result?.then ? result.then(succeeded) : succeeded();
 }
 
 function agpadWorkspaceTick(p) {
@@ -531,6 +532,9 @@ function agpadSurfaceRequest(p, kind, leaveChecked) {
 // The expanded item's title beside its pill Close. Each mode is opened and closed from the persistent launcher row.
 const AGPAD_SURFACE_TITLE = {browser: "Browser", desktop: "Desktop", viewbox: "Viewbox"};
 async function agpadSurfaceOpen(p, kind) {
+  return agpadSurfaceTransition(p, () => agpadSurfaceOpenNow(p, kind));
+}
+async function agpadSurfaceOpenNow(p, kind) {
   if (!AGPAD_FOCUS_SURFACES.has(kind) || !p.views.includes(kind) || !agentPaneViewAllowed(p.workspaceRole, kind)) return;
   const board = p.focusMount, host = board?.querySelector(":scope > .agfocus-surface");
   if (!host || (kind === "desktop" && p.workspaceRole !== "ordubashy")) return;
@@ -577,10 +581,13 @@ function agpadSurfaceDispose(p) {
 }
 
 async function agpadSurfaceClose(p) {
+  return agpadSurfaceTransition(p, () => agpadSurfaceCloseNow(p));
+}
+async function agpadSurfaceCloseNow(p) {
   const surface = p.surface, board = p.focusMount;
   if (!surface) return;
   const transition = p.surfaceTransition = (p.surfaceTransition || 0) + 1;
-  if (surface.beforeLeave && (!await surface.beforeLeave() || p.surfaceTransition !== transition || p.surface !== surface || _agpad !== p)) return false;
+  if (surface.beforeLeave && (!await agpadSurfaceBeforeLeave(surface) || p.surfaceTransition !== transition || p.surface !== surface || _agpad !== p)) return false;
   agpadSurfaceDispose(p);
   agpadRememberView(p, "focus");
   agpadSurfacePaint(p);
@@ -595,12 +602,30 @@ async function agpadSurfaceClose(p) {
   return true;
 }
 
+// The first request owns a pending leave prompt. Repeated clicks share its
+// result and cannot invalidate an already accepted discard.
+function agpadSurfaceTransition(p, action) {
+  if (p.surfaceTransitionPending) return p.surfaceTransitionPending;
+  const pending = Promise.resolve().then(action);
+  p.surfaceTransitionPending = pending;
+  pending.finally(() => { if (p.surfaceTransitionPending === pending) p.surfaceTransitionPending = null; }).catch(() => {});
+  return pending;
+}
+function agpadSurfaceBeforeLeave(surface) {
+  if (!surface.beforeLeave) return Promise.resolve(true);
+  if (surface.leavePending) return surface.leavePending;
+  const pending = Promise.resolve().then(() => surface.beforeLeave());
+  surface.leavePending = pending;
+  pending.finally(() => { if (surface.leavePending === pending) surface.leavePending = null; }).catch(() => {});
+  return pending;
+}
+
 // Displacement uses the record workspace's own guard, and only continues against
 // the exact surface and workspace that were checked.
 async function agpadFocusCanLeave(p) {
   if (!p) return true;
   const surface = p.surface, workspace = p.focusWorkspace;
-  if (surface?.beforeLeave && !await surface.beforeLeave()) return false;
+  if (surface?.beforeLeave && !await agpadSurfaceBeforeLeave(surface)) return false;
   if (_agpad !== p || p.surface !== surface || p.focusWorkspace !== workspace) return false;
   if (workspace?.isOpen?.()) {
     await workspace.close();
@@ -617,6 +642,13 @@ let focusExpansionGeneration = 0;
 window.focusExpansion = {
   async open(spec) {
     if (!spec || typeof spec.mount !== 'function') return null;
+    // A child document cannot transfer DOM ownership or mount closures through
+    // its own teardown; features forward canonical data to a parent entry point.
+    if (typeof embeddedAgentPane !== 'undefined' && embeddedAgentPane) return null;
+    if (_agpad?.surfaceTransitionPending && _agpad.surface?.beforeLeave) {
+      await _agpad.surfaceTransitionPending;
+      return null;
+    }
     const generation = ++focusExpansionGeneration, opener = document.activeElement;
     const live = () => generation === focusExpansionGeneration;
     let pane = _agpad;
@@ -636,6 +668,7 @@ window.focusExpansion = {
     }
     if (pane.view !== 'focus') await agpadSetView(pane, 'focus');
     if (!live() || _agpad !== pane || pane.view !== 'focus' || !pane.focusMount?.isConnected) return null;
+    const result = await agpadSurfaceTransition(pane, async () => {
     const board = pane.focusMount, shell = board.querySelector(':scope > .agfocus-surface');
     const transition = pane.surfaceTransition = (pane.surfaceTransition || 0) + 1;
     if (!shell || !await agpadFocusCanLeave(pane) || pane.surfaceTransition !== transition || !live() || _agpad !== pane || pane.focusMount !== board || pane.view !== 'focus') return null;
@@ -660,12 +693,15 @@ window.focusExpansion = {
     session.setTitle(spec.title || '');
     agpadSurfacePaint(pane);
     $('[data-surface-close]', shell)?.focus({preventScroll: true});
+    return {session, current, surface, mounting: Promise.resolve().then(() => spec.mount(content, session))};
+    });
+    if (!result?.session) return null;
     try {
-      const dispose = await spec.mount(content, session);
-      if (typeof dispose === 'function') session.onDispose(dispose);
-      return current() ? session : null;
-    } catch (error) {
-      if (current()) { surface.beforeLeave = null; await agpadSurfaceClose(pane); toast('Could not open this content.'); }
+      const dispose = await result.mounting;
+      if (typeof dispose === 'function') result.session.onDispose(dispose);
+      return result.current() ? result.session : null;
+    } catch (_) {
+      if (result.current()) { result.surface.beforeLeave = null; await agpadSurfaceClose(pane); toast('Could not open this content.'); }
       return null;
     }
   },
