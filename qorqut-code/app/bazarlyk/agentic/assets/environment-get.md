@@ -1,0 +1,1 @@
+Use environment_get(key) only when a task needs the actual Settings value. It reads the current scope only, without Global inheritance for project calls. Values enter model context/transcripts; never repeat secrets in messages, logs or tasks. Access to a value does not authorize spending, sending or other external actions.

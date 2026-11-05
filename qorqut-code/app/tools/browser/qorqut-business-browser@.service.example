@@ -1,0 +1,29 @@
+# Operator template, not auto-installed. Replace /APPROVED-RELEASE and /BUSINESSES.
+# Instance %i is the registered business UUID, never its mutable display name.
+[Unit]
+Description=Qorqut business Chrome (%i)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=qorqut
+Group=qorqut
+UMask=0077
+ExecStart=/APPROVED-RELEASE/biz-core/.venv/bin/python -I -m bazarlyk.browser.service --root /BUSINESSES --business-id %i --runtime /APPROVED-RELEASE/biz-core/tools/browser
+# Signal the supervisor first so it can flush Chrome through Browser.close;
+# systemd still kills the entire cgroup if orderly cleanup exceeds the deadline.
+KillMode=mixed
+TimeoutStopSec=60
+# Config changes exit cleanly: explicit operator restart required.
+Restart=on-failure
+RestartSec=30
+# Permanent schema/configuration errors require an explicit operator repair.
+RestartPreventExitStatus=78
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

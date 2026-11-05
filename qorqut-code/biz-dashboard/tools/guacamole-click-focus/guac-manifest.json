@@ -1,0 +1,14 @@
+{
+    "guacamoleVersion" : "1.6.0",
+    "name"             : "Qorqut Guacamole Click Focus",
+    "namespace"        : "qorqut-click-focus",
+
+    "js" : [
+        "click-focus.js",
+        "click-clipboard.js"
+    ],
+
+    "css" : [
+        "click-clipboard.css"
+    ]
+}

@@ -1,0 +1,192 @@
+/* notes — Notaru's Todos/pages UI, ported as the tasks panel's "Notes" tab (js/notes.js).
+   Lives inside .tasks #tbody (css/tasks.css owns the panel shell/tabs) the same way journal does
+   (css/writing.css); this file owns every .nt* rule for the DETAIL view (rail/sidebar/editor/lines
+   editor). The homepage owns no CSS here at all: js/notes.js's ntHomeHtml()/ntCardHtml() render
+   journal's own .jrhome/.jrhhead/.jrsub/.jreyebrow/.jrcard/.jrctitle/.jrcprev/.jrcfoot
+   markup verbatim (plus the bare jrHeatmapHtml(entries) output) so the two homepages are pixel-
+   identical apart from their text/data — see css/writing.css for those rules. */
+
+:is(.tasks, .agent-pane-embedded) .tbody.nt { padding: 0; }
+:is(.tasks, .agent-pane-embedded) .tbody.nt.nt-home { overflow-y: auto; }
+:is(.tasks, .agent-pane-embedded) .tbody.nt.nt-detail { overflow: hidden; display: flex; flex-direction: row; min-height: 0; }
+
+/* sidebar's "Pinned" group label (jreyebrow's detail-view analog — the homepage uses .jreyebrow
+   itself now, not this) */
+.nteyebrow {
+  display: flex; align-items: center; gap: 5px; font: 600 11px/1 var(--sans); letter-spacing: .12em;
+  text-transform: uppercase; color: var(--fg-2); opacity: .6; margin-bottom: 12px;
+}
+.ntfaint { color: var(--fg-3); }
+.ntfaint-pad { padding: 16px 12px; font-size: 12.5px; }
+
+/* -- detail: two-pane -- (one rule set for Notes AND Journal; writing.css only points here) */
+.nted { display: flex; flex-direction: row; width: 100%; height: 100%; min-height: 0; }
+.ntside { flex: none; width: 300px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; transition: width .2s ease; }
+.ntside.off { width: 0; }
+.ntsidectrl { flex: none; display: flex; align-items: center; gap: 8px; padding: 16px; }
+.ntsidectrl .btn { flex: 1; }
+.nticon, .jricon {
+  flex: none; width: 32px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 14px;
+  background: rgba(255,255,255,.015); color: var(--fg-2); display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: background .15s ease, color .15s ease, border-color .15s ease, transform .15s ease;
+}
+.nticon:hover, .jricon:hover { background: var(--hover); color: var(--fg); border-color: var(--line-2); transform: none; }
+.nticon svg, .jricon svg { width: 15px; height: 15px; }
+.nticon.danger:hover, .jricon.danger:hover { color: #FF6B5E; }
+.ntsearchwrap { flex: none; padding: 0 16px; }
+.ntsearch-in {
+  width: 100%; height: 36px; padding: 0 12px; box-sizing: border-box; border: 0; border-radius: var(--r-lg);
+  background: rgba(255,255,255,.04); color: var(--fg); font: 13px var(--sans); outline: none;
+  transition: box-shadow .15s ease;
+}
+/* quiet inset shadow only — app.css's global `input:focus` ring (border-color + outer box-shadow)
+   would otherwise layer on top of this, since it's a plain `input` and matches that selector too */
+.ntsearch-in:focus { border-color: transparent; box-shadow: inset 0 0 0 1px var(--line-2); }
+.ntsearch-in::placeholder { color: var(--fg-3); }
+.ntdivider { flex: none; height: 1px; margin: 16px 24px; background: var(--line); }
+.ntlist { flex: 1; min-height: 0; overflow-y: auto; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 1px; }
+.nteyebrow.ntsm { padding: 4px 12px 6px; margin-bottom: 0; }
+.ntrow { position: relative; display: flex; flex-direction: column; gap: 4px; border-radius: 16px; padding: 10px 12px; cursor: pointer; transition: background .15s ease; }
+.ntrow:hover { background: rgba(255,255,255,.03); }
+.ntrow.on { background: rgba(255,255,255,.06); }
+.ntind { position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 2.5px; height: 20px; border-radius: var(--r-full); background: var(--accent); }
+.ntr1 { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.ntrttl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px; font: 500 13px/1.3 var(--sans); color: var(--fg); }
+.ntrttl svg { flex: none; width: 11px; height: 11px; color: var(--fg-2); }
+.ntrtime { flex: none; font: 11px var(--mono); color: var(--fg-3); font-variant-numeric: tabular-nums; transition: opacity .15s ease; }
+.ntrow:hover .ntrtime { opacity: 0; }
+.ntr2 { font-size: 12px; color: var(--fg-2); opacity: .75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ntrowdel {
+  position: absolute; right: 8px; top: 8px; width: 24px; height: 24px; border-radius: 12px; border: 0;
+  background: var(--hover); color: var(--fg-2); display: none; align-items: center; justify-content: center;
+  cursor: pointer; transition: color .15s ease, background .15s ease;
+}
+.ntrowdel svg { width: 13.5px; height: 13.5px; }
+.ntrow:hover .ntrowdel { display: inline-flex; }
+.ntrowdel:hover { color: #FF6B5E; background: var(--hover); transform: none; }
+.ntfoot { flex: none; padding: 16px 24px; font-size: 11px; color: var(--fg-2); opacity: .6; }
+
+/* -- editor: one rule set for Notes AND Journal (writing.css only points here), so a new page and a new
+   memo put their headline, controls and meta line on exactly the same spot. Layout is the journal's
+   (900px column, 64px top), look is Notes'. */
+.nteditor { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; border-left: 1px solid var(--line); }
+.ntedinner { max-width: 900px; margin: 0 auto; padding: 64px 40px 128px; }
+
+.ntedhead { display: flex; align-items: flex-start; gap: 12px; }
+/* Notaru's memo/page title textarea 1:1 (flex-1 min-w-[120px] resize-none overflow-hidden bg-transparent
+   outline-none text-[26px] font-semibold tracking-[-0.02em] text-foreground leading-normal py-1) */
+.nttitlein {
+  flex: 1; min-width: 120px; resize: none; overflow: hidden; border: 0; background: none; outline: none; box-shadow: none;
+  font: 600 26px/1.5 var(--sans); letter-spacing: -.02em; color: var(--fg); padding: 4px 0;
+}
+.nttitlein::placeholder { color: var(--fg-3); }
+/* chromeless: the global textarea:focus ring (app.css) would otherwise put a border/box-shadow on focus */
+.nttitlein:focus { border: 0; box-shadow: none; background: none; }
+.ntedctrls { flex: none; display: flex; align-items: center; gap: 8px; padding-top: 5px; }
+/* every button in this header (Upload to context, Discard, Save) is app.css's one pill — the same
+   `.btn`/`button.primary` used elsewhere. Nothing is restyled here. */
+.ntedctrls .btn { flex: none; }
+.ntsavewrap { display: inline-flex; align-items: center; }
+.ntsavepill.busy { cursor: default; }
+.ntring { flex: none; }
+/* the line under the title: same family, weight and tracking as the title input, just smaller */
+.ntmeta { margin-top: 16px; padding: 0 0 7px 4px; font: 600 12.5px/1.5 var(--sans); letter-spacing: -.02em; color: var(--fg-2); }
+.ntmeta .sep { margin: 0 6px; color: var(--fg-3); opacity: .55; }
+.nthr, .jrhr { height: 1px; background: var(--line); margin: 0 0 48px; }
+
+/* -- lines editor (port of Notaru's lines-editor.tsx) --
+   14.5px/1.75 typography, 24px (1.5rem) gutter reserved for status balls. */
+.ntlinewrap { position: relative; min-height: 280px; }
+.ntlines { position: relative; display: flex; flex-direction: column; }
+.ntdoc { min-height: 280px; outline: none; cursor: text; white-space: pre-wrap; overflow-wrap: anywhere;
+  font: 400 14.5px/1.75 var(--sans); letter-spacing: -.005em; color: var(--fg); }
+.ntline { position: relative; min-height: calc(14.5px * 1.75); }
+.ntline.nttask { padding-left: calc(1.5rem + 1.5rem + 10px); text-indent: -1.5rem; }
+.ntline.bold { font-weight: 600; }
+.ntline.done { text-decoration: line-through; color: color-mix(in srgb, var(--fg) 55%, transparent); }
+/* Gutter ball, Notaru lines-editor.tsx:297-358 verbatim: absolute 30x30 wrapper span (left calc(0.5rem - 8px),
+   top MARKER_TOP, translateY(-50%), z 3) > unstyled button filling it > 6px dot span, 9px on hover,
+   transition-all 150ms; filled statuses drop the border, closed ones sit at .75 opacity. */
+.ntballwrap { position: absolute; left: calc(0.5rem - 8px); top: calc(15.5px * 1.75 / 2); transform: translateY(-50%);
+  width: 30px; height: 30px; z-index: 3; user-select: none; }
+.ntball, .ntball:hover, .ntball:active { display: flex; width: 100%; height: 100%; align-items: center; justify-content: center;
+  cursor: pointer; padding: 0; border: 0; border-radius: 0; background: none; color: inherit; transform: none; font: inherit; }
+.ntdot { display: block; box-sizing: border-box; width: 6px; height: 6px; border-radius: 9999px;
+  background: transparent; border: 1.5px solid #8a8680; opacity: .9; transition: all .15s cubic-bezier(.4, 0, .2, 1); }
+.ntball:hover .ntdot { width: 9px; height: 9px; }
+.ntball.ntb-white .ntdot { background: #F5F5F0; border: none; }
+.ntball.ntb-in_progress .ntdot { background: #0A84FF; border: none; }
+.ntball.ntb-done .ntdot { background: #30D158; border: none; opacity: .75; }
+.ntball.ntb-blocked .ntdot { background: #FF453A; border: none; }
+.ntball.ntb-cancelled .ntdot { background: transparent; border: 1.5px solid #8a8680; opacity: .75; }
+.ntline.ntrule { height: 30px; display: flex; align-items: center; }
+.ntrulehr { width: 100%; height: 1px; background: var(--line); }
+
+/* Empty+unfocused overlay prompt, absolutely centered over the (empty) lines column. */
+.ntoverlay { position: absolute; inset: 0; top: 0; left: 1.5rem; pointer-events: none; }
+.ntoh { font: 500 16px var(--sans); line-height: 1.6; letter-spacing: -0.025em; color: var(--fg); }
+.nto2 { margin-top: 6px; font-size: 13.5px; line-height: 1.625; color: var(--fg-3); }
+#nterror { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; overflow-wrap: anywhere; }
+#nterror[hidden] { display: none; }
+#nterror span { flex: 1 1 180px; }
+
+.nteditorhint { margin: -32px 0 24px; color: var(--fg-3); font-size: 11px; }
+#ntmeta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+#ntfiling { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-weight: 400; }
+#ntfiling:empty { display: none; }
+#ntfiling::before { content: "·"; color: var(--fg-3); }
+#ntfiling:has(.ntfilingrow)::before { content: none; }
+#ntfiling .ntfilingrow { display: flex; flex: 1 1 100%; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+#ntfiling .ntfilingstatus { overflow-wrap: anywhere; }
+#ntfiling .ntmetalink {
+  display: inline; width: auto; height: auto; min-height: 0; padding: 0;
+  border: 0; border-radius: 0; background: none; box-shadow: none;
+  font: inherit; color: var(--fg-2); text-decoration: underline;
+  text-decoration-color: var(--fg-3); text-underline-offset: 3px;
+  transform: none; cursor: pointer;
+}
+#ntfiling .ntmetalink:hover, #ntfiling .ntmetalink:active {
+  background: none; color: var(--fg); text-decoration-color: currentColor; transform: none;
+}
+#ntfiling .ntmetalink:focus-visible { outline: 2px solid var(--fg-3); outline-offset: 4px; }
+.ntedhead { flex-wrap: wrap; }
+.nttitlein { min-width: 140px; }
+.ntedctrls { flex-wrap: wrap; }
+
+@media(max-width:760px){
+  .nt .nted{position:relative;flex-direction:column}
+  .nt .ntside{position:absolute;top:65px;bottom:0;left:0;width:100%;z-index:2;background:var(--surface)}
+  .nt .ntside.off{width:0}
+  .nt .ntedinner{padding:24px 16px 80px}
+  .nt .nttitlein{flex-basis:100%;min-width:0}
+}
+.ntvisibility { opacity: .38; filter: grayscale(1); border: 1px solid transparent; }
+.ntvisibility.on { opacity: 1; filter: none; border-color: currentColor; }
+.ntvisibility:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.ntvisibility:disabled { cursor: wait; }
+
+.ntmeta-category { color: var(--fg-2); }
+
+.agent-pane-embedded #content:has(> .nt) { padding:0; overflow:hidden; }
+.agent-pane-embedded #content > .nt { flex:1; min-height:0; width:100%; }
+
+/* Journal uses the agent pane's width, with a compact header above the writing area. */
+.ntside[hidden] { display:none; }
+.ntnavtoggle { margin-top:4px; }
+.agent-pane-embedded .ntside { width:220px; }
+.agent-pane-embedded .ntedinner { padding:16px 16px 64px; }
+.agent-pane-embedded .nt .ntedhead { gap:8px; align-items:center; }
+.agent-pane-embedded .nt .nttitlein { flex:1 1 0; min-width:0; font-size:20px; line-height:1.3; padding:1.5px; }
+.agent-pane-embedded .ntnavtoggle { margin:0; }
+.agent-pane-embedded .ntedctrls { width:100%; justify-content:flex-end; gap:6px; padding-top:0; }
+.agent-pane-embedded .ntedctrls .btn { min-height:28px; padding:4px 10px; font-size:11px; }
+.agent-pane-embedded .nticon { width:28px; height:28px; border-radius:9px; }
+.agent-pane-embedded .ntmeta { margin-top:8px; padding:0 0 6px; font-size:11px; }
+.agent-pane-embedded .nthr { margin-bottom:12px; }
+.agent-pane-embedded .nteditorhint { margin:0 0 16px; font-size:10px; }
+@media(max-width:760px) {
+  .agent-pane-embedded .nt .ntside { top:52px; width:min(280px,100%); border-right:1px solid var(--line); box-shadow:var(--shadow-float); }
+}
+@media(min-width:600px) {
+  .agent-pane-embedded .ntedctrls { width:auto; }
+}

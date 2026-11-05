@@ -1,0 +1,79 @@
+.qorqut-clipboard-toolbar {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 30;
+    color: #eee;
+    font: 12px/1.4 sans-serif;
+}
+
+.qorqut-clipboard-toggle,
+.qorqut-clipboard-actions button {
+    border: 1px solid rgba(255,255,255,.2);
+    border-radius: 4px;
+    background: rgba(20,20,20,.88);
+    color: inherit;
+    cursor: pointer;
+}
+
+.qorqut-clipboard-toggle {
+    width: 32px;
+    height: 30px;
+    padding: 0;
+    font-size: 16px;
+}
+
+.qorqut-clipboard-toggle svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
+
+.qorqut-clipboard-toggle:hover,
+.qorqut-clipboard-toggle:focus-visible,
+.qorqut-clipboard-actions button:hover,
+.qorqut-clipboard-actions button:focus-visible {
+    border-color: rgba(255,255,255,.5);
+    background: rgba(50,50,50,.95);
+}
+
+.qorqut-clipboard-toggle:focus-visible,
+.qorqut-clipboard-actions button:focus-visible {
+    outline: 2px solid #d5d5d5;
+    outline-offset: 2px;
+}
+
+.qorqut-clipboard-panel {
+    width: 260px;
+    margin-top: 6px;
+    padding: 10px;
+    border: 1px solid rgba(255,255,255,.18);
+    border-radius: 6px;
+    background: rgba(20,20,20,.96);
+    box-shadow: 0 4px 16px rgba(0,0,0,.45);
+}
+
+.qorqut-clipboard-panel label {
+    display: block;
+    margin-bottom: 5px;
+}
+
+.qorqut-clipboard-panel textarea {
+    display: block;
+    width: 100%;
+    min-height: 64px;
+    box-sizing: border-box;
+    padding: 6px;
+    resize: vertical;
+    border: 1px solid rgba(255,255,255,.22);
+    border-radius: 3px;
+    background: #0b0b0b;
+    color: #eee;
+    font: 12px/1.4 monospace;
+}
+
+.qorqut-clipboard-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 7px;
+}
+
+.qorqut-clipboard-actions button { padding: 5px 8px; }
+.qorqut-clipboard-status { min-height: 1.4em; margin: 7px 0 0; color: #bdbdbd; }

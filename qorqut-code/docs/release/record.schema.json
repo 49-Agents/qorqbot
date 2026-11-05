@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qorqut.invalid/release/record-v1.json",
+  "type": "object",
+  "required": ["schema_version", "release_id", "installation", "plan_digest", "state", "approvals", "steps", "event_count"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "release_id": {"type": "string"},
+    "installation": {"type": "object"},
+    "plan_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "state": {"enum": ["planned", "running", "succeeded", "failed"]},
+    "approvals": {"type": "object"},
+    "steps": {"type": "object"},
+    "observations": {"type": "array"},
+    "failures": {"type": "array"},
+    "recovery": {"type": "array"},
+    "cleanup": {"type": "array"},
+    "last_event_digest": {"type": ["string", "null"]},
+    "event_count": {"type": "integer", "minimum": 0}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,89 @@
+{
+  "request_id": "50000000-0000-4000-8000-000000000001",
+  "status": "ok",
+  "data": {
+    "review_business_id": "10000000-0000-4000-8000-000000000001",
+    "items": [
+      {
+        "id": "30000000-0000-4000-8000-000000000001",
+        "review_business_id": "10000000-0000-4000-8000-000000000001",
+        "proposal_revision": 1,
+        "payload_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status_revision": 1,
+        "state": "pending",
+        "operation_name": "agents_update",
+        "operation_version": 1,
+        "proposer_principal_id": "20000000-0000-4000-8000-000000000001",
+        "proposer_display_name": "Onbashy",
+        "proposer_agent_id": "20000000-0000-4000-8000-000000000001",
+        "initiated_by_principal_id": null,
+        "title": "Update campaign research agent permissions and working brief",
+        "affected_scope": {"kind": "business", "business_ids": ["10000000-0000-4000-8000-000000000001"]},
+        "created_at": "2026-09-07T12:00:00Z",
+        "updated_at": "2026-09-07T12:00:00Z",
+        "updated_sequence": 1,
+        "decision": null,
+        "supersedes_id": null,
+        "superseded_by_id": null,
+        "preview": {
+          "title": "Update campaign research agent permissions and working brief",
+          "rationale": "Research needs permission to prepare requests while retaining owner review for staffing changes.",
+          "affected_scope": {"kind": "business", "business_ids": ["10000000-0000-4000-8000-000000000001"]},
+          "resources": [{"resource_type": "agent", "resource_id": "20000000-0000-4000-8000-000000000002", "label": "campaign-research / agent profile"}],
+          "changes": [
+            {"kind": "structured", "resource": {"resource_type": "agent", "resource_id": "20000000-0000-4000-8000-000000000002", "label": "campaign-research / permissions"}, "fields": [
+              {"path": "tool_policy.overrides.requests_create", "before": "deny", "after": "allow"},
+              {"path": "role.id", "before": "marketing", "after": "marketing"},
+              {"path": "plugins", "before": [], "after": ["reddit-organic"]}
+            ]},
+            {"kind": "text", "resource": {"resource_type": "document", "resource_id": "research-brief", "label": "agents/campaign-research/PLAN.md"}, "before": "# Campaign research\nCollect references.\n", "after": "# Campaign research\nResearch three approved communities.\nKeep owner approval for publishing.\n", "diff": "--- before/PLAN.md\n+++ after/PLAN.md\n@@ -1,2 +1,3 @@\n # Campaign research\n-Collect references.\n+Research three approved communities.\n+Keep owner approval for publishing.\n"}
+          ],
+          "effects": ["Enables request creation for campaign-research. Created Marketing requests still require their separate review before sending."]
+        },
+        "expected_targets": [{"resource": {"resource_type": "agent", "resource_id": "20000000-0000-4000-8000-000000000002", "business_id": "10000000-0000-4000-8000-000000000001"}, "revision": 3, "exists": true}],
+        "applied_at": null,
+        "apply_result": null,
+        "error": null
+      },
+      {
+        "id": "30000000-0000-4000-8000-000000000002",
+        "review_business_id": "10000000-0000-4000-8000-000000000001",
+        "proposal_revision": 1,
+        "payload_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "status_revision": 1,
+        "state": "pending",
+        "operation_name": "shared_instructions_update",
+        "operation_version": 1,
+        "proposer_principal_id": "20000000-0000-4000-8000-000000000003",
+        "proposer_display_name": "Shared instructions worker",
+        "proposer_agent_id": null,
+        "initiated_by_principal_id": "20000000-0000-4000-8000-000000000001",
+        "initiated_by_display_name": "Onbashy",
+        "title": "Clarify shared request preparation instructions",
+        "affected_scope": {"kind": "global", "namespace": "shared_instructions"},
+        "created_at": "2026-09-07T11:00:00Z",
+        "updated_at": "2026-09-07T11:00:00Z",
+        "updated_sequence": 2,
+        "decision": null,
+        "supersedes_id": null,
+        "superseded_by_id": null,
+        "preview": {
+          "title": "Clarify shared request preparation instructions",
+          "rationale": "Keep the review requirement explicit in inherited guidance. <script>window.bad = true</script>",
+          "affected_scope": {"kind": "global", "namespace": "shared_instructions"},
+          "resources": [{"resource_type": "document", "resource_id": "agent-foundation", "label": "context/agent-foundation.md"}],
+          "changes": [{"kind": "text", "resource": {"resource_type": "document", "resource_id": "agent-foundation", "label": "context/agent-foundation.md"}, "before": "Prepare requests.\n", "after": "Prepare requests for owner review.\n", "diff": "--- before/agent-foundation.md\n+++ after/agent-foundation.md\n@@ -1 +1 @@\n-Prepare requests.\n+Prepare requests for owner review.\n"}],
+          "effects": ["Changes inherited foundation guidance for all businesses."]
+        },
+        "expected_targets": [{"resource": {"resource_type": "document", "resource_id": "agent-foundation", "namespace": "shared_instructions"}, "revision": 2, "exists": true}],
+        "applied_at": null,
+        "apply_result": null,
+        "error": null
+      }
+    ],
+    "counts": {"pending": 2, "approved": 0, "applied": 0, "rejected": 0, "conflicted": 0, "failed": 0},
+    "next_cursor": null,
+    "updated_cursor": "fixture-updated-2"
+  },
+  "warnings": []
+}

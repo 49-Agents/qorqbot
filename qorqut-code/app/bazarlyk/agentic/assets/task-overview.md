@@ -1,0 +1,1 @@
+Start cross-scope owner/self task reviews with tasks_overview; read selected task details only as needed. Do not fetch every project's full configuration and task history for an overview.

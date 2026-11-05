@@ -1,0 +1,14 @@
+.conversation-panel{padding:14px;box-sizing:border-box;width:100%;border:1px solid rgba(255,255,255,.2);border-radius:14px}
+/* The shared Chat view owns the feed and composer; this only bounds its height inside the panel. */
+.conversation-view{display:flex;flex-direction:column;height:min(560px,70vh);min-height:260px}
+.conversation-view>.chat-view{flex:1 1 auto;min-height:0}
+.conversation-toggle{margin-top:8px;display:inline-flex;align-items:center;justify-content:center;padding:5px}.conversation-toggle-icon{display:inline-flex;line-height:0}.conversation-toggle:focus-visible{outline:2px solid var(--accent,#66d9e8);outline-offset:2px}
+
+.conversation-toggle{width:34px;height:34px;min-height:34px;padding:7px}.conversation-toggle svg{width:20px;height:20px}
+
+/* Placement only: the form inside is the shared Chat composer. */
+.conversation-inline-compose{margin-top:12px;min-width:0}
+
+.conversation-toggle{position:relative}
+.conversation-unread{position:absolute;top:3px;right:3px;width:8px;height:8px;border-radius:50%;background:#fff;border:1px solid var(--line-2);box-shadow:0 0 0 1px rgba(0,0,0,.35)}
+.conversation-unread[hidden]{display:none}

@@ -1,0 +1,30 @@
+# Operator template (system unit), not auto-installed. Outlook gets its own :22
+# TigerVNC session, so the former Requires/After/PartOf=remote-browser.service
+# display dependency is removed. The keyring credential, state/runtime
+# directories, profile and CDP 127.0.0.1:9226 are unchanged. Keep the existing
+# 99-migration-hold.conf drop-in unless the owner separately retires it.
+[Unit]
+Description=Dedicated Outlook Chrome desktop for email execution (:22)
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=qorqut
+Group=qorqut
+WorkingDirectory=/var/lib/qorqut-outlook-browser
+StateDirectory=qorqut-outlook-browser
+StateDirectoryMode=0700
+RuntimeDirectory=qorqut-outlook-browser
+RuntimeDirectoryMode=0700
+LoadCredential=keyring-password:/etc/qorqut-email/outlook-browser-keyring-password
+UMask=0077
+ExecStart=/usr/bin/python3 -I /opt/qorqut-browser-desktop/desktop_session.py run /etc/qorqut-browser-desktops/outlook.json --sibling /etc/qorqut-browser-desktops/ordubashy.json --sibling /etc/qorqut-browser-desktops/marketing.json
+KillMode=mixed
+TimeoutStopSec=45
+Restart=always
+RestartSec=5
+RestartPreventExitStatus=78
+
+[Install]
+WantedBy=multi-user.target

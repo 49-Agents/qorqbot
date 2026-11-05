@@ -1,0 +1,33 @@
+# Operator template (system unit), not auto-installed. Replace /APPROVED-RELEASE.
+# Instance %i is the registered business UUID. Install as
+# /etc/systemd/system/qorqut-browser-gateway@.service beside the session unit.
+# The gateway is the only path between that business's namespace and the host:
+# three fixed byte bridges under a private per-business runtime directory.
+[Unit]
+Description=Qorqut isolated business browser gateway (%i)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=qorqut
+Group=qorqut
+UMask=0077
+# systemd creates and removes the private runtime directory; the gateway checks
+# that it is a 0700 directory owned by the service user and never creates it.
+RuntimeDirectory=qorqut-browser-isolated/%i
+RuntimeDirectoryMode=0700
+ExecStart=/APPROVED-RELEASE/biz-core/.venv/bin/python -I -m bazarlyk.browser.isolated.gateway --deployment /etc/qorqut-browser-isolated/%i.json
+KillMode=mixed
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=30
+# 78: configuration, assignment or runtime directory needs an operator repair.
+RestartPreventExitStatus=78
+ProtectSystem=full
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

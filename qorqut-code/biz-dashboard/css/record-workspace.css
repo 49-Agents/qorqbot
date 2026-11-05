@@ -1,0 +1,174 @@
+/* The shared record workspace: one full-width dashboard or existing chat.
+   Header order: optional Back, title, flexible space, type icon tab, Chat icon tab, close. */
+.rw{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;box-sizing:border-box}
+.rw-records{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
+.rw-record{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
+.rw-record[hidden]{display:none}
+.rw-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:5px;flex:none;min-width:0;
+  padding:4px 6px;border-bottom:1px solid var(--line-2);background:var(--bg)}
+.rw-head .rw-back{flex:none;margin:0;padding:0 6px;min-height:24px;height:24px;font-size:11px;color:var(--fg-2)}
+.rw-title{flex:1;min-width:0;font-size:12.6px;font-weight:500;line-height:1.35;overflow-wrap:anywhere;max-height:2.7em;overflow:auto}
+/* Table and CRM dashboards render their own canonical headline. Keep the workspace
+   controls, but avoid repeating that same table title in the wrapper heading. */
+.rw-record[data-rw-type="table"] .rw-title{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.rw-context{flex:none;color:var(--fg-2);font-size:11px}
+.rw-tabs{display:flex;align-items:center;gap:2px;flex:none}
+.rw .rw-tabs .rw-tab{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;min-height:28px;margin:0;padding:5px;
+  border:0;border-radius:7px;background:transparent;color:var(--fg-2)}
+.rw .rw-tabs .rw-tab svg{width:16px;height:16px;flex:none}
+.rw .rw-tabs .rw-tab .task-type-icon{width:16px;height:16px;margin:0}
+.rw .rw-tabs .rw-tab:hover{background:var(--hover);color:var(--fg)}
+.rw .rw-tabs .rw-tab[aria-selected="true"]{background:var(--hover);color:var(--fg);box-shadow:inset 0 0 0 1px var(--fg-3)}
+.rw .rw-tabs .rw-tab:focus-visible{outline:2px solid var(--fg-2);outline-offset:-2px}
+.rw-head .rw-close{display:grid;place-items:center;flex:none;width:26px;height:26px;min-height:26px;margin:0;padding:4px;border:0;background:transparent;color:var(--fg-2)}
+.rw-head .rw-close:hover{background:var(--hover);color:var(--fg)}
+.rw-body{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
+.rw-pane{flex:1;min-height:0;min-width:0;box-sizing:border-box}
+.rw-pane[hidden]{display:none}
+/* One pane at a time, full width: a dashboard never sits beside its chat. */
+.rw-dashboard{overflow:auto;overscroll-behavior:contain;padding:10px 12px;font-size:12px}
+.rw-dashboard.record-panel{flex:1 1 auto;max-height:none;border:0;border-radius:0;padding:10px 12px;overflow:auto;font-size:12px}
+.rw-chat{display:flex;flex-direction:column;min-height:0;overflow:hidden;padding:0 6px 6px}
+.rw .agfocus-conversation{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
+.rw .agfocus-conversation>.conversation-panel{display:flex;flex:1;flex-direction:column;min-height:0;padding:0;border:0;border-radius:0}
+.rw .agfocus-conversation>.conversation-panel[hidden]{display:none}
+.rw .agfocus-conversation>.conversation-panel>.conversation-view{flex:1;height:auto;min-height:0}
+.rw .agfocus-conversation>.conversation-inline-compose{flex:none;margin-top:5px;min-width:0}
+.rw .agfocus-conversation>.conversation-inline-compose:not(:has(.gchat-composer:not([hidden]))){display:none}
+.rw-dashboard [data-task-back],.rw-dashboard .global-task-editor-heading [data-back]{display:none}
+.rw-dashboard .task-inline-actions{display:flex;justify-content:flex-end;margin-bottom:10px}
+.rw-status,.rw-unavailable{margin:8px 2px}
+/* Story overview: readable paragraphs until the owner explicitly edits. */
+.record-overview{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55;font-size:12.6px;margin:0 0 6px}
+.record-overview.muted{color:var(--fg-2)}
+.record-overview-edit textarea{display:block;width:100%;box-sizing:border-box}
+.record-story-overview .record-actions{margin-top:6px}
+.rw-dashboard .record-section{margin:0 0 16px}
+.rw-dashboard .record-section .record-section-head{margin:0 0 7px}
+.rw-dashboard .record-section-head>h4{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-2)}
+.rw-dashboard .record-section>h4{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-2);margin:0 0 7px}
+.rw-dashboard .record-actions{gap:6px}
+/* A Project record's inventory: quiet full-width rows, no stat tiles or nested cards. */
+.rw-project-head h3{margin:0 0 4px;font-size:15px;font-weight:600;overflow-wrap:anywhere}
+.rw-project-archived{display:inline-block;margin:0 0 5px;padding:1px 8px;border:1px solid var(--line-2);border-radius:10px;font-size:10px;color:var(--fg-2)}
+.rw-project-summary{margin:0 0 8px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5}
+.rw-project-tools{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.rw-project-tools button{min-height:26px;padding:3px 9px;font-size:11px}
+.rw-project-tools button[aria-pressed="true"]{background:var(--hover);border-color:var(--fg-3);color:var(--fg)}
+.rw-project-sections{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 10px;padding-bottom:8px;border-bottom:1px solid var(--line-2)}
+.rw-project-sections button{min-height:26px;padding:3px 10px;font-size:11px;border-radius:8px;background:transparent;color:var(--fg-2)}
+.rw-project-sections button[aria-pressed="true"]{background:var(--hover);border-color:var(--fg-3);color:var(--fg)}
+.rw-project-list{display:flex;flex-direction:column;gap:1px;min-width:0}
+.rw-project-row{display:flex;align-items:center;gap:4px;min-width:0;border-radius:7px}
+.rw-project-row:hover{background:var(--hover)}
+.rw .rw-project-row .rw-project-open{display:flex;align-items:center;gap:7px;flex:1;min-width:0;min-height:34px;height:auto;padding:5px 7px;margin:0;border:0;border-radius:7px;background:transparent;color:var(--fg);font-weight:400;text-align:left;transform:none}
+.rw-project-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:18px;height:18px;color:var(--fg-2)}
+.rw-project-icon svg,.rw-project-icon .task-type-icon{width:15px;height:15px;margin:0}
+.rw-project-icon .task-type-icon{background:var(--fg-2)}
+.rw-project-label{flex:1;min-width:0;overflow-wrap:anywhere;font-size:12.6px;line-height:1.35}
+.rw-project-scope{flex:none;max-width:38%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 6px;border:1px solid var(--line-2);border-radius:8px;font-size:9px;color:var(--fg-2)}
+.rw-project-scope[hidden],.rw-project-state[hidden],.rw-project-assoc[hidden]{display:none}
+.rw-project-state{flex:none;font-size:10px;color:var(--fg-2)}
+.rw-project-assoc{flex:none;font-size:9px;color:var(--fg-2)}
+.rw .rw-project-row .rw-project-unlink{flex:none;margin:0;min-height:24px;height:24px;padding:0 7px;font-size:10px;color:var(--fg-2)}
+.rw-project-more{margin:8px 0 0;min-height:26px;padding:3px 10px;font-size:11px}
+.rw-project-empty{margin:8px 2px}
+/* Link an existing item: scope, kind, search, real candidates. */
+.rw-link-dialog{display:grid;gap:8px;min-width:0}
+.rw-link-dialog label{display:grid;gap:3px;font-size:11px;color:var(--fg-2)}
+.rw-link-dialog .inp{width:100%;box-sizing:border-box}
+.rw-link-results{display:flex;flex-direction:column;gap:1px;max-height:min(46vh,420px);overflow:auto;min-width:0}
+.rw .rw-link-option{display:flex;align-items:center;gap:7px;width:100%;min-height:32px;height:auto;padding:4px 7px;border:0;border-radius:6px;background:transparent;color:var(--fg);font-weight:400;text-align:left;transform:none}
+.rw .rw-link-option:hover{background:var(--hover)}
+.rw-link-option .rw-project-label{flex:1;min-width:0}
+.rw-link-empty{margin:2px}
+.rw-reader{padding:2px}
+.rw-reader h3{margin:0 0 8px;font-size:14px;font-weight:600;overflow-wrap:anywhere}
+/* A Signoff dashboard is the existing canonical view, full width. */
+.rw-signoff-panel .sg-body{padding:0}
+.rw-signoff-panel .sg{margin:0}
+.rw .agfocus-reference-frame{width:100%;height:calc(100vh - 220px);min-height:320px}
+@media(max-width:600px){
+  .rw-head{padding:3px 3px}
+  .rw-title{max-height:2.8em;font-size:12px}
+  .rw-dashboard{padding:8px}
+  .rw-dashboard.record-panel{padding:8px}
+  .rw-project-scope{max-width:30%}
+  .rw-project-row{flex-wrap:wrap}
+  .rw .rw-project-row .rw-project-open{flex:1 1 100%}
+  .rw .rw-project-row .rw-project-unlink{margin-left:auto}
+}
+/* Reminder inventory: text, schedule and state only; scheduling lives in its existing UI. */
+.rw-reminder-text{margin:0 0 10px;font-size:13px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
+.rw-reminder-meta{margin:0;font-size:11px;line-height:1.5}
+/* The one read-only owner Dev report reader: explicit fields, never raw JSON. */
+.rw-ticket-meta{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 10px}
+.rw-ticket-badge{display:inline-flex;align-items:center;padding:1px 7px;border:1px solid var(--line-2);border-radius:10px;font-size:10px;color:var(--fg-2)}
+.rw-ticket-status-open{color:var(--fg);border-color:var(--fg-3)}
+.rw-ticket-status-closed{color:var(--fg-2)}
+.rw-ticket-body{font-size:12.6px;line-height:1.6;overflow-wrap:anywhere}
+.rw-ticket-body p{margin:0 0 8px}
+.rw-ticket-body p:last-child{margin-bottom:0}
+.rw-ticket-body ul,.rw-ticket-body ol{margin:0 0 8px;padding-left:20px}
+.rw-ticket-body blockquote{margin:0 0 8px;padding-left:9px;border-left:2px solid var(--line-2);color:var(--fg-2)}
+.rw-ticket-body pre{overflow:auto;padding:7px;border:1px solid var(--line-2);border-radius:6px;font-size:11px}
+.rw-ticket-body code{padding:0 3px;border-radius:3px;background:var(--hover);font-size:.92em}
+.rw-ticket-fields{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:3px 10px;margin:10px 0 0;font-size:11px;color:var(--fg-2)}
+.rw-ticket-field{display:contents}
+.rw-ticket-fields dt{color:var(--fg-2)}
+.rw-ticket-fields dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.rw-ticket-section{margin-top:14px}
+.rw-ticket-section h4{margin:0 0 6px;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-2)}
+.rw-ticket-deployment{margin:0;font-family:var(--mono, monospace);font-size:11px;overflow-wrap:anywhere}
+.rw-ticket-events{display:flex;flex-direction:column;gap:0}
+.rw-ticket-event{padding:7px 0;border-top:1px solid var(--line-2)}
+.rw-ticket-event-head{display:flex;align-items:center;gap:7px;margin-bottom:4px;font-size:11px}
+.rw-ticket-event .rw-ticket-body{font-size:12px}
+/* Routine inventory: the routine header plus its independently paged run history. */
+.rw-routine-meta{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 10px;margin:0 0 14px;font-size:11px}
+.rw-routine-meta dt{color:var(--fg-2)}
+.rw-routine-meta dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.rw-routine-history>h4{margin:0 0 7px;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-2)}
+.rw-run-list{display:flex;flex-direction:column;gap:1px;border-top:1px solid var(--line-2)}
+.rw-run-row{display:flex;align-items:center;gap:9px;min-height:32px;padding:4px 2px;border-bottom:1px solid var(--line-2);font-size:11px;min-width:0}
+.rw-run-state{flex:none;color:var(--fg-2)}
+.rw-run-state.bad{color:var(--danger, #b42318)}
+.rw-run-time{flex:none;color:var(--fg-2)}
+.rw-run-trigger{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg-3, var(--fg-2));font-size:10px}
+.rw .rw-run-job{margin-left:auto;flex:none;min-height:24px;height:24px;padding:0 7px;font-size:10px;color:var(--fg-2)}
+.rw-run-empty,.rw-run-actions{margin:7px 0 0}
+
+/* Story hierarchy: Focus-style compact rows; nested child Stories indent and expand in place. */
+.record-child-list{display:flex;flex-direction:column;gap:1px;min-width:0}
+.record-child-row{display:grid;grid-template-columns:26px minmax(0,1fr);align-items:center;gap:7px;min-height:32px;min-width:0;padding:2px 6px;margin-left:calc(var(--record-depth,0) * 14px);border:0;border-radius:8px;background:none;color:var(--fg);cursor:pointer}
+.record-child-row:hover{background:var(--wash)}
+.record-child-row:focus-visible{outline:2px solid var(--fg-2);outline-offset:-2px}
+.record-child-marker{display:inline-flex;align-items:center;justify-content:center;flex:none;width:26px;height:26px;color:var(--fg-2)}
+.record-child-marker .task-type-icon{margin:0;width:16px;height:16px}
+.record-child-marker .ball{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;min-height:0;margin:0;padding:0;border:0;background:none;pointer-events:none}
+.record-child-marker .ball .core{width:12px;height:12px}
+.record-child-marker .task-subtasks-toggle{display:inline-flex;align-items:center;justify-content:center;margin:0;width:26px;height:26px;min-height:0;padding:0;border:0;border-radius:0;background:none;color:var(--fg-2);cursor:pointer}
+.record-child-marker .task-subtasks-toggle:hover{background:var(--hover);color:var(--fg)}
+.record-child-marker .task-subtasks-toggle[aria-expanded="true"]{color:var(--fg)}
+.record-child-head{display:flex;align-items:center;gap:6px;min-width:0}
+.record-child-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.6px;font-weight:400;line-height:1.35}
+.record-child-flag{flex:none;font-size:9px;color:var(--fg-2)}
+.record-child-branch{display:flex;flex-direction:column;gap:1px;min-width:0}
+.record-child-status{margin:4px 2px;font-size:11px}
+.record-child-more{align-self:flex-start;margin:2px 0 4px;min-height:24px;height:24px;padding:0 7px;font-size:10px;color:var(--fg-2)}
+/* Linked work follows the same row rhythm as Focus hierarchy rows. */
+.record-panel .task-links{display:flex;flex-direction:column;align-items:stretch;gap:4px}
+.record-panel .task-links .task-link-pair{display:flex;align-items:center;width:100%;gap:4px}
+.record-panel .task-links .task-link-chip{flex:1;text-align:left;white-space:normal;overflow-wrap:anywhere;min-width:0}
+/* A table record stays in this pane: columns and rows, not an exit button. */
+.rw-table-reader h4{margin:0 0 4px}
+.rw-table-wrap{max-width:100%;overflow:auto;margin:8px 0}
+.rw-table{border-collapse:collapse;width:100%;font-size:12px}
+.rw-table th,.rw-table td{border:1px solid var(--line-2);padding:5px 7px;text-align:left;vertical-align:top;max-width:320px;overflow-wrap:anywhere}
+.rw-table th{position:sticky;top:0;background:var(--bg-2);font-weight:600}
+.rw-related-row{display:flex;margin:0 0 4px}
+.rw-related-open{display:flex;align-items:center;gap:6px;width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere}
+.rw-action-text{font-size:15px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+.rw-action-meta{display:grid;grid-template-columns:max-content 1fr;gap:3px 10px;font-size:12px;margin:8px 0}
+.rw-action-meta dt{color:var(--fg-2)}
+.rw-action-meta dd{margin:0}

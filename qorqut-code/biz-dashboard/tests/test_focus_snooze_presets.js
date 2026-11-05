@@ -1,0 +1,16 @@
+const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm'), path = require('node:path');
+const repo = path.resolve(__dirname, '..');
+const source = fs.readFileSync(path.join(repo,'js/agent-focus.js'),'utf8');
+const ctx = vm.createContext({});
+vm.runInContext(fs.readFileSync(path.join(repo,'js/san-juan-time.js'),'utf8') + '\n' + source.slice(source.indexOf('const AGFOCUS_SNOOZE_OPTIONS'),source.indexOf('function agfocusSnoozePicker')),ctx);
+const time = (key, now) => vm.runInContext(`agfocusSnoozeTime(${JSON.stringify(key)},new Date(${JSON.stringify(now)})).toISOString()`,ctx);
+const now = '2026-09-30T21:15:00Z';
+for (const [key, expected] of Object.entries({'1h':'2026-09-30T22:15:00.000Z','3h':'2026-10-01T00:15:00.000Z',tomorrow:'2026-10-01T10:00:00.000Z','day-after':'2026-10-02T10:00:00.000Z',saturday:'2026-10-03T10:00:00.000Z',monday:'2026-10-05T10:00:00.000Z',week:'2026-10-07T10:00:00.000Z','two-weeks':'2026-10-14T10:00:00.000Z'})) assert.equal(time(key,now),expected);
+assert.equal(time('monday','2026-10-05T09:59:00Z'),'2026-10-05T10:00:00.000Z');
+assert.equal(time('monday','2026-10-05T10:00:00Z'),'2026-10-12T10:00:00.000Z');
+assert.equal(time('saturday','2026-10-03T11:00:00Z'),'2026-10-10T10:00:00.000Z');
+assert.equal(time('tomorrow','2026-10-01T02:00:00Z'),'2026-10-01T10:00:00.000Z','calendar uses San Juan, not UTC/browser');
+assert.equal(time('tomorrow','2026-12-31T20:00:00Z'),'2027-01-01T10:00:00.000Z');
+assert.equal(time('day-after','2028-02-28T20:00:00Z'),'2028-03-01T10:00:00.000Z');
+assert.equal(time('tomorrow','2026-03-07T14:00:00Z'),'2026-03-08T10:00:00.000Z');
+console.log('Focus snooze presets: all eight options, 6 AM boundaries, calendar rollover and fixed zone passed.');

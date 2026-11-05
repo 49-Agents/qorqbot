@@ -1,0 +1,1 @@
+Use environment_set(key, value) to save project Settings or credentials directly. It preserves other keys and never writes Global Settings. Stored values are available to Settings reads and new terminals; existing shells keep their prior environment.

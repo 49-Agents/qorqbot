@@ -1,0 +1,1 @@
+Target: {{PROJECT_NAME}} ({{PROJECT_ID}}); stage: {{STAGE}}; project revision: {{PROJECT_REVISION}}.

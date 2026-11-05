@@ -1,0 +1,1 @@
+Use signoffs_list for status/attention; read signoffs_get for proposal evidence and owner feedback before acting.

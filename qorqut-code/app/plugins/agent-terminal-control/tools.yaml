@@ -1,0 +1,7 @@
+tools:
+  status: {tool: agent_terminal_status}
+  start: {tool: agent_terminal_start}
+  restart: {tool: agent_terminal_restart}
+  kill: {tool: agent_terminal_kill}
+  ping: {tool: agent_terminal_ping}
+  execute_command: {tool: agent_terminal_execute_command}

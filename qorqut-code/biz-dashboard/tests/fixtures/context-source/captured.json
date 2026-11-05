@@ -1,0 +1,3302 @@
+{
+ "captures": [
+  {
+   "name": "upload/accepted",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": {
+     "text": "Met Alice about the pilot.",
+     "topic": "Pilot call"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/biz/first/context/upload",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "deleted": [],
+      "document": {
+       "agent_id": null,
+       "archived": 0,
+       "availability": "ready",
+       "business_id": "56143392-10bd-4bf7-afae-a2491b6ca066",
+       "content_hash": "af316ecb91a8ee7ae99210702b2d4758f30cdde3bf61e3d8e787d74681f90a6e",
+       "created_at": "2026-01-01T00:00:00.000000Z",
+       "id": "ebcd11c1-4a14-49e3-a74c-35c5f793b9f9",
+       "kind": "context_upload",
+       "material_type": "mixed",
+       "metadata": {
+        "by": "9ce6202f-4f79-431d-8382-e0e2a2bcce15",
+        "date": "2026-01-01",
+        "material_type": "mixed",
+        "origin": "upload",
+        "source": "dashboard",
+        "status": "pending",
+        "tags": [],
+        "title": "Pilot call"
+       },
+       "namespace": "56143392-10bd-4bf7-afae-a2491b6ca066",
+       "origin": "upload",
+       "path": "context/_inbox/2026-01-01-ebcd11c1-4a14-49e3-a74c-35c5f793b9f9.md",
+       "revision": 1,
+       "source_refs": [],
+       "tags": [],
+       "updated_at": "2026-01-01T00:00:00.000000Z"
+      },
+      "documents": [
+       {
+        "agent_id": null,
+        "archived": 0,
+        "availability": "ready",
+        "business_id": "56143392-10bd-4bf7-afae-a2491b6ca066",
+        "content_hash": "af316ecb91a8ee7ae99210702b2d4758f30cdde3bf61e3d8e787d74681f90a6e",
+        "created_at": "2026-01-01T00:00:00.000000Z",
+        "id": "ebcd11c1-4a14-49e3-a74c-35c5f793b9f9",
+        "kind": "context_upload",
+        "material_type": "mixed",
+        "metadata": {
+         "by": "9ce6202f-4f79-431d-8382-e0e2a2bcce15",
+         "date": "2026-01-01",
+         "material_type": "mixed",
+         "origin": "upload",
+         "source": "dashboard",
+         "status": "pending",
+         "tags": [],
+         "title": "Pilot call"
+        },
+        "namespace": "56143392-10bd-4bf7-afae-a2491b6ca066",
+        "origin": "upload",
+        "path": "context/_inbox/2026-01-01-ebcd11c1-4a14-49e3-a74c-35c5f793b9f9.md",
+        "revision": 1,
+        "source_refs": [],
+        "tags": [],
+        "updated_at": "2026-01-01T00:00:00.000000Z"
+       },
+       {
+        "agent_id": null,
+        "archived": 0,
+        "availability": "ready",
+        "business_id": "56143392-10bd-4bf7-afae-a2491b6ca066",
+        "content_hash": "e7bf382f6e5915b3f88619b866223ebf1d51c4c5321cccde2e9ff700a3259086",
+        "created_at": "2026-01-01T00:00:00.000000Z",
+        "id": "865e7643-5bac-509d-b3b2-f16a38266be2",
+        "kind": "context_index",
+        "metadata": {
+         "generated": true,
+         "title": "context index",
+         "tree": "context"
+        },
+        "namespace": "56143392-10bd-4bf7-afae-a2491b6ca066",
+        "path": "context/INDEX.md",
+        "revision": 1,
+        "source_refs": [],
+        "updated_at": "2026-01-01T00:00:00.000000Z"
+       }
+      ],
+      "job": {
+       "id": "c679468c-1fd4-4a55-8cdc-636a8301d6b5",
+       "state": "queued"
+      }
+     },
+     "document_id": "ebcd11c1-4a14-49e3-a74c-35c5f793b9f9",
+     "id": "2026-01-01-ebcd11c1-4a14-49e3-a74c-35c5f793b9f9",
+     "job": {
+      "id": "c679468c-1fd4-4a55-8cdc-636a8301d6b5",
+      "state": "queued"
+     },
+     "ok": true,
+     "path": "_inbox/2026-01-01-ebcd11c1-4a14-49e3-a74c-35c5f793b9f9.md",
+     "request_id": "695dc7ec-ddcf-40ee-85c8-abfee6408c11",
+     "status": "accepted",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 202
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "pilot/queued/queue-get",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": {
+     "input_id": "04164794-3837-480f-b25b-5c8bfde77717"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/biz/first/operations/context_queue_get",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "input": {
+       "attempt": 0,
+       "attempts": [],
+       "context_event_id": null,
+       "controls": [],
+       "created_at": "2026-01-01T00:00:00.000000Z",
+       "error": null,
+       "execution": null,
+       "id": "04164794-3837-480f-b25b-5c8bfde77717",
+       "input_kind": "general",
+       "item_id": null,
+       "operation": "add",
+       "payload": {
+        "content": "{\"body\":\"Met Alice about the pilot.\",\"format\":\"qorqut-source-v1\",\"metadata\":{\"date\":\"2026-01-01\",\"document_kind\":\"context_upload\",\"origin\":\"upload\",\"source\":\"dashboard\",\"title\":\"Pilot call\",\"uploaded_by\":\"9ce6202f-4f79-431d-8382-e0e2a2bcce15\"}}",
+        "metadata": {
+         "kind": "document",
+         "origin": "dashboard",
+         "origin_ref": "document:ebcd11c1-4a14-49e3-a74c-35c5f793b9f9",
+         "title": "Pilot call"
+        },
+        "operation": "add",
+        "path": "foundation/documents/ebcd11c1-4a14-49e3-a74c-35c5f793b9f9.txt",
+        "submitted_by": "9ce6202f-4f79-431d-8382-e0e2a2bcce15"
+       },
+       "result": null,
+       "revision": null,
+       "scope": {
+        "business_id": "56143392-10bd-4bf7-afae-a2491b6ca066",
+        "kind": "business"
+       },
+       "sequence": 1,
+       "state": "queued",
+       "submitted_by": "9ce6202f-4f79-431d-8382-e0e2a2bcce15",
+       "summary": {
+        "path": "foundation/documents/ebcd11c1-4a14-49e3-a74c-35c5f793b9f9.txt"
+       }
+      }
+     },
+     "request_id": "ea24686d-bbff-47a0-a2ff-a303953a346b",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "pilot/blocked/queue-get",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": {
+     "input_id": "04164794-3837-480f-b25b-5c8bfde77717"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/biz/first/operations/context_queue_get",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "input": {
+       "attempt": 1,
+       "attempts": [
+        {
+         "attempt": 1,
+         "cause": "queue",
+         "context_event_id": "ev001",
+         "control_id": null,
+         "error": {
+          "code": "propagation_failed",
+          "details": {
+           "phase": "propagation"
+          },
+          "diagnostics_retained": true,
+          "message": "model unavailable",
+          "phase": "propagation",
+          "retryable": true,
+          "type": "PropagationError"
+         },
+         "finished_at": "2026-01-01T00:00:02.000000Z",
+         "outcome": "blocked",
+         "result": null,
+         "started_at": "2026-01-01T00:00:01.000000Z"
+        }
+       ],
+       "context_event_id": "ev001",
+       "controls": [],
+       "created_at": "2026-01-01T00:00:00.000000Z",
+       "error": {
+        "code": "propagation_failed",
+        "details": {
+         "phase": "propagation"
+        },
+        "diagnostics_retained": true,
+        "message": "model unavailable",
+        "phase": "propagation",
+        "retryable": true,
+        "type": "PropagationError"
+       },
+       "execution": null,
+       "id": "04164794-3837-480f-b25b-5c8bfde77717",
+       "input_kind": "general",
+       "item_id": null,
+       "operation": "add",
+       "payload": {
+        "content": "{\"body\":\"Met Alice about the pilot.\",\"format\":\"qorqut-source-v1\",\"metadata\":{\"date\":\"2026-01-01\",\"document_kind\":\"context_upload\",\"origin\":\"upload\",\"source\":\"dashboard\",\"title\":\"Pilot call\",\"uploaded_by\":\"9ce6202f-4f79-431d-8382-e0e2a2bcce15\"}}",
+        "metadata": {
+         "kind": "document",
+         "origin": "dashboard",
+         "origin_ref": "document:ebcd11c1-4a14-49e3-a74c-35c5f793b9f9",
+         "title": "Pilot call"
+        },
+        "operation": "add",
+        "path": "foundation/documents/ebcd11c1-4a14-49e3-a74c-35c5f793b9f9.txt",
+        "submitted_by": "9ce6202f-4f79-431d-8382-e0e2a2bcce15"
+       },
+       "result": null,
+       "revision": null,
+       "scope": {
+        "business_id": "56143392-10bd-4bf7-afae-a2491b6ca066",
+        "kind": "business"
+       },
+       "sequence": 1,
+       "state": "blocked",
+       "submitted_by": "9ce6202f-4f79-431d-8382-e0e2a2bcce15",
+       "summary": {
+        "path": "foundation/documents/ebcd11c1-4a14-49e3-a74c-35c5f793b9f9.txt"
+       }
+      }
+     },
+     "request_id": "6f9f8f74-eb14-4f7c-b1ea-56c01b573e93",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "pilot/blocked/processes",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": null,
+    "headers": {},
+    "method": "GET",
+    "path": "/api/biz/first/context",
+    "query": {
+     "view": "processes"
+    }
+   },
+   "response": {
+    "body": {
+     "context_queue": {
+      "blocked": 1,
+      "blocked_input_id": "04164794-3837-480f-b25b-5c8bfde77717",
+      "completion_conflict": 0,
+      "discard_requested": 0,
+      "processing": 0,
+      "publication_pending_completion": 0,
+      "queue_blocked": true,
+      "queued": 0
+     }
+    },
+    "etag": "W/\"f9e19bddb7970cc5f6bac56b96017f12\"",
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "pilot/blocked/processes-global",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": null,
+    "headers": {},
+    "method": "GET",
+    "path": "/api/root/context",
+    "query": {
+     "view": "processes"
+    }
+   },
+   "response": {
+    "body": {
+     "context_queue": {
+      "blocked": 0,
+      "blocked_input_id": null,
+      "completion_conflict": 0,
+      "discard_requested": 0,
+      "processing": 0,
+      "publication_pending_completion": 0,
+      "queue_blocked": true,
+      "queued": 0
+     }
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "pilot/blocked/processes-other-namespace",
+   "principal": "owner selecting the other business",
+   "request": {
+    "body": null,
+    "headers": {},
+    "method": "GET",
+    "path": "/api/biz/second/context",
+    "query": {
+     "view": "processes"
+    }
+   },
+   "response": {
+    "body": {
+     "context_queue": {
+      "blocked": 0,
+      "blocked_input_id": null,
+      "completion_conflict": 0,
+      "discard_requested": 0,
+      "processing": 0,
+      "publication_pending_completion": 0,
+      "queue_blocked": true,
+      "queued": 0
+     }
+    },
+    "etag": "W/\"2ff3c375b9e6133816cece32d0426744\"",
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "pilot/retry-stale-revision",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": {
+     "expected_revision": 8,
+     "idempotency_key": "capture-pilot/retry-stale-revision",
+     "upload_id": "ebcd11c1-4a14-49e3-a74c-35c5f793b9f9"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/biz/first/operations/context_retry",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "error": {
+      "code": "revision_conflict",
+      "current_revision": 1,
+      "message": "Current resource revision is required",
+      "retryable": false
+     },
+     "request_id": "1b56c33a-d52d-431f-83cf-f0dcb4425377",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 409
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "pilot/retry-pending/queue-get",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": {
+     "input_id": "04164794-3837-480f-b25b-5c8bfde77717"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/biz/first/operations/context_queue_get",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "input": {
+       "attempt": 1,
+       "attempts": [
+        {
+         "attempt": 1,
+         "cause": "queue",
+         "context_event_id": "ev001",
+         "control_id": null,
+         "error": {
+          "code": "propagation_failed",
+          "details": {
+           "phase": "propagation"
+          },
+          "diagnostics_retained": true,
+          "message": "model unavailable",
+          "phase": "propagation",
+          "retryable": true,
+          "type": "PropagationError"
+         },
+         "finished_at": "2026-01-01T00:00:02.000000Z",
+         "outcome": "blocked",
+         "result": null,
+         "started_at": "2026-01-01T00:00:01.000000Z"
+        }
+       ],
+       "context_event_id": "ev001",
+       "controls": [
+        {
+         "expected_state": "blocked",
+         "id": "4cb102a4-5bb6-4e9b-8c16-f48ac4ecc434",
+         "intent": "retry",
+         "requested_at": "2026-01-01T12:00:00.000000Z",
+         "requested_by": "9ce6202f-4f79-431d-8382-e0e2a2bcce15",
+         "resolved_at": null,
+         "result": null,
+         "status": "pending"
+        }
+       ],
+       "created_at": "2026-01-01T00:00:00.000000Z",
+       "error": {
+        "code": "propagation_failed",
+        "details": {
+         "phase": "propagation"
+        },
+        "diagnostics_retained": true,
+        "message": "model unavailable",
+        "phase": "propagation",
+        "retryable": true,
+        "type": "PropagationError"
+       },
+       "execution": null,
+       "id": "04164794-3837-480f-b25b-5c8bfde77717",
+       "input_kind": "general",
+       "item_id": null,
+       "operation": "add",
+       "payload": {
+        "content": "{\"body\":\"Met Alice about the pilot.\",\"format\":\"qorqut-source-v1\",\"metadata\":{\"date\":\"2026-01-01\",\"document_kind\":\"context_upload\",\"origin\":\"upload\",\"source\":\"dashboard\",\"title\":\"Pilot call\",\"uploaded_by\":\"9ce6202f-4f79-431d-8382-e0e2a2bcce15\"}}",
+        "metadata": {
+         "kind": "document",
+         "origin": "dashboard",
+         "origin_ref": "document:ebcd11c1-4a14-49e3-a74c-35c5f793b9f9",
+         "title": "Pilot call"
+        },
+        "operation": "add",
+        "path": "foundation/documents/ebcd11c1-4a14-49e3-a74c-35c5f793b9f9.txt",
+        "submitted_by": "9ce6202f-4f79-431d-8382-e0e2a2bcce15"
+       },
+       "result": null,
+       "revision": null,
+       "scope": {
+        "business_id": "56143392-10bd-4bf7-afae-a2491b6ca066",
+        "kind": "business"
+       },
+       "sequence": 1,
+       "state": "blocked",
+       "submitted_by": "9ce6202f-4f79-431d-8382-e0e2a2bcce15",
+       "summary": {
+        "path": "foundation/documents/ebcd11c1-4a14-49e3-a74c-35c5f793b9f9.txt"
+       }
+      }
+     },
+     "request_id": "fec287bd-ba40-41b5-903a-0e289d89f33b",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "pilot/published/processes",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": null,
+    "headers": {},
+    "method": "GET",
+    "path": "/api/biz/first/context",
+    "query": {
+     "view": "processes"
+    }
+   },
+   "response": {
+    "body": {
+     "context_queue": {
+      "blocked": 0,
+      "blocked_input_id": null,
+      "completion_conflict": 0,
+      "discard_requested": 0,
+      "processing": 0,
+      "publication_pending_completion": 1,
+      "queue_blocked": false,
+      "queued": 0
+     }
+    },
+    "etag": "W/\"e66a9d0cf69e131b999c235e84263cae\"",
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "pilot/applied/processes",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": null,
+    "headers": {},
+    "method": "GET",
+    "path": "/api/biz/first/context",
+    "query": {
+     "view": "processes"
+    }
+   },
+   "response": {
+    "body": {
+     "context_queue": {
+      "blocked": 0,
+      "blocked_input_id": null,
+      "completion_conflict": 0,
+      "discard_requested": 0,
+      "processing": 0,
+      "publication_pending_completion": 0,
+      "queue_blocked": false,
+      "queued": 0
+     }
+    },
+    "etag": "W/\"5c2a0edce43e1e057277b981800d05bf\"",
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "pilot/diagnostics-filings",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": {
+     "upload_id": "ebcd11c1-4a14-49e3-a74c-35c5f793b9f9"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/biz/first/operations/context_filings",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "filings": [
+       {
+        "attempts": [
+         {
+          "attempt": 1,
+          "cause": "queue",
+          "context_event_id": "ev001",
+          "error": {
+           "code": "propagation_failed",
+           "details": {
+            "phase": "propagation"
+           },
+           "diagnostics_retained": true,
+           "message": "model unavailable",
+           "phase": "propagation",
+           "retryable": true,
+           "type": "PropagationError"
+          },
+          "finished_at": "2026-01-01T00:00:02.000000Z",
+          "outcome": "blocked",
+          "started_at": "2026-01-01T00:00:01.000000Z"
+         },
+         {
+          "attempt": 2,
+          "cause": "retry",
+          "context_event_id": "ev001",
+          "error": null,
+          "finished_at": "2026-01-01T00:00:04.000000Z",
+          "outcome": "published",
+          "started_at": "2026-01-01T00:00:03.000000Z"
+         }
+        ],
+        "completion": {
+         "application": {
+          "document": "processed",
+          "outcome": "published",
+          "source_current": true
+         },
+         "outcome": "published",
+         "receipt_id": "b1d25c50-0d95-5293-8e07-b92ff5f0c298",
+         "state": "applied"
+        },
+        "filing_id": "19df6c8a-490d-4ca7-b748-3757aaae6a99",
+        "input": {
+         "attempt": 2,
+         "error": null,
+         "id": "04164794-3837-480f-b25b-5c8bfde77717",
+         "queued_at": "2026-01-01T00:00:00.000000Z",
+         "sequence": 1,
+         "state": "published"
+        },
+        "job": {
+         "id": "c679468c-1fd4-4a55-8cdc-636a8301d6b5",
+         "program": "context.file",
+         "state": "succeeded",
+         "version": 2
+        },
+        "publication": {
+         "context_event_id": "ev001",
+         "published_commit": "ec0b4f0b5c90ed0fa911a2972ccc452641b31563"
+        },
+        "request_id": "695dc7ec-ddcf-40ee-85c8-abfee6408c11",
+        "source": {
+         "digest": "d6f693d2eb42c624e596b7c4a08a54632e9674db5820b9bf21968e94203443e2",
+         "id": "ebcd11c1-4a14-49e3-a74c-35c5f793b9f9",
+         "kind": "document",
+         "operation": "add",
+         "path": "foundation/documents/ebcd11c1-4a14-49e3-a74c-35c5f793b9f9.txt",
+         "revision": 1
+        }
+       }
+      ]
+     },
+     "request_id": "6b1284a8-74e4-4c26-9487-fff5bae963aa",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "pilot/diagnostics-map",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": {
+     "upload_id": "ebcd11c1-4a14-49e3-a74c-35c5f793b9f9"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/biz/first/operations/context_upload_map",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "published": [
+       {
+        "context_event_id": "ev001",
+        "published_commit": "ec0b4f0b5c90ed0fa911a2972ccc452641b31563",
+        "source_revision": 1
+       }
+      ],
+      "upload_id": "ebcd11c1-4a14-49e3-a74c-35c5f793b9f9",
+      "versions": [
+       {
+        "attempts": [
+         {
+          "attempt": 1,
+          "cause": "queue",
+          "context_event_id": "ev001",
+          "error": {
+           "code": "propagation_failed",
+           "details": {
+            "phase": "propagation"
+           },
+           "diagnostics_retained": true,
+           "message": "model unavailable",
+           "phase": "propagation",
+           "retryable": true,
+           "type": "PropagationError"
+          },
+          "finished_at": "2026-01-01T00:00:02.000000Z",
+          "outcome": "blocked",
+          "started_at": "2026-01-01T00:00:01.000000Z"
+         },
+         {
+          "attempt": 2,
+          "cause": "retry",
+          "context_event_id": "ev001",
+          "error": null,
+          "finished_at": "2026-01-01T00:00:04.000000Z",
+          "outcome": "published",
+          "started_at": "2026-01-01T00:00:03.000000Z"
+         }
+        ],
+        "completion": {
+         "application": {
+          "document": "processed",
+          "outcome": "published",
+          "source_current": true
+         },
+         "outcome": "published",
+         "receipt_id": "b1d25c50-0d95-5293-8e07-b92ff5f0c298",
+         "state": "applied"
+        },
+        "filing_id": "19df6c8a-490d-4ca7-b748-3757aaae6a99",
+        "input": {
+         "attempt": 2,
+         "error": null,
+         "id": "04164794-3837-480f-b25b-5c8bfde77717",
+         "queued_at": "2026-01-01T00:00:00.000000Z",
+         "sequence": 1,
+         "state": "published"
+        },
+        "job": {
+         "id": "c679468c-1fd4-4a55-8cdc-636a8301d6b5",
+         "program": "context.file",
+         "state": "succeeded",
+         "version": 2
+        },
+        "publication": {
+         "context_event_id": "ev001",
+         "published_commit": "ec0b4f0b5c90ed0fa911a2972ccc452641b31563"
+        },
+        "request_id": "695dc7ec-ddcf-40ee-85c8-abfee6408c11",
+        "source": {
+         "digest": "d6f693d2eb42c624e596b7c4a08a54632e9674db5820b9bf21968e94203443e2",
+         "id": "ebcd11c1-4a14-49e3-a74c-35c5f793b9f9",
+         "kind": "document",
+         "operation": "add",
+         "path": "foundation/documents/ebcd11c1-4a14-49e3-a74c-35c5f793b9f9.txt",
+         "revision": 1
+        }
+       }
+      ]
+     },
+     "request_id": "5a26b925-7392-4614-8f2b-2aeb699c2189",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "pilot/retract-stale-revision",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": {
+     "expected_revision": 1,
+     "idempotency_key": "capture-pilot/retract-stale-revision",
+     "upload_id": "ebcd11c1-4a14-49e3-a74c-35c5f793b9f9"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/biz/first/operations/context_retract",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "error": {
+      "code": "revision_conflict",
+      "current_revision": 2,
+      "message": "Current resource revision is required",
+      "retryable": false
+     },
+     "request_id": "adc76915-f56f-4096-b49f-ad443354fd0e",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 409
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "pilot/retract",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": {
+     "expected_revision": 2,
+     "idempotency_key": "capture-pilot/retract",
+     "upload_id": "ebcd11c1-4a14-49e3-a74c-35c5f793b9f9"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/biz/first/operations/context_retract",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "deleted": [],
+      "document": null,
+      "documents": [],
+      "filing": {
+       "attempts": 0,
+       "completion_state": null,
+       "document_revision": 2,
+       "error": null,
+       "filing_id": "9427e9f4-8e10-4c03-9d0d-498a6ff119d8",
+       "input_id": "e17f572b-def5-4468-a6a8-308db1bbca91",
+       "job_id": "7faab26c-1f22-40c8-9d1b-29974ff05f2e",
+       "job_state": "queued",
+       "operation": "remove",
+       "published_commit": null,
+       "queue_position": 0,
+       "retryable": false,
+       "source_current": true,
+       "source_revision": 2,
+       "state": "queued",
+       "status": "pending"
+      },
+      "job": {
+       "id": "7faab26c-1f22-40c8-9d1b-29974ff05f2e",
+       "state": "queued"
+      }
+     },
+     "job": {
+      "id": "7faab26c-1f22-40c8-9d1b-29974ff05f2e",
+      "state": "queued"
+     },
+     "request_id": "c7d11d11-7c54-4866-86af-6ab2fc9f09df",
+     "status": "accepted",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 202
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "private/discard",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": {
+     "expected_state": "blocked",
+     "idempotency_key": "capture-private/discard",
+     "input_id": "f9c8bedb-e2e3-4299-9345-c538cce01bd9"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/biz/first/operations/context_queue_discard",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "result": {
+       "control_id": "e4dbb89d-ef97-4fca-b0eb-19e36e7300a2",
+       "input_id": "f9c8bedb-e2e3-4299-9345-c538cce01bd9",
+       "intent": "discard",
+       "state": "discard_requested",
+       "status": "pending"
+      }
+     },
+     "request_id": "ce8490a2-b9af-41c5-951e-e995131632e9",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "private/discard-requested/queue-get",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": {
+     "input_id": "f9c8bedb-e2e3-4299-9345-c538cce01bd9"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/biz/first/operations/context_queue_get",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "input": {
+       "attempt": 1,
+       "attempts": [
+        {
+         "attempt": 1,
+         "cause": "queue",
+         "context_event_id": "ev003",
+         "control_id": null,
+         "error": {
+          "code": "propagation_failed",
+          "details": {
+           "phase": "propagation"
+          },
+          "diagnostics_retained": true,
+          "message": "a private provider detail",
+          "phase": "propagation",
+          "retryable": true,
+          "type": "PropagationError"
+         },
+         "finished_at": "2026-01-01T00:00:14.000000Z",
+         "outcome": "blocked",
+         "result": null,
+         "started_at": "2026-01-01T00:00:13.000000Z"
+        }
+       ],
+       "context_event_id": "ev003",
+       "controls": [
+        {
+         "expected_state": "blocked",
+         "id": "e4dbb89d-ef97-4fca-b0eb-19e36e7300a2",
+         "intent": "discard",
+         "requested_at": "2026-01-01T12:00:32.000000Z",
+         "requested_by": "9ce6202f-4f79-431d-8382-e0e2a2bcce15",
+         "resolved_at": null,
+         "result": null,
+         "status": "pending"
+        }
+       ],
+       "created_at": "2026-01-01T00:00:11.000000Z",
+       "error": {
+        "code": "propagation_failed",
+        "details": {
+         "phase": "propagation"
+        },
+        "diagnostics_retained": true,
+        "message": "a private provider detail",
+        "phase": "propagation",
+        "retryable": true,
+        "type": "PropagationError"
+       },
+       "execution": null,
+       "id": "f9c8bedb-e2e3-4299-9345-c538cce01bd9",
+       "input_kind": "general",
+       "item_id": null,
+       "operation": "add",
+       "payload": {
+        "content": "{\"body\":\"Private discussion with Carol.\",\"format\":\"qorqut-source-v1\",\"metadata\":{\"date\":\"2026-01-01\",\"document_kind\":\"context_upload\",\"origin\":\"upload\",\"source\":\"dashboard\",\"title\":\"Private\",\"uploaded_by\":\"9ce6202f-4f79-431d-8382-e0e2a2bcce15\"}}",
+        "metadata": {
+         "kind": "document",
+         "origin": "dashboard",
+         "origin_ref": "document:9fbfa920-f272-4bb6-8306-c0bb0dd11d7a",
+         "title": "Private"
+        },
+        "operation": "add",
+        "path": "foundation/documents/9fbfa920-f272-4bb6-8306-c0bb0dd11d7a.txt",
+        "submitted_by": "9ce6202f-4f79-431d-8382-e0e2a2bcce15"
+       },
+       "result": null,
+       "revision": null,
+       "scope": {
+        "business_id": "56143392-10bd-4bf7-afae-a2491b6ca066",
+        "kind": "business"
+       },
+       "sequence": 3,
+       "state": "discard_requested",
+       "submitted_by": "9ce6202f-4f79-431d-8382-e0e2a2bcce15",
+       "summary": {
+        "path": "foundation/documents/9fbfa920-f272-4bb6-8306-c0bb0dd11d7a.txt"
+       }
+      }
+     },
+     "request_id": "7a39ff97-8b18-430b-a16a-179ae9c7c6d8",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "conflict/processes",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": null,
+    "headers": {},
+    "method": "GET",
+    "path": "/api/biz/first/context",
+    "query": {
+     "view": "processes"
+    }
+   },
+   "response": {
+    "body": {
+     "context_queue": {
+      "blocked": 0,
+      "blocked_input_id": null,
+      "completion_conflict": 1,
+      "discard_requested": 0,
+      "processing": 0,
+      "publication_pending_completion": 0,
+      "queue_blocked": false,
+      "queued": 0
+     }
+    },
+    "etag": "W/\"2b3e88b364f78517135eec018d27baff\"",
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "note/submitted-queued",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": null,
+    "headers": {},
+    "method": "GET",
+    "path": "/api/biz/first/notes",
+    "query": {}
+   },
+   "response": {
+    "body": [
+     {
+      "agent_id": null,
+      "archived": 0,
+      "authorId": "9ce6202f-4f79-431d-8382-e0e2a2bcce15",
+      "availability": "ready",
+      "business_id": "56143392-10bd-4bf7-afae-a2491b6ca066",
+      "category": "strategy-notes",
+      "changedSinceUpload": false,
+      "content": "Plan the launch.",
+      "content_hash": "07bb7526cfb223c7afa063eef43fa9b3754663537b0b3af9ebafb5cbcc25b94d",
+      "createdAt": "2026-01-01T00:00:21.000000Z",
+      "created_at": "2026-01-01T00:00:21.000000Z",
+      "date": "2026-01-01",
+      "file_resource": {
+       "business_id": "56143392-10bd-4bf7-afae-a2491b6ca066",
+       "namespace": null,
+       "resource_id": "{\"document_id\":\"5ec19ad3-63c4-42e5-8c01-b86b5afe8158\",\"path\":\"notes/strategy-notes/2026-01-01-strategy.md\"}",
+       "resource_type": "managed_document_files"
+      },
+      "filerSubmissions": [],
+      "filing": {
+       "attempts": 0,
+       "completion_state": null,
+       "document_revision": 1,
+       "error": null,
+       "filing_id": "86ece539-445a-4354-90e0-157bb3b33ca9",
+       "input_id": "2f673043-0707-4165-bc6c-d07587ad6d59",
+       "job_id": "f93d8e77-dd76-46c1-be6c-90c45af646a9",
+       "job_state": "queued",
+       "operation": "add",
+       "published_commit": null,
+       "queue_position": 1,
+       "retryable": false,
+       "source_current": true,
+       "source_revision": 1,
+       "state": "queued",
+       "status": "pending"
+      },
+      "id": "5ec19ad3-63c4-42e5-8c01-b86b5afe8158",
+      "indexed_content_hash": "07bb7526cfb223c7afa063eef43fa9b3754663537b0b3af9ebafb5cbcc25b94d",
+      "kind": "business_owned_note",
+      "metadata": {
+       "author_id": "9ce6202f-4f79-431d-8382-e0e2a2bcce15",
+       "category": "strategy-notes",
+       "date": "2026-01-01",
+       "pinned": false,
+       "title": "Strategy",
+       "upload_id": "1918c908-1989-4443-8c11-02aac74d1d74",
+       "upload_snapshot_hash": "73db8c8721bb0b9756af8ae317ae166db6466d9c505e0d245236bfb1c2f600fd",
+       "uploaded": "2026-01-01T00:00:22.000000Z"
+      },
+      "metadata_stale": false,
+      "namespace": "56143392-10bd-4bf7-afae-a2491b6ca066",
+      "ordubashyVisible": true,
+      "path": "notes/strategy-notes/2026-01-01-strategy.md",
+      "pinned": false,
+      "revision": 2,
+      "source_refs": [],
+      "statuses": {},
+      "title": "Strategy",
+      "updatedAt": "2026-01-01T00:00:23.000000Z",
+      "updated_at": "2026-01-01T00:00:23.000000Z",
+      "uploadId": "1918c908-1989-4443-8c11-02aac74d1d74",
+      "uploaded": "2026-01-01T00:00:22.000000Z"
+     }
+    ],
+    "etag": "W/\"7082a1a41995c636e9a9a0e49db15687\"",
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "journal/submitted-queued",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": null,
+    "headers": {},
+    "method": "GET",
+    "path": "/api/root/notes",
+    "query": {}
+   },
+   "response": {
+    "body": [
+     {
+      "agent_id": null,
+      "archived": 0,
+      "authorId": "",
+      "availability": "ready",
+      "business_id": null,
+      "category": "",
+      "changedSinceUpload": false,
+      "content": "Today I met Frank.",
+      "content_hash": "e5d6d15626743cb53456cd467afc3498eaf381590cfe34660da3e70f802cebe3",
+      "createdAt": "2026-01-01T00:00:24.000000Z",
+      "created_at": "2026-01-01T00:00:24.000000Z",
+      "date": "2026-01-01",
+      "file_resource": {
+       "business_id": null,
+       "namespace": null,
+       "resource_id": "{\"document_id\":\"56c2417c-2336-4fb6-a9d3-8ce144157e82\",\"path\":\"notes/2026-01-01-daily.md\"}",
+       "resource_type": "managed_document_files"
+      },
+      "filerSubmissions": [
+       {
+        "changedSinceSubmission": false,
+        "createdAt": "2026-01-01T00:00:25.000000Z",
+        "filing": {
+         "attempts": 0,
+         "completion_state": null,
+         "document_revision": 1,
+         "error": null,
+         "filing_id": "d407d047-b07a-47df-b3f3-b827e3497372",
+         "input_id": "1b5897b7-d3fa-4f02-b685-26e37e66f808",
+         "job_id": "0e56c49a-925e-4898-8a3b-cde4db3340f5",
+         "job_state": "queued",
+         "operation": "add",
+         "published_commit": null,
+         "queue_position": 2,
+         "retryable": false,
+         "source_current": true,
+         "source_revision": 1,
+         "state": "queued",
+         "status": "pending"
+        },
+        "sourceDate": "2026-01-01",
+        "sourceHash": "e5d6d15626743cb53456cd467afc3498eaf381590cfe34660da3e70f802cebe3",
+        "sourceRevision": 1,
+        "uploadId": "a19fe884-df6f-46e8-a891-fe134d89a1d3"
+       }
+      ],
+      "filing": null,
+      "id": "56c2417c-2336-4fb6-a9d3-8ce144157e82",
+      "indexed_content_hash": "e5d6d15626743cb53456cd467afc3498eaf381590cfe34660da3e70f802cebe3",
+      "kind": "global_note",
+      "metadata": {
+       "by": "9ce6202f-4f79-431d-8382-e0e2a2bcce15",
+       "created": "2026-01-01T00:00:24.000000Z",
+       "date": "2026-01-01",
+       "ordubashy_visible": true,
+       "title": "Daily",
+       "updated": "2026-01-01T00:00:24.000000Z"
+      },
+      "metadata_stale": false,
+      "namespace": "global",
+      "ordubashyVisible": true,
+      "path": "notes/2026-01-01-daily.md",
+      "pinned": false,
+      "revision": 1,
+      "source_refs": [],
+      "statuses": {},
+      "title": "Daily",
+      "updatedAt": "2026-01-01T00:00:24.000000Z",
+      "updated_at": "2026-01-01T00:00:24.000000Z",
+      "uploadId": "",
+      "uploaded": ""
+     }
+    ],
+    "etag": "W/\"f0fdba655cd8bd0893bd7a793fe4e622\"",
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "journal/edited-after-submission",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": null,
+    "headers": {},
+    "method": "GET",
+    "path": "/api/root/notes",
+    "query": {}
+   },
+   "response": {
+    "body": [
+     {
+      "agent_id": null,
+      "archived": 0,
+      "authorId": "",
+      "availability": "ready",
+      "business_id": null,
+      "category": "",
+      "changedSinceUpload": false,
+      "content": "Edited later.",
+      "content_hash": "b878cdc7298b5d11a57cb536dd1345670e6f6a84b3fe82db8f82f4ca37649889",
+      "createdAt": "2026-01-01T00:00:24.000000Z",
+      "created_at": "2026-01-01T00:00:24.000000Z",
+      "date": "2026-01-01",
+      "file_resource": {
+       "business_id": null,
+       "namespace": null,
+       "resource_id": "{\"document_id\":\"56c2417c-2336-4fb6-a9d3-8ce144157e82\",\"path\":\"notes/2026-01-01-daily.md\"}",
+       "resource_type": "managed_document_files"
+      },
+      "filerSubmissions": [
+       {
+        "changedSinceSubmission": true,
+        "createdAt": "2026-01-01T00:00:25.000000Z",
+        "filing": {
+         "attempts": 0,
+         "completion_state": null,
+         "document_revision": 1,
+         "error": null,
+         "filing_id": "d407d047-b07a-47df-b3f3-b827e3497372",
+         "input_id": "1b5897b7-d3fa-4f02-b685-26e37e66f808",
+         "job_id": "0e56c49a-925e-4898-8a3b-cde4db3340f5",
+         "job_state": "queued",
+         "operation": "add",
+         "published_commit": null,
+         "queue_position": 2,
+         "retryable": false,
+         "source_current": true,
+         "source_revision": 1,
+         "state": "queued",
+         "status": "pending"
+        },
+        "sourceDate": "2026-01-01",
+        "sourceHash": "e5d6d15626743cb53456cd467afc3498eaf381590cfe34660da3e70f802cebe3",
+        "sourceRevision": 1,
+        "uploadId": "a19fe884-df6f-46e8-a891-fe134d89a1d3"
+       }
+      ],
+      "filing": null,
+      "id": "56c2417c-2336-4fb6-a9d3-8ce144157e82",
+      "indexed_content_hash": "b878cdc7298b5d11a57cb536dd1345670e6f6a84b3fe82db8f82f4ca37649889",
+      "kind": "global_note",
+      "metadata": {
+       "by": "9ce6202f-4f79-431d-8382-e0e2a2bcce15",
+       "content_owner": "9ce6202f-4f79-431d-8382-e0e2a2bcce15",
+       "created": "2026-01-01T00:00:24.000000Z",
+       "date": "2026-01-01",
+       "ordubashy_visible": true,
+       "title": "Daily",
+       "updated": "2026-01-01T00:00:26.000000Z"
+      },
+      "metadata_stale": false,
+      "namespace": "global",
+      "ordubashyVisible": true,
+      "path": "notes/2026-01-01-daily.md",
+      "pinned": false,
+      "revision": 2,
+      "source_refs": [],
+      "statuses": {},
+      "title": "Daily",
+      "updatedAt": "2026-01-01T00:00:26.000000Z",
+      "updated_at": "2026-01-01T00:00:27.000000Z",
+      "uploadId": "",
+      "uploaded": ""
+     }
+    ],
+    "etag": "W/\"16783c23c7d95986c1edb6232bd51e60\"",
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global/queue-waiting-behind-blocked",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": null,
+    "headers": {},
+    "method": "GET",
+    "path": "/api/root/context",
+    "query": {
+     "view": "processes"
+    }
+   },
+   "response": {
+    "body": {
+     "context_queue": {
+      "blocked": 0,
+      "blocked_input_id": null,
+      "completion_conflict": 0,
+      "discard_requested": 0,
+      "processing": 0,
+      "publication_pending_completion": 0,
+      "queue_blocked": true,
+      "queued": 2
+     }
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global/retract-with-force-refused",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "force": true
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/context-library/eb74f4ef-1d59-4de2-ba3f-2d7c124771ce/retract",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "error": {
+      "code": "validation_error",
+      "field_errors": {
+       "force": "unknown field"
+      },
+      "message": "Request fields are invalid",
+      "retryable": false
+     },
+     "request_id": "5765a0ef-3339-4963-8be7-7145170c9ea3",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 422
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global/retract-stale-revision",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "expected_revision": 5
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/context-library/eb74f4ef-1d59-4de2-ba3f-2d7c124771ce/retract",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "error": {
+      "code": "revision_conflict",
+      "current_revision": 2,
+      "message": "Current resource revision is required",
+      "retryable": false
+     },
+     "request_id": "74b57b0b-be9a-4e4e-935a-77bb3149e6d5",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 409
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global/retract",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "expected_revision": 2,
+     "idempotency_key": "capture-global-retract"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/context-library/eb74f4ef-1d59-4de2-ba3f-2d7c124771ce/retract",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "deleted": [],
+      "document": null,
+      "documents": [],
+      "filing": {
+       "attempts": 0,
+       "completion_state": null,
+       "document_revision": 2,
+       "error": null,
+       "filing_id": "1096e0c6-a8c3-4a10-83b2-3f37e65ce8f8",
+       "input_id": "558aa796-3336-4e4c-ada0-3ba673a874a2",
+       "job_id": "cec58f04-cd7f-4983-8b8e-922400bc25d4",
+       "job_state": "queued",
+       "operation": "remove",
+       "published_commit": null,
+       "queue_position": 0,
+       "retryable": false,
+       "source_current": true,
+       "source_revision": 2,
+       "state": "queued",
+       "status": "pending"
+      },
+      "job": {
+       "id": "cec58f04-cd7f-4983-8b8e-922400bc25d4",
+       "state": "queued"
+      }
+     },
+     "job": {
+      "id": "cec58f04-cd7f-4983-8b8e-922400bc25d4",
+      "state": "queued"
+     },
+     "request_id": "54b87030-8833-4d63-a1dd-4f0f45c244e9",
+     "status": "accepted",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 202
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global/processes-wrong-view",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": null,
+    "headers": {},
+    "method": "GET",
+    "path": "/api/root/context",
+    "query": {
+     "view": "graph"
+    }
+   },
+   "response": {
+    "body": {
+     "error": {
+      "code": "validation_error",
+      "message": "Only the processes view is available for Global Context",
+      "retryable": false
+     },
+     "request_id": "3bdca8e0-eec3-41e8-a242-177465ecb1ba",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 422
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "long-business/page-1",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": {
+     "document_id": "b324eb0c-8639-468e-bc28-8ff104a72bb3",
+     "max_chars": 100,
+     "scope": "business"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/biz/first/operations/context_get",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "complete": false,
+      "document": {
+       "archived": false,
+       "availability": "ready",
+       "body": "Line 000 of the long business source body.\nLine 001 of the long business source body.\nLine 002 of th",
+       "business_id": "56143392-10bd-4bf7-afae-a2491b6ca066",
+       "character_offset": 0,
+       "content_hash": "15a7109601775e9835493b3255e751c9b997c72a53c78714211d4c4214637b25",
+       "filing": {
+        "attempts": 0,
+        "completion_state": null,
+        "document_revision": 1,
+        "error": null,
+        "filing_id": "f6d7ff9a-8b2b-4300-8b50-740a063178d4",
+        "input_id": "8eadc17e-8c07-4d61-a609-dd48ff5c1bf5",
+        "job_id": "1d30aa7c-853a-45bb-bd30-43f7ad2d55a6",
+        "job_state": "queued",
+        "operation": "add",
+        "published_commit": null,
+        "queue_position": 1,
+        "retryable": false,
+        "source_current": true,
+        "source_revision": 1,
+        "state": "queued",
+        "status": "pending"
+       },
+       "filing_status": "pending",
+       "headings": [],
+       "headings_truncated": false,
+       "id": "b324eb0c-8639-468e-bc28-8ff104a72bb3",
+       "kind": "context_upload",
+       "material_type": "mixed",
+       "metadata_stale": false,
+       "origin": "upload",
+       "parent_ids": [],
+       "people_ids": [],
+       "revision": 1,
+       "scope": "business",
+       "start_line": 1,
+       "summary": "",
+       "tags": [],
+       "title": "Long business source",
+       "topic_id": null,
+       "topic_ids": [],
+       "total_lines": 20
+      },
+      "next_cursor": "eyJiaW5kaW5nIjoiMWEzMmVmNGUyYjBlZjFlYjRiN2MxZjIyNjEyNjI0YjQ2MmQxMGEyMTgwNTMxYTE4NTRkOGI1ZDA0MDNkNzFmZiIsIm9mZnNldCI6MTAwfQ=="
+     },
+     "request_id": "28a8e997-5794-4877-a63f-857eb63a41a9",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "long-business/body-change",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": {
+     "body": "Line 000 of the long business source body.\nLine 001 of the long business source body.\nLine 002 of the long business source body.\nLine 003 of the long business source body.\nLine 004 of the long business source body.\nLine 005 of the long business source body.\nLine 006 of the long business source body.\nLine 007 of the long business source body.\nLine 008 of the long business source body.\nLine 009 of the long business source body.\nLine 010 of the long business source body.\nLine 011 of the long business source body.\nLine 012 of the long business source body.\nLine 013 of the long business source body.\nLine 014 of the long business source body.\nLine 015 of the long business source body.\nLine 016 of the long business source body.\nLine 017 of the long business source body.\nLine 018 of the long business source body.\nLine 019 of the long business source body.\nOne more line.\n",
+     "document_id": "b324eb0c-8639-468e-bc28-8ff104a72bb3",
+     "expected_content_hash": "15a7109601775e9835493b3255e751c9b997c72a53c78714211d4c4214637b25",
+     "expected_revision": 1,
+     "idempotency_key": "capture-long-business/body-change"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/biz/first/operations/context_document_update",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "deleted": [],
+      "document": {
+       "agent_id": null,
+       "archived": 0,
+       "availability": "ready",
+       "business_id": "56143392-10bd-4bf7-afae-a2491b6ca066",
+       "content_hash": "ca0d7fda8c98f366fb9910f12ea8391c5fc679f71d87f3e7a044a78dece90cda",
+       "created_at": "2026-01-01T00:00:29.000000Z",
+       "id": "b324eb0c-8639-468e-bc28-8ff104a72bb3",
+       "kind": "context_upload",
+       "material_type": "mixed",
+       "metadata": {
+        "by": "9ce6202f-4f79-431d-8382-e0e2a2bcce15",
+        "content_owner": "9ce6202f-4f79-431d-8382-e0e2a2bcce15",
+        "date": "2026-01-01",
+        "material_type": "mixed",
+        "origin": "upload",
+        "source": "dashboard",
+        "status": "pending",
+        "tags": [],
+        "title": "Long business source",
+        "updated": "2026-01-01T00:00:31.000000Z"
+       },
+       "namespace": "56143392-10bd-4bf7-afae-a2491b6ca066",
+       "origin": "upload",
+       "path": "context/_inbox/2026-01-01-b324eb0c-8639-468e-bc28-8ff104a72bb3.md",
+       "revision": 2,
+       "source_refs": [],
+       "tags": [],
+       "updated_at": "2026-01-01T00:00:32.000000Z"
+      },
+      "documents": [
+       {
+        "agent_id": null,
+        "archived": 0,
+        "availability": "ready",
+        "business_id": "56143392-10bd-4bf7-afae-a2491b6ca066",
+        "content_hash": "ca0d7fda8c98f366fb9910f12ea8391c5fc679f71d87f3e7a044a78dece90cda",
+        "created_at": "2026-01-01T00:00:29.000000Z",
+        "id": "b324eb0c-8639-468e-bc28-8ff104a72bb3",
+        "kind": "context_upload",
+        "material_type": "mixed",
+        "metadata": {
+         "by": "9ce6202f-4f79-431d-8382-e0e2a2bcce15",
+         "content_owner": "9ce6202f-4f79-431d-8382-e0e2a2bcce15",
+         "date": "2026-01-01",
+         "material_type": "mixed",
+         "origin": "upload",
+         "source": "dashboard",
+         "status": "pending",
+         "tags": [],
+         "title": "Long business source",
+         "updated": "2026-01-01T00:00:31.000000Z"
+        },
+        "namespace": "56143392-10bd-4bf7-afae-a2491b6ca066",
+        "origin": "upload",
+        "path": "context/_inbox/2026-01-01-b324eb0c-8639-468e-bc28-8ff104a72bb3.md",
+        "revision": 2,
+        "source_refs": [],
+        "tags": [],
+        "updated_at": "2026-01-01T00:00:32.000000Z"
+       },
+       {
+        "agent_id": null,
+        "archived": 0,
+        "availability": "ready",
+        "business_id": "56143392-10bd-4bf7-afae-a2491b6ca066",
+        "content_hash": "da5efcc4a06602405ee9a886de56f3dc1f9036f7bd991ebaaadedd0abe62be11",
+        "created_at": "2026-01-01T00:00:00.000000Z",
+        "id": "865e7643-5bac-509d-b3b2-f16a38266be2",
+        "kind": "context_index",
+        "metadata": {
+         "generated": true,
+         "title": "context index",
+         "tree": "context"
+        },
+        "namespace": "56143392-10bd-4bf7-afae-a2491b6ca066",
+        "path": "context/INDEX.md",
+        "revision": 8,
+        "source_refs": [],
+        "updated_at": "2026-01-01T00:00:32.000000Z"
+       }
+      ]
+     },
+     "request_id": "a71bbee4-b739-4e72-96d0-fafea030f4e2",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "long-business/page-2-after-body-change",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": {
+     "cursor": "eyJiaW5kaW5nIjoiMWEzMmVmNGUyYjBlZjFlYjRiN2MxZjIyNjEyNjI0YjQ2MmQxMGEyMTgwNTMxYTE4NTRkOGI1ZDA0MDNkNzFmZiIsIm9mZnNldCI6MTAwfQ==",
+     "document_id": "b324eb0c-8639-468e-bc28-8ff104a72bb3",
+     "max_chars": 100,
+     "scope": "business"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/biz/first/operations/context_get",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "error": {
+      "code": "validation_error",
+      "message": "Cursor belongs to a different query, scope or document version",
+      "retryable": false
+     },
+     "request_id": "afb6b91d-52bf-422d-b733-8273baaa2521",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 422
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/queued/queue-get",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "input_id": "815131fd-1b3b-4b09-aae8-61bceac09911"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_queue_get",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "input": {
+       "attempt": 0,
+       "attempts": [],
+       "context_event_id": null,
+       "controls": [],
+       "created_at": "2026-01-01T00:00:33.000000Z",
+       "error": null,
+       "execution": null,
+       "id": "815131fd-1b3b-4b09-aae8-61bceac09911",
+       "input_kind": "general",
+       "item_id": null,
+       "operation": "add",
+       "payload": {
+        "content": "{\"body\":\"Line 000 of the Global source body about Alice.\\nLine 001 of the Global source body about Alice.\\nLine 002 of the Global source body about Alice.\\nLine 003 of the Global source body about Alice.\\nLine 004 of the Global source body about Alice.\\nLine 005 of the Global source body about Alice.\\nLine 006 of the Global source body about Alice.\\nLine 007 of the Global source body about Alice.\\nLine 008 of the Global source body about Alice.\\nLine 009 of the Global source body about Alice.\\nLine 010 of the Global source body about Alice.\\nLine 011 of the Global source body about Alice.\\nLine 012 of the Global source body about Alice.\\nLine 013 of the Global source body about Alice.\\nLine 014 of the Global source body about Alice.\\nLine 015 of the Global source body about Alice.\\n\",\"format\":\"qorqut-source-v1\",\"metadata\":{\"date\":\"2026-01-01\",\"document_kind\":\"context_upload\",\"origin\":\"upload\",\"source\":\"dashboard\",\"title\":\"Global pilot\",\"uploaded_by\":\"49685b0f-4bb5-482e-975b-9f80c290a406\"}}",
+        "metadata": {
+         "kind": "document",
+         "origin": "dashboard",
+         "origin_ref": "document:8fd51892-c85e-40f2-96aa-02dc14dbb8f9",
+         "title": "Global pilot"
+        },
+        "operation": "add",
+        "path": "foundation/documents/8fd51892-c85e-40f2-96aa-02dc14dbb8f9.txt",
+        "submitted_by": "49685b0f-4bb5-482e-975b-9f80c290a406"
+       },
+       "result": null,
+       "revision": null,
+       "scope": {
+        "kind": "global"
+       },
+       "sequence": 1,
+       "state": "queued",
+       "submitted_by": "49685b0f-4bb5-482e-975b-9f80c290a406",
+       "summary": {
+        "path": "foundation/documents/8fd51892-c85e-40f2-96aa-02dc14dbb8f9.txt"
+       }
+      }
+     },
+     "request_id": "c1a8500f-fdb7-4638-a968-cbfe9b3d450a",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/blocked/queue-get",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "input_id": "815131fd-1b3b-4b09-aae8-61bceac09911"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_queue_get",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "input": {
+       "attempt": 1,
+       "attempts": [
+        {
+         "attempt": 1,
+         "cause": "queue",
+         "context_event_id": "ev004",
+         "control_id": null,
+         "error": {
+          "code": "propagation_failed",
+          "details": {
+           "phase": "propagation"
+          },
+          "diagnostics_retained": true,
+          "message": "model unavailable",
+          "phase": "propagation",
+          "retryable": true,
+          "type": "PropagationError"
+         },
+         "finished_at": "2026-01-01T00:00:36.000000Z",
+         "outcome": "blocked",
+         "result": null,
+         "started_at": "2026-01-01T00:00:35.000000Z"
+        }
+       ],
+       "context_event_id": "ev004",
+       "controls": [],
+       "created_at": "2026-01-01T00:00:33.000000Z",
+       "error": {
+        "code": "propagation_failed",
+        "details": {
+         "phase": "propagation"
+        },
+        "diagnostics_retained": true,
+        "message": "model unavailable",
+        "phase": "propagation",
+        "retryable": true,
+        "type": "PropagationError"
+       },
+       "execution": null,
+       "id": "815131fd-1b3b-4b09-aae8-61bceac09911",
+       "input_kind": "general",
+       "item_id": null,
+       "operation": "add",
+       "payload": {
+        "content": "{\"body\":\"Line 000 of the Global source body about Alice.\\nLine 001 of the Global source body about Alice.\\nLine 002 of the Global source body about Alice.\\nLine 003 of the Global source body about Alice.\\nLine 004 of the Global source body about Alice.\\nLine 005 of the Global source body about Alice.\\nLine 006 of the Global source body about Alice.\\nLine 007 of the Global source body about Alice.\\nLine 008 of the Global source body about Alice.\\nLine 009 of the Global source body about Alice.\\nLine 010 of the Global source body about Alice.\\nLine 011 of the Global source body about Alice.\\nLine 012 of the Global source body about Alice.\\nLine 013 of the Global source body about Alice.\\nLine 014 of the Global source body about Alice.\\nLine 015 of the Global source body about Alice.\\n\",\"format\":\"qorqut-source-v1\",\"metadata\":{\"date\":\"2026-01-01\",\"document_kind\":\"context_upload\",\"origin\":\"upload\",\"source\":\"dashboard\",\"title\":\"Global pilot\",\"uploaded_by\":\"49685b0f-4bb5-482e-975b-9f80c290a406\"}}",
+        "metadata": {
+         "kind": "document",
+         "origin": "dashboard",
+         "origin_ref": "document:8fd51892-c85e-40f2-96aa-02dc14dbb8f9",
+         "title": "Global pilot"
+        },
+        "operation": "add",
+        "path": "foundation/documents/8fd51892-c85e-40f2-96aa-02dc14dbb8f9.txt",
+        "submitted_by": "49685b0f-4bb5-482e-975b-9f80c290a406"
+       },
+       "result": null,
+       "revision": null,
+       "scope": {
+        "kind": "global"
+       },
+       "sequence": 1,
+       "state": "blocked",
+       "submitted_by": "49685b0f-4bb5-482e-975b-9f80c290a406",
+       "summary": {
+        "path": "foundation/documents/8fd51892-c85e-40f2-96aa-02dc14dbb8f9.txt"
+       }
+      }
+     },
+     "request_id": "306b2bb9-328f-4828-8eb2-9b3e11f2b3fb",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/blocked/queue-retry-wrong-state",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "expected_state": "queued",
+     "idempotency_key": "capture-global-ops/blocked/queue-retry-wrong-state",
+     "input_id": "815131fd-1b3b-4b09-aae8-61bceac09911"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_queue_retry",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "error": {
+      "code": "state_conflict",
+      "details": {
+       "current_state": "blocked"
+      },
+      "message": "The input is not in the expected state",
+      "retryable": false
+     },
+     "request_id": "d6eba8d8-bdb6-4a4e-8872-1730b3ad16ee",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 422
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/blocked/queue-retry",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "expected_state": "blocked",
+     "idempotency_key": "capture-global-ops/blocked/queue-retry",
+     "input_id": "815131fd-1b3b-4b09-aae8-61bceac09911"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_queue_retry",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "result": {
+       "control_id": "4324db39-f6bd-4cb4-a4cf-2c0c21cd1d6f",
+       "input_id": "815131fd-1b3b-4b09-aae8-61bceac09911",
+       "intent": "retry",
+       "state": "blocked",
+       "status": "pending"
+      }
+     },
+     "request_id": "f3369f1f-7fd5-4d44-9fa8-14994c2b8cb7",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/retry-pending/queue-get",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "input_id": "815131fd-1b3b-4b09-aae8-61bceac09911"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_queue_get",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "input": {
+       "attempt": 1,
+       "attempts": [
+        {
+         "attempt": 1,
+         "cause": "queue",
+         "context_event_id": "ev004",
+         "control_id": null,
+         "error": {
+          "code": "propagation_failed",
+          "details": {
+           "phase": "propagation"
+          },
+          "diagnostics_retained": true,
+          "message": "model unavailable",
+          "phase": "propagation",
+          "retryable": true,
+          "type": "PropagationError"
+         },
+         "finished_at": "2026-01-01T00:00:36.000000Z",
+         "outcome": "blocked",
+         "result": null,
+         "started_at": "2026-01-01T00:00:35.000000Z"
+        }
+       ],
+       "context_event_id": "ev004",
+       "controls": [
+        {
+         "expected_state": "blocked",
+         "id": "4324db39-f6bd-4cb4-a4cf-2c0c21cd1d6f",
+         "intent": "retry",
+         "requested_at": "2026-01-01T12:00:00.000000Z",
+         "requested_by": "49685b0f-4bb5-482e-975b-9f80c290a406",
+         "resolved_at": null,
+         "result": null,
+         "status": "pending"
+        }
+       ],
+       "created_at": "2026-01-01T00:00:33.000000Z",
+       "error": {
+        "code": "propagation_failed",
+        "details": {
+         "phase": "propagation"
+        },
+        "diagnostics_retained": true,
+        "message": "model unavailable",
+        "phase": "propagation",
+        "retryable": true,
+        "type": "PropagationError"
+       },
+       "execution": null,
+       "id": "815131fd-1b3b-4b09-aae8-61bceac09911",
+       "input_kind": "general",
+       "item_id": null,
+       "operation": "add",
+       "payload": {
+        "content": "{\"body\":\"Line 000 of the Global source body about Alice.\\nLine 001 of the Global source body about Alice.\\nLine 002 of the Global source body about Alice.\\nLine 003 of the Global source body about Alice.\\nLine 004 of the Global source body about Alice.\\nLine 005 of the Global source body about Alice.\\nLine 006 of the Global source body about Alice.\\nLine 007 of the Global source body about Alice.\\nLine 008 of the Global source body about Alice.\\nLine 009 of the Global source body about Alice.\\nLine 010 of the Global source body about Alice.\\nLine 011 of the Global source body about Alice.\\nLine 012 of the Global source body about Alice.\\nLine 013 of the Global source body about Alice.\\nLine 014 of the Global source body about Alice.\\nLine 015 of the Global source body about Alice.\\n\",\"format\":\"qorqut-source-v1\",\"metadata\":{\"date\":\"2026-01-01\",\"document_kind\":\"context_upload\",\"origin\":\"upload\",\"source\":\"dashboard\",\"title\":\"Global pilot\",\"uploaded_by\":\"49685b0f-4bb5-482e-975b-9f80c290a406\"}}",
+        "metadata": {
+         "kind": "document",
+         "origin": "dashboard",
+         "origin_ref": "document:8fd51892-c85e-40f2-96aa-02dc14dbb8f9",
+         "title": "Global pilot"
+        },
+        "operation": "add",
+        "path": "foundation/documents/8fd51892-c85e-40f2-96aa-02dc14dbb8f9.txt",
+        "submitted_by": "49685b0f-4bb5-482e-975b-9f80c290a406"
+       },
+       "result": null,
+       "revision": null,
+       "scope": {
+        "kind": "global"
+       },
+       "sequence": 1,
+       "state": "blocked",
+       "submitted_by": "49685b0f-4bb5-482e-975b-9f80c290a406",
+       "summary": {
+        "path": "foundation/documents/8fd51892-c85e-40f2-96aa-02dc14dbb8f9.txt"
+       }
+      }
+     },
+     "request_id": "bd60d15a-1749-4d1d-a9c3-8f80e633f1a9",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/retry-pending/queue-retry-refused",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "expected_state": "blocked",
+     "idempotency_key": "capture-global-ops/retry-pending/queue-retry-refused",
+     "input_id": "815131fd-1b3b-4b09-aae8-61bceac09911"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_queue_retry",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "error": {
+      "code": "control_pending",
+      "message": "A control request for this input is already pending",
+      "retryable": false
+     },
+     "request_id": "c3cef602-66c5-407c-b012-f40bea014bf0",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 422
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/retry-pending/queue-discard-refused",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "expected_state": "blocked",
+     "idempotency_key": "capture-global-ops/retry-pending/queue-discard-refused",
+     "input_id": "815131fd-1b3b-4b09-aae8-61bceac09911"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_queue_discard",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "error": {
+      "code": "control_pending",
+      "message": "A control request for this input is already pending",
+      "retryable": false
+     },
+     "request_id": "2674fbd2-546a-4c1b-8634-b1178df84263",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 422
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/retry-pending/queue-retry-replay",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "expected_state": "blocked",
+     "idempotency_key": "capture-global-ops/blocked/queue-retry",
+     "input_id": "815131fd-1b3b-4b09-aae8-61bceac09911"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_queue_retry",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "result": {
+       "control_id": "4324db39-f6bd-4cb4-a4cf-2c0c21cd1d6f",
+       "input_id": "815131fd-1b3b-4b09-aae8-61bceac09911",
+       "intent": "retry",
+       "state": "blocked",
+       "status": "pending"
+      }
+     },
+     "request_id": "1eee3ddc-bfdf-4968-a20c-ed1471caa27e",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/published/queue-get",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "input_id": "815131fd-1b3b-4b09-aae8-61bceac09911"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_queue_get",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "input": {
+       "attempt": 2,
+       "attempts": [
+        {
+         "attempt": 1,
+         "cause": "queue",
+         "context_event_id": "ev004",
+         "control_id": null,
+         "error": {
+          "code": "propagation_failed",
+          "details": {
+           "phase": "propagation"
+          },
+          "diagnostics_retained": true,
+          "message": "model unavailable",
+          "phase": "propagation",
+          "retryable": true,
+          "type": "PropagationError"
+         },
+         "finished_at": "2026-01-01T00:00:36.000000Z",
+         "outcome": "blocked",
+         "result": null,
+         "started_at": "2026-01-01T00:00:35.000000Z"
+        },
+        {
+         "attempt": 2,
+         "cause": "retry",
+         "context_event_id": "ev004",
+         "control_id": "4324db39-f6bd-4cb4-a4cf-2c0c21cd1d6f",
+         "error": null,
+         "finished_at": "2026-01-01T00:00:38.000000Z",
+         "outcome": "published",
+         "result": {
+          "base_revision": "6b3c45f2d43d16c028ef18e38cb1e516f653463d",
+          "context_event_id": "ev004",
+          "handoff_event_id": null,
+          "handoff_note": {
+           "disposition": "empty",
+           "text": ""
+          },
+          "input_mode": "GENERAL",
+          "published_commit": "cdbed3a915745f1ad336f322948fa30c4ea8d82f",
+          "receipt": {
+           "base_revision": "6b3c45f2d43d16c028ef18e38cb1e516f653463d",
+           "event_id": "ev004",
+           "handoff_disposition": "empty",
+           "input_mode": "GENERAL",
+           "model": {
+            "effort": "max",
+            "model": "gpt-6-astra",
+            "service_tier": "default"
+           },
+           "published_commit": "cdbed3a915745f1ad336f322948fa30c4ea8d82f",
+           "recovered": false,
+           "result_counts": {
+            "edge": {
+             "add": 0,
+             "edit": 0,
+             "remove": 0
+            },
+            "node": {
+             "add": 0,
+             "edit": 0,
+             "remove": 0
+            }
+           },
+           "source_id": "so001"
+          },
+          "source_id": "so001"
+         },
+         "started_at": "2026-01-01T00:00:37.000000Z"
+        }
+       ],
+       "context_event_id": "ev004",
+       "controls": [
+        {
+         "expected_state": "blocked",
+         "id": "4324db39-f6bd-4cb4-a4cf-2c0c21cd1d6f",
+         "intent": "retry",
+         "requested_at": "2026-01-01T12:00:00.000000Z",
+         "requested_by": "49685b0f-4bb5-482e-975b-9f80c290a406",
+         "resolved_at": "2026-01-01T00:00:37.000000Z",
+         "result": {
+          "attempt": 2,
+          "outcome": "attempt_started"
+         },
+         "status": "applied"
+        }
+       ],
+       "created_at": "2026-01-01T00:00:33.000000Z",
+       "error": null,
+       "execution": null,
+       "id": "815131fd-1b3b-4b09-aae8-61bceac09911",
+       "input_kind": "general",
+       "item_id": null,
+       "operation": "add",
+       "payload": {
+        "content": "{\"body\":\"Line 000 of the Global source body about Alice.\\nLine 001 of the Global source body about Alice.\\nLine 002 of the Global source body about Alice.\\nLine 003 of the Global source body about Alice.\\nLine 004 of the Global source body about Alice.\\nLine 005 of the Global source body about Alice.\\nLine 006 of the Global source body about Alice.\\nLine 007 of the Global source body about Alice.\\nLine 008 of the Global source body about Alice.\\nLine 009 of the Global source body about Alice.\\nLine 010 of the Global source body about Alice.\\nLine 011 of the Global source body about Alice.\\nLine 012 of the Global source body about Alice.\\nLine 013 of the Global source body about Alice.\\nLine 014 of the Global source body about Alice.\\nLine 015 of the Global source body about Alice.\\n\",\"format\":\"qorqut-source-v1\",\"metadata\":{\"date\":\"2026-01-01\",\"document_kind\":\"context_upload\",\"origin\":\"upload\",\"source\":\"dashboard\",\"title\":\"Global pilot\",\"uploaded_by\":\"49685b0f-4bb5-482e-975b-9f80c290a406\"}}",
+        "metadata": {
+         "kind": "document",
+         "origin": "dashboard",
+         "origin_ref": "document:8fd51892-c85e-40f2-96aa-02dc14dbb8f9",
+         "title": "Global pilot"
+        },
+        "operation": "add",
+        "path": "foundation/documents/8fd51892-c85e-40f2-96aa-02dc14dbb8f9.txt",
+        "submitted_by": "49685b0f-4bb5-482e-975b-9f80c290a406"
+       },
+       "result": {
+        "base_revision": "6b3c45f2d43d16c028ef18e38cb1e516f653463d",
+        "context_event_id": "ev004",
+        "handoff_event_id": null,
+        "handoff_note": {
+         "disposition": "empty",
+         "text": ""
+        },
+        "input_mode": "GENERAL",
+        "published_commit": "cdbed3a915745f1ad336f322948fa30c4ea8d82f",
+        "receipt": {
+         "base_revision": "6b3c45f2d43d16c028ef18e38cb1e516f653463d",
+         "event_id": "ev004",
+         "handoff_disposition": "empty",
+         "input_mode": "GENERAL",
+         "model": {
+          "effort": "max",
+          "model": "gpt-6-astra",
+          "service_tier": "default"
+         },
+         "published_commit": "cdbed3a915745f1ad336f322948fa30c4ea8d82f",
+         "recovered": false,
+         "result_counts": {
+          "edge": {
+           "add": 0,
+           "edit": 0,
+           "remove": 0
+          },
+          "node": {
+           "add": 0,
+           "edit": 0,
+           "remove": 0
+          }
+         },
+         "source_id": "so001"
+        },
+        "source_id": "so001"
+       },
+       "revision": null,
+       "scope": {
+        "kind": "global"
+       },
+       "sequence": 1,
+       "state": "published",
+       "submitted_by": "49685b0f-4bb5-482e-975b-9f80c290a406",
+       "summary": {
+        "path": "foundation/documents/8fd51892-c85e-40f2-96aa-02dc14dbb8f9.txt"
+       }
+      }
+     },
+     "request_id": "16e29c62-8438-448c-835f-58dced155e70",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/second/queue-discard-never-started",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "expected_state": "queued",
+     "idempotency_key": "capture-global-ops/second/queue-discard-never-started",
+     "input_id": "6f0afc03-9cf8-4c28-bb0e-13d42d2e503a"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_queue_discard",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "result": {
+       "control_id": "97a084b7-5d86-4b3b-9717-1e9db80d915c",
+       "input_id": "6f0afc03-9cf8-4c28-bb0e-13d42d2e503a",
+       "intent": "discard",
+       "state": "discarded",
+       "status": "applied"
+      }
+     },
+     "request_id": "74197de9-f0bc-4fec-baba-27edf8c72975",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/second/queue-get-discarded",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "input_id": "6f0afc03-9cf8-4c28-bb0e-13d42d2e503a"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_queue_get",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "input": {
+       "attempt": 0,
+       "attempts": [],
+       "context_event_id": null,
+       "controls": [
+        {
+         "expected_state": "queued",
+         "id": "97a084b7-5d86-4b3b-9717-1e9db80d915c",
+         "intent": "discard",
+         "requested_at": "2026-01-01T12:00:16.000000Z",
+         "requested_by": "49685b0f-4bb5-482e-975b-9f80c290a406",
+         "resolved_at": "2026-01-01T12:00:16.000000Z",
+         "result": {
+          "mechanical": false,
+          "outcome": "discarded",
+          "reason": "never_started"
+         },
+         "status": "applied"
+        }
+       ],
+       "created_at": "2026-01-01T00:00:34.000000Z",
+       "error": null,
+       "execution": null,
+       "id": "6f0afc03-9cf8-4c28-bb0e-13d42d2e503a",
+       "input_kind": "general",
+       "item_id": null,
+       "operation": "add",
+       "payload": {
+        "content": "{\"body\":\"Line 000 of the Global source body about Alice.\\nLine 001 of the Global source body about Alice.\\nLine 002 of the Global source body about Alice.\\nLine 003 of the Global source body about Alice.\\nLine 004 of the Global source body about Alice.\\nLine 005 of the Global source body about Alice.\\nLine 006 of the Global source body about Alice.\\nLine 007 of the Global source body about Alice.\\nLine 008 of the Global source body about Alice.\\nLine 009 of the Global source body about Alice.\\nLine 010 of the Global source body about Alice.\\nLine 011 of the Global source body about Alice.\\nLine 012 of the Global source body about Alice.\\nLine 013 of the Global source body about Alice.\\nLine 014 of the Global source body about Alice.\\nLine 015 of the Global source body about Alice.\\n\",\"format\":\"qorqut-source-v1\",\"metadata\":{\"date\":\"2026-01-01\",\"document_kind\":\"context_upload\",\"origin\":\"upload\",\"source\":\"dashboard\",\"title\":\"Second Global source\",\"uploaded_by\":\"49685b0f-4bb5-482e-975b-9f80c290a406\"}}",
+        "metadata": {
+         "kind": "document",
+         "origin": "dashboard",
+         "origin_ref": "document:39706637-4454-46e8-8317-0ab90e11c760",
+         "title": "Second Global source"
+        },
+        "operation": "add",
+        "path": "foundation/documents/39706637-4454-46e8-8317-0ab90e11c760.txt",
+        "submitted_by": "49685b0f-4bb5-482e-975b-9f80c290a406"
+       },
+       "result": {
+        "mechanical": false,
+        "outcome": "discarded",
+        "reason": "never_started"
+       },
+       "revision": null,
+       "scope": {
+        "kind": "global"
+       },
+       "sequence": 2,
+       "state": "discarded",
+       "submitted_by": "49685b0f-4bb5-482e-975b-9f80c290a406",
+       "summary": {
+        "path": "foundation/documents/39706637-4454-46e8-8317-0ab90e11c760.txt"
+       }
+      }
+     },
+     "request_id": "6919664d-2c7f-41e6-8916-4889049cf02b",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/applied/retract-stale-revision",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "expected_revision": 1,
+     "idempotency_key": "capture-global-ops/applied/retract-stale-revision",
+     "upload_id": "8fd51892-c85e-40f2-96aa-02dc14dbb8f9"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_retract",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "error": {
+      "code": "revision_conflict",
+      "current_revision": 2,
+      "message": "Current resource revision is required",
+      "retryable": false
+     },
+     "request_id": "9b34e87a-052f-40e4-badb-cb1f10515850",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 409
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/applied/retract",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "expected_revision": 2,
+     "idempotency_key": "capture-global-ops/applied/retract",
+     "upload_id": "8fd51892-c85e-40f2-96aa-02dc14dbb8f9"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_retract",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "deleted": [],
+      "document": null,
+      "documents": [],
+      "filing": {
+       "attempts": 0,
+       "completion_state": null,
+       "document_revision": 2,
+       "error": null,
+       "filing_id": "4f32e3af-2b3d-4fab-a685-89a51315bfaa",
+       "input_id": "2a5b2510-3e68-4f9d-a203-c52b3664ca16",
+       "job_id": "9d979188-6216-4137-8d2d-0cb1df246341",
+       "job_state": "queued",
+       "operation": "remove",
+       "published_commit": null,
+       "queue_position": 0,
+       "retryable": false,
+       "source_current": true,
+       "source_revision": 2,
+       "state": "queued",
+       "status": "pending"
+      },
+      "job": {
+       "id": "9d979188-6216-4137-8d2d-0cb1df246341",
+       "state": "queued"
+      }
+     },
+     "job": {
+      "id": "9d979188-6216-4137-8d2d-0cb1df246341",
+      "state": "queued"
+     },
+     "request_id": "ce3a361f-bdbd-4993-8b4a-70c0c77714b3",
+     "status": "accepted",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 202
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/applied/retract-replay",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "expected_revision": 2,
+     "idempotency_key": "capture-global-ops/applied/retract",
+     "upload_id": "8fd51892-c85e-40f2-96aa-02dc14dbb8f9"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_retract",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "deleted": [],
+      "document": null,
+      "documents": [],
+      "filing": {
+       "attempts": 0,
+       "completion_state": null,
+       "document_revision": 2,
+       "error": null,
+       "filing_id": "4f32e3af-2b3d-4fab-a685-89a51315bfaa",
+       "input_id": "2a5b2510-3e68-4f9d-a203-c52b3664ca16",
+       "job_id": "9d979188-6216-4137-8d2d-0cb1df246341",
+       "job_state": "queued",
+       "operation": "remove",
+       "published_commit": null,
+       "queue_position": 0,
+       "retryable": false,
+       "source_current": true,
+       "source_revision": 2,
+       "state": "queued",
+       "status": "pending"
+      },
+      "job": {
+       "id": "9d979188-6216-4137-8d2d-0cb1df246341",
+       "state": "queued"
+      }
+     },
+     "job": {
+      "id": "9d979188-6216-4137-8d2d-0cb1df246341",
+      "state": "queued"
+     },
+     "request_id": "02e8d09b-8b45-4b6a-ae4b-0ce628f5849c",
+     "status": "accepted",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 202
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/third/retry-stale-revision",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "expected_revision": 6,
+     "idempotency_key": "capture-global-ops/third/retry-stale-revision",
+     "upload_id": "1ebfb4c4-00a4-47b1-aa54-61313ccc1109"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_retry",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "error": {
+      "code": "revision_conflict",
+      "current_revision": 1,
+      "message": "Current resource revision is required",
+      "retryable": false
+     },
+     "request_id": "4047bcdf-c3a9-4509-aa15-be848f6e89b5",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 409
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/third/retry",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "expected_revision": 1,
+     "idempotency_key": "capture-global-ops/third/retry",
+     "upload_id": "1ebfb4c4-00a4-47b1-aa54-61313ccc1109"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_retry",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "deleted": [],
+      "document": null,
+      "documents": [],
+      "filing": {
+       "attempts": 1,
+       "completion_state": null,
+       "document_revision": 1,
+       "error": {
+        "code": "propagation_failed",
+        "message": "model unavailable"
+       },
+       "filing_id": "5d996a0a-9828-4fa6-b604-1630711df3b8",
+       "input_id": "31abd27d-6030-4027-b8cf-6e93e68a3fdc",
+       "job_id": "50e0f5e6-2eb4-4140-8189-bef2ebfa0b6d",
+       "job_state": "queued",
+       "operation": "add",
+       "published_commit": null,
+       "queue_position": 0,
+       "retryable": false,
+       "source_current": true,
+       "source_revision": 1,
+       "state": "blocked",
+       "status": "pending"
+      },
+      "job": {
+       "id": "50e0f5e6-2eb4-4140-8189-bef2ebfa0b6d",
+       "state": "queued"
+      }
+     },
+     "job": {
+      "id": "50e0f5e6-2eb4-4140-8189-bef2ebfa0b6d",
+      "state": "queued"
+     },
+     "request_id": "700b1981-8a1b-4b90-b8fa-e62cfb6ad3b9",
+     "status": "accepted",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 202
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/third/retry-replay-after-source-moved",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "expected_revision": 1,
+     "idempotency_key": "capture-global-ops/third/retry",
+     "upload_id": "1ebfb4c4-00a4-47b1-aa54-61313ccc1109"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_retry",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "deleted": [],
+      "document": null,
+      "documents": [],
+      "filing": {
+       "attempts": 1,
+       "completion_state": null,
+       "document_revision": 1,
+       "error": {
+        "code": "propagation_failed",
+        "message": "model unavailable"
+       },
+       "filing_id": "5d996a0a-9828-4fa6-b604-1630711df3b8",
+       "input_id": "31abd27d-6030-4027-b8cf-6e93e68a3fdc",
+       "job_id": "50e0f5e6-2eb4-4140-8189-bef2ebfa0b6d",
+       "job_state": "queued",
+       "operation": "add",
+       "published_commit": null,
+       "queue_position": 0,
+       "retryable": false,
+       "source_current": true,
+       "source_revision": 1,
+       "state": "blocked",
+       "status": "pending"
+      },
+      "job": {
+       "id": "50e0f5e6-2eb4-4140-8189-bef2ebfa0b6d",
+       "state": "queued"
+      }
+     },
+     "job": {
+      "id": "50e0f5e6-2eb4-4140-8189-bef2ebfa0b6d",
+      "state": "queued"
+     },
+     "request_id": "94e45ba5-b67f-4111-868f-79d959d8fe3f",
+     "status": "accepted",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 202
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/foreign/get-business-source",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "document_id": "57028ef4-cdf1-4193-a487-5b5fafdd0c0c",
+     "scope": "shared"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_get",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "error": {
+      "code": "not_found",
+      "message": "Document is not in the selected context library",
+      "retryable": false
+     },
+     "request_id": "d91bebcb-a344-4b96-825a-9383c9aa9a55",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 404
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/foreign/retry-business-source",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "idempotency_key": "capture-global-ops/foreign/retry-business-source",
+     "upload_id": "57028ef4-cdf1-4193-a487-5b5fafdd0c0c"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_retry",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "error": {
+      "code": "not_found",
+      "message": "Document not found",
+      "retryable": false
+     },
+     "request_id": "e2d69fc9-956e-414d-aaab-abb0aa8a1b2b",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 404
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/foreign/retract-business-source",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "idempotency_key": "capture-global-ops/foreign/retract-business-source",
+     "upload_id": "57028ef4-cdf1-4193-a487-5b5fafdd0c0c"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_retract",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "error": {
+      "code": "not_found",
+      "message": "Document not found",
+      "retryable": false
+     },
+     "request_id": "459bbf15-8d95-48aa-8069-c598d285f625",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 404
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/foreign/queue-get-business-input",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "input_id": "cb87db79-63b0-435d-a7ca-40eb395cf5af"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_queue_get",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "error": {
+      "code": "not_found",
+      "message": "Context input does not exist in this namespace",
+      "retryable": false
+     },
+     "request_id": "c2ba789b-4505-4797-a4f7-13954a9ba929",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 404
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/foreign/queue-retry-business-input",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "expected_state": "blocked",
+     "idempotency_key": "capture-global-ops/foreign/queue-retry-business-input",
+     "input_id": "cb87db79-63b0-435d-a7ca-40eb395cf5af"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_queue_retry",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "error": {
+      "code": "not_found",
+      "message": "Context input does not exist in this namespace",
+      "retryable": false
+     },
+     "request_id": "a5dde3b5-91c4-4e6b-8a59-c8303afefe44",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 404
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/foreign/queue-discard-business-input",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "expected_state": "queued",
+     "idempotency_key": "capture-global-ops/foreign/queue-discard-business-input",
+     "input_id": "cb87db79-63b0-435d-a7ca-40eb395cf5af"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_queue_discard",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "error": {
+      "code": "not_found",
+      "message": "Context input does not exist in this namespace",
+      "retryable": false
+     },
+     "request_id": "1351540c-7f69-4899-bc55-8e98fba732b2",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 404
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/foreign/queue-get-global-input-from-business",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": {
+     "input_id": "815131fd-1b3b-4b09-aae8-61bceac09911"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/biz/first/operations/context_queue_get",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "error": {
+      "code": "not_found",
+      "message": "Context input does not exist in this namespace",
+      "retryable": false
+     },
+     "request_id": "cb3b2633-9476-4bac-9133-ea2fb528c776",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 404
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/foreign/retry-global-source-from-business",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": {
+     "idempotency_key": "capture-global-ops/foreign/retry-global-source-from-business",
+     "upload_id": "8fd51892-c85e-40f2-96aa-02dc14dbb8f9"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/biz/first/operations/context_retry",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "error": {
+      "code": "revision_conflict",
+      "message": "Prepared target existence changed",
+      "retryable": false
+     },
+     "request_id": "7068ce2d-34e1-4a30-ba17-83dc86c592dc",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 409
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/foreign/retract-global-source-from-business",
+   "principal": "business owner (dashboard)",
+   "request": {
+    "body": {
+     "idempotency_key": "capture-global-ops/foreign/retract-global-source-from-business",
+     "upload_id": "8fd51892-c85e-40f2-96aa-02dc14dbb8f9"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/biz/first/operations/context_retract",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "error": {
+      "code": "forbidden",
+      "message": "This source belongs to another scope",
+      "retryable": false
+     },
+     "request_id": "a813a4c4-d242-461e-b7cc-91d80088c4d5",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 403
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/selector-refused/business_id",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "business_id": "e48bc7d0-0356-44a7-961e-cb9bf765896a",
+     "document_id": "8fd51892-c85e-40f2-96aa-02dc14dbb8f9",
+     "scope": "shared"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_get",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "error": {
+      "code": "forbidden",
+      "message": "This endpoint requires Global scope",
+      "retryable": false
+     },
+     "request_id": "b0608f34-a19c-44ad-bae3-8298697906fc",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 403
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/selector-refused/review_business_id",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "document_id": "8fd51892-c85e-40f2-96aa-02dc14dbb8f9",
+     "review_business_id": "e48bc7d0-0356-44a7-961e-cb9bf765896a",
+     "scope": "shared"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_get",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "error": {
+      "code": "forbidden",
+      "message": "This endpoint requires Global scope",
+      "retryable": false
+     },
+     "request_id": "7f6bf48a-8b37-4d98-8dbb-db1eab88c80b",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 403
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/selector-refused/queue-get",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "business_id": "e48bc7d0-0356-44a7-961e-cb9bf765896a",
+     "input_id": "815131fd-1b3b-4b09-aae8-61bceac09911"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_queue_get",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "error": {
+      "code": "forbidden",
+      "message": "This endpoint requires Global scope",
+      "retryable": false
+     },
+     "request_id": "f24a1aaf-1085-4567-a2f4-cd443e4b01d1",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 403
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/list-page-1",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "kind": "context_upload",
+     "limit": 2,
+     "scope": "shared"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_list",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "items": [
+       {
+        "archived": false,
+        "availability": "ready",
+        "business_id": null,
+        "content_hash": "b6d01538f7a169ec09185d29150f1143a80bff153858635e5d71df6a5aac2db2",
+        "filing": {
+         "attempts": 2,
+         "completion_state": "applied",
+         "document_revision": 2,
+         "error": null,
+         "filing_id": "5d996a0a-9828-4fa6-b604-1630711df3b8",
+         "input_id": "31abd27d-6030-4027-b8cf-6e93e68a3fdc",
+         "job_id": "50e0f5e6-2eb4-4140-8189-bef2ebfa0b6d",
+         "job_state": "succeeded",
+         "operation": "add",
+         "published_commit": "6bc96f923d399f4ab15280704a1d92e866c57657",
+         "queue_position": null,
+         "retryable": false,
+         "source_current": true,
+         "source_revision": 1,
+         "state": "published",
+         "status": "processed"
+        },
+        "filing_status": "processed",
+        "id": "1ebfb4c4-00a4-47b1-aa54-61313ccc1109",
+        "kind": "context_upload",
+        "material_type": "mixed",
+        "origin": "upload",
+        "parent_ids": [],
+        "people_ids": [],
+        "revision": 2,
+        "scope": "shared",
+        "summary": "",
+        "tags": [],
+        "title": "Third Global source",
+        "topic_id": null,
+        "topic_ids": []
+       },
+       {
+        "archived": false,
+        "availability": "ready",
+        "business_id": null,
+        "content_hash": "76850517cbf508bf9ae1e2d07dd9ce20424f406938d25c6d1a8ef0585a829c57",
+        "filing": {
+         "attempts": 0,
+         "completion_state": "pending",
+         "document_revision": 1,
+         "error": {
+          "code": "discarded",
+          "message": "never_started"
+         },
+         "filing_id": "fece6462-bd20-4484-8fa2-63f08f1c1bb4",
+         "input_id": "6f0afc03-9cf8-4c28-bb0e-13d42d2e503a",
+         "job_id": "5b85074d-fe6a-4a2d-a95a-80a04da1cb61",
+         "job_state": "queued",
+         "operation": "add",
+         "published_commit": null,
+         "queue_position": null,
+         "retryable": false,
+         "source_current": true,
+         "source_revision": 1,
+         "state": "discarded",
+         "status": "failed"
+        },
+        "filing_status": "failed",
+        "id": "39706637-4454-46e8-8317-0ab90e11c760",
+        "kind": "context_upload",
+        "material_type": "mixed",
+        "origin": "upload",
+        "parent_ids": [],
+        "people_ids": [],
+        "revision": 1,
+        "scope": "shared",
+        "summary": "",
+        "tags": [],
+        "title": "Second Global source",
+        "topic_id": null,
+        "topic_ids": []
+       }
+      ],
+      "next_cursor": "eyJhZnRlciI6WyIzOTcwNjYzNy00NDU0LTQ2ZTgtODMxNy0wYWI5MGUxMWM3NjAiXSwiYmluZGluZyI6IjhkZDVmMDI5YmNiMTlmYzdkYzc3MTdhN2YwZTRhMzcxOTFiYmViNzRkODQ5NDYwM2E5MTU2ZGNjNWE1MjAyMjAifQ==",
+      "projection": "registered_metadata",
+      "total": 3
+     },
+     "request_id": "137869e0-af1f-47dd-8da6-966e3cd65c03",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/list-page-2",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "cursor": "eyJhZnRlciI6WyIzOTcwNjYzNy00NDU0LTQ2ZTgtODMxNy0wYWI5MGUxMWM3NjAiXSwiYmluZGluZyI6IjhkZDVmMDI5YmNiMTlmYzdkYzc3MTdhN2YwZTRhMzcxOTFiYmViNzRkODQ5NDYwM2E5MTU2ZGNjNWE1MjAyMjAifQ==",
+     "kind": "context_upload",
+     "limit": 2,
+     "scope": "shared"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_list",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "data": {
+      "items": [
+       {
+        "archived": false,
+        "availability": "ready",
+        "business_id": null,
+        "content_hash": "5f7e4a7ab1e2bc6d445f9832f759c294aad6004935eb0843d41051f73536d7a7",
+        "filing": {
+         "attempts": 1,
+         "completion_state": "applied",
+         "document_revision": 3,
+         "error": null,
+         "filing_id": "4f32e3af-2b3d-4fab-a685-89a51315bfaa",
+         "input_id": "2a5b2510-3e68-4f9d-a203-c52b3664ca16",
+         "job_id": "9d979188-6216-4137-8d2d-0cb1df246341",
+         "job_state": "succeeded",
+         "operation": "remove",
+         "published_commit": "227b91486218eee1d52de4b7bc8286b5dd18da03",
+         "queue_position": null,
+         "retryable": false,
+         "source_current": true,
+         "source_revision": 2,
+         "state": "published",
+         "status": "retracted"
+        },
+        "filing_status": "retracted",
+        "id": "8fd51892-c85e-40f2-96aa-02dc14dbb8f9",
+        "kind": "context_upload",
+        "material_type": "mixed",
+        "origin": "upload",
+        "parent_ids": [],
+        "people_ids": [],
+        "revision": 3,
+        "scope": "shared",
+        "summary": "",
+        "tags": [],
+        "title": "Global pilot",
+        "topic_id": null,
+        "topic_ids": []
+       }
+      ],
+      "next_cursor": null,
+      "projection": "registered_metadata",
+      "total": 3
+     },
+     "request_id": "58594f8a-1a9c-4ac9-ae94-f724eb395370",
+     "status": "ok",
+     "warnings": []
+    },
+    "etag": null,
+    "status": 200
+   },
+   "transport": "http-dispatcher"
+  },
+  {
+   "name": "global-ops/list-cursor-from-another-query",
+   "principal": "owner in Global scope",
+   "request": {
+    "body": {
+     "cursor": "eyJhZnRlciI6WyIzOTcwNjYzNy00NDU0LTQ2ZTgtODMxNy0wYWI5MGUxMWM3NjAiXSwiYmluZGluZyI6IjhkZDVmMDI5YmNiMTlmYzdkYzc3MTdhN2YwZTRhMzcxOTFiYmViNzRkODQ5NDYwM2E5MTU2ZGNjNWE1MjAyMjAifQ==",
+     "kind": "shared_instruction",
+     "limit": 2,
+     "scope": "shared"
+    },
+    "headers": {},
+    "method": "POST",
+    "path": "/api/root/operations/context_list",
+    "query": {}
+   },
+   "response": {
+    "body": {
+     "context_refresh_required": false,
+     "error": {
+      "code": "validation_error",
+      "message": "Invalid or differently scoped list cursor",
+      "retryable": false
+     },
+     "request_id": "086be51e-6195-4f77-9ac9-e4fae85ab0c6",
+     "status": "error"
+    },
+    "etag": null,
+    "status": 422
+   },
+   "transport": "http-dispatcher"
+  }
+ ],
+ "provenance": {
+  "context_commit": "32431e125b1982ea10fce4db1993ab22c6a241be",
+  "host_commit": "4f96d823c8d0b1ea8b5f3935d114b79ad1e8356b",
+  "host_provenance": {
+   "context_dependency": "32431e125b1982ea10fce4db1993ab22c6a241be",
+   "contract": "docs/v1.2/CONTEXT_SOURCE_UI.md (planning 75f5426: the Host subsection of the paired implementation review)",
+   "generator": "app/tests/context_source_status_capture.py",
+   "host_base": "b9ce256aee2d2564683ff491023b9e7d62822974",
+   "operations_dependency": "2d697fa3973e929f7f2be5afa5e9a731db634aaa"
+  },
+  "limitations": [
+   "Isolated synthetic composition, not installed-product proof: a running server, TLS, session cookies, the installed runtime lifetime wiring and the pinned dependency set are not exercised, and the host's recorded dependency pins differ from the Operations and Context commits above that this fixture ran against.",
+   "transport http-dispatcher: the request went through the real HTTPAPI dispatcher (origin/CSRF/JSON checks, operation dispatch, option splitting, selector refusal, compatibility routes, failure mapping) with the real single-owner principal resolution and a synthetic in-process Starlette request. The only faked parts are the socket and an unused signing key.",
+   "transport application-invoke: an agent principal calling Application.invoke directly. The HTTP layer's agent session resolution is not run; these entries are not HTTP evidence and show the operation result as the operation returns it. transport route-handler: a retained compatibility route handler called directly for an agent principal, errors mapped with the HTTP layer's own failure().",
+   "The model is an injected runner; no provider, native session, migration or operational data is involved. The identity and role sources are synthetic test copies.",
+   "The queue's and the background executor's clock is injected and starts at 2026-01-01T12:00:00Z, advancing only by explicit steps; those timestamps appear verbatim. Every other timestamp comes from the wall clock and is remapped onto a synthetic ordered timeline (2026-01-01T00:00:00Z plus one second per distinct instant, instants within 10 ms of each other sharing one value). Comparisons between the two time domains are not meaningful.",
+   "Entropy is deterministic during generation (os.urandom is a counter-keyed hash stream), so UUIDs are real version 4 values that are stable between runs and the id-ordered list/search pages are reproducible. The Context's five-character event and source tokens, content hashes, commit ids and ETags are replaced by stable synthetic values of the same shape in order of first appearance.",
+   "Opaque cursors are decoded, normalized and re-encoded with the library's own encoder so every request cursor still equals the response cursor it came from. A normalized cursor is therefore not valid against a live host.",
+   "The full business Context view is recorded as its keys plus its context_queue object only."
+  ],
+  "normalization": {
+   "commit": "40-hex git ids -> synthetic ids of the same shape",
+   "context token": "the Context's random five-character ids: values of *event_id keys -> ev001, ev002, ...; five-character source_id values -> so001, so002, ...",
+   "cursor": "values of cursor, next_cursor and refresh_cursor keys: decoded, inner values normalized, re-encoded",
+   "date": "any date other than 2026-01-01 -> 2026-01-01",
+   "etag": "W/\"<32 hex>\" -> synthetic tags of the same shape",
+   "hash": "sha256 digests (bare or sha256: prefixed) -> synthetic digests of the same shape",
+   "time": "wall-clock instants -> 2026-01-01T00:00:00Z + cluster index seconds, original format kept; injected-clock instants (2026-01-01T12:00:00Z + advances) unchanged",
+   "uuid": "unchanged (deterministic version 4 values)"
+  },
+  "operations_commit": "2d697fa3973e929f7f2be5afa5e9a731db634aaa",
+  "selection": "60 of 146 captures, verbatim; transports: http-dispatcher only (the ten application-invoke captures and the one route-handler capture are agent evidence, not HTTP, and are not shipped)",
+  "source": "app/tests/fixtures/context_source_status/captures.json",
+  "status": "captured"
+ }
+}

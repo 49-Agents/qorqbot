@@ -1,0 +1,12 @@
+.overseer { padding: 16px; overflow: auto; height: 100%; }
+.overseer nav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.overseer button { cursor: pointer; }
+.overseer nav button[aria-pressed="true"] { font-weight: 700; }
+.overseer h2, .overseer h3 { margin: 16px 0 8px; }
+.overseer p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.overseer-list { display: grid; gap: 8px; }
+.overseer-item { text-align: left; padding: 10px; border: 1px solid var(--border, #ddd); border-radius: 6px; background: transparent; color: inherit; }
+.overseer-item small { display: block; margin-top: 4px; }
+.overseer details { margin: 10px 0; }
+.overseer pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.overseer-notice { color: var(--muted, #777); }

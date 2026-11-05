@@ -1,0 +1,38 @@
+[
+ {
+  "request": {
+   "start_date": "2026-11-01",
+   "end_date": "2026-11-30",
+   "limit": 10
+  },
+  "response": {
+   "format": "qorqut-context-usage-v1",
+   "currency": "USD",
+   "calls": [],
+   "next_cursor": null,
+   "aggregates": {
+    "calls": 0,
+    "unfinished_calls": 0,
+    "unknown_cost_calls": 0,
+    "calls_without_token_usage": 0,
+    "known_cost_usd": null,
+    "events": 0,
+    "events_not_ready": 0
+   },
+   "coverage": {
+    "basis": "all_reserved_events_for_selected_input_or_installation",
+    "input_id": null,
+    "reserved_events": 6,
+    "ready_events": 6,
+    "partial_events": 0,
+    "unavailable_events": 0,
+    "unscanned_events": 0,
+    "ready_events_without_calls": 0,
+    "unattempted_inputs": 0,
+    "last_checked_at": "2026-10-12T09:02:28.375085Z"
+   },
+   "usage_totals_final": false,
+   "cost_is_known_subtotal": true
+  }
+ }
+]

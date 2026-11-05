@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "name": "outlook",
+  "managed": true,
+  "display": 22,
+  "geometry": {"width": 1440, "height": 900},
+  "vnc": {"interface": "10.0.0.10", "port": 5922,
+          "password_file": "/var/lib/qorqut-outlook-browser/.vnc/passwd"},
+  "xauthority": "/var/lib/qorqut-outlook-browser/.Xauthority",
+  "environment": {
+    "XDG_RUNTIME_DIR": "/run/qorqut-outlook-browser",
+    "XDG_CONFIG_HOME": "/var/lib/qorqut-outlook-browser/.config",
+    "XDG_CACHE_HOME": "/var/lib/qorqut-outlook-browser/.cache",
+    "XDG_DATA_HOME": "/var/lib/qorqut-outlook-browser/.local/share"
+  },
+  "keyring": "gnome-keyring-credential",
+  "chrome": {
+    "user_data_dir": "/var/lib/qorqut-outlook-browser/chrome-profile",
+    "cdp_port": 9226,
+    "flags": ["--no-first-run", "--no-default-browser-check", "--disable-dev-shm-usage",
+              "--disable-session-crashed-bubble", "--disable-extensions", "--disable-gpu"],
+    "start_url": "https://outlook.cloud.microsoft/mail/"
+  },
+  "timeouts": {"chrome_stop": 20}
+}

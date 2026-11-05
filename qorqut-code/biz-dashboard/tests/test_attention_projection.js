@@ -1,0 +1,12 @@
+const assert=require('node:assert/strict'), fs=require('node:fs'), vm=require('node:vm'), path=require('node:path');
+const dir=path.resolve(__dirname,'..');
+const focus=fs.readFileSync(path.join(dir,'js/agent-focus.js'),'utf8');
+const match=focus.match(/function agfocusTaskScopeMissing\(item,scope\) \{[\s\S]*?\n\}\nfunction agfocusTaskRecord\(item\) \{[\s\S]*?\n\}/); assert.ok(match);
+const ctx=vm.createContext({taskStateObserve:(scope,task)=>({scope,...task})}); vm.runInContext(match[0],ctx);
+const item={source:{type:'task',id:'t',business_id:null},state:'open',source_revision:1,task:{id:'t',status:'blocked',revision:4,worker_ids:['owner'],workers:[{id:'owner',kind:'human',is_owner:true}],user_needed:true}};
+ctx.item=item; const task=vm.runInContext('agfocusTaskRecord(item)',ctx);
+ctx.unresolved={source:{type:'task',id:'t',business_id:'missing'},state:'open',source_revision:99,task:{id:'t',status:'open',revision:99,title:'Project task'}};
+const unresolved=vm.runInContext('agfocusTaskRecord(unresolved)',ctx);assert.equal(unresolved.scope,undefined);assert.equal(unresolved.title,'Project task');
+assert.equal(task.status,'blocked');assert.equal(task.revision,4);assert.equal(task.user_needed,true);assert.equal(task.scope,null);
+const css=fs.readFileSync(path.join(dir,'css/tasks.css'),'utf8');assert.match(css,/\.ball\.blocked \.core[^}]*#FF453A/);assert.match(css,/\.sdot\.blocked[^}]*#FF453A/);assert.match(css,/margin-left:-4px/);
+console.log('Pinned task projection and shared Blocked/Worker styles passed');

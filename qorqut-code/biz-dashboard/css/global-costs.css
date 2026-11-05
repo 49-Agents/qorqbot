@@ -1,0 +1,43 @@
+/* Global Costs: summary table and per-source sub-tables. */
+.global-costs { max-width:1200px; }
+.costs-table { border:1px solid var(--line-2); border-radius:14px; overflow:hidden; }
+.costs-row { display:grid; gap:12px; align-items:center; min-height:44px; padding:8px 14px; border-top:1px solid var(--line); font-size:13px; }
+.costs-row:first-child { border-top:0; }
+.costs-row > span { min-width:0; }
+.costs-head { min-height:36px; color:var(--fg-2); font-size:11px; text-transform:uppercase; letter-spacing:.06em; background:var(--wash); }
+.costs-num { font-variant-numeric:tabular-nums; }
+.costs-basis { color:var(--fg-2); font-size:12px; }
+.costs-summary .costs-row { grid-template-columns:minmax(160px,1.4fr) minmax(100px,1fr) minmax(100px,1fr) minmax(160px,1.6fr); min-height:52px; font-size:14px; }
+.costs-summary .costs-head { min-height:36px; font-size:11px; }
+.costs-total { font-weight:600; background:var(--wash); }
+button.costs-jump { height:auto; padding:0; border-radius:0; background:none; color:var(--fg); font-weight:600; font-size:inherit; }
+button.costs-jump:hover { background:none; color:var(--fg); transform:none; text-decoration:underline; text-underline-offset:3px; }
+.costs-programs .costs-row { grid-template-columns:minmax(160px,2fr) 90px minmax(100px,1fr) minmax(100px,1fr); }
+
+.costs-subtables { display:grid; gap:40px; margin-top:40px; }
+.costs-sub { scroll-margin-top:24px; }
+.costs-subhead { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:12px; }
+.costs-subhead h2 { margin:0 0 4px; font-size:16px; }
+.costs-subhead p { margin:0; color:var(--fg-2); font-size:12px; }
+.costs-sub .filing-cost-total { margin:8px 0; }
+.costs-sub .filing-cost-subtotal strong { font-size:18px; }
+
+.costs-note { margin:8px 0 0; color:var(--fg-2); font-size:12px; }
+.costs-incomplete { padding-left:10px; border-left:2px solid var(--warn, #9b6410); }
+.costs-summary small { display:block; margin-top:2px; color:var(--fg-2); font-size:11px; }
+
+@media (max-width:760px) {
+  .costs-summary .costs-row { grid-template-columns:minmax(110px,1.2fr) 1fr 1fr; }
+  .costs-summary .costs-row > span:nth-child(4) { display:none; }
+  .costs-programs .costs-row { grid-template-columns:minmax(0,1.5fr) 56px minmax(0,1fr); }
+  .costs-programs .costs-row > span:nth-child(3) { display:none; }
+  .costs-subhead { align-items:flex-start; flex-direction:column; }
+}
+
+/* The shared drawer: wide tables scroll inside their own box, so neither the drawer nor the document gains a horizontal scrollbar. */
+.ov-costs .global-costs { max-width:none; }
+.ov-costs .global-eyebrow { display:none; }
+.ov-costs .costs-subhead { align-items:flex-start; flex-direction:column; }
+.ov-costs .costs-table { overflow-x:auto; }
+.ov-costs .costs-row { min-width:480px; }
+.ov-costs .costs-subtables { gap:28px; margin-top:28px; }

@@ -1,0 +1,22 @@
+schema_version: 1
+id: global-worker
+version: 1.7.0
+scope_kinds:
+- ecosystem
+brief: roles/imported-roles/native/roles/global-worker/BRIEF.md
+scope_brief: ecosystem-agent
+skills:
+- id: browser-control
+  path: operations/imported-role-skills/native/skills/managed-browser-control/SKILL.md
+default_tool_policy:
+  agent_config_get: allow
+  context_list: allow
+  context_search: allow
+  context_get: allow
+  tasks_list: allow
+  tasks_get: allow
+  tasks_update: allow
+  tasks_comment: allow
+  crm_activity_list: allow
+  crm_activity_record: allow
+  tasks_complete: allow

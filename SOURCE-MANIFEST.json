@@ -1,0 +1,50 @@
+{
+  "format": 1,
+  "kind": "original-reviewed-source-snapshot",
+  "original_branch": "v1.3/scripting-integration-20261030",
+  "components": [
+    {
+      "name": "host",
+      "commit": "1640cac5ba98949f843407fd2683a12f49821c2a",
+      "destination": "qorqut-code"
+    },
+    {
+      "name": "operations",
+      "commit": "8261c002a436282a5a3adc23d967b4380e032cba",
+      "destination": "qorqut-code/qorqut-operations"
+    },
+    {
+      "name": "dashboard",
+      "commit": "63e4eae209bb346344fd0a8e8a9aa4fc7cda610a",
+      "destination": "qorqut-code/biz-dashboard"
+    },
+    {
+      "name": "agentic",
+      "commit": "3d282799ebc04294773ca7c7358dba9cce52ff91",
+      "destination": "qorqut-agentic"
+    },
+    {
+      "name": "roles",
+      "commit": "9567fd1b99b48ce431765e712ca7b33ee7b27a3f",
+      "destination": "qorqut-roles/agent-roles"
+    },
+    {
+      "name": "fastmail",
+      "commit": "0bd58f39a81410b1953d14025b3c33303b71ba93",
+      "destination": "qorqut-fastmail"
+    },
+    {
+      "name": "automation",
+      "commit": "4e75a17fbda10513afa2501df9e89f5f668361c9",
+      "destination": "qorqut-automation"
+    },
+    {
+      "name": "context",
+      "commit": "bb7179cd3ac14634e08eaf9f5b3c54b0ec4cbf6f",
+      "destination": "qorqut-code/qorqut-context"
+    }
+  ],
+  "rebased": false,
+  "tests_run": false,
+  "deployed": false
+}

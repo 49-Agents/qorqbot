@@ -1,0 +1,631 @@
+{
+  "pillars": [
+    "brand.md",
+    "product.md"
+  ],
+  "tree": {
+    "path": "",
+    "slug": "",
+    "notes": [
+      "overview.md"
+    ],
+    "titles": {
+      "overview.md": "Working overview"
+    },
+    "children": [
+      {
+        "path": "research",
+        "slug": "research",
+        "title": "Customer research",
+        "about": "Research and interviews.",
+        "notes": [
+          "2026-09-01-interviews.md",
+          "2026-09-02-analysis.md"
+        ],
+        "titles": {
+          "2026-09-01-interviews.md": "Interview observations",
+          "2026-09-02-analysis.md": "Analysis of the interviews"
+        },
+        "summaries": {
+          "2026-09-01-interviews.md": "A need for clearer navigation emerged."
+        },
+        "people": {
+          "2026-09-01-interviews.md": [
+            "jules-rivera"
+          ]
+        },
+        "children": [],
+        "document_id": "research"
+      },
+      {
+        "path": "marketing",
+        "slug": "marketing",
+        "title": "Marketing",
+        "notes": [],
+        "children": [
+          {
+            "path": "marketing/launch",
+            "slug": "launch",
+            "title": "Launch",
+            "notes": [],
+            "children": [
+              {
+                "path": "marketing/launch/autumn",
+                "slug": "autumn",
+                "title": "Autumn launch",
+                "about": "Campaign preparation, partners and release notes.",
+                "notes": [
+                  "2026-09-03-plan.md",
+                  "2026-09-04-partners.md",
+                  "2026-09-05-retro.md"
+                ],
+                "titles": {
+                  "2026-09-03-plan.md": "Launch plan and partners",
+                  "2026-09-04-partners.md": "Partner responsibilities",
+                  "2026-09-05-retro.md": "Retrospective <script>window.injected = true</script>"
+                },
+                "summaries": {
+                  "2026-09-03-plan.md": "Coordinate the autumn release with partners.",
+                  "2026-09-04-partners.md": "Agree on responsibilities before launch."
+                },
+                "also": {
+                  "2026-09-03-plan.md": [
+                    "research",
+                    "research"
+                  ]
+                },
+                "people": {
+                  "2026-09-03-plan.md": [
+                    "jules-rivera",
+                    "sam-lee",
+                    "sam-lee"
+                  ],
+                  "2026-09-04-partners.md": [
+                    "sam-lee",
+                    "morgan-vale"
+                  ]
+                },
+                "children": [],
+                "document_id": "marketing/launch/autumn"
+              }
+            ],
+            "document_id": "marketing/launch"
+          }
+        ],
+        "document_id": "marketing"
+      }
+    ]
+  },
+  "people": [
+    {
+      "slug": "jules-rivera",
+      "name": "Jules Rivera",
+      "role": "Researcher",
+      "about": "Helps with research and launch preparation.",
+      "mentions": [
+        "research/2026-09-01-interviews.md",
+        "marketing/launch/autumn/2026-09-03-plan.md"
+      ],
+      "document_id": "jules-rivera"
+    },
+    {
+      "slug": "sam-lee",
+      "name": "Sam Lee",
+      "role": "Launch partner",
+      "about": "A partner for the campaign.",
+      "mentions": [
+        "marketing/launch/autumn/2026-09-03-plan.md",
+        "marketing/launch/autumn/2026-09-04-partners.md"
+      ],
+      "document_id": "sam-lee"
+    },
+    {
+      "slug": "morgan-vale",
+      "name": "Morgan Vale",
+      "role": "Coordinator",
+      "mentions": [
+        "marketing/launch/autumn/2026-09-04-partners.md"
+      ],
+      "document_id": "morgan-vale"
+    },
+    {
+      "slug": "unlinked-contact",
+      "name": "Unlinked contact",
+      "role": "Contact",
+      "mentions": [],
+      "document_id": "unlinked-contact"
+    }
+  ],
+  "inbox": [],
+  "dumps": [],
+  "graph": {
+    "nodes": [
+      {
+        "type": "material",
+        "id": "overview.md",
+        "label": "Working overview",
+        "path": "context/overview.md",
+        "summary": "",
+        "resource_type": "documents",
+        "subtype": "context_note"
+      },
+      {
+        "type": "topic",
+        "id": "research",
+        "label": "Customer research",
+        "path": "context/research/_topic.md",
+        "summary": "Research and interviews.",
+        "resource_type": "documents",
+        "subtype": "context_topic"
+      },
+      {
+        "type": "material",
+        "id": "research/2026-09-01-interviews.md",
+        "label": "Interview observations",
+        "path": "context/research/2026-09-01-interviews.md",
+        "summary": "A need for clearer navigation emerged.",
+        "resource_type": "documents",
+        "subtype": "context_note"
+      },
+      {
+        "type": "material",
+        "id": "research/2026-09-02-analysis.md",
+        "label": "Analysis of the interviews",
+        "path": "context/research/2026-09-02-analysis.md",
+        "summary": "",
+        "resource_type": "documents",
+        "subtype": "context_note"
+      },
+      {
+        "type": "topic",
+        "id": "marketing",
+        "label": "Marketing",
+        "path": "context/marketing/_topic.md",
+        "summary": "",
+        "resource_type": "documents",
+        "subtype": "context_topic"
+      },
+      {
+        "type": "topic",
+        "id": "marketing/launch",
+        "label": "Launch",
+        "path": "context/marketing/launch/_topic.md",
+        "summary": "",
+        "resource_type": "documents",
+        "subtype": "context_topic"
+      },
+      {
+        "type": "topic",
+        "id": "marketing/launch/autumn",
+        "label": "Autumn launch",
+        "path": "context/marketing/launch/autumn/_topic.md",
+        "summary": "Campaign preparation, partners and release notes.",
+        "resource_type": "documents",
+        "subtype": "context_topic"
+      },
+      {
+        "type": "material",
+        "id": "marketing/launch/autumn/2026-09-03-plan.md",
+        "label": "Launch plan and partners",
+        "path": "context/marketing/launch/autumn/2026-09-03-plan.md",
+        "summary": "Coordinate the autumn release with partners.",
+        "resource_type": "documents",
+        "subtype": "context_note"
+      },
+      {
+        "type": "material",
+        "id": "marketing/launch/autumn/2026-09-04-partners.md",
+        "label": "Partner responsibilities",
+        "path": "context/marketing/launch/autumn/2026-09-04-partners.md",
+        "summary": "Agree on responsibilities before launch.",
+        "resource_type": "documents",
+        "subtype": "context_note"
+      },
+      {
+        "type": "material",
+        "id": "marketing/launch/autumn/2026-09-05-retro.md",
+        "label": "Retrospective <script>window.injected = true</script>",
+        "path": "context/marketing/launch/autumn/2026-09-05-retro.md",
+        "summary": "",
+        "resource_type": "documents",
+        "subtype": "context_note"
+      },
+      {
+        "type": "material",
+        "id": "brand.md",
+        "label": "brand",
+        "path": "context/brand.md",
+        "summary": "Business orientation",
+        "resource_type": "documents",
+        "subtype": "context_note"
+      },
+      {
+        "type": "material",
+        "id": "product.md",
+        "label": "product",
+        "path": "context/product.md",
+        "summary": "Business orientation",
+        "resource_type": "documents",
+        "subtype": "context_note"
+      },
+      {
+        "type": "person",
+        "id": "jules-rivera",
+        "label": "Jules Rivera",
+        "path": "context/_people/jules-rivera.md",
+        "summary": "Helps with research and launch preparation.",
+        "resource_type": "documents",
+        "subtype": "context_person"
+      },
+      {
+        "type": "person",
+        "id": "sam-lee",
+        "label": "Sam Lee",
+        "path": "context/_people/sam-lee.md",
+        "summary": "A partner for the campaign.",
+        "resource_type": "documents",
+        "subtype": "context_person"
+      },
+      {
+        "type": "person",
+        "id": "morgan-vale",
+        "label": "Morgan Vale",
+        "path": "context/_people/morgan-vale.md",
+        "summary": "Coordinator",
+        "resource_type": "documents",
+        "subtype": "context_person"
+      },
+      {
+        "type": "person",
+        "id": "unlinked-contact",
+        "label": "Unlinked contact",
+        "path": "context/_people/unlinked-contact.md",
+        "summary": "Contact",
+        "resource_type": "documents",
+        "subtype": "context_person"
+      },
+      {
+        "type": "story",
+        "id": "story",
+        "label": "Example story",
+        "path": null,
+        "summary": "",
+        "resource_type": "stories",
+        "subtype": "context_story"
+      },
+      {
+        "type": "task",
+        "id": "task",
+        "label": "Example task",
+        "path": null,
+        "summary": "",
+        "resource_type": "tasks",
+        "subtype": "context_task"
+      },
+      {
+        "type": "table",
+        "id": "table",
+        "label": "Example table",
+        "path": null,
+        "summary": "",
+        "resource_type": "data_tables",
+        "subtype": "context_table"
+      },
+      {
+        "type": "agent",
+        "id": "agent",
+        "label": "Example agent",
+        "path": null,
+        "summary": "",
+        "resource_type": "agent_profiles",
+        "subtype": "context_agent"
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge-1",
+        "source": {
+          "type": "material",
+          "id": "research/2026-09-01-interviews.md"
+        },
+        "target": {
+          "type": "topic",
+          "id": "research"
+        },
+        "role": "part_of",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      },
+      {
+        "id": "edge-2",
+        "source": {
+          "type": "material",
+          "id": "research/2026-09-01-interviews.md"
+        },
+        "target": {
+          "type": "person",
+          "id": "jules-rivera"
+        },
+        "role": "mentions",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      },
+      {
+        "id": "edge-3",
+        "source": {
+          "type": "material",
+          "id": "research/2026-09-02-analysis.md"
+        },
+        "target": {
+          "type": "topic",
+          "id": "research"
+        },
+        "role": "part_of",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      },
+      {
+        "id": "edge-4",
+        "source": {
+          "type": "topic",
+          "id": "marketing/launch"
+        },
+        "target": {
+          "type": "topic",
+          "id": "marketing"
+        },
+        "role": "part_of",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      },
+      {
+        "id": "edge-5",
+        "source": {
+          "type": "topic",
+          "id": "marketing/launch/autumn"
+        },
+        "target": {
+          "type": "topic",
+          "id": "marketing/launch"
+        },
+        "role": "part_of",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      },
+      {
+        "id": "edge-6",
+        "source": {
+          "type": "material",
+          "id": "marketing/launch/autumn/2026-09-03-plan.md"
+        },
+        "target": {
+          "type": "topic",
+          "id": "marketing/launch/autumn"
+        },
+        "role": "part_of",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      },
+      {
+        "id": "edge-7",
+        "source": {
+          "type": "material",
+          "id": "marketing/launch/autumn/2026-09-03-plan.md"
+        },
+        "target": {
+          "type": "person",
+          "id": "jules-rivera"
+        },
+        "role": "mentions",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      },
+      {
+        "id": "edge-8",
+        "source": {
+          "type": "material",
+          "id": "marketing/launch/autumn/2026-09-03-plan.md"
+        },
+        "target": {
+          "type": "person",
+          "id": "sam-lee"
+        },
+        "role": "mentions",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      },
+      {
+        "id": "edge-9",
+        "source": {
+          "type": "material",
+          "id": "marketing/launch/autumn/2026-09-03-plan.md"
+        },
+        "target": {
+          "type": "person",
+          "id": "sam-lee"
+        },
+        "role": "mentions",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      },
+      {
+        "id": "edge-10",
+        "source": {
+          "type": "material",
+          "id": "marketing/launch/autumn/2026-09-03-plan.md"
+        },
+        "target": {
+          "type": "topic",
+          "id": "research"
+        },
+        "role": "concerns",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      },
+      {
+        "id": "edge-11",
+        "source": {
+          "type": "material",
+          "id": "marketing/launch/autumn/2026-09-03-plan.md"
+        },
+        "target": {
+          "type": "topic",
+          "id": "research"
+        },
+        "role": "concerns",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      },
+      {
+        "id": "edge-12",
+        "source": {
+          "type": "material",
+          "id": "marketing/launch/autumn/2026-09-04-partners.md"
+        },
+        "target": {
+          "type": "topic",
+          "id": "marketing/launch/autumn"
+        },
+        "role": "part_of",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      },
+      {
+        "id": "edge-13",
+        "source": {
+          "type": "material",
+          "id": "marketing/launch/autumn/2026-09-04-partners.md"
+        },
+        "target": {
+          "type": "person",
+          "id": "sam-lee"
+        },
+        "role": "mentions",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      },
+      {
+        "id": "edge-14",
+        "source": {
+          "type": "material",
+          "id": "marketing/launch/autumn/2026-09-04-partners.md"
+        },
+        "target": {
+          "type": "person",
+          "id": "morgan-vale"
+        },
+        "role": "mentions",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      },
+      {
+        "id": "edge-15",
+        "source": {
+          "type": "material",
+          "id": "marketing/launch/autumn/2026-09-05-retro.md"
+        },
+        "target": {
+          "type": "topic",
+          "id": "marketing/launch/autumn"
+        },
+        "role": "part_of",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      },
+      {
+        "id": "edge-16",
+        "source": {
+          "type": "story",
+          "id": "story"
+        },
+        "target": {
+          "type": "topic",
+          "id": "research"
+        },
+        "role": "concerns",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      },
+      {
+        "id": "edge-17",
+        "source": {
+          "type": "task",
+          "id": "task"
+        },
+        "target": {
+          "type": "topic",
+          "id": "research"
+        },
+        "role": "concerns",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      },
+      {
+        "id": "edge-18",
+        "source": {
+          "type": "table",
+          "id": "table"
+        },
+        "target": {
+          "type": "topic",
+          "id": "research"
+        },
+        "role": "concerns",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      },
+      {
+        "id": "edge-19",
+        "source": {
+          "type": "agent",
+          "id": "agent"
+        },
+        "target": {
+          "type": "topic",
+          "id": "research"
+        },
+        "role": "concerns",
+        "context": "Fixture relationship",
+        "revision": 1,
+        "created_at": "2026-09-09T12:00:00Z",
+        "updated_at": "2026-09-09T12:00:00Z"
+      }
+    ]
+  }
+}

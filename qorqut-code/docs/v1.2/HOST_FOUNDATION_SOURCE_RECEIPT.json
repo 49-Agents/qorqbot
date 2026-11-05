@@ -1,0 +1,171 @@
+{
+  "format": 1,
+  "purpose": "Combined source identities after direct completion; installed acceptance is recorded separately.",
+  "parent": {
+    "branch": "v1.2/integration",
+    "base_commit": "fa5e7e6fdd2f0c2eebc5875015960a27247610a2",
+    "start_commit": "072d2f0deb90cbcebf7ccd7d0be4dc5f039fa556",
+    "accepted_inputs": [
+      {
+        "name": "host and engine composition",
+        "branch": "v1.2/application-host",
+        "commit": "072d2f0deb90cbcebf7ccd7d0be4dc5f039fa556",
+        "integration": "start of v1.2/integration (no merge commit)"
+      },
+      {
+        "name": "native raw archive library",
+        "branch": "v1.2/native-archive",
+        "commit": "7c95256a2831b886d2354c0fd63a549e5bf466e1",
+        "merge_commit": "7e75d3a1fbbf406e6fe30cc224eb99c20550fe5b"
+      },
+      {
+        "name": "operational history framework",
+        "branch": "v1.2/operational-history",
+        "commit": "30c3ffb7e1ce327e00c3ee5edfcb3a50ec57db46",
+        "merge_commit": "0ce07fbc2a55e1ac33054e022ac50057a3ecce78"
+      },
+      {
+        "name": "Context reads, queue, source completion, deterministic and delegated edit, H2 source and HTTP status",
+        "branch": "v1.2/context-source-status",
+        "commit": "4f96d823c8d0b1ea8b5f3935d114b79ad1e8356b",
+        "merge_commit": "9077b268eb1c69c7eb5bdc7fa2f5ce5d6ddb8dae"
+      },
+      {
+        "name": "Tasks, Actions, threads, tags, parent Tasks, Global work and usage/cost host",
+        "branch": "v1.2/operational-models-host",
+        "commit": "c61b66c1cb89264377fb963728b42aae46fa0770",
+        "merge_commit": "8ed760940637e4c8ca173acec4791c6895c77a99"
+      },
+      {
+        "name": "native Chat, archive, unread, input and inbox nudges",
+        "branch": "v1.2/inbox-nudges",
+        "commit": "f784ce11170c1ba02817fd3e92f078ebd4ecd851",
+        "merge_commit": "66f4a6f2e167a5e10fc867e5c1f3b3cbdd27fac5"
+      }
+    ],
+    "feature_start_commit": "7679f287164c0d0cfa109e6415baabb8500160df",
+    "completion_start_commit": "e41e80a"
+  },
+  "components": {
+    "operations_engine": {
+      "path": "qorqut-operations",
+      "commit": "cf0488d4fd21ac52dba1cabcf8388352daea557f",
+      "distribution": "qorqut-operations",
+      "version": "1.2.0.dev0",
+      "package": "qorqut_operations",
+      "branch": "v1.2/integration",
+      "accepted_inputs": [
+        {
+          "name": "extracted engine",
+          "branch": "v1.2/operations-engine",
+          "commit": "7097d1f0ddaf404a4d59e76810b5b4445cde8853",
+          "integration": "start of v1.2/integration (no merge commit); runtime behavior of 26c9243cd617952520f36f276dc56f9ef7e0ccf5 plus documentation-only Signoff port clarifications"
+        },
+        {
+          "name": "history export library",
+          "branch": "v1.2/operational-history",
+          "commit": "463d4972dca50b6838e33aefbb267825b466cfd2",
+          "merge_commit": "138f40c64e457f0b8723b6b764e1905a69e763fc"
+        },
+        {
+          "name": "operational models plus Context queue, completion and edit bindings",
+          "branch": "v1.2/context-edit-host",
+          "commit": "2d697fa3973e929f7f2be5afa5e9a731db634aaa",
+          "merge_commit": "00218175bcd9fc997645f0c4f5fe698cbb7f0476"
+        },
+        {
+          "name": "parent Tasks, Global work and usage ledger",
+          "branch": "v1.2/context-usage-ledger",
+          "commit": "11aa57bf95f0e5914c33bfeeda84b7691f4211ff",
+          "merge_commit": "62847f31cde2f6d9afea6c8bb94ba41d9bee085a"
+        },
+        {
+          "name": "inbox-nudge state",
+          "branch": "v1.2/inbox-nudges",
+          "commit": "828b689e4c69cffaee7aa6c45356170b44b9b554",
+          "merge_commit": "428146086391584c982c93e04dee8258e8d4e89e"
+        }
+      ],
+      "foundation_commit": "138f40c64e457f0b8723b6b764e1905a69e763fc",
+      "integration_fixes": [
+        {
+          "commit": "1ebcd2b7bfb9036f0705194c7be3ddf0233f0923",
+          "note": "the usage test helper passes the terminal-outcomes contribution that the combined queue contract requires; tests only"
+        }
+      ],
+      "completion_note": "Direct completion includes accepted lifecycle/recovery contributions and final caller/catalog qualification."
+    },
+    "context_engine": {
+      "path": "qorqut-context",
+      "commit": "291b9ce21ac5a209972d518527069f3e689fd711",
+      "branch": "v1.2/integration",
+      "base_commit": "24f374450b5c62ba0c498dc5ef143c51491ad399",
+      "accepted_inputs": [
+        {
+          "name": "Context input evidence, usage receipts and controlled graph-edit execution",
+          "branch": "v1.2/context-edits",
+          "commit": "32431e125b1982ea10fce4db1993ab22c6a241be",
+          "integration": "fast-forward of v1.2/integration (no merge commit)"
+        }
+      ],
+      "completion_note": "Direct completion includes accepted lifecycle/recovery contributions and final caller/catalog qualification."
+    },
+    "template": {
+      "path": "biz-template",
+      "commit": "7e2f45e3c793c623818cfe32761d21628aeb613a",
+      "branch": "v1.2/integration",
+      "base_commit": "d056f217bd5a20b04599444b1452c1f645ebdfb3",
+      "accepted_inputs": [
+        {
+          "name": "Context and inbox guidance",
+          "branch": "v1.2/context-guidance",
+          "commit": "7e2f45e3c793c623818cfe32761d21628aeb613a",
+          "integration": "fast-forward of v1.2/integration (no merge commit)"
+        }
+      ]
+    },
+    "dashboard": {
+      "path": "biz-dashboard",
+      "commit": "f9e79abe4824ffda7450c42f433e277b56f2c5c1",
+      "base_commit": "fd9c1a924db70373eb8d06f3970a87c26bd84452",
+      "branch": "v1.2/integration",
+      "launcher_commit": "10c3b16b14d5e2d2146048ba5a6a127fa406eb78",
+      "test_retarget_commit": "3c34ab14829e9cdc963c5b3fffbea8ce44e4bf63",
+      "note": "The foundation gitlink was the accepted launcher at 3c34ab1 (10c3b16 is the launcher change; 3c34ab1 only retargets dashboard tests that imported the removed host department/routine modules). The gitlink is now f17e3ab, a descendant that carries the reviewed UI work.",
+      "foundation_commit": "3c34ab14829e9cdc963c5b3fffbea8ce44e4bf63",
+      "accepted_inputs": [
+        {
+          "name": "Chat and navigation, operational UI, Costs, graph and source consumers, UI simplification",
+          "branch": "v1.2/ui-simplification",
+          "commit": "f17e3abc938324de1868220c1c24a4543b0ae90c",
+          "integration": "fast-forward of v1.2/integration (no merge commit)"
+        }
+      ],
+      "completion_note": "Direct completion includes accepted lifecycle/recovery contributions and final caller/catalog qualification."
+    },
+    "roles": {
+      "path": "../qorqut-roles/agent-roles",
+      "commit": "92180163d1b4aff3a11287fd87b7b17615585d6e",
+      "note": "Separate reusable role-source repository; never a code component of this checkout.",
+      "branch": "v1.2/integration",
+      "base_commit": "06f693a3df7b1784b5a0d1184551cb020879f200",
+      "accepted_inputs": [
+        {
+          "name": "catalog prerequisite and Context and inbox guidance",
+          "branch": "v1.2/context-guidance",
+          "commit": "8a36dd29268e819afbe3180385a53e9e49a77630",
+          "integration": "fast-forward of v1.2/integration (no merge commit)"
+        }
+      ],
+      "completion_note": "Direct completion includes accepted lifecycle/recovery contributions and final caller/catalog qualification."
+    }
+  },
+  "verification": {
+    "scope": "Exact installed host/Operations/Context artifacts; focused combined behavior and recovery",
+    "installed_host_gate": "INSTALLED_ACCEPTANCE.json",
+    "focused_checks_passed": 20,
+    "synthetic_runnable": true,
+    "existing_data_activation_ready": false,
+    "provider_validation": "synthetic only"
+  }
+}

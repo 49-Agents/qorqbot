@@ -1,0 +1,1 @@
+Start with context_home, search with context_find, then read context_object and context_expand. They read one shared published graph; every response names the revision it was read at, and an empty or unavailable result is not proof of absence.

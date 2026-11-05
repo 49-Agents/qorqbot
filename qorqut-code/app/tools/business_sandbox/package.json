@@ -1,0 +1,10 @@
+{
+  "name": "qorqut-business-sandbox-workstation",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Pinned native coding CLIs for the BusinessSandbox workstation image",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.269",
+    "@openai/codex": "0.154.0"
+  }
+}

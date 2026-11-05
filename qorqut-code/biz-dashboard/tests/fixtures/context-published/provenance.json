@@ -1,0 +1,64 @@
+{
+ "composition": "operation descriptor read handlers called directly with a synthetic caller; recorded answers validated against the closed output schemas; no installed package, HTTP application or dashboard session",
+ "context": "32431e125b1982ea10fce4db1993ab22c6a241be",
+ "home_pages": 3,
+ "host": "c32abc6220af37dc3694065edfe2841249e20dd8",
+ "inputs": "synthetic nodes, edges, sources and events written through the pinned engine; no model, provider or operational data",
+ "later_revision": "ae6eb246076d73f059eab2648ada7d11267d4121",
+ "main_revision": "21e5f2564d09cc188c52e4c2717e9f0d4dd7a360",
+ "operations": "47f3d87c35ee31791f4ed63ddec5f383ceda5ab4",
+ "page_sizes": [
+  30,
+  30,
+  7
+ ],
+ "quartz_hits": 112,
+ "refs": {
+  "acme": "node:acme1",
+  "alice": "node:alice",
+  "atlas": "node:atlas",
+  "attack": "node:atk01",
+  "big": "node:bigno",
+  "bobby": "node:bobby",
+  "hub": "node:hubxx",
+  "leaf": "node:s0003",
+  "source_atlas": "source:8wbhb",
+  "source_survey": "source:uy2hw",
+  "source_temp": "source:34ieu",
+  "tempo": "node:tempx"
+ },
+ "request_bounds": {
+  "changes": 20,
+  "expand": 50,
+  "find": 50,
+  "history": 10,
+  "home": 30,
+  "text": 16000
+ },
+ "search_window": {
+  "generator": 60,
+  "shipped": 1000
+ },
+ "totals": {
+  "edges": 65,
+  "events": 19,
+  "nodes": 67,
+  "sources": 4
+ },
+ "window_pages": [
+  {
+   "has_more": true,
+   "limit": 50,
+   "next_cursor": "eyJiIjoiNjcxMmNjN2QwOTdkOTM2MDEwNDY3MjM1N2MwYTgzMzEzY2VmMDVhOTI3NWFiNDVhNWNlYjJlZTVjZmMwNjJiYiIsIm8iOjUwLCJyIjoiMjFlNWYyNTY0ZDA5Y2MxODhjNTJlNGMyNzE3ZTlmMGQ0ZGQ3YTM2MCIsInYiOjF9",
+   "returned": 50,
+   "window_exhausted": false
+  },
+  {
+   "has_more": false,
+   "limit": 50,
+   "next_cursor": null,
+   "returned": 10,
+   "window_exhausted": true
+  }
+ ]
+}

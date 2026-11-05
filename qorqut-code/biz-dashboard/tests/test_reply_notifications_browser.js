@@ -1,0 +1,53 @@
+const assert=require('node:assert/strict'),path=require('node:path');
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+(async()=>{const browser=await chromium.launch({headless:true,args:['--no-sandbox']});try{
+ const page=await browser.newPage(),root=path.resolve(__dirname,'..');
+ await page.route('http://fixture.test/**',route=>route.fulfill({body:'<html></html>',contentType:'text/html'}));
+ await page.goto('http://fixture.test/');
+ await page.setContent(`<div id="toasts" class="toasts"></div><button data-global-agent="marketing"><span class="nm">Marketing</span></button>
+  <button data-global-agent="learner"><span class="nm">Learner</span></button><div id="roster"><button data-global-agent="dev"><span class="nm">Ordubashy</span></button></div>
+  <button data-global-agent="other"><span class="nm">Founder</span></button>`);
+ await page.addScriptTag({path:path.join(root,'js/core.js')});
+ await page.addStyleTag({path:path.join(root,'app.css')});
+ await page.evaluate(()=>{window.feed=[];window.opened=[];window.modals=[];globalAgentProfiles=[{agent_id:'dev',role:{id:'ordubashy'}},{agent_id:'learner',role:{id:'learning-applier'}},{agent_id:'marketing',role:{id:'global-worker'}}];globalAgentProfilesRequest=Promise.resolve(globalAgentProfiles);window.fetch=async()=>new Response(JSON.stringify({status:'ok',data:{items:window.feed}}),{status:200});modal=options=>{const el=document.createElement('div');el.innerHTML=options.body;document.body.append(el);options.onOpen?.(el);window.modals.push(options);};window.conversationMount=(host,source)=>({expand(){window.opened.push({source});},dispose(){}});});
+ await page.addScriptTag({path:path.join(root,'js/reply-notifications.js')});
+ await page.evaluate(()=>replyNotifications.start());
+ await page.waitForFunction(()=>replyNotifications.unread({type:"task",id:"none"})!==null);
+ const item={id:'dm:1',kind:'thread',source:{type:'story',id:'story1',business_id:'b1'},biz:'widget',agent_id:'dev',agent_name:'Dev',text:'Ready',unread:true};
+ await page.evaluate(async item=>{window.feed=[item];await replyNotifications.refresh();},item);
+ assert.equal(await page.evaluate(()=>replyNotifications.unread({type:'story',id:'story1',business_id:'b1'})),true);
+ assert.equal(await page.locator('.toast').count(),1);
+ assert.equal(await page.locator('[data-global-agent="dev"] .chat-unread-dot').count(),1,'thread reply marks its roster agent');
+ assert.equal(await page.locator('[data-global-agent="other"] .chat-unread-dot').count(),0,'other agents stay clear');
+ assert.equal(await page.locator('#toasts').evaluate(el=>getComputedStyle(el).right),'20px');
+ await page.evaluate(()=>replyNotifications.refresh());assert.equal(await page.locator('.toast').count(),1);
+ await page.locator('.toast').click();await page.waitForFunction(()=>window.opened.length===1);
+ assert.deepEqual(await page.evaluate(()=>window.opened[0]),{source:{type:'story',id:'story1',biz:'widget'}},'an Ordubashy thread opens the default record conversation');
+ // An old peer thread notification opens no conversation, so its text can never be redirected to Ordubashy.
+ await page.evaluate(async()=>{await replyNotifications.open({id:'dm:peer',kind:'thread',source:{type:'story',id:'story1',business_id:'b1'},biz:'widget',agent_id:'learner',agent_name:'Learning Applier',text:'Old peer reply',unread:true});});
+ assert.equal(await page.evaluate(()=>window.opened.length),1,'a peer notification never mounts a conversation');
+ assert.equal(await page.evaluate(()=>window.modals.at(-1).title),'Thread unavailable');
+ assert.equal(await page.locator('.reply-notification-retired').count(),1);
+ await page.evaluate(async()=>{window.feed=[];await replyNotifications.refresh();});
+ assert.equal(await page.evaluate(()=>replyNotifications.unread({type:'story',id:'story1',business_id:'b1'})),false);
+ assert.equal(await page.locator('.chat-unread-dot').count(),0,'reading the DM clears every copy of the marker');
+ const toastCount=await page.locator('.toast').count();
+ await page.evaluate(async()=>{window.feed=[{id:'gchat:biz',kind:'global',chat:true,nav_only:true,agent_id:'dev',agent_name:'Dev',text:'Done',unread:true}];await replyNotifications.refresh();});
+ assert.equal(await page.locator('[data-global-agent="dev"] .chat-unread-dot').count(),1,'main chat marks the roster agent');
+ assert.equal(await page.locator('.toast').count(),toastCount,'business main chat adds no toast');
+ await page.evaluate(()=>{document.querySelector('#roster').innerHTML='<button data-global-agent="dev"><span class="nm">Repainted list</span></button>';replyNotifications.paint();});
+ assert.equal(await page.locator('#roster .chat-unread-dot').count(),1,'list rerender restores its marker');
+ await page.evaluate(async()=>{window.feed.push({id:'gchat:global',kind:'global',chat:true,agent_id:'marketing',agent_name:'Marketing',text:'Ready',unread:true});await replyNotifications.refresh();});
+ assert.equal(await page.locator('[data-global-agent="marketing"] .chat-unread-dot').count(),0);
+ assert.equal(await page.locator('.toast').count(),toastCount,'workers never create reply popups');
+ assert.equal(await page.evaluate(()=>replyNotifications.unreadAgent('marketing')),true,'underlying unread history stays intact');
+ await page.evaluate(async()=>{window.feed=window.feed.filter(i=>i.agent_id!=='dev');await replyNotifications.refresh();});
+ assert.equal(await page.locator('[data-global-agent="dev"] .chat-unread-dot').count(),0);
+ assert.equal(await page.locator('[data-global-agent="marketing"] .chat-unread-dot').count(),0);
+ await page.evaluate(async()=>{window.feed.push({id:'learner:1',kind:'global',chat:true,agent_id:'learner',agent_name:'Learning Applier',text:'Ready',unread:true});await replyNotifications.refresh();});
+ assert.equal(await page.locator('[data-global-agent="learner"] .chat-unread-dot').count(),1);
+ assert.equal(await page.locator('.toast').count(),toastCount+1,'learning applier still creates reply popups');
+ await page.evaluate(()=>{for(let i=0;i<12;i++)notify({text:'Reply '+i,onClick:()=>{}});});
+ assert.equal(await page.evaluate(()=>_notes.queue.some(n=>n.fold)),false);
+ console.log('Reply notifications: Story unread, Ordubashy-only click and retired peer notice, read clearing, dedupe, right alignment, actionable backlog passed.');
+}finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

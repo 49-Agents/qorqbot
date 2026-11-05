@@ -1,0 +1,245 @@
+schema_version: 1
+id: ordubashy
+version: 1.73.0
+scope_kinds: [ecosystem]
+brief: roles/ordubashy/BRIEF.md
+scope_brief: ecosystem-agent
+skills:
+  - id: owner-reminders
+    path: skills/owner-reminders/SKILL.md
+  - id: owner-journal
+    path: skills/owner-journal/SKILL.md
+  - id: operations-delegation
+    path: skills/operations-delegation/SKILL.md
+  - id: business-operations
+    path: skills/business-operations/SKILL.md
+  - id: owner-focus
+    path: skills/owner-focus/SKILL.md
+  - id: browser-control
+    path: skills/managed-browser-control/SKILL.md
+  - id: owner-input
+    path: skills/owner-input/SKILL.md
+  - id: chat-references
+    path: skills/chat-references/SKILL.md
+  - id: context-relationships
+    path: skills/context-relationships/SKILL.md
+  - id: business-tables
+    path: skills/business-tables/SKILL.md
+  - id: ecosystem-review
+    path: skills/ecosystem-review/SKILL.md
+  - id: project-creation
+    path: skills/project-creation/SKILL.md
+  - id: service-provisioning
+    path: skills/service-provisioning/SKILL.md
+  - id: action-recording
+    path: skills/action-recording/SKILL.md
+  - id: telegram-owner-communication
+    path: skills/telegram-owner-communication/SKILL.md
+  - id: calendar
+    path: skills/calendar/SKILL.md
+default_tool_policy:
+  agentic_change_propose: allow
+  agentic_change_get: allow
+  agentic_change_reconcile: allow
+  actions_config_get: allow
+  actions_get: allow
+  actions_list: allow
+  actions_record: allow
+  journal_entries_list: allow
+  journal_entry_get: allow
+  browser_turn: allow
+  request_user_input: allow
+  delegated_assignments_create: allow
+  delegated_assignment_get: allow
+  delegated_assignments_list: allow
+  delegated_assignments_control: allow
+  delegated_assignments_revise: allow
+  delegated_assignment_checkpoint: allow
+  delegated_assignment_events_claim: allow
+  delegated_assignment_event_settle: allow
+  environment_set: allow
+  environment_get: allow
+  business_archive: signoff
+  owner_action_propose: signoff
+  focus_get: allow
+  focus_present: allow
+  focus_edit: allow
+  focus_move: allow
+  focus_set_archived: allow
+  focus_reply: allow
+  owner_conversation_get: allow
+  owner_conversation_send: allow
+  signoffs_reject: allow
+  signoffs_input_create: allow
+  signoffs_input_cancel: allow
+  signoffs_attention_set: allow
+  signoffs_input_answer_delegated: allow
+  management_list: allow
+  management_get: allow
+  management_route: allow
+  management_resolve: allow
+  relationship_roles_list: allow
+  relationships_list: allow
+  relationships_get: allow
+  relationships_create: allow
+  relationships_update: allow
+  relationships_remove: allow
+  context_items_list: allow
+  context_items_get: allow
+  context_items_archive: allow
+  materials_update: allow
+  context_graph_get: allow
+  context_reviews_list: allow
+  context_reviews_history: allow
+  context_review: allow
+  context_review_reopen: allow
+  tables_list: allow
+  tables_get: allow
+  tables_rows_list: allow
+  tables_history: allow
+  tables_create: allow
+  tables_update: allow
+  tables_rows_write: allow
+  tables_history_retry: allow
+  tables_thread_get: allow
+  tables_follow: allow
+  tables_comment: allow
+  crm_entries_list: allow
+  crm_entries_add: allow
+  crm_entries_update: allow
+  crm_entries_remove: allow
+  data_uploads_list: allow
+  data_uploads_get: allow
+  data_uploads_upload: allow
+  agent_config_get: allow
+  agents_create: allow
+  agents_deactivate: allow
+  agents_get: allow
+  agents_icons_list: allow
+  agents_list: allow
+  agents_update: allow
+  assets_delete: allow
+  assets_get: allow
+  assets_list: allow
+  assets_update: allow
+  assets_upload: allow
+  assignees_list: allow
+  business_config_get: allow
+  business_config_update: allow
+  business_config_patch: allow
+  cloudflare_zone_token_ensure: allow
+  cloudflare_dns_records_ensure: allow
+  cloudflare_api_request: allow
+  content_get: allow
+  content_list: allow
+  context_document_update: deny
+  context_get: allow
+  context_list: allow
+  context_maps_get: allow
+  context_notes_create: deny
+  context_notes_move: deny
+  context_people_affiliation_set: deny
+  context_people_create: deny
+  context_people_get: allow
+  context_people_list: allow
+  context_people_merge: deny
+  context_people_update: deny
+  context_retry: allow
+  context_search: allow
+  context_topics_create: deny
+  context_topics_move: deny
+  context_upload: allow
+  context_instruct: allow
+  context_edit: allow
+  context_queue_list: allow
+  context_queue_get: allow
+  context_queue_retry: allow
+  jobs_get: allow
+  learnings_extract: signoff
+  learnings_get: allow
+  learnings_list: allow
+  notes_create: allow
+  notes_delete: allow
+  notes_get: allow
+  notes_list: allow
+  notes_update: allow
+  permissions_get: allow
+  permissions_set: allow
+  plans_get: allow
+  plans_list: allow
+  plans_set: allow
+  plugins_disable: allow
+  plugins_enable: allow
+  plugins_list: allow
+  plugins_publish: signoff
+  roles_get: allow
+  roles_list: allow
+  roles_publish: signoff
+  automations_list: allow
+  automations_get: allow
+  automations_history: allow
+  automations_script_get: allow
+  automations_create: allow
+  automations_update: allow
+  automations_script_write: allow
+  automations_schedule_set: allow
+  automations_input_answer: allow
+  automations_pause: allow
+  automations_resume: allow
+  automations_archive: allow
+  automations_run: allow
+  automations_run_cancel: allow
+  automations_grant_revoke: allow
+  automations_grant_add: signoff
+  automations_run_with_grants: signoff
+  routines_costs: allow
+  routines_create: signoff
+  routines_delete: signoff
+  routines_get: allow
+  routines_list: allow
+  routines_pause: allow
+  routines_preview: allow
+  routines_resume: signoff
+  routines_run: signoff
+  routines_runs: allow
+  routines_stop: allow
+  routines_update: signoff
+  shared_instructions_update: signoff
+  signoffs_get: allow
+  signoffs_notes_list: allow
+  signoffs_comment: allow
+  signoffs_list: allow
+  tasks_assign: allow
+  tasks_comment: allow
+  tasks_complete: allow
+  crm_activity_list: allow
+  crm_activity_record: allow
+  tasks_config_get: allow
+  tasks_config_update: allow
+  tasks_create: allow
+  tasks_get: allow
+  tasks_list: allow
+  tasks_overview: allow
+  tasks_update: allow
+  workers_list: allow
+  attention_get: allow
+  attention_add: allow
+  attention_remove: allow
+  attention_focus_set: allow
+  attention_focus_clear: allow
+  attention_workflow_update: allow
+  attention_workflow_context: allow
+  attention_workflow_sync: allow
+  owner_reminder: allow
+  telegram_send: allow
+  telegram_history: allow
+  telegram_delivery_get: allow
+  telegram_send_file: allow
+  calendar_calendars_list: allow
+  calendar_events_list: allow
+  calendar_event_get: allow
+  calendar_event_create: allow
+  calendar_event_update: allow
+  calendar_event_delete: allow
+  calendar_event_respond: allow
+  business_create: allow

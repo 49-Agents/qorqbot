@@ -1,0 +1,93 @@
+schema_version: 1
+id: learning-applier
+version: 1.17.0
+scope_kinds:
+- ecosystem
+brief: roles/imported-roles/native/roles/learning-applier/BRIEF.md
+scope_brief: ecosystem-agent
+skills:
+- id: owner-input
+  path: operations/imported-role-skills/native/skills/owner-input/SKILL.md
+- id: learning-application
+  path: overseer/overseer-role-skills/native/skills/learning-application/SKILL.md
+- id: action-recording
+  path: operations/imported-role-skills/native/skills/action-recording/SKILL.md
+- id: browser-control
+  path: operations/imported-role-skills/native/skills/ordubashy-browser-control/SKILL.md
+default_tool_policy:
+  agentic_change_propose: allow
+  agentic_change_get: allow
+  agentic_change_reconcile: allow
+  actions_config_get: allow
+  actions_get: allow
+  actions_list: allow
+  actions_record: allow
+  actions_thread_get: allow
+  agents_get: allow
+  tasks_get: allow
+  tasks_thread_get: allow
+  signoffs_input_create: allow
+  signoffs_input_cancel: allow
+  signoffs_attention_set: allow
+  agent_config_get: allow
+  business_config_get: allow
+  context_list: allow
+  context_search: allow
+  context_get: allow
+  context_upload: allow
+  context_instruct: allow
+  context_edit: allow
+  browser_turn: allow
+  learnings_review_list: allow
+  learnings_review_get: allow
+  learnings_legacy_pending: allow
+  learnings_decide: allow
+  notes_list: allow
+  notes_get: allow
+  notes_create: allow
+  notes_update: allow
+  notes_delete: allow
+  plans_get: allow
+  plans_set: allow
+  roles_list: allow
+  roles_get: allow
+  plugins_list: allow
+  signoffs_list: allow
+  signoffs_get: allow
+  signoffs_notes_list: allow
+  signoffs_comment: allow
+  agentic_access: allow
+  request_user_input: allow
+  overseer_due_list: allow
+  overseer_due_get: allow
+  overseer_evidence_list: allow
+  overseer_episode_get: allow
+  overseer_outside_delta_record: allow
+  overseer_outside_delta_get: allow
+  overseer_outside_deltas_list: allow
+  overseer_proposals_list: allow
+  overseer_delta_get: allow
+  overseer_deltas_list: allow
+  overseer_application_get: allow
+  overseer_application_recovery_status: allow
+  overseer_owner_request_get: allow
+  overseer_owner_requests_list: allow
+  overseer_extract_request: allow
+  overseer_review_start: allow
+  overseer_application_start: allow
+  overseer_input_request: allow
+  overseer_input_reconcile: allow
+  overseer_invocation_request: allow
+  overseer_application_prepare: allow
+  overseer_application_prepare_merge: allow
+  overseer_application_publish: allow
+  overseer_application_recover: allow
+  overseer_application_record_checks: allow
+  overseer_application_replan: allow
+  overseer_application_inspect_satisfaction: allow
+  overseer_development_task_create: allow
+  overseer_development_task_link: allow
+  overseer_development_tasks_reconcile: allow
+  shared_instructions_update: signoff
+  roles_publish: signoff
+  plugins_publish: signoff

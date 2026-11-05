@@ -1,0 +1,17 @@
+{
+  "schema_version": 2,
+  "surfaces": {
+    "ordubashy-browser": {"label": "Ordubashy", "kind": "browser",
+      "viewer_url": "https://GUACAMOLE-HOST/#/client/CONNECTION-IDENTIFIER", "width": 1440, "height": 900},
+    "ordubashy-desktop": {"label": "Desktop", "kind": "desktop",
+      "viewer_url": "https://GUACAMOLE-HOST/#/client/CONNECTION-IDENTIFIER"},
+    "project-browser": {"label": "Project", "kind": "browser",
+      "viewer_url": "https://GUACAMOLE-HOST/#/client/NEW-PROJECT-CONNECTION-IDENTIFIER", "width": 1440, "height": 900}
+  },
+  "agents": {
+    "CONFIGURED-ORDUBASHY-UUID": {"browsers": ["ordubashy-browser"], "desktop": "ordubashy-desktop"}
+  },
+  "businesses": {
+    "PROJECT-BUSINESS-UUID": {"browser": "project-browser"}
+  }
+}

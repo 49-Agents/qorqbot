@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qorqut-automation"
+version = "0.1.0"
+description = "Optional scripting-and-automation extension for a Qorqbot host"
+readme = "README.md"
+requires-python = ">=3.12"
+# The host (import package ``bazarlyk``) supplies the extension API, the Operations engine and its background programs. The
+# staged script runs in a child process and imports only the standard-library ``qorqut_automation.sdk`` module.
+dependencies = ["bazarlyk-core==1.3.0.dev0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["qorqut_automation*"]
+
+[tool.setuptools.package-data]
+qorqut_automation = ["plugins/**/*"]

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Table</title>
+<link rel="stylesheet" href="/css/tables-view.css">
+</head>
+<body>
+<main class="tv" aria-live="polite">
+  <header class="tv-head"><h1 id="tv-title">Table</h1><p id="tv-note" class="tv-note"></p></header>
+  <p id="tv-status" class="tv-status" role="status">Loading…</p>
+  <div class="tv-wrap" id="tv-wrap" hidden><table class="tv-grid"><thead></thead><tbody></tbody></table></div>
+  <footer class="tv-foot" id="tv-foot" hidden><span id="tv-count"></span><button type="button" id="tv-more" hidden>Load more</button></footer>
+</main>
+<script src="/js/safe-links.js"></script>
+<script src="/js/tables-view.js"></script>
+</body>
+</html>

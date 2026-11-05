@@ -1,0 +1,1553 @@
+[
+ {
+  "operation": "context_find",
+  "request": {
+   "limit": 50,
+   "query": "Quartz"
+  },
+  "response": {
+   "data": {
+    "items": [
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0000",
+      "kind": "edge",
+      "ref": "edge:h0000",
+      "summary": "Hub to Quartz leaf 00",
+      "to": {
+       "id": "s0000",
+       "kind": "node",
+       "ref": "node:s0000",
+       "summary": "Quartz leaf 00",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0001",
+      "kind": "edge",
+      "ref": "edge:h0001",
+      "summary": "Hub to Quartz leaf 01",
+      "to": {
+       "id": "s0001",
+       "kind": "node",
+       "ref": "node:s0001",
+       "summary": "Quartz leaf 01",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0002",
+      "kind": "edge",
+      "ref": "edge:h0002",
+      "summary": "Hub to Quartz leaf 02",
+      "to": {
+       "id": "s0002",
+       "kind": "node",
+       "ref": "node:s0002",
+       "summary": "Quartz leaf 02",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0003",
+      "kind": "edge",
+      "ref": "edge:h0003",
+      "summary": "Hub to Quartz leaf 03",
+      "to": {
+       "id": "s0003",
+       "kind": "node",
+       "ref": "node:s0003",
+       "summary": "Quartz leaf 03",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0004",
+      "kind": "edge",
+      "ref": "edge:h0004",
+      "summary": "Hub to Quartz leaf 04",
+      "to": {
+       "id": "s0004",
+       "kind": "node",
+       "ref": "node:s0004",
+       "summary": "Quartz leaf 04",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0005",
+      "kind": "edge",
+      "ref": "edge:h0005",
+      "summary": "Hub to Quartz leaf 05",
+      "to": {
+       "id": "s0005",
+       "kind": "node",
+       "ref": "node:s0005",
+       "summary": "Quartz leaf 05",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0006",
+      "kind": "edge",
+      "ref": "edge:h0006",
+      "summary": "Hub to Quartz leaf 06",
+      "to": {
+       "id": "s0006",
+       "kind": "node",
+       "ref": "node:s0006",
+       "summary": "Quartz leaf 06",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0007",
+      "kind": "edge",
+      "ref": "edge:h0007",
+      "summary": "Hub to Quartz leaf 07",
+      "to": {
+       "id": "s0007",
+       "kind": "node",
+       "ref": "node:s0007",
+       "summary": "Quartz leaf 07",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0008",
+      "kind": "edge",
+      "ref": "edge:h0008",
+      "summary": "Hub to Quartz leaf 08",
+      "to": {
+       "id": "s0008",
+       "kind": "node",
+       "ref": "node:s0008",
+       "summary": "Quartz leaf 08",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0009",
+      "kind": "edge",
+      "ref": "edge:h0009",
+      "summary": "Hub to Quartz leaf 09",
+      "to": {
+       "id": "s0009",
+       "kind": "node",
+       "ref": "node:s0009",
+       "summary": "Quartz leaf 09",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0010",
+      "kind": "edge",
+      "ref": "edge:h0010",
+      "summary": "Hub to Quartz leaf 10",
+      "to": {
+       "id": "s0010",
+       "kind": "node",
+       "ref": "node:s0010",
+       "summary": "Quartz leaf 10",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0011",
+      "kind": "edge",
+      "ref": "edge:h0011",
+      "summary": "Hub to Quartz leaf 11",
+      "to": {
+       "id": "s0011",
+       "kind": "node",
+       "ref": "node:s0011",
+       "summary": "Quartz leaf 11",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0012",
+      "kind": "edge",
+      "ref": "edge:h0012",
+      "summary": "Hub to Quartz leaf 12",
+      "to": {
+       "id": "s0012",
+       "kind": "node",
+       "ref": "node:s0012",
+       "summary": "Quartz leaf 12",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0013",
+      "kind": "edge",
+      "ref": "edge:h0013",
+      "summary": "Hub to Quartz leaf 13",
+      "to": {
+       "id": "s0013",
+       "kind": "node",
+       "ref": "node:s0013",
+       "summary": "Quartz leaf 13",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0014",
+      "kind": "edge",
+      "ref": "edge:h0014",
+      "summary": "Hub to Quartz leaf 14",
+      "to": {
+       "id": "s0014",
+       "kind": "node",
+       "ref": "node:s0014",
+       "summary": "Quartz leaf 14",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0015",
+      "kind": "edge",
+      "ref": "edge:h0015",
+      "summary": "Hub to Quartz leaf 15",
+      "to": {
+       "id": "s0015",
+       "kind": "node",
+       "ref": "node:s0015",
+       "summary": "Quartz leaf 15",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0016",
+      "kind": "edge",
+      "ref": "edge:h0016",
+      "summary": "Hub to Quartz leaf 16",
+      "to": {
+       "id": "s0016",
+       "kind": "node",
+       "ref": "node:s0016",
+       "summary": "Quartz leaf 16",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0017",
+      "kind": "edge",
+      "ref": "edge:h0017",
+      "summary": "Hub to Quartz leaf 17",
+      "to": {
+       "id": "s0017",
+       "kind": "node",
+       "ref": "node:s0017",
+       "summary": "Quartz leaf 17",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0018",
+      "kind": "edge",
+      "ref": "edge:h0018",
+      "summary": "Hub to Quartz leaf 18",
+      "to": {
+       "id": "s0018",
+       "kind": "node",
+       "ref": "node:s0018",
+       "summary": "Quartz leaf 18",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0019",
+      "kind": "edge",
+      "ref": "edge:h0019",
+      "summary": "Hub to Quartz leaf 19",
+      "to": {
+       "id": "s0019",
+       "kind": "node",
+       "ref": "node:s0019",
+       "summary": "Quartz leaf 19",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0020",
+      "kind": "edge",
+      "ref": "edge:h0020",
+      "summary": "Hub to Quartz leaf 20",
+      "to": {
+       "id": "s0020",
+       "kind": "node",
+       "ref": "node:s0020",
+       "summary": "Quartz leaf 20",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0021",
+      "kind": "edge",
+      "ref": "edge:h0021",
+      "summary": "Hub to Quartz leaf 21",
+      "to": {
+       "id": "s0021",
+       "kind": "node",
+       "ref": "node:s0021",
+       "summary": "Quartz leaf 21",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0022",
+      "kind": "edge",
+      "ref": "edge:h0022",
+      "summary": "Hub to Quartz leaf 22",
+      "to": {
+       "id": "s0022",
+       "kind": "node",
+       "ref": "node:s0022",
+       "summary": "Quartz leaf 22",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0023",
+      "kind": "edge",
+      "ref": "edge:h0023",
+      "summary": "Hub to Quartz leaf 23",
+      "to": {
+       "id": "s0023",
+       "kind": "node",
+       "ref": "node:s0023",
+       "summary": "Quartz leaf 23",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0024",
+      "kind": "edge",
+      "ref": "edge:h0024",
+      "summary": "Hub to Quartz leaf 24",
+      "to": {
+       "id": "s0024",
+       "kind": "node",
+       "ref": "node:s0024",
+       "summary": "Quartz leaf 24",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0025",
+      "kind": "edge",
+      "ref": "edge:h0025",
+      "summary": "Hub to Quartz leaf 25",
+      "to": {
+       "id": "s0025",
+       "kind": "node",
+       "ref": "node:s0025",
+       "summary": "Quartz leaf 25",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0026",
+      "kind": "edge",
+      "ref": "edge:h0026",
+      "summary": "Hub to Quartz leaf 26",
+      "to": {
+       "id": "s0026",
+       "kind": "node",
+       "ref": "node:s0026",
+       "summary": "Quartz leaf 26",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0027",
+      "kind": "edge",
+      "ref": "edge:h0027",
+      "summary": "Hub to Quartz leaf 27",
+      "to": {
+       "id": "s0027",
+       "kind": "node",
+       "ref": "node:s0027",
+       "summary": "Quartz leaf 27",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0028",
+      "kind": "edge",
+      "ref": "edge:h0028",
+      "summary": "Hub to Quartz leaf 28",
+      "to": {
+       "id": "s0028",
+       "kind": "node",
+       "ref": "node:s0028",
+       "summary": "Quartz leaf 28",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0029",
+      "kind": "edge",
+      "ref": "edge:h0029",
+      "summary": "Hub to Quartz leaf 29",
+      "to": {
+       "id": "s0029",
+       "kind": "node",
+       "ref": "node:s0029",
+       "summary": "Quartz leaf 29",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0030",
+      "kind": "edge",
+      "ref": "edge:h0030",
+      "summary": "Hub to Quartz leaf 30",
+      "to": {
+       "id": "s0030",
+       "kind": "node",
+       "ref": "node:s0030",
+       "summary": "Quartz leaf 30",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0031",
+      "kind": "edge",
+      "ref": "edge:h0031",
+      "summary": "Hub to Quartz leaf 31",
+      "to": {
+       "id": "s0031",
+       "kind": "node",
+       "ref": "node:s0031",
+       "summary": "Quartz leaf 31",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0032",
+      "kind": "edge",
+      "ref": "edge:h0032",
+      "summary": "Hub to Quartz leaf 32",
+      "to": {
+       "id": "s0032",
+       "kind": "node",
+       "ref": "node:s0032",
+       "summary": "Quartz leaf 32",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0033",
+      "kind": "edge",
+      "ref": "edge:h0033",
+      "summary": "Hub to Quartz leaf 33",
+      "to": {
+       "id": "s0033",
+       "kind": "node",
+       "ref": "node:s0033",
+       "summary": "Quartz leaf 33",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0034",
+      "kind": "edge",
+      "ref": "edge:h0034",
+      "summary": "Hub to Quartz leaf 34",
+      "to": {
+       "id": "s0034",
+       "kind": "node",
+       "ref": "node:s0034",
+       "summary": "Quartz leaf 34",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0035",
+      "kind": "edge",
+      "ref": "edge:h0035",
+      "summary": "Hub to Quartz leaf 35",
+      "to": {
+       "id": "s0035",
+       "kind": "node",
+       "ref": "node:s0035",
+       "summary": "Quartz leaf 35",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0036",
+      "kind": "edge",
+      "ref": "edge:h0036",
+      "summary": "Hub to Quartz leaf 36",
+      "to": {
+       "id": "s0036",
+       "kind": "node",
+       "ref": "node:s0036",
+       "summary": "Quartz leaf 36",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0037",
+      "kind": "edge",
+      "ref": "edge:h0037",
+      "summary": "Hub to Quartz leaf 37",
+      "to": {
+       "id": "s0037",
+       "kind": "node",
+       "ref": "node:s0037",
+       "summary": "Quartz leaf 37",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0038",
+      "kind": "edge",
+      "ref": "edge:h0038",
+      "summary": "Hub to Quartz leaf 38",
+      "to": {
+       "id": "s0038",
+       "kind": "node",
+       "ref": "node:s0038",
+       "summary": "Quartz leaf 38",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0039",
+      "kind": "edge",
+      "ref": "edge:h0039",
+      "summary": "Hub to Quartz leaf 39",
+      "to": {
+       "id": "s0039",
+       "kind": "node",
+       "ref": "node:s0039",
+       "summary": "Quartz leaf 39",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0040",
+      "kind": "edge",
+      "ref": "edge:h0040",
+      "summary": "Hub to Quartz leaf 40",
+      "to": {
+       "id": "s0040",
+       "kind": "node",
+       "ref": "node:s0040",
+       "summary": "Quartz leaf 40",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0041",
+      "kind": "edge",
+      "ref": "edge:h0041",
+      "summary": "Hub to Quartz leaf 41",
+      "to": {
+       "id": "s0041",
+       "kind": "node",
+       "ref": "node:s0041",
+       "summary": "Quartz leaf 41",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0042",
+      "kind": "edge",
+      "ref": "edge:h0042",
+      "summary": "Hub to Quartz leaf 42",
+      "to": {
+       "id": "s0042",
+       "kind": "node",
+       "ref": "node:s0042",
+       "summary": "Quartz leaf 42",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0043",
+      "kind": "edge",
+      "ref": "edge:h0043",
+      "summary": "Hub to Quartz leaf 43",
+      "to": {
+       "id": "s0043",
+       "kind": "node",
+       "ref": "node:s0043",
+       "summary": "Quartz leaf 43",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0044",
+      "kind": "edge",
+      "ref": "edge:h0044",
+      "summary": "Hub to Quartz leaf 44",
+      "to": {
+       "id": "s0044",
+       "kind": "node",
+       "ref": "node:s0044",
+       "summary": "Quartz leaf 44",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0045",
+      "kind": "edge",
+      "ref": "edge:h0045",
+      "summary": "Hub to Quartz leaf 45",
+      "to": {
+       "id": "s0045",
+       "kind": "node",
+       "ref": "node:s0045",
+       "summary": "Quartz leaf 45",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0046",
+      "kind": "edge",
+      "ref": "edge:h0046",
+      "summary": "Hub to Quartz leaf 46",
+      "to": {
+       "id": "s0046",
+       "kind": "node",
+       "ref": "node:s0046",
+       "summary": "Quartz leaf 46",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0047",
+      "kind": "edge",
+      "ref": "edge:h0047",
+      "summary": "Hub to Quartz leaf 47",
+      "to": {
+       "id": "s0047",
+       "kind": "node",
+       "ref": "node:s0047",
+       "summary": "Quartz leaf 47",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0048",
+      "kind": "edge",
+      "ref": "edge:h0048",
+      "summary": "Hub to Quartz leaf 48",
+      "to": {
+       "id": "s0048",
+       "kind": "node",
+       "ref": "node:s0048",
+       "summary": "Quartz leaf 48",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0049",
+      "kind": "edge",
+      "ref": "edge:h0049",
+      "summary": "Hub to Quartz leaf 49",
+      "to": {
+       "id": "s0049",
+       "kind": "node",
+       "ref": "node:s0049",
+       "summary": "Quartz leaf 49",
+       "truncated": false
+      },
+      "truncated": false
+     }
+    ],
+    "page": {
+     "has_more": true,
+     "limit": 50,
+     "next_cursor": "eyJiIjoiNjcxMmNjN2QwOTdkOTM2MDEwNDY3MjM1N2MwYTgzMzEzY2VmMDVhOTI3NWFiNDVhNWNlYjJlZTVjZmMwNjJiYiIsIm8iOjUwLCJyIjoiMjFlNWYyNTY0ZDA5Y2MxODhjNTJlNGMyNzE3ZTlmMGQ0ZGQ3YTM2MCIsInYiOjF9",
+     "returned": 50,
+     "window_exhausted": false
+    },
+    "query": "Quartz",
+    "revision": "21e5f2564d09cc188c52e4c2717e9f0d4dd7a360",
+    "status": "ready"
+   },
+   "status": "ok"
+  }
+ },
+ {
+  "operation": "context_find",
+  "request": {
+   "cursor": "eyJiIjoiNjcxMmNjN2QwOTdkOTM2MDEwNDY3MjM1N2MwYTgzMzEzY2VmMDVhOTI3NWFiNDVhNWNlYjJlZTVjZmMwNjJiYiIsIm8iOjUwLCJyIjoiMjFlNWYyNTY0ZDA5Y2MxODhjNTJlNGMyNzE3ZTlmMGQ0ZGQ3YTM2MCIsInYiOjF9",
+   "limit": 50,
+   "query": "Quartz"
+  },
+  "response": {
+   "data": {
+    "items": [
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0050",
+      "kind": "edge",
+      "ref": "edge:h0050",
+      "summary": "Hub to Quartz leaf 50",
+      "to": {
+       "id": "s0050",
+       "kind": "node",
+       "ref": "node:s0050",
+       "summary": "Quartz leaf 50",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0051",
+      "kind": "edge",
+      "ref": "edge:h0051",
+      "summary": "Hub to Quartz leaf 51",
+      "to": {
+       "id": "s0051",
+       "kind": "node",
+       "ref": "node:s0051",
+       "summary": "Quartz leaf 51",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0052",
+      "kind": "edge",
+      "ref": "edge:h0052",
+      "summary": "Hub to Quartz leaf 52",
+      "to": {
+       "id": "s0052",
+       "kind": "node",
+       "ref": "node:s0052",
+       "summary": "Quartz leaf 52",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0053",
+      "kind": "edge",
+      "ref": "edge:h0053",
+      "summary": "Hub to Quartz leaf 53",
+      "to": {
+       "id": "s0053",
+       "kind": "node",
+       "ref": "node:s0053",
+       "summary": "Quartz leaf 53",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "relation": [
+        "spoke"
+       ]
+      },
+      "from": {
+       "id": "hubxx",
+       "kind": "node",
+       "ref": "node:hubxx",
+       "summary": "Quartz hub",
+       "truncated": false
+      },
+      "id": "h0054",
+      "kind": "edge",
+      "ref": "edge:h0054",
+      "summary": "Hub to Quartz leaf 54",
+      "to": {
+       "id": "s0054",
+       "kind": "node",
+       "ref": "node:s0054",
+       "summary": "Quartz leaf 54",
+       "truncated": false
+      },
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "basic_entity_type": [
+        "organization"
+       ]
+      },
+      "id": "hubxx",
+      "kind": "node",
+      "ref": "node:hubxx",
+      "summary": "Quartz hub",
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "basic_entity_type": [
+        "person"
+       ],
+       "index": [
+        0
+       ]
+      },
+      "id": "s0000",
+      "kind": "node",
+      "ref": "node:s0000",
+      "summary": "Quartz leaf 00",
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "basic_entity_type": [
+        "person"
+       ],
+       "index": [
+        1
+       ]
+      },
+      "id": "s0001",
+      "kind": "node",
+      "ref": "node:s0001",
+      "summary": "Quartz leaf 01",
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "basic_entity_type": [
+        "person"
+       ],
+       "index": [
+        2
+       ]
+      },
+      "id": "s0002",
+      "kind": "node",
+      "ref": "node:s0002",
+      "summary": "Quartz leaf 02",
+      "truncated": false
+     },
+     {
+      "attributes": {
+       "basic_entity_type": [
+        "person"
+       ],
+       "index": [
+        3
+       ]
+      },
+      "id": "s0003",
+      "kind": "node",
+      "ref": "node:s0003",
+      "summary": "Quartz leaf 03",
+      "truncated": false
+     }
+    ],
+    "page": {
+     "has_more": false,
+     "limit": 50,
+     "next_cursor": null,
+     "returned": 10,
+     "window_exhausted": true
+    },
+    "query": "Quartz",
+    "revision": "21e5f2564d09cc188c52e4c2717e9f0d4dd7a360",
+    "status": "ready"
+   },
+   "status": "ok"
+  }
+ }
+]

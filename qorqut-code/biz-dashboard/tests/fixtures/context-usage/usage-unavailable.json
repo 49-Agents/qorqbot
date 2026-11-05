@@ -1,0 +1,9 @@
+{
+ "status": "error",
+ "data": null,
+ "error": {
+  "code": "operation_unavailable",
+  "message": "The Context usage ledger is not installed on this installation",
+  "retryable": false
+ }
+}

@@ -1,0 +1,14 @@
+schema_version: 1
+id: overseer-role-skills
+name: overseer-role-skills
+description: Preserved native role assets; metadata does not grant authority.
+entries:
+- id: asset-62a64c8c7ec4380b32db
+  kind: skill
+  description: Extract evidence-backed agentic proposals, review them with the owner,
+    and apply selected accepted changes through the managed Overseer workflows; factual
+    Context remains separate.
+  when_to_use: Extract evidence-backed agentic proposals, review them with the owner,
+    and apply selected accepted changes through the managed Overseer workflows; factual
+    Context remains separate.
+  path: native/skills/learning-application/SKILL.md

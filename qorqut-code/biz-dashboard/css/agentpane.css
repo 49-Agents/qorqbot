@@ -1,0 +1,146 @@
+/* Agent overview: scope the third column to Agents; other .split views keep their layout. */
+.split.agsplit {
+  --ag-terminal-fr: 1fr;
+  --ag-pane-fr: 1.15fr;
+  --ag-divider-width: 12px;
+  grid-template-columns: 228px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr));
+  min-width: 0;
+}
+.split.agsplit.pad-off { grid-template-columns: 228px minmax(0, 1fr) 0; }
+.split.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
+.split.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
+.split.global-agents.agsplit { grid-template-columns: 114px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
+.split.global-agents.agsplit.pad-off { grid-template-columns: 114px minmax(0, 1fr) 0; }
+.split.global-agents.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
+.split.global-agents.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
+/* Global and per-business agents share one navigation column; it is a compact icon strip, slightly wider where the screen has room.
+   The nav-off rules above still win (higher specificity), and narrower screens keep 114px. */
+@media (min-width: 1000px) {
+  .split.global-agents.agsplit { grid-template-columns: 134px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
+  .split.global-agents.agsplit.pad-off { grid-template-columns: 134px minmax(0, 1fr) 0; }
+}
+.agsplit:not(.pad-off) > .chat.termmode { padding-left: 24px; padding-right: 24px; }
+.agsplit.pad-off > .agent-pane-divider { display: none; }
+
+/* The hit area is wider than the quiet one-pixel rule. It is a real grid track so
+   resizing keeps the terminal and overview widths complementary. */
+.agent-pane-divider {
+  position: relative;
+  z-index: 4;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+.agent-pane-divider::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--line);
+  transform: translateX(-50%);
+  transition: background .14s ease, width .14s ease;
+}
+.agent-pane-divider:hover::before,
+.agent-pane-divider:focus-visible::before {
+  width: 2px;
+  background: rgba(255,255,255,.34);
+}
+.agent-pane-divider.dragging::before {
+  width: 3px;
+  background: rgba(255,255,255,.5);
+}
+.agent-pane-divider:focus-visible { outline: 0; }
+.agent-pane-divider[hidden] { display: none; }
+.agent-pane-dragging, .agent-pane-dragging * { user-select: none !important; cursor: col-resize !important; }
+.agent-pane-drag-shield { position: fixed; inset: 0; z-index: 250; cursor: col-resize; }
+
+/* The global session already stacks at this breakpoint. Keep the divider out of
+   that flow; the business pane retains its existing compact three-column layout. */
+@media (max-width: 800px) {
+  .agent-pane-divider { display: none; }
+  /* The divider disappears from the grid at mobile widths, retaining the
+     pre-divider three-column behavior for both agent layouts. */
+  .split.agsplit { grid-template-columns: 228px minmax(0, var(--ag-terminal-fr)) minmax(0, var(--ag-pane-fr)); }
+  .split.global-agents.agsplit { grid-template-columns: 114px minmax(0, var(--ag-terminal-fr)) minmax(0, var(--ag-pane-fr)); }
+  .split.agsplit.nav-off,
+  .split.global-agents.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-terminal-fr)) minmax(0, var(--ag-pane-fr)); }
+  .split.agsplit.pad-off { grid-template-columns: 228px minmax(0, 1fr) 0; }
+  .split.global-agents.agsplit.pad-off { grid-template-columns: 114px minmax(0, 1fr) 0; }
+  .split.agsplit.nav-off.pad-off,
+  .split.global-agents.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
+}
+
+.agent-nav-actions { display: inline-flex; align-items: center; gap: 6px; }
+.agent-nav-toggle { width: 30px; height: 30px; padding: 5px; display: inline-flex; align-items: center; justify-content: center; }
+.agent-nav-toggle svg { width: 17px; height: 17px; }
+.agent-nav-toggle .agent-nav-show { display: none; }
+.agsplit.nav-off .agent-nav-toggle .agent-nav-hide { display: none; }
+.agsplit.nav-off .agent-nav-toggle .agent-nav-show { display: block; }
+.agsplit.nav-off > .listcol .crows { display: none; }
+.agsplit.nav-off > .listcol .ctop { padding-left: 11px; padding-right: 11px; }
+.agsplit.nav-off > .listcol .agent-nav-heading { justify-content: center; }
+.agsplit.nav-off > .listcol .agent-nav-heading h1, .agsplit.nav-off > .listcol .agent-nav-heading h2 { display: none; }
+
+
+
+/* Content uses the shared .tasks surface, header, tabs, rows, and scrolling body. */
+.agpad { min-width: 0; }
+.agpad[hidden] { display: none; }
+.agpad-inbox-status { display:flex; align-items:center; gap:8px; padding: 12px 16px; color: var(--fg-2); font-size: 12px; }
+.agpad-delivery-dot { flex:none; width:8px; height:8px; border-radius:50%; background:var(--fg-3); }
+.agpad-inbox-status[data-delivery-state=idle] .agpad-delivery-dot,.agpad-inbox-status[data-delivery-state=submitted] .agpad-delivery-dot { background:#30D158; }
+.agpad-inbox-status[data-delivery-state=uncertain] .agpad-delivery-dot,.agpad-inbox-status[data-delivery-state=unavailable] .agpad-delivery-dot,.agpad-inbox-status[data-delivery-state=stale] .agpad-delivery-dot { background:var(--warn); }
+.agpad-inbox-heading { margin: 20px 16px 8px; color: var(--fg-2); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+.agpad-inbox-item { display: block; width: 100%; height: auto; min-height: 76px; white-space: normal; line-height: 1.5; border: 0; border-radius: 0; border-bottom: 1px solid var(--line); padding: 12px 16px; background: transparent; color: var(--fg); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.agpad-inbox-item:hover, .agpad-inbox-item:focus-visible, .agpad-inbox-item:active { background: var(--hover); color: var(--fg); transform: none; }
+.agpad-inbox-item strong, .agpad-inbox-item span { display: block; }
+.agpad-inbox-item span { margin-top: 5px; font-size: 12px; color: var(--fg-2); }
+
+.agpad-message summary { cursor: pointer; }
+.agpad-message-body { white-space: pre-wrap; margin-top: 10px; cursor: text; user-select: text; }
+.agpad-inbox-item .agpad-message-original { font-style: italic; color: var(--fg-3); }
+
+/* Match the task section headings throughout the agent pane. */
+.agpad .agpad-inbox-heading, .agpad .sg h2, .agpad .sg h3, .agpad .sg h4 {
+  font-size:11px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--fg-2); opacity:.6; line-height:1;
+}
+
+.agpad-inbox-top { display:flex; align-items:center; gap:16px; margin:20px 16px 8px; }
+.agpad-inbox-top .agpad-inbox-heading { margin:0; flex:none; }
+.agpad-inbox-top .agpad-inbox-status { margin-left:auto; padding:0; min-width:0; font-size:11px; white-space:nowrap; }
+.agpad-inbox-top .agpad-inbox-status > span:last-child { overflow:hidden; text-overflow:ellipsis; }
+
+.agsplit.nav-off > .listcol .agent-broadcast,.agsplit.nav-off > .listcol .global-eyebrow{display:none}
+
+/* Restore navigation without reserving a sidebar column. */
+.agsplit.nav-off{position:relative}
+.agsplit.nav-off > .listcol{visibility:hidden;overflow:visible;padding:0;border:0;pointer-events:none}
+.agsplit.nav-off > .listcol .agent-nav-toggle{visibility:visible;pointer-events:auto;position:absolute;top:12px;left:12px;z-index:6;margin:0;background:var(--bg);border:1px solid var(--line);box-shadow:0 2px 8px #0003}
+
+.agpad .ttab{position:relative}
+.agpad-tab-dot{position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:50%;background:var(--fg-3);pointer-events:none}
+.agpad-tab-dot[data-state="running"]{background:#30D158}
+.agpad-tab-dot[data-state="idle"]{background:#c8912a}
+.agpad-tab-dot[hidden]{display:none}
+/* Ordubashy auto-ping switch at the right end of the pane's tab row. */
+.agpad .thead.agpad-ping-head { display:flex; align-items:flex-start; gap:12px; padding-right:28px; }
+.agpad-ping-head > .ttabs { flex:1 1 auto; min-width:0; }
+.agpad-ping.switch { flex:none; height:44px; padding:0 4px; border-radius:8px; background:none; color:var(--fg-3); font-weight:400; font-size:12px; }
+.agpad-ping.switch:hover { background:none; color:var(--fg-2); transform:none; }
+.agpad-ping.switch.on { color:var(--fg); }
+.agpad-ping.switch:focus-visible { outline:2px solid var(--fg-2); outline-offset:-2px; }
+.agpad-ping.switch:disabled { opacity:.5; }
+.agpad-ping-next { color:var(--fg-3); font-variant-numeric:tabular-nums; }
+.agpad-ping-next[hidden] { display:none; }
+
+.agsplit .agpad, .agsplit .agpad .thead, .agsplit .agpad .tbody { background: var(--bg); }
+
+/* Reduce the gap below the right-pane tabs without changing other tab bars. */
+.agpad .thead .ttabs { margin-bottom:4px; padding-bottom:4px; overflow-y:hidden; }

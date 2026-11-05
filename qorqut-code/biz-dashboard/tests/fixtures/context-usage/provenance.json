@@ -1,0 +1,8 @@
+{
+ "host": "c61b66c1cb89264377fb963728b42aae46fa0770",
+ "operations": "11aa57bf95f0e5914c33bfeeda84b7691f4211ff",
+ "context": "32431e125b1982ea10fce4db1993ab22c6a241be",
+ "page_limit": 10,
+ "clock": "receipts at fixed UTC dates 2026-09-14 and 2026-10-10; overview day 2026-10-12",
+ "inputs": "synthetic notes; scripted injected runner; no model or provider"
+}

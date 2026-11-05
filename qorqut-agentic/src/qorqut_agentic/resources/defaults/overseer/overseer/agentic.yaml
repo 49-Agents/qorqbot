@@ -1,0 +1,40 @@
+schema_version: 1
+id: overseer
+name: Overseer workflows
+description: Managed procedures for evidence-backed agentic change under owner authority.
+entries:
+  - id: extract-instructions
+    kind: instruction
+    description: Extract proposals from authorized whole episodes with source coverage and conflict clarification.
+    when_to_use: During a due or requested Overseer extraction.
+    path: instructions/extract.md
+  - id: review-instructions
+    kind: instruction
+    description: Group and rank proposed changes for owner-led review.
+    when_to_use: During an owner-invoked Overseer review.
+    path: instructions/review.md
+  - id: apply-instructions
+    kind: instruction
+    description: Jointly plan and apply accepted work through the agentic application toolkit.
+    when_to_use: During an owner-invoked Overseer application.
+    path: instructions/apply.md
+  - id: record-direct-instruction
+    kind: instruction
+    description: Record a missed direct instruction without automatically implementing it.
+    when_to_use: When extracting an owner instruction and checking current implementation.
+    path: instructions/record-direct-instruction.md
+  - id: extract
+    kind: workflow
+    description: Extract evidence-backed proposals and coverage from authorized episodes.
+    when_to_use: A due or requested extraction in the continuing Overseer chat.
+    path: workflows/extract.yaml
+  - id: review
+    kind: workflow
+    description: Group, rank and present actionable deltas through owner Signoffs.
+    when_to_use: Only when the owner invokes a review.
+    path: workflows/review.yaml
+  - id: apply
+    kind: workflow
+    description: Plan and apply a selected accepted delta through an isolated agentic worktree.
+    when_to_use: Only when the owner invokes application.
+    path: workflows/apply.yaml

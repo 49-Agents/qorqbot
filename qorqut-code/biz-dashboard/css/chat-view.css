@@ -1,0 +1,222 @@
+/* The one Chat presentation (js/chat-view.js): main Chat, item discussions and Action discussions share these rules. Uses the
+   dashboard's existing tokens. Wrappers choose the container's width and height and may set --chat-top-inset (space reserved for a
+   floating header); they never restyle messages or the composer. */
+.chat-view { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; width: 100%; color: var(--fg); font-size: 15.75px; }
+.chat-view-feed { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.gchat-banner { margin: 8px 0 0; padding: 8px 12px; font-size: 12px; border: 1px solid var(--line-2); border-radius: 8px; color: var(--fg-2); flex: none; }
+.gchat-banner[role="alert"] { color: var(--danger); }
+.gchat-banner[hidden], .gchat-older[hidden], .gchat-jump[hidden], .gchat-empty[hidden], .gchat-composer[hidden] { display: none; }
+.gchat-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: var(--chat-top-inset, 0px) 2px 14px; overscroll-behavior: contain; }
+.gchat-older { display: block; margin: 0 auto 12px; }
+.gchat-log { padding-left: 32px; display: flex; flex-direction: column; gap: 0; }
+.gchat-log > .gchat-msg + .gchat-msg { margin-top:22px; }
+.gchat-log > .gchat-msg + .gchat-msg.gchat-continuation { margin-top:8px; }
+.gchat-msg { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: min(760px, 88%); }
+.gchat-bubble-row { position: relative; min-width: 0; max-width: 100%; }
+.chat-view .gchat-copy { position: absolute; right: calc(100% + 4px); top: 8px; display: grid; place-items: center; width: 28px; height: 28px; min-height: 28px; padding: 6px; border: 0; border-radius: 7px; background: none; color: var(--fg-2); opacity: 0; pointer-events: none; transition: opacity 140ms ease; transform: none; }
+.gchat-copy svg { width: 16px; height: 16px; }
+.chat-view .gchat-msg:hover .gchat-copy, .chat-view .gchat-copy:focus-visible, .chat-view .gchat-copy.copied { opacity: 1; pointer-events: auto; }
+.chat-view .gchat-copy:hover { background: var(--hover); color: var(--fg); }
+.chat-view .gchat-copy.copied { color: var(--ok); }
+@media (hover: none) { .chat-view .gchat-copy { opacity: .65; pointer-events: auto; } }
+@media (prefers-reduced-motion: reduce) { .chat-view .gchat-copy { transition: none; } }
+.gchat-user { align-self: flex-end; align-items: flex-end; }
+.gchat-agent { align-self: flex-start; }
+.gchat-notice { align-self: center; align-items: center; max-width: 80%; font-size: 12px; color: var(--fg-2); }
+.gchat-body { font-size: 13.25px; padding: 12px 18px; border: 1px solid var(--line-2); border-radius: 24px; overflow-wrap: anywhere; line-height: 1.5; }
+.gchat-user .gchat-body { background: #126bd4; color: #fff; white-space: pre-wrap; line-height: 1.65; }
+.gchat-user .gchat-body, .gchat-agent .gchat-body { border: 0; }
+.gchat-agent .gchat-body { background: color-mix(in srgb, var(--fg, #f7f7f7) 7%, var(--bg, #090909)); text-align: left; line-height: 1.65; }
+.gchat-notice .gchat-body { padding: 2px 10px; border: 0; border-radius: 0; background: none; font-size: 12px; line-height: 1.45; text-align: center; white-space: pre-wrap; }
+/* Optional sender label and title: the same primitives for every conversation, never a second message style. */
+.gchat-author { display: flex; align-items: center; gap: 8px; padding: 0 12px; min-width: 0; font-size: 11px; color: var(--fg-2); }
+.gchat-agent .gchat-author { padding-left: 0; }
+.gchat-avatar { display: grid; place-items: center; flex: none; width: 22px; height: 22px; padding: 0; border: 0; font-size: 10px; }
+.gchat-avatar > svg { display: block; width: 100%; height: 100%; }
+.gchat-author-name { min-width: 0; overflow-wrap: anywhere; }
+.gchat-author-name-hidden { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.gchat-title { display: block; margin-bottom: .25em; font-weight: 600; }
+/* Qorqut's own label for a system-originated input; it is not a provider role. Unverified lookalikes keep a visibly different mark. */
+.gchat-marker { display: inline; margin-right: 8px; padding: 0; border: 0; font-size: 12px; line-height: 1.45; color: var(--fg-2); vertical-align: baseline; }
+.gchat-notice .gchat-body:has(> .gchat-marker:only-child) { display:flex; align-items:center; justify-content:center; }
+.gchat-notice .gchat-marker:only-child { margin-right:0; }
+.gchat-notice[data-verified="false"] .gchat-marker { color: var(--danger); }
+.gchat-agent-message { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 9px; }
+.gchat-recipients { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; }
+.gchat-recipient { display: inline-flex; }
+.gchat-recipient + .gchat-recipient { margin-left: -6px; }
+.gchat-recipient svg { width: 25px; height: 25px; display: block; }
+.gchat-pending.gchat-notice .gchat-state { text-align: center; }
+.gchat-partial .gchat-body { opacity: .8; }
+.gchat-body.md > :first-child { margin-top: 0; }
+.gchat-body.md > :last-child { margin-bottom: 0; }
+.gchat-body.md p { margin: 0 0 .6em; }
+.gchat-body.md ul, .gchat-body.md ol { margin: 0 0 .6em; padding-left: 1.4em; }
+.gchat-body.md blockquote { margin: 0 0 .6em; padding-left: 10px; border-left: 2px solid var(--line-2); color: var(--fg-2); }
+.gchat-body.md pre { margin: 0 0 .6em; padding: 8px 10px; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.04); }
+.gchat-body.md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em; }
+.gchat-body.md .gc-table-wrap { max-width: 100%; margin: 0 0 .6em; overflow-x: auto; }
+.gchat-body.md table { border-collapse: collapse; font-size: inherit; }
+.gchat-body.md th, .gchat-body.md td { padding: 3px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: normal; }
+.gchat-body.md th { font-weight: 600; border-bottom-color: var(--line-2); white-space: nowrap; }
+.gchat-body.md .gc-center { text-align: center; }
+.gchat-body.md .gc-right { text-align: right; }
+.gchat-body.md tbody tr:last-child td { border-bottom: 0; }
+.gchat-body.md .gc-heading { font-weight: 600; }
+.gchat-references { display:flex; flex-wrap:wrap; gap:6px; max-width:100%; padding:0 12px 8px; box-sizing:border-box; }
+.gchat-agent .gchat-references { padding-left:0; }
+.gchat-user .gchat-references { justify-content:flex-end; }
+.gchat-reference { display:inline-flex; align-items:center; gap:6px; min-width:0; max-width:100%; padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:var(--hover); color:var(--fg); font:inherit; font-size:11px; }
+.gchat-reference svg { width:14px; height:14px; flex:none; }
+.gchat-reference>span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.gchat-reference small { flex:none; font-size:10px; color:var(--fg-2); }
+.gchat-reference:disabled { opacity:.6; cursor:not-allowed; }
+/* One file card for existing references, uploaded references and pending choices.
+   Type accents reuse the dashboard palette; filenames stay the primary label. */
+.gchat-file-card { --file-color:var(--fg-2); display:inline-flex; align-items:center; justify-content:flex-start; gap:9px; min-width:0; max-width:100%; height:auto; padding:8px 10px; border:1px solid color-mix(in srgb, var(--file-color) 20%, transparent); border-radius:9px; background:color-mix(in srgb, var(--file-color) 5%, var(--surface)); color:var(--fg); text-align:left; font:inherit; font-size:12px; line-height:1.4; box-sizing:border-box; }
+.gchat-file-card[data-file-kind="image"], .gchat-file-card[data-file-kind="document"], .gchat-file-card[data-file-kind="audio"], .gchat-file-card[data-file-kind="video"] { --file-color:var(--link,#b9c7ff); }
+.gchat-file-card[data-file-kind="pdf"] { --file-color:var(--danger); }
+.gchat-file-card[data-file-kind="sheet"] { --file-color:var(--ok); }
+.gchat-file-card[data-file-kind="code"], .gchat-file-card[data-file-kind="archive"] { --file-color:var(--warn); }
+button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9%, var(--surface)); border-color:color-mix(in srgb, var(--file-color) 38%, transparent); color:var(--fg); transform:none; }
+.gchat-file-card:focus-visible, .gchat-file-card button:focus-visible { outline:2px solid var(--file-color); outline-offset:2px; }
+.gchat-file-card .gchat-file-icon { display:grid; place-items:center; flex:none; width:28px; height:32px; border-radius:5px; background:color-mix(in srgb, var(--file-color) 12%, transparent); color:var(--file-color); }
+.gchat-file-card .gchat-file-icon svg { width:18px; height:18px; }
+.gchat-file-card .gchat-file-label { display:flex; flex-direction:column; align-items:flex-start; gap:1px; min-width:0; overflow:hidden; }
+.gchat-file-name { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
+.gchat-file-card small { font-size:10px; font-weight:400; color:var(--file-color); }
+.gchat-entry-actions { display:flex; flex-wrap:wrap; gap:6px; padding:0 12px; }
+.gchat-agent .gchat-entry-actions { padding-left:0; }
+.gchat-entry-actions button { min-height: 26px; padding: 2px 9px; font-size: 11px; }
+.gchat-preview-window { position:absolute; z-index:5; top:calc(var(--chat-top-inset, 0px) + 10px); right:12px; display:flex; flex-direction:column; width:min(520px,calc(100% - 24px)); height:min(380px,65%); max-width:calc(100% - 24px); max-height:calc(100% - var(--chat-top-inset, 0px) - 20px); min-width:min(240px,calc(100% - 24px)); min-height:min(180px,calc(100% - var(--chat-top-inset, 0px) - 20px)); resize:both; overflow:hidden; box-sizing:border-box; border:1px solid var(--line-2); border-radius:9px; background:var(--bg); color:var(--fg); box-shadow:0 10px 32px #0005; }
+.gchat-preview-window[hidden] { display:none; }
+.gchat-preview-window>header { display:flex; align-items:center; gap:6px; padding:5px 8px; flex:none; border-bottom:1px solid var(--line); }
+.gchat-preview-title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.gchat-preview-window>header button, .gchat-preview-open { display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; padding:0; border:0; color:var(--fg-2); font-size:18px; text-decoration:none; }
+.gchat-preview-content { flex:1; min-height:0; overflow:auto; }
+.gchat-preview-content>iframe, .gchat-preview-content>img { display:block; width:100%; height:100%; border:0; object-fit:contain; }
+.gchat-state { font-size: 11px; color: var(--fg-2); }
+.gchat-time { padding:0 12px; font-size:10px; line-height:1.4; color:var(--fg-2); font-variant-numeric:tabular-nums; }
+.gchat-agent .gchat-time { padding-left:0; }
+.gchat-state[data-state="failed"], .gchat-state[data-state="uncertain"], .gchat-state[data-state="undelivered"] { color: var(--danger); }
+.gchat-pending .gchat-state { max-width: 100%; }
+.gchat-pending[data-state="waiting"] .gchat-body, .gchat-pending[data-state="submitting"] .gchat-body { opacity: .7; }
+.gchat-pending-list { padding-left: 32px; display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.gchat-pending-list:empty { display: none; }
+.gchat-pending-actions { display: inline-flex; gap: 6px; }
+.gchat-pending-actions button { min-height: 26px; padding: 2px 9px; font-size: 11px; }
+.gchat-empty { padding: 24px 8px; color: var(--fg-2); text-align: center; }
+.gchat-jump { position: absolute; right: 18px; bottom: 12px; z-index: 3; }
+/* The composer carries its own typography so it looks the same when a wrapper hosts the form outside the view. */
+.gchat-composer { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:8px; padding:10px; border:1px solid var(--line-2); border-radius:32px; background:color-mix(in srgb, var(--fg) 9%, var(--bg)); box-sizing:border-box; flex:none; color:var(--fg); font-size:15.75px; line-height:1.55; }
+.gchat-composer:has(.gchat-attach) { grid-template-columns:minmax(0,1fr) auto auto; }
+.gchat-composer-expanded, .gchat-composer:has(.gchat-attachments:not([hidden])) { border-radius:24px; }
+.gchat-composer-expanded textarea { grid-column:1 / -1; }
+.gchat-composer-expanded .gchat-send { grid-column:-2; }
+.gchat-composer-expanded .gchat-attach { grid-column:-3; }
+.gchat-body[hidden] { display:none; }
+.gchat-attachments[hidden], .gchat-composer input[type="file"][hidden] { display:none; }
+.gchat-attachments { display:flex; flex-wrap:wrap; gap:6px; grid-column:1 / -1; padding:3px 5px; }
+.gchat-file-choice button { flex:none; border:0; padding:0; min-height:22px; height:22px; width:22px; border-radius:5px; background:none; color:var(--fg-2); font-size:16px; font-weight:400; }
+.gchat-file-choice button:hover { background:var(--hover); color:var(--fg); transform:none; }
+.gchat-composer .gchat-attach { display:inline-flex; align-items:center; justify-content:center; flex:none; width:36px; height:36px; min-height:36px; padding:8px; border:1px solid var(--line); border-radius:50%; background:var(--hover); }
+.gchat-attach:disabled { opacity:.4; }
+.chat-view.gchat-file-drop::after { content:'Drop files'; display:flex; align-items:center; justify-content:center; position:absolute; inset:5px; z-index:6; border:1px dashed var(--fg-2); border-radius:8px; background:color-mix(in srgb, var(--bg) 90%, transparent); pointer-events:none; font-size:14px; }
+.gchat-composer textarea:disabled { opacity: .6; cursor: not-allowed; }
+.gchat-composer textarea { min-width:0; width:100%; height:36px; min-height:36px; max-height:200px; box-sizing:border-box; resize:none; overflow-y:auto; padding:6px 8px; font:inherit; font-size:15.75px; line-height:24px; border:0; border-radius:0; background:none; box-shadow:none; }
+.gchat-composer textarea::placeholder { font-size:14px; }
+.gchat-composer textarea:focus { outline:none; }
+.gchat-composer:focus-within { border-color:color-mix(in srgb, var(--fg) 22%, transparent); }
+.gchat-send { flex:none; min-height:36px; height:36px; padding:5px 11px; border-radius:18px; }
+/* The primary button look is the shared Send in every host; Focus's secondary-button restyle (.agfocus button) never applies to it. */
+.gchat-composer .gchat-send, .agfocus .gchat-composer .gchat-send { min-height:36px; height:36px; padding:5px 11px; border-radius:18px; border:0; background:var(--accent); color:var(--accent-fg); font-weight:700; font-size:11.5px; line-height:inherit; }
+.gchat-composer .gchat-send.gchat-icon-send { width:36px; padding:0; }
+.gchat-send.gchat-icon-send svg { width:22px; height:22px; }
+.gchat-composer .gchat-send:hover, .agfocus .gchat-composer .gchat-send:hover { background: #fff; color: var(--accent-fg); }
+@media (max-width: 800px) { .gchat-msg { max-width: 96%; } }
+
+/* Relayed Telegram input stays compact until the owner opens it. */
+.gchat-msg .gchat-telegram { background: rgba(42,171,238,.07); border: 0; border-radius: 6px; padding: 5px 8px; line-height: 18px; white-space: normal; color: var(--fg); }
+.gchat-telegram summary { display: flex; align-items: center; gap: 6px; padding: 0; line-height: 18px; cursor: pointer; list-style: none; color: #64bced; font-size: 12px; }
+.gchat-telegram summary::-webkit-details-marker { display: none; }
+.gchat-telegram summary svg { width: 14px; height: 14px; flex: none; }
+.gchat-telegram summary::after { content: '›'; margin-left: 4px; transform: rotate(90deg); }
+.gchat-telegram[open] summary::after { transform: rotate(-90deg); }
+.gchat-telegram summary:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; border-radius: 2px; }
+.gchat-telegram > .gchat-text { display: block; margin-top: 8px; white-space: pre-wrap; }
+
+.gchat-pending-actions button[data-dismiss] { min-height: 32px; padding: 4px 12px; font-size: 12px; }
+
+/* Typed references (request_user_input): Signoff card, inline browser and entity blocks — under their message. */
+.gchat-typed { display:flex; flex-direction:column; align-items:flex-start; gap:7px; max-width:100%; padding:3px 0 8px; box-sizing:border-box; }
+.gchat-typed:empty { display:none; }
+.gchat-agent-reference, .gchat-project-reference { cursor:default; }
+.chat-view .gchat-task-reference:not(.gchat-reference-block), .agfocus .chat-view button.gchat-task-reference:not(.gchat-reference-block) { display:inline-flex; align-items:center; min-height:0; height:auto; margin:0; padding:2px 0; border:0; border-radius:4px; background:transparent; box-shadow:none; color:var(--fg); font:inherit; font-size:11px; cursor:default; }
+.chat-view button.gchat-task-reference:not(.gchat-reference-block), .agfocus .chat-view button.gchat-task-reference:not(.gchat-reference-block) { cursor:pointer; }
+/* Keep the latest native Task-reference affordance inside the existing box. */
+.chat-view button.gchat-task-reference:not(.gchat-reference-block):hover, .agfocus .chat-view button.gchat-task-reference:not(.gchat-reference-block):hover { background:color-mix(in srgb, var(--fg) 7%, transparent); box-shadow:inset 0 0 0 1px var(--line-2); color:var(--fg); transform:none; }
+.chat-view button.gchat-task-reference:not(.gchat-reference-block):hover > span:not(.gchat-task-state) { text-decoration:underline; }
+.chat-view button.gchat-task-reference:not(.gchat-reference-block):focus-visible { outline:2px solid var(--fg-2); outline-offset:2px; border-radius:4px; }
+.gchat-project-reference .gchat-project-icon { display:inline-flex; align-items:center; flex:none; color:var(--fg-2); }
+.gchat-project-reference .gchat-project-icon svg { width:14px; height:14px; }
+.gchat-reference>.gchat-agent-icon { display:inline-flex; flex:none; overflow:visible; }
+.gchat-reference-unavailable { color:var(--fg-2); cursor:not-allowed; }
+.gchat-reference-block { display:flex; align-items:flex-start; justify-content:flex-start; gap:10px; width:100%; max-width:100%; min-width:0; height:auto; min-height:0; margin:0; padding:6px 8px; border:0; border-radius:0; background:transparent; box-shadow:none; color:var(--fg); font:inherit; font-size:12px; font-weight:400; line-height:1.45; text-align:left; transition:none; cursor:pointer; box-sizing:border-box; }
+.gchat-reference-block:hover:not(:disabled) { background:var(--hover); box-shadow:inset 0 0 0 1px var(--line-2); transform:none; }
+.gchat-reference-block:focus-visible { outline:2px solid var(--fg-2); outline-offset:2px; }
+.gchat-reference-block:disabled { cursor:not-allowed; }
+.gchat-reference-block>.gchat-reference-icon { display:inline-flex; align-items:center; justify-content:center; width:16px; height:18px; flex:none; overflow:visible; color:var(--fg-2); white-space:normal; }
+.gchat-reference-icon svg { display:block; width:15px; height:15px; }
+.gchat-reference-icon .task-type-icon { width:16px; height:16px; }
+.gchat-reference-block>.gchat-reference-content { display:grid; flex:1 1 auto; grid-template-columns:minmax(0,1fr) auto; align-items:baseline; gap:1px 8px; min-width:0; overflow:visible; text-overflow:clip; white-space:normal; }
+.gchat-reference-title { min-width:0; overflow-wrap:anywhere; white-space:normal; }
+.gchat-reference-count { color:var(--fg-2); font-size:10px; white-space:nowrap; }
+.gchat-reference-detail { grid-column:1 / -1; min-width:0; overflow:visible; color:var(--fg-2); font-size:10px; line-height:1.35; overflow-wrap:anywhere; white-space:normal; }
+.gchat-signoff-reference { width:100%; max-width:520px; min-width:0; }
+.gchat-browser-slot { width:360px; max-width:100%; }
+.gchat-browser { display:flex; flex-direction:column; width:100%; border:1px solid var(--line-2); border-radius:9px; overflow:hidden; background:var(--bg); }
+.gchat-browser>header { display:flex; align-items:center; gap:7px; padding:5px 8px; border-bottom:1px solid var(--line); flex:none; }
+.gchat-browser>header>svg { width:14px; height:14px; flex:none; color:var(--fg-2); }
+.gchat-browser-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.gchat-browser>header button { display:grid; place-items:center; width:26px; height:26px; padding:0; border:0; border-radius:5px; background:none; color:var(--fg-2); font-size:18px; font-weight:400; transform:none; }
+.gchat-browser>header button:hover { background:var(--hover); color:var(--fg); }
+.gchat-browser-page { height:210px; background:#fff; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+.gchat-browser-frame { display:block; width:100%; height:100%; border:0; }
+.gchat-browser.is-expanded { position:fixed; z-index:30; top:12px; left:12px; right:12px; bottom:12px; width:auto; max-width:1100px; margin:0 auto; box-shadow:0 12px 40px rgba(0,0,0,.55); }
+.gchat-browser.is-expanded .gchat-browser-page { flex:1; height:auto; min-height:0; }
+@media(max-width:700px) { .gchat-signoff-reference { max-width:100%; } }
+
+.gchat-ref-group, .gchat-attachment { display:flex; flex-direction:column; min-width:0; max-width:100%; padding-left:9px; border-left:2px solid var(--line-2); }
+/* Record threads and native agent chat draw Task/Action references as flat attachment lists, not cards: a subtle
+   vertical rule and a small left inset connect consecutive references. A Task row keeps only the Focus status ball and
+   its title; an Action row keeps the shared activity glyph and its honest state. The whole row is the target, and the
+   hover outline/wash is drawn inside the same box so nothing moves. */
+.gchat-log > .gchat-ref-group { align-self:flex-start; width:min(760px,100%); margin:12px 0 16px; }
+.gchat-ref-group-inline { flex:1 1 100%; margin:2px 0; }
+.gchat-attachment { width:100%; }
+.gchat-attachment > .gchat-reference-block { align-self:stretch; width:100%; }
+.gchat-ref-rows { display:flex; flex-direction:column; min-width:0; }
+.gchat-reference-row { display:block; width:100%; max-width:none; margin:0; align-self:stretch; }
+.chat-view .gchat-ref-row, .agfocus .chat-view .gchat-ref-row { display:flex; align-items:center; gap:10px; width:100%; min-width:0; height:auto; min-height:30px; margin:0; padding:6px 8px; border:0; border-radius:6px; background:none; box-shadow:none; color:var(--fg); font:inherit; font-size:12px; font-weight:400; line-height:1.45; text-align:left; text-decoration:none; transform:none; }
+.chat-view button.gchat-ref-row, .agfocus .chat-view button.gchat-ref-row { cursor:pointer; }
+/* No shift: the 1px outline and wash are inset into the row's own box. A disabled row keeps none of them. */
+.chat-view button.gchat-ref-row:not(:disabled):hover, .agfocus .chat-view button.gchat-ref-row:not(:disabled):hover { background:var(--hover); box-shadow:inset 0 0 0 1px var(--line-2); color:var(--fg); transform:none; }
+.chat-view button.gchat-ref-row:focus-visible { outline:2px solid var(--fg-2); outline-offset:-2px; border-radius:6px; }
+.gchat-ref-row[disabled] { opacity:.6; cursor:not-allowed; }
+.gchat-ref-row-icon { display:inline-flex; align-items:center; justify-content:center; flex:none; width:16px; height:16px; color:var(--fg-2); }
+.gchat-ref-row-icon svg { width:14px; height:14px; }
+/* The title is the row's flexible text: it wraps instead of truncating, in a record thread and in native chat. */
+.gchat-ref-row > .gchat-ref-row-title, .chat-view .gchat-ref-row > span:not([class]) { flex:1 1 auto; min-width:0; overflow:visible; white-space:normal; text-overflow:clip; overflow-wrap:anywhere; }
+.gchat-ref-row-meta { flex:none; max-width:100%; font-size:10.5px; color:var(--fg-2); }
+.gchat-ref-row-unavailable { color:var(--fg-2); cursor:not-allowed; }
+.gchat-ref-row-unavailable .gchat-ref-row-title { color:var(--fg-2); }
+.gchat-ref-row > .gchat-task-state { display:inline-flex; align-items:center; justify-content:center; flex:none; width:16px; height:16px; }
+@media (max-width: 520px) {
+  .chat-view .gchat-ref-row { flex-wrap:wrap; align-items:flex-start; }
+  .gchat-ref-row > .gchat-ref-row-title, .chat-view .gchat-ref-row > span:not([class]) { flex:1 1 calc(100% - 26px); }
+  .gchat-ref-row > .gchat-ref-row-meta { flex:1 1 100%; margin-left:26px; white-space:normal; }
+  .gchat-ref-row-icon { margin-top:1px; }
+}
+@media (pointer:coarse) {
+  .chat-view .gchat-ref-row { min-height:44px; }
+}

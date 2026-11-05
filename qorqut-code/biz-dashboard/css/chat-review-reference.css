@@ -1,0 +1,35 @@
+/* Review references use the same flat attachment geometry and product tokens as chat. */
+.chat-review-reference{width:100%;min-width:0;color:var(--fg);font:13px/1.55 var(--sans);border-left:2px solid var(--line-2);padding-left:9px;}
+.chat-review-pane{border-left:0;padding-left:0}
+.chat-review-reference [hidden]{display:none!important}
+.chat-review-reference button{font:inherit;color:inherit}
+.crr-head{display:flex;align-items:center;gap:5px;min-height:38px;border:1px solid transparent;border-radius:7px;padding:2px 4px;}
+.crr-head:hover{border-color:var(--line-2);background:var(--hover)}
+.crr-head button{height:auto;min-height:30px;border:0;border-radius:5px;background:transparent;box-shadow:none;padding:4px;}
+.crr-head .crr-title{display:flex;align-items:center;justify-content:flex-start;gap:10px;flex:1;min-width:0;text-align:left;}
+.crr-title>span:last-child{overflow-wrap:anywhere}
+.crr-icon{width:17px;flex:0 0 17px;display:flex;color:var(--fg-2)}
+.crr-head svg{width:17px;height:17px;flex:none}
+.crr-status{font-size:11px;color:var(--fg-2);white-space:nowrap;margin:0 4px}
+.crr-expand{color:var(--fg-2)!important}
+.crr-expand[aria-expanded=true] svg{transform:rotate(180deg)}
+.crr-body{padding:10px 10px 8px 32px;}
+.crr-context{color:var(--fg-2);font-size:12px;margin-bottom:12px}
+.crr-field{display:block;margin:0 0 12px;}
+.crr-label{display:block;color:var(--fg-2);font-size:11px;margin-bottom:4px}
+.crr-editable{display:block;width:100%;min-height:28px;height:auto;padding:1.5px;margin:0;border:0;border-left:2px solid var(--line-2);border-radius:0;resize:none;overflow:hidden;background:var(--wash);color:var(--fg);font:13px/1.65 var(--sans);box-sizing:border-box;box-shadow:none}
+.crr-editable[readonly]:not(:disabled){cursor:text}
+.crr-editable[readonly]:not(:disabled):hover{border-left-color:var(--fg-3);background:var(--hover)}
+.crr-editable:not([readonly]){border-left-color:var(--fg-2);background:var(--hover)}
+.crr-editable:focus{outline:none;box-shadow:none;border-left-color:var(--fg)}
+.crr-editable:disabled{opacity:1;cursor:default}
+.crr-decisions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;margin:14px 0}
+.crr-decisions button{min-height:34px;height:auto;padding:6px 15px;background:var(--accent);color:var(--accent-fg);border:1px solid var(--accent);border-radius:7px;font-size:12px;font-weight:500;text-decoration:none}
+.crr-decisions button:hover{background:var(--fg);border-color:var(--fg)}
+.crr-decisions button:disabled{opacity:.35;cursor:default}
+.crr-evidence,.crr-history{font-size:12px;color:var(--fg-2);margin:10px 0}
+.crr-evidence p,.crr-history p{white-space:pre-wrap;margin:8px 0}
+.crr-error{font-size:12px;color:var(--danger)}
+.chat-review-pane .crr-title{cursor:default}
+@media(max-width:500px){.crr-status{display:none}.crr-body{padding-left:14px}.crr-head{gap:2px}}
+@media(pointer:coarse){.crr-head button,.crr-decisions button{min-height:44px}.crr-editable{font-size:16px}}

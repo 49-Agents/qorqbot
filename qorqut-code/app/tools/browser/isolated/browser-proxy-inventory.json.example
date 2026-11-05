@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "generated_at": "2026-09-29T22:21:39Z",
+  "source": "sanitized proxy audit",
+  "ips": {
+    "188.220.114.215": {
+      "checked_at": "2026-09-29T22:21:39Z",
+      "classification": "no-known-non-HN-account",
+      "exit_verified": true,
+      "non_hn_platform_count": 0,
+      "persona_assigned": true,
+      "profile_check": "clean"
+    }
+  }
+}

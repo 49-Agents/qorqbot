@@ -1,0 +1,3 @@
+a.safe-link{color:var(--link,#b9c7ff);text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}
+a.safe-link:hover{text-decoration-thickness:2px}
+a.safe-link:focus-visible{outline:2px solid var(--link,#b9c7ff);outline-offset:2px;border-radius:2px}

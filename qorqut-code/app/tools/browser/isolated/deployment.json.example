@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "business_id": "6c7c72b7-78c8-5791-a0af-95cbb7980ece",
+  "root": "/BUSINESSES",
+  "display": 23,
+  "geometry": {"width": 1440, "height": 900},
+  "vnc": {"interface": "10.0.0.10", "port": 5923},
+  "runtime_dir": "/run/qorqut-browser-isolated/6c7c72b7-78c8-5791-a0af-95cbb7980ece",
+  "tools_dir": "/APPROVED-RELEASE/biz-core/tools/browser",
+  "node": "/usr/bin/node",
+  "recheck_seconds": 60
+}

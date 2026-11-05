@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "name": "ordubashy",
+  "managed": false,
+  "display": 20,
+  "geometry": {"width": 1440, "height": 900},
+  "vnc": {"interface": "10.0.0.10", "port": 5920, "password_file": "/var/lib/remote-browser/.vnc/passwd"},
+  "xauthority": "/var/lib/remote-browser/.Xauthority",
+  "environment": {
+    "XDG_RUNTIME_DIR": "/run/remote-browser",
+    "XDG_CONFIG_HOME": "/var/lib/remote-browser/.config",
+    "XDG_CACHE_HOME": "/var/lib/remote-browser/.cache",
+    "XDG_DATA_HOME": "/var/lib/remote-browser/.local/share"
+  },
+  "keyring": "existing-unit",
+  "chrome": {
+    "user_data_dir": "/var/lib/remote-browser/chrome-profile",
+    "cdp_port": 9225,
+    "flags": ["--disable-dev-shm-usage", "--disable-session-crashed-bubble"],
+    "start_url": "about:blank"
+  }
+}

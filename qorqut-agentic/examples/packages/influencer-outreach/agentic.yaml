@@ -1,0 +1,25 @@
+schema_version: 1
+id: influencer-outreach
+name: Influencer outreach (example)
+description: "EXAMPLE (synthetic): rules that apply only to influencer outreach. Not an installed owner preference."
+source:
+  kind: example
+  note: Synthetic example shipped with qorqut-agentic; not copied from any real installation.
+entries:
+  - id: outreach
+    kind: skill
+    description: "EXAMPLE: write a first-contact message to an influencer."
+    when_to_use: Use only when drafting outreach to an influencer or creator, never for other email.
+    path: skills/outreach/SKILL.md
+    requires:
+      - email-composition/style
+      - influencer-outreach/pricing-rule
+    applicability:
+      work_types: [influencer-outreach]
+  - id: pricing-rule
+    kind: preference
+    description: "EXAMPLE: do not state prices in influencer outreach."
+    when_to_use: Load with the outreach skill. Does not apply to any other kind of email.
+    path: preferences/pricing-rule.md
+    applicability:
+      work_types: [influencer-outreach]

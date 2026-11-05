@@ -1,0 +1,31 @@
+/* Costs page: Context usage (one row per recorded model call, a known subtotal and a separate coverage inventory). */
+.filing-costs-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; max-width:1200px; }
+.filing-costs-heading h1 { margin-bottom:8px; }
+.filing-costs-heading p { margin:0; }
+.filing-costs-heading label { display:grid; gap:6px; color:var(--fg-2); font-size:12px; }
+.filing-costs-heading select { min-width:145px; }
+.filing-cost-total { max-width:1200px; margin:20px 0 8px; }
+.filing-cost-subtotal { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+.filing-cost-subtotal strong { font-size:24px; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.filing-cost-label { color:var(--fg-2); }
+.filing-cost-period { color:var(--fg-2); }
+.filing-cost-caveat { margin:6px 0 0; color:var(--fg-2); font-size:12px; }
+.filing-cost-table { max-width:1200px; border:1px solid var(--line-2); border-radius:14px; overflow:hidden; }
+.filing-cost-row { display:grid; grid-template-columns:minmax(130px,1.1fr) minmax(120px,1.5fr) minmax(110px,.9fr); gap:10px; align-items:center; min-height:56px; padding:9px 12px; border-top:1px solid var(--line); font-size:13px; font-variant-numeric:tabular-nums; }
+.filing-cost-table > .filing-cost-head { border-top:0; }
+.filing-cost-head { min-height:38px; color:var(--fg-2); font-size:11px; text-transform:uppercase; letter-spacing:.05em; background:var(--wash); }
+.filing-cost-row > span { min-width:0; overflow-wrap:anywhere; }
+.filing-cost-row small { display:block; margin-top:2px; color:var(--fg-2); font-size:11px; }
+.filing-cost-amount { font-weight:600; }
+.filing-cost-amount.is-unknown { color:var(--fg-2); font-weight:400; }
+.filing-cost-more { display:flex; justify-content:center; max-width:1200px; padding:16px; }
+@media (max-width:650px) {
+  .filing-costs-heading { align-items:flex-start; flex-direction:column; }
+  .filing-cost-table { border:0; overflow:visible; display:grid; gap:10px; }
+  .filing-cost-call { border:1px solid var(--line-2); border-radius:12px; overflow:hidden; }
+  .filing-cost-head { display:none; }
+  .filing-cost-row { grid-template-columns:1fr 1fr; gap:8px 12px; padding:12px; border-top:0; }
+  .filing-cost-row > span { display:block !important; }
+  .filing-cost-row > span:first-child { grid-column:1 / -1; }
+  .filing-cost-row > span[data-label]:not(:first-child)::before { content:attr(data-label); display:block; color:var(--fg-2); font-size:10px; text-transform:uppercase; }
+}

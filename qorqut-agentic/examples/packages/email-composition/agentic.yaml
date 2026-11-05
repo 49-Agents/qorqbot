@@ -1,0 +1,20 @@
+schema_version: 1
+id: email-composition
+name: Email composition (example)
+description: "EXAMPLE (synthetic): general email-writing guidance. Not an installed owner preference."
+source:
+  kind: example
+  note: Synthetic example shipped with qorqut-agentic; not copied from any real installation.
+entries:
+  - id: compose
+    kind: skill
+    description: "EXAMPLE: compose or rewrite an email in the owner's house style."
+    when_to_use: Use whenever an email is drafted, replied to, or rewritten, for any purpose.
+    path: skills/compose/SKILL.md
+    requires:
+      - email-composition/style
+  - id: style
+    kind: preference
+    description: "EXAMPLE: general email style rule (no em dash)."
+    when_to_use: Load together with the compose skill; it holds the canonical style rules for all email.
+    path: preferences/style.md

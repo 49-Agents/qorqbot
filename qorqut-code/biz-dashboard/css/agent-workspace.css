@@ -1,0 +1,165 @@
+/* The workspace shell is deliberately neutral. Task status colours continue to
+   come from tasks.css, including white/blue/red/green and the hollow open state. */
+.agent-workspace-app .app { padding:0; }
+.workspace-back { flex:none; padding:8px 14px 0; }
+.workspace-back[hidden] { display:none; }
+.workspace-back button { height:32px; padding:0 10px; border:0; border-radius:6px; font-size:13px; color:var(--fg-2); }
+.workspace-back button:hover { color:var(--fg); background:var(--hover); }
+
+/* Icon rail. The lookup expands out over the chat instead of widening the rail. */
+.agent-workspace-app .split.global-agents.agsplit { --ag-divider-width:9px; grid-template-columns:76.8px minmax(0,var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0,var(--ag-pane-fr)); }
+.agent-workspace-app .split.global-agents.agsplit.pad-off { grid-template-columns:76.8px minmax(0,1fr) 0; }
+.agent-workspace-app .split.global-agents.agsplit.nav-off { grid-template-columns:0 minmax(0,var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0,var(--ag-pane-fr)); }
+.agent-workspace-app .split.global-agents.agsplit.nav-off.pad-off { grid-template-columns:0 minmax(0,1fr) 0; }
+.agent-workspace-app .global-agents > .listcol { position:relative; padding:10px 0; border-right:1px solid var(--line); overflow:visible; z-index:8; }
+.agent-workspace-app .global-agents .ctop { padding:0 0 9px; align-items:center; }
+.agent-workspace-app .global-agents .ctop .global-eyebrow,
+.agent-workspace-app .global-agents .ctop h1,
+.agent-workspace-app .global-agents:not(.nav-off) .agent-nav-heading,
+.agent-workspace-app .global-agents:not(.nav-off) .agent-nav-toggle { display:none; }
+.agent-workspace-app .global-agents .agent-nav-heading { margin:0; }
+.agent-workspace-app .global-agents .global-nav-body { overflow:visible; }
+.agent-workspace-app .global-agents .global-primary { max-height:calc(100vh - 208px); flex:0 1 auto; }
+.agent-workspace-app .global-agents .global-roster { gap:8.4px; }
+.agent-workspace-app .global-agents .global-roster .item.agent { width:51.6px; height:51.6px; justify-content:center; border-radius:6px; padding:9.6px; }
+.agent-workspace-app .global-agents .global-roster .identity-avatar { width:28.8px; height:28.8px; background:none; border:0; }
+.agent-workspace-app .global-agents .global-roster .identity-avatar svg { width:26.4px; height:26.4px; }
+.agent-workspace-app .global-agents .global-roster .nav-primary-face,
+.agent-workspace-app .global-agents .global-roster .nav-primary-face svg { width:31.68px; height:31.68px; }
+.agent-workspace-app .global-agents .global-roster .nav-secondary-icon svg { width:18px; height:18px; }
+.agent-workspace-app .global-agents .global-workspace-terminals { padding-top:9px; }
+.agent-workspace-app .global-agents .global-workspace-terminals .item.agent { width:64.8px; min-height:62.4px; justify-content:center; padding:7.2px 3.6px; border-radius:6px; }
+.agent-workspace-app .global-agents .global-workspace-terminals .item.agent .nm { flex-direction:column; justify-content:center; gap:4px; width:100%; }
+.agent-workspace-app .global-agents .global-workspace-terminals .item.agent .tt { font-size:10px; }
+.agent-workspace-app .global-agents .nm > .chat-unread-dot { width:6px; height:6px; top:-2px; right:-4px; }
+
+/* Chat keeps its native history, composer, attachments and session controls (message and composer styling: css/chat-view.css). */
+.agent-workspace-app .global-agent-session .chat.termmode { padding:20px 24px; }
+.agent-workspace-app .agpad .thead { display:flex; flex-wrap:wrap; align-items:center; gap:5px; padding:13px 18px 10px; }
+.agent-workspace-app .agpad .thead.agpad-ping-head { gap:4px; padding-right:18px; }
+.agent-workspace-app .agpad .thead .ttabs { flex:1 1 180px; min-width:0; gap:4px; margin:0; padding:0; overflow-y:hidden; }
+.agent-workspace-app .agpad .ttab { flex:0 0 30px; width:30px; min-width:30px; height:30px; padding:6px; border-radius:5px; }
+.agent-workspace-app .agpad .tind { height:30px; border-radius:5px; background:#252525; }
+.agent-workspace-app .agpad .tind::before { display:none; }
+.agent-workspace-app .agpad-ping.switch { height:32px; }
+.agent-workspace-app .agpad .tbody { padding:5px 23px 21px; }
+.agent-workspace-app .agpad .tbody:has(> .agfocus) { padding-left:10px; padding-right:11.5px; }
+.agent-workspace-app .agpad .agfocus-heading > .global-eyebrow { display:none; }
+.agent-workspace-app .agpad .agfocus-toolbar { width:auto; }
+.agent-workspace-app .agpad .agfocus-controls { margin:0; }
+.agent-workspace-app .agpad .agfocus > header { margin-bottom:8px; }
+
+/* Focus follows the approved workspace: quiet controls, square attention tiles,
+   and readable separated rows. Source status colours remain in tasks.css. */
+.agent-workspace-app .agpad .agfocus-head-tools { display:flex; flex:none; align-items:center; gap:4px; margin-left:auto; }
+.agent-workspace-app .agfocus-head-tools .agfocus-icon,
+.agent-workspace-app .agfocus-options > summary { display:flex; align-items:center; justify-content:center; width:30px; height:30px; min-height:30px; padding:6px; border:0; border-radius:5px; background:none; color:var(--fg-2); cursor:pointer; box-sizing:border-box; }
+.agent-workspace-app .agfocus-head-tools svg { width:17px; height:17px; }
+.agent-workspace-app .agfocus-head-tools .agfocus-icon:hover,
+.agent-workspace-app .agfocus-options > summary:hover { color:var(--fg); background:var(--hover); }
+.agent-workspace-app .agfocus-options { position:relative; }
+.agent-workspace-app .agfocus-options > summary { list-style:none; }
+.agent-workspace-app .agfocus-options > summary::-webkit-details-marker { display:none; }
+.agent-workspace-app .agfocus-options-menu { position:absolute; top:calc(100% + 5px); right:0; z-index:20; display:flex; align-items:center; gap:5px; padding:8px; border:1px solid var(--line-2); border-radius:7px; background:var(--surface); box-shadow:var(--shadow-float); }
+.agent-workspace-app .agfocus-options-menu .agfocus-controls { display:flex; flex-wrap:nowrap; gap:4px; }
+.agent-workspace-app .agfocus-options-menu .agfocus-controls button { min-height:28px; padding:4px 8px; font-size:11px; background:none; color:var(--fg-2); }
+.agent-workspace-app .agfocus-options-menu .agfocus-controls button[aria-pressed="true"] { background:var(--hover); color:var(--fg); }
+.agent-workspace-app .agpad .agfocus > header:has(.agfocus-empty[hidden]) { display:none; }
+.agent-workspace-app .agpad .agfocus { padding-top:0; padding-left:0; }
+.agent-workspace-app .agfocus > header,
+.agent-workspace-app .agfocus > .attention-queue,
+.agent-workspace-app .agfocus > .agfocus-pages { zoom:1.1; }
+.agent-workspace-app .agfocus .attention-queue { height:auto; min-height:44px; align-items:flex-start; margin:3px 0 10px; }
+.agent-workspace-app .agfocus .attention-stack { gap:8px; padding:0; }
+.agent-workspace-app .agfocus .attention-chip { flex:0 1 44px; width:44px; height:44px; min-height:44px; padding:7px 0; border:0; border-radius:8px; background:#131313; box-shadow:none; }
+.agent-workspace-app .agfocus .attention-chip::after { content:""; position:absolute; top:6px; left:6px; width:5px; height:5px; border-radius:50%; background:var(--fg); }
+.agent-workspace-app .agfocus .attention-chip .identity-avatar,
+.agent-workspace-app .agfocus .attention-signoff { border:0; background:none; box-shadow:none; }
+.agent-workspace-app .agfocus .attention-chip svg { width:19px; height:19px; }
+.agent-workspace-app .agfocus .attention-empty { padding:12px 0; }
+.agent-workspace-app .agfocus .agfocus-card { border-radius:0; }
+.agent-workspace-app .agfocus .agfocus-row { grid-template-columns:16px 20px minmax(0,1fr) auto; gap:11px; min-height:32px; padding:2px 0; border:0; border-radius:0; background:none; }
+.agent-workspace-app .agfocus .agfocus-row:hover { background:var(--wash); }
+.agent-workspace-app .agfocus .agfocus-row > .task-headline { grid-column:3; grid-row:1; }
+.agent-workspace-app .agfocus .agfocus-row > .agfocus-actions { grid-column:4; grid-row:1; }
+.agent-workspace-app .agfocus .agfocus-row .ttl { font-size:14.5px; font-weight:400; letter-spacing:-.005em; line-height:1.75; padding:0; text-transform:lowercase; }
+.agent-workspace-app .agfocus .agfocus-text .agfocus-text-input { font-size:14.5px; font-weight:400; letter-spacing:-.005em; line-height:1.75; padding-top:3px; padding-bottom:3px; }
+.agent-workspace-app .agfocus .agfocus-row .agfocus-scope { grid-column:3; grid-row:1; justify-self:end; position:relative; z-index:1; width:auto; max-width:min(124px,65%); opacity:0; pointer-events:none; }
+.agent-workspace-app .agfocus .agfocus-card:hover > .agfocus-row .agfocus-scope,
+.agent-workspace-app .agfocus .agfocus-card:focus-within > .agfocus-row .agfocus-scope { opacity:1; }
+.agent-workspace-app .agfocus .agfocus-row .agfocus-scope-chip { display:block; max-width:100%; min-height:0; padding:0 5px; border:0; border-radius:3px; background:#191919; font-size:11px; line-height:20px; color:#979797; }
+.agent-workspace-app .agfocus .agfocus-global-chip svg { display:none; }
+.agent-workspace-app .agfocus .agfocus-global-chip::after { content:"Global"; }
+.agent-workspace-app .agfocus .agfocus-marker { width:20px; height:26px; }
+.agent-workspace-app .agfocus .agfocus-marker .agfocus-task-state .core{transform:scale(.55)}
+.agent-workspace-app .agfocus .agfocus-marker:hover .agfocus-task-state .core,.agent-workspace-app .agfocus .agfocus-task-state:focus-visible .core{transform:scale(1.1)}
+.agent-workspace-app .agfocus .agfocus-dock{border:0}
+.agent-workspace-app .agfocus .agfocus-work-child { margin-left:calc(var(--focus-depth,1) * 23px); }
+.agent-workspace-app .agfocus .agfocus-actions { opacity:0; pointer-events:none; }
+.agent-workspace-app .agfocus .agfocus-card:hover > .agfocus-row .agfocus-actions,
+.agent-workspace-app .agfocus .agfocus-card:focus-within > .agfocus-row .agfocus-actions,
+.agent-workspace-app .agfocus .agfocus-actions:has([aria-expanded="true"], [aria-busy="true"]) { opacity:1; pointer-events:auto; }
+.agent-workspace-app .agfocus .agfocus-row .agfocus-actions button { background:none; border:0; }
+@media (hover:none) { .agent-workspace-app .agfocus .agfocus-actions { opacity:1; pointer-events:auto; } }
+@media (pointer:coarse) { .agent-workspace-app .agfocus .agfocus-row{min-height:44px}.agent-workspace-app .agfocus .agfocus-marker,.agent-workspace-app .agfocus .agfocus-row .agfocus-task-state{height:40px}.agfocus .focus-signoff-queue .focus-signoff-chip{min-height:44px} }
+
+/* Agent-owned screen tabs. Padding belongs to this shell, not nested headings. */
+.agent-workspace-app .agpad .agent-workspace-body { padding:5px 0 0; overflow:hidden; display:flex; flex-direction:column; }
+.agent-business-workspace { display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; }
+.agent-business-controls { flex:none; padding:4px 20px 0; }
+.agent-workspace-app .agpad .thead.agent-business-head { flex-wrap:nowrap; }
+.agent-workspace-app .agent-business-head .ttabs { flex:1 1 180px; }
+.agent-business-picker { display:flex; flex:0 1 150px; align-items:center; min-width:70px; max-width:150px; height:30px; margin-left:auto; }
+.agent-business-picker select { min-width:0; width:100%; border:0; outline-offset:3px; background:var(--bg); color:var(--fg); padding:4px 2px; font-size:12px; text-overflow:ellipsis; }
+.agent-business-sections { display:flex; flex-wrap:wrap; gap:4px; border-bottom:1px solid var(--line); padding:0 0 1px; }
+.agent-business-sections button { display:flex; align-items:center; justify-content:center; width:34px; height:34px; padding:8px; color:var(--fg-2); background:none; border-radius:4px 4px 0 0; transform:none; }
+.agent-business-sections button svg { width:17px; height:17px; }
+.agent-business-sections button:hover { color:var(--fg); background:var(--hover); }
+.agent-business-sections button[aria-pressed="true"] { box-shadow:inset 0 -1px var(--fg); color:var(--fg); }
+.agent-business-screen { flex:1; min-height:0; display:flex; padding-top:10px; }
+.agent-workspace-frame { flex:1; min-width:0; min-height:0; width:100%; height:100%; border:0; background:var(--bg); }
+
+/* Same-origin embedded native screens; the main application is untouched. */
+.agent-pane-embedded .app { padding:0; height:100vh; }
+.agent-pane-embedded > .ac-capture,
+.agent-pane-embedded .workspace-composer { display:none; }
+.agent-pane-embedded #content { display:flex; flex-direction:column; overflow:auto; padding:8px 20px 24px; width:100%; min-width:0; }
+.agent-pane-embedded .global-content, .agent-pane-embedded .business-progress-page { padding:0; max-width:none; width:100%; }
+.agent-pane-embedded .global-content > .global-eyebrow,
+.agent-pane-embedded .global-content > .global-heading,
+.agent-pane-embedded .business-progress-page > header > h1 { display:none; }
+.agent-pane-embedded .business-progress-grid { gap:12px; }
+.agent-pane-embedded .business-progress-metric { padding:15px; background:none; }
+.agent-pane-embedded .business-progress-page > header { margin-bottom:18px; }
+.agent-pane-embedded .global-context > .ctxsplit { display:flex; flex-direction:column; }
+.agent-pane-embedded .global-context .ctxtree { flex:none; padding:0 0 12px; border:0; }
+.agent-pane-embedded .global-context .crows { display:flex; flex-wrap:wrap; gap:4px; }
+.agent-pane-embedded .global-context .crows .item { width:auto; padding:6px 9px; margin:0; }
+.agent-pane-embedded .global-context .crows .item .tt { display:none; }
+.agent-pane-embedded .global-context .ctxview { padding:10px 0 0; flex:1; min-height:300px; }
+.agent-pane-embedded .global-context #global-context-upload { display:flex; width:32px; height:32px; padding:8px; }
+.agent-pane-embedded .data-workspace { padding:0; }
+@media (min-width:701px) {
+  .agent-workspace-app .global-agents:not(.pad-off) > .agent-pane-divider { display:block; }
+}
+@media (max-width:1000px) {
+  .agent-workspace-app .global-agent-session .chat.termmode { padding:16px; }
+  .agent-workspace-app .agpad .tbody { padding-left:14px; padding-right:14px; }
+  .agent-workspace-app .agpad .tbody:has(> .agfocus) { padding-left:10px; padding-right:7px; }
+  .agent-workspace-app .agpad .agent-workspace-body { padding-left:0; padding-right:0; }
+  .agent-business-controls { padding-left:14px; padding-right:14px; }
+  .agent-business-sections { gap:2px; }
+  .agent-business-sections button { width:32px; height:32px; padding:7px; }
+}
+@media (max-width:700px) {
+  .agent-workspace-app .split.global-agents.agsplit { display:grid; grid-template-columns:64.8px minmax(0,1fr); grid-template-rows: minmax(320px,45vh) minmax(420px,1fr); overflow:auto; }
+  .agent-workspace-app .global-agents > .listcol { grid-row:1 / 3; }
+  .agent-workspace-app .global-agent-session { grid-column:2; grid-row:1; }
+  .agent-workspace-app .global-agents > .agpad { grid-column:2; grid-row:2; display:flex; border-top:1px solid var(--line); }
+  .agent-workspace-app .global-agents > .agent-pane-divider { display:none; }
+  .agent-workspace-app .global-agents .global-primary { max-height:calc(100vh - 208px); }
+  .agent-workspace-app .split.global-agents.agsplit.pad-off { grid-template-rows:1fr; }
+  .agent-workspace-app .split.global-agents.agsplit.pad-off > .agpad { display:none; }
+}
+
+.agent-workspace-app .global-agents .global-workspace-terminal svg, .agent-workspace-app .global-agents .global-workspace-settings svg { width:24px; height:24px; }

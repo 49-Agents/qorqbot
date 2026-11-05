@@ -1,0 +1,79 @@
+/* Completed actions: the owner's capture button and popover, and the Actions list in the Activity view. */
+
+/* Body-level control stays above panes, menus and overlays. */
+.ac-capture {
+  position: fixed; right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom)); z-index: 2147483646;
+  width: 44px; height: 44px; padding: 0; border-radius: 12px;
+  background: var(--elevated); color: var(--fg-2); font-weight: 400;
+  box-shadow: var(--shadow-float);
+}
+.ac-capture[hidden] { display: none; }
+.ac-capture svg { width: 18px; height: 18px; }
+.ac-capture:hover, .ac-capture[aria-expanded="true"] { background: var(--hover); color: var(--fg); transform: none; }
+.ac-capture:active { transform: none; }
+.ac-capture:focus-visible { outline: 2px solid var(--fg-2); outline-offset: -2px; }
+
+.ac-pop {
+  position: fixed; z-index: 2147483647; display: flex; flex-direction: column; gap: 10px; padding: 14px;
+  background: var(--elevated); border: 1px solid var(--line-2); border-radius: var(--r);
+  box-shadow: var(--shadow-float); color: var(--fg); font-size: 13px;
+}
+.ac-label { font-size: 11px; color: var(--fg-2); }
+.ac-pop textarea { width: 100%; resize: vertical; min-height: 64px; font: inherit; }
+.ac-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ac-chip {
+  height: 28px; padding: 0 10px; border: 1px solid var(--line-2); border-radius: var(--r-full);
+  background: none; color: var(--fg-2); font: 500 11.5px/1 var(--mono, monospace);
+}
+.ac-chip:hover { background: var(--hover); color: var(--fg); transform: none; }
+.ac-chip[aria-pressed="true"] { border-color: var(--fg-2); color: var(--fg); background: var(--wash); }
+.ac-chip:focus-visible { outline: 2px solid var(--fg-2); outline-offset: 1px; }
+/* Scope buttons are icon-only squares; the category name is their label and title. */
+.ac-scope { width: 28px; padding: 0; border-radius: var(--r-sm); }
+/* Business names are wrapping chips in a growing box: no height cap, no inner scrolling. */
+.ac-businesses { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; min-width: 0; margin: 0; padding: 8px 10px; border: 1px solid var(--line-2); border-radius: var(--r-sm); }
+.ac-businesses[hidden] { display: none; }
+.ac-businesses legend { font-size: 11px; color: var(--fg-2); padding: 0 4px; }
+.ac-biz { height: auto; border-radius: 14px; min-height: 28px; max-width: 100%; padding: 6px 10px; line-height: 1.25; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.ac-businesses .muted { flex: 1 0 100%; margin: 0; }
+.ac-time { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
+.ac-time label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--fg-2); }
+.ac-time .ghost { height: 32px; }
+.ac-foot { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.ac-status { margin-right: auto; font-size: 12px; color: var(--fg-2); }
+.ac-status[data-state="error"], .ac-status[data-state="conflict"] { color: var(--danger); }
+.ac-foot [hidden] { display: none; }
+
+.ac-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.ac-filter.ttabs { margin: 0; padding: 0; gap: 2px; }
+.ac-filter .ttab { flex: none; width: auto; height: 30px; padding: 0 10px; font: 500 11.5px/1 var(--mono, monospace); }
+.ac-filter .ttab.on { background: var(--hover); }
+.ac-zone { margin-left: auto; font-size: 11px; }
+.ac-list { display: flex; flex-direction: column; }
+.ac-row { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.ac-row-main { display: flex; align-items: flex-start; gap: 8px; }
+.ac-row-cat { color: var(--fg-2); line-height: 0; padding-top: 2px; }
+.ac-row-text { flex: 1; margin: 0; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.ac-row .ltask { flex: none; width: 26px; height: 26px; padding: 0; background: none; color: var(--fg-2); }
+.ac-edit { height: 26px; padding: 0 10px; }
+.ac-row-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 4px 0 0 24px; font: 11px/1.3 var(--mono, monospace); color: var(--fg-3); }
+.ac-row-details { margin: 6px 0 0 24px; font-size: 12px; color: var(--fg-2); }
+.ac-row-details p { white-space: pre-wrap; margin: 4px 0; }
+#ac-more { margin-top: 12px; }
+
+/* Corrections, withdrawal and the shared discussion */
+.ac-row.withdrawn .ac-row-text { text-decoration: line-through; color: var(--fg-3); }
+.ac-withdrawn { font: 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-3); border: 1px solid var(--line); border-radius: 999px; padding: 3px 7px; white-space: nowrap; }
+.ac-tag { border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; }
+.ac-withdrawn-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-2); }
+.ac-tags { margin: 8px 0; }
+.ac-row-discussion { margin-top: 8px; font-size: 12px; }
+.ac-row-discussion summary { cursor: pointer; color: var(--fg-2); }
+.ac-revisions { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; margin: 8px 0; }
+.ac-revision-text { min-width: 0; flex: 1 1 200px; overflow-wrap: anywhere; color: var(--fg-2); }
+.ac-follow { display: flex; gap: 8px; margin-bottom: 8px; }
+/* The shared Chat view owns every message visual; this only sizes its container. */
+.ac-chat { display: flex; flex-direction: column; height: min(60vh, 420px); min-height: 200px; min-width: 0; }
+.ac-chat > .chat-view { flex: 1; min-height: 0; }
+.ac-private-note { font-size: 11px; }

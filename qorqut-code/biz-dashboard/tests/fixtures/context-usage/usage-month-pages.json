@@ -1,0 +1,751 @@
+[
+ {
+  "request": {
+   "start_date": "2026-10-01",
+   "end_date": "2026-10-31",
+   "limit": 10
+  },
+  "response": {
+   "format": "qorqut-context-usage-v1",
+   "currency": "USD",
+   "calls": [
+    {
+     "call_id": "05a448d9232242a1b417f1b93905018f:bootstrap",
+     "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+     "input_id": "31d73d41-257e-4483-8b98-6f8d81906337",
+     "context_event_id": "e0001",
+     "attempt_id": "05a448d9232242a1b417f1b93905018f",
+     "library_attempt_sequence": 1,
+     "stage": "bootstrap",
+     "state": "completed",
+     "started_at": "2026-10-28T10:00:00.007000Z",
+     "finished_at": "2026-10-28T10:00:00.014000Z",
+     "configured": {
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "service_tier": "default"
+     },
+     "observed": {
+      "provider": null,
+      "model": null,
+      "thread_id": "script",
+      "turn_id": "1"
+     },
+     "usage": {
+      "input_tokens": 10,
+      "cached_input_tokens": 4,
+      "output_tokens": 2,
+      "reasoning_output_tokens": 1,
+      "total_tokens": 12,
+      "cost_usd": "0.01"
+     },
+     "evidence": {
+      "usage_source": "synthetic",
+      "usage_scope": "native",
+      "usage_updates": 1,
+      "ignored_updates": 0,
+      "usage_observed": true,
+      "counters_complete": true,
+      "usage_complete": false,
+      "cost_observed": true,
+      "limitations": [
+       "final_totals_unproven"
+      ]
+     },
+     "bootstrap_call_id": null,
+     "error": null,
+     "recorded_at": "2026-10-12T09:02:39.371594Z",
+     "updated_at": "2026-10-12T09:02:39.371594Z",
+     "sync": {
+      "input_id": "31d73d41-257e-4483-8b98-6f8d81906337",
+      "context_event_id": "e0001",
+      "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+      "status": "ready",
+      "error": null,
+      "checked_at": "2026-10-12T09:02:39.458107Z"
+     }
+    },
+    {
+     "call_id": "05a448d9232242a1b417f1b93905018f:propagation",
+     "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+     "input_id": "31d73d41-257e-4483-8b98-6f8d81906337",
+     "context_event_id": "e0001",
+     "attempt_id": "05a448d9232242a1b417f1b93905018f",
+     "library_attempt_sequence": 1,
+     "stage": "propagation",
+     "state": "completed",
+     "started_at": "2026-10-28T10:00:00.021000Z",
+     "finished_at": "2026-10-28T10:00:00.028000Z",
+     "configured": {
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "service_tier": "default"
+     },
+     "observed": {
+      "provider": null,
+      "model": null,
+      "thread_id": "script",
+      "turn_id": "2"
+     },
+     "usage": {
+      "input_tokens": 20,
+      "cached_input_tokens": 4,
+      "output_tokens": 2,
+      "reasoning_output_tokens": 1,
+      "total_tokens": 22,
+      "cost_usd": "0.01"
+     },
+     "evidence": {
+      "usage_source": "synthetic",
+      "usage_scope": "native",
+      "usage_updates": 1,
+      "ignored_updates": 0,
+      "usage_observed": true,
+      "counters_complete": true,
+      "usage_complete": false,
+      "cost_observed": true,
+      "limitations": [
+       "final_totals_unproven"
+      ]
+     },
+     "bootstrap_call_id": "05a448d9232242a1b417f1b93905018f:bootstrap",
+     "error": null,
+     "recorded_at": "2026-10-12T09:02:39.371594Z",
+     "updated_at": "2026-10-12T09:02:39.371594Z",
+     "sync": {
+      "input_id": "31d73d41-257e-4483-8b98-6f8d81906337",
+      "context_event_id": "e0001",
+      "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+      "status": "ready",
+      "error": null,
+      "checked_at": "2026-10-12T09:02:39.458107Z"
+     }
+    },
+    {
+     "call_id": "308c009394fb43caac71c0dfdebcd596:bootstrap",
+     "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+     "input_id": "7f91054c-e55e-4c79-8a17-b3b51b985c21",
+     "context_event_id": "e0002",
+     "attempt_id": "308c009394fb43caac71c0dfdebcd596",
+     "library_attempt_sequence": 1,
+     "stage": "bootstrap",
+     "state": "completed",
+     "started_at": "2026-10-28T10:00:00.035000Z",
+     "finished_at": "2026-10-28T10:00:00.042000Z",
+     "configured": {
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "service_tier": "default"
+     },
+     "observed": {
+      "provider": null,
+      "model": null,
+      "thread_id": "script",
+      "turn_id": "3"
+     },
+     "usage": {
+      "input_tokens": 30,
+      "cached_input_tokens": 4,
+      "output_tokens": 2,
+      "reasoning_output_tokens": 1,
+      "total_tokens": 32,
+      "cost_usd": null
+     },
+     "evidence": {
+      "usage_source": "synthetic",
+      "usage_scope": "native",
+      "usage_updates": 1,
+      "ignored_updates": 0,
+      "usage_observed": true,
+      "counters_complete": true,
+      "usage_complete": false,
+      "cost_observed": false,
+      "limitations": [
+       "final_totals_unproven",
+       "cost_unreported"
+      ]
+     },
+     "bootstrap_call_id": null,
+     "error": null,
+     "recorded_at": "2026-10-12T09:02:39.389531Z",
+     "updated_at": "2026-10-12T09:02:39.389531Z",
+     "sync": {
+      "input_id": "7f91054c-e55e-4c79-8a17-b3b51b985c21",
+      "context_event_id": "e0002",
+      "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+      "status": "ready",
+      "error": null,
+      "checked_at": "2026-10-12T09:02:39.477616Z"
+     }
+    },
+    {
+     "call_id": "308c009394fb43caac71c0dfdebcd596:propagation",
+     "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+     "input_id": "7f91054c-e55e-4c79-8a17-b3b51b985c21",
+     "context_event_id": "e0002",
+     "attempt_id": "308c009394fb43caac71c0dfdebcd596",
+     "library_attempt_sequence": 1,
+     "stage": "propagation",
+     "state": "completed",
+     "started_at": "2026-10-28T10:00:00.049000Z",
+     "finished_at": "2026-10-28T10:00:00.056000Z",
+     "configured": {
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "service_tier": "default"
+     },
+     "observed": {
+      "provider": null,
+      "model": null,
+      "thread_id": "script",
+      "turn_id": "4"
+     },
+     "usage": {
+      "input_tokens": 40,
+      "cached_input_tokens": 4,
+      "output_tokens": 2,
+      "reasoning_output_tokens": 1,
+      "total_tokens": 42,
+      "cost_usd": null
+     },
+     "evidence": {
+      "usage_source": "synthetic",
+      "usage_scope": "native",
+      "usage_updates": 1,
+      "ignored_updates": 0,
+      "usage_observed": true,
+      "counters_complete": true,
+      "usage_complete": false,
+      "cost_observed": false,
+      "limitations": [
+       "final_totals_unproven",
+       "cost_unreported"
+      ]
+     },
+     "bootstrap_call_id": "308c009394fb43caac71c0dfdebcd596:bootstrap",
+     "error": null,
+     "recorded_at": "2026-10-12T09:02:39.389531Z",
+     "updated_at": "2026-10-12T09:02:39.389531Z",
+     "sync": {
+      "input_id": "7f91054c-e55e-4c79-8a17-b3b51b985c21",
+      "context_event_id": "e0002",
+      "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+      "status": "ready",
+      "error": null,
+      "checked_at": "2026-10-12T09:02:39.477616Z"
+     }
+    },
+    {
+     "call_id": "0371cd37c43e4ae58d76f276492766f8:bootstrap",
+     "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+     "input_id": "8cf49c93-28bf-4579-b637-d1902c4d77e4",
+     "context_event_id": "e0003",
+     "attempt_id": "0371cd37c43e4ae58d76f276492766f8",
+     "library_attempt_sequence": 1,
+     "stage": "bootstrap",
+     "state": "completed",
+     "started_at": "2026-10-28T10:00:00.063000Z",
+     "finished_at": "2026-10-28T10:00:00.070000Z",
+     "configured": {
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "service_tier": "default"
+     },
+     "observed": {
+      "provider": null,
+      "model": null,
+      "thread_id": "script",
+      "turn_id": "5"
+     },
+     "usage": {
+      "input_tokens": 50,
+      "cached_input_tokens": 4,
+      "output_tokens": 2,
+      "reasoning_output_tokens": 1,
+      "total_tokens": 52,
+      "cost_usd": "0.5"
+     },
+     "evidence": {
+      "usage_source": "synthetic",
+      "usage_scope": "native",
+      "usage_updates": 1,
+      "ignored_updates": 0,
+      "usage_observed": true,
+      "counters_complete": true,
+      "usage_complete": false,
+      "cost_observed": true,
+      "limitations": [
+       "final_totals_unproven"
+      ]
+     },
+     "bootstrap_call_id": null,
+     "error": null,
+     "recorded_at": "2026-10-12T09:02:39.403000Z",
+     "updated_at": "2026-10-12T09:02:39.403000Z",
+     "sync": {
+      "input_id": "8cf49c93-28bf-4579-b637-d1902c4d77e4",
+      "context_event_id": "e0003",
+      "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+      "status": "ready",
+      "error": null,
+      "checked_at": "2026-10-12T09:02:39.490362Z"
+     }
+    },
+    {
+     "call_id": "0371cd37c43e4ae58d76f276492766f8:propagation",
+     "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+     "input_id": "8cf49c93-28bf-4579-b637-d1902c4d77e4",
+     "context_event_id": "e0003",
+     "attempt_id": "0371cd37c43e4ae58d76f276492766f8",
+     "library_attempt_sequence": 1,
+     "stage": "propagation",
+     "state": "completed",
+     "started_at": "2026-10-28T10:00:00.077000Z",
+     "finished_at": "2026-10-28T10:00:00.084000Z",
+     "configured": {
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "service_tier": "default"
+     },
+     "observed": {
+      "provider": null,
+      "model": null,
+      "thread_id": "script",
+      "turn_id": "6"
+     },
+     "usage": {
+      "input_tokens": 60,
+      "cached_input_tokens": 4,
+      "output_tokens": 2,
+      "reasoning_output_tokens": 1,
+      "total_tokens": 62,
+      "cost_usd": "0.5"
+     },
+     "evidence": {
+      "usage_source": "synthetic",
+      "usage_scope": "native",
+      "usage_updates": 1,
+      "ignored_updates": 0,
+      "usage_observed": true,
+      "counters_complete": true,
+      "usage_complete": false,
+      "cost_observed": true,
+      "limitations": [
+       "final_totals_unproven"
+      ]
+     },
+     "bootstrap_call_id": "0371cd37c43e4ae58d76f276492766f8:bootstrap",
+     "error": null,
+     "recorded_at": "2026-10-12T09:02:39.403000Z",
+     "updated_at": "2026-10-12T09:02:39.403000Z",
+     "sync": {
+      "input_id": "8cf49c93-28bf-4579-b637-d1902c4d77e4",
+      "context_event_id": "e0003",
+      "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+      "status": "ready",
+      "error": null,
+      "checked_at": "2026-10-12T09:02:39.490362Z"
+     }
+    },
+    {
+     "call_id": "d64288a8bec44358a067f1a0520fa9ba:bootstrap",
+     "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+     "input_id": "ff353a91-d592-434e-8b58-a8f072a54b9f",
+     "context_event_id": "e0004",
+     "attempt_id": "d64288a8bec44358a067f1a0520fa9ba",
+     "library_attempt_sequence": 1,
+     "stage": "bootstrap",
+     "state": "completed",
+     "started_at": "2026-10-28T10:00:00.091000Z",
+     "finished_at": "2026-10-28T10:00:00.098000Z",
+     "configured": {
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "service_tier": "default"
+     },
+     "observed": {
+      "provider": null,
+      "model": null,
+      "thread_id": "script",
+      "turn_id": "7"
+     },
+     "usage": {
+      "input_tokens": 70,
+      "cached_input_tokens": 4,
+      "output_tokens": 2,
+      "reasoning_output_tokens": 1,
+      "total_tokens": 72,
+      "cost_usd": "0"
+     },
+     "evidence": {
+      "usage_source": "synthetic",
+      "usage_scope": "native",
+      "usage_updates": 1,
+      "ignored_updates": 0,
+      "usage_observed": true,
+      "counters_complete": true,
+      "usage_complete": false,
+      "cost_observed": true,
+      "limitations": [
+       "final_totals_unproven"
+      ]
+     },
+     "bootstrap_call_id": null,
+     "error": null,
+     "recorded_at": "2026-10-12T09:02:39.416580Z",
+     "updated_at": "2026-10-12T09:02:39.416580Z",
+     "sync": {
+      "input_id": "ff353a91-d592-434e-8b58-a8f072a54b9f",
+      "context_event_id": "e0004",
+      "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+      "status": "ready",
+      "error": null,
+      "checked_at": "2026-10-12T09:02:39.503799Z"
+     }
+    },
+    {
+     "call_id": "d64288a8bec44358a067f1a0520fa9ba:propagation",
+     "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+     "input_id": "ff353a91-d592-434e-8b58-a8f072a54b9f",
+     "context_event_id": "e0004",
+     "attempt_id": "d64288a8bec44358a067f1a0520fa9ba",
+     "library_attempt_sequence": 1,
+     "stage": "propagation",
+     "state": "completed",
+     "started_at": "2026-10-28T10:00:00.105000Z",
+     "finished_at": "2026-10-28T10:00:00.112000Z",
+     "configured": {
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "service_tier": "default"
+     },
+     "observed": {
+      "provider": null,
+      "model": null,
+      "thread_id": "script",
+      "turn_id": "8"
+     },
+     "usage": {
+      "input_tokens": 80,
+      "cached_input_tokens": 4,
+      "output_tokens": 2,
+      "reasoning_output_tokens": 1,
+      "total_tokens": 82,
+      "cost_usd": "0"
+     },
+     "evidence": {
+      "usage_source": "synthetic",
+      "usage_scope": "native",
+      "usage_updates": 1,
+      "ignored_updates": 0,
+      "usage_observed": true,
+      "counters_complete": true,
+      "usage_complete": false,
+      "cost_observed": true,
+      "limitations": [
+       "final_totals_unproven"
+      ]
+     },
+     "bootstrap_call_id": "d64288a8bec44358a067f1a0520fa9ba:bootstrap",
+     "error": null,
+     "recorded_at": "2026-10-12T09:02:39.416580Z",
+     "updated_at": "2026-10-12T09:02:39.416580Z",
+     "sync": {
+      "input_id": "ff353a91-d592-434e-8b58-a8f072a54b9f",
+      "context_event_id": "e0004",
+      "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+      "status": "ready",
+      "error": null,
+      "checked_at": "2026-10-12T09:02:39.503799Z"
+     }
+    },
+    {
+     "call_id": "4c70364c09a341e68be5d68660687a25:bootstrap",
+     "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+     "input_id": "c38997c8-4762-4d90-bbb5-ee375f41e7ce",
+     "context_event_id": "e0005",
+     "attempt_id": "4c70364c09a341e68be5d68660687a25",
+     "library_attempt_sequence": 1,
+     "stage": "bootstrap",
+     "state": "completed",
+     "started_at": "2026-10-28T10:00:00.119000Z",
+     "finished_at": "2026-10-28T10:00:00.126000Z",
+     "configured": {
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "service_tier": "default"
+     },
+     "observed": {
+      "provider": null,
+      "model": null,
+      "thread_id": "script",
+      "turn_id": "9"
+     },
+     "usage": {
+      "input_tokens": 90,
+      "cached_input_tokens": 4,
+      "output_tokens": 2,
+      "reasoning_output_tokens": 1,
+      "total_tokens": 92,
+      "cost_usd": "0.000123"
+     },
+     "evidence": {
+      "usage_source": "synthetic",
+      "usage_scope": "native",
+      "usage_updates": 1,
+      "ignored_updates": 0,
+      "usage_observed": true,
+      "counters_complete": true,
+      "usage_complete": false,
+      "cost_observed": true,
+      "limitations": [
+       "final_totals_unproven"
+      ]
+     },
+     "bootstrap_call_id": null,
+     "error": null,
+     "recorded_at": "2026-10-12T09:02:39.429825Z",
+     "updated_at": "2026-10-12T09:02:39.429825Z",
+     "sync": {
+      "input_id": "c38997c8-4762-4d90-bbb5-ee375f41e7ce",
+      "context_event_id": "e0005",
+      "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+      "status": "ready",
+      "error": null,
+      "checked_at": "2026-10-12T09:02:39.518278Z"
+     }
+    },
+    {
+     "call_id": "4c70364c09a341e68be5d68660687a25:propagation",
+     "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+     "input_id": "c38997c8-4762-4d90-bbb5-ee375f41e7ce",
+     "context_event_id": "e0005",
+     "attempt_id": "4c70364c09a341e68be5d68660687a25",
+     "library_attempt_sequence": 1,
+     "stage": "propagation",
+     "state": "completed",
+     "started_at": "2026-10-28T10:00:00.133000Z",
+     "finished_at": "2026-10-28T10:00:00.140000Z",
+     "configured": {
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "service_tier": "default"
+     },
+     "observed": {
+      "provider": null,
+      "model": null,
+      "thread_id": "script",
+      "turn_id": "10"
+     },
+     "usage": {
+      "input_tokens": 100,
+      "cached_input_tokens": 4,
+      "output_tokens": 2,
+      "reasoning_output_tokens": 1,
+      "total_tokens": 102,
+      "cost_usd": "0.000123"
+     },
+     "evidence": {
+      "usage_source": "synthetic",
+      "usage_scope": "native",
+      "usage_updates": 1,
+      "ignored_updates": 0,
+      "usage_observed": true,
+      "counters_complete": true,
+      "usage_complete": false,
+      "cost_observed": true,
+      "limitations": [
+       "final_totals_unproven"
+      ]
+     },
+     "bootstrap_call_id": "4c70364c09a341e68be5d68660687a25:bootstrap",
+     "error": null,
+     "recorded_at": "2026-10-12T09:02:39.429825Z",
+     "updated_at": "2026-10-12T09:02:39.429825Z",
+     "sync": {
+      "input_id": "c38997c8-4762-4d90-bbb5-ee375f41e7ce",
+      "context_event_id": "e0005",
+      "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+      "status": "ready",
+      "error": null,
+      "checked_at": "2026-10-12T09:02:39.518278Z"
+     }
+    }
+   ],
+   "next_cursor": "eyJ2IjoxLCJiaW5kaW5nIjoiOTI1YjNmNWQwMWRjMjYzZDc0MzdmNDBhYjQ0NGExN2I4MTExOGM2N2ZmN2FhZThjZWEwYmJiMDAxOTk4M2UxOSIsImFmdGVyIjpbIjIwMjYtMTAtMjhUMTA6MDA6MDAuMTMzMDAwWiIsIjRjNzAzNjRjMDlhMzQxZTY4YmU1ZDY4NjYwNjg3YTI1OnByb3BhZ2F0aW9uIl19",
+   "aggregates": {
+    "calls": 12,
+    "unfinished_calls": 0,
+    "unknown_cost_calls": 2,
+    "calls_without_token_usage": 0,
+    "known_cost_usd": "6.020246",
+    "events": 6,
+    "events_not_ready": 0
+   },
+   "coverage": {
+    "basis": "all_reserved_events_for_selected_input_or_installation",
+    "input_id": null,
+    "reserved_events": 6,
+    "ready_events": 6,
+    "partial_events": 0,
+    "unavailable_events": 0,
+    "unscanned_events": 0,
+    "ready_events_without_calls": 0,
+    "unattempted_inputs": 0,
+    "last_checked_at": "2026-10-12T09:02:39.535864Z"
+   },
+   "usage_totals_final": false,
+   "cost_is_known_subtotal": true
+  }
+ },
+ {
+  "request": {
+   "start_date": "2026-10-01",
+   "end_date": "2026-10-31",
+   "limit": 10,
+   "cursor": "eyJ2IjoxLCJiaW5kaW5nIjoiOTI1YjNmNWQwMWRjMjYzZDc0MzdmNDBhYjQ0NGExN2I4MTExOGM2N2ZmN2FhZThjZWEwYmJiMDAxOTk4M2UxOSIsImFmdGVyIjpbIjIwMjYtMTAtMjhUMTA6MDA6MDAuMTMzMDAwWiIsIjRjNzAzNjRjMDlhMzQxZTY4YmU1ZDY4NjYwNjg3YTI1OnByb3BhZ2F0aW9uIl19"
+  },
+  "response": {
+   "format": "qorqut-context-usage-v1",
+   "currency": "USD",
+   "calls": [
+    {
+     "call_id": "55e76172b44e4395b337382b05af3fd6:bootstrap",
+     "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+     "input_id": "7a96489c-2c11-4436-aac2-fa747a536031",
+     "context_event_id": "e0006",
+     "attempt_id": "55e76172b44e4395b337382b05af3fd6",
+     "library_attempt_sequence": 1,
+     "stage": "bootstrap",
+     "state": "completed",
+     "started_at": "2026-10-28T10:00:00.147000Z",
+     "finished_at": "2026-10-28T10:00:00.154000Z",
+     "configured": {
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "service_tier": "default"
+     },
+     "observed": {
+      "provider": null,
+      "model": null,
+      "thread_id": "script",
+      "turn_id": "11"
+     },
+     "usage": {
+      "input_tokens": 110,
+      "cached_input_tokens": 4,
+      "output_tokens": 2,
+      "reasoning_output_tokens": 1,
+      "total_tokens": 112,
+      "cost_usd": "2.5"
+     },
+     "evidence": {
+      "usage_source": "synthetic",
+      "usage_scope": "native",
+      "usage_updates": 1,
+      "ignored_updates": 0,
+      "usage_observed": true,
+      "counters_complete": true,
+      "usage_complete": false,
+      "cost_observed": true,
+      "limitations": [
+       "final_totals_unproven"
+      ]
+     },
+     "bootstrap_call_id": null,
+     "error": null,
+     "recorded_at": "2026-10-12T09:02:39.444059Z",
+     "updated_at": "2026-10-12T09:02:39.444059Z",
+     "sync": {
+      "input_id": "7a96489c-2c11-4436-aac2-fa747a536031",
+      "context_event_id": "e0006",
+      "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+      "status": "ready",
+      "error": null,
+      "checked_at": "2026-10-12T09:02:39.535864Z"
+     }
+    },
+    {
+     "call_id": "55e76172b44e4395b337382b05af3fd6:propagation",
+     "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+     "input_id": "7a96489c-2c11-4436-aac2-fa747a536031",
+     "context_event_id": "e0006",
+     "attempt_id": "55e76172b44e4395b337382b05af3fd6",
+     "library_attempt_sequence": 1,
+     "stage": "propagation",
+     "state": "completed",
+     "started_at": "2026-10-28T10:00:00.161000Z",
+     "finished_at": "2026-10-28T10:00:00.168000Z",
+     "configured": {
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "service_tier": "default"
+     },
+     "observed": {
+      "provider": null,
+      "model": null,
+      "thread_id": "script",
+      "turn_id": "12"
+     },
+     "usage": {
+      "input_tokens": 120,
+      "cached_input_tokens": 4,
+      "output_tokens": 2,
+      "reasoning_output_tokens": 1,
+      "total_tokens": 122,
+      "cost_usd": "2.5"
+     },
+     "evidence": {
+      "usage_source": "synthetic",
+      "usage_scope": "native",
+      "usage_updates": 1,
+      "ignored_updates": 0,
+      "usage_observed": true,
+      "counters_complete": true,
+      "usage_complete": false,
+      "cost_observed": true,
+      "limitations": [
+       "final_totals_unproven"
+      ]
+     },
+     "bootstrap_call_id": "55e76172b44e4395b337382b05af3fd6:bootstrap",
+     "error": null,
+     "recorded_at": "2026-10-12T09:02:39.444059Z",
+     "updated_at": "2026-10-12T09:02:39.444059Z",
+     "sync": {
+      "input_id": "7a96489c-2c11-4436-aac2-fa747a536031",
+      "context_event_id": "e0006",
+      "business_id": "a02ba5c4-40b5-4ee4-87a6-d57566801d1c",
+      "status": "ready",
+      "error": null,
+      "checked_at": "2026-10-12T09:02:39.535864Z"
+     }
+    }
+   ],
+   "next_cursor": null,
+   "aggregates": {
+    "calls": 12,
+    "unfinished_calls": 0,
+    "unknown_cost_calls": 2,
+    "calls_without_token_usage": 0,
+    "known_cost_usd": "6.020246",
+    "events": 6,
+    "events_not_ready": 0
+   },
+   "coverage": {
+    "basis": "all_reserved_events_for_selected_input_or_installation",
+    "input_id": null,
+    "reserved_events": 6,
+    "ready_events": 6,
+    "partial_events": 0,
+    "unavailable_events": 0,
+    "unscanned_events": 0,
+    "ready_events_without_calls": 0,
+    "unattempted_inputs": 0,
+    "last_checked_at": "2026-10-12T09:02:39.535864Z"
+   },
+   "usage_totals_final": false,
+   "cost_is_known_subtotal": true
+  }
+ }
+]

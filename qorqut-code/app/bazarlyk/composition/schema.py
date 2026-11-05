@@ -1,0 +1,56 @@
+"""The retained host domains' storage contributions: the committed DDL plus the repository specifications.
+
+The DDL is ``schema_ddl`` (committed and authoritative; no migration runs here), the table specifications and immutable
+columns are ``tables``. Every table belongs to exactly one owner and the engine's own tables are never redefined: the
+engine refuses a duplicate table, and this module checks before it hands the contributions over that the declared
+ownership and the specifications agree."""
+
+from __future__ import annotations
+
+from qorqut_context.integration import registration as context_registration
+from qorqut_operations import actions, crm, discussion, tags, tasks
+from qorqut_operations.documents.schema import REQUIRED_LIFECYCLES as DOCUMENT_LIFECYCLES
+from qorqut_operations.storage.assembly import AssemblyError, StorageContribution
+
+from . import capture, schema_ddl, tables
+
+# Document availability is tracked beside every file receipt (v1), so the documents owner requires its lifecycle.
+REQUIRED_LIFECYCLES = {"documents": DOCUMENT_LIFECYCLES}
+
+
+def record_contributions() -> tuple[StorageContribution, ...]:
+    """The engine's operational-record storage, first and in the order its DDL needs: the tag catalog and the discussion,
+    Tasks on both, Actions on those, then Context's four contributions (the queue on the Action revisions and the three
+    companions that sit on that one queue: source filings and completion receipts, controlled graph edits, the model-call
+    usage ledger). One contribution per owner: the host runtime builds exactly one queue over these tables. The host tables
+    that reference them are created after them."""
+    return (tags.storage_contribution(), discussion.storage_contribution(), tasks.storage_contribution(),
+            actions.storage_contribution(), *context_registration.storage_contributions())
+
+
+def storage_contributions() -> tuple[StorageContribution, ...]:
+    owned = {}
+    for owner, names in schema_ddl.OWNER_TABLES.items():
+        for name in names:
+            if name in owned:
+                raise AssemblyError(f"Table {name} is assigned to two schema owners")
+            owned[name] = owner
+    if set(schema_ddl.OWNER_SCHEMA) != set(schema_ddl.OWNER_TABLES):
+        raise AssemblyError("Generated schema and table ownership name different owners")
+    unowned = sorted(set(tables.TABLE_SPECS) - set(owned))
+    if unowned:
+        raise AssemblyError(f"Repository specifications without a schema owner: {', '.join(unowned)}")
+    stray = sorted(set(tables.IMMUTABLE_FIELDS) - set(tables.TABLE_SPECS))
+    if stray:
+        raise AssemblyError(f"Immutable columns for undeclared tables: {', '.join(stray)}")
+    contributions = []
+    for owner, names in schema_ddl.OWNER_TABLES.items():
+        specs = {name: tables.TABLE_SPECS[name] for name in names if name in tables.TABLE_SPECS}
+        contributions.append(StorageContribution(
+            owner, specs, {name: fields for name, fields in tables.IMMUTABLE_FIELDS.items() if name in specs},
+            schema_ddl.OWNER_SCHEMA[owner], required_lifecycles=REQUIRED_LIFECYCLES.get(owner, frozenset())))
+    # The CRM Domain's storage executes after the host tables its guards sit on (``data_tables`` and ``inbox_changes`` are
+    # host-owned owners here, created in ``contributions`` above); its DDL is declared once by ``qorqut_operations.crm`` and
+    # is never hand-written here. The change-feed capture for the engine's record tables comes last: its triggers write into
+    # the host's ``inbox_changes`` and name the CRM tables.
+    return (*record_contributions(), *contributions, crm.storage_contribution(), capture.capture_contribution())

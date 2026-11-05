@@ -1,0 +1,149 @@
+[
+ {
+  "request": {
+   "limit": 10
+  },
+  "response": {
+   "format": "qorqut-context-usage-v1",
+   "currency": "USD",
+   "calls": [
+    {
+     "call_id": "ec0db28d7d6347059f5dd9304b1ad578:bootstrap",
+     "business_id": "06a7407f-9a44-48d4-b6fb-80a862998f5c",
+     "input_id": "cc57f74e-468b-44ee-a5a6-f975e66153f4",
+     "context_event_id": "e0001",
+     "attempt_id": "ec0db28d7d6347059f5dd9304b1ad578",
+     "library_attempt_sequence": 1,
+     "stage": "bootstrap",
+     "state": "completed",
+     "started_at": "2026-10-10T10:00:00.007000Z",
+     "finished_at": "2026-10-10T10:00:00.014000Z",
+     "configured": {
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "service_tier": "default"
+     },
+     "observed": {
+      "provider": null,
+      "model": null,
+      "thread_id": "script",
+      "turn_id": "1"
+     },
+     "usage": {
+      "input_tokens": 10,
+      "cached_input_tokens": 4,
+      "output_tokens": 2,
+      "reasoning_output_tokens": 1,
+      "total_tokens": 12,
+      "cost_usd": "0.1234567"
+     },
+     "evidence": {
+      "usage_source": "synthetic",
+      "usage_scope": "native",
+      "usage_updates": 1,
+      "ignored_updates": 0,
+      "usage_observed": true,
+      "counters_complete": true,
+      "usage_complete": false,
+      "cost_observed": true,
+      "limitations": [
+       "final_totals_unproven"
+      ]
+     },
+     "bootstrap_call_id": null,
+     "error": null,
+     "recorded_at": "2026-10-12T09:02:43.949317Z",
+     "updated_at": "2026-10-12T09:02:43.949317Z",
+     "sync": {
+      "input_id": "cc57f74e-468b-44ee-a5a6-f975e66153f4",
+      "context_event_id": "e0001",
+      "business_id": "06a7407f-9a44-48d4-b6fb-80a862998f5c",
+      "status": "ready",
+      "error": null,
+      "checked_at": "2026-10-12T09:02:43.973800Z"
+     }
+    },
+    {
+     "call_id": "ec0db28d7d6347059f5dd9304b1ad578:propagation",
+     "business_id": "06a7407f-9a44-48d4-b6fb-80a862998f5c",
+     "input_id": "cc57f74e-468b-44ee-a5a6-f975e66153f4",
+     "context_event_id": "e0001",
+     "attempt_id": "ec0db28d7d6347059f5dd9304b1ad578",
+     "library_attempt_sequence": 1,
+     "stage": "propagation",
+     "state": "completed",
+     "started_at": "2026-10-10T10:00:00.021000Z",
+     "finished_at": "2026-10-10T10:00:00.028000Z",
+     "configured": {
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "service_tier": "default"
+     },
+     "observed": {
+      "provider": null,
+      "model": null,
+      "thread_id": "script",
+      "turn_id": "2"
+     },
+     "usage": {
+      "input_tokens": 20,
+      "cached_input_tokens": 4,
+      "output_tokens": 2,
+      "reasoning_output_tokens": 1,
+      "total_tokens": 22,
+      "cost_usd": "0.1234567"
+     },
+     "evidence": {
+      "usage_source": "synthetic",
+      "usage_scope": "native",
+      "usage_updates": 1,
+      "ignored_updates": 0,
+      "usage_observed": true,
+      "counters_complete": true,
+      "usage_complete": false,
+      "cost_observed": true,
+      "limitations": [
+       "final_totals_unproven"
+      ]
+     },
+     "bootstrap_call_id": "ec0db28d7d6347059f5dd9304b1ad578:bootstrap",
+     "error": null,
+     "recorded_at": "2026-10-12T09:02:43.949317Z",
+     "updated_at": "2026-10-12T09:02:43.949317Z",
+     "sync": {
+      "input_id": "cc57f74e-468b-44ee-a5a6-f975e66153f4",
+      "context_event_id": "e0001",
+      "business_id": "06a7407f-9a44-48d4-b6fb-80a862998f5c",
+      "status": "ready",
+      "error": null,
+      "checked_at": "2026-10-12T09:02:43.973800Z"
+     }
+    }
+   ],
+   "next_cursor": null,
+   "aggregates": {
+    "calls": 2,
+    "unfinished_calls": 0,
+    "unknown_cost_calls": 0,
+    "calls_without_token_usage": 0,
+    "known_cost_usd": "0.2469134",
+    "events": 1,
+    "events_not_ready": 0
+   },
+   "coverage": {
+    "basis": "all_reserved_events_for_selected_input_or_installation",
+    "input_id": null,
+    "reserved_events": 2,
+    "ready_events": 2,
+    "partial_events": 0,
+    "unavailable_events": 0,
+    "unscanned_events": 0,
+    "ready_events_without_calls": 1,
+    "unattempted_inputs": 0,
+    "last_checked_at": "2026-10-12T09:02:43.986599Z"
+   },
+   "usage_totals_final": false,
+   "cost_is_known_subtotal": true
+  }
+ }
+]

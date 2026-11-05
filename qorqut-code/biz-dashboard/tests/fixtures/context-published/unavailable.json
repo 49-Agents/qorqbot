@@ -1,0 +1,94 @@
+[
+ {
+  "operation": "context_home",
+  "request": {
+   "limit": 30
+  },
+  "response": {
+   "data": {
+    "reason": {
+     "code": "not_a_context_repository",
+     "message": "The Context location is not a repository"
+    },
+    "revision": null,
+    "status": "unavailable"
+   },
+   "status": "ok"
+  }
+ },
+ {
+  "operation": "context_object",
+  "request": {
+   "history_limit": 10,
+   "ref": "node:atlas",
+   "text_limit": 16000
+  },
+  "response": {
+   "data": {
+    "reason": {
+     "code": "not_a_context_repository",
+     "message": "The Context location is not a repository"
+    },
+    "revision": null,
+    "status": "unavailable"
+   },
+   "status": "ok"
+  }
+ },
+ {
+  "operation": "context_find",
+  "request": {
+   "limit": 50,
+   "query": "Quartz"
+  },
+  "response": {
+   "data": {
+    "reason": {
+     "code": "not_a_context_repository",
+     "message": "The Context location is not a repository"
+    },
+    "revision": null,
+    "status": "unavailable"
+   },
+   "status": "ok"
+  }
+ },
+ {
+  "operation": "context_expand",
+  "request": {
+   "depth": 1,
+   "direction": "both",
+   "limit": 50,
+   "ref": "node:atlas"
+  },
+  "response": {
+   "data": {
+    "reason": {
+     "code": "not_a_context_repository",
+     "message": "The Context location is not a repository"
+    },
+    "revision": null,
+    "status": "unavailable"
+   },
+   "status": "ok"
+  }
+ },
+ {
+  "operation": "context_changes",
+  "request": {
+   "limit": 20,
+   "ref": "node:atlas"
+  },
+  "response": {
+   "data": {
+    "reason": {
+     "code": "not_a_context_repository",
+     "message": "The Context location is not a repository"
+    },
+    "revision": null,
+    "status": "unavailable"
+   },
+   "status": "ok"
+  }
+ }
+]

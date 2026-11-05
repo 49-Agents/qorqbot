@@ -1,0 +1,31 @@
+/* Viewbox pane. Every rule is scoped under .agvb so nothing leaks into other agent-pane views. */
+.tasks .tbody.agvb-body { padding: 6px 10px 12px; }
+.tasks .tbody.agvb-framed { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.agvb { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.agvb [hidden] { display: none !important; }
+.agvb-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.agvb-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; min-height: 32px;
+  padding: 4px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--fg); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.agvb-row:hover, .agvb-row:focus-visible { background: var(--hover); }
+.agvb-ic { display: inline-flex; color: var(--fg-3); }
+.agvb-ic svg, .agvb-bar svg { width: 16px; height: 16px; }
+.agvb-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agvb-age { color: var(--fg-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.agvb-empty, .agvb-status { margin: 10px 8px; color: var(--fg-3); font-size: 12px; }
+.agvb-frameview { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.agvb-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--line); min-height: 34px; }
+.agvb-bar button, .agvb-open { display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 2px 7px; border: 1px solid var(--line); border-radius: 7px;
+  background: transparent; color: var(--fg-2); font-size: 11px; text-decoration: none; cursor: pointer; }
+.agvb-bar button:hover, .agvb-open:hover { background: var(--hover); color: var(--fg); }
+.agvb-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
+.agvb-fallback { margin: 0; padding: 6px 10px; font-size: 11px; color: var(--fg-2); background: var(--wash); border-bottom: 1px solid var(--line); }
+.agvb-stage { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: auto; background: var(--wash); }
+.agvb-box { position: relative; display: flex; min-width: 0; min-height: 0; background: var(--bg); }
+.agvb-box[data-fill="true"] { width: 100%; height: 100%; }
+.agvb-frame { flex: 1; width: 100%; height: 100%; min-width: 0; min-height: 0; border: 0; background: #fff; }
+.agvb-handle { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; padding: 0; border: 0; cursor: nwse-resize; touch-action: none;
+  background: linear-gradient(135deg, transparent 50%, var(--fg-3) 50%, var(--fg-3) 58%, transparent 58%, transparent 72%, var(--fg-3) 72%, var(--fg-3) 80%, transparent 80%); opacity: .7; }
+.agvb-handle:hover, .agvb-handle:focus-visible { opacity: 1; outline-offset: -2px; }
+.agvb-shield { position: absolute; inset: 0; z-index: 5; cursor: nwse-resize; }
+.agvb-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (max-width: 520px) { .agvb-open span { display: none; } }

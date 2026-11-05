@@ -1,0 +1,61 @@
+{
+ "currency": "USD",
+ "as_of": "2026-10-12",
+ "month_start": "2026-10-01",
+ "sources": [
+  {
+   "key": "subscriptions",
+   "label": "Subscriptions",
+   "month_usd": "0.0000",
+   "total_usd": "0.0000",
+   "basis": "estimate"
+  },
+  {
+   "key": "filing",
+   "label": "Context filing",
+   "month_usd": null,
+   "total_usd": null,
+   "basis": "unavailable",
+   "known_subtotal": true,
+   "unknown_calls": null,
+   "unfinished_calls": null,
+   "coverage": null
+  },
+  {
+   "key": "background_ai",
+   "label": "Background AI",
+   "month_usd": "0.0000",
+   "total_usd": "0.0000",
+   "basis": "estimate"
+  },
+  {
+   "key": "business_expenses",
+   "label": "Business expenses",
+   "month_usd": "0.0000",
+   "total_usd": "0.0000",
+   "basis": "recorded"
+  }
+ ],
+ "total": {
+  "month_usd": "0.0000",
+  "total_usd": "0.0000",
+  "known_subtotal": true,
+  "incomplete_sources": [
+   "filing"
+  ]
+ },
+ "earnings": {
+  "month_usd": "0.0000",
+  "total_usd": "0.0000",
+  "accounts": 0,
+  "as_of": null,
+  "source": "stripe"
+ },
+ "background_ai": [],
+ "business_expenses": [],
+ "series": [],
+ "context_usage_error": {
+  "code": "context_usage_unavailable",
+  "message": "The Context usage ledger could not be read (OperationalError)"
+ }
+}

@@ -1,0 +1,2694 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "notice": "Illustrative DTOs only. Separate scenarios are different snapshots; gateways must create and verify real canonical records in integration tests.",
+  "ids": {
+    "delta": "ba0a091a-e917-5c59-a80b-0037b470e714",
+    "application": "45d70c82-94bf-566f-a5b3-8bd5b32584a4",
+    "batch": "8d324e9e-8578-5cea-b6d3-e2f4be972b00",
+    "agent": "d11d4501-2aab-5369-a489-eca4514a09a9",
+    "owner": "c0ea48d6-9af6-53a1-a500-cc744499573e",
+    "conversation": "b6af9204-b4fb-5ac8-8863-789c383695b9"
+  },
+  "responses": {
+    "/api/overseer/overview": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "overseer": {
+          "agent_id": "d11d4501-2aab-5369-a489-eca4514a09a9",
+          "conversation_id": "b6af9204-b4fb-5ac8-8863-789c383695b9"
+        },
+        "latest_batch_id": "8d324e9e-8578-5cea-b6d3-e2f4be972b00",
+        "availability": "available",
+        "gaps": []
+      },
+      "warnings": []
+    },
+    "/api/overseer/batches": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "items": [
+          {
+            "id": "8d324e9e-8578-5cea-b6d3-e2f4be972b00",
+            "run_id": "run_fixture_review",
+            "created_at": "2026-10-27T19:00:00Z",
+            "item_count": 5,
+            "delta_refs": [
+              {
+                "id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+                "revision": 1
+              },
+              {
+                "id": "c8e4afde-9670-5f94-b10a-8bf6d5b01a7e",
+                "revision": 1
+              },
+              {
+                "id": "b4a07953-b8b0-5654-ae97-41a58a447564",
+                "revision": 1
+              },
+              {
+                "id": "95deca29-4555-5277-bff3-f9805defaa81",
+                "revision": 1
+              },
+              {
+                "id": "2683672f-63bf-563d-94a0-ade4f867f0e3",
+                "revision": 1
+              }
+            ]
+          }
+        ],
+        "next_cursor": null,
+        "complete": true,
+        "availability": "available",
+        "gaps": []
+      },
+      "warnings": []
+    },
+    "/api/overseer/batches/8d324e9e-8578-5cea-b6d3-e2f4be972b00": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "batch": {
+          "schema_version": 1,
+          "id": "8d324e9e-8578-5cea-b6d3-e2f4be972b00",
+          "run_id": "run_fixture_review",
+          "items": [
+            {
+              "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+              "revision": 1,
+              "ranking_reason": "A direct instruction about future research behavior; one supported occurrence is sufficient for review."
+            },
+            {
+              "delta_id": "c8e4afde-9670-5f94-b10a-8bf6d5b01a7e",
+              "revision": 1,
+              "ranking_reason": "One concrete observation supports review; the owner decides whether it should become guidance."
+            },
+            {
+              "delta_id": "b4a07953-b8b0-5654-ae97-41a58a447564",
+              "revision": 1,
+              "ranking_reason": "One concrete observation supports review; the owner decides whether it should become guidance."
+            },
+            {
+              "delta_id": "95deca29-4555-5277-bff3-f9805defaa81",
+              "revision": 1,
+              "ranking_reason": "One concrete observation supports review; the owner decides whether it should become guidance."
+            },
+            {
+              "delta_id": "2683672f-63bf-563d-94a0-ade4f867f0e3",
+              "revision": 1,
+              "ranking_reason": "One concrete observation supports review; the owner decides whether it should become guidance."
+            }
+          ],
+          "presentation_ref": null,
+          "created_at": "2026-10-27T19:00:00Z"
+        },
+        "items": [
+          {
+            "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+            "revision": 1,
+            "ranking_reason": "A direct instruction about future research behavior; one supported occurrence is sufficient for review.",
+            "detail": {
+              "id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+              "revision": 1,
+              "current_revision": 1,
+              "summary": "Keep research evidence separate from opinion",
+              "change_direction": "Keep research evidence separate from opinion",
+              "scope": {
+                "description": "Research output",
+                "project_ids": [],
+                "work_types": [
+                  "research"
+                ],
+                "workflow_refs": [],
+                "conditions": [],
+                "exceptions": []
+              },
+              "decision": "undecided",
+              "accepted_revision": null,
+              "support": {
+                "proposal_count": 1,
+                "event_count": 1,
+                "episode_count": 1,
+                "event_refs": [
+                  "72a951e3-4e42-5e60-8abc-fa8785e9ced5"
+                ],
+                "episode_refs": [
+                  "11f30929-d5d2-53e0-b967-e69865501f46"
+                ]
+              },
+              "ranking_reason": "A direct instruction about future research behavior; one supported occurrence is sufficient for review.",
+              "uncertainties": [],
+              "application_id": null,
+              "review_input": {
+                "binding_id": "689cafb2-795f-5e7b-b834-10374368368f",
+                "signoff_id": "da3279ca-0d79-57a7-afb3-0ff9f46872f4",
+                "review_scope": {
+                  "kind": "global",
+                  "business_id": null
+                },
+                "purpose": "review",
+                "target_revision": 1,
+                "application_id": null,
+                "application_revision": null,
+                "plan_revision": null,
+                "proposal_revision": 1,
+                "payload_hash": "375a1520cef503fb199486fbf4ebf3d0312e19c1e13fb5cce92e66756c5665da",
+                "status_revision": 1,
+                "actionable": true
+              },
+              "updated_at": "2026-10-27T19:00:00Z"
+            },
+            "availability": "available"
+          },
+          {
+            "delta_id": "c8e4afde-9670-5f94-b10a-8bf6d5b01a7e",
+            "revision": 1,
+            "ranking_reason": "One concrete observation supports review; the owner decides whether it should become guidance.",
+            "detail": {
+              "id": "c8e4afde-9670-5f94-b10a-8bf6d5b01a7e",
+              "revision": 1,
+              "current_revision": 1,
+              "summary": "Omit price from product-launch influencer emails",
+              "change_direction": "Omit price from product-launch influencer emails",
+              "scope": {
+                "description": "Product-launch influencer outreach",
+                "project_ids": [],
+                "work_types": [],
+                "workflow_refs": [
+                  "launch-products-on-x/outreach"
+                ],
+                "conditions": [],
+                "exceptions": []
+              },
+              "decision": "undecided",
+              "accepted_revision": null,
+              "support": {
+                "proposal_count": 1,
+                "event_count": 1,
+                "episode_count": 1,
+                "event_refs": [
+                  "72c50f77-7404-5e24-85ab-4852acd8be2c"
+                ],
+                "episode_refs": [
+                  "ce90b7f8-1e24-5b62-a901-4169e9a28ef0"
+                ]
+              },
+              "ranking_reason": "One concrete observation supports review; the owner decides whether it should become guidance.",
+              "uncertainties": [],
+              "application_id": null,
+              "review_input": {
+                "binding_id": "44a938e6-d8a4-5c06-b66b-c1ebe9bfe865",
+                "signoff_id": "f250b2b8-1a2f-567e-b13b-594d87ff5679",
+                "review_scope": {
+                  "kind": "global",
+                  "business_id": null
+                },
+                "purpose": "review",
+                "target_revision": 1,
+                "application_id": null,
+                "application_revision": null,
+                "plan_revision": null,
+                "proposal_revision": 1,
+                "payload_hash": "7034ae0cba4f43606c2b66005b501420def7cec644820564e9cda48acbe04290",
+                "status_revision": 1,
+                "actionable": true
+              },
+              "updated_at": "2026-10-27T19:00:00Z"
+            },
+            "availability": "available"
+          },
+          {
+            "delta_id": "b4a07953-b8b0-5654-ae97-41a58a447564",
+            "revision": 1,
+            "ranking_reason": "One concrete observation supports review; the owner decides whether it should become guidance.",
+            "detail": {
+              "id": "b4a07953-b8b0-5654-ae97-41a58a447564",
+              "revision": 1,
+              "current_revision": 1,
+              "summary": "Avoid em dashes in email drafts",
+              "change_direction": "Avoid em dashes in email drafts",
+              "scope": {
+                "description": "Email drafting",
+                "project_ids": [],
+                "work_types": [
+                  "email"
+                ],
+                "workflow_refs": [],
+                "conditions": [],
+                "exceptions": []
+              },
+              "decision": "undecided",
+              "accepted_revision": null,
+              "support": {
+                "proposal_count": 1,
+                "event_count": 1,
+                "episode_count": 1,
+                "event_refs": [
+                  "a2431688-980f-56ed-ad11-7cec1ab8f158"
+                ],
+                "episode_refs": [
+                  "bddfcd7a-eaa9-5ed5-83df-e7f0e0fab485"
+                ]
+              },
+              "ranking_reason": "One concrete observation supports review; the owner decides whether it should become guidance.",
+              "uncertainties": [],
+              "application_id": null,
+              "review_input": {
+                "binding_id": "48ef52b2-c139-5614-8c08-ba604838dc76",
+                "signoff_id": "b1653361-0657-59b8-8407-5e37d89d9b32",
+                "review_scope": {
+                  "kind": "global",
+                  "business_id": null
+                },
+                "purpose": "review",
+                "target_revision": 1,
+                "application_id": null,
+                "application_revision": null,
+                "plan_revision": null,
+                "proposal_revision": 1,
+                "payload_hash": "d325c5babe0fd2511546c2e1d58e36be95a9138ca9c943c164a7f0b349531b37",
+                "status_revision": 1,
+                "actionable": true
+              },
+              "updated_at": "2026-10-27T19:00:00Z"
+            },
+            "availability": "available"
+          },
+          {
+            "delta_id": "95deca29-4555-5277-bff3-f9805defaa81",
+            "revision": 1,
+            "ranking_reason": "One concrete observation supports review; the owner decides whether it should become guidance.",
+            "detail": {
+              "id": "95deca29-4555-5277-bff3-f9805defaa81",
+              "revision": 1,
+              "current_revision": 1,
+              "summary": "Consider lowercase headings for this landing-page project",
+              "change_direction": "Consider lowercase headings for this landing-page project",
+              "scope": {
+                "description": "Headings in the demonstrated landing-page project",
+                "project_ids": [
+                  "b7bd594b-8034-5d9b-b8e7-ac2b6006a7cb"
+                ],
+                "work_types": [],
+                "workflow_refs": [],
+                "conditions": [],
+                "exceptions": []
+              },
+              "decision": "undecided",
+              "accepted_revision": null,
+              "support": {
+                "proposal_count": 1,
+                "event_count": 1,
+                "episode_count": 1,
+                "event_refs": [
+                  "893cb310-3343-5ad9-bb36-3533a94f83c8"
+                ],
+                "episode_refs": [
+                  "6169a649-7a53-52be-94bf-f7d2cd50a1da"
+                ]
+              },
+              "ranking_reason": "One concrete observation supports review; the owner decides whether it should become guidance.",
+              "uncertainties": [
+                "Single episode; inferred scope may need clarification."
+              ],
+              "application_id": null,
+              "review_input": {
+                "binding_id": "e6733524-a120-5e2c-9d18-717b78ecdf1e",
+                "signoff_id": "ccb65c9c-32c9-5690-99a9-229dbd6dfd56",
+                "review_scope": {
+                  "kind": "global",
+                  "business_id": null
+                },
+                "purpose": "review",
+                "target_revision": 1,
+                "application_id": null,
+                "application_revision": null,
+                "plan_revision": null,
+                "proposal_revision": 1,
+                "payload_hash": "73f1b5e0b9db5e6d5e6657f11aa5b3b78a956cfbf2d49916230813372dd53c1a",
+                "status_revision": 1,
+                "actionable": true
+              },
+              "updated_at": "2026-10-27T19:00:00Z"
+            },
+            "availability": "available"
+          },
+          {
+            "delta_id": "2683672f-63bf-563d-94a0-ade4f867f0e3",
+            "revision": 1,
+            "ranking_reason": "One concrete observation supports review; the owner decides whether it should become guidance.",
+            "detail": {
+              "id": "2683672f-63bf-563d-94a0-ade4f867f0e3",
+              "revision": 1,
+              "current_revision": 1,
+              "summary": "Detect missing inputs before invoking this workflow",
+              "change_direction": "Detect missing inputs before invoking this workflow",
+              "scope": {
+                "description": "The demonstrated custom-tool workflow",
+                "project_ids": [],
+                "work_types": [],
+                "workflow_refs": [
+                  "fixture/input-workflow"
+                ],
+                "conditions": [],
+                "exceptions": []
+              },
+              "decision": "undecided",
+              "accepted_revision": null,
+              "support": {
+                "proposal_count": 1,
+                "event_count": 1,
+                "episode_count": 1,
+                "event_refs": [
+                  "a29aeb82-13d5-5aac-bba0-ad1c2b1b93de"
+                ],
+                "episode_refs": [
+                  "6027c7df-dd1b-5098-8698-6478f253ce11"
+                ]
+              },
+              "ranking_reason": "One concrete observation supports review; the owner decides whether it should become guidance.",
+              "uncertainties": [
+                "Single episode; inferred scope may need clarification."
+              ],
+              "application_id": null,
+              "review_input": {
+                "binding_id": "83f1d4be-93b3-53d0-b1d4-5acfec569451",
+                "signoff_id": "6c9dd021-71d1-5836-a013-fdb1dc74c7fe",
+                "review_scope": {
+                  "kind": "global",
+                  "business_id": null
+                },
+                "purpose": "review",
+                "target_revision": 1,
+                "application_id": null,
+                "application_revision": null,
+                "plan_revision": null,
+                "proposal_revision": 1,
+                "payload_hash": "7c81ebc8fca27bb2220334987fed5eb167f6d1caa19b7c87c3479882b5fca4a5",
+                "status_revision": 1,
+                "actionable": true
+              },
+              "updated_at": "2026-10-27T19:00:00Z"
+            },
+            "availability": "available"
+          }
+        ],
+        "discussion": {
+          "schema_version": 1,
+          "items": [],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        }
+      },
+      "warnings": []
+    },
+    "/api/overseer/deltas": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "items": [
+          {
+            "id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+            "revision": 1,
+            "current_revision": 1,
+            "summary": "Keep research evidence separate from opinion",
+            "change_direction": "Keep research evidence separate from opinion",
+            "scope": {
+              "description": "Research output",
+              "project_ids": [],
+              "work_types": [
+                "research"
+              ],
+              "workflow_refs": [],
+              "conditions": [],
+              "exceptions": []
+            },
+            "decision": "undecided",
+            "accepted_revision": null,
+            "support": {
+              "proposal_count": 1,
+              "event_count": 1,
+              "episode_count": 1,
+              "event_refs": [
+                "72a951e3-4e42-5e60-8abc-fa8785e9ced5"
+              ],
+              "episode_refs": [
+                "11f30929-d5d2-53e0-b967-e69865501f46"
+              ]
+            },
+            "ranking_reason": "A direct instruction about future research behavior; one supported occurrence is sufficient for review.",
+            "uncertainties": [],
+            "application_id": null,
+            "review_input": {
+              "binding_id": "689cafb2-795f-5e7b-b834-10374368368f",
+              "signoff_id": "da3279ca-0d79-57a7-afb3-0ff9f46872f4",
+              "review_scope": {
+                "kind": "global",
+                "business_id": null
+              },
+              "purpose": "review",
+              "target_revision": 1,
+              "application_id": null,
+              "application_revision": null,
+              "plan_revision": null,
+              "proposal_revision": 1,
+              "payload_hash": "375a1520cef503fb199486fbf4ebf3d0312e19c1e13fb5cce92e66756c5665da",
+              "status_revision": 1,
+              "actionable": true
+            },
+            "updated_at": "2026-10-27T19:00:00Z"
+          },
+          {
+            "id": "c8e4afde-9670-5f94-b10a-8bf6d5b01a7e",
+            "revision": 1,
+            "current_revision": 1,
+            "summary": "Omit price from product-launch influencer emails",
+            "change_direction": "Omit price from product-launch influencer emails",
+            "scope": {
+              "description": "Product-launch influencer outreach",
+              "project_ids": [],
+              "work_types": [],
+              "workflow_refs": [
+                "launch-products-on-x/outreach"
+              ],
+              "conditions": [],
+              "exceptions": []
+            },
+            "decision": "undecided",
+            "accepted_revision": null,
+            "support": {
+              "proposal_count": 1,
+              "event_count": 1,
+              "episode_count": 1,
+              "event_refs": [
+                "72c50f77-7404-5e24-85ab-4852acd8be2c"
+              ],
+              "episode_refs": [
+                "ce90b7f8-1e24-5b62-a901-4169e9a28ef0"
+              ]
+            },
+            "ranking_reason": "One concrete observation supports review; the owner decides whether it should become guidance.",
+            "uncertainties": [],
+            "application_id": null,
+            "review_input": {
+              "binding_id": "44a938e6-d8a4-5c06-b66b-c1ebe9bfe865",
+              "signoff_id": "f250b2b8-1a2f-567e-b13b-594d87ff5679",
+              "review_scope": {
+                "kind": "global",
+                "business_id": null
+              },
+              "purpose": "review",
+              "target_revision": 1,
+              "application_id": null,
+              "application_revision": null,
+              "plan_revision": null,
+              "proposal_revision": 1,
+              "payload_hash": "7034ae0cba4f43606c2b66005b501420def7cec644820564e9cda48acbe04290",
+              "status_revision": 1,
+              "actionable": true
+            },
+            "updated_at": "2026-10-27T19:00:00Z"
+          },
+          {
+            "id": "b4a07953-b8b0-5654-ae97-41a58a447564",
+            "revision": 1,
+            "current_revision": 1,
+            "summary": "Avoid em dashes in email drafts",
+            "change_direction": "Avoid em dashes in email drafts",
+            "scope": {
+              "description": "Email drafting",
+              "project_ids": [],
+              "work_types": [
+                "email"
+              ],
+              "workflow_refs": [],
+              "conditions": [],
+              "exceptions": []
+            },
+            "decision": "undecided",
+            "accepted_revision": null,
+            "support": {
+              "proposal_count": 1,
+              "event_count": 1,
+              "episode_count": 1,
+              "event_refs": [
+                "a2431688-980f-56ed-ad11-7cec1ab8f158"
+              ],
+              "episode_refs": [
+                "bddfcd7a-eaa9-5ed5-83df-e7f0e0fab485"
+              ]
+            },
+            "ranking_reason": "One concrete observation supports review; the owner decides whether it should become guidance.",
+            "uncertainties": [],
+            "application_id": null,
+            "review_input": {
+              "binding_id": "48ef52b2-c139-5614-8c08-ba604838dc76",
+              "signoff_id": "b1653361-0657-59b8-8407-5e37d89d9b32",
+              "review_scope": {
+                "kind": "global",
+                "business_id": null
+              },
+              "purpose": "review",
+              "target_revision": 1,
+              "application_id": null,
+              "application_revision": null,
+              "plan_revision": null,
+              "proposal_revision": 1,
+              "payload_hash": "d325c5babe0fd2511546c2e1d58e36be95a9138ca9c943c164a7f0b349531b37",
+              "status_revision": 1,
+              "actionable": true
+            },
+            "updated_at": "2026-10-27T19:00:00Z"
+          },
+          {
+            "id": "95deca29-4555-5277-bff3-f9805defaa81",
+            "revision": 1,
+            "current_revision": 1,
+            "summary": "Consider lowercase headings for this landing-page project",
+            "change_direction": "Consider lowercase headings for this landing-page project",
+            "scope": {
+              "description": "Headings in the demonstrated landing-page project",
+              "project_ids": [
+                "b7bd594b-8034-5d9b-b8e7-ac2b6006a7cb"
+              ],
+              "work_types": [],
+              "workflow_refs": [],
+              "conditions": [],
+              "exceptions": []
+            },
+            "decision": "undecided",
+            "accepted_revision": null,
+            "support": {
+              "proposal_count": 1,
+              "event_count": 1,
+              "episode_count": 1,
+              "event_refs": [
+                "893cb310-3343-5ad9-bb36-3533a94f83c8"
+              ],
+              "episode_refs": [
+                "6169a649-7a53-52be-94bf-f7d2cd50a1da"
+              ]
+            },
+            "ranking_reason": "One concrete observation supports review; the owner decides whether it should become guidance.",
+            "uncertainties": [
+              "Single episode; inferred scope may need clarification."
+            ],
+            "application_id": null,
+            "review_input": {
+              "binding_id": "e6733524-a120-5e2c-9d18-717b78ecdf1e",
+              "signoff_id": "ccb65c9c-32c9-5690-99a9-229dbd6dfd56",
+              "review_scope": {
+                "kind": "global",
+                "business_id": null
+              },
+              "purpose": "review",
+              "target_revision": 1,
+              "application_id": null,
+              "application_revision": null,
+              "plan_revision": null,
+              "proposal_revision": 1,
+              "payload_hash": "73f1b5e0b9db5e6d5e6657f11aa5b3b78a956cfbf2d49916230813372dd53c1a",
+              "status_revision": 1,
+              "actionable": true
+            },
+            "updated_at": "2026-10-27T19:00:00Z"
+          },
+          {
+            "id": "2683672f-63bf-563d-94a0-ade4f867f0e3",
+            "revision": 1,
+            "current_revision": 1,
+            "summary": "Detect missing inputs before invoking this workflow",
+            "change_direction": "Detect missing inputs before invoking this workflow",
+            "scope": {
+              "description": "The demonstrated custom-tool workflow",
+              "project_ids": [],
+              "work_types": [],
+              "workflow_refs": [
+                "fixture/input-workflow"
+              ],
+              "conditions": [],
+              "exceptions": []
+            },
+            "decision": "undecided",
+            "accepted_revision": null,
+            "support": {
+              "proposal_count": 1,
+              "event_count": 1,
+              "episode_count": 1,
+              "event_refs": [
+                "a29aeb82-13d5-5aac-bba0-ad1c2b1b93de"
+              ],
+              "episode_refs": [
+                "6027c7df-dd1b-5098-8698-6478f253ce11"
+              ]
+            },
+            "ranking_reason": "One concrete observation supports review; the owner decides whether it should become guidance.",
+            "uncertainties": [
+              "Single episode; inferred scope may need clarification."
+            ],
+            "application_id": null,
+            "review_input": {
+              "binding_id": "83f1d4be-93b3-53d0-b1d4-5acfec569451",
+              "signoff_id": "6c9dd021-71d1-5836-a013-fdb1dc74c7fe",
+              "review_scope": {
+                "kind": "global",
+                "business_id": null
+              },
+              "purpose": "review",
+              "target_revision": 1,
+              "application_id": null,
+              "application_revision": null,
+              "plan_revision": null,
+              "proposal_revision": 1,
+              "payload_hash": "7c81ebc8fca27bb2220334987fed5eb167f6d1caa19b7c87c3479882b5fca4a5",
+              "status_revision": 1,
+              "actionable": true
+            },
+            "updated_at": "2026-10-27T19:00:00Z"
+          }
+        ],
+        "next_cursor": null,
+        "complete": true,
+        "availability": "available",
+        "gaps": []
+      },
+      "warnings": []
+    },
+    "/api/overseer/deltas/ba0a091a-e917-5c59-a80b-0037b470e714": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "delta": {
+          "summary": "Keep research evidence separate from opinion",
+          "change_direction": "Keep research evidence separate from opinion",
+          "scope": {
+            "description": "Research output",
+            "project_ids": [],
+            "work_types": [
+              "research"
+            ],
+            "workflow_refs": [],
+            "conditions": [],
+            "exceptions": []
+          },
+          "target_refs": [
+            {
+              "description": "Research instructions"
+            }
+          ],
+          "ranking_reason": "A direct instruction about future research behavior; one supported occurrence is sufficient for review.",
+          "uncertainties": [],
+          "id": "ba0a091a-e917-5c59-a80b-0037b470e714"
+        },
+        "revision": 1,
+        "current_revision": 1,
+        "historical": false,
+        "decision": "undecided",
+        "accepted_revision": null,
+        "support": {
+          "proposal_count": 1,
+          "event_count": 1,
+          "episode_count": 1,
+          "event_refs": [
+            "72a951e3-4e42-5e60-8abc-fa8785e9ced5"
+          ],
+          "episode_refs": [
+            "11f30929-d5d2-53e0-b967-e69865501f46"
+          ]
+        },
+        "proposals": [
+          {
+            "schema_version": 1,
+            "id": "84e2edf6-4754-539f-8e54-b394bf4b805c",
+            "extraction_run_id": "run_fixture_extraction",
+            "summary": "Keep research evidence separate from opinion",
+            "change_direction": "Keep research evidence separate from opinion",
+            "observed_fact": "When doing research, provide data and transformations; do not bake your opinions into the result.",
+            "interpretation": "Synthetic illustration; scope is limited to what this source supports.",
+            "scope": {
+              "description": "Research output",
+              "project_ids": [],
+              "work_types": [
+                "research"
+              ],
+              "workflow_refs": [],
+              "conditions": [],
+              "exceptions": []
+            },
+            "target_refs": [
+              {
+                "description": "Keep research evidence separate from opinion"
+              }
+            ],
+            "origin_type": "direct_instruction",
+            "sources": [
+              {
+                "ref": {
+                  "provider": "fixture",
+                  "kind": "chat_message",
+                  "record_id": "4bdba2d5-bc68-5cd2-882f-6bfcf2222c9b",
+                  "revision": "1",
+                  "content_hash": "b1ca4946183a7d06f13849a974c84236b9cfcf077152f4edf291737b27ad9d13",
+                  "origin_event_id": "72a951e3-4e42-5e60-8abc-fa8785e9ced5",
+                  "episode_id": "11f30929-d5d2-53e0-b967-e69865501f46",
+                  "actor_id": "0498f44d-d8bd-5d64-9d46-8525d2a6809f",
+                  "actor_kind": "human",
+                  "occurred_at": "2026-10-27T10:00:00Z",
+                  "locator": {
+                    "record": "research-rule"
+                  },
+                  "scope": {
+                    "description": "Synthetic owner work",
+                    "project_ids": [],
+                    "work_types": [],
+                    "workflow_refs": [],
+                    "conditions": [],
+                    "exceptions": []
+                  },
+                  "provenance": {
+                    "producer_id": "b3a93b7f-eb98-5bf2-ad90-8d6077f222d1",
+                    "overseer_origin": false,
+                    "original_refs": []
+                  },
+                  "availability": "available",
+                  "namespace": {
+                    "kind": "global",
+                    "business_id": null
+                  }
+                },
+                "role": "supporting"
+              }
+            ],
+            "created_at": "2026-10-27T10:05:00Z",
+            "created_by": "711ab31e-a235-5dfe-a91e-fcbc8b2f5bff"
+          }
+        ],
+        "evidence": [
+          {
+            "id": "84e2edf6-4754-539f-8e54-b394bf4b805c:0",
+            "proposal_id": "84e2edf6-4754-539f-8e54-b394bf4b805c",
+            "source_index": 0,
+            "role": "supporting",
+            "ref": {
+              "provider": "fixture",
+              "kind": "chat_message",
+              "record_id": "4bdba2d5-bc68-5cd2-882f-6bfcf2222c9b",
+              "revision": "1",
+              "content_hash": "b1ca4946183a7d06f13849a974c84236b9cfcf077152f4edf291737b27ad9d13",
+              "origin_event_id": "72a951e3-4e42-5e60-8abc-fa8785e9ced5",
+              "episode_id": "11f30929-d5d2-53e0-b967-e69865501f46",
+              "actor_id": "0498f44d-d8bd-5d64-9d46-8525d2a6809f",
+              "actor_kind": "human",
+              "occurred_at": "2026-10-27T10:00:00Z",
+              "locator": {
+                "record": "research-rule"
+              },
+              "scope": {
+                "description": "Synthetic owner work",
+                "project_ids": [],
+                "work_types": [],
+                "workflow_refs": [],
+                "conditions": [],
+                "exceptions": []
+              },
+              "provenance": {
+                "producer_id": "b3a93b7f-eb98-5bf2-ad90-8d6077f222d1",
+                "overseer_origin": false,
+                "original_refs": []
+              },
+              "availability": "available",
+              "namespace": {
+                "kind": "global",
+                "business_id": null
+              }
+            },
+            "availability": "available",
+            "excerpt": "When doing research, provide data and transformations; do not bake your opinions into the result."
+          }
+        ],
+        "discussion": {
+          "schema_version": 1,
+          "items": [
+            {
+              "id": "404c4f0f-d7d5-511a-bf59-59ca8446b073",
+              "at": "2026-10-27T19:00:00Z",
+              "actor": {
+                "id": "c0ea48d6-9af6-53a1-a500-cc744499573e",
+                "kind": "human",
+                "label": "Owner"
+              },
+              "kind": "comment",
+              "text": "Keep this rule scoped to research outputs.",
+              "source_ref": {
+                "provider": "qorqut_signoff",
+                "signoff_id": "da3279ca-0d79-57a7-afb3-0ff9f46872f4",
+                "proposal_revision": 1,
+                "payload_hash": "375a1520cef503fb199486fbf4ebf3d0312e19c1e13fb5cce92e66756c5665da"
+              },
+              "targets": {
+                "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+                "delta_revision": 1,
+                "application_id": null,
+                "plan_revision": null,
+                "batch_id": "8d324e9e-8578-5cea-b6d3-e2f4be972b00"
+              },
+              "availability": "available"
+            }
+          ],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        },
+        "decision_history": {
+          "schema_version": 1,
+          "items": [],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        },
+        "versions": {
+          "schema_version": 1,
+          "items": [
+            {
+              "revision": 1,
+              "summary": "Keep research evidence separate from opinion",
+              "created_at": "2026-10-27T19:00:00Z"
+            }
+          ],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        },
+        "review_input": {
+          "binding_id": "689cafb2-795f-5e7b-b834-10374368368f",
+          "signoff_id": "da3279ca-0d79-57a7-afb3-0ff9f46872f4",
+          "review_scope": {
+            "kind": "global",
+            "business_id": null
+          },
+          "purpose": "review",
+          "target_revision": 1,
+          "application_id": null,
+          "application_revision": null,
+          "plan_revision": null,
+          "proposal_revision": 1,
+          "payload_hash": "375a1520cef503fb199486fbf4ebf3d0312e19c1e13fb5cce92e66756c5665da",
+          "status_revision": 1,
+          "actionable": true
+        },
+        "application": null,
+        "available_actions": [
+          "open_signoff",
+          "view_evidence",
+          "view_history"
+        ]
+      },
+      "warnings": []
+    },
+    "/api/overseer/deltas/ba0a091a-e917-5c59-a80b-0037b470e714/revisions": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "items": [
+          {
+            "revision": 1,
+            "summary": "Keep research evidence separate from opinion",
+            "created_at": "2026-10-27T19:00:00Z"
+          }
+        ],
+        "next_cursor": null,
+        "complete": true,
+        "availability": "available",
+        "gaps": []
+      },
+      "warnings": []
+    },
+    "/api/overseer/deltas/ba0a091a-e917-5c59-a80b-0037b470e714/decisions": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "items": [],
+        "next_cursor": null,
+        "complete": true,
+        "availability": "available",
+        "gaps": []
+      },
+      "warnings": []
+    },
+    "/api/overseer/deltas/ba0a091a-e917-5c59-a80b-0037b470e714/discussion": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "items": [
+          {
+            "id": "404c4f0f-d7d5-511a-bf59-59ca8446b073",
+            "at": "2026-10-27T19:00:00Z",
+            "actor": {
+              "id": "c0ea48d6-9af6-53a1-a500-cc744499573e",
+              "kind": "human",
+              "label": "Owner"
+            },
+            "kind": "comment",
+            "text": "Keep this rule scoped to research outputs.",
+            "source_ref": {
+              "provider": "qorqut_signoff",
+              "signoff_id": "da3279ca-0d79-57a7-afb3-0ff9f46872f4",
+              "proposal_revision": 1,
+              "payload_hash": "375a1520cef503fb199486fbf4ebf3d0312e19c1e13fb5cce92e66756c5665da"
+            },
+            "targets": {
+              "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+              "delta_revision": 1,
+              "application_id": null,
+              "plan_revision": null,
+              "batch_id": "8d324e9e-8578-5cea-b6d3-e2f4be972b00"
+            },
+            "availability": "available"
+          }
+        ],
+        "next_cursor": null,
+        "complete": true,
+        "availability": "available",
+        "gaps": []
+      },
+      "warnings": []
+    },
+    "/api/overseer/batches/8d324e9e-8578-5cea-b6d3-e2f4be972b00/discussion": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "items": [],
+        "next_cursor": null,
+        "complete": true,
+        "availability": "available",
+        "gaps": []
+      },
+      "warnings": []
+    },
+    "/api/overseer/applications": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "items": [],
+        "next_cursor": null,
+        "complete": true,
+        "availability": "available",
+        "gaps": []
+      },
+      "warnings": []
+    },
+    "/api/overseer/applications?queue=unimplemented": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "items": [],
+        "next_cursor": null,
+        "complete": true,
+        "availability": "available",
+        "gaps": []
+      },
+      "warnings": []
+    },
+    "/api/root/signoffs/da3279ca-0d79-57a7-afb3-0ff9f46872f4": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "signoff": {
+          "id": "da3279ca-0d79-57a7-afb3-0ff9f46872f4",
+          "review_business_id": null,
+          "proposal_revision": 1,
+          "payload_hash": "375a1520cef503fb199486fbf4ebf3d0312e19c1e13fb5cce92e66756c5665da",
+          "status_revision": 1,
+          "state": "pending",
+          "operation_name": "signoffs_input_create",
+          "operation_version": 1,
+          "proposer_principal_id": "d11d4501-2aab-5369-a489-eca4514a09a9",
+          "proposer_agent_id": "d11d4501-2aab-5369-a489-eca4514a09a9",
+          "proposer_display_name": "Overseer",
+          "initiated_by_principal_id": null,
+          "title": "Review research guidance",
+          "affected_scope": {
+            "kind": "global"
+          },
+          "review_scope": {
+            "kind": "global",
+            "business_id": null
+          },
+          "created_at": "2026-10-27T19:00:00Z",
+          "updated_at": "2026-10-27T19:00:00Z",
+          "updated_sequence": 1,
+          "decision": null,
+          "supersedes_id": null,
+          "superseded_by_id": null,
+          "category": "input_request",
+          "input": {
+            "title": "Review research guidance",
+            "explanation": "Keep research evidence separate from opinion",
+            "kind": "question",
+            "selection_mode": "single",
+            "response_policy": "owner_only",
+            "choices": [
+              {
+                "id": "accept",
+                "label": "Accept",
+                "explanation": "Add this to the accepted queue."
+              },
+              {
+                "id": "reject",
+                "label": "Reject",
+                "explanation": "Keep rejected until explicitly reopened."
+              },
+              {
+                "id": "later",
+                "label": "Later",
+                "explanation": "Leave undecided."
+              },
+              {
+                "id": "revise",
+                "label": "Revise",
+                "explanation": "Discuss a revision before deciding."
+              }
+            ],
+            "selection_required": true,
+            "notes_required": false
+          },
+          "attention": {
+            "notify": false,
+            "urgent": false,
+            "blocking": false
+          },
+          "decision_state": "pending",
+          "actionable": true,
+          "execution_state": "not_applicable",
+          "preview": {
+            "title": "Review research guidance",
+            "explanation": "Keep research evidence separate from opinion",
+            "input": {
+              "title": "Review research guidance",
+              "explanation": "Keep research evidence separate from opinion",
+              "kind": "question",
+              "selection_mode": "single",
+              "response_policy": "owner_only",
+              "choices": [
+                {
+                  "id": "accept",
+                  "label": "Accept",
+                  "explanation": "Add this to the accepted queue."
+                },
+                {
+                  "id": "reject",
+                  "label": "Reject",
+                  "explanation": "Keep rejected until explicitly reopened."
+                },
+                {
+                  "id": "later",
+                  "label": "Later",
+                  "explanation": "Leave undecided."
+                },
+                {
+                  "id": "revise",
+                  "label": "Revise",
+                  "explanation": "Discuss a revision before deciding."
+                }
+              ],
+              "selection_required": true,
+              "notes_required": false
+            }
+          },
+          "expected_targets": [],
+          "applied_at": null,
+          "apply_result": null,
+          "error": null,
+          "rejection_requires_message": false,
+          "note_count": 0,
+          "email_context": null,
+          "legacy_review_routing": false,
+          "initiated_by_display_name": null,
+          "job_id": null
+        }
+      },
+      "warnings": []
+    },
+    "/api/overseer/deltas/ba0a091a-e917-5c59-a80b-0037b470e714/evidence/84e2edf6-4754-539f-8e54-b394bf4b805c/0?revision=1": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "ref": {
+          "provider": "fixture",
+          "kind": "chat_message",
+          "record_id": "4bdba2d5-bc68-5cd2-882f-6bfcf2222c9b",
+          "revision": "1",
+          "content_hash": "b1ca4946183a7d06f13849a974c84236b9cfcf077152f4edf291737b27ad9d13",
+          "origin_event_id": "72a951e3-4e42-5e60-8abc-fa8785e9ced5",
+          "episode_id": "11f30929-d5d2-53e0-b967-e69865501f46",
+          "actor_id": "0498f44d-d8bd-5d64-9d46-8525d2a6809f",
+          "actor_kind": "human",
+          "occurred_at": "2026-10-27T10:00:00Z",
+          "locator": {
+            "record": "research-rule"
+          },
+          "scope": {
+            "description": "Synthetic owner work",
+            "project_ids": [],
+            "work_types": [],
+            "workflow_refs": [],
+            "conditions": [],
+            "exceptions": []
+          },
+          "provenance": {
+            "producer_id": "b3a93b7f-eb98-5bf2-ad90-8d6077f222d1",
+            "overseer_origin": false,
+            "original_refs": []
+          },
+          "availability": "available",
+          "namespace": {
+            "kind": "global",
+            "business_id": null
+          }
+        },
+        "role": "supporting",
+        "availability": "unavailable",
+        "content": null,
+        "gaps": [
+          {
+            "code": "source_unavailable",
+            "detail": "Current source access is unavailable."
+          }
+        ]
+      },
+      "warnings": []
+    }
+  },
+  "accepted_scenario": {
+    "delta": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "delta": {
+          "summary": "Keep research evidence separate from opinion",
+          "change_direction": "Keep research evidence separate from opinion",
+          "scope": {
+            "description": "Research output",
+            "project_ids": [],
+            "work_types": [
+              "research"
+            ],
+            "workflow_refs": [],
+            "conditions": [],
+            "exceptions": []
+          },
+          "target_refs": [
+            {
+              "description": "Research instructions"
+            }
+          ],
+          "ranking_reason": "A direct instruction about future research behavior; one supported occurrence is sufficient for review.",
+          "uncertainties": [],
+          "id": "ba0a091a-e917-5c59-a80b-0037b470e714"
+        },
+        "revision": 1,
+        "current_revision": 1,
+        "historical": false,
+        "decision": "accepted",
+        "accepted_revision": 1,
+        "support": {
+          "proposal_count": 1,
+          "event_count": 1,
+          "episode_count": 1,
+          "event_refs": [
+            "72a951e3-4e42-5e60-8abc-fa8785e9ced5"
+          ],
+          "episode_refs": [
+            "11f30929-d5d2-53e0-b967-e69865501f46"
+          ]
+        },
+        "proposals": [
+          {
+            "schema_version": 1,
+            "id": "84e2edf6-4754-539f-8e54-b394bf4b805c",
+            "extraction_run_id": "run_fixture_extraction",
+            "summary": "Keep research evidence separate from opinion",
+            "change_direction": "Keep research evidence separate from opinion",
+            "observed_fact": "When doing research, provide data and transformations; do not bake your opinions into the result.",
+            "interpretation": "Synthetic illustration; scope is limited to what this source supports.",
+            "scope": {
+              "description": "Research output",
+              "project_ids": [],
+              "work_types": [
+                "research"
+              ],
+              "workflow_refs": [],
+              "conditions": [],
+              "exceptions": []
+            },
+            "target_refs": [
+              {
+                "description": "Keep research evidence separate from opinion"
+              }
+            ],
+            "origin_type": "direct_instruction",
+            "sources": [
+              {
+                "ref": {
+                  "provider": "fixture",
+                  "kind": "chat_message",
+                  "record_id": "4bdba2d5-bc68-5cd2-882f-6bfcf2222c9b",
+                  "revision": "1",
+                  "content_hash": "b1ca4946183a7d06f13849a974c84236b9cfcf077152f4edf291737b27ad9d13",
+                  "origin_event_id": "72a951e3-4e42-5e60-8abc-fa8785e9ced5",
+                  "episode_id": "11f30929-d5d2-53e0-b967-e69865501f46",
+                  "actor_id": "0498f44d-d8bd-5d64-9d46-8525d2a6809f",
+                  "actor_kind": "human",
+                  "occurred_at": "2026-10-27T10:00:00Z",
+                  "locator": {
+                    "record": "research-rule"
+                  },
+                  "scope": {
+                    "description": "Synthetic owner work",
+                    "project_ids": [],
+                    "work_types": [],
+                    "workflow_refs": [],
+                    "conditions": [],
+                    "exceptions": []
+                  },
+                  "provenance": {
+                    "producer_id": "b3a93b7f-eb98-5bf2-ad90-8d6077f222d1",
+                    "overseer_origin": false,
+                    "original_refs": []
+                  },
+                  "availability": "available",
+                  "namespace": {
+                    "kind": "global",
+                    "business_id": null
+                  }
+                },
+                "role": "supporting"
+              }
+            ],
+            "created_at": "2026-10-27T10:05:00Z",
+            "created_by": "711ab31e-a235-5dfe-a91e-fcbc8b2f5bff"
+          }
+        ],
+        "evidence": [
+          {
+            "id": "84e2edf6-4754-539f-8e54-b394bf4b805c:0",
+            "proposal_id": "84e2edf6-4754-539f-8e54-b394bf4b805c",
+            "source_index": 0,
+            "role": "supporting",
+            "ref": {
+              "provider": "fixture",
+              "kind": "chat_message",
+              "record_id": "4bdba2d5-bc68-5cd2-882f-6bfcf2222c9b",
+              "revision": "1",
+              "content_hash": "b1ca4946183a7d06f13849a974c84236b9cfcf077152f4edf291737b27ad9d13",
+              "origin_event_id": "72a951e3-4e42-5e60-8abc-fa8785e9ced5",
+              "episode_id": "11f30929-d5d2-53e0-b967-e69865501f46",
+              "actor_id": "0498f44d-d8bd-5d64-9d46-8525d2a6809f",
+              "actor_kind": "human",
+              "occurred_at": "2026-10-27T10:00:00Z",
+              "locator": {
+                "record": "research-rule"
+              },
+              "scope": {
+                "description": "Synthetic owner work",
+                "project_ids": [],
+                "work_types": [],
+                "workflow_refs": [],
+                "conditions": [],
+                "exceptions": []
+              },
+              "provenance": {
+                "producer_id": "b3a93b7f-eb98-5bf2-ad90-8d6077f222d1",
+                "overseer_origin": false,
+                "original_refs": []
+              },
+              "availability": "available",
+              "namespace": {
+                "kind": "global",
+                "business_id": null
+              }
+            },
+            "availability": "available",
+            "excerpt": "When doing research, provide data and transformations; do not bake your opinions into the result."
+          }
+        ],
+        "discussion": {
+          "schema_version": 1,
+          "items": [
+            {
+              "id": "404c4f0f-d7d5-511a-bf59-59ca8446b073",
+              "at": "2026-10-27T19:00:00Z",
+              "actor": {
+                "id": "c0ea48d6-9af6-53a1-a500-cc744499573e",
+                "kind": "human",
+                "label": "Owner"
+              },
+              "kind": "comment",
+              "text": "Keep this rule scoped to research outputs.",
+              "source_ref": {
+                "provider": "qorqut_signoff",
+                "signoff_id": "da3279ca-0d79-57a7-afb3-0ff9f46872f4",
+                "proposal_revision": 1,
+                "payload_hash": "375a1520cef503fb199486fbf4ebf3d0312e19c1e13fb5cce92e66756c5665da"
+              },
+              "targets": {
+                "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+                "delta_revision": 1,
+                "application_id": null,
+                "plan_revision": null,
+                "batch_id": "8d324e9e-8578-5cea-b6d3-e2f4be972b00"
+              },
+              "availability": "available"
+            }
+          ],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        },
+        "decision_history": {
+          "schema_version": 1,
+          "items": [
+            {
+              "binding_id": "689cafb2-795f-5e7b-b834-10374368368f",
+              "purpose": "review",
+              "targets": {
+                "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+                "delta_revision": 1,
+                "application_id": null,
+                "plan_revision": null
+              },
+              "request_ref": {
+                "provider": "qorqut_signoff",
+                "signoff_id": "da3279ca-0d79-57a7-afb3-0ff9f46872f4",
+                "proposal_revision": 1,
+                "payload_hash": "375a1520cef503fb199486fbf4ebf3d0312e19c1e13fb5cce92e66756c5665da"
+              },
+              "response_ref": {
+                "provider": "qorqut_signoff",
+                "signoff_id": "da3279ca-0d79-57a7-afb3-0ff9f46872f4",
+                "proposal_revision": 1,
+                "payload_hash": "375a1520cef503fb199486fbf4ebf3d0312e19c1e13fb5cce92e66756c5665da",
+                "status_revision": 2
+              },
+              "selected_choice_ids": [
+                "accept"
+              ],
+              "notes": "Accept this for research outputs. Hypotheses should remain explicitly labelled.",
+              "interpretation": null,
+              "result": {
+                "status": "applied",
+                "action": "accept",
+                "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+                "application_id": "45d70c82-94bf-566f-a5b3-8bd5b32584a4"
+              },
+              "at": "2026-10-27T19:00:00Z"
+            }
+          ],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        },
+        "versions": {
+          "schema_version": 1,
+          "items": [
+            {
+              "revision": 1,
+              "summary": "Keep research evidence separate from opinion",
+              "created_at": "2026-10-27T19:00:00Z"
+            }
+          ],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        },
+        "review_input": null,
+        "application": {
+          "id": "45d70c82-94bf-566f-a5b3-8bd5b32584a4",
+          "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+          "summary": "Keep research evidence separate from opinion",
+          "revision": 1,
+          "phase": "queued",
+          "accepted_revision": 1,
+          "plan_revision": null,
+          "waiting_input_ref": null,
+          "merge": null,
+          "checks": {
+            "state": "not_run",
+            "receipts": []
+          },
+          "refresh": {
+            "required": false,
+            "state": "not_required",
+            "detail": null
+          },
+          "external_tasks": [],
+          "outcome": null
+        },
+        "available_actions": [
+          "open_application",
+          "view_evidence",
+          "view_history"
+        ]
+      },
+      "warnings": []
+    },
+    "queue": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "items": [
+          {
+            "id": "45d70c82-94bf-566f-a5b3-8bd5b32584a4",
+            "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+            "summary": "Keep research evidence separate from opinion",
+            "revision": 1,
+            "phase": "queued",
+            "accepted_revision": 1,
+            "plan_revision": null,
+            "waiting_input_ref": null,
+            "merge": null,
+            "checks": {
+              "state": "not_run",
+              "receipts": []
+            },
+            "refresh": {
+              "required": false,
+              "state": "not_required",
+              "detail": null
+            },
+            "external_tasks": [],
+            "outcome": null
+          }
+        ],
+        "next_cursor": null,
+        "complete": true,
+        "availability": "available",
+        "gaps": []
+      },
+      "warnings": []
+    },
+    "application": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "application": {
+          "id": "45d70c82-94bf-566f-a5b3-8bd5b32584a4",
+          "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+          "summary": "Keep research evidence separate from opinion",
+          "revision": 1,
+          "phase": "queued",
+          "accepted_revision": 1,
+          "plan_revision": null,
+          "waiting_input_ref": null,
+          "merge": null,
+          "checks": {
+            "state": "not_run",
+            "receipts": []
+          },
+          "refresh": {
+            "required": false,
+            "state": "not_required",
+            "detail": null
+          },
+          "external_tasks": [],
+          "outcome": null
+        },
+        "plan": null,
+        "displayed_plan_revision": null,
+        "current_plan_revision": null,
+        "historical": false,
+        "plan_history": {
+          "schema_version": 1,
+          "items": [],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        },
+        "events": {
+          "schema_version": 1,
+          "items": [],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        },
+        "discussion": {
+          "schema_version": 1,
+          "items": [],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        },
+        "waiting_input": null,
+        "available_actions": []
+      },
+      "warnings": []
+    },
+    "decisions": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "items": [
+          {
+            "binding_id": "689cafb2-795f-5e7b-b834-10374368368f",
+            "purpose": "review",
+            "targets": {
+              "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+              "delta_revision": 1,
+              "application_id": null,
+              "plan_revision": null
+            },
+            "request_ref": {
+              "provider": "qorqut_signoff",
+              "signoff_id": "da3279ca-0d79-57a7-afb3-0ff9f46872f4",
+              "proposal_revision": 1,
+              "payload_hash": "375a1520cef503fb199486fbf4ebf3d0312e19c1e13fb5cce92e66756c5665da"
+            },
+            "response_ref": {
+              "provider": "qorqut_signoff",
+              "signoff_id": "da3279ca-0d79-57a7-afb3-0ff9f46872f4",
+              "proposal_revision": 1,
+              "payload_hash": "375a1520cef503fb199486fbf4ebf3d0312e19c1e13fb5cce92e66756c5665da",
+              "status_revision": 2
+            },
+            "selected_choice_ids": [
+              "accept"
+            ],
+            "notes": "Accept this for research outputs. Hypotheses should remain explicitly labelled.",
+            "interpretation": null,
+            "result": {
+              "status": "applied",
+              "action": "accept",
+              "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+              "application_id": "45d70c82-94bf-566f-a5b3-8bd5b32584a4"
+            },
+            "at": "2026-10-27T19:00:00Z"
+          }
+        ],
+        "next_cursor": null,
+        "complete": true,
+        "availability": "available",
+        "gaps": []
+      },
+      "warnings": []
+    }
+  },
+  "historical_scenario": {
+    "delta_revision_1": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "delta": {
+          "summary": "Keep research evidence separate from opinion",
+          "change_direction": "Keep research evidence separate from opinion",
+          "scope": {
+            "description": "Research output",
+            "project_ids": [],
+            "work_types": [
+              "research"
+            ],
+            "workflow_refs": [],
+            "conditions": [],
+            "exceptions": []
+          },
+          "target_refs": [
+            {
+              "description": "Research instructions"
+            }
+          ],
+          "ranking_reason": "A direct instruction about future research behavior; one supported occurrence is sufficient for review.",
+          "uncertainties": [],
+          "id": "ba0a091a-e917-5c59-a80b-0037b470e714"
+        },
+        "revision": 1,
+        "current_revision": 2,
+        "historical": true,
+        "decision": "accepted",
+        "accepted_revision": 2,
+        "support": {
+          "proposal_count": 1,
+          "event_count": 1,
+          "episode_count": 1,
+          "event_refs": [
+            "72a951e3-4e42-5e60-8abc-fa8785e9ced5"
+          ],
+          "episode_refs": [
+            "11f30929-d5d2-53e0-b967-e69865501f46"
+          ]
+        },
+        "proposals": [
+          {
+            "schema_version": 1,
+            "id": "84e2edf6-4754-539f-8e54-b394bf4b805c",
+            "extraction_run_id": "run_fixture_extraction",
+            "summary": "Keep research evidence separate from opinion",
+            "change_direction": "Keep research evidence separate from opinion",
+            "observed_fact": "When doing research, provide data and transformations; do not bake your opinions into the result.",
+            "interpretation": "Synthetic illustration; scope is limited to what this source supports.",
+            "scope": {
+              "description": "Research output",
+              "project_ids": [],
+              "work_types": [
+                "research"
+              ],
+              "workflow_refs": [],
+              "conditions": [],
+              "exceptions": []
+            },
+            "target_refs": [
+              {
+                "description": "Keep research evidence separate from opinion"
+              }
+            ],
+            "origin_type": "direct_instruction",
+            "sources": [
+              {
+                "ref": {
+                  "provider": "fixture",
+                  "kind": "chat_message",
+                  "record_id": "4bdba2d5-bc68-5cd2-882f-6bfcf2222c9b",
+                  "revision": "1",
+                  "content_hash": "b1ca4946183a7d06f13849a974c84236b9cfcf077152f4edf291737b27ad9d13",
+                  "origin_event_id": "72a951e3-4e42-5e60-8abc-fa8785e9ced5",
+                  "episode_id": "11f30929-d5d2-53e0-b967-e69865501f46",
+                  "actor_id": "0498f44d-d8bd-5d64-9d46-8525d2a6809f",
+                  "actor_kind": "human",
+                  "occurred_at": "2026-10-27T10:00:00Z",
+                  "locator": {
+                    "record": "research-rule"
+                  },
+                  "scope": {
+                    "description": "Synthetic owner work",
+                    "project_ids": [],
+                    "work_types": [],
+                    "workflow_refs": [],
+                    "conditions": [],
+                    "exceptions": []
+                  },
+                  "provenance": {
+                    "producer_id": "b3a93b7f-eb98-5bf2-ad90-8d6077f222d1",
+                    "overseer_origin": false,
+                    "original_refs": []
+                  },
+                  "availability": "available",
+                  "namespace": {
+                    "kind": "global",
+                    "business_id": null
+                  }
+                },
+                "role": "supporting"
+              }
+            ],
+            "created_at": "2026-10-27T10:05:00Z",
+            "created_by": "711ab31e-a235-5dfe-a91e-fcbc8b2f5bff"
+          }
+        ],
+        "evidence": [
+          {
+            "id": "84e2edf6-4754-539f-8e54-b394bf4b805c:0",
+            "proposal_id": "84e2edf6-4754-539f-8e54-b394bf4b805c",
+            "source_index": 0,
+            "role": "supporting",
+            "ref": {
+              "provider": "fixture",
+              "kind": "chat_message",
+              "record_id": "4bdba2d5-bc68-5cd2-882f-6bfcf2222c9b",
+              "revision": "1",
+              "content_hash": "b1ca4946183a7d06f13849a974c84236b9cfcf077152f4edf291737b27ad9d13",
+              "origin_event_id": "72a951e3-4e42-5e60-8abc-fa8785e9ced5",
+              "episode_id": "11f30929-d5d2-53e0-b967-e69865501f46",
+              "actor_id": "0498f44d-d8bd-5d64-9d46-8525d2a6809f",
+              "actor_kind": "human",
+              "occurred_at": "2026-10-27T10:00:00Z",
+              "locator": {
+                "record": "research-rule"
+              },
+              "scope": {
+                "description": "Synthetic owner work",
+                "project_ids": [],
+                "work_types": [],
+                "workflow_refs": [],
+                "conditions": [],
+                "exceptions": []
+              },
+              "provenance": {
+                "producer_id": "b3a93b7f-eb98-5bf2-ad90-8d6077f222d1",
+                "overseer_origin": false,
+                "original_refs": []
+              },
+              "availability": "available",
+              "namespace": {
+                "kind": "global",
+                "business_id": null
+              }
+            },
+            "availability": "available",
+            "excerpt": "When doing research, provide data and transformations; do not bake your opinions into the result."
+          }
+        ],
+        "discussion": {
+          "schema_version": 1,
+          "items": [
+            {
+              "id": "404c4f0f-d7d5-511a-bf59-59ca8446b073",
+              "at": "2026-10-27T19:00:00Z",
+              "actor": {
+                "id": "c0ea48d6-9af6-53a1-a500-cc744499573e",
+                "kind": "human",
+                "label": "Owner"
+              },
+              "kind": "comment",
+              "text": "This comment addresses the original revision only.",
+              "source_ref": {
+                "provider": "qorqut_signoff",
+                "signoff_id": "da3279ca-0d79-57a7-afb3-0ff9f46872f4",
+                "proposal_revision": 1,
+                "payload_hash": "375a1520cef503fb199486fbf4ebf3d0312e19c1e13fb5cce92e66756c5665da"
+              },
+              "targets": {
+                "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+                "delta_revision": 1,
+                "application_id": null,
+                "plan_revision": null,
+                "batch_id": "8d324e9e-8578-5cea-b6d3-e2f4be972b00"
+              },
+              "availability": "available"
+            }
+          ],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        },
+        "decision_history": {
+          "schema_version": 1,
+          "items": [
+            {
+              "binding_id": "689cafb2-795f-5e7b-b834-10374368368f",
+              "purpose": "review",
+              "targets": {
+                "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+                "delta_revision": 1,
+                "application_id": null,
+                "plan_revision": null
+              },
+              "request_ref": {
+                "provider": "qorqut_signoff",
+                "signoff_id": "da3279ca-0d79-57a7-afb3-0ff9f46872f4",
+                "proposal_revision": 1,
+                "payload_hash": "375a1520cef503fb199486fbf4ebf3d0312e19c1e13fb5cce92e66756c5665da"
+              },
+              "response_ref": {
+                "provider": "qorqut_signoff",
+                "signoff_id": "da3279ca-0d79-57a7-afb3-0ff9f46872f4",
+                "proposal_revision": 1,
+                "payload_hash": "375a1520cef503fb199486fbf4ebf3d0312e19c1e13fb5cce92e66756c5665da",
+                "status_revision": 2
+              },
+              "selected_choice_ids": [
+                "accept"
+              ],
+              "notes": "Accept this for research outputs. Hypotheses should remain explicitly labelled.",
+              "interpretation": null,
+              "result": {
+                "status": "applied",
+                "action": "accept",
+                "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+                "application_id": "45d70c82-94bf-566f-a5b3-8bd5b32584a4"
+              },
+              "at": "2026-10-27T19:00:00Z"
+            }
+          ],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        },
+        "versions": {
+          "schema_version": 1,
+          "items": [
+            {
+              "revision": 2,
+              "summary": "Keep research data and hypotheses explicitly separated",
+              "created_at": "2026-10-27T19:10:00Z"
+            },
+            {
+              "revision": 1,
+              "summary": "Keep research evidence separate from opinion",
+              "created_at": "2026-10-27T19:00:00Z"
+            }
+          ],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        },
+        "review_input": null,
+        "application": {
+          "id": "45d70c82-94bf-566f-a5b3-8bd5b32584a4",
+          "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+          "summary": "Keep research evidence separate from opinion",
+          "revision": 5,
+          "phase": "planning",
+          "accepted_revision": 2,
+          "plan_revision": 2,
+          "waiting_input_ref": null,
+          "merge": null,
+          "checks": {
+            "state": "not_run",
+            "receipts": []
+          },
+          "refresh": {
+            "required": false,
+            "state": "not_required",
+            "detail": null
+          },
+          "external_tasks": [],
+          "outcome": null
+        },
+        "available_actions": [
+          "open_application",
+          "view_evidence",
+          "view_history"
+        ]
+      },
+      "warnings": []
+    },
+    "application_plan_1": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "application": {
+          "id": "45d70c82-94bf-566f-a5b3-8bd5b32584a4",
+          "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+          "summary": "Keep research evidence separate from opinion",
+          "revision": 5,
+          "phase": "planning",
+          "accepted_revision": 2,
+          "plan_revision": 2,
+          "waiting_input_ref": null,
+          "merge": null,
+          "checks": {
+            "state": "not_run",
+            "receipts": []
+          },
+          "refresh": {
+            "required": false,
+            "state": "not_required",
+            "detail": null
+          },
+          "external_tasks": [],
+          "outcome": null
+        },
+        "plan": {
+          "schema_version": 1,
+          "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+          "delta_revision": 1,
+          "replaces_accepted_revision": null,
+          "intended_outcome": "Keep research outputs evidence-based and label hypotheses.",
+          "changes": [
+            {
+              "kind": "instruction",
+              "action": "edit",
+              "target_ref": "research/output",
+              "path": "packages/research/output.md",
+              "description": "Record the accepted research-output rule.",
+              "expected_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "base": {
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "resource_hashes": {
+              "packages/research/output.md": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          },
+          "external_requirements": [],
+          "checks": [
+            {
+              "id": "catalog",
+              "phase": "pre_merge",
+              "kind": "catalog",
+              "arguments": {}
+            },
+            {
+              "id": "catalog-after",
+              "phase": "post_merge",
+              "kind": "catalog",
+              "arguments": {}
+            }
+          ],
+          "application_id": "45d70c82-94bf-566f-a5b3-8bd5b32584a4",
+          "revision": 1,
+          "created_at": "2026-10-27T19:00:00Z"
+        },
+        "displayed_plan_revision": 1,
+        "current_plan_revision": 2,
+        "historical": true,
+        "plan_history": {
+          "schema_version": 1,
+          "items": [
+            {
+              "revision": 2,
+              "delta_revision": 2,
+              "intended_outcome": "Add explicit hypothesis labelling to research guidance.",
+              "created_at": "2026-10-27T19:10:00Z"
+            },
+            {
+              "revision": 1,
+              "delta_revision": 1,
+              "intended_outcome": "Keep research outputs evidence-based and label hypotheses.",
+              "created_at": "2026-10-27T19:00:00Z"
+            }
+          ],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        },
+        "events": {
+          "schema_version": 1,
+          "items": [],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        },
+        "discussion": {
+          "schema_version": 1,
+          "items": [],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        },
+        "waiting_input": null,
+        "available_actions": []
+      },
+      "warnings": []
+    }
+  },
+  "failed_scenario": {
+    "application": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "application": {
+          "id": "45d70c82-94bf-566f-a5b3-8bd5b32584a4",
+          "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+          "summary": "Keep research evidence separate from opinion",
+          "revision": 7,
+          "phase": "merged",
+          "accepted_revision": 1,
+          "plan_revision": 1,
+          "waiting_input_ref": {
+            "binding_id": "17fd24c3-938a-50a0-8f94-c7256da8210a",
+            "signoff_id": "fa6ab713-a4d6-5525-9f19-0a0856bde065",
+            "review_scope": {
+              "kind": "global",
+              "business_id": null
+            },
+            "purpose": "failure",
+            "target_revision": 1,
+            "application_id": "45d70c82-94bf-566f-a5b3-8bd5b32584a4",
+            "application_revision": 7,
+            "plan_revision": 1,
+            "proposal_revision": 1,
+            "payload_hash": "16d34b5e7bcb341ee6cb3d16495d90e93fbe57c46d3827432613210a24ebca30",
+            "status_revision": 1,
+            "actionable": true
+          },
+          "merge": {
+            "base": "1111111111111111111111111111111111111111",
+            "candidate": "2222222222222222222222222222222222222222",
+            "merged_commit": "2222222222222222222222222222222222222222",
+            "change_id": "chg_fixture_research"
+          },
+          "checks": {
+            "state": "failed",
+            "receipts": [
+              {
+                "check_id": "catalog-after",
+                "kind": "catalog",
+                "outcome": "failed",
+                "started_at": "2026-10-27T19:00:00Z",
+                "finished_at": "2026-10-27T19:00:00Z",
+                "exit_code": null,
+                "tool_receipt_ref": null,
+                "output_ref": null,
+                "diagnostic": "Synthetic fixture: a referenced skill file is missing."
+              }
+            ]
+          },
+          "refresh": {
+            "required": true,
+            "state": "unknown",
+            "detail": null
+          },
+          "external_tasks": [],
+          "outcome": null
+        },
+        "plan": {
+          "schema_version": 1,
+          "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+          "delta_revision": 1,
+          "replaces_accepted_revision": null,
+          "intended_outcome": "Keep research outputs evidence-based and label hypotheses.",
+          "changes": [
+            {
+              "kind": "instruction",
+              "action": "edit",
+              "target_ref": "research/output",
+              "path": "packages/research/output.md",
+              "description": "Record the accepted research-output rule.",
+              "expected_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "base": {
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "resource_hashes": {
+              "packages/research/output.md": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          },
+          "external_requirements": [],
+          "checks": [
+            {
+              "id": "catalog",
+              "phase": "pre_merge",
+              "kind": "catalog",
+              "arguments": {}
+            },
+            {
+              "id": "catalog-after",
+              "phase": "post_merge",
+              "kind": "catalog",
+              "arguments": {}
+            }
+          ],
+          "application_id": "45d70c82-94bf-566f-a5b3-8bd5b32584a4",
+          "revision": 1,
+          "created_at": "2026-10-27T19:00:00Z"
+        },
+        "displayed_plan_revision": 1,
+        "current_plan_revision": 1,
+        "historical": false,
+        "plan_history": {
+          "schema_version": 1,
+          "items": [
+            {
+              "revision": 1,
+              "delta_revision": 1,
+              "intended_outcome": "Keep research outputs evidence-based and label hypotheses.",
+              "created_at": "2026-10-27T19:00:00Z"
+            }
+          ],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        },
+        "events": {
+          "schema_version": 1,
+          "items": [
+            {
+              "id": "92daa2ec-2515-542a-b6c8-86b8668e35a7",
+              "at": "2026-10-27T19:00:00Z",
+              "kind": "checks_completed",
+              "plan_revision": 1,
+              "data": {
+                "id": "f629d37c-5f71-5094-ba06-b112e3c3e2f2",
+                "phase": "post_merge",
+                "plan_revision": 1,
+                "checked_commit": "2222222222222222222222222222222222222222",
+                "checked_tree": "3333333333333333333333333333333333333333",
+                "state": "failed",
+                "receipts": [
+                  {
+                    "check_id": "catalog-after",
+                    "kind": "catalog",
+                    "outcome": "failed",
+                    "started_at": "2026-10-27T19:00:00Z",
+                    "finished_at": "2026-10-27T19:00:00Z",
+                    "exit_code": null,
+                    "tool_receipt_ref": null,
+                    "output_ref": null,
+                    "diagnostic": "Synthetic fixture: a referenced skill file is missing."
+                  }
+                ]
+              },
+              "availability": "available"
+            }
+          ],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        },
+        "discussion": {
+          "schema_version": 1,
+          "items": [],
+          "next_cursor": null,
+          "complete": true,
+          "availability": "available",
+          "gaps": []
+        },
+        "waiting_input": {
+          "binding_id": "17fd24c3-938a-50a0-8f94-c7256da8210a",
+          "signoff_id": "fa6ab713-a4d6-5525-9f19-0a0856bde065",
+          "review_scope": {
+            "kind": "global",
+            "business_id": null
+          },
+          "purpose": "failure",
+          "target_revision": 1,
+          "application_id": "45d70c82-94bf-566f-a5b3-8bd5b32584a4",
+          "application_revision": 7,
+          "plan_revision": 1,
+          "proposal_revision": 1,
+          "payload_hash": "16d34b5e7bcb341ee6cb3d16495d90e93fbe57c46d3827432613210a24ebca30",
+          "status_revision": 1,
+          "actionable": true
+        },
+        "available_actions": [
+          "open_signoff"
+        ]
+      },
+      "warnings": []
+    },
+    "all_applications": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "items": [
+          {
+            "id": "45d70c82-94bf-566f-a5b3-8bd5b32584a4",
+            "delta_id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+            "summary": "Keep research evidence separate from opinion",
+            "revision": 7,
+            "phase": "merged",
+            "accepted_revision": 1,
+            "plan_revision": 1,
+            "waiting_input_ref": {
+              "binding_id": "17fd24c3-938a-50a0-8f94-c7256da8210a",
+              "signoff_id": "fa6ab713-a4d6-5525-9f19-0a0856bde065",
+              "review_scope": {
+                "kind": "global",
+                "business_id": null
+              },
+              "purpose": "failure",
+              "target_revision": 1,
+              "application_id": "45d70c82-94bf-566f-a5b3-8bd5b32584a4",
+              "application_revision": 7,
+              "plan_revision": 1,
+              "proposal_revision": 1,
+              "payload_hash": "16d34b5e7bcb341ee6cb3d16495d90e93fbe57c46d3827432613210a24ebca30",
+              "status_revision": 1,
+              "actionable": true
+            },
+            "merge": {
+              "base": "1111111111111111111111111111111111111111",
+              "candidate": "2222222222222222222222222222222222222222",
+              "merged_commit": "2222222222222222222222222222222222222222",
+              "change_id": "chg_fixture_research"
+            },
+            "checks": {
+              "state": "failed",
+              "receipts": [
+                {
+                  "check_id": "catalog-after",
+                  "kind": "catalog",
+                  "outcome": "failed",
+                  "started_at": "2026-10-27T19:00:00Z",
+                  "finished_at": "2026-10-27T19:00:00Z",
+                  "exit_code": null,
+                  "tool_receipt_ref": null,
+                  "output_ref": null,
+                  "diagnostic": "Synthetic fixture: a referenced skill file is missing."
+                }
+              ]
+            },
+            "refresh": {
+              "required": true,
+              "state": "unknown",
+              "detail": null
+            },
+            "external_tasks": [],
+            "outcome": null
+          }
+        ],
+        "next_cursor": null,
+        "complete": true,
+        "availability": "available",
+        "gaps": []
+      },
+      "warnings": []
+    },
+    "unimplemented_queue": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "schema_version": 1,
+        "items": [],
+        "next_cursor": null,
+        "complete": true,
+        "availability": "available",
+        "gaps": []
+      },
+      "warnings": []
+    }
+  },
+  "signoff_answer": {
+    "method": "POST",
+    "path": "/api/root/signoffs/da3279ca-0d79-57a7-afb3-0ff9f46872f4/respond",
+    "body": {
+      "proposal_revision": 1,
+      "payload_hash": "375a1520cef503fb199486fbf4ebf3d0312e19c1e13fb5cce92e66756c5665da",
+      "expected_status_revision": 1,
+      "idempotency_key": "b9d6bf9e-f29b-5144-a45d-dbc53f37079d",
+      "notes": "Accept this for research outputs. Hypotheses should remain explicitly labelled.",
+      "selected_choices": [
+        "accept"
+      ]
+    },
+    "response": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "signoff": {
+          "id": "da3279ca-0d79-57a7-afb3-0ff9f46872f4",
+          "review_business_id": null,
+          "proposal_revision": 1,
+          "payload_hash": "375a1520cef503fb199486fbf4ebf3d0312e19c1e13fb5cce92e66756c5665da",
+          "status_revision": 2,
+          "state": "answered",
+          "operation_name": "signoffs_input_create",
+          "operation_version": 1,
+          "proposer_principal_id": "d11d4501-2aab-5369-a489-eca4514a09a9",
+          "proposer_agent_id": "d11d4501-2aab-5369-a489-eca4514a09a9",
+          "proposer_display_name": "Overseer",
+          "initiated_by_principal_id": null,
+          "title": "Review research guidance",
+          "affected_scope": {
+            "kind": "global"
+          },
+          "review_scope": {
+            "kind": "global",
+            "business_id": null
+          },
+          "created_at": "2026-10-27T19:00:00Z",
+          "updated_at": "2026-10-27T19:00:00Z",
+          "updated_sequence": 1,
+          "decision": {
+            "kind": "respond",
+            "notes": "Accept this for research outputs. Hypotheses should remain explicitly labelled.",
+            "selected_choices": [
+              "accept"
+            ],
+            "by": "c0ea48d6-9af6-53a1-a500-cc744499573e",
+            "at": "2026-10-27T19:00:00Z",
+            "message_id": "b053347b-fdb3-5ed9-a053-ce0724b301fc"
+          },
+          "supersedes_id": null,
+          "superseded_by_id": null,
+          "category": "input_request",
+          "input": {
+            "title": "Review research guidance",
+            "explanation": "Keep research evidence separate from opinion",
+            "kind": "question",
+            "selection_mode": "single",
+            "response_policy": "owner_only",
+            "choices": [
+              {
+                "id": "accept",
+                "label": "Accept",
+                "explanation": "Add this to the accepted queue."
+              },
+              {
+                "id": "reject",
+                "label": "Reject",
+                "explanation": "Keep rejected until explicitly reopened."
+              },
+              {
+                "id": "later",
+                "label": "Later",
+                "explanation": "Leave undecided."
+              },
+              {
+                "id": "revise",
+                "label": "Revise",
+                "explanation": "Discuss a revision before deciding."
+              }
+            ],
+            "selection_required": true,
+            "notes_required": false
+          },
+          "attention": {
+            "notify": false,
+            "urgent": false,
+            "blocking": false
+          },
+          "decision_state": "answered",
+          "actionable": false,
+          "execution_state": "not_applicable",
+          "preview": {
+            "title": "Review research guidance",
+            "explanation": "Keep research evidence separate from opinion",
+            "input": {
+              "title": "Review research guidance",
+              "explanation": "Keep research evidence separate from opinion",
+              "kind": "question",
+              "selection_mode": "single",
+              "response_policy": "owner_only",
+              "choices": [
+                {
+                  "id": "accept",
+                  "label": "Accept",
+                  "explanation": "Add this to the accepted queue."
+                },
+                {
+                  "id": "reject",
+                  "label": "Reject",
+                  "explanation": "Keep rejected until explicitly reopened."
+                },
+                {
+                  "id": "later",
+                  "label": "Later",
+                  "explanation": "Leave undecided."
+                },
+                {
+                  "id": "revise",
+                  "label": "Revise",
+                  "explanation": "Discuss a revision before deciding."
+                }
+              ],
+              "selection_required": true,
+              "notes_required": false
+            }
+          },
+          "expected_targets": [],
+          "applied_at": null,
+          "apply_result": null,
+          "error": null,
+          "rejection_requires_message": false,
+          "note_count": 0,
+          "email_context": null,
+          "legacy_review_routing": false,
+          "initiated_by_display_name": null,
+          "job_id": null
+        },
+        "replayed": false
+      },
+      "warnings": []
+    }
+  },
+  "stale_scenario": {
+    "signoff": {
+      "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+      "status": "ok",
+      "data": {
+        "signoff": {
+          "id": "da3279ca-0d79-57a7-afb3-0ff9f46872f4",
+          "review_business_id": null,
+          "proposal_revision": 2,
+          "payload_hash": "3b767df83d84cba93cb442e1c97b09cb0d4071d25352ed1aa2a4be1c4d137136",
+          "status_revision": 3,
+          "state": "pending",
+          "operation_name": "signoffs_input_create",
+          "operation_version": 1,
+          "proposer_principal_id": "d11d4501-2aab-5369-a489-eca4514a09a9",
+          "proposer_agent_id": "d11d4501-2aab-5369-a489-eca4514a09a9",
+          "proposer_display_name": "Overseer",
+          "initiated_by_principal_id": null,
+          "title": "Review research guidance",
+          "affected_scope": {
+            "kind": "global"
+          },
+          "review_scope": {
+            "kind": "global",
+            "business_id": null
+          },
+          "created_at": "2026-10-27T19:00:00Z",
+          "updated_at": "2026-10-27T19:00:00Z",
+          "updated_sequence": 1,
+          "decision": null,
+          "supersedes_id": null,
+          "superseded_by_id": null,
+          "category": "input_request",
+          "input": {
+            "title": "Review research guidance",
+            "explanation": "Keep research evidence separate from opinion",
+            "kind": "question",
+            "selection_mode": "single",
+            "response_policy": "owner_only",
+            "choices": [
+              {
+                "id": "accept",
+                "label": "Accept",
+                "explanation": "Add this to the accepted queue."
+              },
+              {
+                "id": "reject",
+                "label": "Reject",
+                "explanation": "Keep rejected until explicitly reopened."
+              },
+              {
+                "id": "later",
+                "label": "Later",
+                "explanation": "Leave undecided."
+              },
+              {
+                "id": "revise",
+                "label": "Revise",
+                "explanation": "Discuss a revision before deciding."
+              }
+            ],
+            "selection_required": true,
+            "notes_required": false
+          },
+          "attention": {
+            "notify": false,
+            "urgent": false,
+            "blocking": false
+          },
+          "decision_state": "pending",
+          "actionable": true,
+          "execution_state": "not_applicable",
+          "preview": {
+            "title": "Review research guidance",
+            "explanation": "Keep research evidence separate from opinion",
+            "input": {
+              "title": "Review research guidance",
+              "explanation": "Keep research evidence separate from opinion",
+              "kind": "question",
+              "selection_mode": "single",
+              "response_policy": "owner_only",
+              "choices": [
+                {
+                  "id": "accept",
+                  "label": "Accept",
+                  "explanation": "Add this to the accepted queue."
+                },
+                {
+                  "id": "reject",
+                  "label": "Reject",
+                  "explanation": "Keep rejected until explicitly reopened."
+                },
+                {
+                  "id": "later",
+                  "label": "Later",
+                  "explanation": "Leave undecided."
+                },
+                {
+                  "id": "revise",
+                  "label": "Revise",
+                  "explanation": "Discuss a revision before deciding."
+                }
+              ],
+              "selection_required": true,
+              "notes_required": false
+            }
+          },
+          "expected_targets": [],
+          "applied_at": null,
+          "apply_result": null,
+          "error": null,
+          "rejection_requires_message": false,
+          "note_count": 0,
+          "email_context": null,
+          "legacy_review_routing": false,
+          "initiated_by_display_name": null,
+          "job_id": null
+        }
+      },
+      "warnings": []
+    },
+    "expected": "Preserve unsent notes/choices; do not submit/replay against the changed binding."
+  },
+  "pagination_example": {
+    "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+    "status": "ok",
+    "data": {
+      "schema_version": 1,
+      "items": [
+        {
+          "id": "ba0a091a-e917-5c59-a80b-0037b470e714",
+          "revision": 1,
+          "current_revision": 1,
+          "summary": "Keep research evidence separate from opinion",
+          "change_direction": "Keep research evidence separate from opinion",
+          "scope": {
+            "description": "Research output",
+            "project_ids": [],
+            "work_types": [
+              "research"
+            ],
+            "workflow_refs": [],
+            "conditions": [],
+            "exceptions": []
+          },
+          "decision": "undecided",
+          "accepted_revision": null,
+          "support": {
+            "proposal_count": 1,
+            "event_count": 1,
+            "episode_count": 1,
+            "event_refs": [
+              "72a951e3-4e42-5e60-8abc-fa8785e9ced5"
+            ],
+            "episode_refs": [
+              "11f30929-d5d2-53e0-b967-e69865501f46"
+            ]
+          },
+          "ranking_reason": "A direct instruction about future research behavior; one supported occurrence is sufficient for review.",
+          "uncertainties": [],
+          "application_id": null,
+          "review_input": {
+            "binding_id": "689cafb2-795f-5e7b-b834-10374368368f",
+            "signoff_id": "da3279ca-0d79-57a7-afb3-0ff9f46872f4",
+            "review_scope": {
+              "kind": "global",
+              "business_id": null
+            },
+            "purpose": "review",
+            "target_revision": 1,
+            "application_id": null,
+            "application_revision": null,
+            "plan_revision": null,
+            "proposal_revision": 1,
+            "payload_hash": "375a1520cef503fb199486fbf4ebf3d0312e19c1e13fb5cce92e66756c5665da",
+            "status_revision": 1,
+            "actionable": true
+          },
+          "updated_at": "2026-10-27T19:00:00Z"
+        },
+        {
+          "id": "c8e4afde-9670-5f94-b10a-8bf6d5b01a7e",
+          "revision": 1,
+          "current_revision": 1,
+          "summary": "Omit price from product-launch influencer emails",
+          "change_direction": "Omit price from product-launch influencer emails",
+          "scope": {
+            "description": "Product-launch influencer outreach",
+            "project_ids": [],
+            "work_types": [],
+            "workflow_refs": [
+              "launch-products-on-x/outreach"
+            ],
+            "conditions": [],
+            "exceptions": []
+          },
+          "decision": "undecided",
+          "accepted_revision": null,
+          "support": {
+            "proposal_count": 1,
+            "event_count": 1,
+            "episode_count": 1,
+            "event_refs": [
+              "72c50f77-7404-5e24-85ab-4852acd8be2c"
+            ],
+            "episode_refs": [
+              "ce90b7f8-1e24-5b62-a901-4169e9a28ef0"
+            ]
+          },
+          "ranking_reason": "One concrete observation supports review; the owner decides whether it should become guidance.",
+          "uncertainties": [],
+          "application_id": null,
+          "review_input": {
+            "binding_id": "44a938e6-d8a4-5c06-b66b-c1ebe9bfe865",
+            "signoff_id": "f250b2b8-1a2f-567e-b13b-594d87ff5679",
+            "review_scope": {
+              "kind": "global",
+              "business_id": null
+            },
+            "purpose": "review",
+            "target_revision": 1,
+            "application_id": null,
+            "application_revision": null,
+            "plan_revision": null,
+            "proposal_revision": 1,
+            "payload_hash": "7034ae0cba4f43606c2b66005b501420def7cec644820564e9cda48acbe04290",
+            "status_revision": 1,
+            "actionable": true
+          },
+          "updated_at": "2026-10-27T19:00:00Z"
+        }
+      ],
+      "next_cursor": "fixture-only-opaque-cursor",
+      "complete": false,
+      "availability": "available",
+      "gaps": []
+    },
+    "warnings": []
+  },
+  "empty": {
+    "request_id": "4a2ac78a-7ee6-5113-b4bb-7a80e9497bb3",
+    "status": "ok",
+    "data": {
+      "schema_version": 1,
+      "items": [],
+      "next_cursor": null,
+      "complete": true,
+      "availability": "available",
+      "gaps": []
+    },
+    "warnings": []
+  },
+  "expectations": [
+    "Five saved batch items retain their ordering after decisions.",
+    "Historical wording and owner reasoning remain distinct from current decisions.",
+    "Acceptance queues without application execution.",
+    "Merged failure remains merged; failure answer uses actual Signoff controller.",
+    "Unavailable evidence contains no text."
+  ]
+}

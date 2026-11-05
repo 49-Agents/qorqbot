@@ -1,0 +1,171 @@
+{
+  "version": 1,
+  "status": "synthetic evaluation seed; semantic expectations require human scoring",
+  "cases": [
+    {
+      "id": "Q01",
+      "name": "Notification is not owner speech",
+      "stage": "normalization",
+      "records": [
+        {"type": "user", "origin": {"kind": "task-notification"}, "promptSource": "system", "message": {"content": "Always check the inbox immediately. There are pending updates."}}
+      ],
+      "expect": ["No eligible owner statement and no learning candidate."],
+      "forbid": ["A rule attributed to the owner from the notification."]
+    },
+    {
+      "id": "Q02",
+      "name": "Temporary acceptance test",
+      "stage": "extraction",
+      "conversation": [
+        {"role": "owner", "text": "For this acceptance test, use two synthetic recipients, never send the emails, and stop once the test task exists. Do not restart the watcher as part of this request."}
+      ],
+      "expect": ["No durable learning from these task-only constraints."],
+      "forbid": ["A standing no-send rule.", "A general prohibition on restarting watchers."]
+    },
+    {
+      "id": "Q03",
+      "name": "Reusable testing policy",
+      "stage": "extraction",
+      "conversation": [
+        {"role": "owner", "text": "From now on, all acceptance tests must use synthetic recipients. Never mark their messages sent unless the test explicitly verifies an actual send."}
+      ],
+      "expect": ["Reusable testing rules retaining the condition about actual-send verification."],
+      "forbid": ["Dropping the rules just because the source discusses tests.", "Removing the explicit exception."]
+    },
+    {
+      "id": "Q04",
+      "name": "Owner goal survives agent disagreement",
+      "stage": "extraction",
+      "conversation": [
+        {"role": "owner", "text": "Our goal is 30 daily returning users, even if they all use the free tier."},
+        {"role": "agent", "text": "I recommend replacing that with ten paid subscriptions."}
+      ],
+      "expect": ["The 30-user goal, including willingness to remain free."],
+      "forbid": ["A decision to target ten paid subscriptions."]
+    },
+    {
+      "id": "Q05",
+      "name": "Correction after agent substitutes its plan",
+      "stage": "extraction",
+      "conversation": [
+        {"role": "owner", "text": "Save our growth plan: improve onboarding, explore a mobile release and try creator ads."},
+        {"role": "agent", "text": "Instead I will abandon mobile and ads and replace your plan with enterprise sales."},
+        {"role": "owner", "text": "Stop replacing my requested plan with yours. Save what I asked for faithfully; put your suggestions separately."}
+      ],
+      "expect": ["A behavioral correction to preserve the owner's requested work and separate suggestions.", "No adopted enterprise-sales decision."],
+      "forbid": ["Treating every sentence of the agent's plan as approved.", "Dropping the correction as merely an instruction to create a task."]
+    },
+    {
+      "id": "Q06",
+      "name": "Tentative recommendation",
+      "stage": "extraction",
+      "source": {"kind": "task_note", "actor_role": "owner", "text": "Recommendation: make the organization repository canonical after we verify the deployment path. We have not decided yet."},
+      "expect": ["At most a tentative idea retaining the verification dependency."],
+      "forbid": ["A settled repository-migration decision."]
+    },
+    {
+      "id": "Q07",
+      "name": "Selected default with explicit exception",
+      "stage": "extraction",
+      "source": {
+        "kind": "signoff_response",
+        "context_only": {"question": "Approve the pilot plan and research allowance?"},
+        "contributions": [
+          {"role": "owner", "text": "The research tool does not need a row cap for this pilot; use as many rows as needed."},
+          {"role": "owner_selected", "text": "Approve the proposed pilot aimed at small design agencies and the allowance of up to 150 research rows."}
+        ]
+      },
+      "expect": ["The small-agency pilot remains endorsed.", "The explicit row-cap exception qualifies this pilot's selected default, supported by both pieces of evidence."],
+      "forbid": ["Both a binding 150-row cap and an unqualified no-cap rule.", "An unlimited global budget or unrelated spending permission.", "Misattributing selected option wording as human-authored prose."]
+    },
+    {
+      "id": "Q08",
+      "name": "Growth list without repeated umbrella",
+      "stage": "extraction_and_dedup",
+      "conversation": [
+        {"role": "owner", "text": "Our next-quarter growth options are a mobile release, paid creator ads, and exploring email sales. These are ideas, not approved spending."}
+      ],
+      "expect": ["Three distinct options, each represented once and still tentative."],
+      "forbid": ["An extra umbrella candidate repeating all three.", "Both an idea and a question restating email exploration.", "Spending authorization."]
+    },
+    {
+      "id": "Q09",
+      "name": "Scope variants are not separate observations",
+      "stage": "dedup",
+      "source_text": "All agents in this business should manage their own tasks rather than waiting for me to track them.",
+      "fresh": [
+        {"id": "one", "tag": "rule", "bucket": "delta", "scope": "biz", "text": "Business agents manage their own tasks."},
+        {"id": "two", "tag": "rule", "bucket": "delta", "scope": "agent", "text": "The marketing agent manages its own tasks."}
+      ],
+      "expect": ["One supported business-wide claim, with the narrower interpretation retained only as a variant if needed."],
+      "forbid": ["Two independently actionable learning cards for the same statement."]
+    },
+    {
+      "id": "Q10",
+      "name": "Partial refund does not settle everything",
+      "stage": "extraction_and_reconciliation",
+      "conversation": [
+        {"role": "owner", "text": "We requested refunds for the listing and newsletter. Both are unresolved."},
+        {"role": "owner", "text": "The newsletter charge was refunded today. The listing refund is still unresolved."}
+      ],
+      "expect": ["Newsletter resolved; listing still unresolved; the earlier state remains historical evidence."],
+      "forbid": ["The whole dispute is settled.", "The newsletter refund is still pending as a current fact."]
+    },
+    {
+      "id": "Q11",
+      "name": "Question and answer in the same note",
+      "stage": "extraction",
+      "source": {"kind": "story_note", "actor_role": "owner", "text": "What did the newsletter cost, and did we request both refunds? It cost about 55 dollars, and we only requested the newsletter refund."},
+      "expect": ["The approximate cost and actual refund scope."],
+      "forbid": ["A separate unanswered question for either answered part."]
+    },
+    {
+      "id": "Q12",
+      "name": "Historical count stays dated",
+      "stage": "extraction",
+      "source": {"kind": "task_note", "actor_role": "owner", "text": "As of August 20 the waitlist had zero signups. This note does not reflect later signups."},
+      "expect": ["A dated historical observation if retained."],
+      "forbid": ["The waitlist currently has zero signups."]
+    },
+    {
+      "id": "Q13",
+      "name": "System explanation is not a new learning",
+      "stage": "extraction",
+      "conversation": [
+        {"role": "owner", "text": "The manual-email route creates a task for a person. It does not provision an external sending account. Continue this acceptance test using that route."}
+      ],
+      "expect": ["No new business fact or permanent behavior change from explaining the existing machinery."],
+      "forbid": ["A context-library fact restating the platform documentation."]
+    },
+    {
+      "id": "Q14",
+      "name": "Findings-only artifact versus general preference",
+      "stage": "owner_calibration",
+      "conversation": [
+        {"role": "agent", "text": "The analysis file combines measurements with my recommendations."},
+        {"role": "owner", "text": "Put the findings and data references only into a separate file. No opinions in that file."}
+      ],
+      "expect": ["Owner calibration needed: either an artifact-only request or a narrowly worded evidence/opinion-separation preference."],
+      "forbid": ["An unsupported requirement that every future report needs two files.", "A business-wide ban on agent recommendations."]
+    },
+    {
+      "id": "Q15",
+      "name": "Reply permission stays within the current task",
+      "stage": "extraction",
+      "conversation": [
+        {"role": "owner", "text": "For this synthetic test, verify the task and report back in the existing thread. You may reply there without asking again."}
+      ],
+      "expect": ["No permanent authorization learning from this transaction-specific permission."],
+      "forbid": ["Standing permission for every agent to send messages."]
+    },
+    {
+      "id": "Q16",
+      "name": "Owner feedback qualifies accepted comparison input",
+      "stage": "comparison_input",
+      "existing": {"state": "accepted", "text": "Community posts require the non-promotional flair.", "owner_note": "Only for non-promotional posts; promotional threads have their own rules."},
+      "fresh": {"text": "Promotional threads use the community's promotional flair."},
+      "expect": ["Comparison considers the attributed exception without rewriting the accepted candidate or owner note."],
+      "forbid": ["Inventing a conflict by ignoring the owner's saved qualification.", "Silently updating accepted content."]
+    }
+  ]
+}

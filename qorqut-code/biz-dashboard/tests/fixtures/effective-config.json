@@ -1,0 +1,33 @@
+{
+  "request_id": "50000000-0000-4000-8000-000000000002",
+  "status": "ok",
+  "data": {
+    "effective_config": {
+      "agent_id": "20000000-0000-4000-8000-000000000001",
+      "name": "onbashy",
+      "display_name": "Onbashy",
+      "profile_revision": 3,
+      "status": "active",
+      "runtime": "claude-code",
+      "role": {"id": "onbashy", "version": "1.0.0", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      "scope": {"kind": "business", "business_id": "10000000-0000-4000-8000-000000000001"},
+      "plugins": [],
+      "tool_policy": {"overrides": {"tasks_complete": "deny"}},
+      "effective_config_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "configuration_revision": "config-3",
+      "context_refresh_required": false,
+      "tools": [
+        {"canonical_operation": "agents_list", "exposed_aliases": [], "input_schema_version": 1, "plugin_requirement": null, "effective_mode": "allow", "supports_signoff": false, "source": {"kind": "role_default", "role": {"id": "onbashy", "version": "1.0.0", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}, "available": true},
+        {"canonical_operation": "agents_create", "exposed_aliases": [], "input_schema_version": 1, "plugin_requirement": null, "effective_mode": "signoff", "supports_signoff": true, "source": {"kind": "role_default", "role": {"id": "onbashy", "version": "1.0.0", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}, "available": true},
+        {"canonical_operation": "tasks_complete", "exposed_aliases": [], "input_schema_version": 1, "plugin_requirement": null, "effective_mode": "deny", "supports_signoff": true, "source": {"kind": "profile_override", "profile_revision": 3}, "available": true},
+        {"canonical_operation": "requests_create", "exposed_aliases": ["reddit.prepare_request"], "input_schema_version": 1, "plugin_requirement": null, "effective_mode": "allow", "supports_signoff": true, "source": {"kind": "role_default", "role": {"id": "onbashy", "version": "1.0.0", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}, "available": true},
+        {"canonical_operation": "signoffs_review", "exposed_aliases": [], "input_schema_version": 1, "plugin_requirement": null, "effective_mode": "deny", "supports_signoff": false, "source": {"kind": "fallback"}, "available": false, "denial_reason": "Owner-only operation"}
+      ],
+      "skills": [{"id": "coordination", "owner": "onbashy", "version": "1.0.0", "name": "Coordination", "description": "Coordinate work in the selected business.", "source_path": "roles/onbashy/skills/coordination/SKILL.md", "generated_path": ".claude/skills/coordination/SKILL.md", "expected_discoverability": true}],
+      "mandatory_context": {"entries": [{"source_id": "agent-foundation", "source_kind": "shared", "source_path": "context/agent-foundation.md", "revision": 2, "required": true, "character_count": 100, "inclusion_reason": "Universal foundation"}], "rendered": "# Identity\nOnbashy coordinates this business.\n\n# Foundation\nUse registered business operations.\n", "character_count": 100, "bundle_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      "preparation": {"readiness": "ready", "projection_drift": [], "missing_artifacts": [], "personal_sources": "not_inspected"},
+      "delivery": {"latest_emitted_configuration_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lifecycle_event": "startup", "timestamp": "2026-09-07T12:00:00Z", "current_matches_emitted": true, "runtime_observation": "not_observed"}
+    }
+  },
+  "warnings": []
+}

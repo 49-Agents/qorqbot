@@ -1,0 +1,37 @@
+# Operator template (system unit), not auto-installed. Replace /APPROVED-RELEASE.
+# Instance %i is the registered business UUID. Install as
+# /etc/systemd/system/qorqut-browser-isolated@.service.
+#
+# PrivateNetwork=yes gives this unit its own network namespace: loopback only,
+# no interface and no route. It must be a SYSTEM unit with User=: a user-manager
+# unit silently gets no network isolation, and the session refuses to start when
+# it finds any interface or route other than loopback.
+# Deliberately NOT set: PrivateTmp (the /tmp/.X<n>-lock display check must see
+# the host's locks), --no-sandbox (Chrome keeps its sandbox).
+[Unit]
+Description=Qorqut isolated business browser (%i)
+BindsTo=qorqut-browser-gateway@%i.service
+After=qorqut-browser-gateway@%i.service
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=qorqut
+Group=qorqut
+UMask=0077
+PrivateNetwork=yes
+ExecStart=/APPROVED-RELEASE/biz-core/.venv/bin/python -I -m bazarlyk.browser.isolated.session --deployment /etc/qorqut-browser-isolated/%i.json
+# Signal the supervisor first so it flushes Chrome through Browser.close; systemd
+# still kills the whole cgroup if orderly cleanup exceeds the deadline.
+KillMode=mixed
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=30
+# 78: configuration, namespace, or a different proxy exit IP needs an operator repair.
+RestartPreventExitStatus=78
+ProtectSystem=full
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

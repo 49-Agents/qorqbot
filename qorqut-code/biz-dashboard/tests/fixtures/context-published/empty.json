@@ -1,0 +1,29 @@
+[
+ {
+  "operation": "context_home",
+  "request": {
+   "limit": 30
+  },
+  "response": {
+   "data": {
+    "empty": true,
+    "nodes": [],
+    "page": {
+     "has_more": false,
+     "limit": 30,
+     "next_cursor": null,
+     "returned": 0
+    },
+    "revision": "ff856646ddecf544435036dd34a5bdab6b268b22",
+    "status": "ready",
+    "totals": {
+     "edges": 0,
+     "events": 1,
+     "nodes": 0,
+     "sources": 1
+    }
+   },
+   "status": "ok"
+  }
+ }
+]

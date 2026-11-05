@@ -1,0 +1,148 @@
+/* Context tab: upload+search top, flat topic list, reader/editor */
+.ctxwrap { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; width: 100%; }
+.ctxq, .cfoot { font-size: 11px; color: var(--fg-3); display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.ctxq .dot { color: var(--fg-3); opacity: .5; }
+.ctxq .bad, .ctxtree .bad, .chip.bad { color: var(--danger); }
+.ctxq .run, .ctxtree .run { color: var(--ok); }
+.ctxsplit { grid-template-columns: 290px minmax(0, 1fr); min-width: 0; }
+
+@media (max-width: 760px) {
+  .split.ctxsplit { grid-template-columns: minmax(0, 1fr); grid-template-rows: max-content minmax(0, 1fr); }
+  .ctxsplit .ctxtree { border-bottom: 1px solid var(--line); }
+  .ctxsplit .ctop { padding: 10px; }
+  .ctxsplit .ctxview { padding: 16px 10px; }
+  .ctxsplit .ctxview .th { flex-wrap: wrap; }
+  .ctxsplit .ctxview .pa { flex-wrap: wrap; }
+  .ctxsplit .ctxview .cards { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* sidebar: sticky upload+search on top, a flat scrolling row list, a tiny status line at the bottom */
+.ctxtree { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.ctop { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 30px 16px 12px; border-bottom: 1px solid var(--line); }
+.ctop .primary { width: 100%; }
+.crows { flex: 1; overflow-y: auto; min-height: 0; padding: 10px 0; }
+.cfoot { flex: none; padding: 8px 16px; border-top: 1px solid var(--line); }
+
+.ctxtree .h { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; color: var(--fg-3); padding: 6px 24px 6px; }
+.ctxtree .h:not(:first-child) { margin-top: 16px; }
+.ctxtree .item .nm { font-size: 13px; gap: 6px; }
+.ctxtree .item.bt .bdot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-left: 4px; background: var(--accent); }
+.ctxtree .item.bt .bdot.bad { background: var(--danger); }
+.ctxtree .empty.pad, .listcol .empty.pad { padding: 4px 24px 8px; font-size: 12.5px; }
+
+/* Filing/upload cards inside the Uploads pane view (moved out of the tree) */
+.ctxview .retry { height: 20px; padding: 0 8px; font-size: 11px; font-weight: 800; border-radius: var(--r-full); }
+.ctxview .card.u .ct { justify-content: space-between; }
+
+.ctxview .ph { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.ctxview .pp { font: 12px var(--mono); color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctxview .ro { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--fg-3); }
+.ctxview .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.ctxview .chip { font-size: 11.5px; padding: 3px 9px; border-radius: var(--r-full); background: var(--wash); border: 1px solid var(--line); color: var(--fg-2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctxview .chip b { font-weight: 600; color: var(--fg-3); margin-right: 5px; }
+
+/* journal-style file view */
+.ctxview .jcol { max-width: 720px; margin: 0 auto; padding: 24px 0 96px; }
+.ctxview .jhead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.ctxview .jt { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -.02em; }
+.ctxview .jsave { font-size: 11px; color: var(--fg-3); font-variant-numeric: tabular-nums; flex: none; cursor: pointer; margin-left: auto; }
+.ctxview .jbtn {
+  flex: none; height: 26px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: var(--r-full);
+  background: none; color: var(--fg-2); font: 600 12px var(--sans); cursor: pointer; transition: color .15s ease, border-color .15s ease;
+}
+.ctxview .jbtn:hover { color: var(--fg); border-color: var(--fg-3); }
+.ctxview .jhr { border: 0; border-top: 1px solid var(--line); margin: 16px 0 20px; }
+.ctxview .jta {
+  display: block; width: 100%; min-height: 55vh; resize: none; border: 0; background: none;
+  padding: 0; outline: none; box-shadow: none;
+  font: 15.5px/1.8 var(--sans); letter-spacing: -.003em; color: rgba(247,247,247,.9);
+}
+.ctxview .jta::placeholder { color: var(--fg-3); }
+.ctxview .jbody { font: 15.5px/1.8 var(--sans); letter-spacing: -.003em; color: rgba(247,247,247,.9); white-space: pre-wrap; word-break: break-word; }
+
+.mbody textarea.inp.ta { height: 220px; padding: 10px 12px; resize: vertical; font: 13px/1.55 var(--mono); }
+.mbody .fl .opt { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--fg-3); margin-left: 6px; }
+
+/* folder view */
+.ctxview .crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; font: 12px var(--mono); color: var(--fg-3); margin-bottom: 10px; }
+.ctxview .crumbs a { cursor: pointer; color: var(--fg-2); }
+.ctxview .crumbs a:hover { color: var(--fg); text-decoration: underline; }
+.ctxview .crumbs .sep { opacity: .5; }
+.ctxview .crumbs .cur { color: var(--fg-3); }
+.ctxview .th, .ctxview .ph { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.ctxview h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.01em; text-transform: none; color: var(--fg); }
+.ctxview .pa { display: flex; gap: 6px; flex: none; }
+.ctxview button.sm { height: 28px; padding: 0 12px; font-size: 12.5px; }
+.ctxview .pa .pab, .ctxview .pa button {
+  height: 28px; padding: 0 12px; border-radius: var(--r-full); background: none;
+  border: 1px solid var(--line-2); color: var(--fg-2); font-weight: 500; font-size: 12px;
+}
+.ctxview .pa button:hover { background: var(--hover); color: var(--fg); transform: none; }
+.ctxview .about { margin: 0 0 20px; color: var(--fg-2); font-size: 14px; line-height: 1.55; max-width: 70ch; }
+.ctxview .sec { margin-bottom: 26px; }
+.ctxview .sh { font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-3);
+  border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 12px; display: flex; align-items: baseline; gap: 8px; }
+.ctxview .sh svg { flex: none; align-self: center; }
+.ctxview .sh .stamp { font: 11px var(--mono); text-transform: none; letter-spacing: 0; font-weight: 400; }
+.ctxview .sum { font-size: 14px; line-height: 1.6; max-width: 76ch; }
+.ctxview .sum .li { position: relative; padding-left: 16px; margin: 4px 0; }
+.ctxview .sum .li::before { content: ""; position: absolute; left: 2px; top: .68em; width: 5px; height: 5px; border-radius: 50%; background: var(--fg-3); }
+.ctxview .sum p { margin: 6px 0; }
+.ctxview .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.ctxview .card {
+  position: relative; display: flex; flex-direction: column; gap: 8px; min-height: 116px; padding: 16px;
+  border: 1px solid var(--line); border-radius: var(--r-lg); background: rgba(14,14,14,.3);
+  cursor: pointer; transition: transform .14s ease, border-color .14s ease, background .14s ease, box-shadow .14s ease;
+}
+.ctxview .card:hover {
+  transform: translateY(-1px); border-color: var(--line-2); background: rgba(14,14,14,.6);
+  box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px -8px rgba(0,0,0,.12);
+}
+.ctxview .card .ct { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+.ctxview .card .ct .fo { color: var(--fg-3); flex: none; }
+.ctxview .card .ct .tt { flex: 1; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; }
+.ctxview .card .ct .cnt { margin-left: auto; font: 11px var(--mono); color: var(--fg-3); }
+.ctxview .card .cb { font-size: 12.5px; line-height: 1.6; color: var(--fg-2); min-height: 2.5em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ctxview .card .cs { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); font: 11px var(--mono); color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.ctxview .card.n .ct .fi { color: var(--fg-3); flex: none; }
+.ctxview .card .pin { position: absolute; top: 12px; right: 12px; color: var(--fg-3); }
+
+/* search */
+.ctop input[type=search] {
+  width: 100%; height: 32px; padding: 0 12px; box-sizing: border-box; border-radius: var(--r-sm);
+  border: 1px solid var(--line-2); background: var(--wash); color: var(--fg); font: 13px var(--sans); outline: none;
+  transition: border-color .14s ease, box-shadow .14s ease;
+}
+.ctop input[type=search]::placeholder { color: var(--fg-3); }
+.ctop input[type=search]:focus {
+  border-color: rgba(255, 255, 255, .3); box-shadow: 0 0 0 4px rgba(255, 255, 255, .025);
+}
+.ctxview .kd { font: 10px var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--fg-3); }
+.ctxview mark { background: rgba(245,240,232,.18); color: var(--fg); border-radius: 2px; padding: 0 1px; }
+
+/* people */
+.ctxview .meta { margin: 0 0 10px; font-size: 13px; color: var(--fg-3); }
+.ctxview .aka { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.ctxview .nh { margin: 14px 0 4px; font: 11px var(--mono); color: var(--fg-3); }
+.ctxview .nh:first-child { margin-top: 0; }
+.ctxview .card.p .ct { font-weight: 600; }
+
+/* Embedded workspaces keep their own lists and scrolling within Context. */
+.ctxsplit .ctxview.ctxembedded-view { padding: 0; display: flex; overflow: hidden; }
+#ctxembedded { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+#ctxrows button.item { width: calc(100% - 20px); height: auto; justify-content: flex-start; text-align: left; background: transparent; color: inherit; border: 0; border-radius: 12px; font: inherit; }
+#ctxrows button.item:hover { transform: none; background: var(--hover); }
+#ctxrows button.item.on { background: var(--wash); }
+@media (max-width: 760px) {
+  #ctxrows { display: flex; align-items: center; overflow-x: auto; overflow-y: hidden; padding: 4px; }
+  #ctxrows .item, #ctxrows button.item { flex: none; width: auto; margin: 0; padding: 10px; white-space: nowrap; }
+  #ctxrows .item.on::before { left: 50%; top: auto; bottom: 0; width: 20px; height: 2px; transform: translateX(-50%); }
+}
+
+.ctx-counts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:12px 16px;padding:14px 4px;border:1px solid var(--line);border-radius:14px}
+.ctx-counts button{display:flex;flex-direction:column;gap:7px;background:transparent;border:0;height:auto;padding:4px;font-weight:400;color:var(--fg)}
+.ctx-counts b{font-size:18px}.ctx-counts span{font-size:10px;color:var(--fg-3)}
+#ctxrows{display:flex;flex-direction:column}#ctxrows>.item{flex:none}#ctxrows>[data-p="_uploads"]{margin-top:auto}
+.ctxview>.jrhome{padding:0;max-width:none}
+#topicmap{height:100%;min-height:400px}.ctxgraph-types{display:flex;flex-wrap:wrap;gap:14px;padding:8px 12px;color:var(--fg-2);font-size:12px}.ctxgraph-types label{display:flex;align-items:center;gap:5px}
+@media(max-width:760px){#ctxrows{flex-direction:row;flex:none;min-height:64px}.ctx-counts{margin:0 8px;padding:4px;flex:none}.ctx-counts b{font-size:13px}.ctx-counts span{font-size:10px}#ctxrows>[data-p="_uploads"]{margin-top:0}}

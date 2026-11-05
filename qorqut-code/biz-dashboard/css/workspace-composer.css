@@ -1,0 +1,25 @@
+#workspace-composer{position:fixed;bottom:12px;right:14px;width:min(728px,calc(100vw - 28px));z-index:35;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--bg);box-shadow:0 4px 20px #0003}
+#workspace-composer form{display:flex;align-items:center;gap:7px}
+#workspace-composer input{min-width:0;flex:1;background:transparent;padding:8px 10px}
+#workspace-composer button{flex:none;min-height:34px;border-radius:8px;padding:5px 9px}
+#workspace-composer [data-recipient]{display:grid;place-items:center;width:36px;padding:4px}
+#workspace-composer [data-recipient] .avatar{margin:0}
+#workspace-composer [data-terminal]{font-size:11px}
+.workspace-agent-option{display:flex;align-items:center;gap:9px}
+.workspace-composer-status{margin:4px 2px 0;font-size:11px;color:var(--fg-2)}
+.workspace-composer-status:empty{display:none}
+.workspace-terminal{height:240px;margin-bottom:8px;overflow:hidden;border:1px solid var(--line);border-radius:8px}
+.workspace-terminal .termpane{height:100%;min-height:0}
+body:has(#workspace-composer) #content{padding-bottom:78px}
+@media(max-width:600px){#workspace-composer{bottom:6px;right:6px;width:calc(100vw - 12px)}#workspace-composer form{gap:4px}#workspace-composer [data-terminal]{max-width:62px}.workspace-terminal{height:200px}}
+
+#workspace-composer [data-recipient],#workspace-composer [data-terminal]{background:transparent;color:var(--fg);border:1px solid var(--line)}
+
+#workspace-composer [type=submit]{min-width:70px;padding-inline:16px}
+#workspace-composer [data-terminal]{width:36px;padding:4px;display:grid;place-items:center}
+#workspace-composer [data-terminal][aria-expanded="true"]{background:var(--hover)}
+.workspace-terminal{max-height:calc(100dvh - 140px)}
+#workspace-composer [data-terminal-resize]{height:12px;cursor:ns-resize;touch-action:none;display:flex;align-items:center;justify-content:center;margin:-5px 0 3px}
+#workspace-composer [data-terminal-resize]::after{content:"";width:36px;height:3px;background:var(--fg-3);border-radius:2px}
+#workspace-composer [data-terminal-resize]:focus-visible{outline:1px solid var(--fg-2);border-radius:3px}
+#workspace-composer [data-terminal-resize][hidden]{display:none}

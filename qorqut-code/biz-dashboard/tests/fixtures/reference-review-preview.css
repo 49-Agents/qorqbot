@@ -1,0 +1,22 @@
+/* Preview shell only. The messages, reference rows and composer are the app's real components. */
+body.reference-review-preview{display:block;height:auto;overflow:auto;}
+.reference-preview-top{height:52px;display:flex;align-items:center;gap:10px;padding:10px 25px;border-bottom:1px solid var(--line);font-size:13px;}
+.reference-preview-top small{margin-left:auto;color:var(--fg-2);font-size:11px}
+.reference-preview-top svg{width:25px;height:25px}
+.reference-preview-layout{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(320px,.8fr);min-height:calc(100vh - 52px)}
+.reference-preview-chat{padding:25px 24px 16px;min-width:0;display:flex;flex-direction:column;}
+.reference-preview-chat .chat-view{min-height:750px;}
+.reference-preview-chat .gchat-scroll{overflow:visible;}
+.reference-preview-chat .gchat-msg{max-width:100%;width:100%}
+.reference-preview-chat .gchat-body{width:fit-content}
+.reference-preview-chat .gchat-log{padding-left:10px}
+.reference-preview-chat .gchat-attachment{width:100%}
+.reference-preview-side{min-width:0;border-left:1px solid var(--line);padding:18px;}
+.reference-preview-side-head{display:flex;align-items:center;justify-content:space-between;color:var(--fg-2);font-size:12px;padding:0 3px 15px}
+.reference-preview-side-head button{width:28px;height:28px;padding:5px;background:none;border:1px solid var(--line-2);border-radius:6px}
+.reference-preview-side-head button svg{width:14px;height:14px}
+.reference-preview-side .chat-review-pane .crr-body{padding-left:13px}
+.reference-preview-empty{padding:60px 15px;text-align:center;color:var(--fg-2);font-size:13px}
+.reference-preview-avatar{display:flex;align-items:center;gap:9px;margin:0 0 18px;font-size:12px;color:var(--fg-2)}
+.reference-preview-avatar svg{width:24px;height:24px}
+@media(max-width:760px){.reference-preview-layout{grid-template-columns:minmax(0,1fr)}.reference-preview-side{border-left:0;border-top:1px solid var(--line)}.reference-preview-chat{padding:18px 12px}.reference-preview-chat .chat-view{min-height:600px}.reference-preview-top{padding:10px 14px}}

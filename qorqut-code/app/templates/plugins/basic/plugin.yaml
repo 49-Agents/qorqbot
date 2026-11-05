@@ -1,0 +1,11 @@
+schema_version: 1
+id: example-procedure
+version: 0.1.0
+description: Example procedure plugin; replace identifiers and guidance before registration.
+scope_kinds: [business, ecosystem]
+config_schema: schemas/config.schema.json
+tools: tools.yaml
+rules: rules.yaml
+skills:
+  - id: example-procedure
+    path: skills/example-procedure/SKILL.md

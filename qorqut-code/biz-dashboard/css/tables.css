@@ -1,0 +1,82 @@
+#tablesnav { background: none; border: 0; padding: 0; }
+.data-workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.data-top, .data-heading, .data-row-tools, .data-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 18px; }
+.data-top { border-bottom: 1px solid var(--line); flex: none; padding-right: 64px; }
+.data-spacer { flex: 1; }
+.data-icon { width: 32px; height: 32px; padding: 6px; flex: 0 0 32px; display: inline-flex; align-items: center; justify-content: center; background: none; color: var(--fg-2); border: 1px solid var(--line); border-radius: 5px; cursor: pointer; }
+.data-icon svg, .data-form .btn svg { width: 18px; height: 18px; }
+.data-icon:disabled { opacity: .4; cursor: default; }
+.data-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); flex: 1; min-height: 0; }
+.data-list { border-right: 1px solid var(--line); overflow-y: auto; min-width: 0; }
+.data-filter { display: grid; gap: 7px; padding: 16px; font-size: 12px; }
+.data-filter .inp { width: 100%; min-width: 0; }
+.data-archived { display: flex; align-items: center; gap: 8px; padding: 0 16px 16px; font-size: 12px; }
+/* Global lists have no filters above the archive switch, so it carries its own top padding. */
+.data-global .data-archived { padding-top: 16px; }
+.data-item { display: grid; justify-content: stretch; gap: 7px; width: 100%; text-align: left; height: auto; background: none; color: var(--fg); border: 0; border-radius: 0; border-bottom: 1px solid var(--line); padding: 14px 16px; }
+.data-item:hover, .data-item.on { background: var(--hover); color: var(--fg); transform: none; }
+.data-item strong { font-size: 13px; overflow-wrap: anywhere; }
+.data-item span { font-size: 11px; color: var(--fg-2); }
+.data-detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; }
+.data-heading h1 { margin: 0; font-size: 18px; line-height: 1.4; overflow-wrap: anywhere; min-width: 0; flex: 1; }
+.data-description { margin: 0; padding: 0 18px 12px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+#data-work, #data-upload-work { padding: 8px 18px; }
+.data-row-tools { flex: none; border-bottom: 1px solid var(--line); }
+.data-row-tools label { display: grid; gap: 4px; font-size: 11px; max-width: 100%; }
+.data-row-tools .inp { width: 190px; max-width: 100%; }
+#data-draft-actions { display: flex; gap: 8px; }
+#data-draft-actions[hidden] { display: none; }
+#data-draft-actions .btn { gap: 6px; }
+.data-grid-wrap { min-height: 160px; flex: 1; overflow: auto; }
+.data-grid { width: 100%; min-width: 100%; table-layout: auto; }
+.data-grid th, .data-grid td { padding: 0; min-width: 150px; max-width: 260px; border-right: 1px solid var(--line); }
+.data-grid th { position: sticky; top: 0; background: var(--bg); z-index: 1; letter-spacing: 0; text-transform: none; height: 40px; }
+.data-grid th button { width: 100%; justify-content: flex-start; text-align: left; border: 0; border-radius: 0; background: none; color: var(--fg-2); height: 40px; padding: 8px 12px; }
+.data-grid th button:disabled { opacity: 1; }
+.data-grid .data-check { min-width: 40px; width: 40px; max-width: 40px; text-align: center; padding: 10px; }
+.data-cell { display: block; width: 100%; height: 52px; padding: 9px 12px; border: 0; border-radius: 0; background: none; color: var(--fg); text-align: left; font-size: 12px; font-weight: 400; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.data-cell:hover, .data-grid th button:hover, .data-icon:hover { transform: none; background: rgba(255, 255, 255, .09); color: var(--fg); }
+.data-cell:disabled { opacity: 1; }
+.data-cell svg { display: block; }
+.data-cell input { pointer-events: none; accent-color: #80b8a1; }
+.data-cell-input { display: block; width: 100%; min-width: 0; height: 52px; padding: 9px 12px; border: 0; border-radius: 0; outline-offset: -2px; background: transparent; color: var(--fg); font: inherit; font-size: 12px; resize: none; box-sizing: border-box; color-scheme: dark; }
+.data-cell-input:focus { outline: 1px solid var(--fg-2); background: var(--hover); }
+.data-cell-input:invalid { outline: 1px solid #e9a09c; }
+.data-grid td.data-modified { box-shadow: inset 0 -2px #80b8a1; }
+.data-footer { justify-content: space-between; border-top: 1px solid var(--line); font-size: 11px; flex: none; }
+.data-empty { padding: 24px; font-size: 13px; }
+.data-error, .data-form-error { color: #e9a09c; font-size: 12px; overflow-wrap: anywhere; }
+.data-error { padding: 8px 18px; margin: 0; }
+.data-form { display: grid; gap: 16px; }
+.data-form label { display: grid; gap: 6px; font-size: 12px; }
+.data-form .inp { width: 100%; min-width: 0; }
+.data-form textarea { min-height: 70px; resize: vertical; }
+.data-form fieldset { border: 0; padding: 0; min-width: 0; }
+.data-form legend { font-size: 12px; margin-bottom: 8px; }
+#data-columns { display: grid; gap: 8px; max-height: 280px; overflow: auto; margin-bottom: 10px; }
+.data-column { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) 90px 32px; gap: 7px; align-items: center; }
+.data-column input[readonly] { color: var(--fg-3); }
+.data-form .data-binary { display: flex; flex-direction: row; align-items: center; gap: 10px; }
+.data-download { align-self: flex-start; margin: 8px 18px; font-size: 13px; }
+.data-linked-tables { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px 18px; }
+#data-back { display: none; }
+@media (max-width: 760px) {
+  .data-layout { grid-template-columns: minmax(0, 1fr); }
+  .data-detail { display: none; }
+  .data-workspace.has-selection .data-list { display: none; }
+  .data-workspace.has-selection .data-detail { display: flex; }
+  #data-back { display: inline-flex; }
+  .data-heading h1 { flex: 1 1 calc(100% - 42px); }
+  .data-heading > .data-spacer { display: none; }
+  #data-edit-table { margin-left: auto; }
+  .data-top { padding: 8px 64px 8px 8px; gap: 6px; }
+  .data-top .ttab { padding: 0 7px; font-size: 12px; }
+  .data-column { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 32px; }
+  .data-column [data-field=id] { grid-column: 1 / 3; }
+  .data-column button { grid-column: 3; grid-row: 1 / 3; }
+}
+
+.data-modes { display:flex; gap:4px; }
+.data-modes [aria-pressed="true"] { color:var(--fg); background:var(--hover); }
+.data-search { width:240px; max-width:100%; }
+.data-search .inp { width:100%; }

@@ -1,0 +1,26 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync(require('node:path').join(__dirname, '../js/context.js'), 'utf8');
+let resolve, calls = 0;
+const messages = [];
+const sandbox = {state: {biz: 'ProjectA'}, post: () => {calls++; return new Promise(r => {resolve = r;});}, toast: m => messages.push(m), renderContext: () => {}, $: () => ({})};
+vm.createContext(sandbox);
+vm.runInContext(source.slice(source.indexOf('const ctxRetryPending'), source.indexOf('const CTX_META')), sandbox);
+(async () => {
+  const button = {disabled: false};
+  const first = sandbox.ctxRetry('upload', button);
+  assert.equal(button.disabled, true);
+  await sandbox.ctxRetry('upload', button);
+  assert.equal(calls, 1);
+  resolve({}); await first;
+  assert.equal(button.disabled, false);
+  sandbox.post = async () => {throw new Error('Connection failed');};
+  await sandbox.ctxRetry('upload', button);
+  assert.equal(button.disabled, false);
+  assert.equal(messages.at(-1), 'Connection failed');
+  sandbox.post = async () => {calls++; return {};};
+  await sandbox.ctxRetry('upload', button);
+  assert.equal(calls, 2);
+  console.log('Context retry: duplicate clicks, disabled state, and error recovery passed');
+})().catch(error => {console.error(error); process.exitCode = 1;});

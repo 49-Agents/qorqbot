@@ -1,0 +1,168 @@
+schema_version: 1
+id: imported-role-skills
+name: imported-role-skills
+description: Preserved native role assets; metadata does not grant authority.
+entries:
+- id: asset-b6a7a666d69edf128ff0
+  kind: skill
+  description: Record each atomic completed result once in the canonical action log
+    with actions_record, in at most 20 words, with the correct scope and San Juan
+    time.
+  when_to_use: Record each atomic completed result once in the canonical action log
+    with actions_record, in at most 20 words, with the correct scope and San Juan
+    time.
+  path: native/skills/action-recording/SKILL.md
+- id: asset-580b179fb8f7f2085bdb
+  kind: skill
+  description: Authorized project technical operations, configuration and release
+    verification. Software, site/UI design, landing-page, script, test, CI and IaC
+    development is the owner's by default; an agent builds only on the owner's direct
+    instruction.
+  when_to_use: Authorized project technical operations, configuration and release
+    verification. Software, site/UI design, landing-page, script, test, CI and IaC
+    development is the owner's by default; an agent builds only on the owner's direct
+    instruction.
+  path: native/skills/business-operations/SKILL.md
+- id: asset-4ce12da680f2bb107eda
+  kind: skill
+  description: Create and maintain project-shared tables, and transform original CSV
+    or spreadsheet uploads into structured records.
+  when_to_use: Create and maintain project-shared tables, and transform original CSV
+    or spreadsheet uploads into structured records.
+  path: native/skills/business-tables/SKILL.md
+- id: asset-cf11f76cb7384beadca4
+  kind: skill
+  description: Use the owner's native Qorqut Calendar - list calendars, read, create,
+    change or delete events, respond to invitations - set up its Google connection
+    when asked ("set up my Qorqut calendar"), and get an owner Signoff before any
+    change that notifies guests.
+  when_to_use: Use the owner's native Qorqut Calendar - list calendars, read, create,
+    change or delete events, respond to invitations - set up its Google connection
+    when asked ("set up my Qorqut calendar"), and get an owner Signoff before any
+    change that notifies guests.
+  path: native/skills/calendar/SKILL.md
+- id: asset-da350cf43d15c553a310
+  kind: skill
+  description: Show the owner a message in Chat with pending Signoffs, configured
+    browsers, Tasks or registered agents right below it (request_user_input), and
+    select an exact browser with browser_turn action=list and browser_id.
+  when_to_use: Show the owner a message in Chat with pending Signoffs, configured
+    browsers, Tasks or registered agents right below it (request_user_input), and
+    select an exact browser with browser_turn action=list and browser_id.
+  path: native/skills/chat-references/SKILL.md
+- id: asset-ce65b6ff912f3eb1a965
+  kind: skill
+  description: Relate project items, file and correct shared Context, and diagnose
+    blocked Context inputs.
+  when_to_use: Relate project items, file and correct shared Context, and diagnose
+    blocked Context inputs.
+  path: native/skills/context-relationships/SKILL.md
+- id: asset-247835e1589f1ccf83f6
+  kind: skill
+  description: Review coordination, platform-request tracking and shared instruction
+    proposals across explicitly permitted projects without widening their scope.
+  when_to_use: Review coordination, platform-request tracking and shared instruction
+    proposals across explicitly permitted projects without widening their scope.
+  path: native/skills/ecosystem-review/SKILL.md
+- id: asset-99280e17c59527767821
+  kind: skill
+  description: Operate the configured Chrome browser when the owner explicitly asks
+    to use Chrome or a browser, when work assigned to you in a project needs that
+    project's browser, when an explicitly requested provider service (service-provisioning)
+    requires provider administration. Ordinary research, a one-off web request, or
+    a URL supplied as context does not activate this skill.
+  when_to_use: Operate the configured Chrome browser when the owner explicitly asks
+    to use Chrome or a browser, when work assigned to you in a project needs that
+    project's browser, when an explicitly requested provider service (service-provisioning)
+    requires provider administration. Ordinary research, a one-off web request, or
+    a URL supplied as context does not activate this skill.
+  path: native/skills/managed-browser-control/SKILL.md
+- id: asset-15e8b29ba53f81706f01
+  kind: skill
+  description: Create and supervise an explicitly selected legacy delegated assignment,
+    a saved plan run by a durable Qorqut worker. Ordinary requests to hand work to
+    a worker go to the permanent team; native Codex subagents require an explicit
+    owner request for that runtime.
+  when_to_use: Create and supervise an explicitly selected legacy delegated assignment,
+    a saved plan run by a durable Qorqut worker. Ordinary requests to hand work to
+    a worker go to the permanent team; native Codex subagents require an explicit
+    owner request for that runtime.
+  path: native/skills/operations-delegation/SKILL.md
+- id: asset-dc836f9e4e79b90ca724
+  kind: skill
+  description: Operate the configured Chrome browser when the owner explicitly asks
+    to use Chrome or a browser, when work assigned to you in a project needs that
+    project's browser, when an explicitly requested provider service (service-provisioning)
+    requires provider administration. Ordinary research, a one-off web request, or
+    a URL supplied as context does not activate this skill.
+  when_to_use: Operate the configured Chrome browser when the owner explicitly asks
+    to use Chrome or a browser, when work assigned to you in a project needs that
+    project's browser, when an explicitly requested provider service (service-provisioning)
+    requires provider administration. Ordinary research, a one-off web request, or
+    a URL supplied as context does not activate this skill.
+  path: native/skills/ordubashy-browser-control/SKILL.md
+- id: asset-b200e2018e7701f089c9
+  kind: skill
+  description: Curate the owner's persistent Focus board with source-owned conversations
+    and explicit domain actions.
+  when_to_use: Curate the owner's persistent Focus board with source-owned conversations
+    and explicit domain actions.
+  path: native/skills/owner-focus/SKILL.md
+- id: asset-e7fd82311103ade31a44
+  kind: skill
+  description: Ask the owner a question or request a missing decision, access, or
+    input through Signoffs; retrieve the submitted response and manage notification
+    urgency.
+  when_to_use: Ask the owner a question or request a missing decision, access, or
+    input through Signoffs; retrieve the submitted response and manage notification
+    urgency.
+  path: native/skills/owner-input/SKILL.md
+- id: asset-a7f07f0886b0b094ccce
+  kind: skill
+  description: Review visible daily journal entries when the owner asks, outlining
+    possible tasks, progress updates and context additions without applying them.
+  when_to_use: Review visible daily journal entries when the owner asks, outlining
+    possible tasks, progress updates and context additions without applying them.
+  path: native/skills/owner-journal/SKILL.md
+- id: asset-30b92b906dba622ac1c2
+  kind: skill
+  description: Schedule or manage a reminder for the owner when they say "remind me",
+    "remind me to", "remind me about", or ask to be reminded later.
+  when_to_use: Schedule or manage a reminder for the owner when they say "remind me",
+    "remind me to", "remind me about", or ask to be reminded later.
+  path: native/skills/owner-reminders/SKILL.md
+- id: asset-99bf41d25a6be7f04e67
+  kind: skill
+  description: Create a Project, the container for Tasks, assets, documents, tables,
+    code and routines, with business_create when the owner asks you for or agrees
+    to a new one. Only the configured Ordubashy creates projects. It takes a name,
+    an optional Description and a folder slug and makes only the record and empty
+    hq/ and code/ folders, with no agents, setup, services or documents.
+  when_to_use: Create a Project, the container for Tasks, assets, documents, tables,
+    code and routines, with business_create when the owner asks you for or agrees
+    to a new one. Only the configured Ordubashy creates projects. It takes a name,
+    an optional Description and a folder slug and makes only the record and empty
+    hq/ and code/ folders, with no agents, setup, services or documents.
+  path: native/skills/project-creation/SKILL.md
+- id: asset-6fd075e6174cfc510db7
+  kind: skill
+  description: Provision or repair provider services for a project only when the owner
+    or a Task the owner authorized explicitly asks for them - a Cloudflare zone token
+    and DNS, a Railway project, Resend sending or an OpenRouter key - using the native
+    Cloudflare operations and your own browser, and saving secrets only through environment_set.
+    Creating a project never starts any of it.
+  when_to_use: Provision or repair provider services for a project only when the owner
+    or a Task the owner authorized explicitly asks for them - a Cloudflare zone token
+    and DNS, a Railway project, Resend sending or an OpenRouter key - using the native
+    Cloudflare operations and your own browser, and saving secrets only through environment_set.
+    Creating a project never starts any of it.
+  path: native/skills/service-provisioning/SKILL.md
+- id: asset-7963b186f44b7ef23bb5
+  kind: skill
+  description: Talk with the owner in your own Telegram topic, ask for blocking input
+    including secrets, send one authorized file or photo when your role grants telegram_send_file,
+    read your recent topic history and check delivery; how this differs from Signoffs.
+  when_to_use: Talk with the owner in your own Telegram topic, ask for blocking input
+    including secrets, send one authorized file or photo when your role grants telegram_send_file,
+    read your recent topic history and check delivery; how this differs from Signoffs.
+  path: native/skills/telegram-owner-communication/SKILL.md

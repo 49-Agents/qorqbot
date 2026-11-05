@@ -1,0 +1,20 @@
+schema_version: 1
+id: imported-roles
+name: imported-roles
+description: Preserved native role assets; metadata does not grant authority.
+entries:
+- id: asset-6b855cc4f4a0e06eca2f
+  kind: instruction
+  description: 'Native role brief: global-worker'
+  when_to_use: 'Native role brief: global-worker'
+  path: native/roles/global-worker/BRIEF.md
+- id: asset-422c9025315fbc793afd
+  kind: instruction
+  description: 'Native role brief: learning-applier'
+  when_to_use: 'Native role brief: learning-applier'
+  path: native/roles/learning-applier/BRIEF.md
+- id: asset-8842dde77cae97b63d89
+  kind: instruction
+  description: 'Native role brief: ordubashy'
+  when_to_use: 'Native role brief: ordubashy'
+  path: native/roles/ordubashy/BRIEF.md

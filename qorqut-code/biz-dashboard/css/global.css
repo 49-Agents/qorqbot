@@ -1,0 +1,82 @@
+.global-content { padding: 36px 40px; min-width: 0; overflow-y: auto; }
+.global-eyebrow, .global-section-label { color: var(--fg-2); font-size: 11px; letter-spacing: .09em; text-transform: uppercase; }
+.global-heading { margin: 24px 0 40px; }
+.global-heading h1 { font-size: 30px; line-height: 1.25; letter-spacing: -.035em; font-weight: 600; margin: 0 0 12px; }
+.global-heading p { color: var(--fg-2); font-size: 14px; margin: 0; max-width: 560px; }
+.global-section-label { margin-bottom: 14px; }
+.global-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; max-width: 866px; }
+.global-business { border: 1px solid var(--line-2); border-radius: 16px; background: var(--wash); position: relative; }
+button.global-business-head { padding: 18px 18px 14px; width: 100%; height: auto; display: flex; align-items: center; justify-content: flex-start; gap: 14px; background: none; color: var(--fg); text-align: left; border-radius: 0; font-weight: 400; }
+button.global-business-head:hover { background: var(--hover); transform: none; }
+.global-business-letter { width: 30px; height: 30px; display: grid; place-items: center; flex: none; border: 1px solid var(--line-2); border-radius: 12px; font-size: 15px; }
+.global-content .global-business h2 { color: var(--fg); text-transform: none; letter-spacing: -.01em; font-size: 15px; font-weight: 600; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.global-summary { margin: 0 18px; padding: 10px 0 12px; border-top: 1px solid var(--line); display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: stretch; gap: 16px; }
+.global-metrics { display: flex; flex-direction: column; gap: 2px; width: 52px; }
+button.global-metric { height: auto; padding: 0; border-radius: 4px; background: none; color: var(--fg); align-items: center; justify-content: space-between; flex-direction: row; gap: 10px; min-height: 22px; font-weight: 400; text-align: left; }
+button.global-metric:hover { transform: none; color: var(--fg); }
+.global-metric strong { order: 2; font-size: 12px; font-weight: 500; }
+.global-metric strong.zero { font-size: 9px; }
+.global-metric-icon { display: flex; color: var(--fg-2); }
+.global-metric-icon svg { width: 15px; height: 15px; }
+.global-metric[aria-disabled] { cursor: default; }
+.global-summary-note { color: var(--fg-2); font-size: 12px; margin: 12px 0 0; }
+.global-archived { margin: 28px 0 72px; max-width: 866px; }
+.global-archived-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line-2); border-radius: 16px; }
+.global-archived-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; }
+.global-archived-list li + li { border-top: 1px solid var(--line); }
+.global-archived-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.global-content button:focus-visible { outline: 2px solid var(--fg); outline-offset: -2px; }
+@media (max-width: 950px) { .global-content { padding: 28px 24px; } .global-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 480px) { .global-content { padding: 24px 16px; } .global-heading h1 { font-size: 25px; } button.global-business-head { padding: 18px; } .global-summary { gap: 12px; } }
+
+.global-activity { position: relative; min-height: 70px; min-width: 0; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 4px; color: var(--fg-2); font-size: 11px; }
+.global-spark { position: absolute; right: 0; top: 0; width: 244px; max-width: 100%; height: 100%; overflow: visible; }
+.global-spark text { fill: var(--fg-3); font-size: 7px; font-family: var(--sans); }
+.global-spark-grid { fill: none; stroke: var(--line-2); stroke-width: 1; }
+.global-spark-line { fill: none; stroke: var(--fg-2); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+.global-spark-point { fill: var(--fg-2); }
+
+/* Registered global agents share the business terminal's type, spacing and controls. */
+.global-agents { grid-template-columns: 240px minmax(0, 1fr); min-width: 0; }
+.global-agents h1 { margin: 0; font-size: 20px; }
+.global-agents .item.agent { width: calc(100% - 20px); text-align: left; height: auto; background: none; color: var(--fg-2); font-weight: 400; transform: none; }
+.global-agents .item.agent:hover { background: var(--hover); color: var(--fg); }
+.global-agents .item.agent.on { background: rgba(247,247,247,.06); color: var(--fg); }
+/* The global agents form one roster that takes the height it needs and scrolls when the navigation body is short.
+   The owner's icon-only workspace Terminal stays at the bottom of the navigation. */
+.global-agents .global-nav-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+.global-agents .listcol .global-primary { flex: 0 1 auto; min-height: 64px; overflow-y: auto; }
+.global-agents .global-roster { display: flex; flex-direction: column; }
+.global-agents .global-workspace-terminals { flex: none; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line); }
+.global-agents .global-workspace-terminal svg, .global-agents .global-workspace-settings svg { width: 20px; height: 20px; flex: none; }
+.agsplit.nav-off > .listcol .global-nav-body { display: none; }
+.global-agent-session { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.global-agent-session .chat.termmode { flex: 1; min-height: 180px; padding: 24px; }
+@media (max-width: 800px) {
+  /* agentpane.css keeps Global agents as three columns at this width; give them one full-height row
+     so the navigation (roster, search, list, Terminal) has the whole column instead of a 145px strip. */
+  .split.global-agents { grid-template-rows: minmax(0, 1fr); }
+  .global-agents .ctop { padding: 10px 16px 4px; }
+  .global-agent-session .chat.termmode { padding: 8px 12px 12px; }
+}
+
+.global-business-name { flex: 1; min-width: 0; }
+.global-action-count { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-2); flex: none; }
+.global-action-count svg { width: 15px; height: 15px; }
+.global-action-count strong { font-size: 12px; font-weight: 500; }
+.global-summary > .global-summary-note { grid-column: 1 / -1; }
+
+
+/* Compact Global navigation: an icon strip (114px, 134px on wide screens). Agent names are accessible labels only;
+   no presence or connection balls are drawn. */
+.global-agents .listcol .ctop { padding: 12px 10px 8px; align-items: flex-start; text-align: left; }
+.global-agents .agent-nav-heading { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 6px; margin-bottom: 4px; }
+.global-agents .agent-nav-heading h1 { font-size: 16px; }
+.global-agents .agent-nav-actions { justify-content: flex-start; }
+.global-agents .listcol button.item.agent { width: calc(100% - 12px); margin: 0 auto; padding-left: 4px; padding-right: 4px; }
+.global-agents .item.agent .nm { position: relative; flex: 0 1 auto; max-width: 100%; justify-content: flex-start; }
+.global-agents .global-roster .item.agent { justify-content: flex-start; }
+.global-agents .nm > .chat-unread-dot { position: absolute; top: -3px; right: -6px; margin: 0; }
+.global-agents .global-workspace-terminal .nm, .global-agents .global-workspace-settings .nm { gap: 6px; }
+.global-heading-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; max-width: 866px; }
+.global-heading-row h1 { margin-bottom: 0; }

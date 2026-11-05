@@ -1,0 +1,59 @@
+"""Explicit standalone learning-applier provisioning; never launches a session.
+
+The Learning Applier is the Overseer executor: it extracts evidence-backed agentic proposals, reviews them with the
+owner and applies accepted ones through the managed Overseer package. It is a supported global, so it reaches every
+active business through derived access and no explicit business list is selected or saved.
+"""
+
+import json
+
+from qorqut_operations.contracts import DomainError, InvocationOptions, Principal, canonical_hash, plain
+from .preparation import prepare_agent
+
+CAPABILITIES = ("read_global_context", "read_agent_experience", "manage_shared_instructions", "publish_roles",
+                "publish_plugins", "manage_agentic_layer")
+ASSIGNMENT = ("Work with the owner through the Overseer procedures: proposal extraction stays evidence-bound, review and "
+              "application are separately owner-invoked and acceptance only queues work, and application follows the "
+              "agreed plan in an isolated worktree with one delta commit. Never push, publish or deploy as part of the "
+              "workflow. Retained factual Context keeps its existing separate authority and process.")
+
+
+def prepare_learning_applier(runtime, owner_context, *, role_ref, endpoint, claude_version=None, versions=None):
+    if owner_context.principal_kind != "human":
+        raise DomainError("forbidden", "Learning-applier preparation requires the owner")
+    if role_ref.get("id") != "learning-applier":
+        raise DomainError("validation_error", "Select the published learning-applier role")
+    scope = {"kind": "ecosystem", "allowed_business_ids": [], "global_capabilities": sorted(CAPABILITIES)}
+    arguments = {"name": "learning-applier", "display_name": "Learning Applier", "role": plain(role_ref),
+                 "scope": scope, "assignment_brief": ASSIGNMENT, "plugins": []}
+    # Creation is authorized even on retry; preparation never silently changes an
+    # existing profile's pins, permissions or capabilities, and never revives an
+    # inactive identity.
+    with runtime.database.read() as uow:
+        ctx = runtime.application.current_context(owner_context, uow)
+        if not set(CAPABILITIES) <= ctx.global_capabilities:
+            raise DomainError("forbidden", "Learning-applier scope exceeds current owner grants")
+        descriptor = runtime.registry.get("agents_create")
+        namespace = runtime.application.namespace(ctx, descriptor, arguments)
+        runtime.application.authorize(ctx, descriptor, (), uow, namespace=namespace)
+        existing = [row for row in uow.connection.execute(
+            "SELECT * FROM agent_profiles WHERE home_business_id IS NULL AND status='active' ORDER BY agent_id")
+            if json.loads(row["profile_json"]).get("role", {}).get("id") == "learning-applier"]
+    if existing:
+        profile = json.loads(existing[0]["profile_json"])
+        # A saved business list is inert; only the scope kind and capabilities are compared.
+        if (len(existing) > 1 or profile["role"] != plain(role_ref) or profile["scope"]["kind"] != "ecosystem"
+                or sorted(profile["scope"]["global_capabilities"]) != scope["global_capabilities"]
+                or profile["plugins"] or profile["assignment_brief"] != ASSIGNMENT
+                or profile["tool_policy"]["overrides"]):
+            raise DomainError("bootstrap_conflict", "Existing learning-applier profile differs; review its configuration explicitly")
+        identity = existing[0]["agent_id"]
+    else:
+        result = runtime.application.invoke_or_raise(owner_context, "agents_create", arguments,
+            InvocationOptions(idempotency_key="prepare-learning-applier:" + canonical_hash(arguments)))
+        if result.status != "ok":
+            return result.to_dict()
+        identity = result.data["agent_id"]
+    if versions is None and claude_version:
+        versions = {"claude-code": claude_version}
+    return prepare_agent(runtime.resolver, Principal(identity, "agent"), endpoint=endpoint, versions=versions)

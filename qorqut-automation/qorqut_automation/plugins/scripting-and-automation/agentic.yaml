@@ -1,0 +1,21 @@
+schema_version: 1
+id: scripting-and-automation
+name: Scripting and automation
+description: Author, review and operate durable Python automations through the Ordubashy automation tools.
+entries:
+  - id: automations
+    kind: skill
+    description: Operate automations - create, author, schedule, run, pause, answer questions, grant authority and read failures and outputs.
+    when_to_use: When the owner wants something to run on its own, repeatedly or by schedule, or asks about an automation's state, question or failure.
+    path: skills/automations/SKILL.md
+  - id: script-authoring
+    kind: skill
+    description: Write an automation script with the run SDK - durable step keys, phases, questions, invocation limits and published output.
+    when_to_use: When creating or changing the Python script an automation runs.
+    path: skills/script-authoring/SKILL.md
+    requires: [scripting-and-automation/automations]
+  - id: script-template
+    kind: template
+    description: A minimal automation script with a phase, a durable read and published output.
+    when_to_use: When starting a new automation script.
+    path: templates/automation_script.py

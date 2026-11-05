@@ -1,0 +1,215 @@
+{
+ "currency": "USD",
+ "as_of": "2026-10-12",
+ "month_start": "2026-10-01",
+ "sources": [
+  {
+   "key": "subscriptions",
+   "label": "Subscriptions",
+   "month_usd": "0.0000",
+   "total_usd": "0.0000",
+   "basis": "estimate"
+  },
+  {
+   "key": "filing",
+   "label": "Context filing",
+   "month_usd": null,
+   "total_usd": "1.5000",
+   "basis": "observed",
+   "known_subtotal": true,
+   "unknown_calls": 0,
+   "unfinished_calls": 0,
+   "coverage": {
+    "basis": "all_reserved_events_for_selected_input_or_installation",
+    "input_id": null,
+    "reserved_events": 1,
+    "ready_events": 1,
+    "partial_events": 0,
+    "unavailable_events": 0,
+    "unscanned_events": 0,
+    "ready_events_without_calls": 0,
+    "unattempted_inputs": 0,
+    "last_checked_at": "2026-10-12T09:02:49.218931Z"
+   }
+  },
+  {
+   "key": "background_ai",
+   "label": "Background AI",
+   "month_usd": "0.0000",
+   "total_usd": "0.0000",
+   "basis": "estimate"
+  },
+  {
+   "key": "business_expenses",
+   "label": "Business expenses",
+   "month_usd": "0.0000",
+   "total_usd": "0.0000",
+   "basis": "recorded"
+  }
+ ],
+ "total": {
+  "month_usd": "0.0000",
+  "total_usd": "1.5000",
+  "known_subtotal": true,
+  "incomplete_sources": [
+   "filing"
+  ]
+ },
+ "earnings": {
+  "month_usd": "0.0000",
+  "total_usd": "0.0000",
+  "accounts": 0,
+  "as_of": null,
+  "source": "stripe"
+ },
+ "background_ai": [],
+ "business_expenses": [],
+ "series": [
+  {
+   "date": "2026-09-14",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-09-15",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-09-16",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-09-17",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-09-18",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-09-19",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-09-20",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-09-21",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-09-22",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-09-23",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-09-24",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-09-25",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-09-26",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-09-27",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-09-28",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-09-29",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-09-30",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-10-01",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-10-02",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-10-03",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-10-04",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-10-05",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-10-06",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-10-07",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-10-08",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-10-09",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-10-10",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-10-11",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-10-12",
+   "spend_usd": "1.5000",
+   "earnings_usd": "0.0000"
+  }
+ ],
+ "context_usage_error": null
+}

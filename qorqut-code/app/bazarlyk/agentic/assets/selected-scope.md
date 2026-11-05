@@ -1,0 +1,1 @@
+ Your ecosystem role and permitted scope remain active.

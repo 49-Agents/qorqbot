@@ -1,0 +1,85 @@
+{
+ "currency": "USD",
+ "as_of": "2026-10-12",
+ "month_start": "2026-10-01",
+ "sources": [
+  {
+   "key": "subscriptions",
+   "label": "Subscriptions",
+   "month_usd": "0.0000",
+   "total_usd": "0.0000",
+   "basis": "estimate"
+  },
+  {
+   "key": "filing",
+   "label": "Context filing",
+   "month_usd": "0.2469",
+   "total_usd": "0.2469",
+   "basis": "observed",
+   "known_subtotal": true,
+   "unknown_calls": 0,
+   "unfinished_calls": 0,
+   "coverage": {
+    "basis": "all_reserved_events_for_selected_input_or_installation",
+    "input_id": null,
+    "reserved_events": 2,
+    "ready_events": 2,
+    "partial_events": 0,
+    "unavailable_events": 0,
+    "unscanned_events": 0,
+    "ready_events_without_calls": 1,
+    "unattempted_inputs": 0,
+    "last_checked_at": "2026-10-12T09:02:43.986599Z"
+   }
+  },
+  {
+   "key": "background_ai",
+   "label": "Background AI",
+   "month_usd": "0.0000",
+   "total_usd": "0.0000",
+   "basis": "estimate"
+  },
+  {
+   "key": "business_expenses",
+   "label": "Business expenses",
+   "month_usd": "0.0000",
+   "total_usd": "0.0000",
+   "basis": "recorded"
+  }
+ ],
+ "total": {
+  "month_usd": "0.2469",
+  "total_usd": "0.2469",
+  "known_subtotal": true,
+  "incomplete_sources": [
+   "filing"
+  ]
+ },
+ "earnings": {
+  "month_usd": "0.0000",
+  "total_usd": "0.0000",
+  "accounts": 0,
+  "as_of": null,
+  "source": "stripe"
+ },
+ "background_ai": [],
+ "business_expenses": [],
+ "series": [
+  {
+   "date": "2026-10-10",
+   "spend_usd": "0.2469",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-10-11",
+   "spend_usd": "0.2469",
+   "earnings_usd": "0.0000"
+  },
+  {
+   "date": "2026-10-12",
+   "spend_usd": "0.2469",
+   "earnings_usd": "0.0000"
+  }
+ ],
+ "context_usage_error": null
+}
