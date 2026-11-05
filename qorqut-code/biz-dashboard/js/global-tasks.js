@@ -358,6 +358,9 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
     host.querySelectorAll('input,select,textarea,button').forEach(e => e.disabled = true);
     try {
       const data = await invoke(attempt.name, attempt.args);
+      if (initialCreate && attempt.name === 'tasks_create' && (!data?.task || typeof data.task !== 'object' || typeof data.task.id !== 'string' || !data.task.id.trim())) {
+        throw Object.assign(new Error('The create response was invalid.'), {code: 'invalid_response'});
+      }
       const apply = attempt.apply;
       const submitted = attempt.args.changes;
       attempt = null;
@@ -381,14 +384,17 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
     } catch (error) {
       if (!current()) return;
       const conflict = error.code === 'revision_conflict';
-      if (!conflict && error.httpStatus >= 400 && error.httpStatus < 500) {
+      const create = initialCreate && attempt?.name === 'tasks_create';
+      const uncertain = ['request_timeout', 'invalid_response'].includes(error.code) || [408, 429].includes(error.httpStatus);
+      const definiteCreate = !uncertain && (['validation_error', 'forbidden', 'policy_denied', 'invalid_principal', 'not_found', 'revision_conflict'].includes(error.code) || [400, 401, 403, 404, 409, 422].includes(error.httpStatus));
+      if (create ? definiteCreate : !conflict && error.httpStatus >= 400 && error.httpStatus < 500) {
         attempt = null;
         host.querySelectorAll('input,select,textarea,button').forEach(e => e.disabled = false);
         message(uiFailure(error));
         return;
       }
-      message(conflict ? 'Changed since you opened it. Refresh' : "Couldn't confirm. Try again");
-      const button = host.querySelector(conflict ? '[data-reload]' : '[data-retry]');
+      message(conflict && !create ? 'Changed since you opened it. Refresh' : "Couldn't confirm. Try again");
+      const button = host.querySelector(conflict && !create ? '[data-reload]' : '[data-retry]');
       button.hidden = false; button.disabled = false;
     } finally { busy = false; }
   }
