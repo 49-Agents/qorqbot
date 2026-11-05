@@ -3,3 +3,13 @@
 
 968efb9fea7e3ff6a0f7689d41b0ab725add0281:qorqut-code/app/bazarlyk/migration/crm_baseline_fingerprint.json:generic-api-key:821
 354ee4e301e48cf8e8855af536186a5abe78932b:qorqut-code/biz-dashboard/js/xterm.js:generic-api-key:1
+
+# Reviewed false positives in the copied source snapshot.
+fcf8a256f8c8b171f00dd397204e727367b616b9:qorqut-code/app/bazarlyk/migration/crm_baseline_fingerprint.json:generic-api-key:821
+fcf8a256f8c8b171f00dd397204e727367b616b9:qorqut-code/app/tests/test_sandbox_preview.py:generic-api-key:335
+fcf8a256f8c8b171f00dd397204e727367b616b9:qorqut-code/app/tests/test_sandbox_preview.py:generic-api-key:351
+fcf8a256f8c8b171f00dd397204e727367b616b9:qorqut-code/app/tests/test_sandbox_preview.py:generic-api-key:367
+fcf8a256f8c8b171f00dd397204e727367b616b9:qorqut-code/app/tests/test_telegram_gateway.py:generic-api-key:106
+fcf8a256f8c8b171f00dd397204e727367b616b9:qorqut-code/biz-dashboard/js/xterm.js:generic-api-key:1
+fcf8a256f8c8b171f00dd397204e727367b616b9:qorqut-code/biz-dashboard/tests/fixtures/overseer-ui-v1.json:generic-api-key:2298
+fcf8a256f8c8b171f00dd397204e727367b616b9:qorqut-code/tools/module_split_compat/resumption/resumption_cases.py:generic-api-key:301
