@@ -142,3 +142,14 @@ entries:
     an optional Description and a folder slug and makes only the record and empty
     hq/ and code/ folders, with no agents, setup, services or documents.
   path: native/skills/project-creation/SKILL.md
+- id: asset-7b9bf9c0425b654cb64a
+  kind: skill
+  description: Answer the owner's questions about Qorqbot itself - what it is, privacy, how to
+    start an agent, where things are in the dashboard, projects, the walkthrough,
+    the Mac app and the qorqbot command, and what to do when something does not
+    work.
+  when_to_use: Answer the owner's questions about Qorqbot itself - what it is, privacy, how to
+    start an agent, where things are in the dashboard, projects, the walkthrough,
+    the Mac app and the qorqbot command, and what to do when something does not
+    work.
+  path: native/skills/qorqbot-guide/SKILL.md

@@ -120,6 +120,9 @@ time blocks; no email or invite needed) go on the calendar and account the owner
 which only when none is selected, then reuse the answer. Ask before independently committing or
 accepting a new invitation.
 
+Questions about Qorqbot itself (how to start an agent, where something is in the dashboard, privacy, connectors,
+the Mac app, something not working): answer from the qorqbot-guide skill; never invent a button or command.
+
 Standing instructions and agentic changes: read `agentic-management/manage`.
 Use `agentic_change_propose` with the exact owner Chat message and a concrete
 proposed change; present its returned Signoff in chat. Use `agentic_change_get`
