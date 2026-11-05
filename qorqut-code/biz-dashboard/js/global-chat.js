@@ -374,13 +374,14 @@ function mountGlobalChat(pane, agent, options = {}) {
   }
   // ---- slash commands: the catalog for the CLI this session runs
   const commandCatalogs = new Map();
+  let slashMenu = null;
   function commandCatalog() {
     const provider = session?.provider;
     if (!provider) return null;
     if (!commandCatalogs.has(provider)) {
       commandCatalogs.set(provider, null);
       api(`${base}/commands?client=${encodeURIComponent(provider)}`)
-        .then(data => { if (!disposed) commandCatalogs.set(provider, coreData(data).commands || []); })
+        .then(data => { if (!disposed) { commandCatalogs.set(provider, coreData(data).commands || []); slashMenu?.refresh(); } })
         .catch(() => commandCatalogs.delete(provider));
     }
     return commandCatalogs.get(provider);
@@ -447,6 +448,8 @@ function mountGlobalChat(pane, agent, options = {}) {
       empty: emptyState(),
     }, {scroll});
     settleStart();
+    // Load the slash command catalog as soon as the running CLI is known, so "/" lists commands at once.
+    if (session?.provider) commandCatalog();
   }
   listen(startButton, 'click', () => void runStart());
   const paintEntries = scroll => paint({entries: orderedEntries()}, scroll);
@@ -618,8 +621,8 @@ function mountGlobalChat(pane, agent, options = {}) {
   }
   // Slash commands: the running CLI's catalog, loaded once per provider (native_chat/commands.py).
   if (view.elements?.input && view.elements?.composer) {
-    const menu = slashCommands.attach({input: view.elements.input, form: view.elements.composer, commands: commandCatalog});
-    cleanups.push(() => menu.dispose());
+    slashMenu = slashCommands.attach({input: view.elements.input, form: view.elements.composer, commands: commandCatalog});
+    cleanups.push(() => slashMenu.dispose());
   }
   // Ordubashy's current workflow Focus appears above the composer; it refreshes with this chat's own loads (no extra timer).
   const workflowPanel = (agent.role?.id || agent.role_id) === 'ordubashy' && view.elements?.composer ? workflowPanelMount(view.elements.composer, agentId) : null;
