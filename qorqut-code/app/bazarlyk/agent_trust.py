@@ -211,3 +211,24 @@ def _atomic_write(path: Path, content: bytes, *, mode: int) -> None:
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+
+
+def main(argv=None) -> int:
+    """``python -I -m bazarlyk.agent_trust ensure --runtime DIR --folder DIR``, run by an agent shell before claude or codex.
+
+    It never stands in the way of a launch: any failure is ignored and the exit status is always 0."""
+    import argparse
+    parser = argparse.ArgumentParser(prog="bazarlyk.agent_trust")
+    parser.add_argument("command", choices=["ensure"])
+    parser.add_argument("--runtime", required=True)
+    parser.add_argument("--folder", required=True)
+    args = parser.parse_args(argv)
+    try:
+        ensure(args.runtime, args.folder)
+    except Exception:  # noqa: BLE001 - a trust record is a convenience; the CLI still asks if it is missing
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

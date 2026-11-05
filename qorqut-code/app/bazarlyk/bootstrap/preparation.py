@@ -240,12 +240,17 @@ def seed_instance_guidance(resolver, data) -> dict:
     return validated
 
 
-def _cli_wrappers(launch_settings: str, consent_marker: str, connector_launch: str) -> str:
-    """The claude and codex wrappers, valid in both bash and zsh. Every argument is already shell-quoted."""
+def _cli_wrappers(launch_settings: str, consent_marker: str, connector_launch: str, trust_command: str = ":") -> str:
+    """The claude and codex wrappers, valid in both bash and zsh. Every argument is already shell-quoted.
+
+    ``trust_command`` re-records folder trust for this workspace before each launch while the owner's consent exists
+    (``python -m bazarlyk.agent_trust ensure``): another program that rewrites ``~/.claude.json`` from an older copy, such
+    as another running Claude Code session, can drop the entry between the consent and the owner typing claude."""
     return (
         'unalias claude codex 2>/dev/null || true\n'
         '_qorqbot_connectors() { QORQBOT_CLAUDE_ARGS=(); QORQBOT_CODEX_ARGS=(); '
-        'if [ -f ' + connector_launch + ' ]; then . ' + connector_launch + '; fi; }\n'
+        'if [ -f ' + connector_launch + ' ]; then . ' + connector_launch + '; fi; '
+        'if [ -f ' + consent_marker + ' ]; then ' + trust_command + ' >/dev/null 2>&1 || true; fi; }\n'
         # --mcp-config takes several values; the --settings option after it ends that list before the caller's arguments.
         'claude() { _qorqbot_connectors; command claude "${QORQBOT_CLAUDE_ARGS[@]}" --settings ' + launch_settings + ' "$@"; }\n'
         'codex() { _qorqbot_connectors; if [ -f ' + consent_marker + ' ]; then '
@@ -254,11 +259,11 @@ def _cli_wrappers(launch_settings: str, consent_marker: str, connector_launch: s
     )
 
 
-def agent_shell(launch_settings: str, consent_marker: str, connector_launch: str) -> str:
+def agent_shell(launch_settings: str, consent_marker: str, connector_launch: str, trust_command: str = ":") -> str:
     """The prepared bash agent shell (``bash --rcfile``)."""
     return ('# Generated Qorqut agent shell; keep personal shell setup.\n'
             'if [ -f "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi\n'
-            + _cli_wrappers(launch_settings, consent_marker, connector_launch))
+            + _cli_wrappers(launch_settings, consent_marker, connector_launch, trust_command))
 
 
 # zsh (the macOS default) has no --rcfile: an agent terminal starts with ZDOTDIR at .bazarlyk/zsh (transport/terminals.py).
@@ -275,13 +280,13 @@ ZSH_ENV = (
 )
 
 
-def agent_zshrc(launch_settings: str, consent_marker: str, connector_launch: str) -> str:
+def agent_zshrc(launch_settings: str, consent_marker: str, connector_launch: str, trust_command: str = ":") -> str:
     return ('# Generated Qorqut agent shell for zsh; loads your own .zshrc.\n'
             'ZDOTDIR="${QORQBOT_USER_ZDOTDIR:-$HOME}"\n'
             'if [ -f "$ZDOTDIR/.zshrc" ]; then . "$ZDOTDIR/.zshrc"; fi\n'
             'if [ "$ZDOTDIR" = "$HOME" ]; then unset ZDOTDIR; fi\n'
             'unset QORQBOT_USER_ZDOTDIR\n'
-            + _cli_wrappers(launch_settings, consent_marker, connector_launch))
+            + _cli_wrappers(launch_settings, consent_marker, connector_launch, trust_command))
 
 
 def build_projection(resolver, config, *, registration_id: str, endpoint: str, interpreter: str,
@@ -588,9 +593,11 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     from bazarlyk.connectors import launch_path
     # Local connectors the owner turned on (bazarlyk.connectors) are read at each launch, so a change needs no preparation.
     connector_launch = shlex.quote(str(launch_path(resolver.paths.runtime)))
-    files[".bazarlyk/agent-shell.bash"] = agent_shell(launch_settings, consent_marker, connector_launch).encode()
+    trust_command = " ".join(shlex.quote(part) for part in (
+        executable, "-I", "-m", "bazarlyk.agent_trust", "ensure", "--runtime", str(resolver.paths.runtime), "--folder", str(workspace)))
+    files[".bazarlyk/agent-shell.bash"] = agent_shell(launch_settings, consent_marker, connector_launch, trust_command).encode()
     files[".bazarlyk/zsh/.zshenv"] = ZSH_ENV.encode()
-    files[".bazarlyk/zsh/.zshrc"] = agent_zshrc(launch_settings, consent_marker, connector_launch).encode()
+    files[".bazarlyk/zsh/.zshrc"] = agent_zshrc(launch_settings, consent_marker, connector_launch, trust_command).encode()
     for name in extension_files:
         if name in files:
             raise DomainError("invalid_configuration", "An extension helper duplicates a generated file")
