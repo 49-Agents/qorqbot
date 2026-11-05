@@ -379,7 +379,7 @@ function remindersEditor(reminder = null, opts = {}) {
     catch (failure) { const message=form.querySelector('p.ferr'); message.textContent=failure.message; message.hidden=false; }
     if (form.isConnected) paintPending();
   }
-  const onFocus = () => { verifiedOwner=null; duplicate=null; form.inert=false; if (form.isConnected) { paintPending(); void refreshPending(); } };
+  const onFocus = () => { verifiedOwner=null; duplicate=null; form.inert=busy; if (form.isConnected) { paintPending(); void refreshPending(); } };
   window.addEventListener('focus',onFocus); session.onDispose(()=>window.removeEventListener('focus',onFocus));
   void refreshPending();
   const sync = () => form.querySelectorAll('[data-when]').forEach(label => { label.hidden = !label.dataset.when.split(' ').includes(form.elements.repeat.value); });
