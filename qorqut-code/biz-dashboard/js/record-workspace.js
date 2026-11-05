@@ -193,12 +193,16 @@ function recordWorkspaceMount(host, options = {}) {
     item.recordEl = rwNode('article', 'rw-record');
     item.recordEl.dataset.rwKey = rwRecordKey(record);
     item.recordEl.dataset.rwType = record.source.type;
-    item.recordEl.innerHTML = `<header class="rw-head">
+    // Focus expands a record in its board, so that header leads with the pill Close the owner uses to leave it.
+    const closeButton = options.closeFirst
+      ? `<button type="button" class="quiet rw-close" aria-label="Close record"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg><span class="rw-close-label">Close</span></button>`
+      : '';
+    const closeIcon = options.closeFirst ? '' : `<button type="button" class="quiet rw-close" aria-label="Close record"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>`;
+    item.recordEl.innerHTML = `<header class="rw-head${options.closeFirst ? ' rw-close-first' : ''}">${closeButton}
       <button type="button" class="quiet rw-back" aria-label="Back" hidden>← Back</button>
       <span class="rw-context" hidden>CRM /</span><span class="rw-title" role="heading" aria-level="2"></span>
       <button type="button" class="quiet rw-move" hidden>Move to project…</button>
-      <div class="rw-tabs" role="tablist" aria-label="Record views"></div>
-      <button type="button" class="quiet rw-close" aria-label="Close record"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+      <div class="rw-tabs" role="tablist" aria-label="Record views"></div>${closeIcon}
     </header><div class="rw-body"><div class="rw-pane rw-dashboard" role="tabpanel" tabindex="0"></div><div class="rw-pane rw-chat" role="tabpanel" tabindex="0" hidden><div class="agfocus-conversation rw-conversation"></div></div></div>`;
     item.dashHost = item.recordEl.querySelector('.rw-dashboard');
     item.chatHost = item.recordEl.querySelector('.rw-chat');

@@ -28,6 +28,8 @@ from .support import canonical, digest
 from .upgrade import _unique, history_directory, history_snapshot, read_binding_bytes, retain_prior_binding
 
 _fault_hook = lambda _stage, **_kwargs: None
+# Journal phases that can still publish the Git index through the macOS staging directory.
+_INDEX_STAGING_PHASES = ('prepared', 'files_published', 'git_prepared', 'ref_published', 'index_publishing')
 
 
 def _publish_intent(path, raw):
@@ -54,6 +56,20 @@ def _publish_intent(path, raw):
             posix_files.discard(pending)
     finally:
         os.close(parent)
+
+
+def _require_staging_devices(paths, plan, phase, *, intent_pending):
+    """Before any effect, refuse a macOS publication destination on another device than the staging directory.
+
+    Destinations are the Git directory that receives the index (while one is still to be published) and the history
+    directory that receives a new intent (its config parent until that directory exists); a no-op on Linux."""
+    destinations = []
+    if intent_pending:
+        history = Path(plan['evidence']['intent']).parent
+        destinations.append(history if os.path.lexists(history) else history.parent)
+    if plan['changes'] and phase in _INDEX_STAGING_PHASES:
+        destinations.append(paths.agentic_root / '.git')
+    posix_files.require_same_device(*destinations)
 
 
 def _layout_proof(paths):
@@ -454,6 +470,7 @@ def apply(paths, plan, *, attribution, acknowledge_grants=False):
                                  'sha256': wanted['binding']['record_sha256'], 'packages_updated': [],
                                  'provisioning': {'schema_version': 1, 'mode': '0700', 'created': [], 'preserved': [], 'items': []},
                                  'prior_binding': None, 'change_id': None, 'sequence': None}, None, worked=False, recovered=False, replayed=False)
+            _require_staging_devices(paths, wanted, 'prepared', intent_pending=True)
             prior_raw = read_binding_bytes(paths)
             before = _provision_before(paths, wanted)
             retained = retain_prior_binding(paths, prior_raw, intent['prior_binding_sha256'])
@@ -475,12 +492,14 @@ def apply(paths, plan, *, attribution, acknowledge_grants=False):
             managed_ancestry._verify_prior_for_resume(paths, prior, prior_raw, pd, layout_intents=layout, layout_verified=verified)
             journal_path = Path(wanted['evidence']['journal'])
             if 'journal' not in pair:
+                _require_staging_devices(paths, wanted, 'prepared', intent_pending=False)
                 before = _initial_after_intent(paths, intent, prior_raw)
                 retained = {'snapshot': str(history_snapshot(paths, intent['prior_binding_sha256'])), 'sha256': intent['prior_binding_sha256'], 'created': False}
                 journal = _new_journal(paths, intent, retained, before)
                 managed_journal.write(journal_path, journal)
             else:
                 journal = managed_journal.read(journal_path)
+                _require_staging_devices(paths, wanted, journal['phase'], intent_pending=False)
         prior = json.loads(prior_raw, object_pairs_hook=_unique)
         saved = [deepcopy(journal)]
         def save():

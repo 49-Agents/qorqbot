@@ -19,6 +19,18 @@
   .split.global-agents.agsplit { grid-template-columns: 134px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
   .split.global-agents.agsplit.pad-off { grid-template-columns: 134px minmax(0, 1fr) 0; }
 }
+/* Testing mode OFF: the roster stays, while the unavailable Overseer replaces the
+   session and right-hand workspace with one centered state. Nothing is mounted
+   behind it and no third/fourth column is reserved. */
+.split.global-agents.agsplit.overseer-gated { grid-template-columns: 114px minmax(0, 1fr); }
+.split.global-agents.agsplit.overseer-gated.nav-off { grid-template-columns: 0 minmax(0, 1fr); }
+@media (min-width: 1000px) {
+  .split.global-agents.agsplit.overseer-gated { grid-template-columns: 134px minmax(0, 1fr); }
+  .split.global-agents.agsplit.overseer-gated.nav-off { grid-template-columns: 0 minmax(0, 1fr); }
+}
+.overseer-gated > .global-agent-session,
+.overseer-gated > .agent-pane-divider,
+.overseer-gated > .agpad { display: none; }
 .agsplit:not(.pad-off) > .chat.termmode { padding-left: 24px; padding-right: 24px; }
 .agsplit.pad-off > .agent-pane-divider { display: none; }
 
@@ -94,30 +106,12 @@
 /* The divider draws the one line between chat and pane; the shared .tasks left border would double it. */
 .agsplit > .agpad { border-left: 0; }
 .agpad[hidden] { display: none; }
-.agpad-inbox-status { display:flex; align-items:center; gap:8px; padding: 12px 16px; color: var(--fg-2); font-size: 12px; }
-.agpad-delivery-dot { flex:none; width:8px; height:8px; border-radius:50%; background:var(--fg-3); }
-.agpad-inbox-status[data-delivery-state=idle] .agpad-delivery-dot,.agpad-inbox-status[data-delivery-state=submitted] .agpad-delivery-dot { background:#30D158; }
-.agpad-inbox-status[data-delivery-state=uncertain] .agpad-delivery-dot,.agpad-inbox-status[data-delivery-state=unavailable] .agpad-delivery-dot,.agpad-inbox-status[data-delivery-state=stale] .agpad-delivery-dot { background:var(--warn); }
-.agpad-inbox-heading { margin: 20px 16px 8px; color: var(--fg-2); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
-.agpad-inbox-item { display: block; width: 100%; height: auto; min-height: 76px; white-space: normal; line-height: 1.5; border: 0; border-radius: 0; border-bottom: 1px solid var(--line); padding: 12px 16px; background: transparent; color: var(--fg); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
-.agpad-inbox-item:hover, .agpad-inbox-item:focus-visible, .agpad-inbox-item:active { background: var(--hover); color: var(--fg); transform: none; }
-.agpad-inbox-item strong, .agpad-inbox-item span { display: block; }
-.agpad-inbox-item span { margin-top: 5px; font-size: 12px; color: var(--fg-2); }
-
-.agpad-message summary { cursor: pointer; }
-.agpad-message-body { white-space: pre-wrap; margin-top: 10px; cursor: text; user-select: text; }
-.agpad-inbox-item .agpad-message-original { font-style: italic; color: var(--fg-3); }
 
 /* Match the task section headings throughout the agent pane. */
-.agpad .agpad-inbox-heading, .agpad .sg h2, .agpad .sg h3, .agpad .sg h4 {
+.agpad .sg h2, .agpad .sg h3, .agpad .sg h4 {
   font-size:11px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
   color:var(--fg-2); opacity:.6; line-height:1;
 }
-
-.agpad-inbox-top { display:flex; align-items:center; gap:16px; margin:20px 16px 8px; }
-.agpad-inbox-top .agpad-inbox-heading { margin:0; flex:none; }
-.agpad-inbox-top .agpad-inbox-status { margin-left:auto; padding:0; min-width:0; font-size:11px; white-space:nowrap; }
-.agpad-inbox-top .agpad-inbox-status > span:last-child { overflow:hidden; text-overflow:ellipsis; }
 
 .agsplit.nav-off > .listcol .agent-broadcast,.agsplit.nav-off > .listcol .global-eyebrow{display:none}
 
@@ -131,10 +125,6 @@
 .agpad .ttab,.gchat-session-switch .ttab{position:relative;flex:0 0 var(--ag-ctl);width:var(--ag-ctl);height:var(--ag-ctl)}
 .agpad .ttab svg,.gchat-session-switch .ttab svg{width:var(--ag-ctl-icon);height:var(--ag-ctl-icon)}
 .agpad .tind{height:var(--ag-ctl)}
-.agpad-tab-dot{position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:50%;background:var(--fg-3);pointer-events:none}
-.agpad-tab-dot[data-state="running"]{background:#30D158}
-.agpad-tab-dot[data-state="idle"]{background:#c8912a}
-.agpad-tab-dot[hidden]{display:none}
 /* Ordubashy auto-ping switch at the right end of the pane's tab row. */
 .agpad .thead.agpad-ping-head { display:flex; align-items:flex-start; gap:12px; padding-right:28px; }
 .agpad-ping-head > .ttabs { flex:1 1 auto; min-width:0; }

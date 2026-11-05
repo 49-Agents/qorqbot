@@ -75,9 +75,12 @@ function agbrowserWireMode(p, host) {
   };
 }
 
-function agbrowserStatus(p, body, message, role = 'status', retry = null) {
-  body.innerHTML = `<section class="agfocus-desktop-view agbrowser"><div class="agbrowser-bar">${agbrowserModeToggle(p, 'browser')}` +
-    (retry ? `<span class="agbrowser-actions">${agbrowserReconnectButton('data-browser-reconnect')}</span>` : '') + '</div>' +
+// A Focus surface is opened from the persistent launcher row, so it carries neither the
+// browser/desktop switch nor a reconnect button; that row opens each mode and retries it.
+function agbrowserStatus(p, body, message, role = 'status', retry = null, ctx = null) {
+  const bar = ctx ? '' : agbrowserModeToggle(p, 'browser') +
+    (retry ? `<span class="agbrowser-actions">${agbrowserReconnectButton('data-browser-reconnect')}</span>` : '');
+  body.innerHTML = `<section class="agfocus-desktop-view agbrowser">${bar ? `<div class="agbrowser-bar">${bar}</div>` : ''}` +
     `<p class="${role === 'alert' ? 'ferr' : 'muted'}" role="${role}">${esc(message)}</p></section>`;
   const button = $('[data-browser-reconnect]', body);
   if (button && retry) button.onclick = retry;
@@ -110,11 +113,12 @@ function agbrowserFrame(p, host, surface, fit, ctx = null) {
 
 function agbrowserShow(p, body, surfaces, selected, ctx = null) {
   const several = surfaces.browsers.length > 1;
-  body.innerHTML = `<section class="agfocus-desktop-view agbrowser"><div class="agfocus-desktop-help agbrowser-bar">
-    ${agbrowserModeToggle(p, 'browser')}
-    ${several ? agbrowserToggle('Browser', surfaces.browsers.map(item => ({attr: 'data-browser-surface', value: item.id, label: item.label, icon: agbrowserSurfaceIcon(p, item), pressed: false}))) : ''}
-    <span class="agbrowser-actions">${agbrowserReconnectButton('data-browser-reconnect')}</span></div>
-    <div class="agbrowser-stage"></div></section>`;
+  // The switch and reconnect stay out of a Focus surface; choosing another browser surface still works there.
+  const picker = several ? agbrowserToggle('Browser', surfaces.browsers.map(item => ({attr: 'data-browser-surface', value: item.id, label: item.label, icon: agbrowserSurfaceIcon(p, item), pressed: false}))) : '';
+  const bar = ctx ? (picker ? `<div class="agfocus-desktop-help agbrowser-bar">${picker}</div>` : '')
+    : `<div class="agfocus-desktop-help agbrowser-bar">${agbrowserModeToggle(p, 'browser')}${picker}` +
+      `<span class="agbrowser-actions">${agbrowserReconnectButton('data-browser-reconnect')}</span></div>`;
+  body.innerHTML = `<section class="agfocus-desktop-view agbrowser">${bar}<div class="agbrowser-stage"></div></section>`;
   const host = $('.agbrowser', body);
   const choose = surface => {
     for (const button of host.querySelectorAll('[data-browser-surface]')) button.setAttribute('aria-pressed', String(button.dataset.browserSurface === surface.id));
@@ -125,7 +129,8 @@ function agbrowserShow(p, body, surfaces, selected, ctx = null) {
     const surface = surfaces.browsers.find(item => item.id === button.dataset.browserSurface);
     if (surface && button.getAttribute('aria-pressed') !== 'true') choose(surface);
   };
-  $('[data-browser-reconnect]', host).onclick = () => agbrowserMount(p, true, ctx);
+  const reconnect = $('[data-browser-reconnect]', host);
+  if (reconnect) reconnect.onclick = () => agbrowserMount(p, true, ctx);
   agbrowserWireMode(p, host);
   choose(selected);
 }
@@ -140,15 +145,15 @@ async function agbrowserMount(p, reconnect = false, ctx = null) {
   const dispose = () => { p.browserRequest++; p.browserFrameDispose?.(); };
   if (ctx) ctx.onDispose(dispose); else p.workspaceDispose = dispose;
   const current = () => (ctx ? ctx.current() : agpadActive(p) && p.view === 'browser') && p.browserRequest === request && body.isConnected;
-  agbrowserStatus(p, body, 'Loading browser…');
+  agbrowserStatus(p, body, 'Loading browser…', 'status', null, ctx);
   let surfaces;
   try { surfaces = await agbrowserSurfaces(p, reconnect); } catch (error) {
-    if (current()) agbrowserStatus(p, body, "Couldn't load. Retry", 'alert', () => agbrowserMount(p, true, ctx));
+    if (current()) agbrowserStatus(p, body, ctx ? 'Couldn’t load. Open Browser again to retry.' : "Couldn't load. Retry", 'alert', () => agbrowserMount(p, true, ctx), ctx);
     return;
   }
   if (!current() || surfaces.agentId !== p.agentId) return;
   if (!surfaces.browsers.length) {
-    agbrowserStatus(p, body, 'Browser unavailable.', 'status', () => agbrowserMount(p, true, ctx));
+    agbrowserStatus(p, body, 'Browser unavailable.', 'status', () => agbrowserMount(p, true, ctx), ctx);
     return;
   }
   const saved = ls(agbrowserSelectionKey(surfaces.agentId));

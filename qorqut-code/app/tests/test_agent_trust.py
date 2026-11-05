@@ -1,4 +1,6 @@
 """Owner consent lets Qorqbot record folder trust for its own agent workspaces, and nothing is written without it."""
+import isolated_cli_environment  # before any Qorqbot import: tests never touch the real user's CLI files
+
 from contextlib import contextmanager
 import json
 import os
@@ -18,6 +20,7 @@ from bazarlyk import agent_trust as trust
 
 class Base(unittest.TestCase):
     def setUp(self):
+        isolated_cli_environment.isolate(self)
         self.root = Path(tempfile.mkdtemp())
         self.home = self.root / "home"
         (self.home / ".codex").mkdir(parents=True)
@@ -208,25 +211,100 @@ class OwnerViewTests(Base):
         self.assertNotIn("autostart", view)
 
 
-class FolderKeysTest(unittest.TestCase):
-    def test_the_enclosing_git_repository_is_trusted_too(self):
-        root = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, root)
-        operations = root / "instance" / "operations"
-        agent = operations / "agents" / "a1"
-        agent.mkdir(parents=True)
-        self.assertEqual(trust.folder_keys(agent), [os.path.abspath(agent)] if os.path.realpath(agent) == os.path.abspath(agent)
-                         else [os.path.abspath(agent), os.path.realpath(agent)])
-        (operations / ".git").mkdir()
-        keys = trust.folder_keys(agent)
-        self.assertIn(os.path.abspath(agent), keys)
-        self.assertIn(os.path.abspath(operations), keys)
-        self.assertNotIn(os.path.abspath(root / "instance"), keys)
-        self.assertEqual(len(keys), len(set(keys)))
+class FolderKeysTest(Base):
+    """Only the agent's own workspace is ever recorded; never a git repository that encloses it."""
+
+    def layouts(self):
+        """Workspaces under (name, repository entry that encloses them) combinations, each in its own folder."""
+        cases = {}
+        for name, enclosing in (("the operations repository", "instance/operations/.git"),
+                                ("an external repository above the instance", ".git"),
+                                ("a git worktree file above the instance", ".git:file"),
+                                ("no repository", None)):
+            base = self.root / name.replace(" ", "-")
+            agent = base / "instance" / "operations" / "agents" / "a1"
+            agent.mkdir(parents=True)
+            if enclosing:
+                entry = base / enclosing.split(":")[0]
+                if enclosing.endswith(":file"):
+                    entry.write_text("gitdir: /elsewhere\n")
+                else:
+                    entry.mkdir(parents=True, exist_ok=True)
+            cases[name] = (base, agent)
+        return cases
+
+    @staticmethod
+    def only(folder):
+        lexical = os.path.abspath(folder)
+        return [lexical] if os.path.realpath(lexical) == lexical else [lexical, os.path.realpath(lexical)]
+
+    def test_no_enclosing_repository_is_a_key(self):
+        for name, (base, agent) in self.layouts().items():
+            with self.subTest(name):
+                self.assertEqual(trust.folder_keys(agent), self.only(agent))
+
+    def test_a_symlinked_workspace_is_keyed_lexically_and_physically_and_nothing_more(self):
+        for name, (base, agent) in self.layouts().items():
+            with self.subTest(name):
+                link = base / "link to agent"
+                link.symlink_to(agent)
+                self.assertEqual(trust.folder_keys(link), [os.path.abspath(link), os.path.realpath(agent)])
+                self.assertEqual(trust.folder_keys(str(link) + "/"), [os.path.abspath(link), os.path.realpath(agent)])
+
+    def test_ensure_records_only_the_workspace_in_both_clis(self):
+        trust.consent(self.runtime, {"granted": True})
+        for name, (base, agent) in self.layouts().items():
+            with self.subTest(name):
+                self.claude({"projects": {"/mine": {"hasTrustDialogAccepted": False}}})
+                (self.home / ".codex" / "config.toml").write_text('model = "x"\n')
+                self.assertEqual(trust.ensure(self.runtime, agent, self.environ), {"claude": trust.TRUSTED, "codex": trust.TRUSTED})
+                keys = self.only(agent)
+                projects = self.claude_data()["projects"]
+                self.assertEqual(set(projects), {"/mine", *keys})
+                self.assertTrue(all(projects[key]["hasTrustDialogAccepted"] is True for key in keys))
+                codex = tomllib.loads(self.codex_text())["projects"]
+                self.assertEqual(codex, {key: {"trust_level": "trusted"} for key in keys})
+                for ancestor in (agent.parent, base / "instance" / "operations", base / "instance", base):
+                    self.assertNotIn(os.path.realpath(ancestor), projects)
+                    self.assertNotIn(os.path.realpath(ancestor), codex)
+
+    def test_the_agent_shell_command_records_only_the_workspace_too(self):
+        trust.consent(self.runtime, {"granted": True})
+        base, agent = self.layouts()["the operations repository"]
+        self.claude({"projects": {}})
+        with mock.patch.dict(os.environ, {"HOME": str(self.home), "CLAUDE_CONFIG_DIR": str(self.home),
+                                          "CODEX_HOME": str(self.home / ".codex")}):
+            self.assertEqual(trust.main(["ensure", "--runtime", str(self.runtime), "--folder", str(agent)]), 0)
+        self.assertEqual(set(self.claude_data()["projects"]), set(self.only(agent)))
+        self.assertEqual(set(tomllib.loads(self.codex_text())["projects"]), set(self.only(agent)))
+
+    def test_codex_levels_the_owner_set_are_kept(self):
+        trust.consent(self.runtime, {"granted": True})
+        base, agent = self.layouts()["the operations repository"]
+        self.claude({"projects": {}})
+        enclosing = os.path.realpath(base / "instance" / "operations")
+        original = f'# mine\n[projects.{json.dumps(os.path.realpath(agent))}]\ntrust_level = "untrusted"\n' \
+                   f'[projects.{json.dumps(enclosing)}]\ntrust_level = "untrusted"\n'
+        (self.home / ".codex" / "config.toml").write_text(original)
+        result = trust.ensure(self.runtime, agent, self.environ)
+        self.assertEqual(result["codex"], trust.KEPT)
+        self.assertEqual(self.codex_text(), original)
+
+    def test_nothing_is_recorded_after_the_owner_revokes(self):
+        trust.consent(self.runtime, {"granted": True})
+        trust.consent(self.runtime, {"granted": False})
+        base, agent = self.layouts()["the operations repository"]
+        self.claude({"projects": {}})
+        self.assertIsNone(trust.ensure(self.runtime, agent, self.environ))
+        self.assertEqual(self.claude_data(), {"projects": {}})
+        self.assertFalse((self.home / ".codex" / "config.toml").exists())
 
 
 class MainTest(unittest.TestCase):
     """What an agent shell runs before claude or codex."""
+
+    def setUp(self):
+        isolated_cli_environment.isolate(self)
 
     def test_ensure_trusts_the_folder_only_with_consent_and_always_exits_zero(self):
         root = Path(tempfile.mkdtemp())

@@ -58,9 +58,10 @@ function agentBusinessLetter(m) {
     || (!id && !slug && s.scope !== 'global' ? s.bizs.find(x => x.slug === s.biz) : null);
   return String(m?.business_name || b?.name || b?.slug || '·').charAt(0).toUpperCase();
 }
-// Qorqbot's original mascot geometry, reused from its dark SVG.
-// Role colors are presentation only; saved agent identity and icon settings are untouched.
-const QORQBOT_AGENT_COLORS = {ordubashy:'#fff', 'learning-applier':'#9063c8'};
+// Qorqbot's original mascot geometry, reused from its dark SVG. Its face is white for every user,
+// with black eyes and mustache; role colors are presentation only and saved agent identity and
+// icon settings are untouched.
+const QORQBOT_AGENT_COLORS = {ordubashy:'#ffffff', 'learning-applier':'#9063c8'};
 function qorqbotAgentColor(m) {
   const role=m?.role?.id || m?.role_id || m?.kind;
   if(QORQBOT_AGENT_COLORS[role])return QORQBOT_AGENT_COLORS[role];
@@ -103,11 +104,11 @@ function qorqbotAgentGlyph(color,size,variant={body:'round',mustache:'classic'})
   return `<svg class="ai qorqbot-agent" width="${size}" height="${size}" viewBox="25 30 110 112" aria-hidden="true" focusable="false">
     <path fill="${color}" d="${QORQBOT_BODIES[variant.body] || QORQBOT_BODIES.round}"/>
     <g transform="${variant.body==='round' ? '' : 'translate(79 85) scale(.84) translate(-100 -79)'}">
-    <g fill="${variant.featureColor || '#fff'}" transform="translate(${variant.eyeOffset || 0} 0) rotate(-22 80 86)">
+    <g fill="#000" transform="translate(${variant.eyeOffset || 0} 0) rotate(-22 80 86)">
       <g transform="translate(90 73) rotate(-12)"><g class="qorqbot-gaze"><g class="qorqbot-eye"><path d="M0 -12 C8 -7 8 7 0 12 C-8 7 -8 -7 0 -12 Z"/></g></g></g>
       <g transform="translate(116.5 72) rotate(-12)"><g class="qorqbot-gaze"><g class="qorqbot-eye"><path d="M0 -10.5 C6 -6 6 6 0 10.5 C-6 6 -6 -6 0 -10.5 Z"/></g></g></g>
     </g>
-    <g fill="${variant.featureColor || '#fff'}" transform="translate(5 0) rotate(-22 80 86)"><path transform="translate(91 103) scale(${variant.mustache==='classic' ? .65 : .58}) translate(-91 -103)" d="${QORQBOT_MUSTACHES[variant.mustache] || QORQBOT_MUSTACHES.classic}"/></g>
+    <g fill="#000" transform="translate(5 0) rotate(-22 80 86)"><path transform="translate(91 103) scale(${variant.mustache==='classic' ? .65 : .58}) translate(-91 -103)" d="${QORQBOT_MUSTACHES[variant.mustache] || QORQBOT_MUSTACHES.classic}"/></g>
     </g>
   </svg>`;
 }
@@ -309,10 +310,10 @@ function loadSession(force = false) {
 }
 const evUrl = p => "/api" + p;
 // ---------------------------------------------------------------- notifications
-// One queue for every toast: bottom-right, newest at the bottom, up to NOTE_MAX on screen, the rest wait in
-// FIFO order. A note rises in, stays NOTE_MS (hovering holds it, a click dismisses it), then sinks out and the
+// One queue for every toast: centered at the top, up to NOTE_MAX on screen, the rest wait in
+// FIFO order. A note stays NOTE_MS (hovering holds it, a click dismisses it), then leaves and the
 // next one takes its slot. A backlog longer than NOTE_QUEUE_MAX folds its tail into one "N more" note so a
-// burst never floods the corner. `notify({text, sub?, color?, ms?})`; `toast(text)` is the short form.
+// burst never floods the view. `notify({text, sub?, color?, ms?, reminder?, onClick?})`; `toast(text)` is the short form.
 const NOTE_MAX = 3, NOTE_MS = 4200, NOTE_QUEUE_MAX = 6;
 const _notes = { queue: [], live: 0, replies: new Map() };
 function notify(n) {
@@ -344,21 +345,26 @@ function replyToastHTML(n) {
 function communicationToastHTML(c) {
   return `${agentGlyph({agent_id:c.sender_id}, 22)}<span class="comm-arrow" aria-hidden="true">\u2192</span>${agentGlyph({agent_id:c.recipient_id}, 22)}`;
 }
+// Reminder pill: a plain bell and one ellipsized line; the label and title keep the full text.
+function reminderToastHTML(n) {
+  return `<span class="reminder-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#eee" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z"/><path d="M10 21h4"/></svg></span><span class="reminder-text">${esc(n.text)}</span>`;
+}
 function notePump() {
   const box = $("#toasts"); if (!box) return;
   while (_notes.live < NOTE_MAX && _notes.queue.length) {
     const n = _notes.queue.shift(); _notes.live++;
     const el = document.createElement("div");
-    el.className = "toast in" + (n.fold ? " fold" : "") + (n.replyAgentId ? " reply-toast" : "") + (n.communication ? " comm-toast" : "");
+    el.className = "toast in" + (n.fold ? " fold" : "") + (n.reminder ? " reminder-toast" : "") + (n.replyAgentId ? " reply-toast" : "") + (n.communication ? " comm-toast" : "");
     if (n.color) el.style.setProperty("--c", n.color);
     if (n.communication) { el.setAttribute("role", "img"); el.setAttribute("aria-label", n.text); el.title = n.text; }
-    el.innerHTML = n.communication ? communicationToastHTML(n.communication) : n.replyAgentId ? replyToastHTML(n) : `<div class="tx">${esc(n.text)}</div>${n.sub ? `<div class="tsub">${esc(n.sub)}</div>` : ""}`;
+    if (n.reminder) { el.setAttribute("aria-label", `Reminder: ${n.text}`); el.title = n.text; }
+    el.innerHTML = n.communication ? communicationToastHTML(n.communication) : n.reminder ? reminderToastHTML(n) : n.replyAgentId ? replyToastHTML(n) : `<div class="tx">${esc(n.text)}</div>${n.sub ? `<div class="tsub">${esc(n.sub)}</div>` : ""}`;
     box.appendChild(el);
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove("in")));
     let t, gone = false, deadline = 0, remaining = n.ms || NOTE_MS, held = 0;
     const go = () => { if (gone) return; gone = true; clearTimeout(t); if (n.replyAgentId && _notes.replies.get(n.replyAgentId)?.el === el) _notes.replies.delete(n.replyAgentId); el.classList.add("out"); setTimeout(() => { el.remove(); _notes.live--; notePump(); }, 260); };
     const arm = (ms = n.ms || NOTE_MS) => { clearTimeout(t); remaining = ms; deadline = Date.now() + ms; t = setTimeout(go, ms); };
-    if (n.replyAgentId || n.communication) {
+    if (n.replyAgentId || n.communication || n.reminder) {
       // Hover and keyboard focus each hold the card; the remaining time resumes once both end.
       const hold = () => { if (held++ === 0) { remaining = Math.max(0, deadline - Date.now()); clearTimeout(t); } };
       const release = () => { held = Math.max(0, held - 1); if (held === 0 && !gone) arm(remaining); };
@@ -659,7 +665,6 @@ let pageReads = new AbortController();
 const pageRead = (path, options = {}) => api(path, {...options, signal: options.signal || pageReads.signal});
 const pageReadPost = (path, body, signal = pageReads.signal) => post(path, body, {signal});
 function renderTab() {
-  if(!embeddedAgentPane && typeof workspaceComposerRefresh==='function')workspaceComposerRefresh();
   pageReads.abort(); pageReads = new AbortController();
   globalAgentsGeneration++;
   if (typeof rtSuspend === 'function') rtSuspend();

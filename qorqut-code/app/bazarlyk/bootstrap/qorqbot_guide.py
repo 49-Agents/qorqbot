@@ -51,7 +51,13 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
   will not connect to it.
 - The first time in an agent's folder, Claude Code asks whether to trust the folder (press the down arrow, then Enter
   on "Yes, I trust this folder") and Codex asks to review hooks. **Settings > trusted agent folders** turns on a
-  one-time consent that trusts Qorqbot's own agent folders so neither CLI asks; other projects are not changed.
+  one-time consent that marks each agent's own folder as trusted and lets Codex run Qorqbot's hooks there without that
+  review; other projects are not changed. It does not stop every prompt: a CLI can still ask the owner to trust a larger
+  folder around the agent, such as the git repository the agent folders sit in. Qorqbot never trusts that for the owner;
+  the owner reads the question and answers it in the terminal.
+- Qorqbot's setup for `claude` and `codex` (its settings, connectors and the opening role prompt) applies only when the
+  terminal is in the agent's own folder. After `cd` into another folder, or a subfolder of the agent's, they run as the
+  plain commands.
 - Nothing starts by itself. If the session ends (`/exit`, closed CLI, computer restarted), Chat shows the agent as
   offline until the owner starts it again.
 
@@ -66,14 +72,15 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
   - "Connecting…" means the session was found and Chat is attaching to it; "offline" means no session is running.
   - Slash commands: type `/` at the start of the Chat box to list the agent's commands (`/compact`, `/clear`, `/init`,
     the owner's own Claude Code commands and skills). Arrow keys and Enter pick one. Commands marked **Terminal**
-    (`/model`, `/resume`, `/cost` and others) open a menu or panel in the agent's Terminal, and Chat switches there.
+    (`/model`, `/resume`, `/cost` and others) open a menu or panel in the agent's Terminal, and Chat switches there;
+    in Claude Code, `/model sonnet` with a name just switches the model. An agent running in the shared Codex app cannot
+    run Codex commands from Chat (Chat says so and sends nothing); run them in the agent's Terminal.
   - Above Ordubashy's composer, **Workflow steps** shows the steps of the current workflow (Done, Working, Upcoming).
 - **Ordubashy's right-hand pane** has tabs:
   - **Pinned**: tasks and records kept in view, today's calendar, and chips across the top for browsers, due
     reminders and Signoffs waiting on the owner. **+** adds a text note.
   - **Attention board**: what Ordubashy is focused on now and the tasks lined up behind it (Working, Needs your input,
     Open, Blocked, Waiting, Done).
-  - **Activity and inbox**: what the agents did, and what arrived for them.
   - **Calendar**: day, 3-day and week views, **Add event**, **My calendars**.
   - **Journal**: the owner's notes, saved as they type.
 - **Learning Applier's pane**: **Context** (the shared context the agents work from, which the owner can read and
@@ -137,6 +144,9 @@ Five chapters: get online, your workspace, projects and decisions, make it yours
 
 - **Chat says offline or "Not available to send"**: start the agent in its Terminal (above). If the terminal shows a
   prompt (trust, hooks, sign-in, an update), answer it there.
+- **Start says the agent's terminal is not in the agent's own folder**: the terminal was moved with `cd`. Go to the
+  agent's **>_** Terminal, return it to the folder named in the message, then press Start again; Qorqbot never changes
+  folders or types commands for the owner.
 - **Start fails or the agent never comes online**: open the agent's **>_** Terminal and read what it is waiting for.
   Claude Code or Codex must be installed and signed in once in a normal terminal (`claude` / `codex`).
 - **A message shows as not delivered or unconfirmed**: check the Terminal; if the CLI is showing a menu or dialog, finish

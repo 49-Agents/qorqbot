@@ -28,11 +28,12 @@ const settingsChoice = (name, options, current) => `<div class="st-choice" role=
 const settingsSwitch = (name, on, label) => `<button type="button" class="st-switch" role="switch" aria-checked="${!!on}" aria-label="${esc(label)}" data-switch="${esc(name)}"><i></i></button>`;
 
 async function renderSettings(c) {
+  envView?.testing?.unsubscribe?.();
   const scope = envScope(), global = state.scope === "global";
   const pane = document.createElement("div");
   pane.className = "pane settingspane" + (global ? " st-global" : "");
   const p = envView = { pane, scope, global, url: global ? "/root/env" : "/biz/" + encodeURIComponent(state.biz) + "/env",
-    rows: [], inherited: [], loaded: false, saving: false, dirty: false };
+    rows: [], inherited: [], loaded: false, saving: false, dirty: false, testing: null };
   const sections = global ? SETTINGS_SECTIONS : SETTINGS_SECTIONS.filter(section => section.id === 'environment');
   const environment = `
     <div class="st-env-head"><p class="st-help">${global ? "Shared defaults for all projects and Global agents. Projects can override individual values." : "Global values are inherited automatically. Override a value for this project, or use Global again."}</p>
@@ -47,6 +48,10 @@ async function renderSettings(c) {
     agents: `<div class="st-rows" data-agent-clients><p class="st-help">Checking Claude Code and Codex…</p></div>
       <div class="st-rows">${settingsRow({label: 'Trusted agent folders', keywords: 'trust consent hooks prompts folder security',
         help: '<span data-agent-trust-text>Checking…</span>', control: '<button type="button" class="quiet" data-agent-trust-toggle disabled>…</button>', attrs: 'data-agent-trust'})}
+      ${global ? settingsRow({label: 'Testing mode', keywords: 'testing overseer global agent roster chat terminal workspace experimental',
+        help: 'Show Overseer in the Global agent roster and enable its chat, terminal and workspace. Off by default.<span class="set-testing-note" id="set-testing-note" role="status"></span>',
+        control: `<label class="set-switch" for="set-testing-toggle"><input type="checkbox" id="set-testing-toggle" role="switch" aria-label="Testing mode" disabled><span class="set-switch-track" aria-hidden="true"></span><span class="set-switch-label" id="set-testing-state">Loading…</span></label>`,
+        attrs: 'data-testing-mode'}) : ''}
       ${settingsRow({label: 'Starting an agent', keywords: 'start launch terminal claude codex restart',
         help: 'Open the agent, click <b>&gt;_</b> above its Chat and type <code>claude</code> or <code>codex</code>. Chat’s <b>Start</b> button does the same. Agents never start by themselves.'})}</div>`,
     appearance: `<div class="st-rows">${settingsRow({label: 'Theme', keywords: 'dark light system mode color colour', help: 'System follows your computer’s light or dark setting.',
@@ -85,6 +90,17 @@ async function renderSettings(c) {
         <p class="st-empty" data-settings-empty hidden>No settings match your search.</p></div>
     </div>`;
   c.appendChild(pane);
+  if (global) {
+    const testing = p.testing = {
+      toggle: pane.querySelector("#set-testing-toggle"), state: pane.querySelector("#set-testing-state"),
+      note: pane.querySelector("#set-testing-note"), loaded: false, saving: false,
+    };
+    testing.toggle.onchange = () => saveTestingMode(p);
+    testing.unsubscribe = testingModeSubscribe(() => {
+      if (p.pane.isConnected && p.testing === testing && !testing.saving) paintTestingMode(p);
+    });
+    void loadTestingMode(p, true);
+  }
   // Sections: one at a time, remembered; search shows every matching setting across sections.
   let current = 'connections';
   try { current = localStorage.getItem(SETTINGS_SECTION_KEY) || current; } catch (_) { /* First section. */ }
@@ -174,6 +190,69 @@ async function renderSettings(c) {
   await loadEnv(p);
 }
 
+function testingModeNote(p, message, {error = false, retry = false} = {}) {
+  const testing = p.testing;
+  if (!testing) return;
+  testing.note.textContent = message;
+  testing.note.classList.toggle("error", error && !!message);
+  if (retry) {
+    const button = document.createElement("button");
+    button.type = "button"; button.className = "btn quiet set-testing-retry"; button.textContent = "Retry";
+    button.onclick = () => loadTestingMode(p, true);
+    testing.note.append(" ", button);
+  }
+}
+function paintTestingMode(p) {
+  const testing = p.testing;
+  if (!testing) return;
+  testing.toggle.checked = testingModeEnabled();
+  testing.state.textContent = testingModeEnabled() ? "On" : "Off";
+  testing.toggle.disabled = testing.saving || !testing.loaded;
+}
+async function loadTestingMode(p, retry = false) {
+  const testing = p.testing;
+  if (!testing || testing.saving) return;
+  testing.loaded = false;
+  testing.toggle.disabled = true;
+  testing.state.textContent = "Loading…";
+  testingModeNote(p, "Loading Testing mode…");
+  await testingModeLoad(retry);
+  if (!p.pane.isConnected || p.testing !== testing) return;
+  if (testingModeFailed()) {
+    testing.toggle.checked = false;
+    testing.state.textContent = "Off";
+    testingModeNote(p, testingModeMessage(), {error: true, retry: true});
+    return;
+  }
+  testing.loaded = true;
+  testingModeNote(p, "");
+  paintTestingMode(p);
+}
+async function saveTestingMode(p) {
+  const testing = p.testing;
+  if (!testing || testing.saving || !testing.loaded) return;
+  const wanted = testing.toggle.checked;
+  testing.saving = true;
+  testing.toggle.disabled = true;
+  testing.state.textContent = wanted ? "On" : "Off";
+  testingModeNote(p, "Saving Testing mode…");
+  try {
+    const enabled = await testingModeSet(wanted);
+    if (!p.pane.isConnected || p.testing !== testing) return;
+    testing.toggle.checked = enabled;
+    testing.state.textContent = enabled ? "On" : "Off";
+    testingModeNote(p, enabled ? "Testing mode on. Overseer is available." : "Testing mode off. Overseer is available in testing mode only.");
+  } catch (error) {
+    if (!p.pane.isConnected || p.testing !== testing) return;
+    testing.toggle.checked = testingModeEnabled();
+    testing.state.textContent = testingModeEnabled() ? "On" : "Off";
+    testingModeNote(p, error?.message || "Testing mode could not be saved.", {error: true});
+  } finally {
+    testing.saving = false;
+    if (p.pane.isConnected && p.testing === testing) paintTestingMode(p);
+  }
+}
+
 // Agents section: the CLIs agents run (owner_settings.agent_clients_view).
 async function paintAgentClients(pane) {
   const host = pane.querySelector('[data-agent-clients]'); if (!host) return;
@@ -209,8 +288,9 @@ async function paintAbout(pane) {
   }));
 }
 
-// The owner's consent that Qorqbot's own agent folders are trusted (bazarlyk.agent_trust): claude and codex then open there
-// without their trust and hook-review prompts. Turning it off restores Codex's own hook review for new launches.
+// The owner's consent that Qorqbot's own agent folders are trusted (bazarlyk.agent_trust): claude and codex then skip their
+// folder-trust and Codex hook-review prompts for those folders. A CLI can still ask about an enclosing repository, which the
+// owner answers in the terminal. Turning it off restores Codex's own hook review for new launches.
 async function paintAgentTrust(pane) {
   const section = pane.querySelector('[data-agent-trust]');
   if (!section) return;
@@ -219,7 +299,7 @@ async function paintAgentTrust(pane) {
   try { view = coreData(await api('/root/agent-trust')); } catch (_) { text.textContent = 'Could not read this setting.'; return; }
   if (!section.isConnected) return;
   text.textContent = view.granted
-    ? 'On. Claude Code and Codex open in Qorqbot’s agent folders without the folder-trust or hook-review prompt, whether you type claude or codex in an agent’s Terminal or press Start in Chat.'
+    ? 'On. Each agent’s own folder is marked as trusted in Claude Code and Codex, and Codex runs Qorqbot’s hooks there without its review prompt, whether you type claude or codex in the agent’s Terminal or press Start in Chat. Either CLI can still ask you to trust a larger folder around an agent, such as the git repository it sits in; you decide that in the terminal.'
     : 'Off. The first time an agent starts in its folder, Claude Code asks whether to trust it and Codex asks you to review its hooks.';
   toggle.textContent = view.granted ? 'Turn off' : 'Turn on';
   toggle.disabled = false;

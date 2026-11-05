@@ -2,13 +2,13 @@
 
 Source artwork: the Qorqbot product-mark SVG (dark variant) from the product's launch assets, which are not part of this repository. The brand master is the product logo SVG with inverted colors.
 
-`qorqbotAgentGlyph` in `js/core.js` draws the original round mascot with the classic mustache and tilted almond eyes for the two primary agents: Ordubashy (cyan) and Learning Applier (violet, dedicated brain glyph). Every other global worker wears a Tiny Spirit; the generic glyph helper's fixed round/classic result is only the fallback for a primary-style identity without a role-specific glyph. This display-only rendering preserves saved profile icons and permissions. Historical and business identities keep their existing rendering.
+`qorqbotAgentGlyph` in `js/core.js` draws the original round mascot with the classic mustache and tilted almond eyes for the two primary agents: Ordubashy (white face, black eyes and mustache) and Learning Applier (violet, dedicated brain glyph). Every other global worker wears a Tiny Spirit; the generic glyph helper's fixed round/classic result is only the fallback for a primary-style identity without a role-specific glyph. This display-only rendering preserves saved profile icons and permissions. Historical and business identities keep their existing rendering.
 
 The shared glyph appears in navigation, Chat and identity references. Eyes blink once on hover with a reduced-motion override; actual activity remains the existing working indicator. No animation library or external asset request is needed.
 
 ## Mascot geometry
 
-The round body and classic mustache are bundled in `QORQBOT_BODIES` and `QORQBOT_MUSTACHES`; no alternative silhouettes or mustaches exist. Ordubashy renders round/classic with its eyes shifted 10 view-box units left, and Learning Applier uses a simple lobed brain with glasses. Colors and hover blink behavior are unchanged. No profile records or role settings are rewritten.
+The round body and classic mustache are bundled in `QORQBOT_BODIES` and `QORQBOT_MUSTACHES`; no alternative silhouettes or mustaches exist. Ordubashy renders round/classic with its eyes shifted 10 view-box units left, and Learning Applier uses a simple lobed brain with glasses. Ordubashy’s white face with black eyes and mustache applies for every user; Learning Applier’s violet and every other agent’s color are unchanged, as is hover blink behavior. No profile records or role settings are rewritten.
 
 Learning Applier’s dedicated `qorqbotLearningGlyph` keeps its violet color and the shared reduced-motion-aware eye blink. Its brain folds and rounded glasses are separate vector groups, scaled with the same view box as the other agents.
 

@@ -133,6 +133,8 @@ function overseerMount(p) {
 }
 window.overseerOpenDelta = async id => {
   try {
+    await testingModeReady();
+    if (!testingModeEnabled()) { if (typeof toast === 'function') toast('Overseer is available in testing mode.'); return; }
     let p = typeof _agpad !== 'undefined' && _agpad;
     if (!p || p.workspaceRole !== 'learning-applier') {
       const overview = coreData(await api('/overseer/overview'));

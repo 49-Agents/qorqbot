@@ -78,13 +78,14 @@ const GLOBAL_CHAT_PAGE = 50;
 const GLOBAL_CHAT_MAX = 17000;
 // Refusals store no input; any other failure leaves the outcome unknown and keeps the send identity.
 const GLOBAL_CHAT_REFUSALS = new Set(['terminal_offline', 'capture_disabled', 'capture_not_ready', 'binding_not_ready', 'operation_unavailable',
-  'unsupported_runtime', 'terminal_changed', 'validation_error', 'not_found', 'forbidden', 'idempotency_conflict']);
+  'unsupported_runtime', 'terminal_changed', 'terminal_required', 'validation_error', 'not_found', 'forbidden', 'idempotency_conflict']);
 const GLOBAL_CHAT_REFUSAL_TEXT = {
   terminal_offline: 'Not running. Start or resume it in Terminal, then send again.',
   capture_disabled: 'Chat unavailable.',
   capture_not_ready: 'Connecting. Try again in a moment.',
   binding_not_ready: 'Connecting. Try again in a moment.',
   terminal_changed: 'Not delivered. Check the agent and try again.',
+  terminal_required: 'This command runs only in the agent’s Terminal. Open Terminal and run it there.',
 };
 const GLOBAL_CHAT_INPUT_LABEL = {inbox_nudge: 'Inbox nudge', bootstrap_recovery: 'Session recovery', telegram: 'Telegram', broadcast: 'Broadcast', direct_message: 'Direct message'};
 const GLOBAL_CHAT_INPUT_STATE = {
@@ -191,9 +192,8 @@ function mountGlobalChat(pane, agent, options = {}) {
   const cleanups = [];
   const reads = new AbortController();
 
-  // Native shell: header, view switch and the session line stay here; every message, composer and preview is the shared view.
+  // Native shell: view switch and the session line stay here; every message, composer and preview is the shared view.
   pane.innerHTML = `<div class="gchat" data-global-chat="${esc(agentId)}">
-    <header class="gchat-top gchat-identity">${identityAvatar('agent', label, {...agent, ...agent.presentation})}</header>
     ${options.openTerminal ? `<div class="gchat-session-switch">${globalChatViewToggle()}</div>` : ''}
   </div>`;
   const root = pane.firstElementChild;
@@ -505,6 +505,11 @@ function mountGlobalChat(pane, agent, options = {}) {
     const mine = composerScope;
     const files = [...selectedFiles()], fileKey = files.map(file => file.key).join(',');
     if (!mine || !text.trim() && !files.length || !canSend() || GLOBAL_CHAT_INFLIGHT.has(mine)) return;
+    // A known slash command is judged for the session it is sent to, before anything is uploaded or sent. A shared Codex server
+    // cannot run it: the draft and attachments stay as they are and the owner is told where it runs (the backend refuses it too).
+    const slash = slashCommands.command(commandCatalog() || [], text), provider = session?.provider;
+    const refusal = slashCommands.sharedServerRefusal(session, slash, label);
+    if (refusal) { showBanner(refusal); return; }
     // A retry of the same text reuses its key and its original binding pin, so a lost response can never become a second
     // message or move to another session. Only a deliberate new send takes the binding observed now.
     let attempt = GLOBAL_CHAT_SENDS.get(mine);
@@ -529,9 +534,8 @@ function mountGlobalChat(pane, agent, options = {}) {
           const error = new Error('Message too long'); error.attachment = true; error.code = 'message_too_long'; throw error;
         }
         const result = await admit(payload, attempt.key, attempt.pin);
-        const slash = slashCommands.command(commandCatalog() || [], text);
         globalChatAccept(mine, payload, result.input, attempt.position, !!slash);
-        if (slash?.where === 'terminal' && options.openTerminal) {
+        if (slashCommands.opensTerminal(slash, text, provider) && options.openTerminal) {
           toast(`Finish ${slash.name} in ${label}’s Terminal.`);
           options.openTerminal();
         }
