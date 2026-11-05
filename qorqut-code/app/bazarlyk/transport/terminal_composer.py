@@ -240,6 +240,15 @@ def _placeholder_fits(content, text):
     return abs(int(counted.group(2)) - len(text)) <= 2
 
 
+def _typed(cells):
+    """A composer row without a trailing dim run: a client's argument hint (Claude Code shows ``/compact  <optional custom
+    summarization instructions>`` once a command and a space are typed) or placeholder is never part of what was pasted."""
+    end = len(cells)
+    while end and (not cells[end - 1][0].strip() or cells[end - 1][1] == "dim"):
+        end -= 1
+    return cells[:end]
+
+
 def _holds_paste(client, rows, first, text, cursor):
     """The last row of the composer holding exactly ``text`` from the prompt row ``first``, else None.
 
@@ -249,7 +258,7 @@ def _holds_paste(client, rows, first, text, cursor):
     marker = MARKERS[client]
     match = marker.match(_text(rows[first]))
     end = None
-    head = _content(_text(rows[first]), match, True)
+    head = _content(_text(_typed(rows[first])), match, True)
     if PLACEHOLDER.match(head):
         end = first if _placeholder_fits(head, text) else None
     else:
@@ -260,7 +269,7 @@ def _holds_paste(client, rows, first, text, cursor):
             raw = _text(rows[index])
             if index > first and RULE.match(raw):
                 break
-            seen += _squash(_content(raw, match, index == first))
+            seen += _squash(_content(_text(_typed(rows[index])), match, index == first))
             if not want.startswith(seen):
                 return None
             end = index
