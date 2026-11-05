@@ -581,10 +581,37 @@ async function tOpenTask(id) {
     if (state.biz !== biz) return;
   }
   clearTimeout(tSearchT); tSearch = "";
-  tDetail(t);
+  return tDetail(t);
+}
+
+// Build only a canonical reference; the parent owns the record workspace and
+// any iframe may disappear as soon as navigation begins.
+function taskRecordReference(task, scopeSlug = undefined) {
+  if (!task?.id) return null;
+  const hasId = Object.hasOwn(task, 'business_id') && task.business_id !== undefined;
+  const business = task.business || null;
+  let id = hasId ? task.business_id : business?.id ?? business?.business_id;
+  let slug = task.business_slug || business?.slug || scopeSlug || null;
+  if (id === null) {
+    if (slug) return null;
+    return {type:'task', id:task.id, business_id:null, business_slug:null, label:task.label || task.title || null, task_type:task.task_type || null};
+  }
+  const list = state.bizs || [];
+  const byId = id != null ? list.find(b => (b.id ?? b.business_id) === id) : null;
+  const bySlug = slug ? list.find(b => b.slug === slug) : null;
+  if (id == null && bySlug) id = bySlug.id ?? bySlug.business_id;
+  if (!slug && byId) slug = byId.slug;
+  if (id == null || !slug || (byId && byId.slug !== slug) || (bySlug && (bySlug.id ?? bySlug.business_id) !== id)) return null;
+  return {type:'task', id:task.id, business_id:id, business_slug:slug, label:task.label || task.title || null, task_type:task.task_type || null};
+}
+function taskOpenReference(task, scopeSlug = undefined) {
+  const reference = taskRecordReference(task, scopeSlug);
+  if (!reference) { toast('This task’s project is unavailable.'); return Promise.resolve(false); }
+  return agentOpenRecordReference(reference);
 }
 
 function tDetail(t,{host=null,onClose=null,recordPanelOpen=false,embedded=false,navigate=null,relatedMount=null,onMount=null,onCanonical=null}={}) {
+  if (!host) return taskOpenReference(t, t.business || Object.hasOwn(t, 'business_id') ? undefined : state.biz);
   if (!host && typeof modal !== "function") return toast("details need core modal()");
   const biz = tSlug(t);
   Object.assign(t, taskStateObserve(biz, t));
