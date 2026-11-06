@@ -147,8 +147,7 @@ async function agentWorkspaceEscape({agent, business, table, signoffs}) {
 }
 
 // The right agent pane keeps only Focus, the agent's own workspaces and Learning Applier's Context.
-// Project management left this navigation; its data stays reachable through the existing Global
-// Projects page and Project records.
+// Project management left this navigation; its data stays reachable through Project records.
 // This offers a pane, not an agent tool grant. Backend authorization is unchanged.
 function agentWorkspaceViews(scope, role) {
   if (scope !== 'global') return [];
