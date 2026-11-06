@@ -79,6 +79,10 @@ async function remSubmitAttempt(attempt) {
   if (owner !== attempt.owner) throw new Error('The reminder belongs to a different owner session.');
   try {
     const data = coreData(await post(attempt.path, attempt.args));
+    if (attempt.op === 'reminders_dismiss' && (!data?.reminder || remId(data.reminder) !== attempt.args.reminder_id || data.reminder.revision == null ||
+        !['scheduled','due','dismissed','cancelled'].includes(data.reminder.state) ||
+        (data.reminder.state === 'due' && data.reminder.occurrence_id === attempt.occurrence)))
+      throw Object.assign(new Error('The reminder dismissal could not be confirmed.'), {code:'invalid_response'});
     remAttempts.delete(attempt.identity); remAttemptChanged();
     return data;
   } catch (error) {
@@ -91,6 +95,30 @@ async function remSubmitAttempt(attempt) {
 const remPending = (owner, reminder, biz, kind) => [...remAttempts.values()].filter(a => a.group === remAttemptGroup(owner, reminder, biz, kind));
 const remMatching = (owner, reminder, biz, kind, op, args) => remPending(owner, reminder, biz, kind).find(a => a.op === op && JSON.stringify(Object.fromEntries(Object.entries(a.args).filter(([key]) => key !== 'idempotency_key'))) === JSON.stringify(args));
 const remAttemptLabel = a => [a.label, a.scheduled, a.op.replace('reminders_', ''), a.occurrence ? 'occurrence ' + a.occurrence : ''].filter(Boolean).join(' · ');
+const remDismissals = new Map();
+function remindersDismissDue(reminder) {
+  const key=JSON.stringify([remId(reminder),reminder?.occurrence_id]);
+  if (remDismissals.has(key)) return remDismissals.get(key);
+  const work=(async()=>{
+    if (!remId(reminder) || reminder.revision == null || reminder.state !== 'due' || !reminder.occurrence_id)
+      throw new Error('This reminder occurrence is no longer available.');
+    if (reminder.business_id != null && !(state.bizs || []).some(b=>(b.id===reminder.business_id || b.business_id===reminder.business_id) && b.slug))
+      throw new Error('The reminder project is no longer accessible.');
+    const owner=await remVerifiedOwner();
+    if (remSelf() !== owner || reminder.recipient_id !== owner) throw new Error('Could not verify the reminder owner.');
+    const args={reminder_id:remId(reminder),revision:reminder.revision,occurrence_id:reminder.occurrence_id};
+    if (remMatching(owner,reminder,null,'detail','reminders_dismiss',args) || remPending(owner,reminder,null,'detail').length || remPending(owner,reminder,null,'editor').length)
+      throw new Error('This reminder has an unconfirmed change. Use Unconfirmed reminder changes to retry.');
+    const attempt=await remAttempt(reminder,null,'detail','reminders_dismiss',args);
+    if (attempt.owner !== owner || remSelf() !== owner) throw new Error('The owner session changed. Retry.');
+    const result=await remSubmitAttempt(attempt);
+    if (typeof attentionQueue !== 'undefined') void attentionQueue.refreshSignoffs();
+    return result;
+  })();
+  remDismissals.set(key,work);
+  work.finally(()=>remDismissals.delete(key)).catch(()=>{});
+  return work;
+}
 
 
 // Snooze presets use the viewer's own clock and write an explicit offset.
@@ -489,7 +517,7 @@ function remindersOpenUnconfirmed() {
         const row=node('div');row.className='rem-pending';row.append(node('p',remAttemptLabel(attempt)));
         const retry=node('button','Retry same request');retry.type='button';retry.disabled=busy;
         retry.onclick=async()=>{ if(busy)return;busy=true;error='';paint();
-          try { await remSubmitAttempt(attempt); }
+          try { await remSubmitAttempt(attempt); if (typeof attentionQueue !== 'undefined') void attentionQueue.refreshSignoffs(); }
           catch (failure) { error=failure.message || 'Could not confirm the reminder change. Retry.'; }
           finally { busy=false;await refresh(true); }
         };
@@ -547,6 +575,7 @@ const reminderNotifications = (() => {
           if (seen.has(key)) continue;
           seen.add(key);
           notify({text: reminder.text || 'Reminder due', reminder: true, ms: 10000,
+            onDismiss: () => remindersDismissDue(reminder),
             onClick: () => remindersOpenDetail(reminder, {onChange: () => {
               if (typeof attentionQueue !== 'undefined') void attentionQueue.refreshSignoffs();
             }})});

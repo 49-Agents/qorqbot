@@ -118,6 +118,12 @@ const attentionQueue=(()=>{
     })();
     return signoffPromise;
   }
+  function reminderContextMenu(event){
+    const chip=event.target.closest('[data-reminder-key]'); if(!chip || !event.currentTarget.contains(chip))return;
+    event.preventDefault();
+    const reminder=dueReminders.find(r=>r.reminder_id===chip.dataset.reminderKey);
+    if(reminder)void remindersDismissDue(reminder).catch(error=>toast(error.message || 'Could not dismiss reminder.'));
+  }
   function signoffClick(event){
     if(event.target.closest('[data-reminder-recovery-check]')){void refreshReminderRecovery();return;}
     if(event.target.closest('[data-reminder-recovery]')){void remindersOpenUnconfirmed();return;}
@@ -255,8 +261,8 @@ const attentionQueue=(()=>{
   window.addEventListener('focus',()=>{if(mounts.size)void refresh();void refreshSignoffs();if(signoffMounts.size)void refreshReminderRecovery();});
   if(typeof onChange==='function')onChange(['signoffs'],null,()=>{void refreshSignoffs();});
   return {signoffViewed,viewboxViewed,refresh,refreshSignoffs,paintSignoffs,
-    mountSignoffs(host,name,opener){signoffMounts.set(host,{name,opener});host.addEventListener('click',signoffClick);paintSignoffs();void refreshSignoffs(true);void refreshReminderRecovery();
-      return ()=>{signoffMounts.delete(host);host.removeEventListener('click',signoffClick);if(!signoffMounts.size)clearTimeout(signoffTimer);};},
+    mountSignoffs(host,name,opener){signoffMounts.set(host,{name,opener});host.addEventListener('click',signoffClick);host.addEventListener('contextmenu',reminderContextMenu);paintSignoffs();void refreshSignoffs(true);void refreshReminderRecovery();
+      return ()=>{signoffMounts.delete(host);host.removeEventListener('click',signoffClick);host.removeEventListener('contextmenu',reminderContextMenu);if(!signoffMounts.size)clearTimeout(signoffTimer);};},
     mount(host){mounts.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);paint(host);void refresh(true);
     return ()=>{mounts.delete(host);host.removeEventListener('click',clicks);host.removeEventListener('contextmenu',dismiss);if(!mounts.size)clearTimeout(timer);};}};
 })();
