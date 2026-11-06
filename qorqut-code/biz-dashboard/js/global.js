@@ -10,7 +10,6 @@ const GLOBAL_PAGES = {
   tables: { title: 'Tables', pane: true },
   calendar: { title: 'Calendar', pane: true },
   settings: { title: 'Settings' },
-  projects: { title: 'Projects' },
 };
 // Reuse the actual business navigation and drawer glyphs, including placeholder pages.
 const GLOBAL_ICONS = {
@@ -129,66 +128,9 @@ function renderGlobal(c) {
   if (!embeddedAgentPane && GLOBAL_PAGES[state.globalTab]?.pane) return agentWorkspaceUnavailable(c, state.globalTab);
   if (state.globalTab === "context") return renderGlobalContext(c);
   if (state.globalTab === 'settings') return renderSettings(c);
-  if (state.globalTab === 'projects') return renderProjects(c);
   if (state.globalTab === 'costs') return renderGlobalCosts(c);
   if (state.globalTab === 'tables') return renderTables(c);
   return renderGlobalAgents(c);
-}
-// Projects: what a project is, every project the owner has (with its summary), archived ones, and how to start a new one.
-// There is no create form on purpose: Ordubashy prepares a project and asks for the owner's Signoff (project-creation skill).
-function renderProjects(c) {
-  const controller = new AbortController();
-  const host = document.createElement('div');
-  c.appendChild(host);
-  const watch = new MutationObserver(() => { if (!host.isConnected) { controller.abort(); watch.disconnect(); } });
-  watch.observe(c.ownerDocument.body, {childList: true, subtree: true});
-  const mount = {active: () => host.isConnected && !controller.signal.aborted, signal: controller.signal};
-  const paint = () => {
-    globalOverviewMount(host, mount, paint);
-    const pane = host.querySelector('.global-overview');
-    pane.querySelector('.global-heading').outerHTML = `<header class="projects-intro"><div><h1>Projects</h1>
-      <p>A project keeps the work for one client, business or goal in its own place: its tasks, records, tables and context, apart from
-        your other projects. Ordubashy coordinates the work across all of them.</p></div>
-      <button type="button" data-new-project>New project</button></header>
-      <p class="projects-how"><b>How to start one:</b> ask Ordubashy in Chat, for example “Create a project for Acme’s website redesign”.
-        He prepares it and asks for your approval before anything is created. Open a project below to see its tasks.</p>`;
-    pane.querySelector('[data-new-project]').onclick = projectsStartNew;
-    // The projects first; the activity chart for all of them below.
-    const grid = pane.querySelector('.global-grid'), chart = pane.querySelector('#global-progress');
-    if (grid && chart) {
-      chart.before(grid);
-      grid.insertAdjacentHTML('beforebegin', '<h2 class="projects-section">Your projects</h2>');
-      chart.insertAdjacentHTML('beforebegin', '<h2 class="projects-section">Activity across your projects</h2>');
-    }
-    const empty = pane.querySelector('[data-no-projects]');
-    if (empty) empty.textContent = 'No projects yet. Press New project to ask Ordubashy for your first one.';
-  };
-  paint();
-}
-// Opens Ordubashy's Chat with the request started, so the owner only adds the name and purpose.
-async function projectsStartNew() {
-  const lead = globalAgentProfiles.find(agent => (agent.role?.id || agent.role_id) === 'ordubashy');
-  await selectGlobal('agents');
-  if (!lead || typeof globalAgentsNavigate !== 'function' || !await globalAgentsNavigate(lead.agent_id, {chat: true})) return;
-  // Wait until Chat has read his session: while it loads, the message box is disabled whatever his state.
-  for (let i = 0; i < 80; i++) {
-    const box = document.querySelector('#global-agent-terminal .gchat-composer textarea');
-    const state = document.querySelector('#global-agent-terminal .gchat-session')?.dataset.state;
-    if (box && state && state !== 'loading') {
-      if (box.disabled) { toast('Start Ordubashy first, then ask him to create the project.'); return; }
-      // An unsent draft is never replaced: it stays exactly as typed.
-      if (box.value !== '') {
-        box.focus();
-        toast('Your draft was kept. Ask Ordubashy to create a project there.');
-        return;
-      }
-      box.value = 'Create a project for ';
-      box.dispatchEvent(new Event('input', {bubbles: true}));
-      box.focus(); box.setSelectionRange(box.value.length, box.value.length);
-      return;
-    }
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
 }
 // Charts in the shared drawer: the activity graph, one summary card per authorized project and the owner's archived projects.
 // `host` carries the mount's abort signal and visibility check; `restored` repaints after an archived project returns.
