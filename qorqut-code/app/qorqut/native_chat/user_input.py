@@ -18,6 +18,7 @@ from dataclasses import replace
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import schema
 from qorqut_operations.contracts import DomainError
+from qorqut.errors import domain_error_from_agentic
 from qorqut_operations.items import UNAVAILABLE, authorize_item_read
 
 from qorqut.management.identity import configured_ordubashy
@@ -103,7 +104,7 @@ class UserInput:
                         gate.authorize_source(source['ref'])
                 return {'label': delta['revision']['summary'], 'business_slug': None}
             except AgenticError as error:
-                raise DomainError(error.code, str(error), details=error.details) from error
+                raise domain_error_from_agentic(error) from error
         card = self.runtime.focus.resolve(ctx, {"type": kind, "id": identity, "business_id": business}, uow)
         found = {"label": card["label"], "business_slug": card["business_slug"]}
         if kind == refs.TYPE_TASK:

@@ -1,5 +1,6 @@
 """Private owner-only Overseer read routes; owner answers stay on Signoffs."""
 import anyio
+from qorqut.errors import domain_error_from_agentic
 from qorqut_operations.contracts import DomainError, OperationResult
 from qorqut_agentic.errors import AgenticError
 from qorqut.transport.results import response
@@ -74,7 +75,7 @@ async def route(runtime, request, context, parts, request_id):
                     return service.evidence(identity, tail[1], index, revision=_number(q.get('revision')))
             raise DomainError('not_found', 'Overseer read route is unavailable')
         except AgenticError as error:
-            raise DomainError(error.code, str(error), details=error.details) from error
+            raise domain_error_from_agentic(error) from error
     value = await anyio.to_thread.run_sync(read)
     result = response(OperationResult.ok(value, request_id=request_id))
     result.headers['Cache-Control'] = 'private, no-store'

@@ -26,6 +26,7 @@ from qorqut.agents.diagnostics import DIAGNOSTIC_OPERATIONS
 # dispatch refuse them here too, including operations_batch entries and tool names a client cached before removal.
 from qorqut.agents.resolver import INTERNAL_ONLY_OPERATIONS
 from qorqut.browser.operations import AGENT_BROWSER_MANAGE, BROWSER_OPERATION
+from qorqut.errors import domain_error_from_agentic
 from .results import failure
 from . import batches, mcp_presentation, mcp_reads
 
@@ -501,7 +502,7 @@ class MCPTransport:
                         try:
                             value = self.runtime.overseer.mutate(canonical_name, context, args)
                         except AgenticError as error:
-                            raise DomainError(error.code, str(error), details=error.details) from error
+                            raise domain_error_from_agentic(error) from error
                         return OperationResult.ok(value, request_id=request_id)
                     if canonical_name == AGENT_BROWSER_MANAGE:
                         self.runtime.registry.bind_arguments(canonical_name, args)
