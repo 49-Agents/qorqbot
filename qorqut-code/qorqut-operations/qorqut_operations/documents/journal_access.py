@@ -22,13 +22,9 @@ def require_writer(ctx, uow, operation):
     """Only explicit journal operations extend the writer boundary to the coordinator."""
     if is_owner(ctx, uow):
         return
-    from qorqut_operations.global_agents import global_profile
-    from qorqut_operations.roles import ORDUBASHY_ROLE
-    installation = uow.repository('installation').get('service')
-    profile = global_profile(uow.connection, ctx.principal_id) if ctx.principal_kind == 'agent' else None
-    if (operation in JOURNAL_WRITES and installation and profile
-            and ctx.principal_id == installation['management_coordinator_id']
-            and profile['profile']['role']['id'] == ORDUBASHY_ROLE
+    from qorqut_operations.global_agents import is_coordinator
+    if (operation in JOURNAL_WRITES and ctx.principal_kind == 'agent'
+            and is_coordinator(uow.connection, ctx.principal_id)
             and ctx.business_id is None and ctx.home_business_id is None and not ctx.delegation_assignment_id):
         return
     require_owner(ctx, uow)

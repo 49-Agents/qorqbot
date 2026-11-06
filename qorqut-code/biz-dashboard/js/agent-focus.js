@@ -1,4 +1,4 @@
-// Shared row structure for Pinned/Focus and Attention. All visual rules stay in the Focus stylesheet.
+// Shared row structure for Focus/Focus and Attention. All visual rules stay in the Focus stylesheet.
 function agfocusRowHtml(actions = '') {
   return `<div class="trow agfocus-row"><span class="agfocus-notification" aria-hidden="true"><span class="agfocus-unread" hidden></span></span><span class="agfocus-marker"></span><span class="task-business-column agfocus-scope"></span><div class="task-headline"><p class="ttl"></p><span class="agfocus-flag" hidden></span></div><div class="agfocus-actions">${actions}</div></div>`;
 }
@@ -61,7 +61,7 @@ async function agfocusMove(p,id,anchorId,side,retry=false) {
       const saved=await plan.apply();
       p.focusOrderPending=false;
       if(p.focusMount!==mount)return;
-      if(saved)agfocusAnnounce(p,'Pinned item moved.');
+      if(saved)agfocusAnnounce(p,'Focus item moved.');
       else {p.focusError='Could not save the text position. Your text is kept; use Retry beside the notes.';agfocusAnnounce(p,p.focusError);}
       agfocusPaint(p);return;
     }
@@ -91,9 +91,9 @@ async function agfocusMove(p,id,anchorId,side,retry=false) {
   await agfocusRefresh(p);
   p.focusOrderPending=false;
   if(p.focusMount!==mount)return;
-  if(failure){p.focusError='Could not move Pinned item. '+failure.message;agfocusAnnounce(p,p.focusError);}
-  else if(!textSaved){p.focusError='Pinned item moved, but the text position could not be saved. Your text is kept; use Retry beside the notes.';agfocusAnnounce(p,p.focusError);}
-  else agfocusAnnounce(p,'Pinned item moved.');
+  if(failure){p.focusError='Could not move Focus item. '+failure.message;agfocusAnnounce(p,p.focusError);}
+  else if(!textSaved){p.focusError='Focus item moved, but the text position could not be saved. Your text is kept; use Retry beside the notes.';agfocusAnnounce(p,p.focusError);}
+  else agfocusAnnounce(p,'Focus item moved.');
   agfocusPaint(p);
 }
 
@@ -196,7 +196,7 @@ function agfocusSnoozePicker(p,node,anchor) {
   if(anchor.disabled || node._item.unavailable)return;
   p.focusSnoozePopup?.close();
   const saved=p.focusSnoozes.get(node.dataset.cardId);
-  const popup=tControlPopover(anchor,`<div class="task-snooze-picker"><p class="ferr" role="alert" hidden></p>${saved?.submission?'<button type="button" class="quiet" data-focus-snooze-retry>Retry same postpone</button>':`${agfocusSnoozed(node._item)?'<button type="button" class="quiet" data-focus-snooze-clear>Return to Pinned now</button>':''}<div class="task-snooze-shortcuts">${AGFOCUS_SNOOZE_OPTIONS.map(([key,label])=>`<button type="button" class="quiet" data-focus-snooze-preset="${key}" title="${key.endsWith('h') ? label + ' from now' : label + ' at 6 AM (' + SJ_LABEL + ')' }">${label}</button>`).join('')}</div>`}<button type="button" class="quiet" data-focus-snooze-close>Close</button></div>`,'Postpone Pinned item');
+  const popup=tControlPopover(anchor,`<div class="task-snooze-picker"><p class="ferr" role="alert" hidden></p>${saved?.submission?'<button type="button" class="quiet" data-focus-snooze-retry>Retry same postpone</button>':`${agfocusSnoozed(node._item)?'<button type="button" class="quiet" data-focus-snooze-clear>Return to Focus now</button>':''}<div class="task-snooze-shortcuts">${AGFOCUS_SNOOZE_OPTIONS.map(([key,label])=>`<button type="button" class="quiet" data-focus-snooze-preset="${key}" title="${key.endsWith('h') ? label + ' from now' : label + ' at 6 AM (' + SJ_LABEL + ')' }">${label}</button>`).join('')}</div>`}<button type="button" class="quiet" data-focus-snooze-close>Close</button></div>`,'Postpone Focus item');
   if(!popup)return;
   popup.itemId=node.dataset.cardId;p.focusSnoozePopup=popup;
   popup.el.classList.add('agfocus-snooze-picker');popup.el.setAttribute('role','dialog');
@@ -232,7 +232,7 @@ async function agfocusSnooze(p,node,until,popup,retry=false) {
     if(p.focusMount===mount && result.item && !p.focusIncludedeferred && agfocusSnoozed(result.item)){
       p.focus.items=p.focus.items.filter(item=>item.id!==id);agfocusPaint(p);
     }
-    agfocusAnnounce(p,until===null?'Returned to Pinned.':'Pinned item postponed.');
+    agfocusAnnounce(p,until===null?'Returned to Focus.':'Focus item postponed.');
   } catch(error) {
     failure=error;
     if(['revision_conflict','validation_error','not_found','forbidden','policy_denied'].includes(error.code))p.focusSnoozes.delete(id);
@@ -241,14 +241,14 @@ async function agfocusSnooze(p,node,until,popup,retry=false) {
   if(p.focusMount!==mount)return;
   agfocusRowPending(p,node);
   if(failure){
-    p.focusError='Could not postpone Pinned item. '+failure.message;agfocusAnnounce(p,p.focusError);
+    p.focusError='Could not postpone Focus item. '+failure.message;agfocusAnnounce(p,p.focusError);
     // Reopening exposes either the same frozen retry or fresh controls after a conflict.
     if(popup.el.isConnected){popup.close();agfocusSnoozePicker(p,node,node.querySelector('[data-focus-snooze]'));}
   }
   agfocusPaint(p);
 }
 
-// The Browser/Desktop launchers and the owner Signoff queue shared by Focus and the Attention board.
+// The Browser/Desktop launchers and the owner Signoff queue shared by Focus and Todo.
 // `queue` is the .attention-queue section; the returned function releases the strip, subscription and listeners.
 function agfocusQueueMount(p,queue) {
   // An agent with Focus gets the Browser, Desktop and pending Signoffs in one strip; agents without Focus keep their views and queue.
@@ -269,7 +269,7 @@ function agfocusMount(p) {
   const body = $('#agpad-body', p.el);
   body.innerHTML = `<div class="agfocus"><p class="agfocus-error" role="alert" hidden></p><button type="button" class="quiet" data-focus-retry-move hidden>Retry same move</button><p class="agfocus-sr" data-focus-announcement role="status" aria-live="polite"></p><span class="agfocus-sr" id="agfocus-move-instructions">Use Alt+ArrowUp or Alt+ArrowDown to move one visible row.</span>
 
-    <section class="attention-queue" aria-label="New attention"></section><p class="agfocus-activity muted" hidden></p><section class="agfocus-surface" aria-label="Browser, Desktop or Viewbox" hidden><div class="agfocus-surface-bar"><button type="button" class="quiet agfocus-close" data-surface-close aria-label="Close"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg><span>Close</span></button><span class="agfocus-surface-title"></span></div><div class="agfocus-surface-body"></div></section><header><div class="agfocus-heading"><div class="global-eyebrow">Pinned</div><div class="agfocus-toolbar"><button type="button" class="quiet agfocus-icon" data-focus-add aria-label="Add text to Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div></div><p class="agfocus-empty muted" role="status">Loading Pinned…</p></header><div class="agfocus-layout"><div class="agfocus-items"></div><aside class="agfocus-dock" aria-label="Selected record" hidden><div class="agfocus-dock-content"></div></aside></div><div class="agfocus-retained" hidden></div><nav class="agfocus-pages" aria-label="Pinned pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
+    <section class="attention-queue" aria-label="New attention"></section><p class="agfocus-activity muted" hidden></p><section class="agfocus-surface" aria-label="Browser, Desktop or Viewbox" hidden><div class="agfocus-surface-bar"><button type="button" class="quiet agfocus-close" data-surface-close aria-label="Close"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg><span>Close</span></button><span class="agfocus-surface-title"></span></div><div class="agfocus-surface-body"></div></section><header><div class="agfocus-heading"><div class="global-eyebrow">Focus</div><div class="agfocus-toolbar"><button type="button" class="quiet agfocus-icon" data-focus-add aria-label="Add text to Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div></div><p class="agfocus-empty muted" role="status">Loading Focus…</p></header><div class="agfocus-layout"><div class="agfocus-items"></div><aside class="agfocus-dock" aria-label="Selected record" hidden><div class="agfocus-dock-content"></div></aside></div><div class="agfocus-retained" hidden></div><nav class="agfocus-pages" aria-label="Focus pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
   p.focusDrafts ||= new Map();
   p.focusCards = new Map();
   p.focusWork=agfocusRestoreWork();
@@ -411,7 +411,7 @@ async function agfocusRefresh(p) {
       await Promise.all(agfocusVisibleItems(p,data.items).filter(row=>!row._workParent && agfocusRestorable(p,row)).map(restore));
     } catch (error) {
       if (accessLost(error) && pageKey===agfocusPageKey(p)) { p.focus = null; p.focusPageKey = null; }
-      if (agpadActive(p) && pageKey===agfocusPageKey(p) && (!focusMount || p.focusMount===focusMount)) p.focusError = 'Could not refresh Pinned. ' + error.message;
+      if (agpadActive(p) && pageKey===agfocusPageKey(p) && (!focusMount || p.focusMount===focusMount)) p.focusError = 'Could not refresh Focus. ' + error.message;
       else if(agpadActive(p) && p.view==='focus')p.focusRefreshAgain=true;
     } finally {
       p.focusPending = false; p.nextFocus = pageKey===agfocusPageKey(p)?Date.now() + AGFOCUS_POLL_MS:0;
@@ -736,7 +736,7 @@ function agfocusPaint(p) {
     $('.agfocus-layout',host)?.classList.remove('agfocus-record-open');
     const dock = $('.agfocus-dock',host); if (dock) dock.hidden = true;
     const empty=$('.agfocus-empty',host);empty.hidden=false;
-    agfocusText(empty,p.focusError?'':'Loading Pinned…');
+    agfocusText(empty,p.focusError?'':'Loading Focus…');
     $('[data-focus-more]',host).hidden=true;$('[data-focus-previous]',host).hidden=true;$('[data-focus-page]',host).textContent='';
     return;
   }
@@ -776,7 +776,7 @@ function agfocusPaint(p) {
     if(!node) {
       node=document.createElement('article');node.className='agfocus-card';node.dataset.cardId=item.id;
       // The card is only a row: the selected record's dashboard or chat lives in the shared workspace dock.
-      node.innerHTML=agfocusRowHtml('<button type="button" class="quiet" data-focus-snooze aria-label="Snooze Pinned item" aria-haspopup="dialog" aria-expanded="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg></button>');
+      node.innerHTML=agfocusRowHtml('<button type="button" class="quiet" data-focus-snooze aria-label="Snooze Focus item" aria-haspopup="dialog" aria-expanded="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg></button>');
       p.focusCards.set(item.id,node);
       list.appendChild(node);
     }
@@ -788,7 +788,7 @@ function agfocusPaint(p) {
       if(p.focusSelected===item.id)agfocusForceClose(p);
       node.dataset.unavailable='true';node.classList.add('agfocus-unavailable','agfocus-collapsed');
       node.removeAttribute('tabindex');node.removeAttribute('aria-expanded');node.onclick=null;node.onkeydown=null;
-      node.setAttribute('aria-label','Unavailable Pinned item');
+      node.setAttribute('aria-label','Unavailable Focus item');
       p.focusSnoozePopup?.itemId===item.id && p.focusSnoozePopup.close();
       for(const el of node.querySelectorAll('.agfocus-scope,.agfocus-marker,.agfocus-actions,.agfocus-unread')) {el.replaceChildren();delete el._html;}
       node.querySelector('.agfocus-unread').hidden=true;
@@ -896,8 +896,8 @@ function agfocusPaint(p) {
       if(p.workspaceRole === 'ordubashy' && !agfocusTaskScopeMissing(item, scope)) {
         if(!add){add=document.createElement('button');add.type='button';add.className='quiet';add.dataset.attentionAdd='';add.textContent='Add to Attention';actions.append(add);}
         add.onpointerdown=event=>event.stopPropagation();
-        add.setAttribute('aria-label','Add '+name+' to Attention board');
-        add.onclick=async event=>{event.stopPropagation();add.disabled=true;try{coreData(await post('/root/operations/attention_add',{scope:'global',task:{type:'task',id:source.id,business_id:Object.hasOwn(source,'business_id') ? source.business_id : item.source?.business_id ?? item.conversation?.business_id ?? null},idempotency_key:newRequestId()}));toast('Added to Attention board');}catch(error){toast(error.message);}finally{add.disabled=false;}};
+        add.setAttribute('aria-label','Add '+name+' to Todo');
+        add.onclick=async event=>{event.stopPropagation();add.disabled=true;try{coreData(await post('/root/operations/todo_add',{scope:'global',task:{type:'task',id:source.id,business_id:Object.hasOwn(source,'business_id') ? source.business_id : item.source?.business_id ?? item.conversation?.business_id ?? null},idempotency_key:newRequestId()}));toast('Added to Todo');}catch(error){toast(error.message);}finally{add.disabled=false;}};
       } else add?.remove();
     } else {actions.querySelector('[data-task-workers]')?.remove();actions.querySelector('[data-task-state-menu]')?.remove();actions.querySelector('[data-attention-add]')?.remove();}
     agfocusUnread(p,node,item);
@@ -920,7 +920,7 @@ function agfocusRowControls(p,node,item,actions) {
   if(item._workKind==='crm') wanted.push(['remove',item.unavailable?'Remove this unavailable entry from CRM':`Remove ${item.label} from CRM`,'Remove from CRM']);
   const source=agfocusSourceOf(item);
   if(!item._workParent && source?.type==='table' && !item.unavailable) {
-    wanted.push(['card',item.archived?'Restore Pinned card':'Archive Pinned card',item.archived?'Restore card':'Archive card']);
+    wanted.push(['card',item.archived?'Restore Focus card':'Archive Focus card',item.archived?'Restore card':'Archive card']);
     wanted.push(['table',source.archived?'Table is archived':'Archive table (the table itself)',source.archived?'Archived table':'Archive table']);
   }
   for(const existing of [...actions.querySelectorAll('[data-focus-extra]')])if(!wanted.some(([kind])=>existing.dataset.focusExtra===kind))existing.remove();
@@ -936,20 +936,20 @@ function agfocusRowControls(p,node,item,actions) {
 async function agfocusExtraAction(p,item,kind,button) {
   if(button.disabled || button.getAttribute('aria-busy')==='true')return;
   button.setAttribute('aria-busy','true');
-  const fail=error=>{p.focusError=`Could not ${({pin:'pin the record',remove:'remove the entry',card:'change the Pinned card',table:'archive the table'})[kind]}. `+(error.message || '');agfocusAnnounce(p,p.focusError);agfocusPaint(p);};
+  const fail=error=>{p.focusError=`Could not ${({pin:'pin the record',remove:'remove the entry',card:'change the Focus card',table:'archive the table'})[kind]}. `+(error.message || '');agfocusAnnounce(p,p.focusError);agfocusPaint(p);};
   try {
     if(kind==='pin') {
       await crmPinRecord({id:item.source.id,business_id:item.source.business_id ?? null});
-      agfocusAnnounce(p,'Added to Pinned.');
+      agfocusAnnounce(p,'Added to Focus.');
       await agfocusRefresh(p);
     } else if(kind==='card') {
       coreData(await post('/root/operations/focus_set_archived',{scope:'global',item_id:item.id,expected_card_revision:item.revision,archived:!item.archived,idempotency_key:newRequestId()}));
-      agfocusAnnounce(p,item.archived?'Pinned card restored.':'Pinned card archived.');
+      agfocusAnnounce(p,item.archived?'Focus card restored.':'Focus card archived.');
       await agfocusRefresh(p);
     } else if(kind==='table') {
       const table=agfocusSourceOf(item),slug=crmSlug(table);
       if(table.business_id!=null && !slug)throw new Error('This table is unavailable.');
-      if(!await taskConfirm({title:'Archive this table?',message:'This archives the table itself, so its entries and columns become read only. Member records, their states and their other Pinned cards are unchanged. The Pinned card stays.',confirmLabel:'Archive table'}))return;
+      if(!await taskConfirm({title:'Archive this table?',message:'This archives the table itself, so its entries and columns become read only. Member records, their states and their other Focus cards are unchanged. The Focus card stays.',confirmLabel:'Archive table'}))return;
       const current=(await crmCall(slug,'tables_get',{table_id:table.id})).table;
       await crmCall(slug,'tables_update',{table_id:table.id,expected_revision:current.revision,changes:{archived:true},idempotency_key:newRequestId()});
       agfocusAnnounce(p,'Table archived.');
@@ -988,7 +988,7 @@ async function agfocusOpenTarget(p,target,{root=true,paired=target?._workKind===
 async function agfocusOpenChatTask(agentId, reference) {
   const pane=typeof _agpad==='undefined'?null:_agpad;
   if(!pane || String(pane.agentId ?? '')!==String(agentId ?? ''))throw new Error('This agent is no longer open.');
-  if(!agpadFocusSurfaces(pane))throw new Error('This agent has no Pinned view.');
+  if(!agpadFocusSurfaces(pane))throw new Error('This agent has no Focus view.');
   if(!reference || reference.id==null)throw new Error('This Task is no longer available.');
   const source={type:'task',id:reference.id,business_id:reference.business_id ?? null,business_slug:reference.business_slug || null,
     label:reference.label || null,task_type:reference.task_type || null,state:reference.state || null};
@@ -996,7 +996,7 @@ async function agfocusOpenChatTask(agentId, reference) {
   if(!record)throw new Error('This Task is no longer available.');
   if(record.scopeMissing)throw new Error('That Task belongs to a Project that is not available here.');
   if(pane.view!=='focus' || pane.surface)await agpadSetView(pane,'focus');
-  if(pane.view!=='focus' || !pane.focusMount?.isConnected)throw new Error('Pinned is unavailable for this agent.');
+  if(pane.view!=='focus' || !pane.focusMount?.isConnected)throw new Error('Focus is unavailable for this agent.');
   const opened=await agfocusOpenTarget(pane,{source,can_thread:true},{root:true});
   if(typeof _agpad==='undefined' || _agpad!==pane || String(pane.agentId ?? '')!==String(agentId ?? ''))throw new Error('This agent is no longer open.');
   if(!pane.focusWorkspace?.isOpen?.())throw new Error('This Task could not be opened.');
@@ -1166,9 +1166,9 @@ async function agfocusOpenLinkedItem(p) {
   try {
     const data=coreData(await post('/root/operations/focus_get',{scope:'global',item_id:id}));
     if(!agpadActive(p) || p.view!=='focus')return;
-    if(!data.item || data.item.unavailable)throw new Error('This Pinned item is no longer available.');
+    if(!data.item || data.item.unavailable)throw new Error('This Focus item is no longer available.');
     const record=rwRecordFromFocusCard(data.item);
-    if(!record)throw new Error('This Pinned item is no longer available.');
+    if(!record)throw new Error('This Focus item is no longer available.');
     if(!await agfocusWorkspaceMode(p,(record.source || data.item.source)?.type==='table'))return;
     agfocusShowDock(p);
     await p.focusWorkspace?.open(record,{root:true,tab:record.can_thread?'chat':'dashboard'});
@@ -1274,7 +1274,7 @@ async function agfocusDone(p, requestId, host, draft) {
     // has already applied it.
     if (!draft.submission) {
       const current = coreData(await api(agfocusPath(p)));
-      if (current.browser?.request_id !== requestId || current.browser.state !== 'pending') throw new Error('This input request changed. Refresh Pinned.');
+      if (current.browser?.request_id !== requestId || current.browser.state !== 'pending') throw new Error('This input request changed. Refresh Focus.');
       draft.submission = {request_id: requestId, note: draft.note};
     }
     coreData(await post(agfocusPath(p) + '/done', draft.submission));

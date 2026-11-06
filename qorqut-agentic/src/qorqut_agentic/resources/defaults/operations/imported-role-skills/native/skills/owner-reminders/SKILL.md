@@ -23,7 +23,7 @@ optional time-critical flag and an optional linked item. Each due occurrence has
   see other recipients' reminders.
 - The service enforces this on every call. Another agent that needs to remind the owner or
   a colleague asks Ordubashy; do not look for a workaround.
-- The owner sees only reminders addressed to the owner, in the Pinned and Attention strips
+- The owner sees only reminders addressed to the owner, in the Focus and Todo reminder strips
   and behind the Reminders button. Your self-reminders never appear there.
 
 ## Operations
@@ -79,7 +79,7 @@ wait for your session, direct inputs and the normal inbox pacing.
 - Reading or acknowledging the inbox event does not dismiss the reminder. It stays
   `due` until you explicitly dismiss, snooze or cancel it.
 - Dismiss it once its action is captured as tracked work: reuse the matching Task or
-  create one. Ordubashy puts an accepted commitment on Attention (`todo_add`) before
+  create one. Ordubashy puts an accepted commitment on Todo (`todo_add`) before
   executing it. You do not have to finish the work first. Do not dismiss before the
   capture, or merely to clear the notice. If you cannot capture it now, snooze.
 - A reminder is not permission to do the remembered action, and dismissing it never
@@ -94,7 +94,7 @@ wait for your session, direct inputs and the normal inbox pacing.
   Other agents receive reminders through the normal inbox path. An offline or stopped
   agent keeps its due reminders; none is started to deliver one.
 
-Use a self-reminder to resurface work later, not as a substitute for a Task, Attention
+Use a self-reminder to resurface work later, not as a substitute for a Task, Todo
 item or Signoff. Never invent recurring follow-ups the requester did not ask for.
 
 ## Legacy `owner_reminder` (Ordubashy)

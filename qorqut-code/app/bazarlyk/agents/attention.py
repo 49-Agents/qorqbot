@@ -126,7 +126,7 @@ class Attention:
         task = self.task(ctx, task_ref, uow)
         membership = self.task_membership(uow, agent_id, task_ref)
         if not membership or membership['task_created_at'] != task['created_at']:
-            raise DomainError('not_found', 'Task is not on Attention board')
+            raise DomainError('not_found', 'Work item is not on Todo')
         if task.get('archived'):
             raise DomainError('validation_error', 'Todo requires an unarchived work item')
         return {'task': task, 'membership': membership}
@@ -407,14 +407,14 @@ class Attention:
             op = op.replace('todo_', 'attention_', 1)
         state = self.state(uow, agent)
         if 'expected_revision' in args and args['expected_revision'] != state['revision']:
-            raise DomainError('revision_conflict', 'Attention changed; reread it', current_revision=state['revision'])
+            raise DomainError('revision_conflict', 'Todo changed; reread it', current_revision=state['revision'])
         if op in ('attention_add','attention_focus_set'):
             task = self.task(ctx, args['task'], uow, notes=False)
             if task.get('archived'):
                 raise DomainError('validation_error', 'Todo requires an unarchived work item')
             if op == 'attention_focus_set':
                 membership = self.task_membership(uow, agent, args['task'])
-                if not membership or membership['task_created_at'] != task['created_at']: raise DomainError('not_found', 'Task is not on Attention board')
+                if not membership or membership['task_created_at'] != task['created_at']: raise DomainError('not_found', 'Work item is not on Todo')
                 if not isinstance(args['intent'], str) or not args['intent'].strip() or len(args['intent']) > 1000: raise DomainError('validation_error', 'Intent must contain at most 1000 characters')
                 self.resolve(ctx, agent, args['focus'], uow)
                 if args['focus']['type'] == 'workflow':

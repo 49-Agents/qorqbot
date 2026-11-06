@@ -11,6 +11,7 @@ from __future__ import annotations
 from qorqut_operations.actions.models import CATEGORIES, GLOBAL_AGENT_CATEGORIES
 from qorqut_operations.business_lifecycle import active_business_ids
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.global_agents import is_coordinator
 
 
 def is_owner(ctx, uow) -> bool:
@@ -128,10 +129,12 @@ def classify(ctx, uow, category, business_ids, *, owner_category_optional=True):
 
 
 def may_change(ctx, uow, row) -> bool:
-    """Correction and withdrawal belong to the Action's original recorder in its owning scope, or to the owner."""
+    """The original recorder, owner or configured coordinator can maintain an accessible Action in its owning scope."""
     if row is None or row["business_id"] != ctx.business_id:
         return False
-    return row["recorded_by"] == ctx.principal_id or is_owner(ctx, uow)
+    return (row["recorded_by"] == ctx.principal_id or is_owner(ctx, uow)
+            or ctx.principal_kind == 'agent' and not ctx.delegation_assignment_id
+            and is_coordinator(uow.connection, ctx.principal_id))
 
 
 __all__ = ["CATEGORIES", "action_namespace", "change_namespace", "classify", "evidence_visible", "is_owner", "links", "may_change", "reader_scope",

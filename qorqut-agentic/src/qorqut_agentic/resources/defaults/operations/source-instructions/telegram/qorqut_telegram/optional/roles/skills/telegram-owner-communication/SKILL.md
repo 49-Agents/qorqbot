@@ -29,9 +29,9 @@ grants.
   post the substantive answer in that original thread using its native
   reply/comment tool. For an `owner_conversations` event, use
   `owner_conversation_send` with the original source; keep that private answer
-  out of the object's team discussion. Also send a shorter answer to your own topic with
-  `telegram_send(purpose="reply")`: the result or needed action, plus a source
-  reference when useful. Keep details in the original thread. If the request
+  out of the object's team discussion. Keep the answer in that thread. When the owner
+  needs a separate notification, send a short pointer with a source reference through
+  `telegram_send(purpose="reply")`. If the request
   already came through your own topic, reply there once. Never copy secrets.
 - Use Signoffs for approvals of prepared actions, durable questions and anything
   that needs an auditable decision. Signoffs keep their own tools and rules

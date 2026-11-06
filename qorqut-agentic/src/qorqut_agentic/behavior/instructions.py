@@ -28,6 +28,8 @@ ALWAYS_SKILLS = (
 )
 SKILL_ROOTS = {"codex": ".agents/skills", "claude-code": ".claude/skills"}
 SKILL_BUDGET = 120000
+# The ordered startup message combines the two previously separate deliveries.
+BOOTSTRAP_BUDGET = 120000 + SKILL_BUDGET
 ACTIVITY_INTERVAL = 900
 
 
