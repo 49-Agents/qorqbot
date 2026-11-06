@@ -45,7 +45,7 @@ const onboarding = (() => {
     {id: 'projects', chapter: 'projects', title: 'start a project',
       body: 'Projects keep the work, records and context for one client or business apart. You create them by asking.',
       instructions: ['In Chat, ask Ordubashy: “Create a project for …” with a name and what it is for.', 'He prepares it and asks for your signoff before anything is created.'],
-      hint: 'All your projects are on the Projects page: the folder icon on the left.',
+      hint: 'All your projects are on the Projects page.',
       target: () => document.querySelector('#global-agent-terminal .gchat-composer')},
     {id: 'signoffs', chapter: 'projects', view: 'focus', title: 'signoffs',
       body: 'When an agent needs your approval, such as for creating a project, it waits as a Signoff at the top of Pinned. Nothing happens until you approve it. Due reminders show up there too.',

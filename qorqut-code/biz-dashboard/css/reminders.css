@@ -26,3 +26,15 @@
 .rem-row-text{font:500 13px/20px var(--sans);overflow-wrap:anywhere}
 .rem-row-meta{font-size:11px}
 .rem-link-open{padding:0;border:0;background:none;text-decoration:underline;text-align:left}
+
+/* A mounted reminder detail has its own quiet reading surface in Focus. */
+.agfocus-surface-body:has(.rem-detail){border:0;background:transparent;border-radius:0}
+.rem-detail{padding:24px;max-width:680px;box-sizing:border-box}
+.agfocus .rem-detail .rem-text,.agpad .agfocus .rem-detail .rem-text{margin:0 0 24px;font:600 20px/1.4 var(--sans);color:var(--fg);text-transform:none;letter-spacing:normal}
+.rem-detail .rem-fields{grid-template-columns:100px minmax(0,1fr);gap:10px 16px;margin:0 0 24px;font-size:13px;line-height:1.5}
+.rem-detail .rem-fields dt{color:var(--fg-2)}
+.rem-detail .rem-fields dd{color:var(--fg)}
+.rem-detail .rem-actions{gap:8px}
+@media(max-width:600px){.rem-detail{padding:18px 12px}.rem-detail .rem-fields{grid-template-columns:80px minmax(0,1fr);gap:8px 12px}}
+
+.agfocus .rem-detail .rem-actions .primary{background:var(--accent);color:var(--accent-fg);border:0}

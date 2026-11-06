@@ -57,3 +57,13 @@
 .slash-name { font: 500 12.5px var(--mono); color: var(--fg); white-space: nowrap; }
 .slash-desc { font-size: 12px; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .slash-tag { font-size: 10px; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--fg-2); }
+
+/* Only the agent start action uses the light call to action. */
+.gchat .gchat-start,.gchat [data-empty-action="start"]{background:#f4f4f4;color:#1b1b1b;border:1px solid #f4f4f4}
+.gchat .gchat-start:hover:not(:disabled),.gchat [data-empty-action="start"]:hover:not(:disabled){background:#dedede;border-color:#dedede;color:#1b1b1b}
+.gchat .gchat-start:disabled,.gchat [data-empty-action="start"]:disabled{opacity:.5;cursor:not-allowed}
+.gchat .gchat-start:focus-visible,.gchat [data-empty-action="start"]:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+
+:root[data-theme="light"] .gchat .gchat-start:hover:not(:disabled),:root[data-theme="light"] .gchat [data-empty-action="start"]:hover:not(:disabled){background:#dedede;border-color:#dedede;color:#1b1b1b}
+:root[data-theme="light"] .gchat button.quiet.gchat-start,:root[data-theme="light"] .gchat button.quiet[data-empty-action="start"]{background:#f4f4f4;color:#1b1b1b;border-color:#b5b5b5}
+:root[data-theme="light"] .gchat button.quiet.gchat-start:hover:not(:disabled),:root[data-theme="light"] .gchat button.quiet[data-empty-action="start"]:hover:not(:disabled){background:#dedede;border-color:#999;color:#1b1b1b}
