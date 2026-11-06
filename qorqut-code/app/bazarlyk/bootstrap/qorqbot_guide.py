@@ -111,10 +111,7 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
 ## Settings (the gear)
 
 - **Connect your tools**: what the agents can use.
-  - Strongly recommended: the **Agent browser** and **Gmail**. The agent browser is Qorqbot's own browser control:
-    Google Chrome plus the pinned `agent-browser` command, which the agents' managed browsers run on (the card shows the
-    install command when something is missing). Agents browse through it with `browser_turn`, never through the owner's
-    Chrome.
+  - Strongly recommended: **Gmail**.
   - Also useful: Google Calendar, Google Drive, Notion, Slack and WhatsApp (not on Mac yet).
   - Gmail, Calendar, Drive, Notion and Slack are claude.ai connectors: **Connect** opens claude.ai's connector
     settings; sign in there with the same Claude account the agents use (the panel names it). They work in Claude Code,

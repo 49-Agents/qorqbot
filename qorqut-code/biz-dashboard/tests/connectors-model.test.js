@@ -14,7 +14,7 @@ test('claude connectors connect, sign in or manage', () => {
 });
 
 test('built-in and extension connectors have no button', () => {
-  assert.strictEqual(model.action(item('browser', 'install', 'connected')).kind, 'none');
+  assert.strictEqual(model.action(item('whatsapp', 'extension', 'coming_soon')).kind, 'none');
   assert.strictEqual(model.action(item('whatsapp', 'extension', 'not_installed')).kind, 'none');
 });
 
@@ -25,7 +25,6 @@ test('notes explain what the owner has to do', () => {
   assert.strictEqual(model.note(item('notion', 'claude', 'needs_sign_in')).tone, 'warn');
   assert.strictEqual(model.note(item('gmail', 'claude', 'connected')), null);
   assert.match(model.note(item('whatsapp', 'extension', 'not_paired')).text, /Linked devices/);
-  assert.strictEqual(model.note(item('browser', 'install', 'connected')), null);
 });
 
 test('unknown statuses fall back safely', () => {
@@ -34,25 +33,16 @@ test('unknown statuses fall back safely', () => {
 });
 
 test('summary counts recommended connectors only', () => {
-  const items = [item('browser', 'install', 'connected'), item('gmail', 'claude', 'off'), item('drive', 'claude', 'connected'),
+  const items = [item('google_calendar', 'claude', 'connected'), item('gmail', 'claude', 'off'), item('drive', 'claude', 'connected'),
     {...item('notion', 'claude', 'connected'), tier: 'suggested'}];
   assert.deepStrictEqual(model.summary(items), {done: 2, total: 3, complete: false});
 });
 
 test('every catalog id has copy and an icon', () => {
-  for (const id of ['browser', 'gmail', 'google_calendar', 'google_drive', 'whatsapp', 'notion', 'slack']) {
+  for (const id of ['gmail', 'google_calendar', 'google_drive', 'whatsapp', 'notion', 'slack']) {
     assert.ok(model.COPY[id]?.name && model.COPY[id].does && model.COPY[id].privacy, id);
     assert.ok(model.ICONS[id], id);
   }
-});
-
-test('agent browser says exactly what to install', () => {
-  const both = item('browser', 'install', 'needs_install', {missing: ['chrome', 'agent_browser']});
-  assert.match(model.note(both).text, /Google Chrome, then run the command/);
-  assert.match(model.note({...both, missing: ['agent_browser']}).text, /^Run the command/);
-  assert.match(model.note({...both, missing: ['chrome']}).text, /google.com\/chrome/);
-  assert.strictEqual(model.note(both).tone, 'warn');
-  assert.strictEqual(model.note(item('browser', 'install', 'connected')), null);
 });
 
 test('the Claude account line names the account or what is wrong', () => {
@@ -70,8 +60,6 @@ test('whatsapp on a Mac says it is coming and has no button', () => {
 });
 
 
-test('there are no local browser connectors to turn on', () => {
-  assert.strictEqual(model.COPY.chrome, undefined);
-  assert.strictEqual(model.COPY.playwright, undefined);
-  assert.strictEqual(model.COPY.browser.name, 'Agent browser');
+test('browsing is not a connector the owner sees', () => {
+  for (const id of ['browser', 'chrome', 'playwright']) assert.strictEqual(model.COPY[id], undefined, id);
 });

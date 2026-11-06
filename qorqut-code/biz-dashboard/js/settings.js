@@ -44,7 +44,7 @@ async function renderSettings(c) {
     <p class="st-help">Changes apply to new agent sessions and later jobs. Agents already running keep their current environment.</p>`;
   const look = appearance.get(), alerts = desktopNotify.prefs();
   const body = {
-    connections: `<div class="st-block" data-search="connections connectors agent browser chrome gmail calendar drive notion slack whatsapp" data-connectors-slot></div>`,
+    connections: `<div class="st-block" data-search="connections connectors gmail calendar drive notion slack whatsapp" data-connectors-slot></div>`,
     agents: `<div class="st-rows" data-agent-clients><p class="st-help">Checking Claude Code and Codex…</p></div>
       <div class="st-rows">${settingsRow({label: 'Trusted agent folders', keywords: 'trust consent hooks prompts folder security',
         help: '<span data-agent-trust-text>Checking…</span>', control: '<button type="button" class="quiet" data-agent-trust-toggle disabled>…</button>', attrs: 'data-agent-trust'})}
