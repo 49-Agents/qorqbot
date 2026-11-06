@@ -67,17 +67,17 @@
 .sg-urgent-link { display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; width:100%; height:auto; min-height:0; padding:12px; gap:5px; background:var(--wash); color:var(--fg); border:1px solid var(--line); border-radius:6px; text-align:left; white-space:normal; font-weight:400; }
 .sg-urgent-link:hover { background:var(--wash); color:var(--fg); transform:none; }
 .sg-urgent-link small { color:var(--fg-2); }
-#sg-toast-host { position:fixed; left:20px; top:20px; z-index:1100; width:min(300px,calc(100vw - 32px)); }
-.sg-toast { border:0; background:var(--bg); color:var(--fg); border-radius:10px; padding:16px; box-shadow:0 10px 35px #0005; font:13px/1.5 var(--sans); }
-.sg-toast header { display:flex; align-items:center; gap:10px; }
-.sg-toast header strong { flex:1; }
-.sg-toast button { background:none; color:inherit; border:0; cursor:pointer; text-align:left; white-space:normal; }
-.sg-toast header button { font-size:22px; padding:0 6px; }
-.sg-toast .sg-toast-open { display:block; font-size:15px; font-weight:600; margin:14px 0 6px; padding:0; }
-.sg-toast p { margin:6px 0; color:var(--fg-2); overflow-wrap:anywhere; }
-.sg-toast .sg-toast-business { display:flex; justify-content:space-between; width:100%; padding:8px 0; }
-.sg-toast .sg-toast-snooze { border:1px solid var(--line-2); border-radius:12px; padding:3px 10px; margin-top:8px; }
-.sg-toast .sg-toast-error { color:#ef7777; }
+/* Approval attention shares the top-centre card of app.css; this host only stacks it with the other notifications. */
+#sg-toast-host { display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; }
+#sg-toast-host:empty { display:none; }
+.toast.sg-toast { cursor:default; }
+.sg-toast button { background:none; color:inherit; border:0; cursor:pointer; text-align:left; white-space:normal; font:inherit; padding:0; }
+.sg-toast .sg-toast-open { display:block; width:100%; font-size:13px; font-weight:500; line-height:20px; color:var(--fg); overflow-wrap:anywhere; }
+.sg-toast .sg-toast-dismiss { flex:none; font-size:20px; line-height:1; padding:0 4px; color:var(--fg-2); }
+.sg-toast .sg-toast-business { display:flex; justify-content:space-between; width:100%; padding:4px 0; }
+.sg-toast .sg-toast-snooze { border:1px solid var(--line-2); border-radius:12px; padding:2px 10px; margin-top:6px; font-size:12px; color:var(--fg-2); }
+.sg-toast .sg-toast-error { margin:0; color:#ef7777; font-size:12px; }
+.sg-toast .sg-toast-error:empty { display:none; }
 .sg-toast button:focus-visible { outline:2px solid var(--fg); outline-offset:3px; }
 
 .sg-platform { min-width: 0; }

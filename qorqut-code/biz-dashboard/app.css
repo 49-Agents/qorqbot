@@ -291,6 +291,8 @@ details[open] summary { color: var(--fg); }
 .reply-toast .reply-copy { min-width: 0; flex: 1; }
 .reply-toast .reply-name { display: block; font-size: 12px; font-weight: 600; line-height: 18px; color: var(--fg); }
 .reply-toast .reply-preview { display: block; font-size: 13px; font-weight: 400; line-height: 20px; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toast.reminder-toast { align-items: flex-start; cursor: pointer; }
+.reminder-toast .reply-preview { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
 .reminder-toast .reminder-icon { display: inline-flex; flex: none; width: 28px; height: 28px; align-items: center; justify-content: center; color: var(--fg-2); }
 .reminder-toast .reminder-icon svg { display: block; width: 20px; height: 20px; }
 @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
