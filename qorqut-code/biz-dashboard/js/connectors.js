@@ -1,11 +1,10 @@
-// Connectors: the tools the owner connects so agents can use them (the agent browser, Gmail and more).
+// Connectors: the services the owner connects so agents can use them (Gmail, Calendar and more).
 // `connectorsModel` is pure (unit tested with `node --test biz-dashboard/tests/*.test.js`); `connectorsPanel` renders the
 // panel shown in Settings and in the walkthrough. Status comes from /root/connectors (bazarlyk.connectors).
 const connectorsModel = (() => {
   const CLAUDE_CONNECTORS_URL = 'https://claude.ai/settings/connectors';
   const icon = path => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
   const ICONS = {
-    browser: icon('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/>'),
     gmail: icon('<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M4 7l8 6 8-6"/>'),
     google_calendar: icon('<rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>'),
     google_drive: icon('<path d="M4 18.5h16M8.5 4.5h7L21 14l-2.5 4.5M8.5 4.5L3 14l2.5 4.5M8.5 4.5L14 14H3"/>'),
@@ -15,10 +14,6 @@ const connectorsModel = (() => {
   };
   // Owner-facing copy. `does` is what agents can do with it, `why` why it helps, `privacy` what it can see and where it runs.
   const COPY = {
-    browser: {name: 'Agent browser', does: 'Qorqbot’s own browser control. Your agents get managed browsers of their own to research, fill in forms and check sites, and you can watch them work.',
-      why: 'Web work without touching your own browser or passwords.',
-      privacy: 'Runs on this computer with its own browser profiles. Nothing you are signed in to in your own Chrome is shared with it.',
-      needs: 'Needs Google Chrome and the free agent-browser command (one Terminal command, shown here when it is missing).'},
     gmail: {name: 'Gmail', does: 'Ordubashy finds and reads your email, sorts what needs you and drafts replies for you to send.',
       why: 'Most requests arrive by email. This is how your agents keep up with them.',
       privacy: 'You sign in with Google on Google’s own page. Qorqbot never sees your password and keeps no copy of your mail.'},
@@ -67,11 +62,6 @@ const connectorsModel = (() => {
         : 'Claude Code could not list its connectors. Open a terminal and run “claude” once to sign in.';
     if (item.kind === 'claude' && item.status === 'failed') return 'Claude could not reach it. Open Claude’s connectors and connect it again.';
     if (item.kind === 'claude' && item.status !== 'connected') return 'Claude Code only. Codex can’t use Claude’s connectors.';
-    if (item.id === 'browser' && item.status === 'needs_install') {
-      const chrome = item.missing?.includes('chrome'), tool = item.missing?.includes('agent_browser');
-      return chrome && tool ? 'Install Google Chrome, then run the command below in Terminal.'
-        : chrome ? 'Install Google Chrome from google.com/chrome.' : 'Run the command below in Terminal.';
-    }
     if (item.id === 'whatsapp' && item.status === 'coming_soon') return 'The WhatsApp extension is available for Windows (WSL) and Linux. A Mac version is in progress.';
     if (item.id === 'whatsapp' && item.status === 'not_installed') return 'Comes with the WhatsApp extension, which isn’t installed in this Qorqbot yet.';
     if (item.id === 'whatsapp' && item.status === 'not_set_up') return 'The WhatsApp extension is installed. Link your phone to finish.';
@@ -116,7 +106,6 @@ const connectorsPanel = (() => {
         ${button}</div>
       <p class="cx-does">${esc(copy.does)}</p>
       ${note ? `<p class="cx-note" data-tone="${note.tone}">${esc(note.text)}</p>` : ''}
-      ${item.install && item.missing?.includes('agent_browser') ? `<div class="cx-command"><code>${esc(item.install)}</code><button type="button" class="quiet" data-cx-copy="${esc(item.install)}">Copy</button></div>` : ''}
       <details class="cx-more"><summary>Why it helps and what it can see</summary>
         <p><b>Why:</b> ${esc(copy.why || '')}</p><p><b>Privacy:</b> ${esc(copy.privacy || '')}</p>
         ${copy.needs ? `<p><b>Needs:</b> ${esc(copy.needs)}</p>` : ''}${steps}</details>
@@ -135,7 +124,6 @@ const connectorsPanel = (() => {
         <div class="cx-row-title"><h3>${esc(copy.name)}</h3><span class="cx-status" data-tone="${status.tone}">${esc(status.label)}</span></div>
         <p class="cx-row-does">${esc(copy.does)}</p>
         ${note ? `<p class="cx-note" data-tone="${note.tone}">${esc(note.text)}</p>` : ''}
-        ${item.install && item.missing?.includes('agent_browser') ? `<div class="cx-command"><code>${esc(item.install)}</code><button type="button" class="quiet" data-cx-copy="${esc(item.install)}">Copy</button></div>` : ''}
         <details class="cx-more"><summary>What it can see</summary>
           <p><b>Why:</b> ${esc(copy.why || '')}</p><p><b>Privacy:</b> ${esc(copy.privacy || '')}</p>
           ${copy.needs ? `<p><b>Needs:</b> ${esc(copy.needs)}</p>` : ''}${steps}</details>
@@ -157,7 +145,7 @@ const connectorsPanel = (() => {
     const root = document.createElement('div');
     root.className = 'cx-panel' + (options.rows ? ' cx-panel-rows' : '');
     root.innerHTML = `${options.compact ? '' : PRIVACY}
-      <div class="cx-head"><div>${options.rows ? '' : '<h2>Connect your tools</h2>'}<p>Give your agents the tools they need. The agent browser and Gmail are strongly recommended; everything is optional.</p></div>
+      <div class="cx-head"><div>${options.rows ? '' : '<h2>Connect your tools</h2>'}<p>Give your agents the tools they need. Gmail is strongly recommended; everything is optional.</p></div>
         <div class="cx-progress" data-cx-progress aria-live="polite"></div></div>
       <p class="cx-error" data-cx-error role="alert" hidden></p>
       <p class="cx-account" data-cx-account hidden></p>
@@ -199,13 +187,6 @@ const connectorsPanel = (() => {
     }
     root.addEventListener('click', async event => {
       if (event.target.closest('[data-cx-refresh]')) { await load({refresh: true}); return; }
-      const copy = event.target.closest('[data-cx-copy]');
-      if (copy) {
-        try { await navigator.clipboard.writeText(copy.dataset.cxCopy); copy.textContent = 'Copied'; }
-        catch (_) { copy.textContent = 'Select and copy'; }
-        setTimeout(() => { if (copy.isConnected) copy.textContent = 'Copy'; }, 2000);
-        return;
-      }
       const button = event.target.closest('[data-cx-action]');
       if (!button) return;
       const item = view?.connectors.find(entry => entry.id === button.dataset.cxId);

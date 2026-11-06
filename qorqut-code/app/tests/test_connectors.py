@@ -51,29 +51,25 @@ class ConnectorsTest(unittest.TestCase):
 
     def test_view_combines_statuses(self):
         probe = FakeProbe({"available": True, "connectors": connectors.parse_claude_list(CLAUDE_LIST)})
-        with mock.patch.object(connectors, "_browser_status", return_value={"status": "connected"}):
-            result = connectors.view(self.runtime, environ=self.environ, probe=probe)
+        result = connectors.view(self.runtime, environ=self.environ, probe=probe)
         status = {item["id"]: item["status"] for item in result["connectors"]}
-        self.assertEqual(status["browser"], "connected")
         self.assertEqual(status["gmail"], "connected")
         self.assertEqual(status["notion"], "needs_sign_in")
         self.assertEqual(status["google_calendar"], "not_added")
         self.assertEqual(status["whatsapp"], "coming_soon" if connectors.host_platform() == "darwin" else "not_installed")
-        self.assertNotIn("claude_name", result["connectors"][1])
+        self.assertNotIn("claude_name", result["connectors"][0])
 
-    def test_the_agent_browser_and_gmail_are_recommended_and_no_local_browsers_remain(self):
-        with mock.patch.object(connectors, "_browser_status", return_value={"status": "connected"}):
-            items = connectors.view(self.runtime, environ=self.environ, probe=FakeProbe({"available": True, "connectors": {}}))
+    def test_browsing_is_not_a_connector(self):
+        items = connectors.view(self.runtime, environ=self.environ, probe=FakeProbe({"available": True, "connectors": {}}))
         ids = [item["id"] for item in items["connectors"]]
-        self.assertEqual([item["id"] for item in items["connectors"] if item["tier"] == "recommended"], ["browser", "gmail"])
-        self.assertNotIn("chrome", ids)
-        self.assertNotIn("playwright", ids)
+        self.assertEqual([item["id"] for item in items["connectors"] if item["tier"] == "recommended"], ["gmail"])
+        for hidden in ("browser", "chrome", "playwright"):
+            self.assertNotIn(hidden, ids)
 
     def test_view_before_first_check_and_without_claude(self):
-        with mock.patch.object(connectors, "_browser_status", return_value={"status": "connected"}):
-            checking = connectors.view(self.runtime, environ=self.environ, probe=FakeProbe(None, True))
-            missing = connectors.view(self.runtime, environ=self.environ,
-                                      probe=FakeProbe({"available": False, "reason": "claude_missing"}))
+        checking = connectors.view(self.runtime, environ=self.environ, probe=FakeProbe(None, True))
+        missing = connectors.view(self.runtime, environ=self.environ,
+                                  probe=FakeProbe({"available": False, "reason": "claude_missing"}))
         gmail = lambda result: next(item for item in result["connectors"] if item["id"] == "gmail")
         self.assertEqual(gmail(checking)["status"], "checking")
         self.assertTrue(checking["checking"])
@@ -99,8 +95,7 @@ class ConnectorsTest(unittest.TestCase):
 
     def test_owner_view_only_refreshes(self):
         probe = FakeProbe({"available": True, "connectors": {}})
-        with mock.patch.object(connectors, "PROBE", probe), \
-                mock.patch.object(connectors, "_browser_status", return_value={"status": "connected"}):
+        with mock.patch.object(connectors, "PROBE", probe):
             connectors.owner_view(self.runtime, {"refresh": True}, self.environ)
             connectors.owner_view(self.runtime, None, self.environ)
             for change in ({"id": "playwright", "enabled": True}, {"refresh": False}, {}):
@@ -121,20 +116,6 @@ class ProbeEnvironmentTest(unittest.TestCase):
         self.assertEqual(connectors._probe_environment({"HOME": "/h", "QORQUT_NATIVE_USER_ENV": "{"})["HOME"], "/h")
 
 
-class BrowserStatusTest(unittest.TestCase):
-    def test_reports_what_is_missing(self):
-        with mock.patch("bazarlyk.native_paths.installed_chrome", return_value=None), \
-                mock.patch("bazarlyk.native_paths.installed_executable", return_value="/bin/agent-browser"):
-            self.assertEqual(connectors._browser_status(), {"status": "needs_install", "missing": ["chrome"],
-                                                            "install": "npm install -g agent-browser@0.38.1"})
-        with mock.patch("bazarlyk.native_paths.installed_chrome", return_value="/Applications/Chrome"), \
-                mock.patch("bazarlyk.native_paths.installed_executable", return_value=None):
-            self.assertEqual(connectors._browser_status()["missing"], ["agent_browser"])
-        with mock.patch("bazarlyk.native_paths.installed_chrome", return_value="/Applications/Chrome"), \
-                mock.patch("bazarlyk.native_paths.installed_executable", return_value="/bin/agent-browser"):
-            self.assertEqual(connectors._browser_status(), {"status": "connected"})
-
-
 class PlatformTest(unittest.TestCase):
     def test_wsl_is_detected(self):
         directory = Path(tempfile.mkdtemp())
@@ -149,8 +130,7 @@ class PlatformTest(unittest.TestCase):
         runtime_dir = directory / "runtime"
         runtime_dir.mkdir()
         runtime = SimpleNamespace(paths=SimpleNamespace(runtime=runtime_dir), resolver=SimpleNamespace(native_connections={}))
-        with mock.patch.object(connectors, "host_platform", return_value="wsl"), \
-                mock.patch.object(connectors, "_browser_status", return_value={"status": "connected"}):
+        with mock.patch.object(connectors, "host_platform", return_value="wsl"):
             result = connectors.view(runtime, environ={}, probe=FakeProbe({"available": True, "connectors": {}}))
         self.assertEqual(result["platform"], "wsl")
 
