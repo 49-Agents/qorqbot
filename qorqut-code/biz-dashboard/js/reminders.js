@@ -1,4 +1,4 @@
-// Shared reminders: one API wrapper, one detail view and one editor for the owner strip (Pinned and Attention),
+// Shared reminders: one API wrapper, one detail view and one editor for the owner strip (Focus and Attention),
 // the Reminders button's upcoming list and the record reader. Mutations carry the fetched revision and occurrence.
 const REM_STATES = {scheduled: 'Scheduled', due: 'Due', dismissed: 'Dismissed', cancelled: 'Cancelled'};
 const REM_WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];

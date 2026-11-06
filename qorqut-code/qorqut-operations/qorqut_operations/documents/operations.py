@@ -12,6 +12,8 @@ Context graph changes solely through ``context_edit`` and the filing queue, neve
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from dataclasses import replace
 from pathlib import PurePosixPath
 from uuid import UUID as UUIDValue, uuid5
@@ -85,15 +87,15 @@ MUTATIONS = {
     "context_people_merge": ({"document_id": UUID, "merge_id": UUID, "merge_revision": {"type": "integer", "minimum": 1}}, ("document_id", "merge_id", "merge_revision")),
 }
 DESCRIPTIONS = {
-    "context_list": "Browse scoped context metadata with pagination, without loading document bodies.",
-    "context_search": "Search context with bounded excerpts. Check complete and follow refresh_cursor before concluding absence.",
-    "context_get": "Read a context document by ID, heading or lines in bounded chunks; next_cursor is bound to the content hash.",
-    "notes_list": "List your own notes. With target_business_id (the selected project), list that project's notes instead; tag keeps only notes carrying that tag.",
-    "notes_delete": "Archive a note while preserving its contents and relationships. A project note also needs target_business_id.",
-    "notes_create": "Create your private note. With target_business_id (the selected project) it is a project note instead, written under the ordinary notes grant; tags label either kind.",
-    "notes_update": "Edit a note with expected_revision. A project note also needs target_business_id equal to its project.",
-    "context_people_affiliation_set": "Set a Person internal/external classification using current role permissions and scope; this never grants access.",
-    "context_people_update": "Edit Person details, including contact email/phone/notes and summary. document_id also accepts a human Person ID. Affiliation changes follow context_people_affiliation_set permissions.",
+    "context_list": instruction_text('operations-browse-scoped-context-metadata-with-pagination-without-loading'),
+    "context_search": instruction_text('operations-search-context-with-bounded-excerpts-check-complete-and'),
+    "context_get": instruction_text('operations-read-a-context-document-by-id-heading-or'),
+    "notes_list": instruction_text('operations-list-your-own-notes-with-target-business-id'),
+    "notes_delete": instruction_text('operations-archive-a-note-while-preserving-its-contents-and'),
+    "notes_create": instruction_text('operations-create-your-private-note-with-target-business-id'),
+    "notes_update": instruction_text('operations-edit-a-note-with-expected-revision-a-project'),
+    "context_people_affiliation_set": instruction_text('operations-set-a-person-internal-external-classification-using-current'),
+    "context_people_update": instruction_text('operations-edit-person-details-including-contact-email-phone-notes'),
 }
 
 

@@ -83,7 +83,7 @@ CONTENT = [("content-library", "extensions/content-library"), ("qorqut-content",
 REQUIRED = ["qorqut-agentic/pyproject.toml", "qorqut-code/app/pyproject.toml", "qorqut-code/app/service-constraints.txt", "qorqut-code/app/package-sources.json",
             "qorqut-code/qorqut-operations/pyproject.toml", "qorqut-code/qorqut-context/pyproject.toml", "qorqut-code/biz-dashboard/index.html",
             "qorqut-agentic/src/qorqut_agentic/resources/defaults/roles/imported-roles", "dependencies/document-history/pyproject.toml",
-            "dependencies/email-management/plugin.yaml"]
+            "qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/email/plugin.yaml"]
 REQUIRED_PAPER = ["extensions/qorqut-paper/pyproject.toml", "services/paper-service/pyproject.toml", "services/paper-service/requirements/runtime.lock"]
 REQUIRED_FASTMAIL = ["extensions/qorqut-fastmail/pyproject.toml", "extensions/qorqut-fastmail/constraints.txt",
                      "services/email-engine/pyproject.toml"]

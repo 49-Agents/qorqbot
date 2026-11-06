@@ -212,9 +212,11 @@ def inspect_resources(path, extension_id):
         if len(raw) > 1024 * 1024:
             raise ValueError('Instruction index exceeds its limit')
         index = json.loads(raw, object_pairs_hook=unique_object)
-        if (not isinstance(index, dict) or set(index) != {'schema_version', 'entries'} or index['schema_version'] != 1
+        if (not isinstance(index, dict) or set(index) != {'schema_version', 'entries'}
+                or type(index['schema_version']) is not int or index['schema_version'] not in (1, 2)
                 or not isinstance(index['entries'], list) or not 1 <= len(index['entries']) <= 64):
             raise ValueError('Invalid connector instruction index')
+        agentic_supplied = index['schema_version'] == 2
         code = ast.parse(wheel.read(package + '/extension.py').decode())
         if not any(isinstance(node, ast.FunctionDef) and node.name == 'create' for node in code.body):
             raise ValueError('Connector factory is missing')
@@ -224,14 +226,16 @@ def inspect_resources(path, extension_id):
                 raise ValueError('Invalid instruction declaration')
             name = entry['path']
             if (not isinstance(name, str) or not name.startswith(index_name.rsplit('/', 1)[0] + '/') or not name.endswith('.md')
-                    or name not in names or name in declared or not isinstance(entry['id'], str) or entry['id'] in ids
+                    or (name in names if agentic_supplied else name not in names)
+                    or name in declared or not isinstance(entry['id'], str) or entry['id'] in ids
                     or not re.fullmatch(r'[a-z0-9][a-z0-9._-]{0,63}', entry['id'])):
                 raise ValueError('Missing or duplicate declared instruction resource')
             relative(name)
-            body = wheel.read(name)
-            if len(body) > 1024 * 1024:
-                raise ValueError('Instruction resource exceeds its limit')
-            body.decode()
+            if not agentic_supplied:
+                body = wheel.read(name)
+                if len(body) > 1024 * 1024:
+                    raise ValueError('Instruction resource exceeds its limit')
+                body.decode()
             parameters = entry['parameters']
             if (not isinstance(parameters, list) or any(not isinstance(p, str) or not re.fullmatch(r'[A-Z][A-Z0-9_]*', p) for p in parameters)
                     or len(parameters) != len(set(parameters)) or not isinstance(entry['source_site'], str)
@@ -252,6 +256,22 @@ def inspect_resources(path, extension_id):
         prefix = index_name.rsplit('/', 1)[0] + '/'
         if any(name.startswith(prefix) and name.endswith('.md') and name not in declared for name in names):
             raise ValueError('Connector has undeclared instruction resources')
+        # Version 2 binds prose supplied by the host's Agentic library. Older
+        # installers reject this index before installing a wheel. The current
+        # installer verifies every binding against its core before any pip write.
+        return index['entries'] if agentic_supplied else []
+
+
+CHECK_AGENTIC_SOURCES = r'''
+import json,sys
+from qorqut_agentic.behavior.sources import seed_bytes
+from bazarlyk.agentic.text import render_text
+entries=json.load(sys.stdin)
+for entry in entries:
+    body=seed_bytes(sys.argv[1],entry['path'])
+    render_text(body.decode('utf-8'),entry['parameters'],{name:'' for name in entry['parameters']})
+print(json.dumps({'verified':len(entries)}))
+'''
 
 
 CHECK_ENVIRONMENT = r'''
@@ -390,7 +410,12 @@ def install(root, archive, expected, *, config=None, resume=False):
             by_name = {wheel['name']:wheel for wheel in wheels}
             if len(by_name) != len(wheels) or by_name.get('qorqut-' + value['id'], {}).get('version') != value['version']:
                 raise ValueError('Bundle has duplicate distributions or lacks its declared connector version')
-            inspect_resources(stage / 'wheels' / by_name['qorqut-' + value['id']]['filename'], value['id'])
+            managed_sources = inspect_resources(stage / 'wheels' / by_name['qorqut-' + value['id']]['filename'], value['id'])
+            if managed_sources:
+                check = subprocess.run([runtime / 'venv/bin/python', '-I', '-B', '-c', CHECK_AGENTIC_SOURCES, value['id']],
+                    input=json.dumps(managed_sources), env=env, cwd=root, capture_output=True, text=True)
+                if check.returncode or json.loads(check.stdout) != {'verified': len(managed_sources)}:
+                    raise ValueError('This core lacks the connector’s required Agentic instructions; update the core first')
             if config is not None:
                 config = plain(config)
                 info = config.stat()

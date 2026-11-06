@@ -1,0 +1,1 @@
+Remove a current-work task reference whose source is no longer accessible.

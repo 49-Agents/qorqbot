@@ -11,6 +11,8 @@ their handlers; relationship rows are written only by the prepared plans of the 
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from qorqut_operations.application.catalog import CatalogContribution
 from qorqut_operations.application.plans import (PAGE, UUID, PlanBuilder, apply_records, page, require_revision, schema,
                                                  utc_clock)
@@ -73,13 +75,13 @@ class RelationshipOperations:
                    "direction": {"enum": ["incoming", "outgoing", "both"]}, "role": ROLE,
                    "query": {"type": "string", "maxLength": 500}, "include_archived": {"type": "boolean"}}
         reads = {
-            "relationship_roles_list": ({}, (), "List preferred relationship roles. Custom snake_case names are allowed when no predefined role fits. Workflow roles use their dedicated tools."),
-            "relationships_list": ({**PAGE, **filters}, (), "Find directional relationships by source, target, role or item. Returns authorized endpoint labels and explanations. No cross-business results."),
-            "relationships_get": ({"relationship_id": UUID}, ("relationship_id",), "Read one relationship, including direction, role, explanation and creation/update timestamps."),
-            "context_items_list": ({**PAGE, **plain(materials.filters), "type": item["properties"]["type"], "query": filters["query"], "include_archived": filters["include_archived"], "include_sources": {"type": "boolean"}}, (), "Find existing context items before linking them. Filter Materials by material_type, origin or tag. Raw uploads and archived items are excluded by default."),
-            "context_items_get": ({"item": item}, ("item",), "Resolve a context item to its current title, subtype, archive state and domain resource identity."),
-            "context_navigation_get": ({}, (), "Read authorized table, product and people counts without loading the graph."),
-            "context_graph_get": ({"item": item, "include_archived": filters["include_archived"]}, (), "Read the project context map, or one item's immediate neighborhood. Original uploads and generated projections are never map nodes. Reading does not acknowledge context."),
+            "relationship_roles_list": ({}, (), instruction_text('operations-list-preferred-relationship-roles-custom-snake-case-names')),
+            "relationships_list": ({**PAGE, **filters}, (), instruction_text('operations-find-directional-relationships-by-source-target-role-or')),
+            "relationships_get": ({"relationship_id": UUID}, ("relationship_id",), instruction_text('operations-read-one-relationship-including-direction-role-explanation-and')),
+            "context_items_list": ({**PAGE, **plain(materials.filters), "type": item["properties"]["type"], "query": filters["query"], "include_archived": filters["include_archived"], "include_sources": {"type": "boolean"}}, (), instruction_text('operations-find-existing-context-items-before-linking-them-filter')),
+            "context_items_get": ({"item": item}, ("item",), instruction_text('operations-resolve-a-context-item-to-its-current-title')),
+            "context_navigation_get": ({}, (), instruction_text('operations-read-authorized-table-product-and-people-counts-without')),
+            "context_graph_get": ({"item": item, "include_archived": filters["include_archived"]}, (), instruction_text('operations-read-the-project-context-map-or-one-item')),
         }
         descriptors = []
         for name, (properties, required, description) in reads.items():
@@ -88,20 +90,20 @@ class RelationshipOperations:
                 effect_kind="read", supports_signoff=False, **scoped,
                 read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
         writes = {
-            "relationships_create": (fields, ("source", "target", "role"), "Create a directional relationship. Prefer predefined roles; custom roles and duplicates are allowed. This never grants access or wakes an agent. Assign tasks using tasks_assign."),
-            "relationships_update": ({"relationship_id": UUID, "changes": {**schema(fields), "minProperties": 1}}, ("relationship_id", "changes"), "Edit a relationship's endpoints, role or explanation using its expected_revision. Workflow edges must use their domain tools."),
-            "relationships_remove": ({"relationship_id": UUID}, ("relationship_id",), "Remove only this relationship using its expected_revision. Items and their contents are preserved. Workflow edges must use their domain tools."),
+            "relationships_create": (fields, ("source", "target", "role"), instruction_text('operations-create-a-directional-relationship-prefer-predefined-roles-custom')),
+            "relationships_update": ({"relationship_id": UUID, "changes": {**schema(fields), "minProperties": 1}}, ("relationship_id", "changes"), instruction_text('operations-edit-a-relationship-s-endpoints-role-or-explanation')),
+            "relationships_remove": ({"relationship_id": UUID}, ("relationship_id",), instruction_text('operations-remove-only-this-relationship-using-its-expected-revision')),
         }
         for name, (properties, required, description) in writes.items():
             descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties}, required), description=description + GLOBAL_NOTE,
                 **GLOBAL_SCOPE, prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, options, uow),
                 apply=self.apply, validate_targets=self.validate_prepared))
         descriptors.append(OperationDescriptor("context_items_archive", schema({"item": item, "archived": {"type": "boolean"}}, ("item", "archived")),
-            description="Archive or restore an item without deleting its content or relationships. Does not cascade. Requires the item's expected_revision. Agent retirement and project membership use their dedicated administration tools.",
+            description=instruction_text('operations-archive-or-restore-an-item-without-deleting-its'),
             prepare=self.ports.archive.prepare, apply=self.ports.archive.apply))
         descriptors.append(OperationDescriptor("materials_update", schema({"material_id": UUID,
             "changes": {**schema({"material_type": {"enum": list(materials.material_types)}, "tags": plain(materials.tags)}), "minProperties": 1}}, ("material_id", "changes")),
-            description="Classify a project Material or replace its descriptive tags, using expected_revision. Never edits its body, origin, relationships or permissions. Email stays conversation; raw uploads stay mixed. Personal/agent notes and plans use their own tools.",
+            description=instruction_text('operations-classify-a-project-material-or-replace-its-descriptive'),
             prepare=materials.prepare, apply=materials.apply))
         descriptors.extend(self.reviews.descriptors())
         return tuple(descriptors)

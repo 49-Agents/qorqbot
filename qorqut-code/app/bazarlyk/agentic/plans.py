@@ -65,8 +65,11 @@ def _desired(inventory):
         source_ids = set()
         for path, item in package["files"].items():
             relative(path)
-            if not (path.startswith("native/") or (package_id == "user-preferences" and path == "SKILL.md") or (package_id == "imported-email-management" and path.startswith("guidance/email/"))):
-                raise ImportFailure("invalid_inventory", "Imported paths must be native assets or the canonical email guide", path=path)
+            runtime_resource = package_id == "runtime-instructions" and (
+                path in {"index.json", "README.md"} or path.startswith("messages/") and path.endswith(".md"))
+            tool_resource = package_id == "tool-instructions" and path in {"index.json", "README.md", "messages.json"}
+            if not (runtime_resource or tool_resource or path.startswith("native/") or (package_id == "user-preferences" and path == "SKILL.md") or (package_id == "imported-email-management" and path.startswith("guidance/email/"))):
+                raise ImportFailure("invalid_inventory", "Imported path is not a supported native or instruction asset", path=path)
             body = decoded(item["content_base64"])
             if item["sha256"] != digest(body):
                 raise ImportFailure("invalid_inventory", "Resource digest does not match its bytes", path=path)

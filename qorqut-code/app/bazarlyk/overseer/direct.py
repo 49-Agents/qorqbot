@@ -4,6 +4,8 @@ This path creates review records only. It grants neither extraction access nor
 application authority. The native owner's original input hash authenticates the
 instruction even after the transient input body has been scrubbed.
 """
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 import hashlib
 import json
 from dataclasses import replace
@@ -137,7 +139,7 @@ def propose(runtime, context, *, request_key, instruction_text, summary, change_
     if saved is None:
         from .access import EvidenceAccess
         from .evidence import CaptureJournal
-        source_scope = {'description': 'Explicit owner instruction in the submitting agent’s Chat',
+        source_scope = {'description': instruction_text('direct-explicit-owner-instruction-in-the-submitting-agent-s'),
             'project_ids': [], 'work_types': [], 'workflow_refs': [], 'conditions': [], 'exceptions': []}
         ref = source_ref(provider='operations', kind='owner_instruction', record_id=row['id'],
             revision=row['request_hash'], content={'text': instruction_text},

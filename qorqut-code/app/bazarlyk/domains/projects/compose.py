@@ -14,6 +14,8 @@ and never grants access. An inaccessible target is refused or skipped, never dis
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from dataclasses import replace
 
 from qorqut_operations.application import OperationDescriptor
@@ -32,14 +34,14 @@ UNLINK = "project_items_unlink"
 OPERATIONS = (READ, LIST, CANDIDATES, ITEM, LINK, UNLINK)
 
 SCOPE_FIELDS = {
-    "project_id": {**UUID, "description": "The actual Project UUID; on a business route it must be the selected project."},
+    "project_id": {**UUID, "description": instruction_text('compose-the-actual-project-uuid-on-a-business-route')},
     "scope": {"enum": ["business", "global"],
-              "description": "business on the project route; global from the root route names the project."}}
+              "description": instruction_text('compose-business-on-the-project-route-global-from-the')}}
 ITEM_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["type", "id", "business_id"],
                "properties": {"type": {"type": "string", "minLength": 1, "maxLength": 64},
                               "id": {"type": "string", "minLength": 1, "maxLength": 300},
                               "business_id": {"anyOf": [UUID, {"type": "null"}]}},
-               "description": "One existing readable item, keeping its own scope: an Action keeps its canonical action_id."}
+               "description": instruction_text('compose-one-existing-readable-item-keeping-its-own-scope')}
 PAGE_FIELDS = {"cursor": {"type": "string", "maxLength": 2000},
                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
                "include_closed": {"type": "boolean"}, "include_archived": {"type": "boolean"},
@@ -67,36 +69,29 @@ class ProjectRecords:
         registry = registry or self.application.registry
         registry.register(OperationDescriptor(READ, schema(SCOPE_FIELDS, ("project_id",)), **COMMON, effect_kind="read",
             read=lambda ctx, args, options, uow: self.record_get(ctx, args, uow),
-            description="Owner and configured Ordubashy: one existing Project's name, slug, actual summary, revision and "
-                        "archive state. Project cards take the real name; a custom Focus display name never applies."))
+            description=instruction_text('compose-owner-and-configured-ordubashy-one-existing-project-s')))
         registry.register(OperationDescriptor(LIST, schema({**SCOPE_FIELDS, **PAGE_FIELDS}, ("project_id",)),
             **COMMON, effect_kind="read", read=lambda ctx, args, options, uow: self.items_list(ctx, args, uow),
-            description="Owner and configured Ordubashy: one Project's accessible records - its own work, signoffs, actions, "
-                        "documents, tables, automation and other records plus explicitly linked items in any scope. "
-                        "Owned and linked yield one row with both flags; denied candidates are omitted."))
+            description=instruction_text('compose-owner-and-configured-ordubashy-one-project-s-accessible')))
         registry.register(OperationDescriptor(CANDIDATES, schema({**SCOPE_FIELDS,
             "source_business_id": {"anyOf": [UUID, {"type": "null"}],
-                                   "description": "The chosen source scope: a project UUID, or null for Global."},
+                                   "description": instruction_text('compose-the-chosen-source-scope-a-project-uuid-or')},
             "query": {"type": "string", "maxLength": 200}, "type": {"type": "string", "minLength": 1, "maxLength": 64},
             "cursor": {"type": "string", "maxLength": 2000},
             "limit": {"type": "integer", "minimum": 1, "maximum": 100},
             "include_archived": {"type": "boolean"}}, ("project_id",)),
             **COMMON, effect_kind="read", read=lambda ctx, args, options, uow: self.candidates(ctx, args, uow),
-            description="Owner and configured Ordubashy: actual readable records of the chosen source scope, for choosing an "
-                        "explicit link target. Candidates are authorized one by one; a link grants no access."))
+            description=instruction_text('compose-owner-and-configured-ordubashy-actual-readable-records-of')))
         registry.register(OperationDescriptor(ITEM, schema({**SCOPE_FIELDS, "item": ITEM_SCHEMA}, ("project_id", "item")),
             **COMMON, effect_kind="read", read=lambda ctx, args, options, uow: self.item_get(ctx, args, uow),
-            description="Owner and configured Ordubashy: one authorized Project item plus the appropriate existing domain read "
-                        "of that record for in-pane presentation. This is not arbitrary table access."))
+            description=instruction_text('compose-owner-and-configured-ordubashy-one-authorized-project-item')))
         registry.register(OperationDescriptor(LINK, schema({**SCOPE_FIELDS, "item": ITEM_SCHEMA}, ("project_id", "item")),
             **COMMON, prepare=self.prepare_link, apply=self.apply_link, replay_validator=self.validate_link_replay,
-            description="Owner and configured Ordubashy: explicitly associate one currently readable item with this Project, "
-                        "without changing its owning scope or granting access. Linking an already owned item is a no-op."))
+            description=instruction_text('compose-owner-and-configured-ordubashy-explicitly-associate-one-currently')))
         registry.register(OperationDescriptor(UNLINK, schema({**SCOPE_FIELDS, "link_id": UUID,
             "expected_revision": {"type": "integer", "minimum": 1}},
             ("project_id", "link_id")), **COMMON, prepare=self.prepare_unlink, apply=self.apply_unlink,
-            description="Owner and configured Ordubashy: remove exactly this explicit association with its current revision. "
-                        "An owned item, a Project, its records and its conversations are never changed."))
+            description=instruction_text('compose-owner-and-configured-ordubashy-remove-exactly-this-explicit')))
         self.application.projects = self
         return self
 

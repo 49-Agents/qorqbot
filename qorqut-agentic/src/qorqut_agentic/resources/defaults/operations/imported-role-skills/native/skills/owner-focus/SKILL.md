@@ -23,9 +23,9 @@ Authorized global peers may manage the contents, framing and order to reflect th
 Reorder only when useful, not as routine churn. New cards append; restoring a card keeps its
 saved position unless explicitly moved.
 
-This board is shown as Pinned. It is the owner's board and stays separate from Ordubashy's
-Attention board (`attention_*`): archiving a card here, or clearing a session current-work
-list, never removes Attention-board membership or Done work, and `focus_*` is not a work queue.
+This board is shown as Focus. It is the owner's board and stays separate from Ordubashy's
+Todo list (`attention_*`): archiving a card here, or clearing a session current-work
+list, never removes Todo membership or Done work, and `focus_*` is not a work queue.
 
 Use these six tools:
 

@@ -2,13 +2,13 @@
 
 Project creation is not here: the one creator is the Global ``business_create`` operation (``domains/business_creation``).
 This module does not scaffold a project, write a workspace or provision any repository. The three initial shared
-instructions are package resources of this host (``instructions/``), read through ``importlib.resources``; a registered
+instructions are package resources of the Agentic layer; a registered
 document is the authoritative editable record afterwards, and a changed packaged seed never overwrites it.
 """
 
 from __future__ import annotations
 
-from importlib.resources import files
+from qorqut_agentic.behavior.sources import seed_bytes
 
 from bazarlyk.catalog.packages import content_hash
 from qorqut_operations.contracts import DomainError, new_id
@@ -27,7 +27,7 @@ INSTRUCTION_SEEDS = (("foundation", "agent-foundation.md"), ("ecosystem-agent", 
 
 def instruction_seed(relative: str) -> bytes:
     """The packaged initial bytes of one shared instruction; there is no sibling checkout or environment-selected root."""
-    return files("bazarlyk.bootstrap").joinpath("instructions", *relative.split("/")).read_bytes()
+    return seed_bytes("host", "app/bazarlyk/bootstrap/instructions/" + relative)
 
 
 def register_context_sources(database, paths):

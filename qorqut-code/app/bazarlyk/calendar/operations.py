@@ -1,5 +1,7 @@
 """Small native calendar surface shared by Ordubashy and the owner dashboard."""
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import hashlib
 import json
 import os
@@ -18,19 +20,19 @@ TEXT = {"type": "string", "maxLength": 4000}
 ID = {"type": "string", "minLength": 1, "maxLength": 2000}
 ADDRESS = {"type": "string", "format": "email", "maxLength": 254}
 TIME = {"type": "string", "minLength": 10, "maxLength": 80,
-        "description": "ISO date for all-day events, or ISO date-time with UTC offset."}
+        "description": instruction_text('operations-iso-date-for-all-day-events-or-iso')}
 FIELDS = {
     "title": {"type": "string", "minLength": 1, "maxLength": 1000},
     "start": TIME, "end": TIME,
-    "timezone": {"type": "string", "maxLength": 100, "description": "IANA timezone, e.g. America/New_York. Required for timed recurring events."},
+    "timezone": {"type": "string", "maxLength": 100, "description": instruction_text('operations-iana-timezone-e-g-america-new-york-required')},
     "description": TEXT, "location": TEXT,
     "attendees": {"type": "array", "maxItems": 100, "uniqueItems": True, "items": ADDRESS},
     "recurrence": {"type": "array", "maxItems": 20, "items": TEXT,
-                   "description": "iCalendar RRULE/EXDATE/RDATE lines; [] removes recurrence. Series edits use the master event ID."},
+                   "description": instruction_text('operations-icalendar-rrule-exdate-rdate-lines-removes-recurrence-series')},
     "reminders": {"type": "array", "maxItems": 5, "uniqueItems": True,
                   "items": {"type": "integer", "minimum": 0, "maximum": 40320},
-                  "description": "Popup reminders in minutes before start; [] disables event reminders."},
-    "google_meet": {"type": "boolean", "description": "Create a Google Meet link on a Google event."},
+                  "description": instruction_text('operations-popup-reminders-in-minutes-before-start-disables-event')},
+    "google_meet": {"type": "boolean", "description": instruction_text('operations-create-a-google-meet-link-on-a-google')},
 }
 TARGET = {"connection_id": ID, "calendar_id": ID}
 EVENT = {**TARGET, "event_id": ID}

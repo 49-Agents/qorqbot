@@ -1,4 +1,6 @@
 """Delegated rejection only; never grants owner approval or response authority."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 from dataclasses import replace
 
 from qorqut_operations.application.plans import PlanBuilder, schema
@@ -24,7 +26,7 @@ class Rejection:
             supports_signoff=False, scope_kinds=frozenset({'business', 'global'}),
             global_capability='read_global_context',
             resolve_namespace=lambda c,a: 'global' if a.get('scope') == 'global' else 'business:' + (c.business_id or ''),
-            description='Ordubashy only: reject a pending action signoff with optional feedback using its freshly read binding. Cannot approve, retry, or answer input requests.',
+            description=instruction_text('rejection-ordubashy-only-reject-a-pending-action-signoff-with'),
             prepare=self.prepare, apply=self.apply),)
 
     def context(self, ctx, args, uow):

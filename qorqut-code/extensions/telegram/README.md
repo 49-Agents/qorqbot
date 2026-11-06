@@ -19,7 +19,7 @@ python -m qorqut_telegram validate --config /chosen/qorqbot/instance/config/tele
 
 Keep the configuration and token file private. Set the token path inside the chosen installation folder. Selecting the connector starts no communication until its private configuration is explicitly enabled. Agent tools additionally require the current bound coordinator and an explicit existing permission grant; an override cannot grant another role access. Unknown delivery outcomes are retained for reconciliation and never automatically resent as successful.
 
-Managed agent guidance is imported from `qorqut_telegram/resources/telegram-replies.md` only when this extension is selected. The optional role instructions live in `optional/roles/`; grant only the desired operations through the existing agent permission mechanism. No extra authorization system is introduced.
+Agentic supplies the guidance at the stable native alias `qorqut_telegram/resources/telegram-replies.md` only when this extension is selected. The historical optional role instructions are retained in Agentic’s source library under `telegram/qorqut_telegram/optional/roles/`; grant only the desired operations through the existing agent permission mechanism. No extra authorization system is introduced.
 
 Owner HTTP operations use `/api/root/extensions/telegram/<operation>`, protected by the host's existing owner/origin checks. The connector CLI uses those routes. Native transcript history retains its historical Telegram input type independently of the connector. Private source reads require the selected connector and its current authorization checks; disabling it never makes archived private content public.
 

@@ -3,6 +3,8 @@
 The Context ``filing`` source is the usage ledger's observed call charges: a known subtotal, never an estimate and never zero for a
 missing charge (see ``qorqut_context.integration.usage``). A ledger that cannot be read leaves every other source intact."""
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -149,7 +151,7 @@ class CostOperations:
         registry.register(OperationDescriptor("costs_overview", schema(), effect_kind="read", supports_signoff=False,
             scope_kinds=frozenset({"global"}), global_capability="read_global_context", owner_only=True,
             exposure={"dashboard"},
-            description="Owner view: Global USD spend by source (observed Context filing charges and background AI estimates), with a cumulative daily series.",
+            description=instruction_text('costs-owner-view-global-usd-spend-by-source-observed'),
             read=self.read))
         return self
 

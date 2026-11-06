@@ -12,7 +12,7 @@ from qorqut_operations.history_exports import (Arr, Boolean, ExportCatalog, Hist
 from qorqut_operations.records import exports as record_exports
 from qorqut_operations.relationships import exports as relationship_exports
 
-from .projections import action_snapshot, attribution, failed_routine_runs, public_signoff_notes
+from .projections import action_snapshot, attribution, failed_routine_runs, public_message_attributions, public_signoff_notes
 
 # The Operations inbox module classifies its own four tables and exports its own events; the host places each where it already stood.
 INBOX = {row.table: row for row in INBOX_CLASSIFICATIONS}
@@ -205,6 +205,13 @@ def catalog(extensions=()):
         )),
         INBOX_HISTORY,
         HistoryContribution('host.signoffs', exports=(
+            TableExport('message_attributions', {
+                'message_type': Text(),
+                'message_id': Text(),
+                'author_id': Text(),
+                'recorder_id': Text(),
+            }, ('message_type', 'message_id'), structured={'attribution_json': attribution()},
+                selector=public_message_attributions),
             TableExport('signoffs', {
                 'id': Text(),
                 'review_business_id': Text(nullable=True),

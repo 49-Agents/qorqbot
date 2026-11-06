@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import base64
 from contextlib import nullcontext
 import json
@@ -117,7 +119,7 @@ class SignoffService:
             OperationDescriptor("signoffs_get", {"type": "object",
                 "required": ["signoff_id"], "properties": {**common, "signoff_id": {"type": "string", "minLength": 1, "maxLength": 200}}},
                 **scopes, effect_kind="read", supports_signoff=False, read=self._get_operation,
-                description="Read a proposal and owner feedback in the selected project, or with explicit scope=global and global rights."),
+                description=instruction_text('service-read-a-proposal-and-owner-feedback-in-the')),
             OperationDescriptor("signoffs_list", {"type": "object", "properties": {
                 **common, "responded": {"type": "boolean"}, "include_managed": {"type": "boolean"}, "category": {"enum": list(CATEGORIES)},
                 "execution_states": {"type": "array", "items": {"enum": list(self.ports.execution.execution_states)}, "uniqueItems": True},
@@ -127,7 +129,7 @@ class SignoffService:
                 "cursor": {"type": "string", "maxLength": 4096},
                 "updated_after": {"oneOf": [{"const": 0}, {"type": "string", "maxLength": 4096}]} }},
                 **scopes, effect_kind="read", supports_signoff=False, read=self._list_operation,
-                description="List visible proposals in the selected project, or scope=global. Ownership fixes the review destination."),
+                description=instruction_text('service-list-visible-proposals-in-the-selected-project-or')),
             *self.notes.descriptors(), *self.inputs.descriptors(), *self.rejection.descriptors())
 
     def contribution(self) -> CatalogContribution:

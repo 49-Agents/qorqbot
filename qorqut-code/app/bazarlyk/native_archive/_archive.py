@@ -23,7 +23,7 @@ import hashlib
 import os
 from typing import Callable
 
-from . import _files, _format as fmt, _providers
+from . import _files, _format as fmt, _providers, _relocation
 from ._types import (
     CaptureBinding, CaptureError, CaptureReceipt, FinalCaptureEvidence, IndexEntry, MAX_ENCODED_CONVERSATION,
     RawRange, RawRecord, REASON_PARTIAL_TAIL, REASON_UNSTABLE, absolute_path, encode_component,
@@ -237,6 +237,26 @@ class TranscriptArchive:
                 try:
                     with _files.exclusive_lock(lineage.fd, LOCK, self._lock_timeout):
                         return self._capture_locked(lineage, binding, final_evidence)
+                except _files.LockTimeout:
+                    raise _fail("archive_busy", "Another capture holds this archive", retryable=True) from None
+
+    def relocate_source(self, binding: CaptureBinding, *, expected: CaptureReceipt) -> CaptureReceipt:
+        """Operator-authorized instance migration, never an automatic response to a changed source.
+
+        Verify the entire archived prefix in the new file, preserve all existing receipts,
+        and append a receipt under an immutable relocation record. The caller must provide
+        the exact inspected receipt and a later verified native session binding.
+        """
+        self._require_binding(binding)
+        if not isinstance(expected, CaptureReceipt):
+            raise TypeError("expected must be a CaptureReceipt")
+        self._check_fits(binding, None)
+        with self._guarded():
+            with self._open(binding.provider, encode_component(binding.conversation_id), create=False) as lineage:
+                try:
+                    with _files.exclusive_lock(lineage.fd, LOCK, self._lock_timeout):
+                        _relocation.authorize(self, lineage, binding, expected)
+                        return self._capture_locked(lineage, binding, None)
                 except _files.LockTimeout:
                     raise _fail("archive_busy", "Another capture holds this archive", retryable=True) from None
 
@@ -510,7 +530,7 @@ class TranscriptArchive:
     # ------------------------------------------------------------------- state and recovery
 
     @staticmethod
-    def _check_link(header: dict, previous: CaptureReceipt | None, current: CaptureReceipt) -> None:
+    def _check_link(lineage: _Lineage, header: dict, previous: CaptureReceipt | None, current: CaptureReceipt) -> None:
         """Invariants of one chain link; recovery relies on them before it adopts anything."""
         problem = None
         if (current.agent_id, current.provider, current.conversation_id) != (
@@ -526,8 +546,12 @@ class TranscriptArchive:
             elif (current.length < previous.length or current.records < previous.records
                   or current.malformed < previous.malformed or current.record_boundary < previous.record_boundary):
                 problem = "committed progress moves backwards"
-            elif ((current.workspace, current.source_path, current.source_device, current.source_inode)
-                  != (previous.workspace, previous.source_path, previous.source_device, previous.source_inode)):
+            elif current.workspace != previous.workspace:
+                problem = "workspace changed within a lineage"
+            elif ((current.source_path, current.source_device, current.source_inode)
+                  != (previous.source_path, previous.source_device, previous.source_inode)
+                  and not _relocation.permits(lineage, previous, current.source_path, current.source_device,
+                                              current.source_inode, current.generation)):
                 problem = "source binding changed within a lineage"
         if problem:
             raise _fail("archive_integrity", f"Receipt {current.sequence}: {problem}")
@@ -557,12 +581,12 @@ class TranscriptArchive:
                 chain.append(member)
             chain.extend(ahead)
             for previous, current in zip([None, *chain], chain):
-                self._check_link(header, previous, current)
+                self._check_link(lineage, header, previous, current)
         elif pointer is not None:
             previous = self._receipt(lineage, pointer.sequence - 1) if pointer.sequence > 1 else None
             if pointer.sequence > 1 and previous is None:
                 raise _fail("archive_integrity", "The receipt before the latest is missing")
-            self._check_link(header, previous, pointer)
+            self._check_link(lineage, header, previous, pointer)
         return _State(header, pointer, ahead, chain, payload_size, index_size)
 
     # ------------------------------------------------------------------------- the writer
@@ -632,8 +656,6 @@ class TranscriptArchive:
         if candidate is not None:
             if candidate.workspace != binding.workspace:
                 raise _fail("workspace_mismatch", "The binding's workspace differs from the archive lineage's")
-            if candidate.source_path != binding.source_path:
-                raise _fail("source_path_changed", "The transcript source path differs from the archive lineage's")
         committed, payload_size = state.committed, state.payload_size
         if payload_size < committed:
             raise _fail("archive_integrity", "The payload is shorter than the newest receipt")
@@ -646,8 +668,13 @@ class TranscriptArchive:
         with ExitStack() as stack:
             stack.callback(source.close)
             first = source.stat()
-            if candidate is not None and (first.st_dev, first.st_ino) != (candidate.source_device, candidate.source_inode):
-                raise _fail("source_replaced", "The transcript source is a different file than the archived one")
+            if candidate is not None:
+                moved = candidate.source_path != binding.source_path
+                replaced = (first.st_dev, first.st_ino) != (candidate.source_device, candidate.source_inode)
+                if (moved or replaced) and not _relocation.permits(
+                        lineage, candidate, binding.source_path, first.st_dev, first.st_ino, binding.generation):
+                    raise _fail("source_path_changed" if moved else "source_replaced",
+                                "The transcript source differs from the archive lineage's verified binding")
 
             payload = self._existing(stack, lineage, PAYLOAD)
             # Stream-verify the committed prefix (and any uncommitted tail) against its digests and

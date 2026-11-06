@@ -31,7 +31,5 @@ def load_preferences(view):
     return view.consistent(read)
 
 
-def plugin_discovery_guidance():
-    return ("Discover and read relevant shared catalogue entries for the current project and work type, "
-            "including applicable plugins, without requiring explicit plugin assignment. Catalogue discovery "
-            "does not grant tools, credentials, permissions, or native plugin access.")
+def plugin_discovery_guidance(instructions):
+    return (instructions.render('plugin-discovery'))

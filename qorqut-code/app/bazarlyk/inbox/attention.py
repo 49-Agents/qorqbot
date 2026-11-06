@@ -1,4 +1,6 @@
 """Persistent owner attention; source objects retain authority and conversations."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 from dataclasses import replace
 from datetime import datetime, timezone
 import json
@@ -18,11 +20,11 @@ SOURCE=schema({'type':{'enum':['task','signoff','project','table']},'id':ID,'bus
 TARGET=schema({'type':{'type':'string'},'id':ID,'business_id':{'type':['string','null']},'url':{'type':'string','maxLength':4000}},('type',))
 REFERENCE=schema({'key':ID,'title':TEXT,'target':TARGET},('key','title','target'))
 FIELDS={'display_name':{'type':'string','maxLength':200,
-        'description':'Focus-only name written by the curator. Use very simple words; aim for 2 words, at most 4 when possible. Leave out the project name because its tag is shown separately. Example: Landing page review. This is guidance, not a word-count limit. Empty restores the full source title.'},
+        'description':instruction_text('attention-focus-only-name-written-by-the-curator-use')},
     'reason':TEXT,
-    'requested_response':{**TEXT,'description':'Action for the founder/owner. One short, direct action in very simple words; omit filler and repeated context. Mark links as [short label](https://url). Use typed references for internal records. Do not write a separate recommendation.'},
-    'blocker':{'type':'boolean','description':'True when this item currently blocks further work. Clear when the block is gone; presentation only, not task state.'},
-    'urgent':{'type':'boolean','description':'True when this needs prompt attention due to a real time constraint or impact. Keep separate from blocker and clear when no longer urgent.'},
+    'requested_response':{**TEXT,'description':instruction_text('attention-action-for-the-founder-owner-one-short-direct')},
+    'blocker':{'type':'boolean','description':instruction_text('attention-true-when-this-item-currently-blocks-further-work')},
+    'urgent':{'type':'boolean','description':instruction_text('attention-true-when-this-needs-prompt-attention-due-to')},
     'references':{'type':'array','maxItems':10,'items':SOURCE},
     'deferred_until':{'type':['string','null'],'format':'date-time'}}
 
@@ -81,7 +83,7 @@ class AttentionBoard:
         }
         for name,(fields,required) in ops.items():
             self.app.registry.register(OperationDescriptor(name,schema({'scope':{'const':'global'},**fields},required),
-                **common,description='Curate persistent Focus presentation; source permissions and conversations remain independent.',
+                **common,description=instruction_text('attention-curate-persistent-focus-presentation-source-permissions-and-conversations'),
                 prepare=lambda c,a,o,u,op=name:self.prepare(op,c,a,o,u),apply=self.apply))
         self.app.attention = self
         return self

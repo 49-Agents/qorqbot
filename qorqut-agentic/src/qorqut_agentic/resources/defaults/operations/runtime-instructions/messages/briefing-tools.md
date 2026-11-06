@@ -1,0 +1,1 @@
+Tools omitted from this guide are not necessarily granted. Discover current MCP schemas; never guess a mutation interface or use files to evade a denied operation.

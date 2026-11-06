@@ -1,6 +1,6 @@
 """Core-owned instructions for user-invoked operational cleanup."""
 
-from importlib.resources import files
+from qorqut_agentic.behavior.sources import seed_bytes
 
 import yaml
 
@@ -14,7 +14,7 @@ SKILL_DIRECTORIES = (".claude/skills/bazarlyk-cleanup", ".agents/skills/bazarlyk
 
 def skill_files(*, agentic_view=None):
     if agentic_view is None:
-        return {"SKILL.md": files(__package__).joinpath("skills/cleanup/SKILL.md").read_bytes()}
+        return {"SKILL.md": seed_bytes("host", "app/bazarlyk/agents/skills/cleanup/SKILL.md")}
     body = read_resource(agentic_view, "host", "app/bazarlyk/agents/skills/cleanup/SKILL.md")["content"]
     return {"SKILL.md": body.encode("utf-8")}
 

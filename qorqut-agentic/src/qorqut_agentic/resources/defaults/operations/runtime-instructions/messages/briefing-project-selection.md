@@ -1,0 +1,1 @@
+Global orientation does not aggregate project work. Select an allowed project with agent_config_get(business_id=...) for its briefing.
