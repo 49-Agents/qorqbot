@@ -48,16 +48,18 @@ def _load_node(paths, record, evidence, *, offline_read_only=False):
         raise _conflict('Managed prior binding changed')
     intent_raw = read_private_file(pair['intent'], max_bytes=MAX_INTENT_BYTES)
     intent = managed_intent._read_retained(paths, intent_raw, prior_raw)
+    journal = managed_journal.read(pair['journal'])
+    from .copy_identity import accepts
+    copied = accepts(paths, record, intent, journal)
     for name, path in (('root', paths.agentic_root), ('state', paths.agentic_runtime)):
         info = os.stat(path, follow_symlinks=False)
-        if {'device': info.st_dev, 'inode': info.st_ino} != intent['plan']['identity'][name]:
+        if not copied and {'device': info.st_dev, 'inode': info.st_ino} != intent['plan']['identity'][name]:
             raise _conflict('Managed instance directory identity changed')
-    journal = managed_journal.read(pair['journal'])
     from . import layout_files
     rootfd = layout_files._open_root(paths.agentic_root)
     try:
         gitdir, _ = layout_files._head_identity(rootfd)
-        if gitdir != journal['gitdir'] or layout_files._identity(os.fstat(rootfd)) != journal['root']:
+        if not copied and (gitdir != journal['gitdir'] or layout_files._identity(os.fstat(rootfd)) != journal['root']):
             raise _conflict('Managed Git or authored root identity changed')
     finally:
         os.close(rootfd)
