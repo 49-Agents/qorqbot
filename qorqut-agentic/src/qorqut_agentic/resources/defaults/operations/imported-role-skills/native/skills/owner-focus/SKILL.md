@@ -24,7 +24,7 @@ Reorder only when useful, not as routine churn. New cards append; restoring a ca
 saved position unless explicitly moved.
 
 This board is shown as Pinned. It is the owner's board and stays separate from Ordubashy's
-Attention board (`attention_*`): archiving a card here, or clearing a session current-work
+Todo list (`attention_*`): archiving a card here, or clearing a session current-work
 list, never removes Attention-board membership or Done work, and `focus_*` is not a work queue.
 
 Use these six tools:

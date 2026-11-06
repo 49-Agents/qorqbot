@@ -1675,6 +1675,26 @@
       "id": "settings-operations-replace-editable-settings-in-the-selected-project",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/projects/settings_operations.py",
       "line": 29
+    },
+    {
+      "id": "journal-entry-create",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/journal.py",
+      "line": 1
+    },
+    {
+      "id": "journal-entry-update",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/journal.py",
+      "line": 1
+    },
+    {
+      "id": "journal-entry-archive",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/journal.py",
+      "line": 1
+    },
+    {
+      "id": "journal-list-next-step",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/journal.py",
+      "line": 1
     }
   ]
 }

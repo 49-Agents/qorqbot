@@ -19,6 +19,7 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp, utc_clock
 from qorqut_operations.conversations import SUMMARY, author, normalize_summary, participants
+from qorqut_operations.discussion.threads import RELAY, attribution, read_attribution, save_attribution
 from bazarlyk.agents.global_scope import active_business_participant
 from bazarlyk.management.identity import installation_owner, private_participants
 
@@ -130,7 +131,7 @@ class PrivateConversations:
             **common, effect_kind='read', read=lambda c, a, o, u: self.read(c, a, u),
             description=instruction_text('private-conversations-read-the-private-owner-ordubashy-conversation-on')))
         registry.register(OperationDescriptor('owner_conversation_send', schema({**FIELDS,
-            'text': {'type': 'string', 'minLength': 1, 'maxLength': 20000}, 'summary': SUMMARY,
+            'text': {'type': 'string', 'minLength': 1, 'maxLength': 20000}, 'summary': SUMMARY, 'relay': RELAY,
             'expected_conversation_revision': {'type': 'integer', 'minimum': 1}}, ('source', 'text')),
             **common, prepare=self.prepare, apply=self.apply, replay_validator=self.validate_replay,
             description=instruction_text('private-conversations-send-one-private-message-to-the-owner')))
@@ -356,6 +357,7 @@ class PrivateConversations:
             messages = list(reversed(page[:limit]))
             for message in messages:
                 message.pop('conversation_id', None)
+                message.update(read_attribution(uow, 'owner_conversation', message['id'], message['created_by']))
                 author(message, uow)
         owner, coordinator = self.participants(uow, ctx, args)
         state = None
@@ -377,6 +379,7 @@ class PrivateConversations:
         if not isinstance(args['text'], str) or not args['text'].strip():
             raise DomainError('validation_error', 'A private message must contain 1–20000 characters and cannot be blank')
         normalize_summary(args.get('summary'))
+        attribution(ctx, uow, args.get('relay'))
         _, coordinator = self.participants(uow, ctx, args)
         return self.plan(ctx, 'owner_conversation_send', args, 'Private message', coordinator)
 
@@ -427,6 +430,8 @@ class PrivateConversations:
             '(' + ','.join(columns) + ') VALUES(' + ','.join('?' * len(columns)) + ')',
             tuple(message[name] for name in columns))
         sequence = cursor.lastrowid
+        save_attribution(ctx, uow, 'owner_conversation', message['id'], args.get('relay'))
+        message.update(read_attribution(uow, 'owner_conversation', message['id'], ctx.principal_id))
         uow.connection.execute('UPDATE owner_conversations SET revision=revision+1,latest_sequence=?,updated_at=? '
                                'WHERE id=?', (sequence, now, row['id']))
         _, coordinator = private_participants(uow)

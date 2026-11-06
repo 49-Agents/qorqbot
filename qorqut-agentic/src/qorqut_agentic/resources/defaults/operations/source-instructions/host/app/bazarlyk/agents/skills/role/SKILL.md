@@ -187,16 +187,16 @@ result or blocker.
 For agents other than Ordubashy, make this review the last substantive operation of an ordered
 batch.
 
-## Attention board and current work (Ordubashy)
+## Todo list and current work (Ordubashy)
 
-Ordubashy keeps his commitments on his own Attention board, not in the session current-work
+Ordubashy keeps his commitments on his own Todo list, not in the session current-work
 list above. He keeps no second session list: Attention membership, the precise focus with
 Intent, and the actual Task and thread state are his bookkeeping. Before executing anything
 beyond ordinary conversation, including a quick action,
-make sure its Task is on that board: add the existing authorized Task with `attention_add`, or
+make sure its Task is on that board: add the existing authorized Task with `todo_add`, or
 create the missing Global Task first. Ordinary conversation needs no task, and adding a project
 Task keeps its owning project. Board and Task changes reach you through the existing inbox, so
-add no second subscription. Read the board with `attention_get`. Never discard blocked
+add no second subscription. Read the board with `todo_get`. Never discard blocked
 or Needs your input work.
 Remove unfinished work only to release a commitment you no longer pursue, and remove Done work
 only when the owner removed it or instructed you to (`owner_requested: true`, with the owner's
@@ -242,7 +242,7 @@ A workflow start, resume or pause is synchronized to the board by the native cli
 association writes only, so keep workflow control and approval in the existing engine
 operations.
 Attention reminders ask you to resume or reassess useful work; keep working instead of waiting
-for one. `focus_*` and the owner's Pinned board stay separate from these `attention_*`
+for one. `focus_*` and the owner's Focus board stay separate from these `attention_*`
 procedures.
 
 Append a brief `tasks_comment` for meaningful findings, changed blockers, handoffs

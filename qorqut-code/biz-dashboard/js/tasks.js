@@ -44,9 +44,9 @@ let tPersonalLoaded = false, tPersonalError = null, tFetch = 0;
 // ---------------------------------------------------------------- view (tabs)
 // Retired drawer views are no longer offered by shared task headers.
 const T_OVERVIEW_VIEWS = [];
-const T_VIEWS = ["tasks", "notes", "globalNotes", "businessNotes", "signoffs", "uploads", "routines", ...T_OVERVIEW_VIEWS, "activity"];
-const T_GLOBAL_VIEWS = ["notes", "tasks", "signoffs", "uploads", "routines", ...T_OVERVIEW_VIEWS, "activity"];
-const T_VIEW_LABEL = { status: "Agent status", tasks: "Tasks", globalTasks: "Global tasks", activity: "Activity", notes: "Notes", globalNotes: "Global Notes", businessNotes: "Project notes", signoffs: "Signoffs", uploads: "Uploads", routines: "Routines", charts: "Charts", costs: "Costs", tables: "Tables", inbox: "Agent inbox", focus: "Pinned", attentionBoard: "Attention board", calendar: "Calendar", browser: "Browser", viewbox: "Viewbox", desktop: "Desktop", memory: "Working memory" };
+const T_VIEWS = ["tasks", "notes", "globalNotes", "businessNotes", "signoffs", "uploads", "routines", ...T_OVERVIEW_VIEWS];
+const T_GLOBAL_VIEWS = ["notes", "tasks", "signoffs", "uploads", "routines", ...T_OVERVIEW_VIEWS];
+const T_VIEW_LABEL = { status: "Agent status", tasks: "Tasks", globalTasks: "Global tasks", notes: "Notes", globalNotes: "Global Notes", businessNotes: "Project notes", signoffs: "Signoffs", uploads: "Uploads", routines: "Routines", charts: "Charts", costs: "Costs", tables: "Tables", inbox: "Agent inbox", focus: "Focus", attentionBoard: "Todo", calendar: "Calendar", browser: "Browser", viewbox: "Viewbox", desktop: "Desktop", memory: "Working memory" };
 const T_VIEW_ICON = {
   workflow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12h-8M21 6H8M21 18h-8M3 6v4a2 2 0 0 0 2 2h3M3 10v6a2 2 0 0 0 2 2h3"/></svg>',
 
@@ -76,9 +76,6 @@ T_VIEW_ICON.globalTasks = `<svg viewBox="0 0 24 24" fill="none" stroke="currentC
 if (tView === "journal") tView = "notes";
 if (T_VIEWS.indexOf(tView) < 0) tView = "tasks";
 
-// activity (log) view state
-let tLog = [];
-let tLogSig = null;                 // signature of what's on screen for the log list; skips a no-op rebuild
 
 // notes view state (ntSel/ntNotes/ntSearch/...) lives in js/notes.js the same way.
 // uploads view state (upForm/upDone/...) lives in js/uploads.js; it has no editor, so nothing to flush.
@@ -438,7 +435,6 @@ function tSetView(v) {
   p.innerHTML = tHead(); tWireHead(p, from);
   if (from === "signoffs" && v !== "signoffs" && typeof tPaintSignoffs === "function") tPaintSignoffs();
   if (v === "tasks") { tPaintSig = null; paintTasks(); }
-  else if (v === "activity") { tLogSig = null; tPaintActivity(); tActivityRefresh(); }
   else if (["notes", "globalNotes", "businessNotes"].includes(v)) { tPaintNotes(); }
   else if (v === "signoffs") { tPaintSignoffs(); }
   else if (v === "uploads") { tPaintUploads(); }
@@ -447,38 +443,6 @@ function tSetView(v) {
   globalThis.ovViewChanged?.(v);
   if (tabFocused) p.querySelector(`.ttab[data-v="${v}"]`).focus({ preventScroll: true });
   if (typeof sgAttentionPaint === "function") sgAttentionPaint();
-}
-
-// ---------------------------------------------------------------- activity view
-// Business activity log, reusing side.js's global logHtml()/logTips() so the row look (day
-// gaps) is shared formatting with the other logHtml()/logTips() callers.
-function tActivitySig() { return JSON.stringify([state.biz, tLog.map(e => e.id || `${e.ts}|${e.summary}`)]); }
-
-function tActivityHtml(rows, emptyMessage = "Nothing logged yet.") {
-  return rows.length ? `<div class="tlog">${logHtml(rows)}</div>` : tEmptyHtml(emptyMessage);
-}
-
-function tPaintActivity() {
-  if (tView !== "activity") return;
-  if (typeof acActivityActive === "function" && acActivityActive()) return acListPaint();
-  const body = $("#tbody"); if (!body) return;
-  if (!state.biz) { body.innerHTML = tEmptyHtml("Pick a project first."); tLogSig = null; return; }
-  const sig = tActivitySig();
-  if (sig === tLogSig && body.querySelector(".tlog")) return;   // nothing changed: skip the rebuild, keep tooltips alive
-  tLogSig = sig;
-  body.innerHTML = tActivityHtml(tLog);
-  const wrap = body.querySelector(".tlog");
-  if (wrap) logTips(wrap, tLog);
-}
-
-async function tActivityRefresh() {
-  if (typeof acActivityActive === "function" && acActivityActive()) return acListRefresh();
-  if (!state.biz) { tLog = []; return tPaintActivity(); }
-  const biz = state.biz;
-  const r = await api(`/biz/${biz}/log?n=60`);
-  if (biz !== state.biz || tView !== "activity") return;   // stale by the time it landed
-  tLog = Array.isArray(r) ? r : [];
-  tPaintActivity();
 }
 
 // ---------------------------------------------------------------- add

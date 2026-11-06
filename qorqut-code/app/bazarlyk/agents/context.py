@@ -153,6 +153,9 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
     identity += render(agentic_view, "host", "app/bazarlyk/agentic/assets/scope.md", PROJECT_COUNT=str(len(allowed_businesses)))
     identity += "\nGlobal capabilities: " + (", ".join(profile.scope.global_capabilities) or "none") + "."
     derived("Identity And Assignment", identity, "profile:" + profile.agent_id, "Mandatory current identity and assignment")
+    if role.id == 'ordubashy':
+        derived("Core Working Rules", agentic_view.runtime_instructions().render('ordubashy-core'),
+                "agentic:ordubashy-core", "Canonical operational intake and delegation workflow")
     add("Universal Foundation", required("foundation"), "Common rules for every registered agent")
     add("User Preferences", required("user-preferences/preferences"), "Canonical preferences for every agent")
     add("Scope Operating Brief", required(role.manifest["scope_brief"]), "Selected scope has no implicit exceptions")
@@ -248,4 +251,7 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
         raise DomainError("context_budget_exceeded", f"Mandatory context contains {len(bundle)} characters; maximum is {MAX_CONTEXT_CHARACTERS}",
                           details={"character_count": len(bundle), "limit": MAX_CONTEXT_CHARACTERS,
                                    "sources": [{"id": entry["source_id"], "characters": entry["character_count"]} for entry in entries]})
-    return {"rendered": bundle, "entries": entries, "character_count": len(bundle), "bundle_hash": content_hash(bundle.encode())}
+    rules, facts = instruction_policy.split_sections(
+        render(agentic_view, "host", "app/bazarlyk/agentic/assets/configuration-header.md", CONFIGURATION=str(effective_config_id)), rendered)
+    return {"rendered": bundle, "instructions": rules, "context": facts, "entries": entries,
+            "character_count": len(bundle), "bundle_hash": content_hash(bundle.encode())}

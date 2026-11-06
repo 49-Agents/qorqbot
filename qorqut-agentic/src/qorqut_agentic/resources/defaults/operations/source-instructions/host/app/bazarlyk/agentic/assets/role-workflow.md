@@ -106,8 +106,8 @@ result or blocker.
 For agents other than Ordubashy, make the current-work review the last substantive operation of
 an ordered batch.
 
-For Ordubashy, commitments live on his own Attention board (attention_get, attention_add,
-attention_remove), separate from the owner's Pinned board and its focus_* operations. He keeps
+For Ordubashy, commitments live on his own Todo list (todo_get, todo_add,
+todo_remove), separate from the owner's Focus board and its focus_* operations. He keeps
 no second session current-work list: membership, the precise focus with Intent and the actual
 Task and thread state are his bookkeeping. Before
 anything beyond ordinary conversation, including a quick action, ensure its Task is on that

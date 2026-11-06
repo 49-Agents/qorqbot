@@ -482,18 +482,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
             activity_command = codex_entry + ' activity'
         add_activity_hooks(hooks, activity_command, runtime)
     skills_script = str(workspace / '.bazarlyk/always-skills.py')
-    if always_skills:
-        # A separate entry with its own context budget, appended after existing
-        # entries so previously trusted Codex hook positions are unchanged.
-        local['hooks']['SessionStart'].append({"matcher": "startup|resume|clear|compact|fork", "hooks": [{"type": "command",
-            "command": shlex.join([executable, '-I', skills_script, '--registration', str(registration_path), '--runtime', 'claude-code']),
-            "timeout": 30}]})
-        local['hooks']['UserPromptSubmit'].append({"hooks": [{"type": "command",
-            "command": local['hooks']['SessionStart'][-1]['hooks'][0]['command'], "timeout": 30}]})
-        codex_skills = {"type": "command", "command": codex_entry + ' skills', "timeout": 30,
-                        "additionalContextLimit": runtime_instructions.SKILL_BUDGET}
-        codex_hooks['SessionStart'].append({"matcher": "startup|resume|clear|compact", "hooks": [codex_skills]})
-        codex_hooks['UserPromptSubmit'].append({"hooks": [dict(codex_skills)]})
+    # The main hook composes skills and runtime rules before contextual data.
     profile = {key: data[key] for key in ("schema_version", "agent_id", "profile_revision", "name", "display_name", "status", "runtime", "role", "scope", "assignment_brief", "plugins", "tool_policy", "presentation", "created_at")}
     profile["generated"] = True
     from bazarlyk.agentic.text import render
@@ -529,7 +518,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     codex_launcher += '[ "$#" -eq 1 ] || exit 64\ncase "$1" in\n'
     codex_launcher += ''.join(f'  {mode}) exec {target} ;;\n' for mode, target in codex_targets.items())
     codex_launcher += '  *) exit 64 ;;\nesac\n'
-    registration_document = {"durable_delegation_enabled": durable_delegation}
+    registration_document = {"durable_delegation_enabled": durable_delegation, "operational_intake_enabled": always_skills}
     # The stop hook's dirty-turn watermark ignores these exposed read tools.
     kinds = {entry.name: entry.effect_kind for entry in resolver.registry.entries()}
     read_operations = sorted({name for tool in data["tools"] if tool["available"]

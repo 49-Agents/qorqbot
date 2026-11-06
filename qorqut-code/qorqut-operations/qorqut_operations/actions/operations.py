@@ -36,7 +36,7 @@ from qorqut_operations.contracts import DomainError, canonical_bytes, plain
 from qorqut_operations.conversations import SUMMARY, participants
 from qorqut_operations.discussion.events import emit_event
 from qorqut_operations.discussion.follows import ThreadItem, auto_follow, can_follow, follow_state, followers
-from qorqut_operations.discussion.threads import (BODY, RELAY, DiscussionReferences, attach_event, message_view, plan_comment,
+from qorqut_operations.discussion.threads import (BODY, RELAY, DiscussionReferences, attach_event, attribution, message_view, plan_comment,
                                                   read_messages)
 from qorqut_operations.storage.assembly import AssemblyError
 from qorqut_operations.storage.repositories import decode_row
@@ -106,7 +106,7 @@ class ActionOperations:
         optional = {"tags": LABELS_SCHEMA, "related_objects": models.RELATED_OBJECTS, "evidence": models.EVIDENCE}
         descriptors.append(OperationDescriptor("actions_record", schema({
             "text": models.ACTION_TEXT, "category": {"enum": list(CATEGORIES)}, "business_ids": BUSINESS_IDS,
-            "real_time": local_time.REAL_TIME_SCHEMA, "task_id": IDENTITY, **optional,
+            "real_time": local_time.REAL_TIME_SCHEMA, "task_id": IDENTITY, "performed_by": UUID, "relay": RELAY, **optional,
             "delegation_assignment_id": {**UUID, "description": DELEGATION_DESCRIPTION}, "rationale": TEXT}, ("text",)),
             **common, description=RECORD_DESCRIPTION, prepare=self.prepare_record, apply=self.apply,
             validate_targets=self.validate_record))
@@ -186,6 +186,10 @@ class ActionOperations:
             refs["task"] = task["id"]
         assignment = self.delegation(ctx, uow, args, category, businesses)
         performer, identity, provenance = UNSET, None, {"via": "actions_record"}
+        if args.get("relay") is not None or args.get("performed_by") not in (None, ctx.principal_id):
+            performer, reported = self.reported_performer(ctx, args, uow)
+            provenance["relay"] = reported
+            refs["reported_performer"] = performer
         if assignment is not None:
             # A delegated result: the worker has no principal of its own, so the performer is unknown, the caller is the
             # recorder and the verified assignment is the provenance.
@@ -206,6 +210,20 @@ class ActionOperations:
         reader_scope(ctx, uow)
         category, businesses = classify(ctx, uow, plan.arguments.get("category"), plan.arguments.get("business_ids"))
         self.delegation(ctx, uow, plan.arguments, category, businesses)
+        if plan.arguments.get("relay") is not None or plan.arguments.get("performed_by") not in (None, ctx.principal_id):
+            self.reported_performer(ctx, plan.arguments, uow)
+
+    @staticmethod
+    def reported_performer(ctx, args, uow):
+        relay = args.get("relay")
+        if not relay or relay.get("kind") not in {"explicit_owner_statement", "agent_report"}:
+            raise DomainError("validation_error", "Recording another performer's completed work requires their explicit statement or report")
+        if args.get("delegation_assignment_id") or ctx.delegation_assignment_id:
+            raise DomainError("validation_error", "Use either a reported performer or a verified delegated assignment")
+        performer, reported = attribution(ctx, uow, relay)
+        if args.get("performed_by", performer) != performer:
+            raise DomainError("validation_error", "performed_by must match the reported speaker")
+        return performer, reported
 
     def target(self, ctx, uow, args, options):
         """The Action a correction or withdrawal changes, checked for visibility, authority and the expected revision."""

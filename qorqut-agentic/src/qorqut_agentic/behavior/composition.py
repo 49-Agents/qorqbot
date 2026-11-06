@@ -1,15 +1,15 @@
 """Instruction assembly policy; the host supplies authorized sources and data.
 
-This order deliberately preserves the pre-consolidation prompt. Changes to the
-role, instruction priority or instruction/context order are separate decisions.
+Standing instructions precede the current identity, assignment and contextual data.
 """
 
 SECTION_ORDER = (
-    "Identity And Assignment", "Universal Foundation", "User Preferences",
+    "Core Working Rules", "Universal Foundation", "User Preferences",
     "Scope Operating Brief", "Role Brief", "Role Work Loop", "Agentic Toolkit",
+    "Agent inbox", "Work Orientation", "Engineering workspace and authority", "Identity And Assignment",
     "Ecosystem Orientation", "Projects", "Selected Project", "Context Home",
-    "Engineering workspace and authority", "Agent inbox", "Work Orientation",
 )
+INSTRUCTION_SECTIONS = frozenset(SECTION_ORDER[:10])
 LEADING_ORIENTATION = ("software-ownership", "startup")
 COMMON_ORIENTATION = ("completion-report", "thread-replies", "owner-decisions", "trusted-handoffs")
 CAPABILITIES = (
@@ -47,4 +47,11 @@ def assemble_sections(header, sections):
     by_title = dict(sections)
     if len(by_title) != len(sections) or set(by_title) - set(SECTION_ORDER):
         raise ValueError("Unknown or duplicate mandatory instruction section")
-    return header + "\n\n".join(by_title[title] for title in SECTION_ORDER if title in by_title)
+    instructions = "\n\n".join(by_title[title] for title in SECTION_ORDER if title in by_title and title in INSTRUCTION_SECTIONS)
+    context = header + "\n\n".join(by_title[title] for title in SECTION_ORDER if title in by_title and title not in INSTRUCTION_SECTIONS)
+    return "\n\n".join(filter(None, (instructions, context)))
+
+
+def split_sections(header, sections):
+    return (assemble_sections('', [(title, body) for title, body in sections if title in INSTRUCTION_SECTIONS]),
+            assemble_sections(header, [(title, body) for title, body in sections if title not in INSTRUCTION_SECTIONS]))

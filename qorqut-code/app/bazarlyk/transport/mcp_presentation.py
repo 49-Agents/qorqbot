@@ -49,7 +49,7 @@ ELIDE_PRESERVED_KEYS = frozenset({
     # These are authored or arbitrary user-data sections. Their empty, false,
     # zero and null values are meaningful and must not be treated as platform
     # defaults by recursive presentation elision.
-    "attention", "body", "cells", "content", "custom_fields", "data_json", "delegation_attribution",
+    "attention", "attribution", "body", "cells", "content", "custom_fields", "data_json", "delegation_attribution",
     "deferred_until",
     "metadata", "notes", "payload", "reason", "references", "requested_response", "source",
     "summary", "values",
@@ -88,14 +88,14 @@ REMINDER_VALUE_LIMIT = 200
 MESSAGE_ITEM_FIELDS = ("id", "event_id", "thread_id", "reply_to", "sender_id", "sender_name",
     "recipient_id", "recipient_name", "current_sender_id", "current_sender_name", "current_recipient_id",
     "current_recipient_name", "counterpart_id", "body", "summary", "created_at", "acknowledged_at", "outcome",
-    "delegation_attribution", "terminal_delivery", "read_only", "retirement_backlog")
+    "delegation_attribution", "author_id", "recorder_id", "recorder_name", "attribution", "terminal_delivery", "read_only", "retirement_backlog")
 ACTIVITY_AGENT_FIELDS = ("agent_id", "name", "role_id", "business_id", "business_slug",
     "state", "last_seen_at", "sessions", "inbox", "current_work")
 ACTIVITY_SESSION_FIELDS = ("session_id", "runtime", "state", "last_seen_at", "work_revision",
     "items", "item_keys", "items_complete", "items_replacement_safe", "checkpoint", "inbox_owner", "work_stale")
 RECIPIENT_FIELDS = ("agent_id", "name", "role_id", "business_id", "business_slug", "group")
 TABLE_ROW_FIELDS = ("id", "position", "revision", "cells")
-TASK_NOTE_FIELDS = ("id", "body", "created_by_name", "created_at", "refs")
+TASK_NOTE_FIELDS = ("id", "body", "created_by_name", "author_id", "recorder_id", "recorder_name", "attribution", "created_at", "refs")
 
 
 def select(value, keys):
