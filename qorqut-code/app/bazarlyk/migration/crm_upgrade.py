@@ -101,7 +101,7 @@ def recognized_baseline(connection, target, extensions):
     """Recognize only frozen source inventories with the same explicitly selected extensions."""
     candidates = [baseline()] if not extensions else []
     for stored in json.loads(RELEASE_FINGERPRINTS.read_text(encoding="utf-8"))["baselines"]:
-        if stored["extensions"] == sorted(extensions):
+        if sorted(extensions) in [stored["extensions"], *stored.get('equivalent_extension_sets', [])]:
             candidates.append({"target": stored["target"], "objects": {
                 tuple(key.split(":", 1)): tuple(value) for key, value in stored["objects"].items()}})
     for frozen in candidates:

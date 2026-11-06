@@ -373,7 +373,7 @@ function tEmptyHtml(title, { sub = "", create = false } = {}) {
 function paintTasks() {
   const p = $("#taskspanel"); if (!p) return;
   if (!p.querySelector(".thead")) { p.innerHTML = tHead(); tWireHead(p); }
-  // the tasks rows own #tbody only while the Tasks tab is active: another view (Activity, Journal) is
+  // the tasks rows own #tbody only while the Tasks tab is active: another view (Journal, Files) is
   // painted by its own function, and this repaint must not stomp it
   if (tView !== "tasks") return;
   const newTask=p.querySelector("#task-new");if(newTask)newTask.hidden=!state.biz;

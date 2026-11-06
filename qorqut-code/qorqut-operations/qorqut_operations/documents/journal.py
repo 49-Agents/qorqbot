@@ -94,9 +94,11 @@ class JournalOperations:
     def validate(self, ctx, plan, uow):
         self.writer(ctx, plan.arguments, plan.operation_name, uow)
         if plan.arguments.get('document_id'):
-            self._entry(ctx, plan.arguments['document_id'], uow)
+            # File effects may already be staged here; the engine checks their
+            # exact before-hash and receipt. Recheck authority and visibility.
+            self._entry(ctx, plan.arguments['document_id'], uow, verify_content=False)
 
-    def _entry(self, ctx, document_id, uow):
+    def _entry(self, ctx, document_id, uow, *, verify_content=True):
         saved = uow.connection.execute("SELECT business_id FROM documents WHERE id=?", (document_id,)).fetchone()
         row = (uow.repository("documents", business_id=saved["business_id"]).get(document_id)
                if saved else None)
@@ -105,10 +107,11 @@ class JournalOperations:
                 or row["business_id"] and row["business_id"] not in ctx.allowed_business_ids):
             # Do not reveal whether an inaccessible or stale identifier exists.
             raise DomainError("not_found", "Journal entry is unavailable")
-        raw = self.store.read_bytes(row, uow)
-        digest = hashlib.sha256(raw).hexdigest()
-        if digest != row["content_hash"].removeprefix("sha256:"):
-            raise DomainError("revision_conflict", "Journal entry is unavailable because its registered revision is stale")
+        if verify_content:
+            raw = self.store.read_bytes(row, uow)
+            digest = hashlib.sha256(raw).hexdigest()
+            if digest != row["content_hash"].removeprefix("sha256:"):
+                raise DomainError("revision_conflict", "Journal entry is unavailable because its registered revision is stale")
         return row
 
     def read_list(self, ctx, args, uow):

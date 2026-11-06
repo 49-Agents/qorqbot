@@ -63,7 +63,7 @@ AGENTS = (("ordubashy", "ordubashy", "Ordubashy", runtime_seed('initial-ordubash
           ("learning-applier", "learning-applier", "Learning Applier", runtime_seed('initial-learning-assignment')))
 # The shipped profile grants: the Overseer additionally reads its dedicated experience sources, which the ordinary
 # global read does not imply. No other role is broadened.
-AGENT_CAPABILITIES = {"ordubashy": ["read_global_context", "manage_agentic_layer"],
+AGENT_CAPABILITIES = {"ordubashy": ["read_global_context", "manage_agentic_layer", "manage_ecosystem_agents"],
                       "learning-applier": ["read_global_context", "read_agent_experience", "manage_agentic_layer"]}
 
 

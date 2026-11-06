@@ -18,7 +18,7 @@ from .client import (BOOTSTRAP_TIMEOUT, REQUEST_TIMEOUT, BootstrapClient,
                      load_registration, path_has_symlink, write_json_private)
 from .transcript_snapshot import run as snapshot_transcript
 from .environment import bootstrap_environment_context
-from qorqut_agentic.behavior.instructions import from_prepared, bootstrap_failure
+from qorqut_agentic.behavior.instructions import BOOTSTRAP_BUDGET, from_prepared, bootstrap_failure
 
 LIFECYCLE_EVENTS = frozenset({"startup", "resume", "clear", "compact", "fork"})
 
@@ -139,19 +139,19 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     if not isinstance(briefing, str):
         raise DomainError("invalid_bootstrap", "Work briefing must be text")
     if (response.get('work_briefing', {}).get('compact')
-            and len(context) + len(briefing) + 2 > MAX_CONTEXT_CHARACTERS):
+            and len(context) + len(briefing) + 2 > BOOTSTRAP_BUDGET):
         # Preserve mandatory rules and runtime consumer binding in full. Memory
         # is an optional projection and remains available through its scoped tool.
         briefing = instructions.render("startup-inventory")
-        if len(context) + len(briefing) + 2 > MAX_CONTEXT_CHARACTERS:
+        if len(context) + len(briefing) + 2 > BOOTSTRAP_BUDGET:
             briefing = ''
     if briefing:
         context += "\n\n" + briefing
     inventory = bootstrap_environment_context(response.get("environment"), instructions=instructions,
-        max_chars=min(2400, MAX_CONTEXT_CHARACTERS - len(context) - 2))
+        max_chars=min(2400, BOOTSTRAP_BUDGET - len(context) - 2))
     if inventory:
         context += "\n\n" + inventory
-    if len(context) > MAX_CONTEXT_CHARACTERS:
+    if len(context) > BOOTSTRAP_BUDGET:
         raise DomainError("invalid_bootstrap", "Combined bootstrap exceeds its character budget")
     output = {"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}}
     if event == "SessionStart" and runtime == "claude-code":

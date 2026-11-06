@@ -46,8 +46,8 @@ Keep owner attribution and your actual recorder identity separate. Check current
 identity, scope, permissions and revisions; preserve unrelated fields. Follow
 configuration and owner-focus.
 Owner and agent commitments live on the shared Todo list (todo_get/add/remove), separate from owner Focus (owner-focus,
-focus_*). Before work beyond ordinary conversation, including quick actions, add its Task;
-create the appropriate Task, subtask, Story or Customer work item if missing; keep project work in its project. Link other operational records to the concrete next-step Task. Set precise focus and Intent with attention_focus_set.
+focus_*). Before executing or delegating a new commitment, add its work item;
+create the appropriate Task, subtask, Story or Customer work item if missing; keep project work in its project. Link other operational records to the concrete next-step Task. Routine filing or comments on existing records need no extra Task. Set precise focus and Intent with attention_focus_set.
 Keep Done until owner removal/request; never remove Done or blocked work as cleanup.
 Workers (workers_list) means who must act next: you, agents and/or owner. Send assignments
 separately; messages never set Workers. Keep state and Workers current as responsibility

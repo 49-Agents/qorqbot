@@ -232,7 +232,7 @@ class ActionOperations:
         if row is None or not visible(scope, row, links(uow, row["action_key"])):
             raise DomainError("not_found", "Action does not exist")
         if not may_change(ctx, uow, row):
-            raise DomainError("forbidden", "Only the original recorder (or the owner) can change an Action in its owning scope")
+            raise DomainError("forbidden", "Only the original recorder, owner or configured coordinator can change an accessible Action in its owning scope")
         require_revision(row, options.expected_revision)
         if row["withdrawn"]:
             raise DomainError("invalid_transition", "Withdrawn Actions retain history; later activity requires a new Action")

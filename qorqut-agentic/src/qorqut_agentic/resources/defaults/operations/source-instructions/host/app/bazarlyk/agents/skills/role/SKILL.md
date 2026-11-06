@@ -189,13 +189,12 @@ batch.
 
 ## Todo list and current work (Ordubashy)
 
-Ordubashy keeps his commitments on his own Todo list, not in the session current-work
-list above. He keeps no second session list: Attention membership, the precise focus with
-Intent, and the actual Task and thread state are his bookkeeping. Before executing anything
-beyond ordinary conversation, including a quick action,
-make sure its Task is on that board: add the existing authorized Task with `todo_add`, or
-create the missing Global Task first. Ordinary conversation needs no task, and adding a project
-Task keeps its owning project. Board and Task changes reach you through the existing inbox, so
+Ordubashy keeps owner and agent commitments on Todo, not in the session current-work
+list above. He keeps no second session list: Todo membership, the precise focus with
+Intent, and the actual Task and thread state are his bookkeeping. Before executing or delegating a new commitment,
+make sure its work item is on Todo: add the existing authorized Task with `todo_add`, or
+create the appropriate Task or subtask first. Routine filing and comments on existing records
+need no extra Task. Project work stays in its owning project. Board and Task changes reach you through the existing inbox, so
 add no second subscription. Read the board with `todo_get`. Never discard blocked
 or Needs your input work.
 Remove unfinished work only to release a commitment you no longer pursue, and remove Done work
@@ -241,7 +240,7 @@ A workflow start, resume or pause is synchronized to the board by the native cli
 `attention_workflow_context` and `attention_workflow_sync`; those are coordination reads and
 association writes only, so keep workflow control and approval in the existing engine
 operations.
-Attention reminders ask you to resume or reassess useful work; keep working instead of waiting
+Todo reminders ask you to resume or reassess useful work; keep working instead of waiting
 for one. `focus_*` and the owner's Focus board stay separate from these `attention_*`
 procedures.
 

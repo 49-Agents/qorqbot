@@ -69,7 +69,7 @@ function acDiscussionMount(host, action, options = {}) {
       entries: data.messages.map(message => {
         const system = message.kind === "system";
         const speaker = message.author_id ? name(message.author_id) : "System";
-        const recorded = message.author_id && message.recorder_id && message.author_id !== message.recorder_id ? ` · recorded by ${name(message.recorder_id)}` : "";
+        const recorded = message.author_id && message.recorder_id && message.author_id !== message.recorder_id ? ` · ${message.attribution?.kind === 'owner_intent' ? 'interpreted' : 'recorded'} by ${message.recorder_name || name(message.recorder_id)}` : "";
         return { key: message.id, speaker: system ? "notice" : message.author_id && message.author_id === self ? "user" : "agent",
           recorder: message.recorder_kind === 'agent' ? 'agent' : undefined,
           text: message.body || "", timestamp: message.created_at, author: { name: speaker + recorded }, showAuthor: true };
@@ -112,7 +112,7 @@ function acDiscussionMount(host, action, options = {}) {
   load();
   return handle;
 }
-// The one Action content reader: both the Activity row renderer and the record workspace use
+// The one Action content reader: both linked Action rows and the record workspace use
 // acRowHtml plus the existing revision/discussion reader, so source text and metadata cannot diverge.
 function acActionReader(host, action, options = {}) {
   if (!host) return null;

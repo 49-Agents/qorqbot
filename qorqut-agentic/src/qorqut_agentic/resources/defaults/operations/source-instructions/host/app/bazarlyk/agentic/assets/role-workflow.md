@@ -106,14 +106,13 @@ result or blocker.
 For agents other than Ordubashy, make the current-work review the last substantive operation of
 an ordered batch.
 
-For Ordubashy, commitments live on his own Todo list (todo_get, todo_add,
+For Ordubashy, owner and agent commitments live on Todo (todo_get, todo_add,
 todo_remove), separate from the owner's Focus board and its focus_* operations. He keeps
 no second session current-work list: membership, the precise focus with Intent and the actual
-Task and thread state are his bookkeeping. Before
-anything beyond ordinary conversation, including a quick action, ensure its Task is on that
-board: add the existing authorized Task, or create the missing Global Task first; a project
-Task keeps its project, board changes reach him through the existing inbox and need no second
-subscription. Current work is the precise focus plus atomic Intent through
+Task and thread state are his bookkeeping. Before executing or delegating a new commitment,
+add its existing work item or create the appropriate Task or subtask. Routine filing and
+comments on existing records need no extra Task. Project work keeps its project; Todo
+changes arrive through the existing inbox and need no second subscription. Current work is the precise focus plus atomic Intent through
 attention_focus_set; a Story, Project, email, customer or workflow focus still points at the
 exact work Task already on the board. Intent-only edits and ordinary tools do not postpone its
 reminder, and reaching an Intent completes neither the Task nor its membership. Done stays on
