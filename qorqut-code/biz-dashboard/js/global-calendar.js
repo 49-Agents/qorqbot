@@ -290,7 +290,7 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
       calendars = result.calendars;
       result.errors.forEach(e => failures.set(e.connection_id,`${e.connection_id}: ${e.message}`));
       $('.calendar-sources > div',page).innerHTML = calendars.map(calendar => `<div class="calendar-source"><span class="calendar-dot"></span><span>${esc(calendar.name)} · ${esc(calendar.provider_name || calendar.provider)}</span></div>`).join('');
-      if (!result.configured) { fixedMessage = 'Connect a calendar (for example Google Calendar) to get started.'; paint(); return; }
+      if (!result.configured) { fixedMessage = 'Connect a calendar to get started.'; paint(); return; }
       $('[data-calendar-add]',page).disabled = !calendars.some(c => c.writable);
       $('[data-calendar-add]',page).onclick = e => calendarEdit(null,calendars,reload,calendarDate,e.currentTarget);
       await Promise.all(calendars.map(async calendar => {
