@@ -23,6 +23,8 @@ import hashlib
 import os
 from typing import Callable
 
+from qorqut import file_identity
+
 from . import _files, _format as fmt, _providers, _relocation
 from ._types import (
     CaptureBinding, CaptureError, CaptureReceipt, FinalCaptureEvidence, IndexEntry, MAX_ENCODED_CONVERSATION,
@@ -548,8 +550,9 @@ class TranscriptArchive:
                 problem = "committed progress moves backwards"
             elif current.workspace != previous.workspace:
                 problem = "workspace changed within a lineage"
-            elif ((current.source_path, current.source_device, current.source_inode)
-                  != (previous.source_path, previous.source_device, previous.source_inode)
+            # source_device is not compared: device numbers can change across a restart (see qorqut.file_identity).
+            elif ((current.source_path, current.source_inode)
+                  != (previous.source_path, previous.source_inode)
                   and not _relocation.permits(lineage, previous, current.source_path, current.source_device,
                                               current.source_inode, current.generation)):
                 problem = "source binding changed within a lineage"
@@ -670,7 +673,9 @@ class TranscriptArchive:
             first = source.stat()
             if candidate is not None:
                 moved = candidate.source_path != binding.source_path
-                replaced = (first.st_dev, first.st_ino) != (candidate.source_device, candidate.source_inode)
+                replaced = not file_identity.matches(
+                    {"device": candidate.source_device, "inode": candidate.source_inode},
+                    {"device": first.st_dev, "inode": first.st_ino}, os.fstat(source.parent_fd).st_dev)
                 if (moved or replaced) and not _relocation.permits(
                         lineage, candidate, binding.source_path, first.st_dev, first.st_ino, binding.generation):
                     raise _fail("source_path_changed" if moved else "source_replaced",

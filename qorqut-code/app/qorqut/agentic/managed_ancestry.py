@@ -6,6 +6,7 @@ import json
 import os
 import re
 
+from qorqut import file_identity
 from qorqut.private_files import read_private_file
 from qorqut_agentic.store import Store, _verify_layout
 from qorqut_agentic.changes import package_ids_of
@@ -53,13 +54,16 @@ def _load_node(paths, record, evidence, *, offline_read_only=False):
     copied = accepts(paths, record, intent, journal)
     for name, path in (('root', paths.agentic_root), ('state', paths.agentic_runtime)):
         info = os.stat(path, follow_symlinks=False)
-        if not copied and {'device': info.st_dev, 'inode': info.st_ino} != intent['plan']['identity'][name]:
+        if not copied and not file_identity.matches(intent['plan']['identity'][name], {'device': info.st_dev, 'inode': info.st_ino},
+                                                    file_identity.parent_volume(path)):
             raise _conflict('Managed instance directory identity changed')
     from . import layout_files
     rootfd = layout_files._open_root(paths.agentic_root)
     try:
         gitdir, _ = layout_files._head_identity(rootfd)
-        if not copied and (gitdir != journal['gitdir'] or layout_files._identity(os.fstat(rootfd)) != journal['root']):
+        root = os.fstat(rootfd)
+        if not copied and (not file_identity.matches(journal['gitdir'], gitdir, root.st_dev)
+                or not file_identity.matches(journal['root'], layout_files._identity(root), file_identity.fd_parent_volume(rootfd))):
             raise _conflict('Managed Git or authored root identity changed')
     finally:
         os.close(rootfd)

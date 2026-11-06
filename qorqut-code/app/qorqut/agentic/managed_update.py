@@ -15,6 +15,7 @@ import stat
 
 from qorqut_agentic.changes import normalize_attribution, package_ids_of
 from qorqut_agentic.store import Store
+from qorqut import file_identity
 from qorqut.private_files import fsync_directory, read_private_file, require_private_directory
 from . import (layout_activation, layout_files, layout_git, layout_intent, managed_ancestry, managed_binding,
                managed_feed, managed_files, managed_git, managed_intent, managed_journal, managed_plan,
@@ -134,14 +135,16 @@ def _provision_verify(paths, plan, journal):
             if current['state'] != 'ready':
                 raise _conflict('Preserved private root disappeared')
             info = os.stat(current['path'], follow_symlinks=False)
-            if {'device': info.st_dev, 'inode': info.st_ino, 'mode': stat.S_IMODE(info.st_mode), 'uid': info.st_uid} != identity:
+            if not file_identity.matches(identity, {'device': info.st_dev, 'inode': info.st_ino, 'mode': stat.S_IMODE(info.st_mode),
+                                                    'uid': info.st_uid}, file_identity.parent_volume(current['path'])):
                 raise _conflict('Preserved private root identity changed')
         elif current['state'] == 'ready':
             created = journal['provisioning']['created'].get(name)
             if created is None:
                 raise _conflict('Ambiguous managed provisioning interruption for plan ' + plan['plan_digest'] + ': ' + current['path'])
             info = os.stat(current['path'], follow_symlinks=False)
-            if ({'device': info.st_dev, 'inode': info.st_ino, 'mode': stat.S_IMODE(info.st_mode), 'uid': info.st_uid} != created
+            if (not file_identity.matches(created, {'device': info.st_dev, 'inode': info.st_ino, 'mode': stat.S_IMODE(info.st_mode),
+                                                    'uid': info.st_uid}, file_identity.parent_volume(current['path']))
                     or stat.S_IMODE(info.st_mode) != 0o700):
                 raise _conflict('Created private root identity changed: ' + current['path'])
             root = Path(current['path'])
@@ -168,7 +171,11 @@ def _provision(paths, intent, journal, save):
         info = os.stat(parent, follow_symlinks=False)
         expected = {'name': item['name'], 'path': item['path'],
                     'parent': {'device': info.st_dev, 'inode': info.st_ino}}
-        if provision['pending'] not in (None, expected):
+        pending = provision['pending']
+        if pending is not None and (not isinstance(pending, dict) or set(pending) != set(expected)
+                                    or (pending['name'], pending['path']) != (expected['name'], expected['path'])
+                                    or not file_identity.matches(pending['parent'], expected['parent'],
+                                                                 file_identity.parent_volume(parent))):
             raise _conflict('Managed private provisioning parent changed')
         provision['pending'] = expected
         save()
@@ -205,7 +212,8 @@ def _check_git(paths, intent, journal, *, allow_index_lock=False):
     rootfd = layout_files._open_root(paths.agentic_root)
     try:
         gitdir, head_identity = layout_files._head_identity(rootfd)
-        if gitdir != journal['gitdir'] or head_identity != journal['head_identity']:
+        if (not file_identity.matches(journal['gitdir'], gitdir, os.fstat(rootfd).st_dev)
+                or head_identity != journal['head_identity']):
             raise _conflict('Managed Git directory or symbolic HEAD changed')
     finally:
         os.close(rootfd)
@@ -350,7 +358,8 @@ def _common(paths, intent, journal, prior_raw):
             raise _conflict('Managed candidate evidence differs')
     for name, path in (('root', paths.agentic_root), ('state', paths.agentic_runtime)):
         info = os.stat(path, follow_symlinks=False)
-        if {'device': info.st_dev, 'inode': info.st_ino} != intent['plan']['identity'][name]:
+        if not file_identity.matches(intent['plan']['identity'][name], {'device': info.st_dev, 'inode': info.st_ino},
+                                     file_identity.parent_volume(path)):
             raise _conflict('Managed instance identity changed')
     current = read_binding_bytes(paths)
     if current != prior_raw:

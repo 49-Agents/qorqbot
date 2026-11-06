@@ -14,6 +14,7 @@ import stat
 from contextlib import contextmanager
 from pathlib import Path
 
+from qorqut import file_identity
 from qorqut.private_files import read_private_file, require_private_directory
 from qorqut_agentic.changes import Changes, event_dict, normalize_attribution
 from qorqut_agentic.core import LayerContext
@@ -135,13 +136,15 @@ def _evidence(paths, plan, attribution, *, binding, current=True, retained=False
     if binding and digest(read_binding_bytes(paths)) != plan['binding']['record_sha256']:
         raise _conflict('Original active binding changed')
     state = os.stat(paths.agentic_runtime, follow_symlinks=False)
-    if {'device': state.st_dev, 'inode': state.st_ino} != plan['identity']['state']:
+    if not file_identity.matches(plan['identity']['state'], {'device': state.st_dev, 'inode': state.st_ino},
+                                 file_identity.parent_volume(paths.agentic_runtime)):
         raise _conflict('Runtime directory identity changed')
-    if {'device': relocation['root']['device'], 'inode': relocation['root']['inode']} != plan['identity']['root']:
+    if not file_identity.records_match({'device': relocation['root']['device'], 'inode': relocation['root']['inode']},
+                                       plan['identity']['root']):
         raise _conflict('Prepared root identity changed')
     rootfd = files._open_root(paths.agentic_root)
     try:
-        if files._identity(os.fstat(rootfd)) != relocation['root'] or files._identity(os.stat(paths.agentic_root, follow_symlinks=False)) != relocation['root']:
+        if not files._root_matches(rootfd, paths.agentic_root, relocation['root']):
             raise _conflict('Authored root changed')
         runner = git._runner(paths.agentic_root, directory)
         destination = git._destination(runner, journal)
@@ -151,7 +154,7 @@ def _evidence(paths, plan, attribution, *, binding, current=True, retained=False
             raise _conflict('Published ref changed')
         gitfd = os.open('.git', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=rootfd)
         try:
-            if files._identity(os.fstat(gitfd)) != relocation['gitdir']:
+            if not file_identity.matches(relocation['gitdir'], files._identity(os.fstat(gitfd)), os.fstat(rootfd).st_dev):
                 raise _conflict('Git directory changed')
             state, _, held = git._index_state(gitfd, journal, base64.b64decode(intent['index']['content_base64']), base64.b64decode(journal['final_index']['content_base64']))
             if held is not None:

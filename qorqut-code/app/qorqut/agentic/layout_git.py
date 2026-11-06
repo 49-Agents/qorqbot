@@ -22,6 +22,7 @@ from qorqut_agentic.changes import normalize_attribution
 from qorqut_agentic.history import GitRunner, _GIT_OPTIONS
 from qorqut_agentic.store import Store
 from qorqut_operations.contracts import DomainError
+from qorqut import file_identity
 from qorqut.private_files import read_private_file, require_private_directory
 from . import layout_files as files
 from .layout_inspection import validate_catalog
@@ -377,7 +378,7 @@ def _destination(git, journal):
 
 def _head_state(git, rootfd, journal, destination):
     gitdir, encoded = files._head_identity(rootfd)
-    if gitdir != journal['gitdir']:
+    if not file_identity.matches(journal['gitdir'], gitdir, os.fstat(rootfd).st_dev):
         raise _conflict('Git directory identity changed')
     raw = base64.b64decode(encoded, validate=True)
     if destination == 'HEAD':
@@ -414,7 +415,8 @@ def _check_operation_locks(root, destination, *, transaction=False, owned_index=
         if os.path.lexists(gitdir / name):
             if name == 'index.lock' and owned_index is not None:
                 info = os.lstat(gitdir / name)
-                if stat.S_ISREG(info.st_mode) and _stable_index_identity(info) == owned_index:
+                if (stat.S_ISREG(info.st_mode) and file_identity.matches(
+                        owned_index, _stable_index_identity(info), os.stat(gitdir, follow_symlinks=False).st_dev)):
                     continue
             if not transaction or name not in allowed or not stat.S_ISREG(os.lstat(gitdir / name).st_mode):
                 raise _conflict('Unfinished Git operation: .git/' + name)
@@ -693,7 +695,9 @@ def _verify_open_index(gitfd, name, heldfd, expected, identity, *, original=Fals
         held = os.fstat(heldfd)
         current = _original_index_identity(held) if original else _stable_index_identity(held)
         named = seen if original else {k: seen[k] for k in ('device', 'inode', 'mode', 'size', 'mtime_ns')}
-        if current != identity or named != identity or data != expected:
+        volume = os.fstat(gitfd).st_dev
+        if (not file_identity.matches(identity, current, volume) or not file_identity.matches(identity, named, volume)
+                or data != expected):
             raise _conflict('Git index identity or contents changed: ' + name)
     finally:
         os.close(fd)
@@ -714,16 +718,17 @@ def _index_state(gitfd, journal, original, final):
         evidence = journal['index_publication']
         owned = {k: evidence['replacement'][k] for k in ('device', 'inode', 'mode', 'size', 'mtime_ns')}
         index_stable = {k: identity[k] for k in ('device', 'inode', 'mode', 'size', 'mtime_ns')}
-        if identity == evidence['original'] and raw == original:
+        volume = os.fstat(gitfd).st_dev
+        if file_identity.matches(evidence['original'], identity, volume) and raw == original:
             if lockfd is None:
                 return 'original', identity, None
-            if ({k: lock_identity[k] for k in owned} != owned or lock_raw != final
+            if (not file_identity.matches(owned, {k: lock_identity[k] for k in owned}, volume) or lock_raw != final
                     or digest(lock_raw) != evidence['replacement']['sha256']):
                 raise _conflict('Index lock is not the recorded owned candidate')
             retained = lockfd
             lockfd = None
             return 'locked', identity, retained
-        if (index_stable == owned and raw == final and digest(raw) == evidence['replacement']['sha256']
+        if (file_identity.matches(owned, index_stable, volume) and raw == final and digest(raw) == evidence['replacement']['sha256']
                 and lockfd is None):
             return 'final', identity, None
         raise _conflict('Unexpected index or index-lock state')
@@ -793,7 +798,7 @@ def _index_effect(gitfd, path, journal, original, final, check):
                 expected_original = journal['index_publication']['original']
                 expected_owned = {k: journal['index_publication']['replacement'][k]
                                   for k in ('device', 'inode', 'mode', 'size', 'mtime_ns')}
-                if oldidentity != expected_original or oldraw != original:
+                if not file_identity.matches(expected_original, oldidentity, os.fstat(gitfd).st_dev) or oldraw != original:
                     raise _conflict('Original index changed before replacement')
                 _verify_open_index(gitfd, 'index.lock', lockfd, final, expected_owned)
                 _verify_open_index(gitfd, 'index', oldfd, original, expected_original, original=True)
@@ -875,7 +880,7 @@ def publish_index(paths, plan, *, attribution):
                         if (incomplete_intents(paths) != [intent] or files._journal_read(relocation_path) != relocation
                                 or _read_journal(path) != journal):
                             raise _conflict('Private layout receipts changed')
-                        if files._identity(os.fstat(gitfd)) != relocation['gitdir']:
+                        if not file_identity.matches(relocation['gitdir'], files._identity(os.fstat(gitfd)), os.fstat(rootfd).st_dev):
                             raise _conflict('Git directory identity changed')
                         files._environment_facts(paths, plan, relocation, rootfd)
                         if _head_state(git, rootfd, journal, destination) != 'candidate':

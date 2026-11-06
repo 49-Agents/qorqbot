@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 
+from qorqut import file_identity
 from qorqut.private_files import read_private_file
 from qorqut_agentic.changes import normalize_attribution
 from qorqut_agentic.store import Store, _verify_layout
@@ -296,7 +297,11 @@ def validate(paths, intent, prior_raw):
                     raise ValueError('Unsafe managed instance identity')
                 info = path.stat(follow_symlinks=False)
                 identity[name] = {'device': info.st_dev, 'inode': info.st_ino}
-            if identity != plan['identity'] or provision_plan(paths) != plan['provisioning']:
+            saved = plan['identity']
+            if (not isinstance(saved, dict) or set(saved) != set(identity)
+                    or not all(file_identity.matches(saved[name], identity[name], file_identity.parent_volume(path))
+                               for name, path in (('root', paths.agentic_root), ('state', paths.agentic_runtime)))
+                    or provision_plan(paths) != plan['provisioning']):
                 raise ValueError('Managed instance identity or provisioning changed')
             current = inspect_runtime(paths.agentic_runtime, paths.agentic_root, prior['instance_id'])
             managed_plan._state_evidence(paths, current, files)

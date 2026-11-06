@@ -6,6 +6,8 @@ import os
 import secrets
 import stat
 
+from qorqut import file_identity
+
 from . import layout_files
 from .layout_intent import _conflict
 from .support import relative
@@ -46,10 +48,10 @@ def verify(paths, intent, journal):
     changes = {c['path'] for c in intent['plan']['changes']}
     fd = layout_files._open_root(paths.agentic_root)
     try:
-        actual_root = layout_files._identity(os.fstat(fd))
-        if actual_root != journal['root'] or layout_files._identity(os.stat(paths.agentic_root, follow_symlinks=False)) != journal['root']:
+        if not layout_files._root_matches(fd, paths.agentic_root, journal['root']):
             raise _conflict('Managed authored root changed')
-        if layout_files._directories(fd) != {**journal['initial_dirs'], **journal['created_dirs']}:
+        if not file_identity.tree_matches({**journal['initial_dirs'], **journal['created_dirs']},
+                                          layout_files._directories(fd), os.fstat(fd).st_dev):
             raise _conflict('Managed authored directories changed')
         found, metadata = layout_files._authored(paths.agentic_root)
         current = {p: (body, metadata[p]['mode']) for p, body in found.items()}
