@@ -36,12 +36,15 @@ def package_path(package_id):
 
 
 class Inventory:
-    def __init__(self):
+    def __init__(self, *, relocated_instructions=True):
         self.sources, self.packages, self.bindings, self.diagnostics, self.assets = {}, {}, [], [], []
         self.native_ids = {}
         self.declarations, self.composition = {}, {}
+        self.relocated_instructions = relocated_instructions
 
     def supplier(self, source, path):
+        if not self.relocated_instructions:
+            return source, path
         target = instruction_sources.location(source.id, path)
         if target is None:
             return source, path
@@ -56,10 +59,14 @@ class Inventory:
         return body
 
     def exists(self, source, path):
+        if not self.relocated_instructions:
+            return source.exists(path)
         supplier, target = self.supplier(source, path)
         return bool(instruction_sources.paths(source.id, path)) or supplier.exists(target)
 
     def source_paths(self, source, root, **options):
+        if not self.relocated_instructions:
+            return source.tree(root, **options)
         relocated = instruction_sources.paths(source.id, root)
         physical = source.tree(root, **options) if not root or source.exists(root) else ()
         if not physical and not relocated:
@@ -686,7 +693,7 @@ def _compose_inventory(inv, selected, custom_sources, email_guidance_root):
                 source_id=source.id, source_path=prefix + "agentic.yaml")
             inv.binding(source, package_id, package, refs, kind="builtin")
 
-        for package_id in ("runtime-instructions", "tool-instructions"):
+        for package_id in (("runtime-instructions", "tool-instructions") if inv.relocated_instructions else ()):
             inv.attempt(source, import_instruction_library, package_id)
     if "host" in inv.sources:
         source = inv.sources["host"]
