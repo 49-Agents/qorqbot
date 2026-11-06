@@ -5,6 +5,8 @@ The native process retains its existing OS authority; this is not a sandbox.
 """
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from pathlib import Path
 import time
 from uuid import UUID
@@ -59,7 +61,7 @@ class AgenticAccess:
                 "project_id": {"type": "string", "format": "uuid"},
                 "work_type": {"type": "string", "minLength": 1, "maxLength": 200},
             }},
-            description="Read current native toolkit access and routing; performs no toolkit operation.",
+            description=instruction_text('access-read-current-native-toolkit-access-and-routing-performs'),
             effect_kind="read", supports_signoff=False, exposure=frozenset({"mcp"}),
             scope_kinds=frozenset({"global", "business", "agent_workspace"}),
             global_capability="read_global_context", read=self.read,

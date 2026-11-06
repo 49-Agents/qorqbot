@@ -9,6 +9,8 @@ attribution."""
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from dataclasses import replace
 
 from qorqut_operations.application.plans import (PAGE, UUID, PlanBuilder, apply_records, page, ref, require_revision,
@@ -44,15 +46,15 @@ class ContextReviews:
             ("context_reviews_history", {**PAGE, "item": item, "relationship_id": UUID}, ("item", "relationship_id")),
         ):
             reads.append(OperationDescriptor(name, schema(fields, required), effect_kind="read", supports_signoff=False,
-                description="Read shared pending context or immutable review decisions for this item. Reading does not acknowledge context. Each endpoint reviews related evidence independently of the other endpoint.",
+                description=instruction_text('reviews-read-shared-pending-context-or-immutable-review-decisions'),
                 read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
         edit = schema({"operation": {"enum": list(self.edits)}, "arguments": {"type": "object"}}, ("operation", "arguments"))
         return (*reads,
             OperationDescriptor("context_review", schema({"item": item, "items": {"type": "array", "items": DECISION, "minItems": 1, "maxItems": 50}, "edit": edit}, ("item", "items")),
-                description="Explicitly incorporate related context or explain why no change is needed. Supply the item's expected_revision and observed relationship/source/review versions. Optional edit to this same item commits atomically under its normal domain policy. Never acknowledge context merely read or filed.",
+                description=instruction_text('reviews-explicitly-incorporate-related-context-or-explain-why-no'),
                 prepare=self.prepare, apply=self.apply, validate_targets=self.validate_prepared),
             OperationDescriptor("context_review_reopen", schema({"item": item, **OBSERVED, "explanation": EXPLANATION}, ("item", *OBSERVED, "explanation")),
-                description="Reopen this item's shared review of a relationship, retaining every earlier decision. Requires current item, relationship, review-state and source versions and an explanation.",
+                description=instruction_text('reviews-reopen-this-item-s-shared-review-of-a'),
                 prepare=lambda ctx, args, options, uow: self.prepare(ctx, args, options, uow, reopen=True),
                 apply=self.apply, validate_targets=self.validate_prepared))
 

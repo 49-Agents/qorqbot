@@ -1,0 +1,1 @@
+Read them with the messages tool: agents_messages_list with scope "global" and retirement_backlog true, up to 100 at a time, continuing with after set to the next_cursor of the previous page.

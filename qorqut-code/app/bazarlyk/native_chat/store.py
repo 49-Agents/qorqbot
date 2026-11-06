@@ -367,19 +367,25 @@ def recent_inputs(conn, agent_id: str, limit: int = 30) -> list[dict]:
 
 
 def conversation_markers(conn, agent_id: str, provider: str, conversation_id: str, markers,
-                         transcript_path: str | None = None) -> dict[str, dict]:
+                         transcript_path: str | tuple[str, ...] | None = None) -> dict[str, dict]:
     """The system inputs, among the given marker ids, that were admitted for exactly this agent's conversation. The lookup is
     bounded by the markers a page actually shows (a unique index), never by how many inputs came later, and an input admitted
     for another conversation, agent or provider is not found: a marker copied there proves nothing. A binding that names a
-    transcript source must name this conversation's source."""
+    transcript source must name this conversation's source. After a verified archive relocation, Chat also supplies the
+    original capture path so historical system messages retain their provenance."""
     wanted = sorted({marker for marker in markers if marker})
     if not wanted:
         return {}
+    paths = transcript_path if isinstance(transcript_path, tuple) else (transcript_path,)
+    paths = tuple(dict.fromkeys(path for path in paths if path))
+    path_clause = "s.transcript_path IS NULL"
+    if paths:
+        path_clause += " OR s.transcript_path IN (" + ",".join("?" * len(paths)) + ")"
     found = rows(conn.execute(
         "SELECT i.* FROM native_inputs i JOIN native_sessions s ON s.id=i.session_id "
         "WHERE i.origin='system' AND i.agent_id=? AND s.agent_id=? AND s.provider=? AND s.conversation_id=? "
-        "AND (s.transcript_path IS NULL OR s.transcript_path=?) AND i.marker IN (" + ",".join("?" * len(wanted)) + ")",
-        (agent_id, agent_id, provider, conversation_id, transcript_path, *wanted)))
+        "AND (" + path_clause + ") AND i.marker IN (" + ",".join("?" * len(wanted)) + ")",
+        (agent_id, agent_id, provider, conversation_id, *paths, *wanted)))
     return {row["marker"]: row for row in found}
 
 

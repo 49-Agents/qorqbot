@@ -326,8 +326,7 @@ def _emit(runtime, uow, row, now):
         "INSERT INTO inbox_events(business_id,source_type,source_id,source_revision,actor_id,event_type,summary,"
         "visibility_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
         (None, EVENT_SOURCE, row["id"], 1, None, EVENT_TYPE,
-         "An Overseer extraction is due for your continuing chat. Read the pending due request, then call "
-         "overseer_extract_request with its exact reference.", canonical(visibility), now)).lastrowid
+         runtime.resolver.require_agentic_view().runtime_instructions().render('overseer-extraction-due'), canonical(visibility), now)).lastrowid
     uow.connection.execute("INSERT INTO inbox_deliveries(agent_id,event_id,required) VALUES(?,?,1)",
                            (row["target_agent_id"], event))
 

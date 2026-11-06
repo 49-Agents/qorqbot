@@ -1,4 +1,6 @@
 """Scoped current work and small session observations, separate from durable progress."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 from dataclasses import replace
 from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
@@ -71,7 +73,7 @@ class AgentActivity:
         self.app.registry.register(OperationDescriptor('agents_activity_list', schema({**PAGE,
             'scope': {'enum': ['business', 'global']}, 'agent_id': UUID,
             'role_id': {'type': 'string', 'maxLength': 100}, 'session_id': UUID}), **common, effect_kind='read',
-            description='Read current agent sessions and declared work in this project; Global aggregates authorized projects. Running/idle is separate from task blockers. Last-seen freshness is explicit. Follow next_cursor. Pass session_id only for your own exact native session to read its current-work revision and item keys. A permanent worker row also carries current_work {revision, item, item_key, updated_at, reviewed_at, stale}: its one shared assignment (revision 0 and no item until first written); authored text is visible to the team and unreadable Task details are withheld. Reads never acknowledge inbox events.',
+            description=instruction_text('activity-read-current-agent-sessions-and-declared-work-in'),
             read=lambda c,a,o,u: self.list(c,a,u)))
         self.app.registry.register(OperationDescriptor('agent_work_update', schema({
             'scope': {'enum': ['business', 'global']}, 'agent_id': UUID, 'session_id': UUID,
@@ -82,7 +84,7 @@ class AgentActivity:
             ('expected_work_revision',)) | {'oneOf': [
                 {'required': ['items'], 'not': {'required': ['patch']}},
                 {'required': ['patch'], 'not': {'required': ['items']}}]}, **common,
-            description='Replace or explicitly confirm your session’s current-work list (up to ten concurrent items), or patch selected items by item_key. Read agents_activity_list(session_id=your_native_session_id) for work_revision and item_keys. Patch actions add an item, replace an item by its current item_key, or remove it; unrelated and unreadable items remain untouched. Every write needs the exact current expected_work_revision. Empty items clears the list; empty patch confirms review. An unchanged update does not claim new progress. Write one short activity or blocker per item, aiming for about 50 characters (roughly 6–10 words) across summary and blocked_reason together; do not repeat the blocker. Keep IDs in reference fields and details in the linked Task or working memory. This is a writing target, not a validation limit; retain essential meaning. Update task outcomes separately; meaningful progress belongs in tasks_comment, not repeated waiting updates. A permanent worker has exactly one current assignment, shared with the team: zero or one item with a Task reference, a short description (summary plus blocked_reason; 100 words is the validation ceiling, not the writing target), or both. It writes from its current native session (session_id); the installation owner or Ordubashy updates a worker with agent_id and no session_id. The first write expects revision 0 (the revision of an absent assignment); read current_work.revision and current_work.item_key (for a patch replace or remove) from agents_activity_list. Replacing the current Task needs replace_current=true; the previous Task is never completed for you, so record its state first.',
+            description=instruction_text('activity-replace-or-explicitly-confirm-your-session-s-current'),
             prepare=self.prepare, apply=self.apply))
         return self
 

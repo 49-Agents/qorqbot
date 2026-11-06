@@ -9,6 +9,8 @@ System Dev principal.
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import hashlib
@@ -701,13 +703,13 @@ class IncidentOperations:
             scope_kinds=frozenset({"global"}), owner_only=True, supports_signoff=False,
             global_capability="read_global_context", exposure=frozenset({"dashboard"}),
             effect_kind="read", read=self.owner_list,
-            description="Owner: list bounded System Dev incident summaries."))
+            description=instruction_text('incidents-owner-list-bounded-system-dev-incident-summaries')))
         registry.register(OperationDescriptor("system_incidents_get", schema({
             "incident_id": {"type": "string", "format": "uuid"}}, ("incident_id",)),
             scope_kinds=frozenset({"global"}), owner_only=True, supports_signoff=False,
             global_capability="read_global_context", exposure=frozenset({"dashboard"}),
             effect_kind="read", read=self.owner_get,
-            description="Owner: inspect one System Dev incident and bounded evidence."))
+            description=instruction_text('incidents-owner-inspect-one-system-dev-incident-and-bounded')))
 
     @staticmethod
     def _owner(ctx, uow):

@@ -5,6 +5,8 @@ the retained internal scoped reader keep their own rules; the system incident re
 phase 2 removes the feature and its data. The scoped reader serves the surviving Task, Signoff and Project references
 and is refused to agents by the MCP caller's discovery and dispatch."""
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from bazarlyk.agents.global_scope import active_global, reaches_business
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id
@@ -27,12 +29,12 @@ class DevTickets:
                     "ticket_id": {"type": "string", "format": "uuid"},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 200},
                     "offset": {"type": "integer", "minimum": 0}}),
-            **common, effect_kind="read", description="Owner: list System Dev reports, open by default.",
+            **common, effect_kind="read", description=instruction_text('dev-tickets-owner-list-system-dev-reports-open-by'),
             read=self.list))
         registry.register(OperationDescriptor("dev_tickets_status_set",
             schema({"ticket_id": UUID, "status": STATUS, "resolution": DETAILS, "verification": DETAILS,
                     "deployment_ref": {"type": "string", "maxLength": 200}}, ("ticket_id", "status")),
-            **common, description="Owner: close or reopen a System Dev report using its current revision.",
+            **common, description=instruction_text('dev-tickets-owner-close-or-reopen-a-system-dev'),
             prepare=self.prepare_status, apply=self.apply_status, validate_targets=self.validate_owner))
 
         # Retained internal scoped reader: surviving Task, Signoff and Project references resolve through it,
@@ -44,7 +46,7 @@ class DevTickets:
             scope_kinds=frozenset({"business", "global"}), supports_signoff=False,
             global_capability="read_global_context", exposure=frozenset({"mcp"}),
             resolve_namespace=self.agent_namespace, effect_kind="read",
-            description="Read one System Dev report and its follow-up/resolution history when authorized.",
+            description=instruction_text('dev-tickets-read-one-system-dev-report-and-its'),
             read=self.get))
 
     @staticmethod

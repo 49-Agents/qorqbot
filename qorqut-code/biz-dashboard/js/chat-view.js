@@ -682,7 +682,7 @@ function mountChatView(host, options = {}) {
   listen(preview, 'keydown', event => { if (event.key === 'Escape') { event.stopPropagation(); closePreview(); } });
 
   // ---- entries
-  const entrySignature = entry => JSON.stringify([entry.speaker, entry.text, entry.partial === true, entry.timestamp, entry.title, entry.showAuthor, entry.showAuthorName,
+  const entrySignature = entry => JSON.stringify([entry.speaker, entry.recorder, entry.text, entry.partial === true, entry.timestamp, entry.title, entry.showAuthor, entry.showAuthorName,
     entry.author?.name, entry.author?.avatarHtml, entry.notice, entry.collapsedSource, entry.referenceOnly === true, entry.referenceRow,
     (entry.references || []).map(ref => [ref.key, ref.label, !!ref.disabled, ref.value?.type, ref.value?.label, ref.value?.state, ref.value?.unavailable === true]),
     (entry.typedReferences || []).map(chatViewTypedSignature), (entry.actions || []).map(action => [action.key, action.label, !!action.disabled])]);
@@ -892,7 +892,7 @@ function mountChatView(host, options = {}) {
     const speaker = entry.speaker || 'agent';
     node.className = entry.referenceOnly
       ? `gchat-msg gchat-reference-only${referenceRows && entry.referenceRow ? ' gchat-reference-row' : ''}`
-      : `gchat-msg gchat-${speaker}`;
+      : `gchat-msg gchat-${speaker}${entry.recorder === 'agent' ? ' gchat-recorded-by-agent' : ''}`;
     node.dataset.id = entry.key;
     if (entry.position != null) node.dataset.position = String(entry.position); else delete node.dataset.position;
     node._entry = entry;
@@ -920,7 +920,7 @@ function mountChatView(host, options = {}) {
     }
     let body;
     if (entry.collapsedSource === 'telegram') body = telegramBody(entry.text);
-    else if (speaker === 'agent') body = `<div class="gchat-body md">${titleHtml(entry)}${chatViewMarkdown(entry.text)}</div>`;
+    else if (speaker === 'agent' || entry.recorder === 'agent') body = `<div class="gchat-body md">${titleHtml(entry)}${chatViewMarkdown(entry.text)}</div>`;
     else if (speaker === 'notice') body = `<div class="gchat-body">${markerHtml(notice)}${notice?.markerOnly ? '' : `<span class="gchat-text">${esc(entry.text)}</span>`}</div>`;
     else body = `<div class="gchat-body">${titleHtml(entry)}<span class="gchat-text">${renderSafeLinks(entry.text)}</span></div>`;
     // A message that carries typed references keeps their host (and so its iframes) across repaints of everything else.

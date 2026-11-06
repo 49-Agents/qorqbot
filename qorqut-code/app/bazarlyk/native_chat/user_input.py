@@ -11,6 +11,8 @@ configuration, so a label, state or viewer URL is never taken from the model and
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from dataclasses import replace
 
 from qorqut_operations.application import OperationDescriptor
@@ -25,14 +27,7 @@ from . import store
 
 NAME = "request_user_input"
 DESCRIPTION = (
-    "Ordubashy or the current Overseer. Show the owner a message in your Chat with existing records right below it: pending Signoffs (decided there by "
-    "the owner), configured browsers (a live view the owner can use to log in or act), Tasks (title and state only) and registered agents "
-    "(name only). Returns at once; it asks nothing, creates no request, waits for no answer and grants no approval. references are "
-    "{type: task|signoff|browser|agent|project|delta, id, business_id}: a task, signoff, agent, project or delta by its UUID, a browser by the "
-    "id from browser_turn action=list, a Project by its actual UUID with business_id equal to that same UUID, and business_id the "
-    "record's owning business (null or omitted for Global and always for an agent and a browser; a project always "
-    "needs its exact scope; a delta has no business_id). At most 8 references; the message is at most 4000 characters. Read the "
-    "record first and reuse the exact ids; an unknown or unreadable one is refused.")
+    instruction_text('user-input-ordubashy-or-the-current-overseer-show-the'))
 SCHEMA = schema({
     "message": {"type": "string", "minLength": 1, "maxLength": refs.MAX_MESSAGE_CHARS},
     "references": {"type": "array", "maxItems": refs.MAX_REFERENCES, "items": schema({

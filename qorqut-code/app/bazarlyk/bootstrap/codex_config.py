@@ -9,7 +9,7 @@ from qorqut_operations.storage import safe_io
 
 from bazarlyk.agents.roles import GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE, SUPPORTED_GLOBAL_ROLES
 from bazarlyk.agents.worker_models import LUNA_MODEL
-from bazarlyk.agents.context import MAX_CONTEXT_CHARACTERS
+from qorqut_agentic.behavior.instructions import BOOTSTRAP_BUDGET
 
 # Owner-chosen Codex startup defaults: (model, reasoning effort) by supported global role.
 ROLE_MODEL_DEFAULTS = {
@@ -65,9 +65,9 @@ def configuration(*, workspace, endpoint, header_command, command, snapshot_comm
     hooks = {
         "SessionStart": [{"matcher": "startup|resume|clear|compact", "hooks": [{
             "type": "command", "command": command, "timeout": 240,
-            "additionalContextLimit": MAX_CONTEXT_CHARACTERS}]}],
+            "additionalContextLimit": BOOTSTRAP_BUDGET}]}],
         "UserPromptSubmit": [{"hooks": [{"type": "command", "command": command,
-            "timeout": 240, "additionalContextLimit": MAX_CONTEXT_CHARACTERS}]}],
+            "timeout": 240, "additionalContextLimit": BOOTSTRAP_BUDGET}]}],
     }
     for event in ("Stop", "SessionEnd"):
         # SessionEnd also stops this session's inbox delivery process.

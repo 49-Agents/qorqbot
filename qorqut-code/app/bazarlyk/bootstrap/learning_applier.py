@@ -5,6 +5,8 @@ owner and applies accepted ones through the managed Overseer package. It is a su
 active business through derived access and no explicit business list is selected or saved.
 """
 
+from qorqut_agentic.behavior.seeds import runtime_text as runtime_seed
+
 import json
 
 from qorqut_operations.contracts import DomainError, InvocationOptions, Principal, canonical_hash, plain
@@ -12,10 +14,7 @@ from .preparation import prepare_agent
 
 CAPABILITIES = ("read_global_context", "read_agent_experience", "manage_shared_instructions", "publish_roles",
                 "publish_plugins", "manage_agentic_layer")
-ASSIGNMENT = ("Work with the owner through the Overseer procedures: proposal extraction stays evidence-bound, review and "
-              "application are separately owner-invoked and acceptance only queues work, and application follows the "
-              "agreed plan in an isolated worktree with one delta commit. Never push, publish or deploy as part of the "
-              "workflow. Retained factual Context keeps its existing separate authority and process.")
+ASSIGNMENT = (runtime_seed('learning-applier-assignment'))
 
 
 def prepare_learning_applier(runtime, owner_context, *, role_ref, endpoint, claude_version=None, versions=None):

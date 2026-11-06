@@ -15,6 +15,8 @@ descriptor's prepare / external / apply lifecycle. `context_filing_costs`, the o
 `qorqut_context.integration.usage`.
 """
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import json
 
 from qorqut_context.integration.graph_edits.supervised_edit import (EDIT_INPUT_SCHEMA as EDIT_INPUT, EDIT_OUTPUT_SCHEMA as EDIT_OUTPUT,
@@ -32,15 +34,10 @@ READS = {
     "context_upload_map": ({"upload_id": IDENTITY}, ("upload_id",)),
 }
 DESCRIPTIONS = {
-    "context_filings": "Owner view: recent Context filings, or every source version of one upload, with its exact source revision and digest, registered job, queue input, attempts, Context event, published commit and completion state.",
-    "context_upload_map": "Owner view: the source-to-publication chain of one upload (versions, inputs, events, commits and completions). It is a projection of recorded facts, not a generated outline.",
-    "context_instruct": "Focused, attributed correction to context you are authorized to maintain. Give the exact requested change and its source/rationale; use only for concrete corrections or updates, not hypotheses, broad extraction, tasks, or approvals. Queues a bounded instruction filing in the selected project scope.",
-    "context_edit": "Explicit typed edit of the published Context, in two variants selected by the plan's format. "
-                    "(1) Queued graph edit: one qorqut-graph-edit-v1 plan (put_node, put_edge, remove_node, remove_edge with full records, your own five-character IDs, explanations, citations and support) against the current published revision. It is queued in the shared Context order and a later driver step publishes exactly that plan as one event with no model, if your authority and the base still hold. Result: the queued input and its execution facts; nothing is published when this returns. "
-                    "(2) Supervised edit: one qorqut-supervised-edit-v1 plan (the same operations plus put_note and remove_note; a note is {id, text, objects: [{kind: node|edge, id}]}), the exact UTF-8 Markdown document that explains and supports it, and a new five-character event_id you choose. The document is preserved byte for byte as foundation/supervised-edits/<event_id>.md and may be cited as self. "
-                    "Always call first with preview_only=true: nothing is changed, and the result shows the proposed changes (each operation with its before and after). Show them and the document to the owner and obtain approval in the conversation. Only after approval call again with the same event_id, document and plan and without preview_only: it publishes directly as one new immutable event with no model, and the result has status published, the execution marker and model null. "
-                    "To retry an uncertain call, send the very same event_id, document and plan; an identical event that is already published is reported, never duplicated. A stale expected_revision, a busy Context or another pending Context job is refused (retry later, or read again and prepare a new plan); an edit is never rebased. "
-                    "Changing existing records needs your authority in the namespace of each record's original creator and of every linked subject; a note with no subject needs Global authority. Deleting a Context question that motivated a supervised edit is a separate question-tool call, made only after the publication result confirms success.",
+    "context_filings": instruction_text('source-operations-owner-view-recent-context-filings-or-every'),
+    "context_upload_map": instruction_text('source-operations-owner-view-the-source-to-publication-chain'),
+    "context_instruct": instruction_text('source-operations-focused-attributed-correction-to-context-you-are'),
+    "context_edit": instruction_text('source-operations-explicit-typed-edit-of-the-published-context'),
 }
 
 # The authority metadata of these operations (declared once, here; the host's registry takes it from ``registration``).

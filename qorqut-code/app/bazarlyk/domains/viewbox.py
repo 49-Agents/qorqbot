@@ -6,6 +6,8 @@ agent's principal ID. Every unique placement is kept and the owner read exposes 
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import ipaddress
 import re
 import unicodedata
@@ -194,12 +196,7 @@ class AgentViewbox:
             "title": {"type": "string", "minLength": 1, "maxLength": 200}}, ("link", "title")),
             scope_kinds=frozenset({"agent_workspace"}), supports_signoff=False, exposure=frozenset({"mcp"}),
             rederived_basis=frozenset({"principals"}),
-            description="Show the owner a link beside this session on your own Viewbox board: a file or table viewer link "
-                        "(/files/view, /tables/view) or a reachable http(s) page such as http://qorqut:<port>/ (never "
-                        "localhost or file://). title is one to three words saying why. The same link placed again moves "
-                        "to the top; the board shows the latest thirty. Unread placements appear in the owner's attention queue. "
-                        "Presentation only, never a signoff or a permission. "
-                        "Reuse the idempotency_key on retry.",
+            description=instruction_text('viewbox-show-the-owner-a-link-beside-this-session'),
             prepare=self.prepare, apply=self.apply, validate_targets=self.validate_targets))
         return self
 

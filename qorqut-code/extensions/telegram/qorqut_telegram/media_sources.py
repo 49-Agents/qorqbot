@@ -31,6 +31,8 @@ agent, not what the service user could read.
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -62,8 +64,7 @@ UUID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 _UUID = re.compile(UUID_PATTERN)
 _UUID_SCHEMA = {"type": "string", "pattern": UUID_PATTERN, "minLength": 36, "maxLength": 36}
 SOURCE_SCHEMA = {
-    "description": "Exactly one file source. A workspace file is a relative path below your own workspace and only in "
-                   "exports/ or downloads/. A document is a registered document ID with its business_id (null for Global).",
+    "description": instruction_text('media-sources-exactly-one-file-source-a-workspace-file'),
     "oneOf": [
         schema({"type": {"const": "workspace"}, "path": {"type": "string", "minLength": 1, "maxLength": MAX_PATH_CHARS}},
                ("type", "path")),
@@ -72,7 +73,7 @@ SOURCE_SCHEMA = {
     ],
 }
 EXPECTED_SHA256_SCHEMA = {"type": "string", "pattern": "^[0-9a-f]{64}$", "minLength": 64, "maxLength": 64,
-                          "description": "The lowercase hexadecimal SHA-256 of the exact file bytes you expect to send."}
+                          "description": instruction_text('media-sources-the-lowercase-hexadecimal-sha-256-of-the')}
 
 # Registered kind -> its canonical reader. A kind outside this table is never sent, whatever else may read it.
 READERS = {"asset": "assets_get", "data_upload": "data_uploads_get", "agent_note": "notes_get", BUSINESS_NOTE: "notes_get",

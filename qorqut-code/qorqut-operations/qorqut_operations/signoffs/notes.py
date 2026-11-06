@@ -8,6 +8,7 @@ from qorqut_operations.contracts import DomainError, plain, new_id
 from qorqut_operations.conversations import SUMMARY, author, normalize_summary, participants
 from qorqut_operations.tasks.history import HistoricalReferences
 from qorqut_operations.team_channel import reject_owner_team_write
+from qorqut_operations.discussion.threads import RELAY, attribution, read_attribution, save_attribution
 
 
 def eligible(uow, signoff_id):
@@ -39,7 +40,7 @@ class SignoffNotes:
             'before': {'type':'integer','minimum':1}, 'limit': {'type':'integer','minimum':1,'maximum':100}}, ('signoff_id',)),
             **common, effect_kind='read', read=lambda c,a,o,u:self.read(c,a,u)),
             OperationDescriptor('signoffs_comment', schema({**fields,
-            'text': {'type':'string','minLength':1,'maxLength':20000}, 'refs': NOTE_REFS, 'summary': SUMMARY}, ('signoff_id','text')),
+            'text': {'type':'string','minLength':1,'maxLength':20000}, 'refs': NOTE_REFS, 'summary': SUMMARY, 'relay': RELAY}, ('signoff_id','text')),
             **common, prepare=self.prepare, apply=self.apply))
 
     def context(self, ctx, args, uow):
@@ -63,10 +64,12 @@ class SignoffNotes:
         notes=notes[:limit]
         for note in notes:
             note['refs']=self.references(ctx,json.loads(note.pop('refs_json')),uow,strict=False)
+            note.update(read_attribution(uow, 'signoff', note['id'], note['created_by']))
             author(note,uow)
         installation=uow.repository('installation').get('service')
         people={row['proposer_principal_id'],*(n['created_by'] for n in notes)}
         if installation: people.add(installation['owner_principal_id'])
+        people.update(n['author_id'] for n in notes)
         return {'participants':participants(uow,people),'notes':list(reversed(notes)), 'next_before':notes[-1]['sequence'] if more else None,
             'rejection_requires_message':not eligible(uow,row['id'])}
 
@@ -77,6 +80,7 @@ class SignoffNotes:
         self.validate(args['text'])
         normalize_summary(args.get('summary'))
         self.references(ctx,args.get('refs',[]),uow)
+        attribution(ctx, uow, args.get('relay'))
         return PlanBuilder(ctx,'signoffs_comment',args,'Comment on signoff',
             namespace='business:'+ctx.business_id if ctx.business_id else 'global').build()
 
@@ -84,7 +88,7 @@ class SignoffNotes:
         args=plain(plan.arguments)
         ctx,row=self.context(ctx,args,uow)
         reject_owner_team_write(ctx,uow,'signoffs_comment')
-        return {'note':self.append(ctx,row,args['text'],uow,refs=args.get('refs',[]),summary=args.get('summary'))}
+        return {'note':self.append(ctx,row,args['text'],uow,refs=args.get('refs',[]),summary=args.get('summary'),relay=args.get('relay'))}
 
     @staticmethod
     def validate(text):
@@ -120,7 +124,7 @@ class SignoffNotes:
         if project is None: return None
         return {**reference,**HistoricalReferences.place(uow,project['id'])}
 
-    def append(self, ctx, row, text, uow, *, refs=(), summary=None):
+    def append(self, ctx, row, text, uow, *, refs=(), summary=None, relay=None):
         self.validate(text)
         refs=self.references(ctx,refs,uow)
         summary=normalize_summary(summary)
@@ -128,6 +132,8 @@ class SignoffNotes:
         cursor=uow.connection.execute('INSERT INTO signoff_notes(id,signoff_id,body,created_by,created_at,refs_json,summary) VALUES(?,?,?,?,?,?,?)',(*note.values(),json.dumps(refs),summary))
         note['summary']=summary
         note['sequence']=cursor.lastrowid
+        save_attribution(ctx, uow, 'signoff', note['id'], relay)
+        note.update(read_attribution(uow, 'signoff', note['id'], ctx.principal_id))
         # Existing source subscriptions and responsible recipients handle delivery.
         uow.connection.execute('''INSERT INTO inbox_changes(source_type,action,before_json,after_json,actor_id)
             VALUES('signoff_notes','insert',NULL,?,?)''',(json.dumps({**note,'business_id':row['review_business_id']}),ctx.principal_id))
