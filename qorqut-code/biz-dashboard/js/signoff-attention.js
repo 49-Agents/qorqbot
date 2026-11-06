@@ -59,46 +59,72 @@ function sgAttentionPaint() {
     (document.querySelector('#toasts') || document.body).append(host);
     const current = () => sgAttention.deliveries.find(d=>d.id===host.dataset.delivery);
     // Delivery dismissal and snooze go to the server only from the context menu; opening never approves or dismisses.
-    const update = async action => {
-      const delivery=current(); if (!delivery) return;
+    // The exact delivery and signoff are captured when the menu opens, so a refresh cannot retarget the action.
+    const inflight = new Set();
+    const update = async (action, deliveryId, signoffId) => {
+      const key=action+':'+deliveryId; if (inflight.has(key)) return;
+      inflight.add(key);
       try {
-        if (action==='dismiss') coreData(await post(`/me/attention/deliveries/${encodeURIComponent(delivery.id)}/dismiss`,{}));
-        else coreData(await post(`/me/attention/signoffs/${encodeURIComponent(delivery.items[0].id)}/snooze`, {until:new Date(Date.now()+4*3600000).toISOString()}));
+        if (action==='dismiss') coreData(await post(`/me/attention/deliveries/${encodeURIComponent(deliveryId)}/dismiss`,{}));
+        else coreData(await post(`/me/attention/signoffs/${encodeURIComponent(signoffId)}/snooze`, {until:new Date(Date.now()+4*3600000).toISOString()}));
         await sgAttentionRefresh();
       } catch (error) { toast(error.message || 'Could not update notification.'); }
+      finally { inflight.delete(key); }
     };
     const open = async (slug, id) => {
       try { await sgAttentionNavigate(slug || null, id || null); }
       catch (error) { toast(error.message || 'Could not open the signoff.'); }
     };
-    const activate = async (pill, event) => {
+    // A grouped delivery spanning projects lists its captured proposals in one Focus expansion.
+    const openGroup = items => window.focusExpansion.open({title:'Signoffs', mount(box, session) {
+      const projects=new Map();
+      for (const item of items) { const key=item.business_slug || ''; if (!projects.has(key)) projects.set(key,{name:item.business_name || 'Global', items:[]}); projects.get(key).items.push(item); }
+      for (const [slug, project] of projects) {
+        const heading=document.createElement('h3'); heading.className='sg-group-title'; heading.textContent=project.name;
+        const list=document.createElement('div'); list.className='sg-group-list';
+        for (const item of project.items) {
+          const button=document.createElement('button'); button.type='button'; button.className='quiet sg-group-item'; button.textContent=item.title;
+          button.onclick=()=>{ if (session.isCurrent()) void open(slug, item.id); };
+          list.append(button);
+        }
+        box.append(heading, list);
+      }
+    }});
+    const activate = async () => {
       const delivery=current(); if (!delivery) return;
       if (delivery.kind==='individual') {
         const item=delivery.items[0];
         return open(item.business_slug, item.id);
       }
-      // A grouped delivery opens its one project's pending list; with several projects the owner picks which.
-      const slugs=[...new Set(delivery.items.map(item=>item.business_slug || ''))];
-      if (slugs.length===1) return open(slugs[0], null);
-      const rect=pill.getBoundingClientRect();
-      const x=event?.clientX || rect.left, y=event?.clientY || rect.bottom;
-      ctxMenu(x, y, slugs.map(slug=>{
-        const group=delivery.items.filter(item=>(item.business_slug || '')===slug);
-        return {icon:SG_CLIPBOARD, label:`${group[0].business_name || 'Global'} (${group.length})`, onClick:()=>open(slug, null)};
-      }));
+      const items=delivery.items.map(item=>({id:item.id, title:item.title, business_slug:item.business_slug, business_name:item.business_name}));
+      const slugs=new Set(items.map(item=>item.business_slug || ''));
+      if (slugs.size===1) return open([...slugs][0], null);
+      try { await openGroup(items); } catch (error) { toast(error.message || 'Could not open the signoffs.'); }
     };
-    host.addEventListener('click', event => { const pill=event.target.closest('.sg-toast'); if (pill) void activate(pill, event); });
+    let keyMenuAt = 0;
+    const showMenu = (pill, x, y) => {
+      const delivery=current(); if (!delivery) return;
+      const deliveryId=delivery.id, signoffId=delivery.items[0].id;
+      const items=[{icon:SG_BELL, label:'Dismiss notification', onClick:()=>void update('dismiss', deliveryId, signoffId)}];
+      if (delivery.kind==='individual') items.push({icon:SG_BELL, label:'Snooze 4 hours', onClick:()=>void update('snooze', deliveryId, signoffId)});
+      ctxMenu(x, y, items);
+    };
+    host.addEventListener('click', event => { if (event.target.closest('.sg-toast')) void activate(); });
     host.addEventListener('keydown', event => {
       const pill=event.target.closest('.sg-toast');
-      if (pill && event.target===pill && ['Enter',' '].includes(event.key)) { event.preventDefault(); void activate(pill); }
+      if (!pill || event.target!==pill) return;
+      if (['Enter',' '].includes(event.key)) { event.preventDefault(); void activate(); }
+      else if (event.key==='ContextMenu' || (event.key==='F10' && event.shiftKey)) {
+        event.preventDefault(); keyMenuAt=Date.now();
+        const rect=pill.getBoundingClientRect(); showMenu(pill, rect.left, rect.bottom);
+      }
     });
     host.addEventListener('contextmenu', event => {
       const pill=event.target.closest('.sg-toast'); if (!pill) return;
       event.preventDefault();
+      if (Date.now()-keyMenuAt<500) return;
       const rect=pill.getBoundingClientRect(), keyboard=!event.clientX && !event.clientY;
-      const items=[{icon:SG_BELL, label:'Dismiss notification', onClick:()=>void update('dismiss')}];
-      if (current()?.kind==='individual') items.push({icon:SG_BELL, label:'Snooze 4 hours', onClick:()=>void update('snooze')});
-      ctxMenu(keyboard ? rect.left : event.clientX, keyboard ? rect.bottom : event.clientY, items);
+      showMenu(pill, keyboard ? rect.left : event.clientX, keyboard ? rect.bottom : event.clientY);
     });
   }
   const delivery = sgAttention.deliveries.find(d=>d.kind==='individual') || sgAttention.deliveries[0];

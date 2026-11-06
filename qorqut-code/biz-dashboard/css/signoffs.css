@@ -194,3 +194,10 @@
 .sg-inline .sg-rowtitle { display:flex; align-items:center; gap:8px; }
 .sg-reference-icon { display:inline-flex; flex:none; }
 .sg-reference-icon svg { width:17px; height:17px; }
+
+/* Grouped approval list inside the Focus expansion. */
+.sg-group-title { margin: 18px 0 6px; font-size: 13px; font-weight: 500; color: var(--fg-2); }
+.sg-group-title:first-child { margin-top: 0; }
+.sg-group-list { display: flex; flex-direction: column; gap: 2px; }
+.sg-group-item { text-align: left; padding: 9px 10px; border: 0; border-radius: 10px; background: none; color: var(--fg); font: 500 13px/20px var(--sans); overflow-wrap: anywhere; white-space: normal; }
+.sg-group-item:hover, .sg-group-item:focus-visible { background: var(--hover); }
