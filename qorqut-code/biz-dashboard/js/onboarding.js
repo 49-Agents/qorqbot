@@ -45,19 +45,13 @@ const onboarding = (() => {
     {id: 'projects', chapter: 'projects', title: 'start a project',
       body: 'Projects keep the work, records and context for one client or business apart. You create them by asking.',
       instructions: ['In Chat, ask Ordubashy: “Create a project for …” with a name and what it is for.', 'He prepares it and asks for your signoff before anything is created.'],
-      hint: 'All your projects are on the Projects page: the folder icon on the left.',
+      hint: 'Opening a project from a link or record switches the whole workspace to it.',
       target: () => document.querySelector('#global-agent-terminal .gchat-composer')},
     {id: 'signoffs', chapter: 'projects', view: 'focus', title: 'signoffs',
       body: 'When an agent needs your approval, such as for creating a project, it waits as a Signoff at the top of Focus. Nothing happens until you approve it. Due reminders show up there too.',
+      example: {agent: 'Ordubashy', title: 'Create the project “Acme Bakery”', detail: 'A project for the bakery’s orders, suppliers and weekly menu.'},
       target: pane, action: 'open signoffs',
       run: () => { sgAttentionNavigate(null); return 'Close the list to continue the walkthrough.'; }},
-    {id: 'learning', chapter: 'yours', title: 'make it yours',
-      body: 'The Learning Applier updates shared context and how your agents work as you go.',
-      target: () => agentButton('learning-applier'), action: 'meet the learning applier',
-      run: async () => { const agent = findAgent('learning-applier'); if (agent) await globalAgentsNavigate(agent.agent_id); }},
-    {id: 'context', chapter: 'yours', agent: 'learning-applier', view: 'global_context', title: 'shared context',
-      body: 'The shared context your agents work from: what they know about you, your work and how you like it done. You can read and edit it here.',
-      target: pane},
     {id: 'settings', chapter: 'yours', title: 'settings',
       body: 'Environment values such as API keys for your agents live in Settings.',
       hint: 'Take this walkthrough again, or one chapter of it, anytime with the ? button at the bottom left.',
@@ -83,7 +77,7 @@ const onboarding = (() => {
   ];
   let root = null, card = null, target = null, index = 0, generation = 0, busy = false;
   let saved = null, writes = Promise.resolve(), observer = null, resize = null, frame = 0, previousFocus = null;
-  let targetDescription = null, welcome = false, booted = false, savedInert = false, skippedConsent = false;
+  let targetDescription = null, welcome = false, booted = false, savedInert = false, skippedConsent = false, stepTargetReady = false;
   const visible = el => !!el?.isConnected && !!el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
   const findAgent = role => globalAgentProfiles.find(a => globalRosterAgent(a) && (a.role?.id || a.role_id) === role);
   const agentButton = role => { const id = findAgent(role)?.agent_id; return id ? document.querySelector(`[data-global-agent="${CSS.escape(id)}"]`) : null; };
@@ -226,7 +220,7 @@ const onboarding = (() => {
     if (!welcome && steps[index].launch) paintLaunch();
     if (!welcome && steps[index].consent) paintConsent();
     root.classList.toggle('is-paused', appDialog());
-    if (!welcome) describeTarget(visible(steps[index].target()) ? steps[index].target() : null);
+    if (!welcome) describeTarget(stepTargetReady && visible(steps[index].target()) ? steps[index].target() : null);
     const w = document.documentElement.clientWidth, h = window.visualViewport?.height || innerHeight;
     let box = target?.getBoundingClientRect();
     const pad = 7;
@@ -324,10 +318,10 @@ const onboarding = (() => {
     // Select only; this never starts a terminal or client.
     const opened = await globalAgentsNavigate(assistant.agent_id, step.view ? {view: step.view} : {});
     if (!isCurrent(token)) return;
-    if (!opened) throw new Error('Finish your open edit first, then continue the walkthrough.');
+    if (!opened) throw new Error('This view could not open. Close the walkthrough, finish or close any open edit, then try again.');
     if (step.terminal) globalAgentViewActive?.showTerminal();
     else if (['chat', 'projects'].includes(step.id)) globalAgentViewActive?.showChat();
-    if (step.view && _agpad?.workspaceFrame) await _agpad.workspaceFrame.workspaceReady;
+    if (opened && step.view && _agpad?.workspaceFrame) await _agpad.workspaceFrame.workspaceReady;
     if (!isCurrent(token)) return;
     await waitFor(() => visible(step.target()) && step.target());
   }
@@ -342,12 +336,13 @@ const onboarding = (() => {
     }
     index = Math.max(0, Math.min(next, steps.length-1)); const step = steps[index];
     card.style.opacity = '0';
-    setWelcome(false); describeTarget(null); card.classList.toggle('is-wide', !!step.wide); launchSession = null; clearTimeout(launchTimer);
+    stepTargetReady = false; setWelcome(false); describeTarget(null); card.classList.toggle('is-wide', !!step.wide); launchSession = null; clearTimeout(launchTimer);
     persist('in_progress').catch(() => {});
     const chapter = onboardingPlan.chapterAt(steps, index), following = onboardingPlan.nextChapter(steps, index);
     card.innerHTML = `<div class="onboarding-step-head"><span class="onboarding-chapter">${chapterTitles[chapter.id]}</span><span class="onboarding-count">${String(chapter.number).padStart(2,'0')} <span>/ ${String(chapter.total).padStart(2,'0')}</span></span></div>
       <div class="onboarding-progress" aria-label="chapter ${chapter.number} of ${chapter.total}, step ${chapter.step} of ${chapter.count}">${steps.slice(chapter.start, chapter.end + 1).map((_,i)=>`<i class="${chapter.start+i<=index?'done':''}"></i>`).join('')}</div>
       <h2 id="onboarding-title">${step.title}</h2><p id="onboarding-description">${step.body}</p>${step.instructions ? `<ol class="onboarding-instructions">${step.instructions.map(text => `<li>${text}</li>`).join('')}</ol>` : ''}${step.hint ? `<p class="onboarding-hint">${step.hint}</p>` : ''}
+      ${step.example?`<div class="onboarding-example" aria-label="Example signoff"><span class="onboarding-example-tag">Example</span><p class="onboarding-example-from">${esc(step.example.agent)} asks</p><p class="onboarding-example-title">${esc(step.example.title)}</p><p class="onboarding-example-detail">${esc(step.example.detail)}</p><div class="onboarding-example-actions"><span>Approve</span><span>Decline</span></div></div>`:''}
       ${step.action?`<button type="button" class="onboarding-action" data-tour-action disabled>${step.action}<span aria-hidden="true">↗</span></button>`:''}
       ${step.launch?`<div class="onboarding-launch" data-launch data-phase=""><p class="onboarding-launch-status"><span class="onboarding-launch-dot" aria-hidden="true"></span><span data-launch-text role="status">${LAUNCH_TEXT.checking}</span></p>${skippedConsent && step.prompts ? `<p class="onboarding-launch-prompts" data-launch-prompts>${step.prompts}</p>` : ''}<button type="button" class="ghost onboarding-launch-later" data-launch-later>start him later and continue the tour</button></div>`:''}
       ${step.consent?`<div class="onboarding-launch" data-consent data-phase="checking"><p class="onboarding-launch-status"><span class="onboarding-launch-dot" aria-hidden="true"></span><span data-launch-text role="status">Checking…</span></p><button type="button" class="onboarding-launch-start" data-consent-allow hidden>allow</button><button type="button" class="ghost onboarding-launch-later" data-consent-skip>not now, I’ll answer the prompts myself</button></div>`:''}
@@ -376,14 +371,14 @@ const onboarding = (() => {
       } catch (_) { if (isCurrent(token)) notice('This view couldn’t open. You can continue or try again.'); }
       finally { if (isCurrent(token)) { button.disabled = false; schedule(); } }
     });
-    try { await prepareStep(step, token); if (isCurrent(token)) notice(''); }
+    try { await prepareStep(step, token); if (isCurrent(token)) { stepTargetReady = true; notice(''); } }
     catch (error) { if (isCurrent(token)) notice(error.message || 'This area is unavailable. You can still continue.'); }
     finally {
       if (isCurrent(token)) {
         busy = false; card.querySelector('[data-tour-next]').disabled = false;
         if (step.launch) { paintLaunch(); watchLaunch(token); }
         if (step.consent) paintConsent();
-        const action = card.querySelector('[data-tour-action]'); if (action) action.disabled = false;
+        const action = card.querySelector('[data-tour-action]'); if (action) action.disabled = !stepTargetReady;
         position(); card.style.opacity = '1';
         if (motion) card.animate([{opacity: 0, transform: 'translateY(5px)'}, {opacity: 1, transform: 'translateY(0)'}], {duration: 260, easing: 'ease-out'});
         const next = card.querySelector('[data-tour-next]'), launch = card.querySelector('[data-consent-allow]:not([hidden])');

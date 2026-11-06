@@ -29,6 +29,8 @@ const onboardingPlan = (() => {
     let index = find(saved.step);
     // The retired Activity/Inbox step resumes at Calendar, the step that now follows the attention board.
     if (index < 0 && saved.step === 'activity') index = find('calendar');
+    // The Learning Applier steps are retired while it is unavailable; their chapter continues at Settings.
+    if (index < 0 && ['learning', 'context'].includes(saved.step)) index = find('settings');
     return index < 0 ? 0 : index;
   }
   // The launch step's reading of Ordubashy's Chat session (GET .../chat?limit=1): `session` is that response's session,
