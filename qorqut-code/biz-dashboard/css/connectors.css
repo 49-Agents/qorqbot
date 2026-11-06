@@ -94,3 +94,10 @@ button.cx-link:hover { background: none; color: var(--fg); transform: none; }
   .cx-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { .cx-card, .cx-progress-bar i { transition: none; } }
+/* Dashboard notice when Google Chrome is missing (js/setup-notice.js). */
+.setup-notice { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 2000; display: flex; align-items: center; gap: 12px;
+  max-width: calc(100vw - 32px); padding: 9px 10px 9px 16px; border-radius: var(--r-full, 999px); font-size: 13px;
+  background: var(--elevated); color: var(--fg); border: 1px solid rgba(201,160,100,.45); box-shadow: 0 8px 28px rgba(0,0,0,.28); }
+.setup-notice a { font-weight: 600; color: var(--fg); text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+.setup-notice-close { height: 24px; width: 24px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--fg-2); font-size: 16px; line-height: 1; }
+.setup-notice-close:hover { background: var(--hover); color: var(--fg); }
