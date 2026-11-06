@@ -147,3 +147,10 @@ test('only the terminal step is flagged to keep Esc and Tab, and the retired Act
   assert.doesNotMatch(source, /\{id: 'activity'/);
   assert.match(source, /onboardingPlan\.handleKey\(/);
 });
+
+test('resumeIndex continues the retired Learning Applier steps at settings', () => {
+  const current = [...steps.slice(0, 6), {id: 'settings', chapter: 'yours'}];
+  assert.equal(plan.resumeIndex(current, {status: 'in_progress', step: 'learning'}), 6);
+  assert.equal(plan.resumeIndex(current, {status: 'in_progress', step: 'context'}), 6);
+  assert.equal(plan.resumeIndex(steps, {status: 'in_progress', step: 'learning'}), 6);
+});

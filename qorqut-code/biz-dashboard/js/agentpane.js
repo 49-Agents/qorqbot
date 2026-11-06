@@ -249,7 +249,8 @@ function agTakeLinkedWorkspace(hash) {
 // declaration is still loading, an unrecognized key waits on that read (the default view stays usable) and is
 // honored only if it turns out to be installed and the owner has not moved elsewhere. Anything else is ignored.
 function agpadRequestView(p, view) {
-  if (typeof view !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(view)) return false;
+  // Built-in views keep their camelCase keys (attentionBoard); registered workspace types are lowercase.
+  if (typeof view !== "string" || !(p.views.includes(view) || /^[a-z][a-z0-9_]{0,63}$/.test(view))) return false;
   if (!agentPaneViewAllowed(p.workspaceRole, view)) return false;
   // Tables lives in the shared drawer: the retired key never adds a tab (links translate first).
   if (view === "tables") return false;
