@@ -53,6 +53,7 @@ function remRecurrenceText(recurrence) {
   if (!parts) return `Repeats · ${recurrence.schedule}${zone}`;
   return parts.weekday == null ? `Daily at ${parts.time}${zone}` : `Every ${REM_WEEKDAYS[parts.weekday]} at ${parts.time}${zone}`;
 }
+const remSameTime = (a, b) => !!a && !!b && Number.isFinite(Date.parse(a)) && Date.parse(a) === Date.parse(b);
 const remLinkText = link => link ? `${({task: 'Work', email: 'Email', project: 'Project', table: 'Table', signoff: 'Signoff', action: 'Action'}[link.type] || link.type)} ${link.id}` : '';
 const remWho = reminder => reminder.recipient_name || reminder.recipient_display_name || (reminder.recipient_id && reminder.recipient_id === remSelf() ? 'You' : reminder.recipient_id) || '—';
 const remFail = error => /conflict|stale|revision|precondition|state_changed|occurrence/i.test(String(error?.code || ''));
@@ -141,14 +142,18 @@ function remindersDetailMount(host, initial, opts = {}) {
   const node = (tag, className, text) => { const n = document.createElement(tag); if (className) n.className = className; if (text != null) n.textContent = text; return n; };
 
   function paint() {
+    const focusKey = box.contains(document.activeElement) ? document.activeElement.dataset.remFocus : null;
     box.replaceChildren();
+    if (focusKey) queueMicrotask(() => {
+      if (alive() && document.activeElement === document.body) box.querySelector(`[data-rem-focus="${focusKey}"]`)?.focus({preventScroll: true});
+    });
     const r = current, mutable = !gone && remMutable(r);
-    box.append(node('p', 'rw-reminder-text rem-text', r.text || 'Reminder'));
+    box.append(node('h2', 'rw-reminder-text rem-text', r.text || 'Reminder'));
     const fields = [['State', REM_STATES[r.state] || r.state || '—']];
     if (r.state === 'due' && r.due_at) fields.push(['Due', remFormatTime(r.due_at, r.recurrence?.timezone)]);
-    const next = r.state === 'due' ? r.next_at : (r.next_at || r.at);
-    if (next && r.state !== 'dismissed' && r.state !== 'cancelled') fields.push([r.state === 'due' && r.recurrence ? 'Next' : 'Scheduled for', remFormatTime(next, r.recurrence?.timezone)]);
-    else if (r.at && !next) fields.push(['Scheduled for', remFormatTime(r.at, r.recurrence?.timezone)]);
+    const next = r.next_at || r.at;
+    if (next && !(r.state === 'due' && remSameTime(next, r.due_at)) && (r.state !== 'dismissed' && r.state !== 'cancelled' || !r.next_at))
+      fields.push([r.state === 'due' && r.recurrence && r.next_at ? 'Next' : 'Scheduled for', remFormatTime(next, r.recurrence?.timezone)]);
     fields.push(['Repeat', remRecurrenceText(r.recurrence)], ['For', remWho(r)]);
     if (r.time_critical) fields.push(['Priority', 'Time-critical']);
     const list = node('dl', 'rem-fields');
@@ -184,14 +189,14 @@ function remindersDetailMount(host, initial, opts = {}) {
     if (gone) { box.append(node('p', 'muted', 'This reminder is no longer available.')); return; }
     if (!mutable) return;
     const actions = node('div', 'rem-actions');
-    const add = (label, handler, cls = 'quiet') => { const b = node('button', cls, label); b.type = 'button'; b.disabled = busy; b.onclick = handler; actions.append(b); return b; };
+    const add = (label, handler, cls = 'quiet', key = label) => { const b = node('button', cls, label); b.dataset.remFocus = key; b.type = 'button'; b.disabled = busy; b.onclick = handler; actions.append(b); return b; };
     if (r.state === 'due' && r.occurrence_id) add('Dismiss', () => run('reminders_dismiss', {occurrence_id: r.occurrence_id}), 'primary');
     add('Snooze…', () => { snoozeOpen = !snoozeOpen; confirmCancel = false; paint(); });
     add('Edit', () => (opts.onEdit || remindersEditor)(current, {biz: opts.biz, onSaved: next => { current = remNormalize(next); error = ''; paint(); opts.onChange?.(current, 'reminders_update'); }}));
     add(confirmCancel ? 'Confirm cancel' : 'Cancel reminder', () => {
       if (!confirmCancel) { confirmCancel = true; snoozeOpen = false; paint(); return; }
       run('reminders_cancel', {});
-    }, confirmCancel ? 'danger' : 'quiet');
+    }, confirmCancel ? 'danger' : 'quiet', 'cancel');
     box.append(actions);
     if (confirmCancel) box.append(node('p', 'muted rem-note', r.recurrence ? 'This stops the whole repeating reminder.' : 'This cancels the reminder.'));
     if (snoozeOpen) box.append(snoozePicker());

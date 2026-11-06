@@ -31,6 +31,7 @@ test('reminder opening only reads and dismissal uses the exact due occurrence', 
   class Node {
     constructor(tag){this.tag=tag;this.children=[];this.isConnected=true;this.dataset={};}
     append(...nodes){this.children.push(...nodes);} replaceChildren(...nodes){this.children=nodes;}
+    contains(node){return node === this || this.children.some(child=>child.contains?.(node));}
     remove(){this.isConnected=false;} setAttribute(){}
   }
   const calls=[], reminder={reminder_id:'rem-1',revision:7,state:'due',occurrence_id:'occ-2',text:'Test',recurrence:{schedule:'0 9 * * *',timezone:'UTC'}};
@@ -111,7 +112,7 @@ test('attention overflow opens without acknowledging unrelated unread entries', 
 });
 
 test('reminder Focus opening and disposal do not dismiss the reminder', async () => {
-  class Node { constructor(){this.children=[];this.isConnected=true;} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} remove(){this.isConnected=false;} setAttribute(){} }
+  class Node { constructor(){this.children=[];this.isConnected=true;this.dataset={};} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){} }
   const calls=[]; let spec, guard;
   const reminder={reminder_id:'r',revision:2,state:'due',occurrence_id:'o',text:'Due'};
   const context={document:{createElement:()=>new Node(),dispatchEvent(){}},window:{focusExpansion:{async open(s){spec=s;return {};}},addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,
@@ -141,7 +142,7 @@ test('embedded task and project signoff links dispatch canonical identity to par
 });
 
 test('uncertain reminder dismissal remains retryable after disposal with identical request', async () => {
-  class Node {constructor(){this.children=[];this.isConnected=true;} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} remove(){this.isConnected=false;} setAttribute(){}}
+  class Node {constructor(){this.children=[];this.isConnected=true;this.dataset={};} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){}}
   const reminder={reminder_id:'r',business_id:'b',revision:7,state:'due',occurrence_id:'occ-1',text:'Due'};
   const writes=[];let tries=0;
   const context={document:{createElement:()=>new Node(),dispatchEvent(){}},window:{addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,state:{session:{principal_id:'owner'},bizs:[{id:'b',slug:'project'}]},
@@ -296,7 +297,7 @@ test('ordinary reminder Create prompts for retry or deliberate separate creation
 });
 
 test('ordinary dismissal of a different recurring occurrence uses a separate request', async () => {
-  class Node {constructor(){this.children=[];this.isConnected=true;} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} remove(){this.isConnected=false;} setAttribute(){}}
+  class Node {constructor(){this.children=[];this.isConnected=true;this.dataset={};} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){}}
   let current={reminder_id:'r',revision:4,state:'due',occurrence_id:'one',text:'Repeat'}, key=0;const writes=[];
   const context={document:{createElement:()=>new Node(),dispatchEvent(){}},window:{addEventListener(){},removeEventListener(){}},Event:class{},embeddedAgentPane:true,
     state:{session:{principal_id:'owner'},bizs:[]},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),newRequestId:()=>`key-${++key}`,

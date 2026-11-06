@@ -147,3 +147,36 @@ test('only the terminal step is flagged to keep Esc and Tab, and the retired Act
   assert.doesNotMatch(source, /\{id: 'activity'/);
   assert.match(source, /onboardingPlan\.handleKey\(/);
 });
+
+test('resumeIndex continues the retired Learning Applier steps at settings', () => {
+  const current = [...steps.slice(0, 6), {id: 'settings', chapter: 'yours'}];
+  assert.equal(plan.resumeIndex(current, {status: 'in_progress', step: 'learning'}), 6);
+  assert.equal(plan.resumeIndex(current, {status: 'in_progress', step: 'context'}), 6);
+  assert.equal(plan.resumeIndex(steps, {status: 'in_progress', step: 'learning'}), 6);
+});
+
+test('refused agent navigation stops before changing views or waiting for a target', async () => {
+  const vm = require('node:vm');
+  const source = fs.readFileSync(path.join(__dirname, '../js/onboarding.js'), 'utf8');
+  const prepare = source.slice(source.indexOf('  async function prepareStep('), source.indexOf('  async function showStep('));
+  for (const step of [{id:'terminal', terminal:true}, {id:'chat'}, {id:'focus',view:'focus'}]) {
+    let targetCalls=0, switches=0, waits=0;
+    const ctx={state:{scope:'global',globalTab:'agents'}, document:{querySelector:()=>({openAgent:true})}, isCurrent:()=>true,
+      waitFor:async fn=>{waits++;return fn();}, findAgent:()=>({agent_id:'a'}), globalAgentsNavigate:async()=>false,
+      globalAgentViewActive:{showTerminal(){switches++},showChat(){switches++}}, _agpad:null, visible:()=>true};
+    vm.createContext(ctx);vm.runInContext(prepare+'\nthis.prepareStep=prepareStep;',ctx);
+    await assert.rejects(ctx.prepareStep({...step,target:()=>{targetCalls++;return {}; }},1),/could not open.*open edit.*try again/i);
+    assert.equal(switches,0);assert.equal(targetCalls,0);assert.equal(waits,1);
+  }
+});
+
+test('a failed step never highlights a previously visible target', () => {
+  const vm = require('node:vm');
+  const source = fs.readFileSync(path.join(__dirname, '../js/onboarding.js'), 'utf8');
+  const position = source.slice(source.indexOf('  function position()'), source.indexOf('    const w = document.documentElement.clientWidth',source.indexOf('  function position()'))) + '\n}';
+  let described, queried=0;const ctx={root:{classList:{toggle(){}}},welcome:false,steps:[{target(){queried++;return {};}}],index:0,
+    stepTargetReady:false,appDialog:()=>false,visible:()=>true,describeTarget:value=>{described=value}};
+  vm.createContext(ctx);vm.runInContext(position+'\nthis.position=position;',ctx);ctx.position();
+  assert.equal(described,null);assert.equal(queried,0);
+  ctx.stepTargetReady=true;ctx.position();assert.notEqual(described,null);assert.ok(queried>0);
+});
