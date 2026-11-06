@@ -26,6 +26,13 @@ class AboutTest(unittest.TestCase):
         view = owner_settings.about_view({})
         self.assertEqual((view["version"], view["install_folder"], view["data_folder"]), (None, None, None))
 
+    def test_reports_whether_chrome_is_installed(self):
+        from unittest import mock
+        with mock.patch("bazarlyk.native_paths.installed_chrome", return_value=None):
+            self.assertIs(owner_settings.about_view({})["chrome_installed"], False)
+        with mock.patch("bazarlyk.native_paths.installed_chrome", return_value="/Applications/Google Chrome.app"):
+            self.assertIs(owner_settings.about_view({})["chrome_installed"], True)
+
 
 class AgentClientsTest(unittest.TestCase):
     def setUp(self):

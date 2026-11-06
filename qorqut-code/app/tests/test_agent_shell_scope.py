@@ -1,7 +1,7 @@
 """The prepared agent shell's claude and codex wrappers change a launch only in the agent's own workspace root.
 
 Everything runs in disposable directories with stand-in claude and codex executables that record their arguments, a
-stand-in connector launch file and trust command that record that they ran, and the CLI configuration variables pointed at
+stand-in trust command that records that it ran, and the CLI configuration variables pointed at
 a temporary directory (isolated_cli_environment). Nothing here reads or writes a real user's CLI files.
 """
 import isolated_cli_environment
@@ -16,8 +16,6 @@ import unittest
 from bazarlyk import agent_trust
 from bazarlyk.bootstrap.preparation import agent_shell, agent_zshrc
 
-CONNECTOR_CLAUDE = ["--mcp-config", "/connector/claude.json", "--chrome"]
-CONNECTOR_CODEX = ["-c", 'mcp_servers.demo.command="npx"']
 # Arguments the owner might type: spaces, an empty value, shell metacharacters and an option Qorqbot also sets.
 USER_ARGUMENTS = ["--resume", "two words", "", "$HOME", "*", "x;y", "--settings", "mine.json"]
 # A folder name that would run a command if it were ever left unquoted.
@@ -62,17 +60,12 @@ class Scope:
         self.subdirectory_link.symlink_to(self.subdirectory)
         (self.workspace / "out").symlink_to(self.project)
         self.launch_settings = self.workspace / ".bazarlyk" / "claude-launch-settings.json"
-        connector = self.runtime / "connectors-launch.sh"
-        connector.write_text("touch " + shlex.quote(str(self.records / "connector.flag")) + "\n"
-                             "QORQBOT_CLAUDE_ARGS=(" + " ".join(map(shlex.quote, CONNECTOR_CLAUDE)) + ")\n"
-                             "QORQBOT_CODEX_ARGS=(" + " ".join(map(shlex.quote, CONNECTOR_CODEX)) + ")\n")
-        self.connector = connector
         self.shell_file = self.write_shell(self.workspace)
 
     def write_shell(self, workspace, name="agent-shell"):
         path = self.base / name
         path.write_text(self.generate(shlex.quote(str(self.launch_settings)), shlex.quote(str(agent_trust.marker_path(self.runtime))),
-                                      shlex.quote(str(self.connector)), shlex.quote(str(workspace)),
+                                      shlex.quote(str(workspace)),
                                       "touch " + shlex.quote(str(self.records / "trust.flag"))))
         return path
 
@@ -103,19 +96,18 @@ class Scope:
         return (self.records / (name + ".flag")).exists()
 
     def in_root_claude(self, *arguments):
-        return [*CONNECTOR_CLAUDE, "--settings", str(self.launch_settings), *arguments]
+        return ["--settings", str(self.launch_settings), *arguments]
 
     def in_root_codex(self, *arguments, bypass):
-        return [*(["--dangerously-bypass-hook-trust"] if bypass else []), *CONNECTOR_CODEX, *arguments]
+        return [*(["--dangerously-bypass-hook-trust"] if bypass else []), *arguments]
 
     # -- the exact workspace root keeps every Qorqbot behaviour --------------------------------------------------------
 
-    def test_the_exact_root_applies_settings_connectors_and_the_consented_bypass(self):
+    def test_the_exact_root_applies_settings_and_the_consented_bypass(self):
         for granted in (False, True):
             with self.subTest(consent=granted):
                 self.consent(granted)
                 self.assertEqual(self.launch(self.workspace, "claude", *USER_ARGUMENTS), self.in_root_claude(*USER_ARGUMENTS))
-                self.assertTrue(self.ran("connector"))
                 self.assertEqual(self.ran("trust"), granted)
                 self.assertEqual(self.launch(self.workspace, "codex", *USER_ARGUMENTS),
                                  self.in_root_codex(*USER_ARGUMENTS, bypass=granted))
@@ -171,7 +163,7 @@ class Scope:
                 for client in ("claude", "codex"):
                     with self.subTest(consent=granted, where=where, client=client):
                         self.assertEqual(self.launch(cwd, client, *USER_ARGUMENTS), USER_ARGUMENTS)
-                        self.assertFalse(self.ran("connector"))
+                        self.assertFalse(self.ran("trust"))
                         self.assertFalse(self.ran("trust"))
 
     def test_other_folders_add_no_role_prompt_to_a_bare_launch(self):
@@ -180,7 +172,7 @@ class Scope:
             for client in ("claude", "codex"):
                 with self.subTest(where=where, client=client):
                     self.assertEqual(self.launch(cwd, client), [])
-                    self.assertFalse(self.ran("connector") or self.ran("trust"))
+                    self.assertFalse(self.ran("trust"))
                     self.assertEqual(self.launch(cwd, client, environ={"QORQBOT_ROLE_SENT": "1"}), [])
 
     def test_the_owners_own_settings_option_is_not_displaced_outside_the_root(self):
@@ -211,13 +203,13 @@ class Scope:
         gone.mkdir()
         calls, _ = self.run_in(gone, "rmdir " + shlex.quote(str(gone)) + "; claude hi; codex hi")
         self.assertEqual(sorted(calls), [["hi"], ["hi"]])
-        self.assertFalse(self.ran("connector") or self.ran("trust"))
+        self.assertFalse(self.ran("trust"))
         doomed = self.base / "doomed"
         doomed.mkdir()
         shell_file = self.write_shell(doomed, "agent-shell-doomed")
         calls, _ = self.run_in(doomed, "rmdir " + shlex.quote(str(doomed)) + "; claude hi", shell_file=shell_file)
         self.assertEqual(calls, [["hi"]])
-        self.assertFalse(self.ran("connector") or self.ran("trust"))
+        self.assertFalse(self.ran("trust"))
 
     def test_a_workspace_that_does_not_exist_or_is_not_absolute_never_matches(self):
         self.consent(True)

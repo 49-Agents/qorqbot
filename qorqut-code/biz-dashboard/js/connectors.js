@@ -1,14 +1,10 @@
-// Connectors: the tools the owner connects so agents can use them (browser, Playwright, Gmail and more).
+// Connectors: the services the owner connects so agents can use them (Gmail, Calendar and more).
 // `connectorsModel` is pure (unit tested with `node --test biz-dashboard/tests/*.test.js`); `connectorsPanel` renders the
 // panel shown in Settings and in the walkthrough. Status comes from /root/connectors (bazarlyk.connectors).
 const connectorsModel = (() => {
   const CLAUDE_CONNECTORS_URL = 'https://claude.ai/settings/connectors';
-  const CHROME_GUIDE_URL = 'https://code.claude.com/docs/en/chrome';
   const icon = path => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
   const ICONS = {
-    browser: icon('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/>'),
-    chrome: icon('<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/><path d="M9.5 14.5l2 2 3.5-4"/>'),
-    playwright: icon('<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18"/><path d="M10 12.5l4 2.5-4 2.5z"/>'),
     gmail: icon('<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M4 7l8 6 8-6"/>'),
     google_calendar: icon('<rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>'),
     google_drive: icon('<path d="M4 18.5h16M8.5 4.5h7L21 14l-2.5 4.5M8.5 4.5L3 14l2.5 4.5M8.5 4.5L14 14H3"/>'),
@@ -18,20 +14,6 @@ const connectorsModel = (() => {
   };
   // Owner-facing copy. `does` is what agents can do with it, `why` why it helps, `privacy` what it can see and where it runs.
   const COPY = {
-    browser: {name: 'Helper browser', does: 'Helper agents Ordubashy hands work to get a separate, signed-out browser of their own for web tasks.',
-      why: 'Lets background helpers research and fill in forms without touching your own browser.',
-      privacy: 'Runs on this computer in a separate browser profile. Nothing you are signed in to is shared with it.',
-      needs: 'Needs Google Chrome and the free agent-browser command.'},
-    chrome: {name: 'Your Chrome', does: 'Ordubashy opens and reads sites in your own Chrome, where you are already signed in (LinkedIn, Gmail on the web, your dashboards), only where you allow it.',
-      why: 'Most useful sites need your login. This way an agent never needs your password.',
-      privacy: 'Runs in your Chrome on this computer. You choose in the extension which sites Claude may use.',
-      needs: 'Needs Claude Code on a paid Claude plan and the Claude in Chrome extension.',
-      steps: ['Install the Claude in Chrome extension and sign in to it with your Claude account.', 'Press Turn on here.', 'Your agents use it from their next start.'],
-      install: 'https://chromewebstore.google.com/detail/claude/fcoeoabgfenejglbffodgkkbkcdhcgfn'},
-    playwright: {name: 'Playwright', does: 'Agents drive a separate, clean browser step by step: test your website, repeat a web task, save pages.',
-      why: 'The most reliable way to check a site or do the same web task many times.',
-      privacy: 'Runs locally through npx with its own browser. Your Chrome profile and passwords are never used.',
-      needs: 'Needs Node.js on this computer. Uses Google Chrome when it is installed; otherwise the agent installs Playwright’s own browser on first use.'},
     gmail: {name: 'Gmail', does: 'Ordubashy finds and reads your email, sorts what needs you and drafts replies for you to send.',
       why: 'Most requests arrive by email. This is how your agents keep up with them.',
       privacy: 'You sign in with Google on Google’s own page. Qorqbot never sees your password and keeps no copy of your mail.'},
@@ -55,13 +37,12 @@ const connectorsModel = (() => {
     checking: {label: 'Checking…', tone: 'idle'}, unavailable: {label: 'Unavailable', tone: 'warn'},
     unknown: {label: 'Unknown', tone: 'idle'}, not_installed: {label: 'Not installed', tone: 'idle'},
     not_set_up: {label: 'Not set up', tone: 'idle'}, not_paired: {label: 'Not linked', tone: 'warn'},
-    unsupported: {label: 'Not on Windows', tone: 'idle'}, needs_extension: {label: 'Needs the Chrome extension', tone: 'warn'}, coming_soon: {label: 'Coming soon on Mac', tone: 'idle'}, needs_install: {label: 'Needs a quick install', tone: 'warn'},
+    coming_soon: {label: 'Coming soon on Mac', tone: 'idle'}, needs_install: {label: 'Needs a quick install', tone: 'warn'},
   };
   const status = item => STATUS[item.status] || STATUS.unknown;
-  // What the card's main button does: 'toggle' (on/off here), 'claude' (connect on claude.ai), 'none'.
+  // What the card's main button does: 'claude' (connect on claude.ai) or 'none'.
   function action(item) {
-    if (item.status === 'unsupported' || item.status === 'coming_soon') return {kind: 'none'};
-    if (item.kind === 'local') return {kind: 'toggle', label: ['connected', 'needs_extension'].includes(item.status) ? 'Turn off' : 'Turn on'};
+    if (item.status === 'coming_soon') return {kind: 'none'};
     if (item.kind === 'claude') {
       if (item.status === 'connected') return {kind: 'claude', label: 'Manage', quiet: true};
       if (item.status === 'unavailable' || item.status === 'checking') return {kind: 'none'};
@@ -76,19 +57,11 @@ const connectorsModel = (() => {
     return {text, tone: ['not_added', 'not_installed', 'unsupported', 'coming_soon', 'checking'].includes(item.status) ? 'info' : 'warn'};
   }
   function noteText(item) {
-    if (item.id === 'chrome' && item.status === 'needs_extension') return 'On, but the Claude in Chrome extension isn’t installed in your Chrome yet. Install it from the Chrome Web Store and sign in to it with your Claude account.';
-    if (item.id === 'chrome' && item.status === 'off' && item.extension === false) return 'Also needs the Claude in Chrome extension in your Chrome.';
-    if (item.id === 'chrome' && item.status === 'unsupported') return 'Claude in Chrome can’t reach Windows Chrome from Qorqbot’s Linux side (WSL). Use Playwright instead.';
     if (item.kind === 'claude' && item.status === 'unavailable')
       return item.reason === 'claude_missing' ? 'Install Claude Code and sign in with your Claude account to use Claude’s connectors.'
         : 'Claude Code could not list its connectors. Open a terminal and run “claude” once to sign in.';
     if (item.kind === 'claude' && item.status === 'failed') return 'Claude could not reach it. Open Claude’s connectors and connect it again.';
     if (item.kind === 'claude' && item.status !== 'connected') return 'Claude Code only. Codex can’t use Claude’s connectors.';
-    if (item.id === 'browser' && item.status === 'needs_install') {
-      const chrome = item.missing?.includes('chrome'), tool = item.missing?.includes('agent_browser');
-      return chrome && tool ? 'Install Google Chrome, then run the command below in Terminal.'
-        : chrome ? 'Install Google Chrome from google.com/chrome.' : 'Run the command below in Terminal.';
-    }
     if (item.id === 'whatsapp' && item.status === 'coming_soon') return 'The WhatsApp extension is available for Windows (WSL) and Linux. A Mac version is in progress.';
     if (item.id === 'whatsapp' && item.status === 'not_installed') return 'Comes with the WhatsApp extension, which isn’t installed in this Qorqbot yet.';
     if (item.id === 'whatsapp' && item.status === 'not_set_up') return 'The WhatsApp extension is installed. Link your phone to finish.';
@@ -108,7 +81,7 @@ const connectorsModel = (() => {
     if (value.method !== 'claude.ai') return {tone: 'warn', text: 'Claude Code is signed in with an API key. Claude’s connectors need a Claude account sign-in.'};
     return {tone: 'ok', text: `Your agents use the Claude account ${value.email || 'you signed in with'}. Connect services on claude.ai while signed in to that same account.`};
   }
-  return {COPY, ICONS, STATUS, CLAUDE_CONNECTORS_URL, CHROME_GUIDE_URL, status, action, note, summary, account};
+  return {COPY, ICONS, STATUS, CLAUDE_CONNECTORS_URL, status, action, note, summary, account};
 })();
 if (typeof module !== 'undefined') module.exports = connectorsModel;
 
@@ -125,29 +98,25 @@ const connectorsPanel = (() => {
   function card(item) {
     const copy = connectorsModel.COPY[item.id] || {name: item.id, does: ''};
     const status = connectorsModel.status(item), action = connectorsModel.action(item), note = connectorsModel.note(item);
-    const button = action.kind === 'none' ? '' : `<button type="button" class="${action.quiet || action.label === 'Turn off' ? 'quiet' : ''}" data-cx-action="${esc(action.kind)}" data-cx-id="${esc(item.id)}">${esc(action.label)}</button>`;
+    const button = action.kind === 'none' ? '' : `<button type="button" class="${action.quiet ? 'quiet' : ''}" data-cx-action="${esc(action.kind)}" data-cx-id="${esc(item.id)}">${esc(action.label)}</button>`;
     const steps = copy.steps ? `<ol>${copy.steps.map(step => `<li>${esc(step)}</li>`).join('')}</ol>` : '';
-    const guide = item.id === 'chrome' ? `<a href="${connectorsModel.CHROME_GUIDE_URL}" target="_blank" rel="noopener noreferrer">How to install Claude in Chrome</a>` : '';
     return `<article class="cx-card" data-cx-card="${esc(item.id)}" data-tone="${status.tone}">
       <div class="cx-card-head"><span class="cx-icon">${connectorsModel.ICONS[item.id] || ''}</span>
         <div class="cx-card-title"><h3>${esc(copy.name)}</h3><span class="cx-status" data-tone="${status.tone}">${esc(status.label)}</span></div>
         ${button}</div>
       <p class="cx-does">${esc(copy.does)}</p>
       ${note ? `<p class="cx-note" data-tone="${note.tone}">${esc(note.text)}</p>` : ''}
-      ${item.id === 'chrome' && item.extension === false && copy.install ? `<a class="cx-get" href="${esc(copy.install)}" target="_blank" rel="noopener noreferrer">Get Claude in Chrome</a>` : ''}
-      ${item.install && item.missing?.includes('agent_browser') ? `<div class="cx-command"><code>${esc(item.install)}</code><button type="button" class="quiet" data-cx-copy="${esc(item.install)}">Copy</button></div>` : ''}
       <details class="cx-more"><summary>Why it helps and what it can see</summary>
         <p><b>Why:</b> ${esc(copy.why || '')}</p><p><b>Privacy:</b> ${esc(copy.privacy || '')}</p>
-        ${copy.needs ? `<p><b>Needs:</b> ${esc(copy.needs)}</p>` : ''}${steps}${guide}</details>
+        ${copy.needs ? `<p><b>Needs:</b> ${esc(copy.needs)}</p>` : ''}${steps}</details>
     </article>`;
   }
   // Settings shows each connector as one compact row; the walkthrough and the cards above share the same model.
   function row(item) {
     const copy = connectorsModel.COPY[item.id] || {name: item.id, does: ''};
     const status = connectorsModel.status(item), action = connectorsModel.action(item), note = connectorsModel.note(item);
-    const button = action.kind === 'none' ? '' : `<button type="button" class="${action.quiet || action.label === 'Turn off' ? 'quiet' : ''}" data-cx-action="${esc(action.kind)}" data-cx-id="${esc(item.id)}">${esc(action.label)}</button>`;
+    const button = action.kind === 'none' ? '' : `<button type="button" class="${action.quiet ? 'quiet' : ''}" data-cx-action="${esc(action.kind)}" data-cx-id="${esc(item.id)}">${esc(action.label)}</button>`;
     const steps = copy.steps ? `<ol>${copy.steps.map(step => `<li>${esc(step)}</li>`).join('')}</ol>` : '';
-    const guide = item.id === 'chrome' ? `<a href="${connectorsModel.CHROME_GUIDE_URL}" target="_blank" rel="noopener noreferrer">How to install Claude in Chrome</a>` : '';
     const search = [copy.name, copy.does, copy.why, status.label, item.id.replace('_', ' ')].join(' ').toLowerCase();
     return `<div class="cx-row" data-cx-card="${esc(item.id)}" data-tone="${status.tone}" data-search="${esc(search)}">
       <span class="cx-icon">${connectorsModel.ICONS[item.id] || ''}</span>
@@ -155,11 +124,9 @@ const connectorsPanel = (() => {
         <div class="cx-row-title"><h3>${esc(copy.name)}</h3><span class="cx-status" data-tone="${status.tone}">${esc(status.label)}</span></div>
         <p class="cx-row-does">${esc(copy.does)}</p>
         ${note ? `<p class="cx-note" data-tone="${note.tone}">${esc(note.text)}</p>` : ''}
-        ${item.id === 'chrome' && item.extension === false && copy.install ? `<a class="cx-get" href="${esc(copy.install)}" target="_blank" rel="noopener noreferrer">Get Claude in Chrome</a>` : ''}
-        ${item.install && item.missing?.includes('agent_browser') ? `<div class="cx-command"><code>${esc(item.install)}</code><button type="button" class="quiet" data-cx-copy="${esc(item.install)}">Copy</button></div>` : ''}
         <details class="cx-more"><summary>What it can see</summary>
           <p><b>Why:</b> ${esc(copy.why || '')}</p><p><b>Privacy:</b> ${esc(copy.privacy || '')}</p>
-          ${copy.needs ? `<p><b>Needs:</b> ${esc(copy.needs)}</p>` : ''}${steps}${guide}</details>
+          ${copy.needs ? `<p><b>Needs:</b> ${esc(copy.needs)}</p>` : ''}${steps}</details>
       </div>
       <div class="cx-row-action">${button}</div>
     </div>`;
@@ -178,16 +145,16 @@ const connectorsPanel = (() => {
     const root = document.createElement('div');
     root.className = 'cx-panel' + (options.rows ? ' cx-panel-rows' : '');
     root.innerHTML = `${options.compact ? '' : PRIVACY}
-      <div class="cx-head"><div>${options.rows ? '' : '<h2>Connect your tools</h2>'}<p>Give your agents the tools they need. Your Chrome, Playwright and Gmail are strongly recommended; everything is optional.</p></div>
+      <div class="cx-head"><div>${options.rows ? '' : '<h2>Connect your tools</h2>'}<p>Give your agents the tools they need. Gmail is strongly recommended; everything is optional.</p></div>
         <div class="cx-progress" data-cx-progress aria-live="polite"></div></div>
       <p class="cx-error" data-cx-error role="alert" hidden></p>
       <p class="cx-account" data-cx-account hidden></p>
       <h3 class="cx-group">Strongly recommended</h3><div class="${options.rows ? 'cx-rows' : 'cx-grid'}" data-cx-tier="recommended"><p class="muted small">Loading connectors…</p></div>
       <h3 class="cx-group">Also useful</h3><div class="${options.rows ? 'cx-rows' : 'cx-grid'}" data-cx-tier="suggested"></div>
       ${CLAUDE_STEPS}
-      <p class="cx-foot muted small">Changes reach an agent the next time it starts. <button type="button" class="cx-link" data-cx-refresh>Check again</button></p>`;
+      <p class="cx-foot muted small"><button type="button" class="cx-link" data-cx-refresh>Check again</button></p>`;
     container.appendChild(root);
-    let view = null, timer = 0, busy = false, awaitingClaude = false;
+    let view = null, timer = 0, awaitingClaude = false;
     const live = () => root.isConnected;
     const error = text => { const el = root.querySelector('[data-cx-error]'); el.textContent = text || ''; el.hidden = !text; };
     function paint() {
@@ -220,29 +187,14 @@ const connectorsPanel = (() => {
     }
     root.addEventListener('click', async event => {
       if (event.target.closest('[data-cx-refresh]')) { await load({refresh: true}); return; }
-      const copy = event.target.closest('[data-cx-copy]');
-      if (copy) {
-        try { await navigator.clipboard.writeText(copy.dataset.cxCopy); copy.textContent = 'Copied'; }
-        catch (_) { copy.textContent = 'Select and copy'; }
-        setTimeout(() => { if (copy.isConnected) copy.textContent = 'Copy'; }, 2000);
-        return;
-      }
       const button = event.target.closest('[data-cx-action]');
-      if (!button || busy) return;
+      if (!button) return;
       const item = view?.connectors.find(entry => entry.id === button.dataset.cxId);
       if (!item) return;
       if (button.dataset.cxAction === 'claude') {
         window.open(connectorsModel.CLAUDE_CONNECTORS_URL, '_blank', 'noopener,noreferrer');
-        awaitingClaude = true; paint(); return;
+        awaitingClaude = true; paint();
       }
-      busy = true; button.disabled = true;
-      // On covers "needs the extension" too: its button reads Turn off.
-      const enabling = !['connected', 'needs_extension'].includes(item.status);
-      try {
-        await load({id: item.id, enabled: enabling});
-        if (live() && !root.querySelector('[data-cx-error]').textContent)
-          toast(`${connectorsModel.COPY[item.id].name} ${enabling ? 'is on' : 'is off'}. Your agents get the change the next time they start.`);
-      } finally { busy = false; if (button.isConnected) button.disabled = false; }
     });
     // Returning from claude.ai: check again by itself, once per return.
     const focus = () => { if (awaitingClaude && live() && document.visibilityState === 'visible') load({refresh: true}); };

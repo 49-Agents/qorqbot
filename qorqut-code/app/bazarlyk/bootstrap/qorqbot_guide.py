@@ -111,11 +111,8 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
 ## Settings (the gear)
 
 - **Connect your tools**: what the agents can use.
-  - Strongly recommended: **Your Chrome** (Claude in Chrome: Claude Code works in the owner's own Chrome, on sites the
-    owner is signed in to, such as LinkedIn; needs the free Claude in Chrome extension, which the card links to),
-    **Playwright** (a separate, signed-out browser agents can drive; needs Node.js) and **Gmail**.
-  - Also useful: Google Calendar, Google Drive, Notion, Slack, WhatsApp (not on Mac yet) and the **Helper browser**
-    (Google Chrome plus the `agent-browser` command, for helper agents Ordubashy hands work to).
+  - Strongly recommended: **Gmail**.
+  - Also useful: Google Calendar, Google Drive, Notion, Slack and WhatsApp (not on Mac yet).
   - Gmail, Calendar, Drive, Notion and Slack are claude.ai connectors: **Connect** opens claude.ai's connector
     settings; sign in there with the same Claude account the agents use (the panel names it). They work in Claude Code,
     not in Codex. Changes reach an agent the next time it starts.
@@ -137,8 +134,7 @@ Five chapters: get online, your workspace, projects and decisions, make it yours
   Terminal Command**, `qorqbot` in any terminal starts it and opens the browser; `qorqbot stop` and `qorqbot status` work
   from any folder. Other commands: `qorqbot calendar-connect`, `qorqbot install-command --remove`; `--port` and
   `--no-open` change how it starts.
-- Windows: Qorqbot runs inside WSL2 (Ubuntu) and shows in the Windows browser. Claude in Chrome does not work there;
-  Playwright does.
+- Windows: Qorqbot runs inside WSL2 (Ubuntu) and shows in the Windows browser.
 
 ## When something does not work
 
