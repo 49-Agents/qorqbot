@@ -310,3 +310,19 @@ test('ordinary dismissal of a different recurring occurrence uses a separate req
   find(host,'Dismiss').onclick();await flush();assert.equal(writes.length,2);
   assert.equal(writes[0].occurrence_id,'one');assert.equal(writes[1].occurrence_id,'two');assert.notEqual(writes[0].idempotency_key,writes[1].idempotency_key);view.dispose();
 });
+
+test('agent-to-agent communications advance the feed without owner popups', async () => {
+  const notes=[], urls=[];
+  const feed=[{event_id:5,sender_name:'A',recipient_name:'B',sender_id:'a',recipient_id:'b'}];
+  const context={sessionStorage:{getItem(){return null;},setItem(){}}, document:{addEventListener(){},querySelectorAll(){return [];},dispatchEvent(){}},
+    window:{}, loadGlobalAgentProfiles:async()=>{}, globalAgentProfile:()=>({role:{id:'ordubashy'}}), Event:class {},
+    api:async url=>{urls.push(url);return {items:[],communications:{next_cursor:urls.length===1?1:5,items:urls.length===1?[]:feed}};},
+    coreData:x=>x, notify:n=>notes.push(n), setTimeout:()=>0, clearTimeout(){}, primaryAgent:()=>true};
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reply-notifications.js'),'utf8')+'\nthis.subject=replyNotifications;',context);
+  await context.subject.refresh();
+  await context.subject.refresh();
+  assert.equal(urls.length,2);
+  assert.match(urls[1],/communications_after=1/);
+  assert.deepEqual(notes,[]);
+});
