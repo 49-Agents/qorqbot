@@ -1,12 +1,9 @@
 """Always-loaded skills for the configured Ordubashy (stdlib only).
 
-Preparation installs this as `.bazarlyk/always-skills.py` and a separate
-SessionStart/UserPromptSubmit hook entry only for the configured Ordubashy.
-It injects the full text of the agent's own materialized SKILL.md files; the
-files remain the single source. A separate hook keeps its own context budget,
-so neither these skills nor the shared bootstrap configuration is truncated.
-Lifecycle events always inject; prompt events inject only when the rendered
-digest differs from this session's receipt. Failures never block the session.
+The startup composer calls this for the configured Ordubashy before adding
+context. It returns current skill text on lifecycle events or a changed digest,
+and one short operational intake reminder for each UserPromptSubmit. Existing
+skill receipts do not suppress that reminder. No separate prompt hook is installed.
 """
 from __future__ import annotations
 
@@ -70,6 +67,8 @@ def handle(hook: dict, registration_path: Path, runtime: str) -> dict:
     registration = json.loads(registration_path.read_text())
     workspace = Path(registration["workspace"])
     context = render(workspace, runtime)
+    policy = agentic_policy(registration_path)
+    reminder = policy.from_prepared(registration_path).render('operational-intake') if event == 'UserPromptSubmit' else ''
     digest = hashlib.sha256(context.encode()).hexdigest()
     receipt_path = _receipt_path(workspace, session_id)
     if event == "UserPromptSubmit":
@@ -79,20 +78,20 @@ def handle(hook: dict, registration_path: Path, runtime: str) -> dict:
             previous = {}
         if (previous.get("registration_id") == registration.get("registration_id")
                 and previous.get("digest") == digest):
-            return {}
+            return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": reminder}}
     try:
         _write_private(receipt_path, {"registration_id": registration.get("registration_id"),
             "session_id": session_id, "runtime": runtime, "digest": digest,
             "event": hook.get("source", "startup") if event == "SessionStart" else "prompt"})
     except OSError:
         pass  # Delivery still proceeds; the next prompt re-injects.
-    return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}}
+    return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": '\n\n'.join(filter(None, [reminder, context]))}}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Always-loaded skills hook")
     parser.add_argument("--registration", type=Path, required=True)
-    parser.add_argument("--runtime", choices=tuple(SKILL_ROOTS), required=True)
+    parser.add_argument("--runtime", choices=('codex', 'claude-code'), required=True)
     args = parser.parse_args()
     try:
         hook = json.loads(sys.stdin.read(4 * 1024 * 1024))

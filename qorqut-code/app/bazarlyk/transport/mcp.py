@@ -36,7 +36,7 @@ OVERSEER_SESSION_OPERATIONS = frozenset({
     'overseer_development_task_link', 'overseer_development_tasks_reconcile',
 })
 
-ATTENTION_SESSION_OPERATIONS = frozenset({'attention_get', 'attention_add', 'attention_remove',
+ATTENTION_SESSION_OPERATIONS = frozenset({'todo_get', 'todo_add', 'todo_remove', 'attention_get', 'attention_add', 'attention_remove',
     'attention_focus_set', 'attention_focus_clear', 'attention_workflow_update'})
 
 

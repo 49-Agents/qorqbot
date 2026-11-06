@@ -15,7 +15,7 @@ from qorqut_operations.relationships import related_rows
 from qorqut_operations.storage.files import RegisteredFileTarget, file_hash, file_values
 from qorqut_operations.storage.safe_io import read_bytes as read_file_bytes
 from . import business_notes
-from .journal_access import JOURNAL_KINDS, is_owner, require_owner
+from .journal_access import JOURNAL_KINDS, is_owner, require_writer
 from .materials import classification
 from .people import affiliation_effect, details as person_details
 from .relationships import LEGACY_FIELDS, projection
@@ -189,7 +189,7 @@ class DocumentStore:
               path=None, expected_revision=None, expected_content_hash=None, agent_id=None,
               business_id=UNSET, namespace=None, source_refs=None, operation_name=None):
         if kind in JOURNAL_KINDS or before and before["kind"] in JOURNAL_KINDS:
-            require_owner(builder.ctx, uow)
+            require_writer(builder.ctx, uow, builder.operation)
         if before and before['kind'] == 'plan' and before['metadata_json'].get('working_memory_id'):
             raise DomainError('plan_migrated', 'Legacy plan is frozen; use working_memory_update')
         business_id = builder.ctx.business_id if business_id is UNSET else business_id
@@ -239,7 +239,7 @@ class DocumentStore:
 
     def archive(self, builder, uow, row, *, expected_revision, expected_content_hash=None, namespace=None, operation_name=None, archived=True):
         if row["kind"] in JOURNAL_KINDS:
-            require_owner(builder.ctx, uow)
+            require_writer(builder.ctx, uow, builder.operation)
         business_notes.require_project_access(builder.ctx, row)
         require_revision(row, expected_revision)
         if expected_content_hash is not None:

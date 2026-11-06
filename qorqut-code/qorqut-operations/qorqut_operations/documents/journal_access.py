@@ -5,6 +5,7 @@ from qorqut_operations.storage.repositories import decode_row
 from qorqut_operations.team_channel import installation_owner_id
 
 JOURNAL_KINDS = frozenset({"global_note", "business_note", "journal"})
+JOURNAL_WRITES = frozenset({'journal_entry_create', 'journal_entry_update', 'journal_entry_archive'})
 
 
 def is_owner(ctx, uow):
@@ -15,6 +16,22 @@ def is_owner(ctx, uow):
 def require_owner(ctx, uow):
     if not is_owner(ctx, uow):
         raise DomainError("forbidden", "Only the owner may change the personal journal")
+
+
+def require_writer(ctx, uow, operation):
+    """Only explicit journal operations extend the writer boundary to the coordinator."""
+    if is_owner(ctx, uow):
+        return
+    from qorqut_operations.global_agents import global_profile
+    from qorqut_operations.roles import ORDUBASHY_ROLE
+    installation = uow.repository('installation').get('service')
+    profile = global_profile(uow.connection, ctx.principal_id) if ctx.principal_kind == 'agent' else None
+    if (operation in JOURNAL_WRITES and installation and profile
+            and ctx.principal_id == installation['management_coordinator_id']
+            and profile['profile']['role']['id'] == ORDUBASHY_ROLE
+            and ctx.business_id is None and ctx.home_business_id is None and not ctx.delegation_assignment_id):
+        return
+    require_owner(ctx, uow)
 
 
 def entries(uow, *, include_archived=False):

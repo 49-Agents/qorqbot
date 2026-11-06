@@ -4,6 +4,7 @@
 def documents(instructions, *, display_name, agent_id, software_boundary, extension_orientations,
               ordubashy, code_roots, delegate_operations, inbox_available):
     inbox_guidance = instructions.render('workspace-inbox') if inbox_available else ""
+    core = instructions.render('ordubashy-core') + '\n' if ordubashy else ''
     orientation = (instructions.render('workspace-identity', DISPLAY_NAME=display_name, AGENT_ID=agent_id))
     orientation += "\n" + software_boundary + "\n"
     for guidance in extension_orientations:
@@ -29,12 +30,12 @@ def documents(instructions, *, display_name, agent_id, software_boundary, extens
         codex_delegation += (lead +
             instructions.render('workspace-native-subagents')
             + unavailable +
-            instructions.render('workspace-no-substitutes')
+            ('' if ordubashy else instructions.render('workspace-no-substitutes'))
             + queued +
             instructions.render('workspace-completion') + browser)
         codex_delegation += (
             instructions.render('workspace-delegation-summary'))
     return {
-        'CLAUDE.md': (orientation + instructions.render('workspace-claude') + inbox_guidance).encode(),
-        'AGENTS.md': (orientation + instructions.render('workspace-codex') + codex_delegation).encode(),
+        'CLAUDE.md': (core + instructions.render('workspace-claude') + inbox_guidance + '\n' + orientation).encode(),
+        'AGENTS.md': (core + instructions.render('workspace-codex') + codex_delegation + '\n' + orientation).encode(),
     }

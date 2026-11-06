@@ -60,8 +60,22 @@ class Attention:
         for name, (fields, required) in ops.items():
             self.app.registry.register(OperationDescriptor(name, schema({**shared, **fields}, required), **common,
                 prepare=lambda c,a,o,u,op=name:self.prepare(op,c,a,u), apply=self.apply))
+        # Same records and policy checks under the current product vocabulary.
+        # Keep the old operations for saved clients and policy overrides.
+        for name in ('get', 'add', 'remove'):
+            original = self.app.registry.get('attention_' + name)
+            self.app.registry.register(replace(original, name='todo_' + name,
+                read=(lambda c,a,o,u:self.read_alias(c,a,o,u)) if name == 'get' else None,
+                prepare=None if name == 'get' else lambda c,a,o,u,op='todo_'+name:self.prepare(op,c,a,u)))
         self.app.ordubashy_attention = self
         return self
+
+    def alias_authorize(self, ctx, operation, uow):
+        self.app.authorize(ctx, self.app.registry.get(operation.replace('todo_', 'attention_', 1)), (), uow, namespace='global')
+
+    def read_alias(self, ctx, args, options, uow):
+        self.alias_authorize(ctx, 'todo_get', uow)
+        return self.read(ctx, args, uow)
 
     def context(self, ctx, args, uow):
         ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
@@ -113,8 +127,8 @@ class Attention:
         membership = self.task_membership(uow, agent_id, task_ref)
         if not membership or membership['task_created_at'] != task['created_at']:
             raise DomainError('not_found', 'Task is not on Attention board')
-        if task.get('task_type') != 'task' or task.get('archived'):
-            raise DomainError('validation_error', 'Board work requires an unarchived ordinary Task')
+        if task.get('archived'):
+            raise DomainError('validation_error', 'Todo requires an unarchived work item')
         return {'task': task, 'membership': membership}
 
     def set_focus(self, uow, ctx, agent_id, *, focus, task, intent, expected_focus_generation):
@@ -384,17 +398,20 @@ class Attention:
 
     def prepare(self, op, ctx, args, uow):
         self.validate(op, ctx, args, uow)
-        return PlanBuilder(ctx, op, args, 'Update Attention board', namespace='global', affected_scope={'kind':'global'}).build()
+        return PlanBuilder(ctx, op, args, 'Update Todo', namespace='global', affected_scope={'kind':'global'}).build()
 
     def validate(self, op, ctx, args, uow):
         ctx, agent = self.context(ctx, args, uow)
+        if op.startswith('todo_'):
+            self.alias_authorize(ctx, op, uow)
+            op = op.replace('todo_', 'attention_', 1)
         state = self.state(uow, agent)
         if 'expected_revision' in args and args['expected_revision'] != state['revision']:
             raise DomainError('revision_conflict', 'Attention changed; reread it', current_revision=state['revision'])
         if op in ('attention_add','attention_focus_set'):
             task = self.task(ctx, args['task'], uow, notes=False)
-            if task.get('task_type') != 'task' or task.get('archived'):
-                raise DomainError('validation_error', 'Board work requires an unarchived ordinary Task')
+            if task.get('archived'):
+                raise DomainError('validation_error', 'Todo requires an unarchived work item')
             if op == 'attention_focus_set':
                 membership = self.task_membership(uow, agent, args['task'])
                 if not membership or membership['task_created_at'] != task['created_at']: raise DomainError('not_found', 'Task is not on Attention board')
@@ -456,6 +473,7 @@ class Attention:
     def apply(self, ctx, plan, uow):
         args, op = plain(plan.arguments), plan.operation_name
         ctx, agent, state = self.validate(op, ctx, args, uow)
+        op = op.replace('todo_', 'attention_', 1)
         now = timestamp(self.clock)
         if op == 'attention_add':
             task = self.task(ctx,args['task'],uow,notes=False)

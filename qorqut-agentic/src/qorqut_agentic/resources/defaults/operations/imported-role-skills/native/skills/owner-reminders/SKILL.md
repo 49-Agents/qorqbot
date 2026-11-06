@@ -79,7 +79,7 @@ wait for your session, direct inputs and the normal inbox pacing.
 - Reading or acknowledging the inbox event does not dismiss the reminder. It stays
   `due` until you explicitly dismiss, snooze or cancel it.
 - Dismiss it once its action is captured as tracked work: reuse the matching Task or
-  create one. Ordubashy puts an accepted commitment on Attention (`attention_add`) before
+  create one. Ordubashy puts an accepted commitment on Attention (`todo_add`) before
   executing it. You do not have to finish the work first. Do not dismiss before the
   capture, or merely to clear the notice. If you cannot capture it now, snooze.
 - A reminder is not permission to do the remembered action, and dismissing it never

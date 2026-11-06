@@ -15,6 +15,7 @@ from qorqut_operations.conversations import SUMMARY, normalize_summary
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp
+from qorqut_operations.discussion.threads import RELAY, attribution, read_attribution, save_attribution
 
 UUID = {'type': 'string', 'format': 'uuid'}
 PAGE = {'after': {'type': 'integer', 'minimum': 0}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}}
@@ -69,7 +70,7 @@ class Messages:
         self.app.registry.register(OperationDescriptor('agents_message_send', schema({
             'scope': {'enum': ['business', 'global']}, 'to_agent_id': UUID, 'reply_to': UUID, 'summary': SUMMARY,
             'delivery': {'enum': ['inbox', 'terminal'], 'description': instruction_text('messages-default-inbox-terminal-targeted-retired-project-dev-agents')},
-            'message': {'type': 'string', 'minLength': 1, 'maxLength': 16000}}, ('message',)),
+            'message': {'type': 'string', 'minLength': 1, 'maxLength': 16000}, 'relay': RELAY}, ('message',)),
             **common, description=instruction_text('messages-send-a-durable-internal-message-to-a-scoped'),
             prepare=self.prepare, apply=self.apply))
         self.app.registry.register(OperationDescriptor('agents_messages_list', schema({
@@ -149,6 +150,7 @@ class Messages:
 
     def prepare(self, ctx, args, options, uow):
         ctx, peer, parent = self.validate(ctx, args, uow)
+        attribution(ctx, uow, args.get('relay'))
         return PlanBuilder(ctx, 'agents_message_send', args, 'Send internal message', clock=self.inbox.clock,
             namespace='business:' + ctx.business_id if ctx.business_id else 'global',
             affected_scope={'kind': 'business', 'business_id': ctx.business_id} if ctx.business_id else {'kind': 'global'}).build()
@@ -157,6 +159,7 @@ class Messages:
         args = plain(plan.arguments)
         ctx, peer, parent = self.validate(ctx, args, uow)
         identity, now = new_id(), timestamp(self.inbox.clock)
+        save_attribution(ctx, uow, 'agent_message', identity, args.get('relay'))
         event_id = uow.connection.execute(
             'INSERT INTO inbox_events(business_id,source_type,source_id,actor_id,event_type,summary,created_at) VALUES(?,?,?,?,?,?,?)',
             (ctx.business_id, 'agent_messages', identity, ctx.principal_id, 'direct_message', args['message'][:160], now)).lastrowid
@@ -175,6 +178,10 @@ class Messages:
     def view(self, row, uow, viewer=None):
         """Original names attribute authorship; current participants route replies and delivery."""
         result = dict(row)
+        result.update(read_attribution(uow, 'agent_message', row['id'], row['sender_id']))
+        from qorqut_operations.conversations import author
+        result.update(author({'created_by': row['sender_id'], 'author_id': result['author_id'],
+                              'recorder_id': row['sender_id']}, uow))
         for field in ('delegation_assignment_id', 'delegation_generation',
                       'delegation_binding_id', 'delegation_plan_revision'):
             result.pop(field, None)

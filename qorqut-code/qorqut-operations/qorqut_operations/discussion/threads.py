@@ -31,6 +31,9 @@ RELAY = {"description": instruction_text('threads-optional-attribution-of-a-rela
              schema({"kind": {"const": "explicit_owner_statement"}, "owner_id": IDENTITY,
                      "statement_text": {"type": "string", "minLength": 1, "maxLength": 20000}, "source": RELAY_SOURCE},
                     ("kind", "owner_id", "statement_text")),
+             schema({"kind": {"const": "owner_intent"}, "owner_id": IDENTITY,
+                     "statement_text": {"type": "string", "minLength": 1, "maxLength": 20000}, "source": RELAY_SOURCE},
+                    ("kind", "owner_id", "statement_text")),
              schema({"kind": {"const": "agent_report"}, "agent_id": IDENTITY,
                      "report_text": {"type": "string", "minLength": 1, "maxLength": 20000}, "source": RELAY_SOURCE},
                     ("kind", "agent_id", "report_text"))]}
@@ -70,7 +73,7 @@ def attribution(ctx, uow, relay: Mapping | None) -> tuple[str, dict]:
     kind = relay.get("kind")
     if ctx.principal_kind != "agent" or not _registered_coordinator(uow, ctx.principal_id):
         raise DomainError("forbidden", "Only the registered coordinator may relay a statement")
-    if kind == "explicit_owner_statement":
+    if kind in {"explicit_owner_statement", "owner_intent"}:
         owner = uow.connection.execute("SELECT owner_principal_id FROM installation WHERE id='service'").fetchone()
         if owner is None or owner["owner_principal_id"] != relay["owner_id"]:
             raise DomainError("validation_error", "An owner relay must name the registered installation owner")
@@ -87,6 +90,23 @@ def attribution(ctx, uow, relay: Mapping | None) -> tuple[str, dict]:
     if relay.get("source"):
         stored["source"] = dict(relay["source"])
     return speaker, stored
+
+
+def save_attribution(ctx, uow, message_type, message_id, relay):
+    """Keep represented speech separate from authenticated senders and reply routing."""
+    speaker, value = attribution(ctx, uow, relay)
+    if relay is not None:
+        uow.connection.execute(
+            "INSERT INTO message_attributions(message_type,message_id,author_id,recorder_id,attribution_json) VALUES(?,?,?,?,?)",
+            (message_type, message_id, speaker, ctx.principal_id, json.dumps(value)))
+    return speaker, value
+
+
+def read_attribution(uow, message_type, message_id, recorder_id):
+    row = uow.connection.execute(
+        "SELECT * FROM message_attributions WHERE message_type=? AND message_id=?", (message_type, message_id)).fetchone()
+    return {"author_id": row["author_id"] if row else recorder_id, "recorder_id": recorder_id,
+            "attribution": json.loads(row["attribution_json"]) if row else dict(SELF)}
 
 
 def message_values(ctx, item: ThreadItem, *, body, summary, refs, speaker, attributed, at) -> dict:

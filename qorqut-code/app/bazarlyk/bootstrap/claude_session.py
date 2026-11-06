@@ -116,29 +116,37 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
         setup = note
     if response.get('activity_available'):
         setup += instructions.render("startup-session", SESSION_ID=session_id)
+    skills = ''
+    if registration.get('operational_intake_enabled'):
+        from .always_skills import handle as skills_hook
+        skills = skills_hook(hook, registration_path, runtime).get('hookSpecificOutput', {}).get('additionalContext', '')
     if (event == "UserPromptSubmit" and last_id == config_id and not response.get("refresh_required")
             and not recovery.read(registration,session_id)):
-        return {}, None, client
+        return ({"hookSpecificOutput": {"hookEventName": event, "additionalContext": skills}} if skills else {}), None, client
     context = response.get("mandatory_context")
+    rules = facts = None
     if isinstance(context, dict):
+        rules, facts = context.get('instructions'), context.get('context')
         context = context.get("rendered")
     if not isinstance(context, str) or not context.strip() or len(context) > MAX_CONTEXT_CHARACTERS:
         raise DomainError("invalid_bootstrap", "Mandatory bootstrap is missing or exceeds its character budget")
     configuration_hash = content_hash(context.encode())
+    if isinstance(rules, str) and isinstance(facts, str):
+        context = '\n\n'.join(filter(None, (rules, skills, setup, facts)))
+    else:
+        context = '\n\n'.join(filter(None, (skills, setup, context)))
     briefing = response.get("work_briefing", {}).get("rendered", "")
     if not isinstance(briefing, str):
         raise DomainError("invalid_bootstrap", "Work briefing must be text")
     if (response.get('work_briefing', {}).get('compact')
-            and len(context) + len(briefing) + len(setup) + 4 > MAX_CONTEXT_CHARACTERS):
+            and len(context) + len(briefing) + 2 > MAX_CONTEXT_CHARACTERS):
         # Preserve mandatory rules and runtime consumer binding in full. Memory
         # is an optional projection and remains available through its scoped tool.
         briefing = instructions.render("startup-inventory")
-        if len(context) + len(briefing) + len(setup) + 4 > MAX_CONTEXT_CHARACTERS:
+        if len(context) + len(briefing) + 2 > MAX_CONTEXT_CHARACTERS:
             briefing = ''
     if briefing:
         context += "\n\n" + briefing
-    if setup:
-        context += "\n\n" + setup
     inventory = bootstrap_environment_context(response.get("environment"), instructions=instructions,
         max_chars=min(2400, MAX_CONTEXT_CHARACTERS - len(context) - 2))
     if inventory:

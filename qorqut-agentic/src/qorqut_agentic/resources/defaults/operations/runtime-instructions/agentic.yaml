@@ -675,6 +675,20 @@
       "path": "messages/workspace-worker-unavailable.md",
       "description": "workspace worker unavailable",
       "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "ordubashy-core",
+      "kind": "instruction",
+      "path": "messages/ordubashy-core.md",
+      "description": "ordubashy core",
+      "when_to_use": "Ordubashy startup and input reconciliation"
+    },
+    {
+      "id": "operational-intake",
+      "kind": "instruction",
+      "path": "messages/operational-intake.md",
+      "description": "operational intake",
+      "when_to_use": "Ordubashy startup and input reconciliation"
     }
   ]
 }

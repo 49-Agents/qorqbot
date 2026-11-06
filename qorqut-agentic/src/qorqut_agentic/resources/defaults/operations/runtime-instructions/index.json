@@ -901,6 +901,24 @@
       "trigger": "trusted workspace preparation",
       "audience": "prepared native agent",
       "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "ordubashy-core",
+      "path": "messages/ordubashy-core.md",
+      "parameters": [],
+      "status": "always",
+      "trigger": "Ordubashy startup",
+      "audience": "configured Ordubashy",
+      "previous_source": "owner-approved operational workflow"
+    },
+    {
+      "id": "operational-intake",
+      "path": "messages/operational-intake.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "Ordubashy input hook",
+      "audience": "configured Ordubashy",
+      "previous_source": "owner-approved operational workflow"
     }
   ]
 }
