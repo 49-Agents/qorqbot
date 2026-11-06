@@ -327,12 +327,11 @@ function notify(n) {
     if (pending) { Object.assign(pending, n); return; }
   }
   _notes.queue.push(n);
-  // Folding compresses ordinary notes only; every communication notice keeps its own place.
-  const ordinary = _notes.queue.filter(note => !note.communication);
+  const ordinary = _notes.queue;
   if (ordinary.length > NOTE_QUEUE_MAX && !ordinary.some(note=>note.onClick)) {
     const keep = ordinary.slice(0, NOTE_QUEUE_MAX - 1), rest = ordinary.slice(NOTE_QUEUE_MAX - 1);
     const folded = rest.reduce((k, x) => k + (x.n || 1), 0);
-    _notes.queue = keep.concat([{ text: `${folded} more`, sub: "in the log", n: folded, fold: true }], _notes.queue.filter(note => note.communication));
+    _notes.queue = keep.concat([{ text: `${folded} more`, sub: "in the log", n: folded, fold: true }]);
   }
   notePump();
 }
@@ -341,30 +340,25 @@ function notify(n) {
 function replyToastHTML(n) {
   return `<span class="reply-icon">${agentGlyph({agent_id:n.replyAgentId}, 28)}</span><span class="reply-copy"><span class="reply-name">${esc(n.text)}</span><span class="reply-preview">${esc(n.sub || "")}</span></span>`;
 }
-// Passive agent-to-agent notice: two shared glyphs and an arrow, identities only in the accessible label.
-function communicationToastHTML(c) {
-  return `${agentGlyph({agent_id:c.sender_id}, 22)}<span class="comm-arrow" aria-hidden="true">\u2192</span>${agentGlyph({agent_id:c.recipient_id}, 22)}`;
-}
-// Reminder pill: a plain bell and one ellipsized line; the label and title keep the full text.
+// Reminder card: same compact card as a reply, with a bell in place of the agent glyph and a Reminder label.
 function reminderToastHTML(n) {
-  return `<span class="reminder-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#eee" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z"/><path d="M10 21h4"/></svg></span><span class="reminder-text">${esc(n.text)}</span>`;
+  return `<span class="reminder-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z"/><path d="M10 21h4"/></svg></span><span class="reply-copy"><span class="reply-name">Reminder</span><span class="reply-preview">${esc(n.text)}</span></span>`;
 }
 function notePump() {
   const box = $("#toasts"); if (!box) return;
   while (_notes.live < NOTE_MAX && _notes.queue.length) {
     const n = _notes.queue.shift(); _notes.live++;
     const el = document.createElement("div");
-    el.className = "toast in" + (n.fold ? " fold" : "") + (n.reminder ? " reminder-toast" : "") + (n.replyAgentId ? " reply-toast" : "") + (n.communication ? " comm-toast" : "");
+    el.className = "toast in" + (n.fold ? " fold" : "") + (n.reminder ? " reminder-toast" : "") + (n.replyAgentId || n.reminder ? " reply-toast" : "");
     if (n.color) el.style.setProperty("--c", n.color);
-    if (n.communication) { el.setAttribute("role", "img"); el.setAttribute("aria-label", n.text); el.title = n.text; }
     if (n.reminder) { el.setAttribute("aria-label", `Reminder: ${n.text}`); el.title = n.text; }
-    el.innerHTML = n.communication ? communicationToastHTML(n.communication) : n.reminder ? reminderToastHTML(n) : n.replyAgentId ? replyToastHTML(n) : `<div class="tx">${esc(n.text)}</div>${n.sub ? `<div class="tsub">${esc(n.sub)}</div>` : ""}`;
+    el.innerHTML = n.reminder ? reminderToastHTML(n) : n.replyAgentId ? replyToastHTML(n) : `<div class="tx">${esc(n.text)}</div>${n.sub ? `<div class="tsub">${esc(n.sub)}</div>` : ""}`;
     box.appendChild(el);
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove("in")));
     let t, gone = false, deadline = 0, remaining = n.ms || NOTE_MS, held = 0, dismissing = false;
     const go = () => { if (gone) return; gone = true; clearTimeout(t); if (n.replyAgentId && _notes.replies.get(n.replyAgentId)?.el === el) _notes.replies.delete(n.replyAgentId); el.classList.add("out"); setTimeout(() => { el.remove(); _notes.live--; notePump(); }, 260); };
     const arm = (ms = n.ms || NOTE_MS) => { clearTimeout(t); remaining = ms; deadline = Date.now() + ms; t = setTimeout(go, ms); };
-    if (n.replyAgentId || n.communication || n.reminder) {
+    if (n.replyAgentId || n.reminder) {
       // Hover and keyboard focus each hold the card; the remaining time resumes once both end.
       const hold = () => { if (held++ === 0) { remaining = Math.max(0, deadline - Date.now()); clearTimeout(t); } };
       const release = () => { held = Math.max(0, held - 1); if (held === 0 && !gone && !dismissing) arm(remaining); };

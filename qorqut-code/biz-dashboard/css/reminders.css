@@ -13,7 +13,7 @@
 .rem-error{margin:0 0 12px}
 .rem-form{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .rem-form>label,.rem-link>label{display:flex;flex-direction:column;gap:6px;font:12px var(--sans);color:var(--fg-2);min-width:0}
-.rem-form>label[hidden]{display:none}
+.rem-form label[hidden]{display:none}
 .rem-form .rem-wide{grid-column:1/-1}
 .rem-form textarea{min-height:64px;resize:vertical}
 .rem-form .rem-check{flex-direction:row;align-items:center}
@@ -27,14 +27,20 @@
 .rem-row-meta{font-size:11px}
 .rem-link-open{padding:0;border:0;background:none;text-decoration:underline;text-align:left}
 
-/* A mounted reminder detail has its own quiet reading surface in Focus. */
-.agfocus-surface-body:has(.rem-detail){border:0;background:transparent;border-radius:0}
-.rem-detail{padding:24px;max-width:680px;box-sizing:border-box}
+/* A mounted reminder detail reads inside the shared Focus sheet, which owns the padding. */
+.rem-detail{max-width:680px;box-sizing:border-box}
 .agfocus .rem-detail .rem-text,.agpad .agfocus .rem-detail .rem-text{margin:0 0 24px;font:600 20px/1.4 var(--sans);color:var(--fg);text-transform:none;letter-spacing:normal}
 .rem-detail .rem-fields{grid-template-columns:100px minmax(0,1fr);gap:10px 16px;margin:0 0 24px;font-size:13px;line-height:1.5}
 .rem-detail .rem-fields dt{color:var(--fg-2)}
 .rem-detail .rem-fields dd{color:var(--fg)}
 .rem-detail .rem-actions{gap:8px}
-@media(max-width:600px){.rem-detail{padding:18px 12px}.rem-detail .rem-fields{grid-template-columns:80px minmax(0,1fr);gap:8px 12px}}
+@media(max-width:600px){.rem-detail .rem-fields{grid-template-columns:80px minmax(0,1fr);gap:8px 12px}}
 
 .agfocus .rem-detail .rem-actions .primary{background:var(--accent);color:var(--accent-fg);border:0}
+
+/* Optional linked-item controls stay folded until wanted. */
+.rem-more{color:var(--fg-2);font-size:12px}
+.rem-more>summary{cursor:pointer;width:max-content;max-width:100%}
+.rem-more>summary:focus-visible{outline:2px solid var(--fg-2);outline-offset:2px}
+.rem-more[open]>summary{margin-bottom:10px}
+.rem-form .rem-actions,.rem-editor-form-actions{margin-top:0}
