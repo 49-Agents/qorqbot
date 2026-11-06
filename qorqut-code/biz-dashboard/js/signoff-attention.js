@@ -87,7 +87,7 @@ function sgAttentionPaint() {
   delivery.items.forEach(item=>{ const key=item.business_slug || ''; const old=groups.get(key); groups.set(key,{name:item.business_name,count:(old?.count||0)+1}); });
   // Shares the top-centre notification card; it stays until the owner dismisses, snoozes or opens it.
   const individual=delivery.kind==='individual';
-  host.innerHTML=`<section class="toast reply-toast reminder-toast sg-toast"><span class="reminder-icon" aria-hidden="true">${SG_BELL}</span><div class="reply-copy"><span class="reply-name">Approval needed</span>
+  host.innerHTML=`<section class="toast reply-toast sg-toast"><span class="sg-toast-icon" aria-hidden="true">${SG_BELL}</span><div class="reply-copy"><span class="reply-name">Approval needed</span>
     ${individual ? `<button type="button" class="sg-toast-open" data-action="open" data-id="${esc(row.id)}">${esc(row.title)}</button><span class="reply-preview">${esc(row.business_name || '')}${row.attention.reason ? ' \u00b7 '+esc(row.attention.reason) : ''}</span>${row.attention.deadline ? `<span class="reply-preview">Deadline: ${esc(sjDateTime(row.attention.deadline))}</span>` : ''}<button type="button" class="sg-toast-snooze" data-action="snooze">Snooze 4 hours</button>` :
       `<span class="reply-preview">${delivery.items.length} signoffs need your response</span>${[...groups].map(([slug,g])=>`<button type="button" class="sg-toast-business" data-action="open" data-slug="${esc(slug)}">${esc(g.name)} <span>${g.count}</span></button>`).join('')}`}
     <p class="sg-toast-error" role="alert"></p></div><button type="button" class="sg-toast-dismiss" data-action="dismiss" aria-label="Dismiss notification">\u00d7</button></section>`;

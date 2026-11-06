@@ -340,16 +340,16 @@ function notify(n) {
 function replyToastHTML(n) {
   return `<span class="reply-icon">${agentGlyph({agent_id:n.replyAgentId}, 28)}</span><span class="reply-copy"><span class="reply-name">${esc(n.text)}</span><span class="reply-preview">${esc(n.sub || "")}</span></span>`;
 }
-// Reminder card: same compact card as a reply, with a bell in place of the agent glyph and a Reminder label.
+// Reminder pill: a plain bell and one ellipsized line; the label and title keep the full text.
 function reminderToastHTML(n) {
-  return `<span class="reminder-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z"/><path d="M10 21h4"/></svg></span><span class="reply-copy"><span class="reply-name">Reminder</span><span class="reply-preview">${esc(n.text)}</span></span>`;
+  return `<span class="reminder-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#eee" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z"/><path d="M10 21h4"/></svg></span><span class="reminder-text">${esc(n.text)}</span>`;
 }
 function notePump() {
   const box = $("#toasts"); if (!box) return;
   while (_notes.live < NOTE_MAX && _notes.queue.length) {
     const n = _notes.queue.shift(); _notes.live++;
     const el = document.createElement("div");
-    el.className = "toast in" + (n.fold ? " fold" : "") + (n.reminder ? " reminder-toast" : "") + (n.replyAgentId || n.reminder ? " reply-toast" : "");
+    el.className = "toast in" + (n.fold ? " fold" : "") + (n.reminder ? " reminder-toast" : "") + (n.replyAgentId ? " reply-toast" : "");
     if (n.color) el.style.setProperty("--c", n.color);
     if (n.reminder) { el.setAttribute("aria-label", `Reminder: ${n.text}`); el.title = n.text; }
     el.innerHTML = n.reminder ? reminderToastHTML(n) : n.replyAgentId ? replyToastHTML(n) : `<div class="tx">${esc(n.text)}</div>${n.sub ? `<div class="tsub">${esc(n.sub)}</div>` : ""}`;
