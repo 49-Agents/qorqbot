@@ -100,8 +100,8 @@ function calendarDetailBody(event, calendar, attendee, recurring, statusTarget) 
       ${recurrence}
       ${event.description ? `<section class="calendar-about"><h3>About</h3><div class="calendar-description">${calendarLinkify(event.description)}</div></section>` : ''}
       ${guests.length ? `<details class="calendar-guests"><summary>Guests (${guests.length})</summary><ul>${guests.map(a => `<li><span>${esc(calendarDisplayAddress(a.email))}</span><small>${esc(calendarGuestLabel(a.status))}</small></li>`).join('')}</ul></details>` : ''}
-      <div class="calendar-personal-status"><label><span class="calendar-status-label">Your tracking status</span><select class="inp" name="personal_status" aria-label="Your tracking status">${Object.entries(calendarStatusLabels).map(([value,label]) => `<option value="${value}">${label}</option>`).join('')}</select></label>
-        <button type="button" class="ghost" data-calendar-status-save>Save status</button>
+      <div class="calendar-personal-status"><span class="calendar-status-label" aria-hidden="true">Your tracking status</span>
+        <div class="calendar-status-pills" role="group" aria-label="Your tracking status">${Object.entries(calendarStatusLabels).map(([value,label]) => `<button type="button" class="calendar-status-pill" data-calendar-status-choice="${value}" aria-pressed="false">${label}</button>`).join('')}</div>
         <p class="muted calendar-status-help">Only for you; guests aren’t notified.${statusTarget.occurrence_start ? ` Applies to the ${esc(calendarDateLabel(new Date(statusTarget.occurrence_start.length === 10 ? statusTarget.occurrence_start+'T12:00:00' : statusTarget.occurrence_start)))} occurrence only.` : ''}</p>
         <p class="calendar-status-note" role="status"></p></div>
       <p class="calendar-detail-error" role="alert"></p></div>`;
@@ -696,25 +696,22 @@ async function calendarOpen(event, calendars, refresh, clicked = event, origin =
 
 // Personal status editor inside the Focus detail; returns its store unsubscribe.
 function calendarStatusEditor(el, target, surface, clicked, calendar) {
-  const select = $('select[name=personal_status]',el), save = $('[data-calendar-status-save]',el), note = $('.calendar-status-note',el);
-  let displayed = calendarStatuses.get(target), busy = false, dirty = false, lastPayload, requestId, attempt;
-  surface.setDirty(() => dirty);
+  const pills = Array.from(el.querySelectorAll('[data-calendar-status-choice]')), note = $('.calendar-status-note',el);
+  let displayed = calendarStatuses.get(target), busy = false, lastPayload, requestId, attempt;
   const status = () => displayed?.status || 'pending', revision = () => displayed?.revision || 0;
-  // Follow the store while the editor is unchanged; a dirty draft keeps its original revision and reports the change.
+  // No draft exists, so the editor always follows the confirmed store value.
   const adopt = () => {
     const {known,denied} = calendarStatuses.state, fresh = calendarStatuses.get(target);
     if (!known || denied || (fresh?.revision || 0) === revision()) return;
-    if (!dirty) { displayed = fresh; select.value = status(); note.textContent = ''; }
-    else note.textContent = `Changed elsewhere. Now ${calendarStatusLabels[fresh?.status || 'pending']}; saving your choice will ask you to review it.`;
+    displayed = fresh; note.textContent = '';
   };
   const sync = () => {
     const {known,denied,error} = calendarStatuses.state, usable = known && !denied;
     if (usable && !busy) adopt();
     if (usable && note.textContent.startsWith('Status unknown')) note.textContent = '';
-    if (!usable) { select.disabled = save.disabled = true; note.textContent = denied ? error : `Status unknown. ${error || 'Not loaded yet.'}`; ensureRetry(); return; }
+    if (!usable) { for (const pill of pills) { pill.disabled = true; pill.setAttribute('aria-pressed','false'); } note.textContent = denied ? error : `Status unknown. ${error || 'Not loaded yet.'}`; ensureRetry(); return; }
     $('[data-calendar-status-retry]',el)?.remove();
-    select.disabled = busy;
-    save.disabled = busy || select.value === status();
+    for (const pill of pills) { pill.disabled = busy; pill.setAttribute('aria-pressed',String(pill.dataset.calendarStatusChoice === status())); }
   };
   const ensureRetry = () => {
     if (calendarStatuses.state.denied || $('[data-calendar-status-retry]',el)) return;
@@ -722,28 +719,28 @@ function calendarStatusEditor(el, target, surface, clicked, calendar) {
     retry.onclick = async () => { retry.disabled = true; await calendarStatuses.refresh(); retry.disabled = false; sync(); };
     note.after(retry);
   };
-  select.value = status();
-  select.onchange = () => { dirty = select.value !== status(); note.textContent = ''; sync(); };
-  save.onclick = async () => {
-    if (busy || select.value === status()) return;
-    const chosen = select.value, payload = JSON.stringify([target,chosen,revision()]);
+  const choose = async chosen => {
+    const {known,denied} = calendarStatuses.state;
+    if (busy || !known || denied || chosen === status()) return;
+    const payload = JSON.stringify([target,chosen,revision()]);
     if (payload !== lastPayload) { requestId = newRequestId(); lastPayload = payload; attempt = calendarAttempt('personal_status',{target,status:chosen,revision:revision()},requestId,clicked,calendar); }
     busy = true; surface.setBusy(true); note.textContent = 'Saving…'; sync();
     try {
-      if (!await calendarSubmitAttempt(attempt,null,surface)) { note.textContent = 'Retry cancelled; the outcome remains unconfirmed.'; return; } displayed = calendarStatuses.get(target); dirty = false;
+      if (!await calendarSubmitAttempt(attempt,null,surface)) { note.textContent = 'Retry cancelled; the outcome remains unconfirmed.'; return; } displayed = calendarStatuses.get(target);
       note.textContent = `Saved: ${calendarStatusLabels[displayed.status]}.`;
     } catch (error) {
       if (calendarStatuses.state.denied) note.textContent = calendarStatuses.state.error;
       else if (calendarStatusConflict(error)) {
         await calendarStatuses.refresh();
-        displayed = calendarStatuses.get(target); select.value = status(); dirty = false;
+        displayed = calendarStatuses.get(target);
         note.textContent = calendarStatuses.state.known && !calendarStatuses.state.error ? `Changed elsewhere. Now ${calendarStatusLabels[status()]}; choose again to change it.` : 'Changed elsewhere and the current status couldn’t be loaded. Retry.';
       } else {
         const definite = error.httpStatus >= 400 && error.httpStatus < 500 && ![408,429].includes(error.httpStatus) && error.code !== 'invalid_response';
-        note.textContent = definite ? `Not saved: ${error.message} Save again to retry.` : `Couldn’t confirm the save. ${error.message || ''} Save again to retry.`;
+        note.textContent = definite ? `Not saved: ${error.message} Click the status again to retry.` : `Couldn’t confirm the save. ${error.message || ''} Click the status again to retry.`;
       }
     } finally { busy = false; surface.setBusy(false); sync(); }
   };
+  for (const pill of pills) pill.onclick = () => choose(pill.dataset.calendarStatusChoice);
   sync();
   return calendarStatuses.subscribe(() => { if (!busy) sync(); });
 }
