@@ -58,7 +58,7 @@ function harness() {
     const host = new Element(); let current = true, before = () => true, disposers = [];
     session = {host,isCurrent:()=>current,setTitle(t){this.title=t;},setBeforeLeave(fn){before=fn;},onDispose(fn){disposers.push(fn);},async close(){if (!await before()) return false; current=false; disposers.forEach(fn=>fn()); return true;},attempt:async()=>before()};
     spec.mount(host,session); return session;
-  }}},document,$,console,Intl,Date,Map,Set,Promise,JSON,Object,Array,Number,String,RegExp,Error,
+  }}},document,$,console,Intl,URL,Date,Map,Set,Promise,JSON,Object,Array,Number,String,RegExp,Error,
     FormData:class { constructor(form) { this.items = Object.values(form.elements).filter(f => !f.disabled && (f.type !== 'checkbox' || f.checked)).map(f => [f.name,f.value]); } [Symbol.iterator]() {return this.items[Symbol.iterator]();} },
     esc:s=>String(s ?? ''),toast:s=>notices.push(s),coreData:x=>x,accessLost:()=>false,clearEtagCache:()=>{},newRequestId:()=> 'request-'+(++requestNumber),loadSession:async()=>owner ? {principal_id:owner,principal_kind:'human',is_owner:true} : null,AICONS:{},T_VIEW_ICON:{calendar:''},
     api:async()=>({items:[]}),post:async (url,args) => {calls.push({url,args}); if (url.endsWith('calendar_event_get')) { if (deferRead) return new Promise(resolve=>{resolveRead=()=>resolve({event:{...occurrence,id:args.event_id}});}); return {event:{...occurrence,id:args.event_id}}; } if (successOperation && url.endsWith(successOperation)) return {}; if (url.endsWith('calendar_event_respond')) return new Promise((resolve,reject)=>{rejectResponse=reject;}); throw Error('Provider mutation intentionally rejected');}};
@@ -292,4 +292,14 @@ test('window focus immediately hides recovery rows until owner revalidation', as
   assert.equal(panel.children[3].hidden,false); assert.match(panel.children[1].textContent,/owner session/i);
   h.setOwner('owner-b'); await panel.children[3].onclick(); assert.equal(list.children.length,0);
   h.setOwner('owner-a'); h.focusWindow(); await h.flush(); assert.equal(list.children.length,1);
+});
+
+test('detail renders labelled facts, safe links, mailto display and guest statuses', () => {
+  const h=harness(); const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); h.context.esc=esc;
+  const html=h.run(`calendarDetailBody(${JSON.stringify({...h.occurrence,organizer:'MAILTO:boss@example.com',location:'Room 4',description:'Line1\n  see https://ok.example/a?b=1&c=2. and javascript:alert(1) <b>x</b>',attendees:[{email:'mailto:me@example.com',status:'needsAction'},{email:'x@example.com',status:'weird<'}]})},{name:'Work'},{email:'mailto:me@example.com',status:'needsAction'},true,{})`);
+  assert.match(html,/<dt>Organizer<\/dt><dd>boss@example\.com<\/dd>/); assert.doesNotMatch(html,/mailto:/i);
+  assert.match(html,/<a href="https:\/\/ok\.example\/a\?b=1&amp;c=2" target="_blank" rel="noopener noreferrer">https:\/\/ok\.example\/a\?b=1&amp;c=2<\/a>\./);
+  assert.match(html,/javascript:alert\(1\) &lt;b&gt;x&lt;\/b&gt;/); assert.doesNotMatch(html,/href="javascript/);
+  assert.match(html,/Guests \(2\)/); assert.match(html,/Awaiting response/); assert.match(html,/weird&lt;/);
+  assert.match(html,/Your tracking status/); assert.match(html,/Line1\n  see/);
 });
