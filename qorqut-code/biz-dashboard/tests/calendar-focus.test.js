@@ -17,11 +17,11 @@ function harness() {
     after(child) { this.retry = child; }
     remove() { this.removed = true; if (this.parent) this.parent.children = this.parent.children.filter(x => x !== this); }
     focus() { this.focused = true; }
-    querySelectorAll(selector) { return selector === '.mfoot button' ? this.footer.children : []; }
+    querySelectorAll(selector) { return selector === '.mfoot button' ? this.footer.children : selector === '[data-calendar-status-choice]' ? this.pills || [] : []; }
     set innerHTML(value) {
       this.html = value;
       if (value.includes('calendar-focus-content')) {
-        const root = this.firstElementChild = new Element(); root.footer = new Element(); root.error = new Element(); root.note = new Element(); root.select = new Element(); root.save = new Element(); root.meetOption = new Element(); root.review = new Element();
+        const root = this.firstElementChild = new Element(); root.footer = new Element(); root.error = new Element(); root.note = new Element(); root.pills = ['pending','completed','cancelled','rescheduled'].map(v => { const pill = new Element(); pill.dataset.calendarStatusChoice = v; pill['aria-pressed'] = 'false'; return pill; }); root.meetOption = new Element(); root.review = new Element();
         if (value.includes('calendar-form')) {
           const form = root.form = new Element(); form.elements = {};
           for (const match of value.matchAll(/<(input|select|textarea)\b([^>]*)>(?:([^<]*))?/g)) {
@@ -43,8 +43,6 @@ function harness() {
     if (selector === '.mfoot .primary') return el.footer.children.find(x => x.className === 'primary');
     if (selector === '.calendar-detail-error') return el.error;
     if (selector === '.calendar-status-note') return el.note;
-    if (selector === 'select[name=personal_status]') return el.select;
-    if (selector === '[data-calendar-status-save]') return el.save;
     if (selector === '[data-calendar-status-retry]') return el.note.retry?.removed ? null : el.note.retry;
     if (selector === '[data-meet-option]') return el.meetOption;
     if (selector === '[data-calendar-review]') return el.review;
@@ -58,7 +56,7 @@ function harness() {
     const host = new Element(); let current = true, before = () => true, disposers = [];
     session = {host,isCurrent:()=>current,setTitle(t){this.title=t;},setBeforeLeave(fn){before=fn;},onDispose(fn){disposers.push(fn);},async close(){if (!await before()) return false; current=false; disposers.forEach(fn=>fn()); return true;},attempt:async()=>before()};
     spec.mount(host,session); return session;
-  }}},document,$,console,Intl,Date,Map,Set,Promise,JSON,Object,Array,Number,String,RegExp,Error,
+  }}},document,$,console,Intl,URL,Date,Map,Set,Promise,JSON,Object,Array,Number,String,RegExp,Error,
     FormData:class { constructor(form) { this.items = Object.values(form.elements).filter(f => !f.disabled && (f.type !== 'checkbox' || f.checked)).map(f => [f.name,f.value]); } [Symbol.iterator]() {return this.items[Symbol.iterator]();} },
     esc:s=>String(s ?? ''),toast:s=>notices.push(s),coreData:x=>x,accessLost:()=>false,clearEtagCache:()=>{},newRequestId:()=> 'request-'+(++requestNumber),loadSession:async()=>owner ? {principal_id:owner,principal_kind:'human',is_owner:true} : null,AICONS:{},T_VIEW_ICON:{calendar:''},
     api:async()=>({items:[]}),post:async (url,args) => {calls.push({url,args}); if (url.endsWith('calendar_event_get')) { if (deferRead) return new Promise(resolve=>{resolveRead=()=>resolve({event:{...occurrence,id:args.event_id}});}); return {event:{...occurrence,id:args.event_id}}; } if (successOperation && url.endsWith(successOperation)) return {}; if (url.endsWith('calendar_event_respond')) return new Promise((resolve,reject)=>{rejectResponse=reject;}); throw Error('Provider mutation intentionally rejected');}};
@@ -69,6 +67,8 @@ function harness() {
   return {context,run,occurrence,calendar,calls,notices,flush,button,get session(){return session;},focusWindow:()=>{for (const fn of windowListeners) fn();},success: operation => {successOperation=operation;},setOwner: value => {owner=value;},choose: label => { const prompt=session.host.children.at(-1); const option=prompt.children.find(b=>b.textContent===label); assert.ok(option); option.onclick(); },defer:()=>{deferRead=true;},resolveRead:()=>resolveRead(),respond:()=>rejectResponse(Error('Provider mutation intentionally rejected'))};
 }
 
+const pill = (root, status) => root.pills.find(p => p.dataset.calendarStatusChoice === status);
+
 test('detail, occurrence status, RSVP and pending navigation use Focus', async () => {
   const h=harness(); h.context.event=h.occurrence; h.context.calendars=[h.calendar];
   h.run(`globalThis.activeSubscriptions = 0; const originalSubscribe = calendarStatuses.subscribe; calendarStatuses.subscribe = fn => { activeSubscriptions++; const stop = originalSubscribe(fn); return () => { activeSubscriptions--; stop(); }; };`);
@@ -76,12 +76,10 @@ test('detail, occurrence status, RSVP and pending navigation use Focus', async (
   assert.equal(h.context.activeSubscriptions,1); assert.equal(h.session.title,'Meeting'); assert.equal(h.calls.length,1);
   const root=h.session.host.firstElementChild;
   assert.match(root.html || h.session.host.html,/occurrence only/);
-  root.select.value='completed'; root.select.onchange();
-  const nested=h.button('Edit').onclick(); await h.flush(); h.choose('Keep editing'); await nested; assert.equal(h.session.title,'Meeting'); assert.equal(root.select.value,'completed');
-  const attempt=h.session.attempt(); await h.flush(); h.choose('Keep editing'); assert.equal(await attempt,false);
-  await root.save.onclick(); assert.equal(h.calls[1].url,'/root/calendar-statuses');
+  assert.equal(pill(root,'pending')['aria-pressed'],'true'); assert.equal(h.calls.length,1);
+  await pill(root,'pending').onclick(); assert.equal(h.calls.length,1);
+  await pill(root,'completed').onclick(); assert.equal(h.calls[1].url,'/root/calendar-statuses');
   assert.equal(h.calls[1].args.event_id,'occ'); assert.equal(h.calls[1].args.occurrence_start,'2026-11-05T15:00:00.000Z');
-  root.select.value='pending'; root.select.onchange();
   const response=h.button('Accept').onclick(); await h.flush();
   assert.equal(await h.session.attempt(),false);
   assert.equal(h.calls[2].args.event_id,'occ'); assert.equal(h.calls[2].args.attendee,'me@example.com');
@@ -103,11 +101,9 @@ test('edit, dirty guard and delete cancellation stay within Focus without writes
   await h.button('Cancel').onclick(); await h.flush(); assert.equal(h.session.title,'Meeting'); assert.equal(h.run('calendarWriteGeneration'),0);
   await h.button('Open series').onclick(); await h.flush();
   assert.equal(h.calls.at(-1).args.event_id,'series');
-  const status = h.session.host.firstElementChild.select; status.value='completed'; status.onchange();
-  await h.session.host.firstElementChild.save.onclick();
+  await pill(h.session.host.firstElementChild,'completed').onclick();
   assert.equal(h.calls.at(-1).args.event_id,'occ');
   assert.equal(h.calls.at(-1).args.occurrence_start,'2026-11-05T15:00:00.000Z');
-  status.value='pending'; status.onchange();
   assert.ok(h.calls.every(c=>c.url.endsWith('calendar_event_get') || c.url === '/root/calendar-statuses'));
   assert.equal(await h.session.close(),true); assert.equal(h.context.document.activeElement.focused,true);
 });
@@ -242,9 +238,8 @@ test('uncertain personal statuses remain separate for recurring occurrences', as
   for (const start of ['2026-11-05T15:00:00Z','2026-11-06T15:00:00Z']) {
     h.context.event={...h.occurrence,start};
     await h.run('calendarOpen(event, calendars, () => {})'); await h.flush();
-    const select=h.session.host.firstElementChild.select; select.value='completed'; select.onchange();
-    await h.session.host.firstElementChild.save.onclick();
-    const close=h.session.close(); await h.flush(); h.choose('Discard changes'); await close;
+    await pill(h.session.host.firstElementChild,'completed').onclick();
+    assert.equal(await h.session.close(),true);
   }
   assert.equal(h.run('calendarAttempts.size'),2);
   const starts=h.run('[...calendarAttempts.values()].map(a => a.args.target.occurrence_start)');
@@ -269,10 +264,10 @@ test('ordinary update, delete and RSVP controls offer the stored request after r
 
 test('ordinary status save offers the retained occurrence request after reopening', async () => {
   const h=harness(); h.context.event=h.occurrence; h.context.calendars=[h.calendar]; await h.run('calendarStatuses.refresh()');
-  const open=async()=>{await h.run('calendarOpen(event, calendars, () => {})'); await h.flush(); const root=h.session.host.firstElementChild; root.select.value='completed'; root.select.onchange(); return root;};
-  let root=await open(); await root.save.onclick(); const first=h.calls.at(-1);
-  const close=h.session.close(); await h.flush(); h.choose('Discard changes'); await close;
-  root=await open(); const prior=h.calls.length, save=root.save.onclick(); await h.flush(); assert.equal(h.calls.length,prior);
+  const open=async()=>{await h.run('calendarOpen(event, calendars, () => {})'); await h.flush(); const root=h.session.host.firstElementChild; return root;};
+  let root=await open(); await pill(root,'completed').onclick(); const first=h.calls.at(-1);
+  assert.equal(await h.session.close(),true);
+  root=await open(); const prior=h.calls.length, save=pill(root,'completed').onclick(); await h.flush(); assert.equal(h.calls.length,prior);
   h.choose('Retry same request'); await save; assert.deepEqual(h.calls.at(-1).args,first.args); assert.equal(h.run('calendarAttempts.size'),1);
 });
 
@@ -292,4 +287,56 @@ test('window focus immediately hides recovery rows until owner revalidation', as
   assert.equal(panel.children[3].hidden,false); assert.match(panel.children[1].textContent,/owner session/i);
   h.setOwner('owner-b'); await panel.children[3].onclick(); assert.equal(list.children.length,0);
   h.setOwner('owner-a'); h.focusWindow(); await h.flush(); assert.equal(list.children.length,1);
+});
+
+test('detail renders labelled facts, safe links, mailto display and guest statuses', () => {
+  const h=harness(); const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); h.context.esc=esc;
+  const html=h.run(`calendarDetailBody(${JSON.stringify({...h.occurrence,organizer:'MAILTO:boss@example.com',location:'Room 4',description:'Line1\n  see https://ok.example/a?b=1&c=2. and javascript:alert(1) <b>x</b>',attendees:[{email:'mailto:me@example.com',status:'needsAction'},{email:'x@example.com',status:'weird<'}]})},{name:'Work'},{email:'mailto:me@example.com',status:'needsAction'},true,{})`);
+  assert.match(html,/<dt>Organizer<\/dt><dd>boss@example\.com<\/dd>/); assert.doesNotMatch(html,/mailto:/i);
+  assert.match(html,/<a href="https:\/\/ok\.example\/a\?b=1&amp;c=2" target="_blank" rel="noopener noreferrer">https:\/\/ok\.example\/a\?b=1&amp;c=2<\/a>\./);
+  assert.match(html,/javascript:alert\(1\) &lt;b&gt;x&lt;\/b&gt;/); assert.doesNotMatch(html,/href="javascript/);
+  assert.match(html,/Guests \(2\)/); assert.match(html,/Awaiting response/); assert.match(html,/weird&lt;/);
+  assert.match(html,/role="group" aria-label="Your tracking status"/); assert.equal((html.match(/data-calendar-status-choice=/g) || []).length,4); assert.doesNotMatch(html,/Save status|<select/);
+  assert.match(html,/Your tracking status/); assert.match(html,/Line1\n  see/);
+});
+
+test('status pills: busy lock, definite-failure retry identity, conflict adoption and unknown state', async () => {
+  const h=harness(); h.context.event=h.occurrence; h.context.calendars=[h.calendar];
+  const base=h.context.post; let release, mode='hold', busyStates=[];
+  const item=(status,revision)=>({connection_id:'conn',calendar_id:'cal',event_id:'occ',occurrence_start:'2026-11-05T15:00:00.000Z',status,revision});
+  h.context.post=async (url,args)=>{
+    if (url !== '/root/calendar-statuses') return base(url,args);
+    h.calls.push({url,args});
+    if (mode==='hold') return new Promise(resolve=>{release=()=>resolve({item:item(args.status,(args.expected_revision||0)+1)});});
+    if (mode==='reject') throw Object.assign(new Error('Bad status'),{httpStatus:422});
+    if (mode==='conflict') throw Object.assign(new Error('stale'),{httpStatus:409});
+    return {item:item(args.status,(args.expected_revision||0)+1)};
+  };
+  h.context.api=async()=>({items:h.context.stored||[]});
+  await h.run('calendarStatuses.refresh()'); await h.run('calendarOpen(event, calendars, () => {})'); await h.flush();
+  const root=h.session.host.firstElementChild, note=root.note, writes=()=>h.calls.filter(c=>c.url==='/root/calendar-statuses');
+  const pressed=()=>root.pills.filter(p=>p['aria-pressed']==='true').map(p=>p.dataset.calendarStatusChoice);
+  assert.deepEqual(pressed(),['pending']); assert.equal(writes().length,0);
+  // Busy: one write, every pill disabled, new status not claimed before confirmation.
+  const first=pill(root,'completed').onclick(); await h.flush(); await pill(root,'cancelled').onclick(); await pill(root,'completed').onclick();
+  assert.equal(writes().length,1); assert.ok(root.pills.every(p=>p.disabled)); assert.deepEqual(pressed(),['pending']);
+  mode='ok'; release(); await first; assert.deepEqual(pressed(),['completed']); assert.ok(root.pills.every(p=>!p.disabled)); assert.match(note.textContent,/Saved: Completed/);
+  await pill(root,'completed').onclick(); assert.equal(writes().length,1);
+  // Definite failure keeps the confirmed pill and a second click reuses the same request id.
+  mode='reject'; await pill(root,'cancelled').onclick(); assert.deepEqual(pressed(),['completed']); assert.match(note.textContent,/Click the status again to retry/);
+  mode='ok'; await pill(root,'cancelled').onclick();
+  const [failed,retried]=writes().slice(-2); assert.equal(retried.args.request_id,failed.args.request_id); assert.equal(retried.args.expected_revision,failed.args.expected_revision); assert.deepEqual(pressed(),['cancelled']);
+  // Conflict adopts the confirmed current value and asks to choose again.
+  h.context.stored=[item('rescheduled',9)]; mode='conflict'; await pill(root,'pending').onclick();
+  assert.deepEqual(pressed(),['rescheduled']); assert.match(note.textContent,/Changed elsewhere. Now Rescheduled; choose again/);
+});
+
+test('status pills: unknown state selects nothing, disables pills and offers Retry', async () => {
+  const h=harness(); h.context.event=h.occurrence; h.context.calendars=[h.calendar]; h.context.api=async()=>{throw Error('offline');};
+  await h.run('calendarStatuses.refresh()'); await h.run('calendarOpen(event, calendars, () => {})'); await h.flush();
+  const root=h.session.host.firstElementChild;
+  assert.ok(root.pills.every(p=>p.disabled && p['aria-pressed']==='false')); assert.match(root.note.textContent,/Status unknown/);
+  await root.pills[1].onclick(); assert.equal(h.calls.filter(c=>c.url==='/root/calendar-statuses').length,0);
+  assert.ok(root.note.retry); h.context.api=async()=>({items:[]}); await root.note.retry.onclick();
+  assert.deepEqual(root.pills.filter(p=>p['aria-pressed']==='true').map(p=>p.dataset.calendarStatusChoice),['pending']); assert.ok(root.pills.every(p=>!p.disabled));
 });
