@@ -19,8 +19,11 @@ retry when the same message stays pending (#26).
 - Native Windows/WSL2 host acceptance has not been performed; the ZIP is a
   handoff wrapper, not an installer.
 - GitHub Actions checks the Mac archive and DMG build and exercises the packaged
-  launcher. It does not prove the downloaded app's Gatekeeper/Open Anyway flow, a
-  separate macOS user account or interactive agent sign-in. The DMG is ad-hoc
+  launcher on a `macos-15` Apple-silicon runner (the `macos-14` runner was
+  rejected as unsupported when dispatched on 2026-11-07). The package target stays `macos14-arm64` (macOS 14 wheels),
+  but automated acceptance ran on macOS 15; native macOS 14 acceptance is
+  unverified. It does not prove the downloaded app's Gatekeeper/Open Anyway flow,
+  a separate macOS user account or interactive agent sign-in. The DMG is ad-hoc
   signed, not notarized.
 - Updates are manual (`./qorqbot update ARCHIVE --sha256 HASH`) and refuse changed
   database schemas or managed instruction contents, running terminals and
