@@ -504,7 +504,7 @@ function conversationMount(host,source,adapter={}) {
     onViewportChange:()=>{captureScroll();maybeLoadRelatedPage();},
     // The view hands over the opaque reference value itself; an unavailable reference never reaches this callback.
     mountSignoff:(ref,signoffHost)=>{
-      const card=sgChatMount(ref,signoffHost,{active:current,dropOnDenied:true,omitConversationFor:source.type==='signoff'?conversationKey(source):null});
+      const card=sgChatMount(ref,signoffHost,{active:current,dropOnDenied:true});
       if(!card)return null;
       signoffViews.add(card);
       return {dispose:()=>{signoffViews.delete(card);card.dispose();}};

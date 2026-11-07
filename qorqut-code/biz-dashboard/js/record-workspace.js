@@ -1207,8 +1207,6 @@ function rwSignoffDashboard(host, record, ctx) {
     global: record.source.business_id == null,
     category: record.category,
     item: () => ({id: record.source.id, businessId: record.source.business_id ?? null}),
-    // The workspace Chat tab is this Signoff's own channel: the card's nested copy would be a second composer.
-    omitConversationFor: conversationKey({type: 'signoff', id: record.source.id, biz: record.biz || null}),
     dropOnDenied: true,
     onUnavailable: () => { void ctx.unavailable?.(); },
   });

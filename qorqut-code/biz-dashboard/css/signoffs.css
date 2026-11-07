@@ -176,9 +176,6 @@
 .sg textarea.sg-message-editor{padding:4px 10px}
 .sg textarea.sg-message-editor[data-sg-edit-field="subject"]{padding:0;border:0;background:transparent;line-height:1.5}
 
-/* Keep feedback available beneath compact Chat proposals without opening Details. */
-.sg-inline .sg-conversation { margin-top:12px; }
-
 /* Inline review: one stable, right-aligned decision/edit action pair. */
 .sg .sg-actions { justify-content:flex-end; }
 .sg .sg-actions .sg-approve, .sg .sg-actions .sg-reject { background:var(--wash); border:1px solid var(--line-2); color:var(--fg); }
@@ -257,7 +254,6 @@
 .sg-focus .sg-label { font-size: 12px; margin-bottom: 8px; }
 .sg-focus .sg .sg-feedback { min-height: 88px; border-radius: 8px; font-size: 14px; }
 .sg-focus .sg-actions { gap: 8px; margin-top: 0; }
-.sg-focus .sg-detail > .sg-conversation { padding-top: 16px; border-top: 1px solid var(--line); margin-top: 24px; color: var(--fg-2); }
 .sg-focus .sg-savedresponse .sg-response-notes { margin: 0 0 4px; }
 @media (max-width: 520px) {
   .sg-focus .sg { padding: 0 0 20px; }
