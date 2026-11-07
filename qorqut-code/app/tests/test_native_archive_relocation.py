@@ -13,7 +13,7 @@ class RelocationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.source = self.root / "original.jsonl"
         self.source.write_text(json.dumps({"type": "session_meta", "payload": {
             "id": "conversation", "cwd": str(self.root)}}) + "\n")

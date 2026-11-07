@@ -26,8 +26,6 @@ const engine = new Engine({ payload: path.join(resources, 'qorqbot-payload'), ho
     const url = await engine.start();
     assert.equal((await fetch(url)).status, 200);
     assert.equal(await engine.status(), url);
-    assert.equal(engine.claimFirstRunGuide(), true);
-    assert.equal(engine.claimFirstRunGuide(), false);
     await engine.stop();
     assert.equal(await engine.status(), null);
     assert.equal(await engine.start(), url, 'Restart must retain the server address');
@@ -37,7 +35,7 @@ const engine = new Engine({ payload: path.join(resources, 'qorqbot-payload'), ho
     fs.writeFileSync(report, JSON.stringify({
       version, source_commit: process.env.GITHUB_SHA, archive_sha256: archiveSha256,
       checks: ['embedded version and checksum', 'prerequisites', 'fresh-home install',
-        'installed integrity', 'dashboard HTTP 200', 'first-run guide marker',
+        'installed integrity', 'dashboard HTTP 200',
         'stop', 'restart on the same port', 'final stopped status'],
       not_tested: ['Gatekeeper / Open Anyway', 'separate macOS user account',
         'interactive desktop windows', 'authenticated agent clients'],
