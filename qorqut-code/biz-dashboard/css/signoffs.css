@@ -108,7 +108,8 @@
 .sg-inline .sg .sg-choice { display:inline-flex; justify-content:center; width:auto; max-width:100%; height:auto; min-height:30px; padding:4px 10px; border-color:var(--line-2); }
 .sg-inline .sg-choice-name { font-size:12px; line-height:20px; }
 .sg-inline .sg .sg-choice[aria-checked="true"] { background:var(--accent); border-color:var(--accent); color:var(--accent-fg); }
-.sg-inline .sg .sg-feedback { min-height:56px; }
+.sg-inline .sg .sg-feedback { min-height:0; resize:none; overflow:hidden; padding:6px 12px; }
+.sg-inline .sg-effects { display:none; }
 .sg-inline .sg-feedbackwrap { margin-top:10px; }
 .sg-inline .sg-row:not(.sg-open) .sg-impact, .sg-inline .sg-row:not(.sg-open) .sg-effects, .sg-inline .sg-row:not(.sg-open) .sg-attention-meta,
 .sg-inline .sg-row:not(.sg-open):not([data-input="1"]) .sg-feedbackwrap { display:none; }
@@ -183,9 +184,9 @@
 .sg .sg-actions .sg-approve, .sg .sg-actions .sg-reject { background:var(--wash); border:1px solid var(--line-2); color:var(--fg); }
 .sg textarea.sg-message-editor, .sg textarea.sg-message-editor[data-sg-edit-field="subject"] { padding:1.5px; border:0; border-left:2px solid var(--line-2); background:var(--wash); }
 .sg-email textarea.sg-message-editor, .sg-email textarea.sg-message-editor[data-sg-edit-field="subject"] { padding-left:12px; }
-/* Compact inline email: recipient and subject stay, the body becomes a three-line preview button. */
+/* Compact inline email: recipient and subject stay, the body becomes a six-line preview button. */
 .sg-email-peek { display:none; }
-.sg-email-collapsed .sg-email-peek { width:100%; margin:6px 0 0; padding:1.5px 12px; border:0; border-left:2px solid var(--line-2); border-radius:0; background:var(--wash); color:var(--fg-2); font:inherit; line-height:1.6; text-align:left; white-space:pre-wrap; overflow-wrap:anywhere; cursor:pointer; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+.sg-email-collapsed .sg-email-peek { width:100%; height:auto; min-height:0; margin:6px 0 0; padding:1.5px 12px; border:0; border-left:2px solid var(--line-2); border-radius:0; background:var(--wash); color:var(--fg-2); font:inherit; line-height:1.6; text-align:left; white-space:pre-wrap; overflow-wrap:anywhere; cursor:pointer; display:-webkit-box; -webkit-line-clamp:6; -webkit-box-orient:vertical; overflow:hidden; }
 .sg-email-collapsed .sg-email-peek:focus-visible { outline:2px solid var(--fg-2); outline-offset:2px; }
 .sg-email-collapsed .sg-email [data-sg-field="from"], .sg-email-collapsed .sg-email [data-sg-field="cc"], .sg-email-collapsed .sg-email [data-sg-field="bcc"],
 .sg-email-collapsed .sg-email [data-sg-field="attachments"], .sg-email-collapsed .sg-email .sg-email-body-label, .sg-email-collapsed .sg-email [data-sg-edit-field="body"],

@@ -344,6 +344,8 @@ function sgCreateView(options) {
   const canEditMessage = s => expected(s) && completePreview(s) && sgMessageValues(s) && Object.keys(sgMessageValues(s)).some(key=>s.editable_fields?.includes(key))
     && s.state === 'pending' && !s.superseded_by_id && owner() && !sg.error && !sg.detailErrors.has(s.id)
     && sg.verified.get(s.id) === s.status_revision && !sg.busy.has(busyKey(sg.slug,s));
+  // Inline feedback starts one line tall and grows with its text; a hidden field has no measurable height.
+  const fitFeedback = field => { field.style.height = ''; if (field.offsetParent && field.scrollHeight > field.clientHeight) field.style.height = field.scrollHeight + field.offsetHeight - field.clientHeight + 'px'; };
   const fitMessage = field => { field.style.height='auto'; field.style.height=field.scrollHeight+'px'; };
   async function readReference(slug, id) {
     if(typeof extensionsLoad === "function")await extensionsLoad();
@@ -590,10 +592,15 @@ function sgCreateView(options) {
     if (s.state === "pending" && completePreview(s) && owner() && !s.superseded_by_id && (!options.inline || s.input || rejectionNeedsMessage(s))) {
       const requirement = s.input ? (s.input.notes_required ? "(required)" : "(optional)") : rejectionNeedsMessage(s) ? "(required to reject)" : "(optional)";
       if (!feedback.querySelector("textarea")) {
-        feedback.innerHTML = `<label class="sg-label" for="sg-feedback-${prefix}${esc(s.id)}">${s.input ? "Answer" : "Message to send with decision"} ${requirement}</label><textarea id="sg-feedback-${prefix}${esc(s.id)}" class="sg-feedback" rows="3" spellcheck="true"></textarea>`;
+        const fieldId = `sg-feedback-${prefix}${esc(s.id)}`;
+        // Inline action cards drop the visible label: the one-line field is named by aria-label and placeholder. Questions keep "Answer".
+        const unlabeled = options.inline && !s.input;
+        const placeholder = rejectionNeedsMessage(s) ? "Add a reason to reject…" : "Add a note…";
+        feedback.innerHTML = `${unlabeled ? "" : `<label class="sg-label" for="${fieldId}">${s.input ? "Answer" : "Message to send with decision"} ${requirement}</label>`}<textarea id="${fieldId}" class="sg-feedback" rows="${options.inline ? 1 : 3}" spellcheck="true"${unlabeled ? ` aria-label="Message to send with decision ${requirement}" placeholder="${placeholder}"` : ""}></textarea>`;
         feedback.querySelector("textarea").value = draft(s);
       }
       feedback.querySelector("textarea").disabled = !!busy || !canReview;
+      if (options.inline) fitFeedback(feedback.querySelector("textarea"));
     } else feedback.innerHTML = "";
     const disabled = !canReview || !!busy ? " disabled" : "";
     let controls = "";
@@ -1069,7 +1076,7 @@ function sgCreateView(options) {
         if(edit && !edit.saving && !edit.receipt){edit.values[event.target.dataset.sgEditField]=event.target.value;edit.error='';fitMessage(event.target);}
         return;
       }
-      if (event.target.matches(".sg-feedback")) { const s = sg.items.get(sg.selected); if (s) { saveDraft(draftKey(s), event.target.value); render(); } } };
+      if (event.target.matches(".sg-feedback")) { const s = sg.items.get(sg.selected); if (s) { saveDraft(draftKey(s), event.target.value); if (options.inline) fitFeedback(event.target); render(); } } };
     render(); refresh();
   }
   function businessChanged() {
@@ -1106,7 +1113,7 @@ function sgCreateView(options) {
       const selected = sg.items.get(sg.selected);
       const row = sg.mount && [...sg.mount.querySelectorAll(".sg-row")].find(row => row.dataset.id === sg.selected);
       const textarea = row && row.querySelector(".sg-feedback");
-      if (selected && draftKey(selected) === key && textarea && textarea.value !== value) textarea.value = value;
+      if (selected && draftKey(selected) === key && textarea && textarea.value !== value) { textarea.value = value; if (options.inline) fitFeedback(textarea); }
     },
     suspend() { disposeNested(sg.mount); sg.generation++; sg.mount = null; sg.loading = false; sg.detailLoading = null; },
     dispose() { this.suspend(); window.removeEventListener('resize',resizeMessages); sgViews.delete(view); document.removeEventListener('click', outsideClick); document.removeEventListener('pointerdown', outsidePointer, true); },
