@@ -10,7 +10,7 @@ const chrome = ['google-chrome', 'chromium', 'chromium-browser'].find(bin => spa
 
 // Real signoffs.js, signoffs.css and Fastmail renderer in headless Chrome with a mocked API.
 function run(extra = []) {
-  const result = spawnSync(chrome, ['--headless=new', '--no-sandbox', '--disable-gpu', '--allow-file-access-from-files', '--window-size=600,1000',
+  const result = spawnSync(chrome, ['--headless=new', '--no-sandbox', '--disable-gpu', '--allow-file-access-from-files', '--window-size=600,1400',
     '--virtual-time-budget=5000', ...extra, 'file://' + fixture + (extra.some(a => a.startsWith('--screenshot')) ? '#shot' : '')], {encoding: 'utf8', maxBuffer: 1 << 26});
   return result.stdout;
 }
@@ -36,6 +36,9 @@ test('chat Signoff references: six-line email preview, no Effects, one-line feed
   assert.ok(out.actionGrownHeight > out.actionEmptyHeight + 2 * out.actionLineHeight);
   assert.equal(out.actionScrollFits, true);
   assert.equal(out.actionStillSame, true);
+  assert.ok(out.narrowHeight > out.wideHeight);
+  assert.equal(out.narrowFits, true);
+  assert.equal(out.narrowSame, true);
   assert.equal(out.rejectBlocked, true);
   assert.equal(out.questionLabel, 'Answer (required)');
   assert.equal(out.questionRows, 1);

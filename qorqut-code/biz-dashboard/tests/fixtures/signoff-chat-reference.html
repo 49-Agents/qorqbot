@@ -74,6 +74,14 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   const outside = document.createElement('div'); outside.innerHTML = '<div class="sg"><div class="sg-effects"><h3>Effects</h3></div></div>'; document.body.append(outside);
   out.effectsOutsideInlineVisible = !!outside.querySelector('.sg-effects').offsetParent;
   outside.remove();
+  // A long existing draft set without input must refit when the pane narrows (resize hook only).
+  const fb = q('action', '.sg-feedback'), draftText = 'A long existing draft that wraps once the pane gets narrow. '.repeat(3);
+  fb.value = draftText; refs.style.width = '560px'; window.dispatchEvent(new Event('resize')); await wait(50);
+  out.wideHeight = h(fb);
+  refs.style.width = '240px'; window.dispatchEvent(new Event('resize')); await wait(50);
+  out.narrowHeight = h(fb); out.narrowFits = fb.scrollHeight <= fb.clientHeight;
+  out.narrowSame = q('action', '.sg-feedback') === fb && fb.value === draftText;
+  refs.style.width = '';
   q('action', '.sg-feedback').value = ''; q('action', '.sg-feedback').dispatchEvent(new Event('input', {bubbles: true})); await wait(50);
   const reject = q('action', '[data-sg="reject"]'); reject.click(); await wait(100);
   out.rejectBlocked = !!q('action', '[data-sg="reject"]') && document.activeElement === q('action', '.sg-feedback');

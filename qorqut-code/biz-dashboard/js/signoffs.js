@@ -339,7 +339,7 @@ function sgCreateView(options) {
     }
   };
   if (compactEmail) document.addEventListener('pointerdown', outsidePointer, true);
-  const resizeMessages=()=>{if(active())sg.mount?.querySelectorAll('.sg-message-editor').forEach(fitMessage);};
+  const resizeMessages=()=>{if(!active())return;sg.mount?.querySelectorAll('.sg-message-editor').forEach(fitMessage);if(options.inline)sg.mount?.querySelectorAll('.sg-feedback').forEach(fitFeedback);};
   window.addEventListener('resize',resizeMessages);
   const canEditMessage = s => expected(s) && completePreview(s) && sgMessageValues(s) && Object.keys(sgMessageValues(s)).some(key=>s.editable_fields?.includes(key))
     && s.state === 'pending' && !s.superseded_by_id && owner() && !sg.error && !sg.detailErrors.has(s.id)
