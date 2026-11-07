@@ -48,6 +48,64 @@ const calendarStatusMarks = {
   rescheduled:'<path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20 4v4.5h-4.5"/>'};
 const calendarStatusMark = status => calendarStatusMarks[status] ? `<i class="calendar-status-mark" aria-hidden="true"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">${calendarStatusMarks[status]}</svg></i>` : '';
 const calendarIsRecurring = event => !!event.series_id || (event.recurrence?.length || 0) > 0;
+
+// Display-only helpers for the event detail; addresses used for RSVP and identity are never rewritten.
+const calendarDisplayAddress = value => String(value ?? '').replace(/^mailto:/i,'');
+const calendarGuestLabels = {needsAction:'Awaiting response',accepted:'Accepted',tentative:'Maybe',declined:'Declined'};
+const calendarGuestLabel = status => calendarGuestLabels[status] || String(status ?? '');
+// Escapes text and links only http(s) URLs that parse; anything else stays plain text.
+function calendarLinkify(text) {
+  const source = String(text ?? ''); let out = '', last = 0;
+  for (const match of source.matchAll(/https?:\/\/[^\s<>"']+/gi)) {
+    let label = match[0], trailing = '';
+    while (/[.,;:!?)\]]$/.test(label)) { trailing = label.slice(-1)+trailing; label = label.slice(0,-1); }
+    let href = null;
+    try { const url = new URL(label); if (url.protocol === 'http:' || url.protocol === 'https:') href = url.href; } catch (_) {}
+    out += esc(source.slice(last,match.index));
+    out += href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>${esc(trailing)}` : esc(match[0]);
+    last = match.index+match[0].length;
+  }
+  return out+esc(source.slice(last));
+}
+// Human date and time with the viewer's timezone abbreviation; falls back to the compact label for unparsable input.
+function calendarWhenParts(event) {
+  const day = date => date.toLocaleDateString([], {weekday:'short', day:'numeric', month:'short', year:'numeric'});
+  if (event.start.length === 10) {
+    const first = new Date(event.start+'T12:00:00'), last = calendarAddDays(new Date(event.end+'T12:00:00'),-1);
+    if (isNaN(first) || isNaN(last)) return {time:calendarEventWhen(event)};
+    return {date:event.start === calendarDateString(last) ? day(first) : `${day(first)} – ${day(last)}`, time:'All day'};
+  }
+  const start = new Date(event.start), end = new Date(event.end);
+  if (isNaN(start) || isNaN(end)) return {time:calendarEventWhen(event)};
+  const zone = new Intl.DateTimeFormat([], {timeZoneName:'short'}).formatToParts(start).find(part => part.type === 'timeZoneName')?.value || '';
+  const sameDay = calendarDateString(start) === calendarDateString(end);
+  return {date:sameDay ? day(start) : `${day(start)} – ${day(end)}`, time:`${calendarTime(start)} – ${calendarTime(end)}${zone ? ' '+zone : ''}`};
+}
+function calendarDetailBody(event, calendar, attendee, recurring, statusTarget) {
+  const row = (label, value) => value ? `<div class="calendar-meta-row"><dt>${label}</dt><dd>${value}</dd></div>` : '';
+  const when = calendarWhenParts(event);
+  const meet = event.meet_url && /^https:\/\/meet\.google\.com\//.test(event.meet_url) ? `<a href="${esc(event.meet_url)}" target="_blank" rel="noopener noreferrer">Join Google Meet</a>` : '';
+  const where = [event.location ? calendarLinkify(event.location) : '', meet].filter(Boolean).join('<br>');
+  const organizer = calendarDisplayAddress(event.organizer);
+  const guests = event.attendees || [];
+  const recurrence = recurring ? `<p class="muted calendar-recurrence">${event.recurrence_edit_scope === 'series' || event.recurrence.length ? 'Recurring series. Changes here apply to the series.' : 'Occurrence of a recurring event.'}</p>` : '';
+  return `<div class="calendar-detail">
+      <dl class="calendar-meta">
+        ${row('When',`${when.date ? `<span class="calendar-when-date">${esc(when.date)}</span>` : ''}<strong class="calendar-when-time">${esc(when.time)}</strong>`)}
+        ${row('Where',where)}
+        ${row('Calendar',esc(calendar?.name || ''))}
+        ${row('Organizer',esc(organizer))}
+        ${row('Invitation',attendee ? esc(calendarGuestLabel(attendee.status)) : '')}
+      </dl>
+      ${recurrence}
+      ${event.description ? `<section class="calendar-about"><h3>About</h3><div class="calendar-description">${calendarLinkify(event.description)}</div></section>` : ''}
+      ${guests.length ? `<details class="calendar-guests"><summary>Guests (${guests.length})</summary><ul>${guests.map(a => `<li><span>${esc(calendarDisplayAddress(a.email))}</span><small>${esc(calendarGuestLabel(a.status))}</small></li>`).join('')}</ul></details>` : ''}
+      <div class="calendar-personal-status"><label><span class="calendar-status-label">Your tracking status</span><select class="inp" name="personal_status" aria-label="Your tracking status">${Object.entries(calendarStatusLabels).map(([value,label]) => `<option value="${value}">${label}</option>`).join('')}</select></label>
+        <button type="button" class="ghost" data-calendar-status-save>Save status</button>
+        <p class="muted calendar-status-help">Only for you; guests aren’t notified.${statusTarget.occurrence_start ? ` Applies to the ${esc(calendarDateLabel(new Date(statusTarget.occurrence_start.length === 10 ? statusTarget.occurrence_start+'T12:00:00' : statusTarget.occurrence_start)))} occurrence only.` : ''}</p>
+        <p class="calendar-status-note" role="status"></p></div>
+      <p class="calendar-detail-error" role="alert"></p></div>`;
+}
 // connection + calendar + event + occurrence; nonrecurring events use an empty occurrence so moving them keeps the label.
 function calendarStatusTarget(event) {
   let occurrence_start = '';
@@ -622,18 +680,7 @@ async function calendarOpen(event, calendars, refresh, clicked = event, origin =
             try { if (await calendarSubmitAttempt(attempt,refresh,surface)) close(); else el.querySelectorAll('.mfoot button').forEach(button => button.disabled = false); }
             catch (error) { $('.calendar-detail-error',el).textContent = error.message; el.querySelectorAll('.mfoot button').forEach(button => button.disabled = false); }
           }}); }) : [];
-        await surface.show({title:event.title || 'Event', body:`<div class="calendar-detail">
-      <p>${esc(calendarEventWhen(event))}</p><p>${esc(calendar?.name || '')} · ${esc(event.organizer || '')}</p>
-      ${recurring ? `<p class="muted">${event.recurrence_edit_scope === 'series' || event.recurrence.length ? 'Recurring series. Changes here apply to the series.' : 'Occurrence of a recurring event.'}</p>` : ''}
-      ${event.location ? `<p>${esc(event.location)}</p>` : ''}
-      ${event.meet_url && /^https:\/\/meet\.google\.com\//.test(event.meet_url) ? `<p><a href="${esc(event.meet_url)}" target="_blank" rel="noopener">Join Google Meet</a></p>` : ''}
-      ${event.description ? `<p class="calendar-description">${esc(event.description)}</p>` : ''}
-      ${event.attendees.map(a => `<p>${esc(a.email)} · ${esc(a.status)}</p>`).join('')}
-      <div class="calendar-personal-status"><label>Personal status<select class="inp" name="personal_status" aria-label="Personal status">${Object.entries(calendarStatusLabels).map(([value,label]) => `<option value="${value}">${label}</option>`).join('')}</select></label>
-        <button type="button" class="ghost" data-calendar-status-save>Save status</button>
-        <p class="muted calendar-status-help">Only for you; guests aren’t notified.${statusTarget.occurrence_start ? ` Applies to the ${esc(calendarDateLabel(new Date(statusTarget.occurrence_start.length === 10 ? statusTarget.occurrence_start+'T12:00:00' : statusTarget.occurrence_start)))} occurrence only.` : ''}</p>
-        <p class="calendar-status-note" role="status"></p></div>
-      <p class="calendar-detail-error" role="alert"></p></div>`,
+        await surface.show({title:event.title || 'Event', body:calendarDetailBody(event,calendar,attendee,recurring,statusTarget),
           onOpen:el => calendarStatusEditor(el,statusTarget,surface,clicked,calendar), onBack:() => surface.close(), actions:[
           ...responseActions,
           ...(event.series_id && event.series_id !== event.id ? [{label:'Open series', navigation:true, onClick:() => surface.back(() => detail({...event,id:event.series_id}))}] : []),
