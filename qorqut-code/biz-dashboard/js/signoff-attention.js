@@ -9,7 +9,7 @@ window.sgFocusOpen = (title, options, afterClose) => window.focusExpansion.open(
   let view, confirmation = null;
   const notice = document.createElement('p'); notice.className='sg-notice'; notice.setAttribute('role','status'); notice.hidden=true;
   const prompt = document.createElement('div'); prompt.className='sg-focus-confirm'; prompt.hidden=true;
-  const body = document.createElement('div');
+  const body = document.createElement('div'); body.className='sg-focus';
   host.append(notice, prompt, body);
   const finish = answer => { prompt.hidden=true; prompt.replaceChildren(); const resolve=confirmation; confirmation=null; resolve?.(answer); };
   const confirmExecutionCancel = () => {

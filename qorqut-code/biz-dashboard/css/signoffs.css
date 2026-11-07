@@ -201,3 +201,61 @@
 .sg-group-list { display: flex; flex-direction: column; gap: 2px; }
 .sg-group-item { text-align: left; padding: 9px 10px; border: 0; border-radius: 10px; background: none; color: var(--fg); font: 500 13px/20px var(--sans); overflow-wrap: anywhere; white-space: normal; }
 .sg-group-item:hover, .sg-group-item:focus-visible { background: var(--hover); }
+
+/* Signoffs expanded in the right Focus pane (class set by sgFocusOpen): one flat, full-width column.
+   Rows are separated by hairlines instead of nested cards, text grows with its content and nothing is line-clamped. */
+.sg-focus .sg { padding: 0 0 24px; }
+.sg-focus .sg h2 { margin: 16px 0 8px; }
+.sg-focus .sg .sg-rows { gap: 0; }
+.sg-focus .sg .sg-row { padding: 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; }
+.sg-focus .sg .sg-row:last-child { border-bottom: 0; }
+/* app.css restyles every .agfocus button as a bordered pill; the row header and choices opt back out. */
+.sg-focus .sg .sg-rowhead { min-height: 0; padding: 14px 0; border: 0; border-radius: 0; background: none; color: var(--fg); font: inherit; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; text-align: left; gap: 6px 10px; }
+/* Title on its own line, then one compact metadata row: status, project, author, time. */
+.sg-focus .sg-rowtitle { flex: 1 1 100%; }
+.sg-focus .sg-state, .sg-focus .sg-state-tags { display: contents; }
+.sg-focus .sg-state-tags > * { order: 1; }
+.sg-focus .sg-rowmeta { display: contents; }
+.sg-focus .sg-rowmeta > * { order: 2; }
+.sg-focus .sg-state time { order: 3; }
+.sg-focus .sg-work [data-empty] { display: none; }
+.sg-focus .sg .sg-rowhead:hover { background: none; }
+.sg-focus .sg .sg-rowhead:hover .sg-rowtitle { color: var(--fg); }
+.sg-focus .sg-rowtitle { font-size: 15px; font-weight: 500; line-height: 1.45; }
+.sg-focus .sg .sg-rowhead[aria-expanded="true"] { padding-bottom: 6px; }
+.sg-focus .sg .sg-rowhead[aria-expanded="true"] .sg-rowtitle { font-size: 18px; font-weight: 600; line-height: 1.35; }
+.sg-focus .sg-state, .sg-focus .sg-state time { color: var(--fg-3); }
+.sg-focus .sg .sg-row-actions { margin: 0 0 14px; }
+.sg-focus .sg .sg-detail { max-width: none; padding: 0 0 20px; }
+.sg-focus .sg-detail > * + * { margin-top: 20px; }
+.sg-focus .sg-detail > :empty, .sg-focus .sg-detail > [hidden] { display: none; }
+.sg-focus .sg-detail > .sg-detailnotice, .sg-focus .sg-detail > .sg-attention-meta { margin-top: 0; }
+.sg-focus .sg-detail > .sg-attention-meta:not(:empty) { margin-top: 4px; }
+.sg-focus .sg-detail .sg-notice { margin: 0; }
+.sg-focus .sg-detail .sg-attention-meta .sg-notice { color: var(--fg-3); }
+.sg-focus .sg-detail h3, .sg-focus .sg-detail h4 { margin: 0 0 8px; }
+.sg-focus .sg-rationale p { font-size: 14px; line-height: 1.6; color: var(--fg); margin: 0; }
+.sg-focus .sg-rationale, .sg-focus .sg-impact, .sg-focus .sg-effects, .sg-focus .sg-content { margin: 0; }
+.sg-focus .sg-preview > * + * { margin-top: 20px; }
+.sg-focus .sg-text { max-height: none; }
+.sg-focus .sg-choices:not(:empty)::before { content: "Choices"; display: block; margin-bottom: 8px; font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-2); opacity: .6; line-height: 1; }
+.sg-focus .sg-choices > div { display: flex; flex-direction: column; gap: 8px; }
+.sg-focus .sg .sg-choice { grid-template-columns: 20px minmax(0, 1fr); align-items: start; gap: 2px 12px; height: auto; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 8px; background: none; color: var(--fg); font: 400 14px/1.5 var(--sans); }
+.sg-focus .sg .sg-choice:hover { background: var(--wash); color: var(--fg); }
+.sg-focus .sg-choice > span:not(.sg-choice-marker):not(.sg-choice-name):not(.sg-choice-explanation) { display: none; }
+.sg-focus .sg-choice-marker { grid-row: 1 / span 2; margin-top: 1px; }
+.sg-focus .sg-choice-name { grid-column: 2; font-size: 14px; line-height: 20px; color: var(--fg); }
+.sg-focus .sg-choice-explanation { grid-column: 2; height: auto; display: block; overflow: visible; font-size: 14px; line-height: 1.55; color: var(--fg-2); }
+.sg-focus .sg .sg-choice[aria-checked="true"] { border-color: var(--fg-2); }
+.sg-focus .sg-feedbackwrap { margin-top: 20px; }
+.sg-focus .sg-label { font-size: 12px; margin-bottom: 8px; }
+.sg-focus .sg .sg-feedback { min-height: 88px; border-radius: 8px; font-size: 14px; }
+.sg-focus .sg-actions { gap: 8px; margin-top: 0; }
+.sg-focus .sg-detail > .sg-conversation { padding-top: 16px; border-top: 1px solid var(--line); margin-top: 24px; color: var(--fg-2); }
+.sg-focus .sg-savedresponse .sg-response-notes { margin: 0 0 4px; }
+@media (max-width: 520px) {
+  .sg-focus .sg { padding: 0 0 20px; }
+  .sg-focus .sg .sg-choice { grid-template-columns: 20px minmax(0, 1fr); gap: 2px 10px; padding: 10px; }
+  .sg-focus .sg .sg-rowhead[aria-expanded="true"] .sg-rowtitle { font-size: 17px; }
+}
+.sg-focus .sg-content-value .sg-val-list, .sg-focus .sg-content-value ul { margin: 0; }

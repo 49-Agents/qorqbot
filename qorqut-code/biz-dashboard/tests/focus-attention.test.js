@@ -88,6 +88,7 @@ test('Focus signoff host guards drafts and writes and keeps cancellation confirm
   vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/signoff-attention.js'),'utf8'),context);
   await context.window.sgFocusOpen('Signoff',{workspace:()=> 'project'});
   const host=new Node(),dispose=spec.mount(host,{isCurrent:()=>true,setBeforeLeave(fn){guard=fn;}});
+  assert.equal(host.children[2].className,'sg-focus');
   dirty=true; assert.equal(await guard(),false); dirty=false;
   pending=true; assert.equal(await guard(),false); pending=false; assert.equal(await guard(),true);
   const answer=viewOptions.confirmExecutionCancel(); assert.equal(await guard(),false);
