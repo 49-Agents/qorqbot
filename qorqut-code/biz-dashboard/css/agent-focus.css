@@ -181,7 +181,7 @@
 /* One gap before the completed group, not per row. */
 .attention-completed-start{margin-top:50px}
 .agfocus .attention-owner-toggle{display:inline-flex;align-items:center;justify-content:center;width:34px;height:24px;min-height:24px;margin:0 0 6px 3px;padding:0;border:1px solid var(--line-2);border-radius:999px;background:transparent;color:var(--fg-2);cursor:pointer}
-.agfocus .attention-owner-toggle .identity-avatar{width:16px;height:16px}.agfocus .attention-owner-toggle svg{width:14px;height:14px}
+.agfocus .attention-owner-toggle svg{width:14px;height:14px}
 .agfocus .attention-owner-toggle[aria-pressed=true]{background:var(--fg-2);border-color:var(--fg-2);color:var(--bg)}
 .agfocus .attention-owner-toggle:focus-visible{outline:2px solid var(--fg-2);outline-offset:2px}
 .attention-empty{font-size:11px;color:var(--fg-3);padding-left:3px}

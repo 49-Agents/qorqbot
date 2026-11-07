@@ -44,6 +44,8 @@ browserTest('Todo owner toggle switches between my tasks and everyone', async ()
       const toggle = page.locator('button.attention-owner-toggle');
       assert.equal(await toggle.count(), 1);
       assert.equal(await toggle.getAttribute('aria-pressed'), 'false');
+      assert.equal(await toggle.locator('.identity-avatar').count(), 0);
+      assert.equal(await toggle.locator('> svg[aria-hidden="true"]').count(), 1);
       assert.deepEqual(await titles(page), ['Mine', 'Agent only', 'Unassigned', 'Shared']);
       await toggle.focus(); await page.keyboard.press('Enter');
       assert.equal(await page.locator('button.attention-owner-toggle').getAttribute('aria-pressed'), 'true');

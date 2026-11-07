@@ -277,7 +277,7 @@ function attentionBoardPaint(p) {
   const filter=document.createElement('button');filter.type='button';filter.className='attention-owner-toggle';
   filter.setAttribute('aria-pressed',String(mine));
   filter.setAttribute('aria-label',mine?'Showing only my tasks. Show everyone\'s tasks':'Showing everyone\'s tasks. Show only my tasks');
-  filter.innerHTML=identityAvatar('person','Me','',"Me");filter.firstElementChild.removeAttribute('role');filter.firstElementChild.removeAttribute('aria-label');
+  filter.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>';
   filter.onclick=()=>{p.attentionBoard.filter=mine?'all':'owner';attentionBoardPaint(p);filter.isConnected||board.querySelector('.attention-owner-toggle')?.focus({preventScroll:true});};list.append(filter);
   const rows=document.createElement('div');rows.className='agfocus-items';
   const visible=data.items.filter(item=>!mine || (attentionBoardTask(item.task_ref,item.task).worker_ids || []).includes(data.owner_id));
