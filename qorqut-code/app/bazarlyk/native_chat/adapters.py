@@ -7,7 +7,8 @@ is typed. After the checkpoint every outcome other than an explicit ``deferred``
 ``receipt`` names only what was observed (client, a digest of the terminal identity, the composer fingerprint).
 
 * ``TerminalAdapter`` types into the agent's one registered tmux pane for Claude Code or Codex through the existing verified
-  composer path (bracketed paste, a single Enter, no input into a modal). Owner Chat can replace an existing draft.
+  composer path (one bracketed paste, Enter with one verified pending-paste retry, no input into a modal).
+  Owner Chat can replace an existing draft.
 * ``CodexQueueAdapter`` uses explicit turn/steer (busy) or turn/start (idle) for steering inputs on the verified
   shared server. Non-steering producers retain codex queue. It never starts or resumes a client.
 """
