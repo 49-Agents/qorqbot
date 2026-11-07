@@ -7,6 +7,8 @@ cursor enumerates it completely. ``content_cursor`` stays a byte transport for o
 collection cursor.
 """
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import base64
 import json
 
@@ -307,17 +309,11 @@ class LearningReview:
             global_capability="read_global_context",
             resolve_namespace=lambda c,a: "business:" + c.business_id if c.business_id else "agent:" + c.agent_id if c.agent_id else "global",
             read=agenda,
-            description="Read the compact factual Context review agenda across authorized scopes; defaults to open. "
-                        "Excludes filed and collapsed items. Does not approve anything and returns no issue projection."))
+            description=instruction_text('review-read-the-compact-factual-context-review-agenda-across')))
         self.app.registry.register(OperationDescriptor("learnings_review_get", schema({"learning_id": IDENTITY,
-            "content_cursor": {"type": "string", "maxLength": 2000, "description": "Byte continuation of the exact selected page; repeat the same evidence_cursor/history_cursor arguments."},
-            "evidence_cursor": {"type": "string", "maxLength": 4000, "description": "Continue the frozen evidence collection at this position."},
-            "history_cursor": {"type": "string", "maxLength": 4000, "description": "Continue the append-only history collection at this position."}},
+            "content_cursor": {"type": "string", "maxLength": 2000, "description": instruction_text('review-byte-continuation-of-the-exact-selected-page-repeat')},
+            "evidence_cursor": {"type": "string", "maxLength": 4000, "description": instruction_text('review-continue-the-frozen-evidence-collection-at-this-position')},
+            "history_cursor": {"type": "string", "maxLength": 4000, "description": instruction_text('review-continue-the-append-only-history-collection-at-this')}},
             ("learning_id",)),
             **SCOPE, effect_kind="read", supports_signoff=False, read=self.review_get,
-            description="Read one retained learning candidate with its owner decision, reasoning and bounded frozen extraction cores "
-                        "(quoted evidence and source hashes, never original transcripts). Evidence and history are independent collections: "
-                        "follow next_evidence_cursor and next_history_cursor until both are null to enumerate the whole saved record, and "
-                        "merge the page_collections this page carries. Sources are keyed by both run and session; missing saved cores are explicit. "
-                        "An oversized page comes back in complete:false with next_content_cursor; reassemble it with the same collection "
-                        "arguments before following either collection cursor. Historical procedural records are read_only."))
+            description=instruction_text('review-read-one-retained-learning-candidate-with-its-owner')))

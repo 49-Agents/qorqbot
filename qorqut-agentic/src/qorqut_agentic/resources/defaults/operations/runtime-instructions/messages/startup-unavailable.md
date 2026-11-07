@@ -1,0 +1,1 @@
+Agent connection is temporarily unavailable ({{CODE}}). The helper retries automatically. Continue the owner's authorized local coding and other work that does not require the unavailable service; keep existing workers running. Do not rerun startup hooks or restart the conversation.

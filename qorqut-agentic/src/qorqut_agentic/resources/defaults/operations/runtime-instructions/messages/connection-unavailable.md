@@ -1,0 +1,1 @@
+MCP service temporarily unavailable within this request budget. The local connection remains open; its helper reconnects in the background.

@@ -1,0 +1,694 @@
+{
+  "schema_version": 1,
+  "id": "runtime-instructions",
+  "name": "Runtime instructions",
+  "description": "Canonical hook, startup, reminder and recovery wording. Delivery does not grant authority.",
+  "entries": [
+    {
+      "id": "activity-reminder",
+      "kind": "instruction",
+      "path": "messages/activity-reminder.md",
+      "description": "Activity reminder",
+      "when_to_use": "activity hook; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-board",
+      "kind": "instruction",
+      "path": "messages/attention-board.md",
+      "description": "Attention board",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-board-transition",
+      "kind": "instruction",
+      "path": "messages/attention-board-transition.md",
+      "description": "attention board transition",
+      "when_to_use": "agents/attention.py"
+    },
+    {
+      "id": "attention-candidates",
+      "kind": "instruction",
+      "path": "messages/attention-candidates.md",
+      "description": "Attention candidates",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-continue",
+      "kind": "instruction",
+      "path": "messages/attention-continue.md",
+      "description": "Attention continue",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-data",
+      "kind": "instruction",
+      "path": "messages/attention-data.md",
+      "description": "Attention data",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-detach",
+      "kind": "instruction",
+      "path": "messages/attention-detach.md",
+      "description": "Attention detach",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-empty",
+      "kind": "instruction",
+      "path": "messages/attention-empty.md",
+      "description": "Attention empty",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-focus",
+      "kind": "instruction",
+      "path": "messages/attention-focus.md",
+      "description": "Attention focus",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-focus-transition",
+      "kind": "instruction",
+      "path": "messages/attention-focus-transition.md",
+      "description": "attention focus transition",
+      "when_to_use": "agents/attention.py"
+    },
+    {
+      "id": "attention-more",
+      "kind": "instruction",
+      "path": "messages/attention-more.md",
+      "description": "Attention more",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-next-actor",
+      "kind": "instruction",
+      "path": "messages/attention-next-actor.md",
+      "description": "attention next actor",
+      "when_to_use": "agents/attention.py"
+    },
+    {
+      "id": "attention-unavailable",
+      "kind": "instruction",
+      "path": "messages/attention-unavailable.md",
+      "description": "Attention unavailable",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "background-recovered",
+      "kind": "instruction",
+      "path": "messages/background-recovered.md",
+      "description": "Background recovered",
+      "when_to_use": "activity context; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "briefing-assignment-edges",
+      "kind": "instruction",
+      "path": "messages/briefing-assignment-edges.md",
+      "description": "briefing assignment edges",
+      "when_to_use": "agents/briefing.py"
+    },
+    {
+      "id": "briefing-evidence",
+      "kind": "instruction",
+      "path": "messages/briefing-evidence.md",
+      "description": "Briefing evidence",
+      "when_to_use": "briefing; legacy; selected by the registered runtime policy."
+    },
+    {
+      "id": "briefing-evidence-review",
+      "kind": "instruction",
+      "path": "messages/briefing-evidence-review.md",
+      "description": "briefing evidence review",
+      "when_to_use": "agents/briefing.py"
+    },
+    {
+      "id": "briefing-excerpt",
+      "kind": "instruction",
+      "path": "messages/briefing-excerpt.md",
+      "description": "briefing excerpt",
+      "when_to_use": "agents/briefing.py"
+    },
+    {
+      "id": "briefing-grants",
+      "kind": "instruction",
+      "path": "messages/briefing-grants.md",
+      "description": "briefing grants",
+      "when_to_use": "agents/briefing.py"
+    },
+    {
+      "id": "briefing-neighborhood-limit",
+      "kind": "instruction",
+      "path": "messages/briefing-neighborhood-limit.md",
+      "description": "briefing neighborhood limit",
+      "when_to_use": "agents/briefing.py"
+    },
+    {
+      "id": "briefing-omitted",
+      "kind": "instruction",
+      "path": "messages/briefing-omitted.md",
+      "description": "Briefing omitted",
+      "when_to_use": "briefing; legacy; selected by the registered runtime policy."
+    },
+    {
+      "id": "briefing-pagination",
+      "kind": "instruction",
+      "path": "messages/briefing-pagination.md",
+      "description": "briefing pagination",
+      "when_to_use": "agents/briefing.py"
+    },
+    {
+      "id": "briefing-project-selection",
+      "kind": "instruction",
+      "path": "messages/briefing-project-selection.md",
+      "description": "briefing project selection",
+      "when_to_use": "agents/briefing.py"
+    },
+    {
+      "id": "briefing-read-before-write",
+      "kind": "instruction",
+      "path": "messages/briefing-read-before-write.md",
+      "description": "briefing read before write",
+      "when_to_use": "agents/briefing.py"
+    },
+    {
+      "id": "briefing-refresh",
+      "kind": "instruction",
+      "path": "messages/briefing-refresh.md",
+      "description": "briefing refresh",
+      "when_to_use": "agents/briefing.py"
+    },
+    {
+      "id": "briefing-relationships",
+      "kind": "instruction",
+      "path": "messages/briefing-relationships.md",
+      "description": "briefing relationships",
+      "when_to_use": "agents/briefing.py"
+    },
+    {
+      "id": "briefing-runtime-unavailable",
+      "kind": "instruction",
+      "path": "messages/briefing-runtime-unavailable.md",
+      "description": "briefing runtime unavailable",
+      "when_to_use": "agents/resolver.py"
+    },
+    {
+      "id": "briefing-skill-discovery",
+      "kind": "instruction",
+      "path": "messages/briefing-skill-discovery.md",
+      "description": "briefing skill discovery",
+      "when_to_use": "agents/briefing.py"
+    },
+    {
+      "id": "briefing-source-unavailable",
+      "kind": "instruction",
+      "path": "messages/briefing-source-unavailable.md",
+      "description": "briefing source unavailable",
+      "when_to_use": "agents/briefing.py"
+    },
+    {
+      "id": "briefing-tools",
+      "kind": "instruction",
+      "path": "messages/briefing-tools.md",
+      "description": "Briefing tools",
+      "when_to_use": "briefing; legacy; selected by the registered runtime policy."
+    },
+    {
+      "id": "briefing-truncated",
+      "kind": "instruction",
+      "path": "messages/briefing-truncated.md",
+      "description": "Briefing truncated",
+      "when_to_use": "briefing; legacy; selected by the registered runtime policy."
+    },
+    {
+      "id": "browser-worker-repair",
+      "kind": "instruction",
+      "path": "messages/browser-worker-repair.md",
+      "description": "browser worker repair",
+      "when_to_use": "browser/access.py"
+    },
+    {
+      "id": "browser-worker-unconfigured",
+      "kind": "instruction",
+      "path": "messages/browser-worker-unconfigured.md",
+      "description": "browser worker unconfigured",
+      "when_to_use": "browser/access.py"
+    },
+    {
+      "id": "completion-finished-work",
+      "kind": "instruction",
+      "path": "messages/completion-finished-work.md",
+      "description": "Completion finished work",
+      "when_to_use": "checkpoints; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "completion-focus-retired",
+      "kind": "instruction",
+      "path": "messages/completion-focus-retired.md",
+      "description": "Completion focus retired",
+      "when_to_use": "checkpoints; retired; selected by the registered runtime policy."
+    },
+    {
+      "id": "completion-owner-inbox",
+      "kind": "instruction",
+      "path": "messages/completion-owner-inbox.md",
+      "description": "Completion owner inbox",
+      "when_to_use": "checkpoints; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "completion-records",
+      "kind": "instruction",
+      "path": "messages/completion-records.md",
+      "description": "Completion records",
+      "when_to_use": "checkpoints; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "completion-unavailable-work",
+      "kind": "instruction",
+      "path": "messages/completion-unavailable-work.md",
+      "description": "Completion unavailable work",
+      "when_to_use": "checkpoints; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "completion-wrapper",
+      "kind": "instruction",
+      "path": "messages/completion-wrapper.md",
+      "description": "Completion wrapper",
+      "when_to_use": "activity hook; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "connection-pending-outcome",
+      "kind": "instruction",
+      "path": "messages/connection-pending-outcome.md",
+      "description": "connection pending outcome",
+      "when_to_use": "native MCP connection recovery"
+    },
+    {
+      "id": "connection-possible-write",
+      "kind": "instruction",
+      "path": "messages/connection-possible-write.md",
+      "description": "connection possible write",
+      "when_to_use": "native MCP connection recovery"
+    },
+    {
+      "id": "connection-refused",
+      "kind": "instruction",
+      "path": "messages/connection-refused.md",
+      "description": "connection refused",
+      "when_to_use": "native MCP connection recovery"
+    },
+    {
+      "id": "connection-unavailable",
+      "kind": "instruction",
+      "path": "messages/connection-unavailable.md",
+      "description": "connection unavailable",
+      "when_to_use": "native MCP connection recovery"
+    },
+    {
+      "id": "connection-uncertain-write",
+      "kind": "instruction",
+      "path": "messages/connection-uncertain-write.md",
+      "description": "connection uncertain write",
+      "when_to_use": "bootstrap/mcp_reconnect.py"
+    },
+    {
+      "id": "delegated-worker-continue",
+      "kind": "instruction",
+      "path": "messages/delegated-worker-continue.md",
+      "description": "delegated worker continue",
+      "when_to_use": "bootstrap/delegated_runtime.py"
+    },
+    {
+      "id": "delegated-worker-rules",
+      "kind": "instruction",
+      "path": "messages/delegated-worker-rules.md",
+      "description": "delegated worker rules",
+      "when_to_use": "bootstrap/delegated_runtime.py"
+    },
+    {
+      "id": "delegated-worker-start",
+      "kind": "instruction",
+      "path": "messages/delegated-worker-start.md",
+      "description": "delegated worker start",
+      "when_to_use": "bootstrap/delegated_runtime.py"
+    },
+    {
+      "id": "environment-guidance",
+      "kind": "instruction",
+      "path": "messages/environment-guidance.md",
+      "description": "Environment guidance",
+      "when_to_use": "environment; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "environment-legacy",
+      "kind": "instruction",
+      "path": "messages/environment-legacy.md",
+      "description": "Environment legacy",
+      "when_to_use": "environment; legacy; selected by the registered runtime policy."
+    },
+    {
+      "id": "environment-legacy-omitted",
+      "kind": "instruction",
+      "path": "messages/environment-legacy-omitted.md",
+      "description": "Environment legacy omitted",
+      "when_to_use": "environment; legacy; selected by the registered runtime policy."
+    },
+    {
+      "id": "environment-omitted",
+      "kind": "instruction",
+      "path": "messages/environment-omitted.md",
+      "description": "Environment omitted",
+      "when_to_use": "environment; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "environment-truncated",
+      "kind": "instruction",
+      "path": "messages/environment-truncated.md",
+      "description": "Environment truncated",
+      "when_to_use": "environment; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "environment-unavailable",
+      "kind": "instruction",
+      "path": "messages/environment-unavailable.md",
+      "description": "Environment unavailable",
+      "when_to_use": "environment; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "inbox-nudge",
+      "kind": "instruction",
+      "path": "messages/inbox-nudge.md",
+      "description": "inbox nudge",
+      "when_to_use": "inbox_nudges/contracts.py"
+    },
+    {
+      "id": "initial-learning-assignment",
+      "kind": "instruction",
+      "path": "messages/initial-learning-assignment.md",
+      "description": "initial learning assignment",
+      "when_to_use": "bootstrap/initialize.py"
+    },
+    {
+      "id": "initial-ordubashy-assignment",
+      "kind": "instruction",
+      "path": "messages/initial-ordubashy-assignment.md",
+      "description": "initial ordubashy assignment",
+      "when_to_use": "bootstrap/initialize.py"
+    },
+    {
+      "id": "learning-applier-assignment",
+      "kind": "instruction",
+      "path": "messages/learning-applier-assignment.md",
+      "description": "learning applier assignment",
+      "when_to_use": "bootstrap/learning_applier.py"
+    },
+    {
+      "id": "memory-legacy-plan",
+      "kind": "instruction",
+      "path": "messages/memory-legacy-plan.md",
+      "description": "Memory legacy plan",
+      "when_to_use": "working memory; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "memory-omitted",
+      "kind": "instruction",
+      "path": "messages/memory-omitted.md",
+      "description": "Memory omitted",
+      "when_to_use": "working memory; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "memory-pending",
+      "kind": "instruction",
+      "path": "messages/memory-pending.md",
+      "description": "Memory pending",
+      "when_to_use": "working memory; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "overseer-extraction-due",
+      "kind": "instruction",
+      "path": "messages/overseer-extraction-due.md",
+      "description": "overseer extraction due",
+      "when_to_use": "overseer/due.py"
+    },
+    {
+      "id": "plugin-discovery",
+      "kind": "instruction",
+      "path": "messages/plugin-discovery.md",
+      "description": "plugin discovery",
+      "when_to_use": "agents/preferences.py"
+    },
+    {
+      "id": "project-briefing-evidence",
+      "kind": "instruction",
+      "path": "messages/project-briefing-evidence.md",
+      "description": "project briefing evidence",
+      "when_to_use": "domains/business_briefing.py"
+    },
+    {
+      "id": "retirement-inbox-history",
+      "kind": "instruction",
+      "path": "messages/retirement-inbox-history.md",
+      "description": "retirement inbox history",
+      "when_to_use": "inbox/retirement_contract.py"
+    },
+    {
+      "id": "retirement-inbox-reading",
+      "kind": "instruction",
+      "path": "messages/retirement-inbox-reading.md",
+      "description": "retirement inbox reading",
+      "when_to_use": "inbox/retirement_contract.py"
+    },
+    {
+      "id": "retirement-review-history",
+      "kind": "instruction",
+      "path": "messages/retirement-review-history.md",
+      "description": "retirement review history",
+      "when_to_use": "inbox/retirement_contract.py"
+    },
+    {
+      "id": "runtime-diagnostic-guidance",
+      "kind": "instruction",
+      "path": "messages/runtime-diagnostic-guidance.md",
+      "description": "runtime diagnostic guidance",
+      "when_to_use": "agents/diagnostics.py"
+    },
+    {
+      "id": "skills-header",
+      "kind": "instruction",
+      "path": "messages/skills-header.md",
+      "description": "Skills header",
+      "when_to_use": "always skills; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "skills-omitted",
+      "kind": "instruction",
+      "path": "messages/skills-omitted.md",
+      "description": "Skills omitted",
+      "when_to_use": "always skills; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "startup-denied",
+      "kind": "instruction",
+      "path": "messages/startup-denied.md",
+      "description": "Startup denied",
+      "when_to_use": "claude session; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "startup-fault",
+      "kind": "instruction",
+      "path": "messages/startup-fault.md",
+      "description": "Startup fault",
+      "when_to_use": "claude session; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "startup-inventory",
+      "kind": "instruction",
+      "path": "messages/startup-inventory.md",
+      "description": "Startup inventory",
+      "when_to_use": "claude session; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "startup-pending",
+      "kind": "instruction",
+      "path": "messages/startup-pending.md",
+      "description": "Startup pending",
+      "when_to_use": "claude session; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "startup-recovered",
+      "kind": "instruction",
+      "path": "messages/startup-recovered.md",
+      "description": "Startup recovered",
+      "when_to_use": "claude session; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "startup-repair",
+      "kind": "instruction",
+      "path": "messages/startup-repair.md",
+      "description": "Startup repair",
+      "when_to_use": "claude session; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "startup-session",
+      "kind": "instruction",
+      "path": "messages/startup-session.md",
+      "description": "Startup session",
+      "when_to_use": "claude session; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "startup-unavailable",
+      "kind": "instruction",
+      "path": "messages/startup-unavailable.md",
+      "description": "Startup unavailable",
+      "when_to_use": "claude session; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "tool-validation-recovery",
+      "kind": "instruction",
+      "path": "messages/tool-validation-recovery.md",
+      "description": "tool validation recovery",
+      "when_to_use": "transport/mcp.py"
+    },
+    {
+      "id": "workspace-claude",
+      "kind": "instruction",
+      "path": "messages/workspace-claude.md",
+      "description": "workspace claude",
+      "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "workspace-code-roots",
+      "kind": "instruction",
+      "path": "messages/workspace-code-roots.md",
+      "description": "workspace code roots",
+      "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "workspace-codex",
+      "kind": "instruction",
+      "path": "messages/workspace-codex.md",
+      "description": "workspace codex",
+      "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "workspace-completion",
+      "kind": "instruction",
+      "path": "messages/workspace-completion.md",
+      "description": "workspace completion",
+      "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "workspace-delegation-summary",
+      "kind": "instruction",
+      "path": "messages/workspace-delegation-summary.md",
+      "description": "workspace delegation summary",
+      "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "workspace-global-coordination",
+      "kind": "instruction",
+      "path": "messages/workspace-global-coordination.md",
+      "description": "workspace global coordination",
+      "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "workspace-identity",
+      "kind": "instruction",
+      "path": "messages/workspace-identity.md",
+      "description": "workspace identity",
+      "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "workspace-inbox",
+      "kind": "instruction",
+      "path": "messages/workspace-inbox.md",
+      "description": "workspace inbox",
+      "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "workspace-native-subagents",
+      "kind": "instruction",
+      "path": "messages/workspace-native-subagents.md",
+      "description": "workspace native subagents",
+      "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "workspace-no-substitutes",
+      "kind": "instruction",
+      "path": "messages/workspace-no-substitutes.md",
+      "description": "workspace no substitutes",
+      "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "workspace-team-browser",
+      "kind": "instruction",
+      "path": "messages/workspace-team-browser.md",
+      "description": "workspace team browser",
+      "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "workspace-team-delegation",
+      "kind": "instruction",
+      "path": "messages/workspace-team-delegation.md",
+      "description": "workspace team delegation",
+      "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "workspace-team-queue",
+      "kind": "instruction",
+      "path": "messages/workspace-team-queue.md",
+      "description": "workspace team queue",
+      "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "workspace-team-unavailable",
+      "kind": "instruction",
+      "path": "messages/workspace-team-unavailable.md",
+      "description": "workspace team unavailable",
+      "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "workspace-worker-browser",
+      "kind": "instruction",
+      "path": "messages/workspace-worker-browser.md",
+      "description": "workspace worker browser",
+      "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "workspace-worker-delegation",
+      "kind": "instruction",
+      "path": "messages/workspace-worker-delegation.md",
+      "description": "workspace worker delegation",
+      "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "workspace-worker-queue",
+      "kind": "instruction",
+      "path": "messages/workspace-worker-queue.md",
+      "description": "workspace worker queue",
+      "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "workspace-worker-unavailable",
+      "kind": "instruction",
+      "path": "messages/workspace-worker-unavailable.md",
+      "description": "workspace worker unavailable",
+      "when_to_use": "trusted workspace preparation"
+    },
+    {
+      "id": "ordubashy-core",
+      "kind": "instruction",
+      "path": "messages/ordubashy-core.md",
+      "description": "ordubashy core",
+      "when_to_use": "Ordubashy startup and input reconciliation"
+    },
+    {
+      "id": "operational-intake",
+      "kind": "instruction",
+      "path": "messages/operational-intake.md",
+      "description": "operational intake",
+      "when_to_use": "Ordubashy startup and input reconciliation"
+    }
+  ]
+}

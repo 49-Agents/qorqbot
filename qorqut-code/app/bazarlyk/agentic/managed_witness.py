@@ -277,7 +277,12 @@ def validate(root, manifest_raw, standard, seeds, witnesses, selected):
         if total > _LIMIT:
             raise ValueError('Source witness exceeds capture bound')
         mappings[name] = records, directories
-    inv = Inventory()
+    # Retained pre-consolidation evidence names the original physical sources.
+    # Reproduce that inventory from its verified bytes, without resolving those
+    # paths through today's Agentic aliases. The exact comparison below still
+    # validates the complete inventory; new imports always use the current layout.
+    inv = Inventory(relocated_instructions=any(
+        package['id'] == 'runtime-instructions' for package in standard['packages']))
     for source in standard['sources']:
         sid = source['id']
         name, prefix = _location(source)

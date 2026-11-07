@@ -16,12 +16,12 @@
   },
   "agent-terminal-control": {
     "kind": "plugin",
-    "path": "qorqut-code/app",
+    "path": "qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/host/app",
     "manifest": "plugins/agent-terminal-control/plugin.yaml"
   },
   "email-management": {
     "kind": "plugin",
-    "path": "dependencies/email-management",
+    "path": "qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/email",
     "manifest": "plugin.yaml"
   }
 }

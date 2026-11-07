@@ -60,7 +60,7 @@ function attentionBoardTask(ref, task) {
 }
 function attentionBoardMount(p) {
   const body = $('#agpad-body', p.el);
-  body.innerHTML = '<section class="agfocus" data-attention-board><header><div class="agfocus-heading"><div class="global-eyebrow">Attention board</div></div><div data-attention-focus></div><p class="agfocus-error" data-attention-error role="alert" hidden></p></header><section class="attention-queue" aria-label="New attention"></section><div class="agfocus-layout"><div data-attention-list></div><aside class="agfocus-dock" data-attention-record hidden><div class="agfocus-dock-content"></div></aside></div></section>';
+  body.innerHTML = '<section class="agfocus" data-attention-board><header><div class="agfocus-heading"><div class="global-eyebrow">Todo</div></div><div data-attention-focus></div><p class="agfocus-error" data-attention-error role="alert" hidden></p></header><section class="attention-queue" aria-label="Todo updates"></section><div class="agfocus-layout"><div data-attention-list></div><aside class="agfocus-dock" data-attention-record hidden><div class="agfocus-dock-content"></div></aside></div></section>';
   const board = body.firstElementChild, dock = board.querySelector('[data-attention-record]');
   const mountWorkspace = () => recordWorkspaceMount(dock.firstElementChild, {entry:'focus', paired:false, visible:()=>agpadActive(p) && p.view === 'attentionBoard', onClose:()=>{
     dock.hidden=true;
@@ -106,7 +106,7 @@ function attentionBoardLive(p, cache) {
 }
 function attentionBoardShowError(p, error) {
   const el = p.attentionBoard?.board.querySelector('[data-attention-error]');
-  if (el) { el.hidden=false; el.textContent='Could not load Attention board. ' + error.message; }
+  if (el) { el.hidden=false; el.textContent='Could not load Todo. ' + error.message; }
 }
 function attentionBoardTick(p) {
   const cache = attentionBoardCache(p);
@@ -128,11 +128,11 @@ function attentionBoardRefresh(p) {
     try {
       let cursor = null, data, items = [], seen = new Set();
       do {
-        const page = coreData(await post('/root/operations/attention_get', {scope:'global', agent_id:cache.agentId, projection:'summary', limit:100, ...(cursor ? {cursor} : {})}));
+        const page = coreData(await post('/root/operations/todo_get', {scope:'global', agent_id:cache.agentId, projection:'summary', limit:100, ...(cursor ? {cursor} : {})}));
         if (cache.run !== run || p.attentionCache !== cache) return;
         if (!data) data = page;
         items.push(...page.items); cursor = page.next_cursor;
-        if (cursor && seen.has(cursor)) throw Error('Attention pagination did not advance.');
+        if (cursor && seen.has(cursor)) throw Error('Todo pagination did not advance.');
         if (cursor) seen.add(cursor);
         if (cursor && progressive) { cache.data = {...data, items:[...items]}; cache.partial = true; show(); }
         if (cursor && !attentionBoardLive(p, cache)) { cache.at = 0; return; }
@@ -277,20 +277,30 @@ function attentionBoardPaint(p) {
     if(attention.intent){const intent=document.createElement('p');intent.className='attention-intent';intent.textContent=attention.intent;current.append(intent);}
   }
   list.replaceChildren();
+  const filter=document.createElement('select');filter.setAttribute('aria-label','Todo responsibility');
+  for(const [value,label] of [['all','Everyone'],['owner','You'],['agents','Agents']]){
+    const option=document.createElement('option');option.value=value;option.textContent=label;filter.append(option);
+  }
+  filter.value=p.attentionBoard.filter || 'all';
+  filter.onchange=()=>{p.attentionBoard.filter=filter.value;attentionBoardPaint(p);};list.append(filter);
   const rows=document.createElement('div');rows.className='agfocus-items';
+  const visible=data.items.filter(item=>{
+    const workers=attentionBoardTask(item.task_ref,item.task).worker_ids || [];
+    return filter.value==='all' || (filter.value==='owner' ? workers.includes(data.owner_id) : workers.some(id=>id!==data.owner_id));
+  });
   for (const status of ATTENTION_GROUPS) {
-    const items=data.items.filter(item=>(attentionBoardTask(item.task_ref,item.task).status || 'open')===status);
+    const items=visible.filter(item=>(attentionBoardTask(item.task_ref,item.task).status || 'open')===status);
     for (const item of items) {
       const ref=item.task_ref, scope=attentionBoardScope(ref,item.task), task=attentionBoardTask(ref,item.task);
       const row=attentionReferenceRow(p,{...ref,business_slug:scope,label:task.title,state:task.status,task_type:task.task_type,revision:task.revision},task);
       row.dataset.attentionMember=item.membership_id;
       if(status==='done' && item===items[0] && rows.childElementCount)row.classList.add('attention-completed-start');
       const actions=row.querySelector('.agfocus-actions');
-      const remove=document.createElement('button'); remove.type='button'; remove.className='quiet'; remove.innerHTML=SVG_X; remove.setAttribute('aria-label','Remove '+(task.title || 'task')+' from Attention board');
-      remove.onclick=async()=>{remove.disabled=true; try { coreData(await post('/root/operations/attention_remove',{scope:'global',membership_id:item.membership_id,expected_membership_revision:item.membership_revision,idempotency_key:newRequestId()})); await attentionBoardForget(p,item.membership_id); } catch(error) {toast(error.message); remove.disabled=false;}};
+      const remove=document.createElement('button'); remove.type='button'; remove.className='quiet'; remove.innerHTML=SVG_X; remove.setAttribute('aria-label','Remove '+(task.title || 'task')+' from Todo');
+      remove.onclick=async()=>{remove.disabled=true; try { coreData(await post('/root/operations/todo_remove',{scope:'global',membership_id:item.membership_id,expected_membership_revision:item.membership_revision,idempotency_key:newRequestId()})); await attentionBoardForget(p,item.membership_id); } catch(error) {toast(error.message); remove.disabled=false;}};
       actions.append(remove); rows.append(row);
     }
   }
-  if (data.items.length) list.append(rows);
-  else {const empty=document.createElement('p');empty.className='attention-empty';empty.textContent='No tasks on Attention board.';list.append(empty);}
+  if (visible.length) list.append(rows);
+  else {const empty=document.createElement('p');empty.className='attention-empty';empty.textContent=data.items.length?'No tasks for this filter.':'No tasks on Todo.';list.append(empty);}
 }

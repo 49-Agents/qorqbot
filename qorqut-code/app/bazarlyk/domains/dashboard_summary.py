@@ -1,4 +1,6 @@
 """Small owner-only dashboard projections; never load task bodies or routine history."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
@@ -43,4 +45,4 @@ def register(registry, clock):
         return {'items':items,'as_of':timestamp(lambda: now),'timezone':local_time.TIMEZONE}
     registry.register(OperationDescriptor('dashboard_summary_get', schema({}), scope_kinds=frozenset({'global'}),
         global_capability='read_global_context', effect_kind='read', supports_signoff=False,
-        exposure=frozenset({'dashboard'}), description='Owner project counts and fourteen daily installation-local activity totals.', read=read))
+        exposure=frozenset({'dashboard'}), description=instruction_text('dashboard-summary-owner-project-counts-and-fourteen-daily-installation'), read=read))

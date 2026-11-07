@@ -8,6 +8,8 @@ One migration-owned system thread entry on the one Global backlog Task carries t
 ``attribution_json`` under ``MANIFEST_KEY``: identities only (message, event, recipient, business and finding keys), never a
 body, credential or alternate copy of a private message. Each moved Task gets one deterministic system notice of its own."""
 
+from qorqut_agentic.behavior.seeds import runtime_text as runtime_seed
+
 import json
 import uuid
 
@@ -74,17 +76,11 @@ def body(value):
     parts = ["Historical review of messages left for retired project agents."]
     if messages:
         parts.append(
-            f"{messages} direct message{'s were' if messages != 1 else ' was'} still unacknowledged when the business agents "
-            "they were addressed to were retired. They stay exactly as they were sent, with their original senders, "
-            "recipients, timestamps and read states. Nothing here replies to, replays, approves or acknowledges any of "
-            "them, and reading them grants no authority.")
-        parts.append('Read them with the messages tool: agents_messages_list with scope "global" and retirement_backlog true, '
-                     "up to 100 at a time, continuing with after set to the next_cursor of the previous page.")
+            runtime_seed('retirement-inbox-history', VALUE0=f'{messages}', VALUE1=f'{('s were' if messages != 1 else ' was')}'))
+        parts.append(runtime_seed('retirement-inbox-reading'))
     else:
         parts.append("No direct message was left unacknowledged for them.")
     if findings:
         parts.append(
-            f"{findings} earlier work-review reminder{'s' if findings != 1 else ''} recorded for those agents "
-            f"{'were' if findings != 1 else 'was'} also captured as a historical checkpoint. They appear on the same read, "
-            "unchanged, and are not resolved by this Task.")
+            runtime_seed('retirement-review-history', VALUE0=f'{findings}', VALUE1=f'{('s' if findings != 1 else '')}', VALUE2=f'{('were' if findings != 1 else 'was')}'))
     return "\n\n".join(parts)

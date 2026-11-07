@@ -11,6 +11,8 @@ reminders addressed to itself. ``creator_id`` stays the origin; ``authority_prin
 schedule, recipient or a snooze, and is the principal delivery rechecks. Recipient, scheduling authority and the linked item's
 readability for both are rechecked when a delivery is published, when a queued owner delivery is admitted and when an inbox event
 is read; delegated identities never manage reminders."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import timedelta
@@ -45,12 +47,12 @@ ID = {"type": "string", "minLength": 1, "maxLength": 200}
 UUID = {"type": "string", "format": "uuid"}
 REVISION = {"type": "integer", "minimum": 1}
 TEXT = {"type": "string", "minLength": 1, "maxLength": 240,
-        "description": "One concise sentence the recipient will read when the reminder is due."}
-AT = {"type": "string", "format": "date-time", "description": "A time with its timezone offset, for example 2026-11-02T09:00:00-05:00."}
+        "description": instruction_text('service-one-concise-sentence-the-recipient-will-read-when')}
+AT = {"type": "string", "format": "date-time", "description": instruction_text('service-a-time-with-its-timezone-offset-for-example')}
 RECURRENCE = {"anyOf": [schema({"schedule": {"type": "string", "minLength": 9, "maxLength": 200,
-                                              "description": "Five-field cron: minute hour day-of-month month day-of-week."},
+                                              "description": instruction_text('service-five-field-cron-minute-hour-day-of-month')},
                                 "timezone": {"type": "string", "minLength": 1, "maxLength": 100,
-                                             "description": "IANA timezone name, for example America/New_York."}},
+                                             "description": instruction_text('service-iana-timezone-name-for-example-america-new-york')}},
                                ("schedule", "timezone")), {"type": "null"}]}
 LINK = {"anyOf": [schema({"type": ID, "id": ID, "business_id": {"anyOf": [UUID, {"type": "null"}]}}, ("type", "id", "business_id")),
                   {"type": "null"}]}
@@ -93,34 +95,28 @@ class ReminderService:
         write_fields = {
             CREATE: ({"text": TEXT, "recipient_id": ID, "at": AT, "recurrence": RECURRENCE, "time_critical": {"type": "boolean"},
                       "linked_item": LINK}, ("text",),
-                     "Create a reminder for yourself (the owner and Ordubashy may name another recipient_id). Give at for a one-off "
-                     "time, or recurrence {schedule, timezone} to repeat on the Routines calendar; one card is kept per repeating "
-                     "reminder and only the latest missed occurrence is delivered. linked_item must be readable by creator and recipient."),
+                     instruction_text('service-create-a-reminder-for-yourself-the-owner-and')),
             UPDATE: ({"reminder_id": UUID, "revision": REVISION, "text": TEXT, "recipient_id": ID, "at": AT, "recurrence": RECURRENCE,
                       "time_critical": {"type": "boolean"}, "linked_item": LINK}, ("reminder_id", "revision"),
-                     "Change a reminder using its current revision. A null recurrence makes it one-off and needs at. A time, recurrence "
-                     "or recipient change discards the pending delivery; a text or metadata edit does not."),
+                     instruction_text('service-change-a-reminder-using-its-current-revision-a')),
             SNOOZE: ({"reminder_id": UUID, "revision": REVISION, "at": AT}, ("reminder_id", "revision", "at"),
-                     "Defer a scheduled or due reminder to a future time. Repeats before that time are suppressed, then the original "
-                     "calendar resumes."),
+                     instruction_text('service-defer-a-scheduled-or-due-reminder-to-a')),
             DISMISS: ({"reminder_id": UUID, "revision": REVISION, "occurrence_id": UUID}, ("reminder_id", "revision", "occurrence_id"),
-                      "Clear the current due occurrence using its occurrence_id. A repeating reminder stays enabled. Reading or "
-                      "acknowledging a notice never dismisses it, and dismissing never completes a linked task."),
+                      instruction_text('service-clear-the-current-due-occurrence-using-its-occurrence')),
             CANCEL: ({"reminder_id": UUID, "revision": REVISION}, ("reminder_id", "revision"),
-                     "Stop the whole reminder or series and discard any pending delivery."),
+                     instruction_text('service-stop-the-whole-reminder-or-series-and-discard')),
         }
         for name, (fields, required, description) in write_fields.items():
             self.app.registry.register(OperationDescriptor(name, schema(fields, required), **common, description=description,
                 replay_validator=lambda ctx, args, replay, uow, op=name: self.replay(op, ctx, args, replay, uow),
                 prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, uow), apply=self.apply))
         self.app.registry.register(OperationDescriptor(GET, schema({"reminder_id": UUID}, ("reminder_id",)), **common, effect_kind="read",
-            description="Read one reminder you may see: its state, next time, current occurrence_id and revision.", read=self.get))
+            description=instruction_text('service-read-one-reminder-you-may-see-its-state'), read=self.get))
         self.app.registry.register(OperationDescriptor(LIST, schema({
             "recipient_id": ID, "all_recipients": {"type": "boolean"}, "all_scopes": {"type": "boolean"},
             "states": {"type": "array", "items": {"enum": list(STATES)}, "maxItems": 4, "uniqueItems": True},
             "cursor": {"type": "string", "maxLength": 2000}, "limit": {"type": "integer", "minimum": 1, "maximum": MAX_PAGE}}),
-            **common, effect_kind="read", description="List your reminders (scheduled and due by default). The owner and Ordubashy may "
-            "list another recipient_id or all_recipients; all_scopes spans projects and Global. Bounded pages with next_cursor.",
+            **common, effect_kind="read", description=instruction_text('service-list-your-reminders-scheduled-and-due-by-default'),
             read=self.list))
         from .legacy import LegacyReminders
         self.legacy = LegacyReminders(self).register()

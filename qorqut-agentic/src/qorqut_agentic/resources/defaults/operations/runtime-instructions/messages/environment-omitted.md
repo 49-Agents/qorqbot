@@ -1,0 +1,1 @@
+Inventory omitted for space. Use environment_list and check names in your actual tool process; never print values.

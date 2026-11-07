@@ -1,4 +1,6 @@
 """Small scoped diagnostics, independent of mandatory document availability."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 import json
 
 from bazarlyk import owner_sessions
@@ -27,14 +29,12 @@ class AgentDiagnostics:
     def register(self):
         for name, arguments, description, handler in (
             ('agent_runtime_get', schema(),
-             'Diagnose your own preparation, inbox notice state and retained applications. Remains usable when mandatory context is unavailable. '
-             'Reports actual error codes and repair ownership; never grants preparation or replays work.', self.runtime_get),
+             instruction_text('diagnostics-diagnose-your-own-preparation-inbox-notice-state-and'), self.runtime_get),
             ('operations_describe', schema({
                 'names': {'type': 'array', 'minItems': 1, 'maxItems': 10, 'uniqueItems': True,
                     'items': {'type': 'string', 'pattern': '^[a-z][a-z0-9_]*$', 'maxLength': 100}},
                 'plugins': {'type': 'array', 'maxItems': 5, 'items': REFERENCE_SCHEMA}}, ('names',)),
-             'Read exact live MCP schemas for 1–10 named tools, including mutation options and all required fields. '
-             'Optionally inspect configuration schemas for exact published plugin pins before requesting a grant. No execution.', self.describe)):
+             instruction_text('diagnostics-read-exact-live-mcp-schemas-for-1-10'), self.describe)):
             self.runtime.registry.register(OperationDescriptor(name, arguments, effect_kind='read', supports_signoff=False,
                 scope_kinds=(frozenset({'agent_workspace', 'business'}) if name == 'operations_describe'
                              else frozenset({'agent_workspace'})),
@@ -45,6 +45,7 @@ class AgentDiagnostics:
 
     def describe(self, ctx, args, options, uow):
         from bazarlyk.transport.mcp import tool_schema
+        instructions = self.runtime.resolver.require_agentic_view().tool_instructions()
         owner_route = ctx.owner_session_business_id is not None
         tools = []
         for name in args['names']:
@@ -65,7 +66,8 @@ class AgentDiagnostics:
                 if required and required not in {r.id for r in ctx.enabled_plugin_refs}:
                     raise DomainError('plugin_unavailable', 'Plugin is not granted')
                 tools.append({'name': name, 'available': True, 'mode': decision.mode,
-                    'description': descriptor.description, 'input_schema': tool_schema(self.runtime.registry, name)})
+                    'description': instructions.description(descriptor.description),
+                    'input_schema': instructions.metadata(tool_schema(self.runtime.registry, name))})
             except DomainError as error:
                 tools.append({'name': name, 'available': False, 'reason': error.code})
         plugins = []
@@ -123,7 +125,4 @@ class AgentDiagnostics:
                     'stale' if delivery['current_vs_emitted'] else 'emitted'},
             'inbox': self.nudge_status(ctx.principal_id),
             'applications': recovery, 'more_applications': len(receipts) > 20,
-            'guidance': 'The session helper recovers automatically and the trusted hook delivers refreshed instructions. '
-                'Do not rerun startup hooks or restart the conversation. Temporary connection failures do not cancel authorized local work. '
-                'Configuration readiness and an inbox notice do not establish context delivery. Record a persistent fault once '
-                'on the existing task with its request/receipt ID and who acts next; never resend an external action to repair its status.'}
+            'guidance': self.runtime.resolver.require_agentic_view().runtime_instructions().render('runtime-diagnostic-guidance')}

@@ -14,6 +14,8 @@ question is deleting its row."""
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import replace
@@ -70,15 +72,8 @@ EDIT_OUTPUT = schema({
 }, ("action", "question_id", "applied", "replayed", "related"))
 
 DESCRIPTIONS = {
-    READ: "Learning Applier and owner only. List open Context review questions kept outside the published Context "
-          "(action=list, optionally filtered by one related_kind and related_id, with offset and limit) or read one "
-          "(action=get, question_id). Each question has its ID, text, origin event and the linked event, node, edge or "
-          "note IDs. An empty list is not proof that no review is needed. Start a review only when the owner asks.",
-    EDIT: "Learning Applier and owner only. Create, update or delete one open Context review question outside the "
-          "published Context; this never edits the graph or notes. Review manually: read the questions, preview and "
-          "propose a supervised context_edit, get the owner's approval, apply it, and delete only the questions the "
-          "owner's answers resolved. When an answer is unknown leave the question unchanged. Results carry question IDs "
-          "and links only; read a question with context_questions.",
+    READ: instruction_text('operations-learning-applier-and-owner-only-list-open-context'),
+    EDIT: instruction_text('operations-learning-applier-and-owner-only-create-update-or'),
 }
 
 

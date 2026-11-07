@@ -1,0 +1,1 @@
+ The previous tool outcome is unknown; reconcile it before retrying with the original idempotency key.

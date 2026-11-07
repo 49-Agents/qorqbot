@@ -1,4 +1,7 @@
 """Persistent attention board for the configured Ordubashy."""
+
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 from dataclasses import replace
 import json
 
@@ -7,9 +10,6 @@ from qorqut_operations.application.plans import PlanBuilder, page, schema, times
 from qorqut_operations.contracts import DomainError, InvocationOptions, Principal, new_id, plain
 from qorqut_operations.discussion import emit_event
 from bazarlyk.management.identity import configured_ordubashy, is_active_installation_owner
-
-BOARD_TRANSITION_HINT = ('Make sure everything on your Attention board reflects reality: what you’re doing, '
-                         'each task’s state, and who must act next.')
 
 ID = {'type': 'string', 'minLength': 1, 'maxLength': 200}
 REF = schema({'type': ID, 'id': ID, 'business_id': {'type': ['string', 'null']}}, ('type', 'id', 'business_id'))
@@ -42,7 +42,7 @@ class Attention:
         shared = {'scope': {'const': 'global'}, 'agent_id': ID}
         self.app.registry.register(OperationDescriptor('attention_get', schema({**shared,
             'projection': {'enum': ['detail', 'summary', 'focus'],
-                'description': 'detail includes full Tasks; summary returns board rows; focus omits memberships.'},
+                'description': instruction_text('attention-detail-includes-full-tasks-summary-returns-board-rows')},
             'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}, 'cursor': {'type': 'string', 'maxLength': 2000}}),
             **common, effect_kind='read', read=lambda c,a,o,u: self.read(c,a,u)))
         ops = {
@@ -60,8 +60,22 @@ class Attention:
         for name, (fields, required) in ops.items():
             self.app.registry.register(OperationDescriptor(name, schema({**shared, **fields}, required), **common,
                 prepare=lambda c,a,o,u,op=name:self.prepare(op,c,a,u), apply=self.apply))
+        # Same records and policy checks under the current product vocabulary.
+        # Keep the old operations for saved clients and policy overrides.
+        for name in ('get', 'add', 'remove'):
+            original = self.app.registry.get('attention_' + name)
+            self.app.registry.register(replace(original, name='todo_' + name,
+                read=(lambda c,a,o,u:self.read_alias(c,a,o,u)) if name == 'get' else None,
+                prepare=None if name == 'get' else lambda c,a,o,u,op='todo_'+name:self.prepare(op,c,a,u)))
         self.app.ordubashy_attention = self
         return self
+
+    def alias_authorize(self, ctx, operation, uow):
+        self.app.authorize(ctx, self.app.registry.get(operation.replace('todo_', 'attention_', 1)), (), uow, namespace='global')
+
+    def read_alias(self, ctx, args, options, uow):
+        self.alias_authorize(ctx, 'todo_get', uow)
+        return self.read(ctx, args, uow)
 
     def context(self, ctx, args, uow):
         ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
@@ -112,9 +126,9 @@ class Attention:
         task = self.task(ctx, task_ref, uow)
         membership = self.task_membership(uow, agent_id, task_ref)
         if not membership or membership['task_created_at'] != task['created_at']:
-            raise DomainError('not_found', 'Task is not on Attention board')
-        if task.get('task_type') != 'task' or task.get('archived'):
-            raise DomainError('validation_error', 'Board work requires an unarchived ordinary Task')
+            raise DomainError('not_found', 'Work item is not on Todo')
+        if task.get('archived'):
+            raise DomainError('validation_error', 'Todo requires an unarchived work item')
         return {'task': task, 'membership': membership}
 
     def set_focus(self, uow, ctx, agent_id, *, focus, task, intent, expected_focus_generation):
@@ -384,20 +398,23 @@ class Attention:
 
     def prepare(self, op, ctx, args, uow):
         self.validate(op, ctx, args, uow)
-        return PlanBuilder(ctx, op, args, 'Update Attention board', namespace='global', affected_scope={'kind':'global'}).build()
+        return PlanBuilder(ctx, op, args, 'Update Todo', namespace='global', affected_scope={'kind':'global'}).build()
 
     def validate(self, op, ctx, args, uow):
         ctx, agent = self.context(ctx, args, uow)
+        if op.startswith('todo_'):
+            self.alias_authorize(ctx, op, uow)
+            op = op.replace('todo_', 'attention_', 1)
         state = self.state(uow, agent)
         if 'expected_revision' in args and args['expected_revision'] != state['revision']:
-            raise DomainError('revision_conflict', 'Attention changed; reread it', current_revision=state['revision'])
+            raise DomainError('revision_conflict', 'Todo changed; reread it', current_revision=state['revision'])
         if op in ('attention_add','attention_focus_set'):
             task = self.task(ctx, args['task'], uow, notes=False)
-            if task.get('task_type') != 'task' or task.get('archived'):
-                raise DomainError('validation_error', 'Board work requires an unarchived ordinary Task')
+            if task.get('archived'):
+                raise DomainError('validation_error', 'Todo requires an unarchived work item')
             if op == 'attention_focus_set':
                 membership = self.task_membership(uow, agent, args['task'])
-                if not membership or membership['task_created_at'] != task['created_at']: raise DomainError('not_found', 'Task is not on Attention board')
+                if not membership or membership['task_created_at'] != task['created_at']: raise DomainError('not_found', 'Work item is not on Todo')
                 if not isinstance(args['intent'], str) or not args['intent'].strip() or len(args['intent']) > 1000: raise DomainError('validation_error', 'Intent must contain at most 1000 characters')
                 self.resolve(ctx, agent, args['focus'], uow)
                 if args['focus']['type'] == 'workflow':
@@ -437,25 +454,26 @@ class Attention:
             if ctx.principal_id != agent:
                 return None
             if status == 'working':
-                return BOARD_TRANSITION_HINT
+                return self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-board-transition')
             state = self.state(uow, agent)
             ref = {'type': 'task', 'id': args.get('task_id'), 'business_id': ctx.business_id}
             if state['focus_json'] and ref in (state['focus_json'], state['work_task_json']):
-                return 'Clear or change your focus.'
+                return self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-focus-transition')
         return None
 
     def add_result(self, ctx, task, uow):
         # The full board, without each Task's comment thread.
         result = self.read(ctx, {}, uow, notes=False)
         if ctx.principal_kind == 'agent':
-            result['agent_hint'] = BOARD_TRANSITION_HINT
+            result['agent_hint'] = self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-board-transition')
             if not task.get('worker_ids'):
-                result['agent_hint'] += ' Set who must act next.'
+                result['agent_hint'] += self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-next-actor')
         return result
 
     def apply(self, ctx, plan, uow):
         args, op = plain(plan.arguments), plan.operation_name
         ctx, agent, state = self.validate(op, ctx, args, uow)
+        op = op.replace('todo_', 'attention_', 1)
         now = timestamp(self.clock)
         if op == 'attention_add':
             task = self.task(ctx,args['task'],uow,notes=False)
@@ -500,7 +518,7 @@ class Attention:
         # A mutation receipt confirms focus and revision; it does not rebuild the board.
         result = self.read(ctx,{'projection':'focus'},uow)
         if op == 'attention_focus_set' and ctx.principal_kind == 'agent':
-            result['agent_hint'] = BOARD_TRANSITION_HINT
+            result['agent_hint'] = self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-board-transition')
         return result
 
 

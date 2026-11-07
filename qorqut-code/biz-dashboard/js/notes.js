@@ -205,7 +205,7 @@ function ntHomeHtml() {
       ${ntReadOnly() ? "" : `<button id="ntnew" class="btn" type="button">${ICO_PLUS}Create new</button>`}
     </div>
     ${writingHeatmapHtml(heatEntries)}
-    ${sec("Pinned", NT_ICO_PIN_TINY, pinned)}
+    ${sec("Focus", NT_ICO_PIN_TINY, pinned)}
     ${sec("Edited today", "", editedToday)}
     ${sec("Edited last week", "", editedWeek)}
     ${sec("All notes", "", byUpdated)}
@@ -244,7 +244,7 @@ function ntListHtml() {
   const filtered = ntFilterNotes();
   const pinned = filtered.filter(n => n.pinned), rest = filtered.filter(n => !n.pinned);
   let html = "";
-  if (pinned.length) html += `<div class="nteyebrow ntsm">Pinned</div>` + pinned.map(ntRowHtml).join("");
+  if (pinned.length) html += `<div class="nteyebrow ntsm">Focus</div>` + pinned.map(ntRowHtml).join("");
   html += rest.map(ntRowHtml).join("");
   if (!filtered.length) html += `<div class="ntfaint ntfaint-pad">No pages found.</div>`;
   return html;

@@ -3,14 +3,12 @@ import os
 import re
 
 
-def environment_context(environ=None, *, max_chars=3200):
+def environment_context(environ=None, *, instructions, max_chars=3200):
     environ = os.environ if environ is None else environ
     prefix = "## Local environment (names only)\nPresent in this startup hook's inherited environment: "
-    guidance = (".\nUse available variables directly from scripts without printing or revealing values. "
-        "Presence does not prove a nonempty or valid credential, or availability in a separately launched tool process. "
-        "Check names/presence in the actual execution environment before claiming access; configured Settings alone are not evidence of injection.")
+    guidance = (instructions.render("environment-legacy"))
     if max_chars < len(prefix) + len(guidance) + 40:
-        fallback = "Local environment inventory omitted for space; check variable names in your actual tool process without revealing values."
+        fallback = instructions.render("environment-legacy-omitted")
         return fallback if len(fallback) <= max_chars else ""
     names = sorted(key for key in environ if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", key))
     shown, remaining = [], min(2400, max_chars - len(prefix) - len(guidance) - 40)
@@ -23,18 +21,13 @@ def environment_context(environ=None, *, max_chars=3200):
     return prefix + (", ".join(shown) or ("not listed" if names else "none")) + suffix + guidance
 
 
-def bootstrap_environment_context(metadata=None, environ=None, *, max_chars=2400):
+def bootstrap_environment_context(metadata=None, environ=None, *, instructions, max_chars=2400):
     """Separate Settings availability from the local hook's inherited variables."""
     heading = "## Environment and credentials (names only)\n"
     guidance = (
-        "Settings names below are configured bindings, not proof they are injected into your shell. "
-        "The startup hook may run in a different environment from your tools. "
-        "Before claiming a service is unavailable, check variable presence in your actual tool process "
-        "without printing values, and use environment_list for authorized Settings metadata. "
-        "A dedicated connector is not always needed to use an authorized API. "
-        "Presence does not establish validity, permissions, or permission to act. Never reveal values."
+        instructions.render("environment-guidance")
     )
-    fallback = heading + "Inventory omitted for space. Use environment_list and check names in your actual tool process; never print values."
+    fallback = heading + instructions.render("environment-omitted")
     if max_chars < len(heading) + len(guidance) + 180:
         return fallback if len(fallback) <= max_chars else ""
     metadata = metadata if isinstance(metadata, dict) else {}
@@ -56,9 +49,9 @@ def bootstrap_environment_context(metadata=None, environ=None, *, max_chars=2400
             remaining -= len(label) + 2
         lines.append("Settings: " + (", ".join(rows) or ("not listed" if truncated else "none in this authorized scope")))
     else:
-        lines.append("Settings inventory unavailable; this does not mean no credentials are configured.")
+        lines.append(instructions.render("environment-unavailable"))
     if truncated:
-        lines.append("Settings list truncated; use environment_list and follow next_cursor.")
+        lines.append(instructions.render("environment-truncated"))
     environ = os.environ if environ is None else environ
     names = sorted(k for k in environ if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", k))
     shown = []

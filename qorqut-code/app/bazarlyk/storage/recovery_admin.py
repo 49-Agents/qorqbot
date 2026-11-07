@@ -7,6 +7,8 @@ operator-run, offline all-installation procedure.
 """
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 import argparse
@@ -416,7 +418,7 @@ def client_request(config: RecoveryAdminConfig, request: dict[str, Any], *, time
 
 def main(argv: list[str] | None = None) -> int:
     from bazarlyk.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
-    parser = argparse.ArgumentParser(description="Local encrypted recovery administration client")
+    parser = argparse.ArgumentParser(description=instruction_text('recovery-admin-local-encrypted-recovery-administration-client'))
     add_instance_arguments(parser)
     parser.add_argument("--config", required=True, help="private host recovery-admin JSON")
     parser.add_argument("--timeout", type=float, default=30.0)

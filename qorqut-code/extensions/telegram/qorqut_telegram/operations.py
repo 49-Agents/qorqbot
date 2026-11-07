@@ -10,6 +10,8 @@ dispatched.
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.application.plans import PlanBuilder, schema
@@ -28,28 +30,22 @@ COMMON = dict(supports_signoff=False, scope_kinds=frozenset({"global"}), global_
               resolve_namespace=lambda ctx, args: "global")
 SEND_SCHEMA = schema({
     "text": {"type": "string", "minLength": 1, "maxLength": store.MAX_UNICODE_CHARS,
-             "description": "Plain text, at most 4000 characters. No formatting is interpreted."},
+             "description": instruction_text('operations-plain-text-at-most-4000-characters-no-formatting')},
     "purpose": {"enum": ["reply", "blocking_input", "update"]},
-    "reply_to": {**UUID, "description": "Optional local message_id from telegram_history, in your own chat."},
+    "reply_to": {**UUID, "description": instruction_text('media-operations-optional-local-message-id-from-telegram-history')},
     "request_key": {"type": "string", "pattern": r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$", "maxLength": 80},
     "reason": {"type": "string", "minLength": 1, "maxLength": 500},
     "input_mode": {"enum": ["text", "secret", "screen_action"]},
     "expires_in_seconds": {"type": "integer", "minimum": 60, "maximum": 3600},
 }, ("text", "purpose"))
 SEND_DESCRIPTION = (
-    "Send a plain-text message to the owner in your own Telegram chat; you cannot choose the chat. purpose=reply answers the "
-    "owner, update reports progress, blocking_input asks for something you cannot continue without and requires request_key, "
-    "reason and input_mode (text, secret or screen_action; secret requests expire within 10 minutes, and no secret is ever "
-    "returned to you in history). Reusing a pending request_key returns the existing request. The result is the local "
-    "message_id and its truthful delivery state (queued at return; read telegram_delivery_get for sent or uncertain). A "
-    "Telegram message is scoped owner input, not blanket authorization; use Signoffs for approvals and durable questions.")
+    instruction_text('operations-send-a-plain-text-message-to-the-owner'))
 
 
 REQUEST_GUIDANCE = {
-    "text": "Reply to this message with your answer.",
-    "secret": "Reply to this message with the requested code. It is kept only briefly and typed to the agent; Telegram chats are "
-              "not end-to-end encrypted.",
-    "screen_action": 'Do the action on the screen, then reply "done" to this message.',
+    "text": instruction_text('operations-reply-to-this-message-with-your-answer'),
+    "secret": instruction_text('operations-reply-to-this-message-with-the-requested-code'),
+    "screen_action": instruction_text('operations-do-the-action-on-the-screen-then-reply'),
 }
 
 
@@ -80,36 +76,25 @@ class TelegramOperations:
             description=SEND_DESCRIPTION, prepare=self.prepare_send, apply=self.apply_send))
         registry.register(OperationDescriptor("telegram_history", schema({"limit": {"type": "integer", "minimum": 1, "maximum": HISTORY_LIMIT}}),
             **COMMON, exposure=frozenset({"mcp"}), effect_kind="read",
-            description="Read the last messages (default and maximum 10, oldest first) exchanged with the owner in your own Telegram chat since "
-                        "activation. Secret replies are redacted. A file or photo shows its attachment (filename, send_as, size, sha256); "
-                        "one without a caption shows File: or Photo: and its filename as text. "
-                        "Signoffs and other chats are never included.",
+            description=instruction_text('operations-read-the-last-messages-default-and-maximum-10'),
             read=self.history))
         registry.register(OperationDescriptor("telegram_delivery_get", schema({"message_id": UUID, "outbox_id": UUID}), **COMMON,
             exposure=frozenset({"mcp", "dashboard"}), effect_kind="read",
-            description="Read delivery receipts: one message by its local message_id, or your ten latest outbound messages. States are "
-                        "queued, dispatching, uncertain (send may or may not have happened; never assume either), sent, failed and cancelled. "
-                        "A file or photo also shows its attachment (filename, send_as, size, sha256). "
-                        "The owner view also lists every delivery of a message (its send and any edits) and accepts an outbox_id.",
+            description=instruction_text('operations-read-delivery-receipts-one-message-by-its-local'),
             read=self.delivery_get))
         registry.register(OperationDescriptor("telegram_notify", schema(urgent.INPUT_SCHEMA, urgent.REQUIRED), **COMMON,
             exposure=frozenset({"dashboard", "worker"}),
-            description="Post or update one actionable notification in Urgent Notifications (what happened, impact, needed action). "
-                        "Repeating an identical active event is suppressed; a change or state=resolved updates the known post.",
+            description=instruction_text('operations-post-or-update-one-actionable-notification-in-urgent'),
             prepare=self.prepare_notify, apply=self.apply_notify))
         registry.register(OperationDescriptor("telegram_status", schema(), **owner, effect_kind="read",
-            description="Owner status of the Telegram bridge: health, cursor, outbox, uncertain sends, cleanup failures and queued inputs.",
+            description=instruction_text('operations-owner-status-of-the-telegram-bridge-health-cursor'),
             read=self.status))
         registry.register(OperationDescriptor("telegram_delivery_resolve", schema({
             "outbox_id": UUID, "action": {"enum": ["mark_delivered", "retry"]},
             "provider_message_id": {"type": "integer", "minimum": 1},
-            "expected_revision": {"type": "integer", "minimum": 1, "description": "The receipt_revision you inspected."}},
+            "expected_revision": {"type": "integer", "minimum": 1, "description": instruction_text('operations-the-receipt-revision-you-inspected')}},
             ("outbox_id", "action", "expected_revision")), **owner,
-            description="Resolve one uncertain Telegram send or edit, named by its exact outbox_id from status or telegram_delivery_get. "
-                        "mark_delivered records the exact Telegram message ID the owner saw (for an edit, the ID of the message that was edited); "
-                        "retry queues it again under its saved target and binding and can duplicate a send, and an edit that a newer update "
-                        "of its event already replaced is closed instead of sent. expected_revision is the receipt_revision from "
-                        "telegram_delivery_get or status; a changed receipt is refused. Never changes a Signoff decision.",
+            description=instruction_text('operations-resolve-one-uncertain-telegram-send-or-edit-named'),
             prepare=self.prepare_resolve, apply=self.apply_resolve))
         self.bridge.admit_hooks["agent"] = self.admit_agent
         self.bridge.admit_hooks["notify"] = self.admit_notify

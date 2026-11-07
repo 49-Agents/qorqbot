@@ -9,6 +9,8 @@ promises no live totals. Native thread and turn IDs and bounded error text stay 
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import sqlite3
 
 from qorqut_context.integration import usage as context_usage
@@ -27,10 +29,7 @@ OPTIONS = {
     "limit": {"type": "integer", "minimum": 1, "maximum": context_usage.MAX_PAGE},
     "cursor": {"type": "string", "maxLength": 1024},
 }
-DESCRIPTION = ("Owner view: recorded Context model-call usage across all projects for an optional input and an inclusive UTC "
-               "date range of call start times: calls with exact USD where a charge was recorded (unknown stays null), "
-               "aggregates, and a separate coverage inventory of reserved Context events and their last scans. A known "
-               "subtotal, not final totals, from the last recorded collection; reading never collects.")
+DESCRIPTION = (instruction_text('operations-owner-view-recorded-context-model-call-usage-across'))
 
 
 class ContextUsageOperations:

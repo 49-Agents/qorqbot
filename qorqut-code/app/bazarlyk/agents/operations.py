@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import base64
 import difflib
 import json
@@ -186,8 +188,8 @@ class AgentOperations:
         for name, properties in read_schemas.items():
             required = ["agent_id"] if name == "agents_get" else ["role"] if name == "roles_get" else []
             registry.register(OperationDescriptor(name, {"type": "object", "properties": properties, "required": required},
-                description=("Read your current identity, role, grants and project orientation. Select business_id only within your allowed scope. Reading never acknowledges context." if name == "agent_config_get" else
-                             "List the bundled icons a worker can be given as presentation.icon, as {icons: [{id, label}]}. Choose an ID from this list; presentation replaces the whole object, so repeat any color to keep it." if name == "agents_icons_list" else ""),
+                description=(instruction_text('operations-read-your-current-identity-role-grants-and-project') if name == "agent_config_get" else
+                             instruction_text('operations-list-the-bundled-icons-a-worker-can-be') if name == "agents_icons_list" else ""),
                 effect_kind="read", supports_signoff=False, scope_kinds=frozenset({"business", "global", "agent_workspace"}),
                 global_capability="read_global_context",
                 resolve_namespace=self.roster_namespace if name == "agents_list" else None,
@@ -204,7 +206,7 @@ class AgentOperations:
         for name, (properties, required) in mutations.items():
             registry.register(OperationDescriptor(name,
                 {"type": "object", "properties": {**properties, "rationale": {"type": "string", "maxLength": 2000}}, "required": required},
-                description=("Establish a supported global agent with ecosystem scope. The owner creates ordubashy or learning-applier (at most one active each) or any number of global-worker agents; retired roles cannot be registered or switched to; name, display_name and assignment_brief are required. Ordubashy creates global workers only: name and assignment_brief suffice, role defaults to the newest published global-worker, display_name to the name, runtime to Ordubashy's, and scope to ecosystem with shared-context read access; no plugins are granted unless selected. Projects have no resident agents. Every global reaches every active project; a saved allowed_business_ids list is ignored. When plugins is omitted, only Ordubashy receives the published email-management guidance package and every other agent gets none; an explicit list, even empty, replaces the defaults. Ordubashy can grant a worker only core permissions and capabilities he holds himself and never administrative powers; published plugins are selected independently and keep their own permission checks." if name == "agents_create" else ""),
+                description=(instruction_text('operations-establish-a-supported-global-agent-with-ecosystem-scope') if name == "agents_create" else ""),
                 effect_kind="compound" if name == "agents_create" else "records", scope_kinds=frozenset({"business", "global"}),
                 global_capability="manage_ecosystem_agents",
                 resolve_namespace=self.mutation_namespace,

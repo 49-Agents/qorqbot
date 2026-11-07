@@ -1,5 +1,7 @@
 """Learning candidates, owner triage and frozen extraction outputs in SQLite."""
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from dataclasses import replace
 import json
 
@@ -17,10 +19,10 @@ from .intake import snapshot as intake_snapshot
 from . import legacy, validation
 
 EXTRACT_ARGUMENTS = schema({"max_usd": {"type": "number", "exclusiveMinimum": 0, "maximum": 100},
-    "supersession_mode": {"enum": ["preview", "apply"], "description": "Preview cross-day unresolved replacements, or automatically reject evidence-backed superseded findings. Omission preserves legacy reconciliation."},
+    "supersession_mode": {"enum": ["preview", "apply"], "description": instruction_text('operations-preview-cross-day-unresolved-replacements-or-automatically-reject')},
     "passes": {"type": "integer", "minimum": 1, "maximum": 5},
     "max_sessions": {"type": "integer", "minimum": 1, "maximum": 100}, "agent_id": UUID,
-    "retry_failed": {"type": "boolean", "description": "Explicitly retry paused Global transcript snapshots; normal routines leave this false."}})
+    "retry_failed": {"type": "boolean", "description": instruction_text('operations-explicitly-retry-paused-global-transcript-snapshots-normal-routines')}})
 
 
 class LearningOperations(LearningReview):
@@ -451,16 +453,16 @@ class LearningOperations(LearningReview):
         registry.register(OperationDescriptor("learnings_decide", schema({
             "learning_id": IDENTITY, "state": {"enum": ["accepted", "rejected"]},
             "owner_instruction": {"type": "string", "minLength": 1, "maxLength": 8000, "pattern": r"\S",
-                "description": "Exact owner instruction from the current conversation authorizing this decision for this proposal. Not source evidence, a recommendation, or standing permission."},
+                "description": instruction_text('operations-exact-owner-instruction-from-the-current-conversation-authorizing')},
             "reasoning": {"type": "string", "maxLength": 8000,
-                "description": "The owner's own explanation for this decision, exactly as they gave it in the current conversation. Omit it when the owner gave none: never ask for one and never write your own here."},
+                "description": instruction_text('operations-the-owner-s-own-explanation-for-this-decision')},
             "agent_rationale": {"type": "string", "maxLength": 8000,
-                "description": "Optional rationale of the recording agent. It is stored separately and never as the owner's reasoning."},
-            "feedback": {"type": "string", "maxLength": 8000, "description": "Legacy name of reasoning."}}, ["learning_id", "state", "owner_instruction"]),
+                "description": instruction_text('operations-optional-rationale-of-the-recording-agent-it-is')},
+            "feedback": {"type": "string", "maxLength": 8000, "description": instruction_text('operations-legacy-name-of-reasoning')}}, ["learning_id", "state", "owner_instruction"]),
             **SCOPE, supports_signoff=False, exposure={"mcp"},
             prepare=lambda c,a,o,u: self.prepare_decision("learnings_decide",c,a,o,u), apply=self.apply,
             validate_targets=self.validated,
-            description="Learning Applier only: record the owner's explicit accept/reject instruction for one open learning. Requires current expected_revision and idempotency_key. The instruction is agent-reported, not independently authenticated. Never decide autonomously."))
+            description=instruction_text('operations-learning-applier-only-record-the-owner-s-explicit')))
         registry.register(OperationDescriptor("learnings_intake_status", schema({"learning_id": IDENTITY}, ("learning_id",)),
             **SCOPE, effect_kind="read", supports_signoff=False, owner_only=True, exposure={"dashboard", "worker"}, read=self.intake_status))
         registry.register(OperationDescriptor("learnings_list", schema({**PAGE, "state": {"enum": list(STATES)},
@@ -470,8 +472,7 @@ class LearningOperations(LearningReview):
             **SCOPE, effect_kind="read", supports_signoff=False, read=self.get))
         registry.register(OperationDescriptor("learnings_legacy_pending", schema({**PAGE}),
             **SCOPE, effect_kind="read", supports_signoff=False, read=self.legacy_pending,
-            description="Read-only inventory of retained procedural (bucket delta) learning records for a later owner "
-                        "migration decision. This target writes none and proposes no conversion, import or deletion."))
+            description=instruction_text('operations-read-only-inventory-of-retained-procedural-bucket-delta')))
         registry.register(OperationDescriptor('learnings_keep_both', schema({'learning_id':IDENTITY}, ['learning_id']),
             **SCOPE, owner_only=True, supports_signoff=False, exposure={'dashboard'},
             prepare=self.prepare_keep_both, apply=self.apply, validate_targets=self.factual))

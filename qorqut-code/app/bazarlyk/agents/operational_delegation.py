@@ -7,6 +7,8 @@ application adapters must still enforce the saved authority on every call.
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -1185,7 +1187,7 @@ class OperationalDelegationOperations:
                 {"type": "object", "properties": properties, "required": required},
                 effect_kind="read", supports_signoff=False, scope_kinds=frozenset({"global"}),
                 global_capability=self.CAPABILITY, resolve_namespace=self._namespace,
-                description="Read compact durable delegated-assignment status.",
+                description=instruction_text('operational-delegation-read-compact-durable-delegated-assignment-status'),
                 read=lambda ctx, args, options, uow, operation=name: self.read(operation, ctx, args, uow)))
 
         create_properties = {
@@ -1516,7 +1518,7 @@ class OperationalDelegationOperations:
             {"type": "object", "properties": properties, "required": required},
             effect_kind="records", scope_kinds=frozenset({"global"}),
             global_capability=self.CAPABILITY, resolve_namespace=self._namespace,
-            description="Manage or checkpoint a durable bounded assignment.",
+            description=instruction_text('operational-delegation-manage-or-checkpoint-a-durable-bounded-assignment'),
             prepare=lambda ctx, args, options, uow: prepare(ctx, args, options, uow),
             apply=self.apply))
 
