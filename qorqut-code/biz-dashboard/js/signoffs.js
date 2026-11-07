@@ -295,13 +295,10 @@ function sgCreateView(options) {
     return !Number.isFinite(minutes) ? "" : minutes < 1 ? "Just now" : minutes < 60 ? `${minutes}m ago` : minutes < 1440 ? `${Math.floor(minutes / 60)}h ago` : `${Math.floor(minutes / 1440)}d ago`;
   };
   const bizName = id => ((state.bizs || []).find(b => b.id === id || b.business_id === id) || {}).name || "Unavailable business";
-  // Nested record-conversation controllers are released with the DOM that hosts them; their source-keyed drafts live on.
-  const disposeNested = root => root?.querySelectorAll('.sg-conversation[data-conversation]').forEach(host => host._conversation?.dispose());
   // One cleanup for every denied read of a card inside a record thread: no private content outlives the denial.
   const DENIED_CODES = ['forbidden', 'not_found', 'policy_denied', 'invalid_principal'];
   const dropDenied = error => {
     if (!options.dropOnDenied || !DENIED_CODES.includes(error?.code)) return false;
-    disposeNested(sg.mount);
     // A terminal denial outranks every read still in flight: older successes can neither repaint nor clear this state.
     sg.generation++; sg.listRequest++; sg.detailRequest++; sg.loading = false; sg.detailLoading = null;
     sg.items.clear(); sg.order = []; sg.selected = null; sg.verified.clear(); sg.detailErrors.clear();
@@ -528,19 +525,12 @@ function sgCreateView(options) {
     const verified = sg.verified.get(s.id) === s.status_revision;
     const canReview = expected(s) && verified && completePreview(s) && owner() && !sg.error && !error && !s.superseded_by_id;
     if (!detail.querySelector(".sg-preview")) {
-      detail.innerHTML = `<div class="sg-detailnotice"></div><div class="sg-attention-meta"></div><div class="sg-email-context"></div><div class="sg-preview"></div><div class="sg-choices"></div><div class="sg-savedresponse"></div><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div>${options.focusLayout ? '<div class="sg-focus-details"></div>' : ""}<div class="sg-conversation"></div><div class="sg-work" aria-label="Related work"></div>`;
+      detail.innerHTML = `<div class="sg-detailnotice"></div><div class="sg-attention-meta"></div><div class="sg-email-context"></div><div class="sg-preview"></div><div class="sg-choices"></div><div class="sg-savedresponse"></div><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div>${options.focusLayout ? '<div class="sg-focus-details"></div>' : ""}<div class="sg-work" aria-label="Related work"></div>`;
       if (!options.global && !options.inline) workRelatedChips(detail.querySelector('.sg-work'),sg.slug,'signoffs',s.id);
     }
     // A question once tied to an email conversation keeps a historical note; the conversation itself is never fetched.
     const emailContext=detail.querySelector('.sg-email-context');
     if(s.email_context)historicalEmailMount(emailContext);else emailContext.replaceChildren();
-    const conversationHost=detail.querySelector(".sg-conversation");
-    // Inline review cards omit conversation UI; the surrounding chat owns discussion.
-    const channel = conversationSource(s.id, s.review_business_id);
-    const conversation = options.inline || options.omitConversationFor === conversationKey(channel) ? null : conversationMount(conversationHost,channel,{
-      inlineComposer:!!options.inline,onInput:()=>render(),onToggle:()=>render()});
-    conversationHost.hidden = !conversation;
-    for(const control of detail.querySelectorAll(".sg-conversation textarea,.sg-conversation .gchat-send"))control.disabled=!!busy || !!conversation?.state.sending || !!conversation?.state.submission;
     detail.setAttribute("aria-busy", String(!!busy || sg.detailLoading === s.id));
     const notice = !expected(s) && options.expectedBinding ? `<p class="sg-notice">This question is read-only or has changed. Open the current change to review it.</p>` : error ? errorHtml(error, "detail") : !verified ? `<p class="sg-notice">${sg.detailLoading === s.id ? "Loading prepared change..." : "This detail is out of date."}</p>` : !completePreview(s) && s.platform?.available !== false ? errorHtml("The proposal could not be loaded completely. Reload it before approving.", "detail") : "";
     html(detail.querySelector(".sg-detailnotice"), notice);
@@ -693,7 +683,7 @@ function sgCreateView(options) {
         quick.hidden = !quickReview;
         detailPaint(row, s);
       });
-      [...content.children].forEach(row => { if (!groups[name].some(s => s.id === row.dataset.id)) { disposeNested(row); row.remove(); } });
+      [...content.children].forEach(row => { if (!groups[name].some(s => s.id === row.dataset.id)) row.remove(); });
     }
     const foreign = [];
     const urgentSection = sg.mount.querySelector('.sg-urgent');
@@ -991,7 +981,6 @@ function sgCreateView(options) {
       sg.items.clear(); sg.order = []; sg.selected = null; sg.verified.clear();
       sg.detailErrors.clear(); sg.error = null; sg.loaded = false;
     }
-    disposeNested(sg.mount);
     body.classList.add("sg-body");
     body.classList.toggle("sg-inline", !!options.inline);
     body.innerHTML = `<div class="sg"><div class="sg-listnotice"></div><section class="sg-urgent"><h2>Urgent / blocking · All projects</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div><div class="sg-foreign"></div></section><section class="sg-waiting"><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>${options.execution ? '<section class="sg-execution"><h2>Execution and history</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>' : ""}<button type="button" class="sg-command sg-more" data-sg="more" hidden>Load more</button></div>`;
@@ -1094,7 +1083,6 @@ function sgCreateView(options) {
     hasUnsaved: () => messageEdits.size > 0,
     hasPendingWrite: () => {
       if ([...messageEdits.values()].some(edit => edit.saving || edit.receipt)) return true;
-      if ([...(sg.mount?.querySelectorAll('.sg-conversation[data-conversation]') || [])].some(host => host._conversation?.state.sending)) return true;
       if ([...ownedWrites].some(key => sg.busy.has(key) || sg.executions.has(key))) return true;
       const ids = [...new Set([...(sg.selected ? [sg.selected] : []), ...(options.item?.()?.id ? [options.item().id] : [])])];
       return ids.some(id => [...sg.busy.keys()].some(key => key.startsWith(`${sg.slug}:${id}:`)) ||
@@ -1115,7 +1103,7 @@ function sgCreateView(options) {
       const textarea = row && row.querySelector(".sg-feedback");
       if (selected && draftKey(selected) === key && textarea && textarea.value !== value) { textarea.value = value; if (options.inline) fitFeedback(textarea); }
     },
-    suspend() { disposeNested(sg.mount); sg.generation++; sg.mount = null; sg.loading = false; sg.detailLoading = null; },
+    suspend() { sg.generation++; sg.mount = null; sg.loading = false; sg.detailLoading = null; },
     dispose() { this.suspend(); window.removeEventListener('resize',resizeMessages); sgViews.delete(view); document.removeEventListener('click', outsideClick); document.removeEventListener('pointerdown', outsidePointer, true); },
     livePaint(slug, live) {
       if (slug !== workspace() || slug !== sg.slug || active() || !live || !Number.isInteger(live.signoffs_pending)) return;
@@ -1159,7 +1147,7 @@ function sgChatMount(ref, host, options = {}) {
   if (ref.business_id && !slug) return null;
   let started = false, nearby = false, disposed = false, observer;
   const signoff = sgCreateView({active: () => started && (nearby || signoff.hasUnsaved()) && host.isConnected && (options.active ? options.active() : true), body: () => host, inline: true, compactEmail: true, execution: true, waitingOnly: false,
-    workspace: () => slug || 'scope:global', global: !ref.business_id, omitConversationFor: options.omitConversationFor, dropOnDenied: !!options.dropOnDenied,
+    workspace: () => slug || 'scope:global', global: !ref.business_id, dropOnDenied: !!options.dropOnDenied,
     item: () => ({id: ref.id, businessId: ref.business_id || null})});
   // Only nearby cards refresh. Keep the observer after first paint so scrolling
   // through history does not leave every old card fetching forever. Drafts stay
