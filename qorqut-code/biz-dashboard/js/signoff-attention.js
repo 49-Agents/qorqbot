@@ -9,7 +9,7 @@ window.sgFocusOpen = (title, options, afterClose) => window.focusExpansion.open(
   let view, confirmation = null;
   const notice = document.createElement('p'); notice.className='sg-notice'; notice.setAttribute('role','status'); notice.hidden=true;
   const prompt = document.createElement('div'); prompt.className='sg-focus-confirm'; prompt.hidden=true;
-  const body = document.createElement('div');
+  const body = document.createElement('div'); body.className='sg-focus';
   host.append(notice, prompt, body);
   const finish = answer => { prompt.hidden=true; prompt.replaceChildren(); const resolve=confirmation; confirmation=null; resolve?.(answer); };
   const confirmExecutionCancel = () => {
@@ -21,7 +21,7 @@ window.sgFocusOpen = (title, options, afterClose) => window.focusExpansion.open(
     prompt.append(text,cancel,confirm); cancel.focus();
     return new Promise(resolve=>{confirmation=resolve;});
   };
-  view=sgCreateView({...options, active:()=>session.isCurrent() && body.isConnected, body:()=>body, confirmExecutionCancel});
+  view=sgCreateView({...options, focusLayout:true, active:()=>session.isCurrent() && body.isConnected, body:()=>body, confirmExecutionCancel});
   session.setBeforeLeave(async()=>{
     if (confirmation) { notice.textContent='Finish or cancel the confirmation first.'; notice.hidden=false; return false; }
     if (view.hasPendingWrite()) { notice.textContent='Finish or check the pending signoff operation before leaving.'; notice.hidden=false; return false; }

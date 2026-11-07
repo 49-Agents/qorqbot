@@ -1,0 +1,92 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../app.css">
+<link rel="stylesheet" href="../../css/signoffs.css">
+<style>body{margin:0;padding:16px;width:560px;background:var(--bg)}.ref{margin-bottom:14px}</style>
+<div id="refs"></div>
+<pre id="out" hidden></pre>
+<script src="../../js/safe-links.js"></script>
+<script>
+// Stubs for the dashboard globals the real Signoff renderer expects; signoffs.js and fastmail.js are the real files.
+const state = {agents: [], biz: 'demo', bizs: [{id: 'b1', slug: 'demo', name: 'Demo'}], session: null};
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const sjDateTime = d => String(d), aicon = () => '', newRequestId = () => 'req';
+const coreData = r => r.data;
+const post = async () => ({status: 'ok', data: {}});
+const longBody = Array.from({length: 12}, (_, i) => `Line ${i + 1} of the proposed email body.`).join('\n');
+const email = (id, body) => ({id, state: 'pending', category: 'operation', operation_name: 'fastmail_send', review_business_id: 'b1', status_revision: 1, proposal_revision: 1,
+  payload_hash: 'h' + id, actionable: true, title: 'Send email to Ada', editable_fields: ['subject', 'body'], created_at: new Date().toISOString(),
+  preview: {rationale: 'Because.', effects: ['Sends 1 message to ada@example.com', 'Records the send'], changes: [{kind: 'structured', resource: {resource_type: 'fastmail_account'}, fields: [
+    {path: 'from_address', after: 'me@example.com'}, {path: 'to', after: ['ada@example.com']}, {path: 'subject', after: 'Quarterly plan'}, {path: 'body', after: body},
+    {path: 'attachments', after: [{filename: 'plan.pdf'}]}]}]}});
+const action = id => ({id, state: 'pending', category: 'operation', operation_name: 'generic_change', review_business_id: 'b1', status_revision: 1, proposal_revision: 1,
+  payload_hash: 'h' + id, actionable: true, title: 'Archive the old project', rejection_requires_message: true, created_at: new Date().toISOString(),
+  preview: {rationale: 'Cleanup.', effects: ['Archives the project'], changes: [{kind: 'text', resource: 'Project', diff: '-old\n+new', before: 'old', after: 'new'}]}});
+const question = id => ({id, state: 'pending', category: 'input', operation_name: 'input_request', review_business_id: 'b1', status_revision: 1, proposal_revision: 1,
+  payload_hash: 'h' + id, actionable: true, title: 'Which launch date?', created_at: new Date().toISOString(),
+  input: {explanation: 'Pick one.', selection_mode: 'none', notes_required: true, choices: []}, preview: {changes: []}});
+const items = {long: email('long', longBody), short: email('short', 'Hi Ada,\nThanks.'), action: action('action'), question: question('question')};
+const api = async url => url === '/session' ? {status: 'ok', data: {principal_kind: 'human', is_owner: true, principal_id: 'o1'}}
+  : {status: 'ok', data: {signoff: items[decodeURIComponent(url.split('/').pop())]}};
+const globalAgentProfile = () => null, globalAgentProfiles = [1], identityAvatar = () => '', RW_CHAT_ICON = '', SVG_X = '', SVG_CHECK = '', T_VIEW_ICON = {signoffs: ''};
+const taskBusinessLabel = () => 'Demo', businessPortraitHtml = () => '';
+</script>
+<script src="../../js/signoffs.js"></script>
+<script src="../../../../extensions/qorqut-fastmail/qorqut_fastmail/assets/fastmail.js"></script>
+<script>
+const refs = document.getElementById('refs');
+const hosts = {};
+for (const id of Object.keys(items)) {
+  const host = hosts[id] = document.createElement('div'); host.className = 'ref'; refs.append(host);
+  sgChatMount({id, business_id: 'b1', business_slug: 'demo'}, host);
+}
+const wait = ms => new Promise(r => setTimeout(r, ms));
+(async () => {
+  await wait(400);
+  if (location.hash === '#shot') return;
+  const q = (id, sel) => hosts[id].querySelector(sel);
+  const h = el => el ? el.getBoundingClientRect().height : null;
+  const out = {};
+  const lh = el => parseFloat(getComputedStyle(el).lineHeight);
+  const peek = id => q(id, '[data-sg-email-peek]');
+  out.longPeekLines = Math.round((h(peek('long')) - 3) / lh(peek('long')));
+  out.shortPeekLines = Math.round((h(peek('short')) - 3) / lh(peek('short')));
+  out.effectsCollapsed = Object.keys(items).map(id => !!(q(id, '.sg-effects') && q(id, '.sg-effects').offsetParent));
+  // Expand the long email, then check effects, editor and attachments.
+  peek('long').click(); await wait(100);
+  out.effectsExpanded = !!(q('long', '.sg-effects') && q('long', '.sg-effects').offsetParent);
+  out.expandedBody = q('long', 'textarea[data-sg-edit-field="body"]').value === longBody;
+  out.expandedSubject = q('long', 'textarea[data-sg-edit-field="subject"], [data-sg-edit-field="subject"]').value ?? q('long', '[data-sg-edit-field="subject"]').textContent;
+  out.attachments = q('long', '[data-sg-field="attachments"]').textContent;
+  out.recipients = q('long', '[data-sg-field="to"]').textContent;
+  // Feedback fields.
+  const a = q('action', '.sg-feedback'), qu = q('question', '.sg-feedback');
+  out.actionVisibleLabel = !!q('action', '.sg-feedbackwrap label');
+  out.actionAria = a && a.getAttribute('aria-label'); out.actionPlaceholder = a && a.placeholder; out.actionRows = a && a.rows;
+  out.questionLabel = q('question', '.sg-feedbackwrap label') && q('question', '.sg-feedbackwrap label').textContent;
+  out.questionRows = qu && qu.rows;
+  out.actionVisible = !!(a && a.offsetParent);
+  const empty = h(a); out.actionEmptyHeight = empty; out.actionLineHeight = a && lh(a);
+  a.value = 'one\ntwo\nthree\nfour'; a.dispatchEvent(new Event('input', {bubbles: true})); await wait(50);
+  out.actionGrownHeight = h(q('action', '.sg-feedback')); out.actionScrollFits = q('action', '.sg-feedback').scrollHeight <= q('action', '.sg-feedback').clientHeight;
+  out.actionStillSame = q('action', '.sg-feedback') === a;
+  out.effectsKeptInDom = Object.keys(items).map(id => !!q(id, '.sg-effects'));
+  const outside = document.createElement('div'); outside.innerHTML = '<div class="sg"><div class="sg-effects"><h3>Effects</h3></div></div>'; document.body.append(outside);
+  out.effectsOutsideInlineVisible = !!outside.querySelector('.sg-effects').offsetParent;
+  outside.remove();
+  // A long existing draft set without input must refit when the pane narrows (resize hook only).
+  const fb = q('action', '.sg-feedback'), draftText = 'A long existing draft that wraps once the pane gets narrow. '.repeat(3);
+  fb.value = draftText; refs.style.width = '560px'; window.dispatchEvent(new Event('resize')); await wait(50);
+  out.wideHeight = h(fb);
+  refs.style.width = '240px'; window.dispatchEvent(new Event('resize')); await wait(50);
+  out.narrowHeight = h(fb); out.narrowFits = fb.scrollHeight <= fb.clientHeight;
+  out.narrowSame = q('action', '.sg-feedback') === fb && fb.value === draftText;
+  refs.style.width = '';
+  q('action', '.sg-feedback').value = ''; q('action', '.sg-feedback').dispatchEvent(new Event('input', {bubbles: true})); await wait(50);
+  const reject = q('action', '[data-sg="reject"]'); reject.click(); await wait(100);
+  out.rejectBlocked = !!q('action', '[data-sg="reject"]') && document.activeElement === q('action', '.sg-feedback');
+  out.questionSubmitPresent = !!q('question', '[data-sg="respond"]');
+  document.getElementById('out').textContent = JSON.stringify(out);
+  document.title = 'done';
+})();
+</script>
