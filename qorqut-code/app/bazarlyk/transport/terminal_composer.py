@@ -399,6 +399,8 @@ def _pasted(client, rows, candidates, expect, cursor, result, allow_busy=False):
             continue
         trailing = [_text(rows[index]) for index in range(end + 1, len(rows))]
         above = [_text(rows[index]) for index in range(max(0, first - STATUS_ROWS_ABOVE), first)]
+        if _contains("\n".join(trailing), MODAL_PHRASES):
+            return result("modal", "modal_dialog")
         interrupts = _interrupts(above + trailing)
         running = interrupts or any(_busy_row(text) for text in trailing) or any(_contains(text, BUSY_HINTS) for text in above)
         if running and not allow_busy:
