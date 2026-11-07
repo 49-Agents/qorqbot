@@ -48,7 +48,7 @@ const agbrowserIcon = name => (typeof T_VIEW_ICON === 'object' && T_VIEW_ICON[na
 // Icon-only connected toggle; every button carries its own accessible name.
 function agbrowserToggle(label, items) {
   return `<div class="agbrowser-switch" role="group" aria-label="${esc(label)}">${items.map(item =>
-    `<button type="button" class="quiet agbrowser-seg" ${item.attr}="${esc(item.value)}" aria-pressed="${item.pressed}" aria-label="${esc(item.label)}">${item.icon}</button>`).join('')}</div>`;
+    `<button type="button" class="quiet agbrowser-seg${item.named ? ' agbrowser-named' : ''}" ${item.attr}="${esc(item.value)}" aria-pressed="${item.pressed}" aria-label="${esc(item.label)}">${item.icon}${item.named ? `<span class="agbrowser-seg-name">${esc(item.label)}</span>` : ''}</button>`).join('')}</div>`;
 }
 
 function agbrowserSurfaceIcon(p, surface) {
@@ -114,7 +114,7 @@ function agbrowserFrame(p, host, surface, fit, ctx = null) {
 function agbrowserShow(p, body, surfaces, selected, ctx = null) {
   const several = surfaces.browsers.length > 1;
   // The switch and reconnect stay out of a Focus surface; choosing another browser surface still works there.
-  const picker = several ? agbrowserToggle('Browser', surfaces.browsers.map(item => ({attr: 'data-browser-surface', value: item.id, label: item.label, icon: agbrowserSurfaceIcon(p, item), pressed: false}))) : '';
+  const picker = several ? agbrowserToggle('Browser', surfaces.browsers.map(item => ({attr: 'data-browser-surface', value: item.id, label: item.label, icon: agbrowserSurfaceIcon(p, item), named: true, pressed: false}))) : '';
   const bar = ctx ? (picker ? `<div class="agfocus-desktop-help agbrowser-bar">${picker}</div>` : '')
     : `<div class="agfocus-desktop-help agbrowser-bar">${agbrowserModeToggle(p, 'browser')}${picker}` +
       `<span class="agbrowser-actions">${agbrowserReconnectButton('data-browser-reconnect')}</span></div>`;

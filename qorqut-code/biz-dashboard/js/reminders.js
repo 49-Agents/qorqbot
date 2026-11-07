@@ -330,9 +330,9 @@ function remindersEditor(reminder = null, opts = {}) {
     <label data-when="daily weekly custom">Timezone<input class="inp" name="timezone" value="${esc(zone)}" placeholder="America/New_York"></label>
     <label class="rem-check rem-wide"><input type="checkbox" name="critical" ${reminder?.time_critical ? 'checked' : ''}> Time-critical (may interrupt unrelated focus)</label>
     ${link ? `<p class="muted rem-wide">Linked: ${esc(remLinkText(link))}<label class="rem-inline"><input type="checkbox" name="unlink"> Remove link</label></p>`
-      : `<div class="rem-wide rem-link"><label>Link to<select class="inp" name="linktype"><option value="">Nothing</option>${[['task', 'Work'], ['email', 'Email'], ['project', 'Project'], ['table', 'Table']].map(([v, l]) => option(v, l, false)).join('')}</select></label>
-      <label>Project<select class="inp" name="linkscope"><option value="">Global</option>${(state.bizs || []).filter(b => b.id || b.business_id).map(b => option(b.id || b.business_id, b.name || b.slug, false)).join('')}</select></label>
-      <label class="rem-wide">Item ID<input class="inp" name="linkid"></label></div>`}
+      : `<details class="rem-wide rem-more"><summary>Link to an item</summary><div class="rem-link"><label>Link to<select class="inp" name="linktype"><option value="">Nothing</option>${[['task', 'Work'], ['email', 'Email'], ['project', 'Project'], ['table', 'Table']].map(([v, l]) => option(v, l, false)).join('')}</select></label>
+      <label data-link-field hidden>Project<select class="inp" name="linkscope"><option value="">Global</option>${(state.bizs || []).filter(b => b.id || b.business_id).map(b => option(b.id || b.business_id, b.name || b.slug, false)).join('')}</select></label>
+      <label class="rem-wide" data-link-field hidden>Item ID<input class="inp" name="linkid"></label></div></details>`}
     <p class="ferr rem-wide" role="alert" hidden></p></form>`;
   let initialSchedule = null;
   const scheduleOf = form => JSON.stringify(['repeat', 'at', 'weekday', 'time', 'cron', 'timezone'].map(name => form.elements[name]?.value ?? ''));
@@ -417,6 +417,10 @@ function remindersEditor(reminder = null, opts = {}) {
   void refreshPending();
   const sync = () => form.querySelectorAll('[data-when]').forEach(label => { label.hidden = !label.dataset.when.split(' ').includes(form.elements.repeat.value); });
   form.elements.repeat.onchange = sync; sync();
+  if (form.elements.linktype) {
+    const syncLink = () => form.querySelectorAll('[data-link-field]').forEach(label => { label.hidden = !form.elements.linktype.value; });
+    form.elements.linktype.onchange = syncLink; syncLink();
+  }
   initialSchedule = scheduleOf(form);
   form.onsubmit = event => event.preventDefault();
   initial = snapshot();

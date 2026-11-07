@@ -67,18 +67,10 @@
 .sg-urgent-link { display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; width:100%; height:auto; min-height:0; padding:12px; gap:5px; background:var(--wash); color:var(--fg); border:1px solid var(--line); border-radius:6px; text-align:left; white-space:normal; font-weight:400; }
 .sg-urgent-link:hover { background:var(--wash); color:var(--fg); transform:none; }
 .sg-urgent-link small { color:var(--fg-2); }
-#sg-toast-host { position:fixed; left:20px; top:20px; z-index:1100; width:min(300px,calc(100vw - 32px)); }
-.sg-toast { border:0; background:var(--bg); color:var(--fg); border-radius:10px; padding:16px; box-shadow:0 10px 35px #0005; font:13px/1.5 var(--sans); }
-.sg-toast header { display:flex; align-items:center; gap:10px; }
-.sg-toast header strong { flex:1; }
-.sg-toast button { background:none; color:inherit; border:0; cursor:pointer; text-align:left; white-space:normal; }
-.sg-toast header button { font-size:22px; padding:0 6px; }
-.sg-toast .sg-toast-open { display:block; font-size:15px; font-weight:600; margin:14px 0 6px; padding:0; }
-.sg-toast p { margin:6px 0; color:var(--fg-2); overflow-wrap:anywhere; }
-.sg-toast .sg-toast-business { display:flex; justify-content:space-between; width:100%; padding:8px 0; }
-.sg-toast .sg-toast-snooze { border:1px solid var(--line-2); border-radius:12px; padding:3px 10px; margin-top:8px; }
-.sg-toast .sg-toast-error { color:#ef7777; }
-.sg-toast button:focus-visible { outline:2px solid var(--fg); outline-offset:3px; }
+/* Approval attention is the reminder capsule of app.css; this host only stacks it in the centred queue. */
+#sg-toast-host { display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; }
+#sg-toast-host:empty { display:none; }
+.toast.sg-toast .reminder-icon svg { width:14px; height:14px; }
 
 .sg-platform { min-width: 0; }
 .sg-platform-field { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; margin: 6px 0; font-size: 13px; overflow-wrap: anywhere; }
@@ -202,3 +194,10 @@
 .sg-inline .sg-rowtitle { display:flex; align-items:center; gap:8px; }
 .sg-reference-icon { display:inline-flex; flex:none; }
 .sg-reference-icon svg { width:17px; height:17px; }
+
+/* Grouped approval list inside the Focus expansion. */
+.sg-group-title { margin: 18px 0 6px; font-size: 13px; font-weight: 500; color: var(--fg-2); }
+.sg-group-title:first-child { margin-top: 0; }
+.sg-group-list { display: flex; flex-direction: column; gap: 2px; }
+.sg-group-item { text-align: left; padding: 9px 10px; border: 0; border-radius: 10px; background: none; color: var(--fg); font: 500 13px/20px var(--sans); overflow-wrap: anywhere; white-space: normal; }
+.sg-group-item:hover, .sg-group-item:focus-visible { background: var(--hover); }
