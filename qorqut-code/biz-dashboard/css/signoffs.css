@@ -238,7 +238,12 @@
 .sg-focus .sg-rationale, .sg-focus .sg-impact, .sg-focus .sg-effects, .sg-focus .sg-content { margin: 0; }
 .sg-focus .sg-preview > * + * { margin-top: 20px; }
 .sg-focus .sg-text { max-height: none; }
-.sg-focus .sg-choices:not(:empty)::before { content: "Choices"; display: block; margin-bottom: 8px; font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-2); opacity: .6; line-height: 1; }
+.sg-focus .sg-choices-title { margin: 0 0 8px; }
+.sg-focus .sg-focus-details details { border-top: 0; }
+.sg-focus .sg-focus-details summary { padding: 0; font-size: 12px; }
+.sg-focus .sg-focus-details summary::before { content: "▸ "; }
+.sg-focus .sg-focus-details details[open] summary::before { content: "▾ "; }
+.sg-focus .sg-focus-details .sg-meta { margin: 6px 0 0; }
 .sg-focus .sg-choices > div { display: flex; flex-direction: column; gap: 8px; }
 .sg-focus .sg .sg-choice { grid-template-columns: 20px minmax(0, 1fr); align-items: start; gap: 2px 12px; height: auto; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 8px; background: none; color: var(--fg); font: 400 14px/1.5 var(--sans); }
 .sg-focus .sg .sg-choice:hover { background: var(--wash); color: var(--fg); }

@@ -526,7 +526,7 @@ function sgCreateView(options) {
     const verified = sg.verified.get(s.id) === s.status_revision;
     const canReview = expected(s) && verified && completePreview(s) && owner() && !sg.error && !error && !s.superseded_by_id;
     if (!detail.querySelector(".sg-preview")) {
-      detail.innerHTML = `<div class="sg-detailnotice"></div><div class="sg-attention-meta"></div><div class="sg-email-context"></div><div class="sg-preview"></div><div class="sg-choices"></div><div class="sg-savedresponse"></div><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div><div class="sg-conversation"></div><div class="sg-work" aria-label="Related work"></div>`;
+      detail.innerHTML = `<div class="sg-detailnotice"></div><div class="sg-attention-meta"></div><div class="sg-email-context"></div><div class="sg-preview"></div><div class="sg-choices"></div><div class="sg-savedresponse"></div><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div>${options.focusLayout ? '<div class="sg-focus-details"></div>' : ""}<div class="sg-conversation"></div><div class="sg-work" aria-label="Related work"></div>`;
       if (!options.global && !options.inline) workRelatedChips(detail.querySelector('.sg-work'),sg.slug,'signoffs',s.id);
     }
     // A question once tied to an email conversation keeps a historical note; the conversation itself is never fetched.
@@ -543,11 +543,17 @@ function sgCreateView(options) {
     const notice = !expected(s) && options.expectedBinding ? `<p class="sg-notice">This question is read-only or has changed. Open the current change to review it.</p>` : error ? errorHtml(error, "detail") : !verified ? `<p class="sg-notice">${sg.detailLoading === s.id ? "Loading prepared change..." : "This detail is out of date."}</p>` : !completePreview(s) && s.platform?.available !== false ? errorHtml("The proposal could not be loaded completely. Reload it before approving.", "detail") : "";
     html(detail.querySelector(".sg-detailnotice"), notice);
     const attention = s.attention || {};
-    const attentionText = [attention.urgent ? 'Urgent' : '', attention.blocking ? 'Blocking' : '', attention.reason || '',
-      attention.urgent || attention.blocking ? `Set by ${attention.priority_updated_by_name || 'not recorded'}` : '',
+    // Focus shows the reason, deadline and snooze here; priority flags, their author and submission time move to Details.
+    const priorityText = attention.urgent || attention.blocking ? [attention.urgent ? 'Urgent' : '', attention.blocking ? 'Blocking' : '', `Set by ${attention.priority_updated_by_name || 'not recorded'}`].filter(Boolean).join(' · ') : '';
+    const attentionText = [options.focusLayout ? '' : priorityText.replace(/ · Set by .*/, ''), attention.reason || '',
+      options.focusLayout ? '' : priorityText ? `Set by ${attention.priority_updated_by_name || 'not recorded'}` : '',
       attention.deadline ? `Deadline: ${stamp(attention.deadline)}` : '',
       attention.snoozed_until && Date.parse(attention.snoozed_until) > Date.now() ? `Snoozed until ${stamp(attention.snoozed_until)}` : ''].filter(Boolean).join(' · ');
     html(detail.querySelector('.sg-attention-meta'), attentionText ? `<p class="sg-notice">${esc(attentionText)}</p>` : '');
+    if (options.focusLayout) {
+      const facts = [priorityText ? `<p class="sg-meta">${esc(priorityText)}</p>` : '', s.decision ? `<p class="sg-meta">Submitted ${esc(stamp(s.decision.at))}</p>` : ''].join('');
+      html(detail.querySelector('.sg-focus-details'), facts ? `<details><summary>Details</summary>${facts}</details>` : '');
+    }
     if(!messageEdits.has(s.id) || !detail.querySelector(".sg-message-editor"))html(detail.querySelector(".sg-preview"), sgEmailOutcomeHtml(s) + previewHtml(s));
     // The collapsed class must settle first so an expanding editor is measured while visible.
     const collapsible = compactEmail && sgIsEmail(s);
@@ -572,14 +578,14 @@ function sgCreateView(options) {
     const submitted = s.decision?.selected_choices || [];
     const choiceMode = s.input?.selection_mode;
     html(detail.querySelector(".sg-choices"), s.input && choiceMode !== "none" ?
-      `<div role="${choiceMode === "single" ? "radiogroup" : "group"}" aria-label="Answer choices">${s.input.choices.map((choice,index) => {
+      `${options.focusLayout ? `<h3 class="sg-choices-title" id="sg-choices-title-${prefix}${esc(s.id)}">Choices</h3>` : ""}<div role="${choiceMode === "single" ? "radiogroup" : "group"}" ${options.focusLayout ? `aria-labelledby="sg-choices-title-${prefix}${esc(s.id)}"` : 'aria-label="Answer choices"'}>${s.input.choices.map((choice,index) => {
         const checked = (s.state === "pending" ? chosen : submitted).includes(choice.id);
         return `<button type="button" class="sg-choice" role="${choiceMode === "single" ? "radio" : "checkbox"}" aria-checked="${checked}" data-choice="${esc(choice.id)}" ${!canReview || busy || s.state !== "pending" ? "disabled" : ""}>
           ${options.inline ? "" : `<span class="sg-choice-marker ${choiceMode === "single" ? "sg-choice-letter" : "sg-choice-ball"}" aria-hidden="true">${choiceMode === "single" ? String.fromCharCode(65+index) : ""}</span>`}
           <span class="sg-choice-name">${esc(choice.label)}</span>${options.inline ? "" : `<span aria-hidden="true">—</span>
           <span class="sg-choice-explanation" title="${esc(choice.explanation)}">${esc(choice.explanation)}</span>`}</button>`;
       }).join("")}</div>` : "");
-    html(detail.querySelector(".sg-savedresponse"), s.decision ? `<p class="sg-response-notes">${esc(s.decision.message_id ? "" : (s.decision.notes ?? s.decision.feedback ?? ""))}</p><p class="sg-meta">Submitted ${esc(stamp(s.decision.at))}</p>` : "");
+    html(detail.querySelector(".sg-savedresponse"), s.decision ? `<p class="sg-response-notes">${esc(s.decision.message_id ? "" : (s.decision.notes ?? s.decision.feedback ?? ""))}</p>${options.focusLayout ? "" : `<p class="sg-meta">Submitted ${esc(stamp(s.decision.at))}</p>`}` : "");
     const feedback = detail.querySelector(".sg-feedbackwrap");
     if (s.state === "pending" && completePreview(s) && owner() && !s.superseded_by_id && (!options.inline || s.input || rejectionNeedsMessage(s))) {
       const requirement = s.input ? (s.input.notes_required ? "(required)" : "(optional)") : rejectionNeedsMessage(s) ? "(required to reject)" : "(optional)";
