@@ -6,6 +6,7 @@ worker credential over loopback before saving its completion checkpoint.
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+from importlib.resources import files
 from pathlib import Path
 import subprocess
 import sys
@@ -42,6 +43,12 @@ class ClaudeDispatchIntegration(unittest.TestCase):
         parent, business, registration, consumer, conversation = [new_id() for _ in range(5)]
         workspace = root / 'parent'
         workspace.mkdir()
+        # A real prepared parent has its managed runtime-instruction snapshot.
+        from qorqut_agentic.behavior.instructions import from_catalog
+        instruction_root = files('qorqut_agentic').joinpath('resources/defaults/operations/runtime-instructions')
+        instructions = from_catalog(lambda path: instruction_root.joinpath(path).read_text())
+        (workspace / '.bazarlyk').mkdir()
+        (workspace / '.bazarlyk/runtime-instructions.json').write_bytes(instructions.bytes())
         authentication = Authentication(database, root, clock=lambda: now.timestamp())
         failures = []
 
