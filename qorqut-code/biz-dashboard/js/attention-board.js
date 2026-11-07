@@ -216,10 +216,6 @@ function attentionReferenceRow(p, source, task = null) {
   agfocusUnread(p,row,row._attentionReference);
   const leading=row.querySelector('.agfocus-notification');
   leading.removeAttribute('aria-hidden');
-  if (task && !(source.business_id != null && !scope)) {
-    taskWorkerMount(leading,scope,task,p.agentId);
-    leading.append(leading.querySelector('[data-task-workers]'));
-  }
   const open=()=>{p.attentionBoard.selected=row.dataset.attentionMember;void attentionBoardOpen(p,source);};
   row.onclick=event=>{if(!event.target.closest('button,a,input,textarea,select'))open();};
   row.onkeydown=event=>{if(event.target===row && ['Enter',' '].includes(event.key)){event.preventDefault();open();}};
@@ -277,17 +273,14 @@ function attentionBoardPaint(p) {
     if(attention.intent){const intent=document.createElement('p');intent.className='attention-intent';intent.textContent=attention.intent;current.append(intent);}
   }
   list.replaceChildren();
-  const filter=document.createElement('select');filter.setAttribute('aria-label','Todo responsibility');
-  for(const [value,label] of [['all','Everyone'],['owner','You'],['agents','Agents']]){
-    const option=document.createElement('option');option.value=value;option.textContent=label;filter.append(option);
-  }
-  filter.value=p.attentionBoard.filter || 'all';
-  filter.onchange=()=>{p.attentionBoard.filter=filter.value;attentionBoardPaint(p);};list.append(filter);
+  const mine=p.attentionBoard.filter==='owner';
+  const filter=document.createElement('button');filter.type='button';filter.className='attention-owner-toggle';
+  filter.setAttribute('aria-pressed',String(mine));
+  filter.setAttribute('aria-label',mine?'Showing only my tasks. Show everyone\'s tasks':'Showing everyone\'s tasks. Show only my tasks');
+  filter.innerHTML=identityAvatar('person','Me','',"Me");filter.firstElementChild.removeAttribute('role');filter.firstElementChild.removeAttribute('aria-label');
+  filter.onclick=()=>{p.attentionBoard.filter=mine?'all':'owner';attentionBoardPaint(p);filter.isConnected||board.querySelector('.attention-owner-toggle')?.focus({preventScroll:true});};list.append(filter);
   const rows=document.createElement('div');rows.className='agfocus-items';
-  const visible=data.items.filter(item=>{
-    const workers=attentionBoardTask(item.task_ref,item.task).worker_ids || [];
-    return filter.value==='all' || (filter.value==='owner' ? workers.includes(data.owner_id) : workers.some(id=>id!==data.owner_id));
-  });
+  const visible=data.items.filter(item=>!mine || (attentionBoardTask(item.task_ref,item.task).worker_ids || []).includes(data.owner_id));
   for (const status of ATTENTION_GROUPS) {
     const items=visible.filter(item=>(attentionBoardTask(item.task_ref,item.task).status || 'open')===status);
     for (const item of items) {
