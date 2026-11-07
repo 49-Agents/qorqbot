@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import difflib
 import json
 from pathlib import Path
@@ -25,7 +27,7 @@ class CatalogOperations:
                 {"type": "object", "required": ["source_id"], "properties": {"source_id": {"type": "string"}, "rationale": {"type": "string", "maxLength": 2000}}},
                 effect_kind="compound", scope_kinds=frozenset({"global"}),
                 global_capability="publish_roles" if kind == "role" else "publish_plugins",
-                description="Publish an exact immutable authored revision without updating existing agent pins.",
+                description=instruction_text('operations-publish-an-exact-immutable-authored-revision-without-updating'),
                 prepare=lambda ctx, args, options, uow, k=kind: self.prepare(ctx, args, options, uow, k),
                 apply=self.apply, validate_targets=self.validate_targets))
         if application:

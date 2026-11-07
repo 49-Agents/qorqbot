@@ -1,0 +1,1 @@
+Agent configuration needs repair ({{CODE}}): {{MESSAGE}}. Pause work that requires these missing instructions; independent owner-authorized repository work may continue.

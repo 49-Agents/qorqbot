@@ -1,0 +1,2 @@
+.
+Use available variables directly from scripts without printing or revealing values. Presence does not prove a nonempty or valid credential, or availability in a separately launched tool process. Check names/presence in the actual execution environment before claiming access; configured Settings alone are not evidence of injection.

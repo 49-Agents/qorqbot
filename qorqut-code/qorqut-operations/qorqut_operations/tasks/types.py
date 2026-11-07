@@ -9,6 +9,8 @@ A Customer keeps a person/company kind, one free-text state label and a small co
 profile in the same payload. They are valid only for the Customer type and never move
 the Task: the state is a label, not a lifecycle state.
 """
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 from copy import deepcopy
 import unicodedata
 
@@ -28,14 +30,13 @@ STORED_ALWAYS = ("task_type", "overview", "email_conversation_id")
 CUSTOMER = ("customer_kind", "customer_state", "customer_profile")
 
 KIND_SCHEMA = {"anyOf": [{"enum": list(CUSTOMER_KINDS)}, {"type": "null"}],
-               "description": "person or company for a Customer (a new Customer defaults to person); null for every other type."}
+               "description": instruction_text('types-person-or-company-for-a-customer-a-new')}
 # The raw bound only limits payload size; the 120-character limit applies after whitespace normalization.
 STATE_SCHEMA = {"type": "string", "maxLength": 1000,
-                "description": "Free-text Customer label of at most 120 characters after whitespace normalization; empty clears it. "
-                               "It is a label only and never completes, archives, snoozes or otherwise moves the Task."}
+                "description": instruction_text('types-free-text-customer-label-of-at-most-120')}
 PROFILE_SCHEMA = {"type": "object", "additionalProperties": False,
                   "properties": {name: {"type": "string", "maxLength": limit} for name, limit in PROFILE_LIMITS.items()},
-                  "description": "Customer contact profile; replaced as a whole. The Task title is the customer name."}
+                  "description": instruction_text('types-customer-contact-profile-replaced-as-a-whole-the')}
 
 
 def normalize_state(value):

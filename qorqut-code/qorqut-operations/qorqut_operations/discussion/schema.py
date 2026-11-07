@@ -109,7 +109,22 @@ BEGIN SELECT RAISE(ABORT,'Thread messages are immutable'); END""",
     """CREATE INDEX thread_follows_principal ON thread_follows(principal_id,following,business_id,item_type,item_id)""",
 )
 
+RELAY_SCHEMA = (
+    """CREATE TABLE message_attributions (
+    message_type TEXT NOT NULL CHECK(message_type IN ('signoff','agent_message','owner_conversation')),
+ message_id TEXT NOT NULL, author_id TEXT NOT NULL REFERENCES principals(id),
+ recorder_id TEXT NOT NULL REFERENCES principals(id),
+ attribution_json TEXT NOT NULL CHECK(json_valid(attribution_json)),
+ PRIMARY KEY(message_type,message_id)
+)""",
+    """CREATE TRIGGER message_attributions_no_update BEFORE UPDATE ON message_attributions
+BEGIN SELECT RAISE(ABORT,'Message attribution is immutable'); END""",
+    """CREATE TRIGGER message_attributions_no_delete BEFORE DELETE ON message_attributions
+BEGIN SELECT RAISE(ABORT,'Message attribution is immutable'); END""",
+)
+
 TABLES = {
+    "message_attributions": TableSpec(("message_type", "message_id"), mutable=False, revision_column=None),
     "inbox_events": TableSpec(("id",), "business_id", False, None),
     "inbox_deliveries": TableSpec(("agent_id", "event_id"), revision_column=None),
     "inbox_subscriptions": TableSpec(("id",), "business_id", revision_column=None),
@@ -123,5 +138,5 @@ REQUIRED_TABLES = frozenset()
 
 def storage_contribution() -> StorageContribution:
     """The inbox and discussion storage, for the host's assembly."""
-    return StorageContribution("discussion", TABLES, schema=(*INBOX_SCHEMA, *THREAD_SCHEMA),
+    return StorageContribution("discussion", TABLES, schema=(*INBOX_SCHEMA, *THREAD_SCHEMA, *RELAY_SCHEMA),
                                required_tables=REQUIRED_TABLES)

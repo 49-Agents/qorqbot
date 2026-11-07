@@ -9,6 +9,8 @@ manages and delivers only while it is itself an active supported global.
 The host decides who is an active global, where one reaches and who is directed to the owner; it passes those four facts in
 as functions, called again whenever they are needed and never cached. ``BroadcastDispatch`` (``dispatch``) delivers what is due.
 """
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
@@ -253,7 +255,7 @@ class Broadcasts:
         common = dict(supports_signoff=False, scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
             resolve_namespace=lambda ctx,a: "global" if a.get("scope") == "global" else "business:" + (ctx.business_id or ""))
         self.app.registry.register(OperationDescriptor("broadcast_recipients", schema({**SCOPE, "all_businesses": {"type":"boolean",
-            "description": "Accepted for existing callers; it adds no per-business rows. The global agents are listed once in the selected scope."},
+            "description": instruction_text('broadcasts-accepted-for-existing-callers-it-adds-no-per')},
             "role_id": {"type":"string", "maxLength":100}}), effect_kind="read", read=self._recipients, **common))
         self.app.registry.register(OperationDescriptor("broadcasts_list", schema({**SCOPE, "cursor":{"type":"string"}, "limit":{"type":"integer","minimum":1,"maximum":200}}), effect_kind="read", read=self.list, **common))
         self.app.registry.register(OperationDescriptor("broadcasts_get", schema({**SCOPE, "broadcast_id": UUID}, ("broadcast_id",)), effect_kind="read", read=self.get, **common))

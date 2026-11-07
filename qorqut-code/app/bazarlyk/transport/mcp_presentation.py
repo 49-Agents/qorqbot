@@ -4,6 +4,8 @@ Projection happens after execution, including idempotent replay. Detail selectio
 must never enter a prepared mutation or replace an evidence read.
 """
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from collections import Counter
 import hashlib
 import json
@@ -32,9 +34,9 @@ COMPACT_OPERATIONS = (TASK_WRITES | RECEIPT_WRITES | INDEX_READS | SIGNOFF_COMPL
     | ELIDE_ONLY_READS | {"tasks_list", "tables_rows_write", "agent_config_get"})
 SUMMARY_OPERATIONS = frozenset({"focus_get", "agents_activity_list"})
 DETAIL_SCHEMA = {"enum": ["compact", "full", "text"], "default": "compact",
-    "description": "Compact receipt/index by default; platform defaults may be omitted, while authored sections remain exact. Use full for the canonical payload; text renders the compact result as YAML (fewest tokens; not inside batches). On write retries reuse the same idempotency_key."}
+    "description": instruction_text('mcp-presentation-compact-receipt-index-by-default-platform-defaults')}
 SUMMARY_DETAIL_SCHEMA = {"enum": ["compact", "summary", "full", "text"], "default": "compact",
-    "description": "Compact by default. Summary is a bounded operational view (Focus boards or selected cards, without conversations or decision evidence); full is canonical. Text renders compact as YAML, not inside batches."}
+    "description": instruction_text('mcp-presentation-compact-by-default-summary-is-a-bounded')}
 # false means "default/absent" for these flags; other false values (available,
 # actionable, ready, all_ok, sending_configured, ...) are meaningful answers.
 ELIDE_FALSE_KEYS = frozenset({"closed", "paused", "archived", "snoozed", "has_more",
@@ -47,19 +49,19 @@ ELIDE_PRESERVED_KEYS = frozenset({
     # These are authored or arbitrary user-data sections. Their empty, false,
     # zero and null values are meaningful and must not be treated as platform
     # defaults by recursive presentation elision.
-    "attention", "body", "cells", "content", "custom_fields", "data_json", "delegation_attribution",
+    "attention", "attribution", "body", "cells", "content", "custom_fields", "data_json", "delegation_attribution",
     "deferred_until",
     "metadata", "notes", "payload", "reason", "references", "requested_response", "source",
     "summary", "values",
 })
 CONFIG_DETAIL_SCHEMA = {"enum": ["compact", "summary", "context", "full"], "default": "compact",
-    "description": "Identity/scope by default; summary is readiness metadata, not instructions. Context without sections returns complete mandatory rules without inventories or work briefing. Full returns diagnostic detail."}
+    "description": instruction_text('mcp-presentation-identity-scope-by-default-summary-is-readiness')}
 TOOL_NAMES_SCHEMA = {"type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": True,
     "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$", "maxLength": 100},
-    "description": "Optional exact operation names/aliases whose current availability and permission to include. Unknown names are explicit. Use with compact or context."}
+    "description": instruction_text('mcp-presentation-optional-exact-operation-names-aliases-whose-current')}
 SECTIONS_SCHEMA = {"type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": True,
     "items": {"type": "string", "minLength": 1, "maxLength": 120},
-    "description": "context only: return exactly these '## ' sections of the mandatory rules, with a hash manifest of every omitted section. Omit for the full rendered bundle."}
+    "description": instruction_text('mcp-presentation-context-only-return-exactly-these-sections-of')}
 TASK_FIELDS = ("id", "revision", "title", "status", "due", "follow_up", "snoozed_until", "snoozed", "assignee_ids", "blocked_by",
     "unresolved_blockers", "blocks", "parent", "kind", "closed", "paused", "archived", "tags", "created_by", "updated_at")
 SIGNOFF_FIELDS = ("id", "review_business_id", "review_scope", "proposal_revision", "payload_hash", "status_revision",
@@ -86,14 +88,14 @@ REMINDER_VALUE_LIMIT = 200
 MESSAGE_ITEM_FIELDS = ("id", "event_id", "thread_id", "reply_to", "sender_id", "sender_name",
     "recipient_id", "recipient_name", "current_sender_id", "current_sender_name", "current_recipient_id",
     "current_recipient_name", "counterpart_id", "body", "summary", "created_at", "acknowledged_at", "outcome",
-    "delegation_attribution", "terminal_delivery", "read_only", "retirement_backlog")
+    "delegation_attribution", "author_id", "recorder_id", "recorder_name", "attribution", "terminal_delivery", "read_only", "retirement_backlog")
 ACTIVITY_AGENT_FIELDS = ("agent_id", "name", "role_id", "business_id", "business_slug",
     "state", "last_seen_at", "sessions", "inbox", "current_work")
 ACTIVITY_SESSION_FIELDS = ("session_id", "runtime", "state", "last_seen_at", "work_revision",
     "items", "item_keys", "items_complete", "items_replacement_safe", "checkpoint", "inbox_owner", "work_stale")
 RECIPIENT_FIELDS = ("agent_id", "name", "role_id", "business_id", "business_slug", "group")
 TABLE_ROW_FIELDS = ("id", "position", "revision", "cells")
-TASK_NOTE_FIELDS = ("id", "body", "created_by_name", "created_at", "refs")
+TASK_NOTE_FIELDS = ("id", "body", "created_by_name", "author_id", "recorder_id", "recorder_name", "attribution", "created_at", "refs")
 
 
 def select(value, keys):
@@ -297,31 +299,31 @@ def sectioned_context(mandatory, requested):
 
 def description(name):
     if name in TASK_WRITES or name == "tasks_list":
-        return " Returns a compact task index/receipt; tasks_get reads fields and recent notes; tasks_notes_list pages older notes."
+        return instruction_text('mcp-presentation-returns-a-compact-task-index-receipt-tasks')
     if name == "tables_rows_write":
-        return " Returns row IDs/revisions, not echoed cells; tables_rows_list reads values, or request response_detail=full."
+        return instruction_text('mcp-presentation-returns-row-ids-revisions-not-echoed-cells')
     if name == "agent_config_get":
-        return " Compact identity/scope by default. response_detail=summary is readiness metadata only, not instructions. Before entering another project or when context_refresh_required, read response_detail=context without sections for complete mandatory rules. sections is a partial lookup, never a substitute for that read; tool_names checks named capabilities; full returns diagnostic detail."
+        return instruction_text('mcp-presentation-compact-identity-scope-by-default-response-detail')
     if name == "signoffs_list":
-        return " Compact status/attention index. signoffs_get reads full proposal/answer evidence before acting; response_detail=full retains decision notes for bulk feedback review without per-item reads."
+        return instruction_text('mcp-presentation-compact-status-attention-index-signoffs-get-reads')
     if name == "signoffs_get":
-        return " Decision bindings and approval evidence are complete; change previews keep diffs and changed fields only, and mark bounded values. response_detail=full returns raw before/after."
+        return instruction_text('mcp-presentation-decision-bindings-and-approval-evidence-are-complete')
     if name in SIGNOFF_COMPLETION_WRITES:
-        return " Returns a short decision/execution receipt; approval may only queue execution. signoffs_get reads evidence; response_detail=full with the same idempotency key reads the canonical receipt without repeating the decision."
+        return instruction_text('mcp-presentation-returns-a-short-decision-execution-receipt-approval')
     if name == "agents_message_send":
-        return " Returns a delivery receipt (message/thread/event IDs), not the sent text; agents_messages_list reads history, or request response_detail=full."
+        return instruction_text('mcp-presentation-returns-a-delivery-receipt-message-thread-event')
     if name == "signoffs_input_create":
-        return " Returns the created signoff's status index; signoffs_get reads the full question and choices, or request response_detail=full."
+        return instruction_text('mcp-presentation-returns-the-created-signoff-s-status-index')
     if name in FOCUS_CARD_WRITES:
-        return " Returns a compact Focus receipt with revisions; focus_get reads the full pane, or request response_detail=full."
+        return instruction_text('mcp-presentation-returns-a-compact-focus-receipt-with-revisions')
     if name in SUMMARY_OPERATIONS:
-        return " Compact index by default. response_detail=summary is an explicit bounded operational view; response_detail=full returns the canonical payload."
+        return instruction_text('mcp-presentation-compact-index-by-default-response-detail-summary')
     if name == "tasks_get":
-        return " Note text is complete; omitted per-note attribution and empty fields are defaults. response_detail=full returns the canonical payload."
+        return instruction_text('mcp-presentation-note-text-is-complete-omitted-per-note')
     if name == "operations_describe":
-        return " Multiple names return availability/mode/description; name a single tool (or use response_detail=full) for its exact input schema."
+        return instruction_text('mcp-presentation-multiple-names-return-availability-mode-description-name')
     if name in INDEX_READS or name in ELIDE_ONLY_READS:
-        return " Compact index: omitted fields are empty or default. response_detail=full returns the canonical payload."
+        return instruction_text('mcp-presentation-compact-index-omitted-fields-are-empty-or')
     return ""
 
 

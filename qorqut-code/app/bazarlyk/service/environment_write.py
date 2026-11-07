@@ -1,4 +1,6 @@
 """One business Settings value per hash-checked, replayable file mutation."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 import hashlib
 import json
 
@@ -153,8 +155,4 @@ def register_environment_write(runtime):
         "rationale": {"type": "string", "maxLength": 2000}}, ("key", "value")),
         effect_kind="compound", scope_kinds={"business"}, exposure={"mcp", "dashboard"},
         prepare=prepare, apply=apply, validate_targets=validate,
-        description="Set one Settings key/value in the selected project, including credentials. Preserves unrelated "
-            "settings and existing private-role restrictions; never writes Global Settings. Pass the actual value "
-            "directly; empty stores an empty project override. Reuse idempotency_key on retries. Returns a receipt "
-            "(key names and file hash, never values). New terminal sessions load updated environment values; existing "
-            "shells are not restarted."))
+        description=instruction_text('environment-write-set-one-settings-key-value-in-the')))

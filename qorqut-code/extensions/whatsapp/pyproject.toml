@@ -16,4 +16,4 @@ where = ["."]
 include = ["qorqut_whatsapp*"]
 
 [tool.setuptools.package-data]
-qorqut_whatsapp = ["guidance.md", "index.json", "assets/*.js", "assets/*.css", "bin/whatsapp-personal", "build.json", "third_party/**/*"]
+qorqut_whatsapp = ["index.json", "assets/*.js", "assets/*.css", "bin/whatsapp-personal", "build.json", "third_party/**/*"]

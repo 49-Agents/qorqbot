@@ -18,6 +18,7 @@ from .client import (BOOTSTRAP_TIMEOUT, REQUEST_TIMEOUT, BootstrapClient,
                      load_registration, path_has_symlink, write_json_private)
 from .transcript_snapshot import run as snapshot_transcript
 from .environment import bootstrap_environment_context
+from qorqut_agentic.behavior.instructions import BOOTSTRAP_BUDGET, from_prepared, bootstrap_failure
 
 LIFECYCLE_EVENTS = frozenset({"startup", "resume", "clear", "compact", "fork"})
 
@@ -101,6 +102,7 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     config_id = response.get("effective_config_id")
     if not isinstance(config_id, str) or len(config_id) > 100:
         raise DomainError("bootstrap_unavailable", "Bootstrap omitted its configuration digest")
+    instructions = from_prepared(registration_path)
     setup = ""
     consumer = response.get("inbox_consumer_id")
     if consumer is not None and consumer != str(uuid.UUID(session_id)):
@@ -113,35 +115,43 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
             raise DomainError("invalid_bootstrap", "Managed inbox session guidance is missing or exceeds its character budget")
         setup = note
     if response.get('activity_available'):
-        setup += f'\nSESSION CURRENT-WORK ID: {session_id}. Use this native UUID with agent_work_update; activity heartbeat is automatic.'
+        setup += instructions.render("startup-session", SESSION_ID=session_id)
+    skills = ''
+    if registration.get('operational_intake_enabled'):
+        from .always_skills import handle as skills_hook
+        skills = skills_hook(hook, registration_path, runtime).get('hookSpecificOutput', {}).get('additionalContext', '')
     if (event == "UserPromptSubmit" and last_id == config_id and not response.get("refresh_required")
             and not recovery.read(registration,session_id)):
-        return {}, None, client
+        return ({"hookSpecificOutput": {"hookEventName": event, "additionalContext": skills}} if skills else {}), None, client
     context = response.get("mandatory_context")
+    rules = facts = None
     if isinstance(context, dict):
+        rules, facts = context.get('instructions'), context.get('context')
         context = context.get("rendered")
     if not isinstance(context, str) or not context.strip() or len(context) > MAX_CONTEXT_CHARACTERS:
         raise DomainError("invalid_bootstrap", "Mandatory bootstrap is missing or exceeds its character budget")
     configuration_hash = content_hash(context.encode())
+    if isinstance(rules, str) and isinstance(facts, str):
+        context = '\n\n'.join(filter(None, (rules, skills, setup, facts)))
+    else:
+        context = '\n\n'.join(filter(None, (skills, setup, context)))
     briefing = response.get("work_briefing", {}).get("rendered", "")
     if not isinstance(briefing, str):
         raise DomainError("invalid_bootstrap", "Work briefing must be text")
     if (response.get('work_briefing', {}).get('compact')
-            and len(context) + len(briefing) + len(setup) + 4 > MAX_CONTEXT_CHARACTERS):
+            and len(context) + len(briefing) + 2 > BOOTSTRAP_BUDGET):
         # Preserve mandatory rules and runtime consumer binding in full. Memory
         # is an optional projection and remains available through its scoped tool.
-        briefing = 'Before work, call agent_context_get(inventory=true) and follow next_cursor to completion; agent_context_get reads the saved handoff.'
-        if len(context) + len(briefing) + len(setup) + 4 > MAX_CONTEXT_CHARACTERS:
+        briefing = instructions.render("startup-inventory")
+        if len(context) + len(briefing) + 2 > BOOTSTRAP_BUDGET:
             briefing = ''
     if briefing:
         context += "\n\n" + briefing
-    if setup:
-        context += "\n\n" + setup
-    inventory = bootstrap_environment_context(response.get("environment"),
-        max_chars=min(2400, MAX_CONTEXT_CHARACTERS - len(context) - 2))
+    inventory = bootstrap_environment_context(response.get("environment"), instructions=instructions,
+        max_chars=min(2400, BOOTSTRAP_BUDGET - len(context) - 2))
     if inventory:
         context += "\n\n" + inventory
-    if len(context) > MAX_CONTEXT_CHARACTERS:
+    if len(context) > BOOTSTRAP_BUDGET:
         raise DomainError("invalid_bootstrap", "Combined bootstrap exceeds its character budget")
     output = {"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}}
     if event == "SessionStart" and runtime == "claude-code":
@@ -189,7 +199,7 @@ def run(hook: dict, registration_path: Path, *, stream=sys.stdout, diagnostics=s
             if episode:
                 specific = output.setdefault('hookSpecificOutput', {'hookEventName': hook['hook_event_name']})
                 specific['additionalContext'] = (specific.get('additionalContext', '') +
-                    '\nPreparation has succeeded. The earlier preparation blocker is cleared; resume authorized role work.').strip()
+                    from_prepared(registration_path).render("startup-recovered")).strip()
         except (OSError, ValueError, DomainError):
             pass
         stream.write(json.dumps(output, separators=(",", ":")) + "\n")
@@ -230,26 +240,14 @@ def run(hook: dict, registration_path: Path, *, stream=sys.stdout, diagnostics=s
         denial = code in DENIALS
         pending = code == 'bootstrap_pending'
         temporary = code in {'bootstrap_unavailable','busy'} or isinstance(exc,DomainError) and exc.retryable
-        if pending:
-            reason = ('Agent context refresh is still running in the background (bootstrap_pending). '
-                "Continue the owner's authorized work under instructions already present in this conversation. "
-                'You may use service tools within your existing authorization; honor their live responses and current permission checks. '
-                'If required instructions are missing after startup or compaction, wait for the trusted hook before actions that need them. '
-                'The helper delivers the refreshed context automatically. Do not rerun startup hooks, restart the conversation, '
-                'or report this expected wait as a fault.')
-        elif denial:
-            reason = (f"Agent identity was refused ({code}): {message}. Do not use this agent's service identity until repaired.")
-        elif temporary:
-            reason = (f"Agent connection is temporarily unavailable ({code}). The helper retries automatically. "
-                "Continue the owner's authorized local coding and other work that does not require the unavailable service; "
-                "keep existing workers running. Do not rerun startup hooks or restart the conversation.")
-        else:
-            reason = (f"Agent configuration needs repair ({code}): {message}. Pause work that requires these missing instructions; "
-                "independent owner-authorized repository work may continue.")
-        if not pending:
-            reason += (' agent_runtime_get and operations_describe are diagnostic reads, not delivery confirmation. '
-                'Record a persistent fault once on the existing task with its request/receipt ID and who acts next. '
-                'Saved context does not grant current service permission.')
+        try:
+            reason = bootstrap_failure(from_prepared(registration_path), code=code, message=message,
+                pending=pending, denial=denial, temporary=temporary)
+        except (OSError, ValueError, KeyError):
+            # Missing prepared instructions are an error, never permission to use another rule source.
+            diagnostics.write("Prepared Agentic runtime instructions are unavailable.\n")
+            stream.write(json.dumps({"decision": "block", "reason": "Prepared Agentic runtime instructions are unavailable"}) + "\n")
+            return 0
         try:
             from .recovery import record
             selected = load_registration(registration_path)

@@ -12,6 +12,8 @@ the engine's idempotent ledger, so the outcome is read with ``fastmail_receipt_g
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import base64
 import binascii
 import hashlib
@@ -29,7 +31,7 @@ MAX_RESULT_BYTES = 12 * 1024 * 1024
 MAX_ATTACHMENT_CHUNK = 5 * 1024 * 1024
 
 _ACCOUNT = {"type": "string", "minLength": 1, "maxLength": 255, "pattern": r"^[A-Za-z0-9_-]+$",
-            "description": "The Fastmail account id reported by fastmail_capabilities_get."}
+            "description": instruction_text('operations-the-fastmail-account-id-reported-by-fastmail-capabilities')}
 _REF = {"type": "string", "minLength": 1, "maxLength": 255, "pattern": r"^[A-Za-z0-9_.:@/-]+$"}
 _KEYWORDS = {"type": "array", "maxItems": 20, "uniqueItems": True,
              "items": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": r"^\$?[A-Za-z0-9_-]+$"}}
@@ -43,7 +45,7 @@ _ATTACHMENT = schema({
     "sha256": {"type": "string", "pattern": r"^[a-f0-9]{64}$"}}, ("filename", "content_base64", "content_type", "sha256"))
 _COMPOSE_FIELDS = {
     "account_id": _ACCOUNT,
-    "identity_id": {**_REF, "description": "An identity id from fastmail_identities_list; its email must equal from_address."},
+    "identity_id": {**_REF, "description": instruction_text('operations-an-identity-id-from-fastmail-identities-list-its')},
     "from_address": _ADDRESS,
     "to": {"type": "array", "minItems": 1, "maxItems": 50, "items": _ADDRESS},
     "cc": {"type": "array", "maxItems": 50, "items": _ADDRESS},
@@ -51,7 +53,7 @@ _COMPOSE_FIELDS = {
     "subject": {"type": "string", "minLength": 1, "maxLength": 998},
     "body": {"type": "string", "minLength": 1, "maxLength": 50_000},
     "attachments": {"type": "array", "maxItems": 10, "items": _ATTACHMENT,
-                    "description": "Inline attachment data is limited to 1 MiB base64 across the whole request."}}
+                    "description": instruction_text('operations-inline-attachment-data-is-limited-to-1-mib')}}
 _COMPOSE_REQUIRED = ("account_id", "identity_id", "from_address", "to", "subject", "body")
 _VACATION = schema({"id": _REF, "isEnabled": {"type": "boolean"}, "fromDate": TEXT, "toDate": TEXT,
                     "subject": {"type": "string", "maxLength": 998}, "textBody": {"type": "string", "maxLength": 50_000}})
@@ -62,27 +64,25 @@ _MASKED_EMAIL = schema({"id": _REF, "state": {"type": "string", "enum": ["enable
                         "emailPrefix": {"type": "string", "maxLength": 64, "pattern": r"^[A-Za-z0-9._+-]+$"}})
 
 READS = {
-    "fastmail_capabilities_get": (schema(), "The configured Fastmail account: its id, supported actions, folders and identities."),
-    "fastmail_identities_list": (schema(), "The account's sending identities (id, name, email). An alias is an identity here."),
-    "fastmail_folders_list": (schema(), "The account's folders with their ids and state."),
+    "fastmail_capabilities_get": (schema(), instruction_text('operations-the-configured-fastmail-account-its-id-supported-actions')),
+    "fastmail_identities_list": (schema(), instruction_text('operations-the-account-s-sending-identities-id-name-email')),
+    "fastmail_folders_list": (schema(), instruction_text('operations-the-account-s-folders-with-their-ids-and')),
     "fastmail_messages_search": (schema({
         "q": TEXT, "from": _ADDRESS, "to": _ADDRESS, "subject": TEXT, "in_mailbox": _REF,
         "has_keyword": {"type": "string", "minLength": 1, "maxLength": 64}, "before": TEXT, "after": TEXT,
         "limit": {"type": "integer", "minimum": 1, "maximum": 100}, "position": {"type": "integer", "minimum": 0}}),
-        "Search messages in the account; at most 100 per page."),
+        instruction_text('operations-search-messages-in-the-account-at-most-100')),
     "fastmail_message_get": (schema({"account_id": _ACCOUNT, "message_id": _REF}, ("message_id",)),
-                             "Read one message with its expected_state. Optional account_id must name the configured account."),
+                             instruction_text('operations-read-one-message-with-its-expected-state-optional')),
     "fastmail_thread_get": (schema({"account_id": _ACCOUNT, "thread_id": _REF, "limit": {"type": "integer", "minimum": 1, "maximum": 100},
                                     "position": {"type": "integer", "minimum": 0}}, ("thread_id",)),
-                            "Read one thread page; at most 100 messages per page. Optional account_id must name the configured account."),
+                            instruction_text('operations-read-one-thread-page-at-most-100-messages')),
     "fastmail_attachment_get": (schema({"attachment_id": _REF, "message_id": _REF, "offset": {"type": "integer", "minimum": 0},
                                         "limit": {"type": "integer", "minimum": 1, "maximum": MAX_ATTACHMENT_CHUNK}},
                                        ("attachment_id", "message_id")),
-                                "Read one attachment range (at most 5 MiB per call); follow next_offset until it equals total."),
+                                instruction_text('operations-read-one-attachment-range-at-most-5-mib')),
     "fastmail_receipt_get": (schema({"request_id": _REF}, ("request_id",)),
-                             "Look up a mutation by its request id (the job id returned when it was queued): the engine's receipt, "
-                             "if it holds one, and the job's own state, which is also how a mutation that has not reached the "
-                             "engine yet (queued, retrying or unconfirmed) is observed."),
+                             instruction_text('operations-look-up-a-mutation-by-its-request-id')),
 }
 MUTATIONS = {
     "fastmail_message_update": (schema({
@@ -90,32 +90,32 @@ MUTATIONS = {
         "move_to_folder_id": _REF, "trash": {"type": "boolean"}, "restore": {"type": "boolean"}, "seen": {"type": "boolean"},
         "flagged": {"type": "boolean"}, "answered": {"type": "boolean"}, **_EXPECTED},
         ("account_id", "message_id", "expected_state")), "message_update",
-        "Mark, move, trash or restore one message (ordinary organizing)."),
+        instruction_text('operations-mark-move-trash-or-restore-one-message-ordinary')),
     "fastmail_message_delete": (schema({"account_id": _ACCOUNT, "message_id": _REF, **_EXPECTED},
                                        ("account_id", "message_id", "expected_state")), "message_delete",
-                                "Delete one message. The delete itself is a provider action with no permanent-delete flag."),
+                                instruction_text('operations-delete-one-message-the-delete-itself-is-a')),
     "fastmail_folder_create": (schema({"account_id": _ACCOUNT, "name": {"type": "string", "minLength": 1, "maxLength": 100}},
-                                      ("account_id", "name")), "folder_create", "Create a folder."),
+                                      ("account_id", "name")), "folder_create", instruction_text('operations-create-a-folder')),
     "fastmail_folder_update": (schema({"account_id": _ACCOUNT, "folder_id": _REF, "name": {"type": "string", "minLength": 1,
                                        "maxLength": 100}, **_EXPECTED}, ("account_id", "folder_id", "name", "expected_state")),
-                               "folder_update", "Rename a folder."),
+                               "folder_update", instruction_text('operations-rename-a-folder')),
     "fastmail_folder_delete": (schema({"account_id": _ACCOUNT, "folder_id": _REF, **_EXPECTED},
-                                      ("account_id", "folder_id", "expected_state")), "folder_delete", "Delete a folder."),
+                                      ("account_id", "folder_id", "expected_state")), "folder_delete", instruction_text('operations-delete-a-folder')),
     "fastmail_draft_create": (schema({**_COMPOSE_FIELDS, "reply_message_id": _REF, "forward_message_id": _REF}, _COMPOSE_REQUIRED),
-                              "create_draft", "Save a draft from a real account identity; nothing is sent."),
+                              "create_draft", instruction_text('operations-save-a-draft-from-a-real-account-identity')),
     "fastmail_draft_update": (schema({**_COMPOSE_FIELDS, "message_id": _REF, "reply_message_id": _REF, "forward_message_id": _REF,
                                       **_EXPECTED}, (*_COMPOSE_REQUIRED, "message_id", "expected_state")),
-                              "update_draft", "Replace one draft's content; nothing is sent."),
+                              "update_draft", instruction_text('operations-replace-one-draft-s-content-nothing-is-sent')),
     "fastmail_send": (schema(_COMPOSE_FIELDS, _COMPOSE_REQUIRED), "send",
-                      "Send a new message from a real account identity. The request id makes a repeat idempotent."),
+                      instruction_text('operations-send-a-new-message-from-a-real-account')),
     "fastmail_reply": (schema({**_COMPOSE_FIELDS, "reply_message_id": _REF}, (*_COMPOSE_REQUIRED, "reply_message_id")), "send",
-                       "Send a reply to one message from a real account identity."),
+                       instruction_text('operations-send-a-reply-to-one-message-from-a')),
     "fastmail_forward": (schema({**_COMPOSE_FIELDS, "forward_message_id": _REF}, (*_COMPOSE_REQUIRED, "forward_message_id")), "send",
-                         "Forward one message, with its original body and attachments, from a real account identity."),
+                         instruction_text('operations-forward-one-message-with-its-original-body-and')),
     "fastmail_vacation_set": (schema({"account_id": _ACCOUNT, "vacation": _VACATION}, ("account_id", "vacation")), "vacation_set",
-                              "Set the account's vacation responder, if the account advertises it."),
+                              instruction_text('operations-set-the-account-s-vacation-responder-if-the')),
     "fastmail_masked_email_set": (schema({"account_id": _ACCOUNT, "masked_email": _MASKED_EMAIL}, ("account_id", "masked_email")),
-                                  "masked_email_set", "Create or update a masked email, if the account advertises it."),
+                                  "masked_email_set", instruction_text('operations-create-or-update-a-masked-email-if-the')),
 }
 SENDING = frozenset({"fastmail_send", "fastmail_reply", "fastmail_forward"})
 COMPOSING = frozenset({"fastmail_draft_create", "fastmail_draft_update", "fastmail_send", "fastmail_reply", "fastmail_forward"})
@@ -240,7 +240,7 @@ class FastmailOperations:
             registry.register(OperationDescriptor(
                 name, arguments, effect_kind="read", supports_signoff=False, scope_kinds={"global"},
                 resolve_namespace=lambda c, a: "global", global_capability=CAPABILITY, external_read=True, default_mode="allow",
-                description="Read the owner's Fastmail account through the bounded engine API. " + text,
+                description=instruction_text('operations-read-the-owner-s-fastmail-account-through-the') + text,
                 read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
         for name, (arguments, _, text) in MUTATIONS.items():
             registry.register(OperationDescriptor(
@@ -248,10 +248,9 @@ class FastmailOperations:
                 resolve_namespace=lambda c, a: "global", global_capability=CAPABILITY, default_mode="signoff" if name in SENDING else "allow",
                 editable_fields=("subject", "body") if name in SENDING else (),
                 revise=self.revise if name in SENDING else None,
-                description=text + " Queues one named job for the engine; read the outcome with fastmail_receipt_get (jobs_get needs a different grant). "
-                            + ("Sending requires owner approval of the exact recipients, subject, body and attachments. "
-                             "Use this operation instead of a generic input request. Save edits only revises the proposal; Approve queues sending."
-                             if name in SENDING else "This mutation does not send email."),
+                description=text + instruction_text('operations-queues-one-named-job-for-the-engine-read')
+                            + (instruction_text('operations-sending-requires-owner-approval-of-the-exact-recipients')
+                             if name in SENDING else instruction_text('operations-this-mutation-does-not-send-email')),
                 prepare=lambda ctx, args, options, uow, op=name: self.builder(op, ctx, args, options, uow).build(),
                 apply=self.apply, validate_targets=self.validate_targets))
 

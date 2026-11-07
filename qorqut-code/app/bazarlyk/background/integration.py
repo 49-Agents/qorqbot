@@ -5,6 +5,8 @@ Operations engine's. This module registers the host's concrete programs on the o
 routine/learning/job operations and attaches the one ``BackgroundService`` with its ``JobObserver`` and scheduler.
 The program registry is frozen with the operation registry by ``Runtime.freeze_registry`` before traffic."""
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from bazarlyk.signoffs.privacy import PRIVATE_JOB_KINDS
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError
@@ -116,8 +118,7 @@ def register_operations(runtime, programs, authority, *, clock=None):
         effect_kind="read", supports_signoff=False, scope_kinds={"business", "global"},
         resolve_namespace=lambda c,a: "global" if a.get("scope") == "global" else "business:" + c.business_id,
         global_capability="manage_global_routines",
-        read=job_get, description="Inspect a scoped background job. The initiating agent and owner can read its full result; "
-            "other agents receive status and error codes for coordination without private payloads."))
+        read=job_get, description=instruction_text('integration-inspect-a-scoped-background-job-the-initiating-agent')))
 
     runtime.background_operations = (routines, learnings)
     return routines, learnings

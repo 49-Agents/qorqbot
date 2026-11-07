@@ -10,6 +10,8 @@ them, through ``transitions``. Accepted Action revisions enter through ``queue.e
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from qorqut_operations.application.catalog import CatalogContribution
 from qorqut_operations.application.plans import PAGE, UUID, PlanBuilder, apply_records, ref, schema, utc_clock
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
@@ -108,26 +110,20 @@ class ContextQueueOperations:
         return (
             OperationDescriptor("context_queue_list", schema({**PAGE, "state": {"enum": list(STATES)}}), page_output,
                 effect_kind="read", supports_signoff=False, read=self.list_inputs, **common,
-                description="List this namespace's Context inputs in queue order, with their states. queue_blocked tells whether "
-                            "the shared queue is stopped on a blocked input (which delays every later input); the blocked input "
-                            "is named only when it belongs to this namespace."),
+                description=instruction_text('operations-list-this-namespace-s-context-inputs-in-queue')),
             OperationDescriptor("context_queue_get", schema({"input_id": UUID}, ("input_id",)), schema({"input": DETAIL_OUTPUT}, ("input",)),
                 effect_kind="read", supports_signoff=False, read=self.get_input, **common,
-                description="Read one of this namespace's Context inputs with its immutable payload, attempts and control requests."),
+                description=instruction_text('operations-read-one-of-this-namespace-s-context-inputs')),
             OperationDescriptor("context_queue_submit", schema({
                 "operation": {"enum": list(OPERATIONS)}, "path": {"type": "string", "minLength": 1, "maxLength": 500},
                 "content": {"type": "string", "minLength": 1}, "metadata": SOURCE_METADATA,
                 "rationale": {"type": "string", "minLength": 1, "maxLength": 2000}}, ("operation", "path")),
                 schema({"input": INPUT_OUTPUT}, ("input",)), prepare=self.prepare_submit, apply=self.apply_submit, **common,
-                description="Queue one Context source change (add, edit or remove a foundation/ text source) for this namespace. "
-                            "Admission never waits for Context or a model. foundation/actions/ and accepted-Action metadata are "
-                            "reserved and cannot be claimed here."),
+                description=instruction_text('operations-queue-one-context-source-change-add-edit-or')),
             OperationDescriptor("context_queue_retry", CONTROL_INPUT, prepare=lambda *args: self.prepare_control("retry", *args),
-                apply=self.apply_control, description="Ask for another attempt at the blocked head of this namespace. The "
-                "driver starts the attempt; this records only the request.", **control),
+                apply=self.apply_control, description=instruction_text('operations-ask-for-another-attempt-at-the-blocked-head'), **control),
             OperationDescriptor("context_queue_discard", CONTROL_INPUT, prepare=lambda *args: self.prepare_control("discard", *args),
-                apply=self.apply_control, description="Discard this namespace's blocked head, or an input that never started. "
-                "A blocked input is discarded after the driver completes the mechanical Context discard.", **control))
+                apply=self.apply_control, description=instruction_text('operations-discard-this-namespace-s-blocked-head-or-an'), **control))
 
     # -- reads -----------------------------------------------------------------------------------------------------
 

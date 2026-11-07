@@ -1,0 +1,1 @@
+Before continuing work, reconcile this input with the operational records: create or update and link the relevant items, record any owner intent in their threads, and add new work to Todo or update existing entries. Then delegate or continue.

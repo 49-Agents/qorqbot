@@ -1,0 +1,1 @@
+MCP reconnected, but the previous tool outcome is unknown. Do not send a new mutation. Reconcile its result or retry the exact original request with its original idempotency key.

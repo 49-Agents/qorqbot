@@ -1,4 +1,6 @@
 """Read-only counts from business-owned evidence, never estimates of missing history."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 from dataclasses import replace
 from datetime import timedelta
 
@@ -26,12 +28,12 @@ class BusinessProgress:
         register(registry, self.clock)
         registry.register(OperationDescriptor("business_progress_get", schema({"days": {"enum": [30, 90, 365]}}),
             effect_kind="read", supports_signoff=False,
-            description="Owner read: all-time recorded totals and daily installation-local series for distinct tasks first marked done, completed actions linked to this project (on their occurrence day) and approved signoffs. Missing dates are explicit, never guessed.",
+            description=instruction_text('business-progress-owner-read-all-time-recorded-totals-and'),
             read=self.read))
 
         registry.register(OperationDescriptor('global_progress_get', schema({'days': {'enum': [30,120,365]}}),
             scope_kinds=frozenset({'global'}), global_capability='read_global_context', effect_kind='read',
-            supports_signoff=False, description='Owner daily installation-local counts across authorized workspaces: task completions, every inbox delivery, each learning first accepted and each distinct completed action once on its occurrence day.', read=self.read_global))
+            supports_signoff=False, description=instruction_text('business-progress-owner-daily-installation-local-counts-across-authorized'), read=self.read_global))
 
     def read_global(self, ctx, args, opts, uow):
         installation = uow.repository('installation').get('service')

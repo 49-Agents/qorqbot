@@ -1,5 +1,7 @@
 """Registered media uploads, metadata, and archival without deleting bytes."""
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import base64
 import binascii
 import mimetypes
@@ -40,7 +42,7 @@ class AssetOperations:
         }
         for name, (properties, required) in mutations.items():
             registry.register(OperationDescriptor(name, schema({**properties, "rationale": TEXT}, required), effect_kind="files",
-                description="Archive an asset while preserving its bytes and relationships." if name == "assets_delete" else "",
+                description=instruction_text('operations-archive-an-asset-while-preserving-its-bytes-and') if name == "assets_delete" else "",
                 prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, options, uow),
                 apply=self.apply))
 

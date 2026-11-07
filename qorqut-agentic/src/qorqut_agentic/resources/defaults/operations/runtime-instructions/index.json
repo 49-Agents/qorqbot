@@ -1,0 +1,924 @@
+{
+  "format": 1,
+  "entries": [
+    {
+      "id": "activity-reminder",
+      "path": "messages/activity-reminder.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "activity hook",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/activity_hook.py"
+    },
+    {
+      "id": "attention-board",
+      "path": "messages/attention-board.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-board-transition",
+      "path": "messages/attention-board-transition.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "agents/attention.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/agents/attention.py:13"
+    },
+    {
+      "id": "attention-candidates",
+      "path": "messages/attention-candidates.md",
+      "parameters": [
+        "COUNT"
+      ],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-continue",
+      "path": "messages/attention-continue.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-data",
+      "path": "messages/attention-data.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-detach",
+      "path": "messages/attention-detach.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-empty",
+      "path": "messages/attention-empty.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-focus",
+      "path": "messages/attention-focus.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-focus-transition",
+      "path": "messages/attention-focus-transition.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "agents/attention.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/agents/attention.py:446"
+    },
+    {
+      "id": "attention-more",
+      "path": "messages/attention-more.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-next-actor",
+      "path": "messages/attention-next-actor.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "agents/attention.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/agents/attention.py:455"
+    },
+    {
+      "id": "attention-unavailable",
+      "path": "messages/attention-unavailable.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "background-recovered",
+      "path": "messages/background-recovered.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "activity context",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/activity_context.py"
+    },
+    {
+      "id": "briefing-assignment-edges",
+      "path": "messages/briefing-assignment-edges.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "agents/briefing.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:217"
+    },
+    {
+      "id": "briefing-evidence",
+      "path": "messages/briefing-evidence.md",
+      "parameters": [],
+      "status": "legacy",
+      "trigger": "briefing",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/briefing.py"
+    },
+    {
+      "id": "briefing-evidence-review",
+      "path": "messages/briefing-evidence-review.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "agents/briefing.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:218"
+    },
+    {
+      "id": "briefing-excerpt",
+      "path": "messages/briefing-excerpt.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "agents/briefing.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:96"
+    },
+    {
+      "id": "briefing-grants",
+      "path": "messages/briefing-grants.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "agents/briefing.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:219"
+    },
+    {
+      "id": "briefing-neighborhood-limit",
+      "path": "messages/briefing-neighborhood-limit.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "agents/briefing.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:201"
+    },
+    {
+      "id": "briefing-omitted",
+      "path": "messages/briefing-omitted.md",
+      "parameters": [],
+      "status": "legacy",
+      "trigger": "briefing",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/briefing.py"
+    },
+    {
+      "id": "briefing-pagination",
+      "path": "messages/briefing-pagination.md",
+      "parameters": [
+        "VALUE0",
+        "VALUE1"
+      ],
+      "status": "conditional",
+      "trigger": "agents/briefing.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:90"
+    },
+    {
+      "id": "briefing-project-selection",
+      "path": "messages/briefing-project-selection.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "agents/briefing.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:203"
+    },
+    {
+      "id": "briefing-read-before-write",
+      "path": "messages/briefing-read-before-write.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "agents/briefing.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:215"
+    },
+    {
+      "id": "briefing-refresh",
+      "path": "messages/briefing-refresh.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "agents/briefing.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:214"
+    },
+    {
+      "id": "briefing-relationships",
+      "path": "messages/briefing-relationships.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "agents/briefing.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:216"
+    },
+    {
+      "id": "briefing-runtime-unavailable",
+      "path": "messages/briefing-runtime-unavailable.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "agents/resolver.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/agents/resolver.py:646"
+    },
+    {
+      "id": "briefing-skill-discovery",
+      "path": "messages/briefing-skill-discovery.md",
+      "parameters": [
+        "SKILLS"
+      ],
+      "status": "conditional",
+      "trigger": "agents/briefing.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:227"
+    },
+    {
+      "id": "briefing-source-unavailable",
+      "path": "messages/briefing-source-unavailable.md",
+      "parameters": [
+        "VALUE0",
+        "VALUE1"
+      ],
+      "status": "conditional",
+      "trigger": "agents/briefing.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:79"
+    },
+    {
+      "id": "briefing-tools",
+      "path": "messages/briefing-tools.md",
+      "parameters": [],
+      "status": "legacy",
+      "trigger": "briefing",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/briefing.py"
+    },
+    {
+      "id": "briefing-truncated",
+      "path": "messages/briefing-truncated.md",
+      "parameters": [],
+      "status": "legacy",
+      "trigger": "briefing",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/briefing.py"
+    },
+    {
+      "id": "browser-worker-repair",
+      "path": "messages/browser-worker-repair.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "browser/access.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/browser/access.py:473"
+    },
+    {
+      "id": "browser-worker-unconfigured",
+      "path": "messages/browser-worker-unconfigured.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "browser/access.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/browser/access.py:469"
+    },
+    {
+      "id": "completion-finished-work",
+      "path": "messages/completion-finished-work.md",
+      "parameters": [
+        "TASK_ID"
+      ],
+      "status": "conditional",
+      "trigger": "checkpoints",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/checkpoints.py"
+    },
+    {
+      "id": "completion-focus-retired",
+      "path": "messages/completion-focus-retired.md",
+      "parameters": [],
+      "status": "retired",
+      "trigger": "checkpoints",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/checkpoints.py"
+    },
+    {
+      "id": "completion-owner-inbox",
+      "path": "messages/completion-owner-inbox.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "checkpoints",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/checkpoints.py"
+    },
+    {
+      "id": "completion-records",
+      "path": "messages/completion-records.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "checkpoints",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/checkpoints.py"
+    },
+    {
+      "id": "completion-unavailable-work",
+      "path": "messages/completion-unavailable-work.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "checkpoints",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/checkpoints.py"
+    },
+    {
+      "id": "completion-wrapper",
+      "path": "messages/completion-wrapper.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "activity hook",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/activity_hook.py"
+    },
+    {
+      "id": "connection-pending-outcome",
+      "path": "messages/connection-pending-outcome.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "native MCP connection recovery",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/mcp_reconnect.py:ReconnectBridge.request"
+    },
+    {
+      "id": "connection-possible-write",
+      "path": "messages/connection-possible-write.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "native MCP connection recovery",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/mcp_reconnect.py:ReconnectBridge.request"
+    },
+    {
+      "id": "connection-refused",
+      "path": "messages/connection-refused.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "native MCP connection recovery",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/mcp_reconnect.py:ReconnectBridge.request"
+    },
+    {
+      "id": "connection-unavailable",
+      "path": "messages/connection-unavailable.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "native MCP connection recovery",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/mcp_reconnect.py:ReconnectBridge.request"
+    },
+    {
+      "id": "connection-uncertain-write",
+      "path": "messages/connection-uncertain-write.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "bootstrap/mcp_reconnect.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/bootstrap/mcp_reconnect.py:214"
+    },
+    {
+      "id": "delegated-worker-continue",
+      "path": "messages/delegated-worker-continue.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "bootstrap/delegated_runtime.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/bootstrap/delegated_runtime.py:251"
+    },
+    {
+      "id": "delegated-worker-rules",
+      "path": "messages/delegated-worker-rules.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "bootstrap/delegated_runtime.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/bootstrap/delegated_runtime.py:254"
+    },
+    {
+      "id": "delegated-worker-start",
+      "path": "messages/delegated-worker-start.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "bootstrap/delegated_runtime.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/bootstrap/delegated_runtime.py:252"
+    },
+    {
+      "id": "environment-guidance",
+      "path": "messages/environment-guidance.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "environment",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/environment.py"
+    },
+    {
+      "id": "environment-legacy",
+      "path": "messages/environment-legacy.md",
+      "parameters": [],
+      "status": "legacy",
+      "trigger": "environment",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/environment.py"
+    },
+    {
+      "id": "environment-legacy-omitted",
+      "path": "messages/environment-legacy-omitted.md",
+      "parameters": [],
+      "status": "legacy",
+      "trigger": "environment",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/environment.py"
+    },
+    {
+      "id": "environment-omitted",
+      "path": "messages/environment-omitted.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "environment",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/environment.py"
+    },
+    {
+      "id": "environment-truncated",
+      "path": "messages/environment-truncated.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "environment",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/environment.py"
+    },
+    {
+      "id": "environment-unavailable",
+      "path": "messages/environment-unavailable.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "environment",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/environment.py"
+    },
+    {
+      "id": "inbox-nudge",
+      "path": "messages/inbox-nudge.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "inbox_nudges/contracts.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/qorqut-operations/qorqut_operations/inbox_nudges/contracts.py:20"
+    },
+    {
+      "id": "initial-learning-assignment",
+      "path": "messages/initial-learning-assignment.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "bootstrap/initialize.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/bootstrap/initialize.py:61"
+    },
+    {
+      "id": "initial-ordubashy-assignment",
+      "path": "messages/initial-ordubashy-assignment.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "bootstrap/initialize.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/bootstrap/initialize.py:60"
+    },
+    {
+      "id": "learning-applier-assignment",
+      "path": "messages/learning-applier-assignment.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "bootstrap/learning_applier.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/bootstrap/learning_applier.py:15"
+    },
+    {
+      "id": "memory-legacy-plan",
+      "path": "messages/memory-legacy-plan.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "working memory",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "domains/working_memory.py"
+    },
+    {
+      "id": "memory-omitted",
+      "path": "messages/memory-omitted.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "working memory",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "domains/working_memory.py"
+    },
+    {
+      "id": "memory-pending",
+      "path": "messages/memory-pending.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "working memory",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "domains/working_memory.py"
+    },
+    {
+      "id": "overseer-extraction-due",
+      "path": "messages/overseer-extraction-due.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "overseer/due.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/overseer/due.py:329"
+    },
+    {
+      "id": "plugin-discovery",
+      "path": "messages/plugin-discovery.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "agents/preferences.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/agents/preferences.py:35"
+    },
+    {
+      "id": "project-briefing-evidence",
+      "path": "messages/project-briefing-evidence.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "domains/business_briefing.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/domains/business_briefing.py:118"
+    },
+    {
+      "id": "retirement-inbox-history",
+      "path": "messages/retirement-inbox-history.md",
+      "parameters": [
+        "VALUE0",
+        "VALUE1"
+      ],
+      "status": "conditional",
+      "trigger": "inbox/retirement_contract.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/inbox/retirement_contract.py:77"
+    },
+    {
+      "id": "retirement-inbox-reading",
+      "path": "messages/retirement-inbox-reading.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "inbox/retirement_contract.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/inbox/retirement_contract.py:81"
+    },
+    {
+      "id": "retirement-review-history",
+      "path": "messages/retirement-review-history.md",
+      "parameters": [
+        "VALUE0",
+        "VALUE1",
+        "VALUE2"
+      ],
+      "status": "conditional",
+      "trigger": "inbox/retirement_contract.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/inbox/retirement_contract.py:87"
+    },
+    {
+      "id": "runtime-diagnostic-guidance",
+      "path": "messages/runtime-diagnostic-guidance.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "agents/diagnostics.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/agents/diagnostics.py:128"
+    },
+    {
+      "id": "skills-header",
+      "path": "messages/skills-header.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "always skills",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/always_skills.py"
+    },
+    {
+      "id": "skills-omitted",
+      "path": "messages/skills-omitted.md",
+      "parameters": [
+        "NAME",
+        "PATH"
+      ],
+      "status": "conditional",
+      "trigger": "always skills",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/always_skills.py"
+    },
+    {
+      "id": "startup-denied",
+      "path": "messages/startup-denied.md",
+      "parameters": [
+        "CODE",
+        "MESSAGE"
+      ],
+      "status": "conditional",
+      "trigger": "claude session",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/claude_session.py"
+    },
+    {
+      "id": "startup-fault",
+      "path": "messages/startup-fault.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "claude session",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/claude_session.py"
+    },
+    {
+      "id": "startup-inventory",
+      "path": "messages/startup-inventory.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "claude session",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/claude_session.py"
+    },
+    {
+      "id": "startup-pending",
+      "path": "messages/startup-pending.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "claude session",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/claude_session.py"
+    },
+    {
+      "id": "startup-recovered",
+      "path": "messages/startup-recovered.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "claude session",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/claude_session.py"
+    },
+    {
+      "id": "startup-repair",
+      "path": "messages/startup-repair.md",
+      "parameters": [
+        "CODE",
+        "MESSAGE"
+      ],
+      "status": "conditional",
+      "trigger": "claude session",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/claude_session.py"
+    },
+    {
+      "id": "startup-session",
+      "path": "messages/startup-session.md",
+      "parameters": [
+        "SESSION_ID"
+      ],
+      "status": "conditional",
+      "trigger": "claude session",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/claude_session.py"
+    },
+    {
+      "id": "startup-unavailable",
+      "path": "messages/startup-unavailable.md",
+      "parameters": [
+        "CODE"
+      ],
+      "status": "conditional",
+      "trigger": "claude session",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "bootstrap/claude_session.py"
+    },
+    {
+      "id": "tool-validation-recovery",
+      "path": "messages/tool-validation-recovery.md",
+      "parameters": [
+        "VALUE0"
+      ],
+      "status": "conditional",
+      "trigger": "transport/mcp.py",
+      "audience": "registered agent",
+      "previous_source": "qorqut-code/app/bazarlyk/transport/mcp.py:83"
+    },
+    {
+      "id": "workspace-claude",
+      "path": "messages/workspace-claude.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "trusted workspace preparation",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "workspace-code-roots",
+      "path": "messages/workspace-code-roots.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "trusted workspace preparation",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "workspace-codex",
+      "path": "messages/workspace-codex.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "trusted workspace preparation",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "workspace-completion",
+      "path": "messages/workspace-completion.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "trusted workspace preparation",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "workspace-delegation-summary",
+      "path": "messages/workspace-delegation-summary.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "trusted workspace preparation",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "workspace-global-coordination",
+      "path": "messages/workspace-global-coordination.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "trusted workspace preparation",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "workspace-identity",
+      "path": "messages/workspace-identity.md",
+      "parameters": [
+        "AGENT_ID",
+        "DISPLAY_NAME"
+      ],
+      "status": "conditional",
+      "trigger": "trusted workspace preparation",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "workspace-inbox",
+      "path": "messages/workspace-inbox.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "trusted workspace preparation",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "workspace-native-subagents",
+      "path": "messages/workspace-native-subagents.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "trusted workspace preparation",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "workspace-no-substitutes",
+      "path": "messages/workspace-no-substitutes.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "trusted workspace preparation",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "workspace-team-browser",
+      "path": "messages/workspace-team-browser.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "trusted workspace preparation",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "workspace-team-delegation",
+      "path": "messages/workspace-team-delegation.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "trusted workspace preparation",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "workspace-team-queue",
+      "path": "messages/workspace-team-queue.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "trusted workspace preparation",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "workspace-team-unavailable",
+      "path": "messages/workspace-team-unavailable.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "trusted workspace preparation",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "workspace-worker-browser",
+      "path": "messages/workspace-worker-browser.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "trusted workspace preparation",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "workspace-worker-delegation",
+      "path": "messages/workspace-worker-delegation.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "trusted workspace preparation",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "workspace-worker-queue",
+      "path": "messages/workspace-worker-queue.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "trusted workspace preparation",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "workspace-worker-unavailable",
+      "path": "messages/workspace-worker-unavailable.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "trusted workspace preparation",
+      "audience": "prepared native agent",
+      "previous_source": "bootstrap/preparation.py:build_projection"
+    },
+    {
+      "id": "ordubashy-core",
+      "path": "messages/ordubashy-core.md",
+      "parameters": [],
+      "status": "always",
+      "trigger": "Ordubashy startup",
+      "audience": "configured Ordubashy",
+      "previous_source": "owner-approved operational workflow"
+    },
+    {
+      "id": "operational-intake",
+      "path": "messages/operational-intake.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "Ordubashy input hook",
+      "audience": "configured Ordubashy",
+      "previous_source": "owner-approved operational workflow"
+    }
+  ]
+}

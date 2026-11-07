@@ -15,6 +15,11 @@ receives it by default; other agents hold it only when granted explicitly.
 
 ## Package
 
+The canonical package sources now live in Agentic's
+`resources/defaults/operations/source-instructions/email` library. The names
+below are relative to that library. Native package IDs and installed catalog
+locations are unchanged; this directory retains licensing and package history.
+
 - `plugin.yaml`: id `email-management`, version `3.2.0`, schema version 1, `scope_kinds`
   `[ecosystem]`. The scope kind says where the package may be granted and grants nothing.
 - `tools.yaml`: `tools: {}`.
