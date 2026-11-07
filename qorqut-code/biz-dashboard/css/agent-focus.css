@@ -180,6 +180,10 @@
 .attention-more{flex:none;margin-left:3px;padding:4px 6px;font-size:11px;background:transparent;color:var(--fg-2)}
 /* One gap before the completed group, not per row. */
 .attention-completed-start{margin-top:50px}
+.agfocus .attention-owner-toggle{display:inline-flex;align-items:center;justify-content:center;width:34px;height:24px;min-height:24px;margin:0 0 6px 3px;padding:0;border:1px solid var(--line-2);border-radius:999px;background:transparent;color:var(--fg-2);cursor:pointer}
+.agfocus .attention-owner-toggle svg{width:14px;height:14px}
+.agfocus .attention-owner-toggle[aria-pressed=true]{background:var(--fg-2);border-color:var(--fg-2);color:var(--bg)}
+.agfocus .attention-owner-toggle:focus-visible{outline:2px solid var(--fg-2);outline-offset:2px}
 .attention-empty{font-size:11px;color:var(--fg-3);padding-left:3px}
 .attention-all{display:grid;gap:7px}.attention-all .attention-chip{margin:0;width:100%;min-height:38px}
 .attention-message{white-space:pre-wrap;overflow-wrap:anywhere}.attention-retry{font-size:10px}
@@ -289,11 +293,8 @@
 /* Attention uses the shared unread dot and worker picker before the state marker. */
 [data-attention-board] .agfocus-notification{display:flex;align-items:center;justify-content:space-between;gap:4px;width:56px;pointer-events:auto}
 [data-attention-board] .agfocus-notification .agfocus-unread{flex:none}
-[data-attention-board] .agfocus-notification .task-workers{display:inline-flex;flex-flow:row nowrap;align-items:center;gap:0;margin:0 0 0 auto;padding:2px;min-height:26px;max-width:44px;border:0;background:none}
-[data-attention-board] .agfocus-notification .task-user-needed{display:none}
 [data-attention-board] .agfocus-row{grid-template-columns:56px 30px clamp(28px,20%,132px) minmax(0,1fr) auto}
 
-[data-attention-board] .agfocus-card:not(:hover):not(:focus-within) .task-workers:not(:has(.identity-avatar)){opacity:0;pointer-events:none}
 
 /* The pill Close is new chrome; it follows the same reduced-motion preference as the rest of Focus. */
 @media (prefers-reduced-motion:reduce){.agfocus-close,.rw-head.rw-close-first .rw-close{transition:none}}
