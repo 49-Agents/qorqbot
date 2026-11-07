@@ -27,8 +27,10 @@ retry when the same message stays pending (#26).
   signed, not notarized.
 - Updates are manual (`./qorqbot update ARCHIVE --sha256 HASH`) and refuse changed
   database schemas or managed instruction contents, running terminals and
-  installations with separately installed connectors. Do not promise that an
-  existing preview 1 or 2 installation can update until that exact pair has been
-  tested; otherwise install into a new folder.
+  installations with separately installed connectors. The embedded database
+  schema target differs from preview 2's, so the updater is expected to refuse a
+  preview 2 to 3 update and no migration is provided; this comparison was of
+  package metadata, not a run against a preview 2 installation. Preview 1 was
+  not compared. Do not promise that an existing installation can update.
 - Optional connector bundles are separate downloads and are not part of this
   candidate unless rebuilt and checked against its final archive.
