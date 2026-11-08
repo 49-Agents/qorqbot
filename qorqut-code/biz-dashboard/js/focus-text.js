@@ -101,7 +101,23 @@ const focusText = (() => {
   // ---- resize: plain textareas grow to the full content, trailing newlines included
   function resize(ta) {
     if (!ta.isConnected || !ta.offsetParent) return;
-    ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px';
+    const caretScroll = document.activeElement === ta ? ta.scrollTop : 0;
+    // Measure outside the layout: collapsing the live editor clamps the board's
+    // scroll position and scrolls its caret before the height can be restored.
+    const measure = ta.cloneNode();
+    measure.removeAttribute('id'); measure.removeAttribute('aria-label');
+    measure.setAttribute('aria-hidden', 'true'); measure.tabIndex = -1;
+    measure.value = ta.value;
+    Object.assign(measure.style, {position: 'absolute', visibility: 'hidden', pointerEvents: 'none',
+      top: '0', left: '0', height: '0', minHeight: '0', width: ta.getBoundingClientRect().width + 'px'});
+    ta.after(measure);
+    const height = measure.scrollHeight;
+    measure.remove();
+    ta.style.height = height + 'px';
+    // Native editing may scroll inside the old height when adding a final line.
+    // Once the editor grows, carry that movement into the board to reveal it.
+    const board = ta.closest('.agfocus-layout');
+    if (caretScroll && board) board.scrollTop += caretScroll - ta.scrollTop;
   }
 
   // ---- DOM nodes
