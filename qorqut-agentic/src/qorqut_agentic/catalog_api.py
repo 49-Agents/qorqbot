@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import os
 from contextlib import contextmanager
-from copy import deepcopy
+from copy import deepcopy, copy as shallow_copy
 import threading
 from typing import Any
 
@@ -27,6 +27,16 @@ class CatalogReader:
         self.ctx = ctx
         self._reads = threading.local()
         self._snapshot = threading.local()
+        # One last parsed catalogue container, published only by a snapshot that
+        # passed its exit verification. It is never an authorization or a
+        # filesystem decision: a hit requires current bytes to match exactly and
+        # every outer snapshot still builds its own DiskSource and checks
+        # recovery. Parsed packages/entries/issues are read-only after
+        # load_catalog, and a hit attaches a fresh source to a shallow copy, so
+        # no request reads through, or shares a read cache with, another one.
+        self._parsed_lock = threading.Lock()
+        self._parsed_pid: int | None = None
+        self._parsed: tuple | None = None
 
     def _active_catalog(self):
         if getattr(self._snapshot, "pid", None) != os.getpid():
@@ -44,6 +54,32 @@ class CatalogReader:
     def _revision(source):
         return bundle_digest((path, item.sha256) for path, item in source.files.items()
                              if path.split("/", 1)[0] in AREAS)
+
+    def _parsed_catalog(self, source):
+        """The cached container for exactly ``source``'s bytes, if one was published."""
+        with self._parsed_lock:
+            if self._parsed_pid != os.getpid():
+                return None  # A fork never reuses another process's parse.
+            entry = self._parsed
+        if entry is None:
+            return None
+        files, special, legacy, catalog = entry
+        if files != source.files or special != source.special or legacy != source.legacy_nonempty:
+            return None
+        return catalog
+
+    def _remember_catalog(self, source, catalog) -> None:
+        """Keep the one parsed container produced by a verified snapshot."""
+        with self._parsed_lock:
+            self._parsed_pid = os.getpid()
+            self._parsed = (source.files, source.special, source.legacy_nonempty, catalog)
+
+    @staticmethod
+    def _with_source(catalog, source):
+        """Shallow-copy a parsed container and attach this request's own source."""
+        detached = shallow_copy(catalog)
+        detached.source = source
+        return detached
 
     def revision(self):
         """Observe the same authored revision without parsing catalogue manifests."""
@@ -67,7 +103,8 @@ class CatalogReader:
             self.ctx.require_no_recovery()
             try:
                 source = DiskSource(self.ctx.tree)
-                catalog = load_catalog(source)
+                parsed = self._parsed_catalog(source)
+                catalog = self._with_source(parsed, source) if parsed is not None else load_catalog(source)
                 self._snapshot.catalog = catalog
                 self._snapshot.pid = os.getpid()
                 try:
@@ -80,6 +117,9 @@ class CatalogReader:
                 finally:
                     del self._snapshot.catalog
                     del self._snapshot.pid
+                if parsed is None:
+                    # Only a snapshot that passed both verifications publishes a parse.
+                    self._remember_catalog(source, catalog)
             except (StateConflictError, UnsafePathError, OSError) as exc:
                 raise RevisionConflictError("Authored catalogue changed during read snapshot") from exc
 

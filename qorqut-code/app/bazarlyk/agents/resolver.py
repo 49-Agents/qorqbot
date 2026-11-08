@@ -224,7 +224,7 @@ class AgentConfigResolver:
     def invocation_context(self, principal: Principal, *, business_id: str | None = None,
                            source: str = "mcp", session_registration_id: str | None = None,
                            review_business_id: str | None = None) -> InvocationContext:
-        config = self.resolve_agent_config(principal, business_id=business_id)
+        config = self.resolve_agent_config(principal, business_id=business_id, include_preparation=False)
         data = config.data
         scope = data["scope"]
         allowed = frozenset((scope["business_id"],)) if scope["kind"] == "business" else frozenset(scope["allowed_business_ids"])
@@ -360,20 +360,23 @@ class AgentConfigResolver:
                 "cache_key": canonical_hash({"fingerprint": fingerprint, "signatures": signatures})}
 
     def resolve_agent_config(self, principal: Principal, *, business_id: str | None = None,
-                             session_registration: Mapping | str | None = None) -> EffectiveAgentConfig:
+                             session_registration: Mapping | str | None = None,
+                             include_preparation: bool = True) -> EffectiveAgentConfig:
         from bazarlyk.agentic.view import CONSISTENCY_ATTEMPTS
         for _ in range(CONSISTENCY_ATTEMPTS):
             try:
                 with self.require_agentic_view().read_snapshot():
                     return self._resolve_agent_config(principal, business_id=business_id,
-                                                      session_registration=session_registration)
+                                                      session_registration=session_registration,
+                                                      include_preparation=include_preparation)
             except DomainError as exc:
                 if exc.code != "agentic_revision_conflict":
                     raise
         raise DomainError("agentic_revision_conflict", "Managed instructions kept changing during composition", retryable=True)
 
     def _resolve_agent_config(self, principal: Principal, *, business_id: str | None = None,
-                              session_registration: Mapping | str | None = None) -> EffectiveAgentConfig:
+                              session_registration: Mapping | str | None = None,
+                              include_preparation: bool = True) -> EffectiveAgentConfig:
         snapshot = self._snapshot(principal, business_id)
         provider = getattr(self, "context_home", None)
         home_text = provider(snapshot["business"]["id"] if snapshot["business"] else None) if provider else None
@@ -391,7 +394,11 @@ class AgentConfigResolver:
                     self._cache.popitem(last=False)
         data = config.to_dict()
         self.check_agentic_revision(snapshot["agentic_catalog_revision"])
-        data["preparation"] = self.preparation_status(snapshot["registration"], data)
+        # Only the diagnostic projection consults readiness; invocation and
+        # inventory resolution keep the composed empty preparation value and
+        # skip its credential/projection inspection.
+        data["preparation"] = (self.preparation_status(snapshot["registration"], data)
+                               if include_preparation else {})
         delivery = None
         if session_registration:
             registration_id = session_registration if isinstance(session_registration, str) else session_registration.get("registration_id")
@@ -784,5 +791,7 @@ class AgentConfigResolver:
         return {"recorded": True, "effective_config_id": effective_config_id, "observation": "hook_emitted"}
 
 
-def resolve_agent_config(resolver: AgentConfigResolver, principal: Principal, *, business_id=None, session_registration=None) -> EffectiveAgentConfig:
-    return resolver.resolve_agent_config(principal, business_id=business_id, session_registration=session_registration)
+def resolve_agent_config(resolver: AgentConfigResolver, principal: Principal, *, business_id=None, session_registration=None,
+                         include_preparation: bool = True) -> EffectiveAgentConfig:
+    return resolver.resolve_agent_config(principal, business_id=business_id, session_registration=session_registration,
+                                         include_preparation=include_preparation)
