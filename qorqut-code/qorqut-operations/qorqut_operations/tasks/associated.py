@@ -44,6 +44,8 @@ data is backfilled."""
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from collections.abc import Mapping
 import json
 
@@ -95,19 +97,7 @@ class TaskAssociatedRecords:
                                "include_descendants": {"type": "boolean", "default": True}}, ("task_id", "record_type")),
             scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
             resolve_namespace=task_namespace, effect_kind="read", supports_signoff=False,
-            description="Read the Actions or Signoffs associated with a Task and, by default, with every Task below it in the same "
-                        "owning scope. Explicit ancestry, concerns relationships, an Action's task evidence, a Signoff's "
-                        "expected Task target and typed references on a Story Task's own discussion are the only associations; "
-                        "each record is read with its own permission, returned once by canonical identity and paged with a bound "
-                        "cursor. Withdrawn Actions and decided Signoffs remain part of the record's history. For the "
-                        "installation owner, a business-operational Action stored in Global is also associated when it is "
-                        "explicitly shared with the requested business and its bare task evidence names exactly one Task among "
-                        "Global and the Action's shared businesses, in that business; that inferred path is owner-only. A "
-                        "Task that was moved between scopes keeps the records established while it was in an earlier scope "
-                        "(audited stay and the record's own immutable revision or proposal time) and reads a discussion "
-                        "reference in the scope the message was written in; each such record is read with the caller's current "
-                        "authority in that scope and an unavailable one is omitted without a trace; a moved Task whose audited journey cannot be "
-                        "proven gains no inferred Action or Signoff (explicit relationships and typed references still apply).",
+            description=instruction_text('associated-read-the-actions-or-signoffs-associated-with-a'),
             # The Task domain's own Global guard is applied by ``TaskOperations.read``, not merely by the generic policy.
             read=lambda ctx, args, options, uow: self.tasks.read(OPERATION, ctx, args, uow))
 

@@ -520,7 +520,8 @@ class AgentTerminalBackend:
         is called once after the pre-input checks and before the first input, and one more observation follows it; if
         either fails nothing is typed. ``allow_busy`` (default off) accepts a verified empty composer while the native
         turn is still running. Replacement uses editing keys only, after the durable claim,
-        then requires exact paste verification before the single normal submit.
+        then requires exact paste verification before submit. If the same paste remains in the same composer after
+        ``submit_settle`` (400 ms), retry Enter once without repasting or clearing anything.
         ``workdir`` is a private (0700) directory for the short-lived paste file, which never carries the text in argv.
         """
         self.validate_owner_text(text)
@@ -602,7 +603,7 @@ class AgentTerminalBackend:
         self.sleep(self.paste_settle)
         # Chat owns this successful paste into a verified empty composer. Long
         # text may be clipped or collapsed by the CLI; visible echo is optional.
-        # Identity/mode checks still run before sending exactly one Enter.
+        # Identity/mode checks still run before the initial Enter.
         for attempt in range(1, PASTE_VERIFY_ATTEMPTS + 1):
             try:
                 _, seen, pasted = self._observe(row, client, expect=text, allow_busy=allow_busy)
@@ -622,20 +623,26 @@ class AgentTerminalBackend:
                 return OwnerInputOutcome('uncertain', 'paste_unverified',
                                          {'paste_check': pasted.reason, 'paste_checks': attempt})
             self.sleep(PASTE_VERIFY_INTERVAL)
-        code, _ = broker.tmux('send-keys', '-t', pane, 'Enter')
-        if code:
-            return OwnerInputOutcome('uncertain', 'submit_failed')
-        self.sleep(self.submit_settle)
-        try:
-            _, _, after = self._observe(row, client, expect=text, allow_busy=allow_busy)
-        except OwnerInputDeferred:
-            return OwnerInputOutcome('submitted', 'processing_not_confirmed')
-        # The text still in the composer means the submit did not take.
-        if after.state == 'pasted':
-            return OwnerInputOutcome('uncertain', 'submit_unconfirmed')
-        if after.state == 'text' and after.reason == 'composer_not_empty':
-            return OwnerInputOutcome('uncertain', 'submit_unconfirmed')
-        return OwnerInputOutcome('submitted', 'processing_not_confirmed')
+        for submit_attempt in (1, 2):
+            submit_receipt = {'submit_attempts': submit_attempt}
+            code, _ = broker.tmux('send-keys', '-t', pane, 'Enter')
+            if code:
+                return OwnerInputOutcome('uncertain', 'submit_failed', submit_receipt)
+            self.sleep(self.submit_settle)
+            try:
+                _, seen, after = self._observe(row, client, expect=text, allow_busy=allow_busy)
+            except OwnerInputDeferred:
+                return OwnerInputOutcome('submitted', 'processing_not_confirmed', submit_receipt)
+            if seen != snap:
+                return OwnerInputOutcome('uncertain', 'session_changed', submit_receipt)
+            # Retry only the submit key, only when the exact pending paste is still in the ordinary composer.
+            # A cleared/different draft, modal, interrupting mode or unreadable screen never authorizes another Enter.
+            if after.state == 'pasted':
+                continue
+            if after.state == 'text' and after.reason == 'composer_not_empty':
+                return OwnerInputOutcome('uncertain', 'submit_unconfirmed', submit_receipt)
+            return OwnerInputOutcome('submitted', 'processing_not_confirmed', submit_receipt)
+        return OwnerInputOutcome('uncertain', 'submit_unconfirmed', submit_receipt)
 
     def _paste(self, broker, pane, text, workdir):
         """Bracketed paste through a private file. Returns None on success, else the outcome to report."""

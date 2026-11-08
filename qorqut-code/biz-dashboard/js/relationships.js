@@ -50,6 +50,7 @@ async function contextRelatedGlobal(host, item, beforeOpen) {
   if(!host.isConnected)return;
   host.replaceChildren();
   const label=document.createElement('span');label.className='muted';label.textContent=`${edges.length}${cursor?'+':''} related`;
+  if(!edges.length)label.dataset.empty='1';
   const button=document.createElement('button');button.className='quiet';button.textContent='Related context';
   button.onclick=()=>modal({stack:true,title:'Related context',body:'<div class="context-review-panel"><div class="context-review-rows"></div></div>',onOpen:el=>{
     const list=el.querySelector('.context-review-rows');
@@ -81,6 +82,7 @@ async function contextRelatedChips(host, biz, item, beforeOpen) {
   const pending = data.items.filter(row=>row.pending).length;
   const label = document.createElement('span'); label.className='muted';
   label.textContent = `${data.items.length}${data.next_cursor ? '+' : ''} related · ${pending}${data.next_cursor ? '+' : ''} pending`;
+  if (!data.items.length) label.dataset.empty = '1';
   const button = document.createElement('button'); button.className='quiet'; button.textContent='Related context';
   button.onclick=()=>modal({stack:true, title:'Related context', body:'<div class="context-review-panel"></div>',
     onOpen:el=>contextReviewPanel(el.querySelector('.context-review-panel'),biz,item,{beforeOpen:async()=>{

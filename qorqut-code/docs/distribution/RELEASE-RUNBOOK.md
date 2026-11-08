@@ -62,7 +62,8 @@ Git and tmux. Follow export, projection and preparation steps above, then add
 but cannot qualify them. On an actual Mac run `tools/distribution/check_posix.py
 --archive MAC_ARCHIVE --output /tmp/qb-mac-check`; the output must be a new short
 path. `.github/workflows/macos-checks.yml` prepares this native build/check on
-manual dispatch. Supply its optional `version` input (for example,
+manual dispatch, on a GitHub-hosted `macos-15` Apple-silicon runner. The package
+target remains `macos14-arm64`; native macOS 14 acceptance is a separate check. Supply its optional `version` input (for example,
 `1.3.0-preview.2`) to also build a DMG from the checked archive. The job mounts
 that DMG, checks its signature and identical embedded archive, and exercises
 the packaged launcher with a fresh home folder: install, verify, dashboard,

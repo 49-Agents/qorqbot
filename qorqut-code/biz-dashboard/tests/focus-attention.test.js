@@ -31,6 +31,7 @@ test('reminder opening only reads and dismissal uses the exact due occurrence', 
   class Node {
     constructor(tag){this.tag=tag;this.children=[];this.isConnected=true;this.dataset={};}
     append(...nodes){this.children.push(...nodes);} replaceChildren(...nodes){this.children=nodes;}
+    contains(node){return node === this || this.children.some(child=>child.contains?.(node));}
     remove(){this.isConnected=false;} setAttribute(){}
   }
   const calls=[], reminder={reminder_id:'rem-1',revision:7,state:'due',occurrence_id:'occ-2',text:'Test',recurrence:{schedule:'0 9 * * *',timezone:'UTC'}};
@@ -87,6 +88,7 @@ test('Focus signoff host guards drafts and writes and keeps cancellation confirm
   vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/signoff-attention.js'),'utf8'),context);
   await context.window.sgFocusOpen('Signoff',{workspace:()=> 'project'});
   const host=new Node(),dispose=spec.mount(host,{isCurrent:()=>true,setBeforeLeave(fn){guard=fn;}});
+  assert.equal(host.children[2].className,'sg-focus');assert.equal(viewOptions.focusLayout,true);
   dirty=true; assert.equal(await guard(),false); dirty=false;
   pending=true; assert.equal(await guard(),false); pending=false; assert.equal(await guard(),true);
   const answer=viewOptions.confirmExecutionCancel(); assert.equal(await guard(),false);
@@ -111,7 +113,7 @@ test('attention overflow opens without acknowledging unrelated unread entries', 
 });
 
 test('reminder Focus opening and disposal do not dismiss the reminder', async () => {
-  class Node { constructor(){this.children=[];this.isConnected=true;} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} remove(){this.isConnected=false;} setAttribute(){} }
+  class Node { constructor(){this.children=[];this.isConnected=true;this.dataset={};} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){} }
   const calls=[]; let spec, guard;
   const reminder={reminder_id:'r',revision:2,state:'due',occurrence_id:'o',text:'Due'};
   const context={document:{createElement:()=>new Node(),dispatchEvent(){}},window:{focusExpansion:{async open(s){spec=s;return {};}},addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,
@@ -141,7 +143,7 @@ test('embedded task and project signoff links dispatch canonical identity to par
 });
 
 test('uncertain reminder dismissal remains retryable after disposal with identical request', async () => {
-  class Node {constructor(){this.children=[];this.isConnected=true;} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} remove(){this.isConnected=false;} setAttribute(){}}
+  class Node {constructor(){this.children=[];this.isConnected=true;this.dataset={};} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){}}
   const reminder={reminder_id:'r',business_id:'b',revision:7,state:'due',occurrence_id:'occ-1',text:'Due'};
   const writes=[];let tries=0;
   const context={document:{createElement:()=>new Node(),dispatchEvent(){}},window:{addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,state:{session:{principal_id:'owner'},bizs:[{id:'b',slug:'project'}]},
@@ -296,7 +298,7 @@ test('ordinary reminder Create prompts for retry or deliberate separate creation
 });
 
 test('ordinary dismissal of a different recurring occurrence uses a separate request', async () => {
-  class Node {constructor(){this.children=[];this.isConnected=true;} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} remove(){this.isConnected=false;} setAttribute(){}}
+  class Node {constructor(){this.children=[];this.isConnected=true;this.dataset={};} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){}}
   let current={reminder_id:'r',revision:4,state:'due',occurrence_id:'one',text:'Repeat'}, key=0;const writes=[];
   const context={document:{createElement:()=>new Node(),dispatchEvent(){}},window:{addEventListener(){},removeEventListener(){}},Event:class{},embeddedAgentPane:true,
     state:{session:{principal_id:'owner'},bizs:[]},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),newRequestId:()=>`key-${++key}`,
@@ -308,4 +310,20 @@ test('ordinary dismissal of a different recurring occurrence uses a separate req
   current={...current,occurrence_id:'two'};host=new Node();view=context.mount(host,current);await flush();
   find(host,'Dismiss').onclick();await flush();assert.equal(writes.length,2);
   assert.equal(writes[0].occurrence_id,'one');assert.equal(writes[1].occurrence_id,'two');assert.notEqual(writes[0].idempotency_key,writes[1].idempotency_key);view.dispose();
+});
+
+test('agent-to-agent communications advance the feed without owner popups', async () => {
+  const notes=[], urls=[];
+  const feed=[{event_id:5,sender_name:'A',recipient_name:'B',sender_id:'a',recipient_id:'b'}];
+  const context={sessionStorage:{getItem(){return null;},setItem(){}}, document:{addEventListener(){},querySelectorAll(){return [];},dispatchEvent(){}},
+    window:{}, loadGlobalAgentProfiles:async()=>{}, globalAgentProfile:()=>({role:{id:'ordubashy'}}), Event:class {},
+    api:async url=>{urls.push(url);return {items:[],communications:{next_cursor:urls.length===1?1:5,items:urls.length===1?[]:feed}};},
+    coreData:x=>x, notify:n=>notes.push(n), setTimeout:()=>0, clearTimeout(){}, primaryAgent:()=>true};
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reply-notifications.js'),'utf8')+'\nthis.subject=replyNotifications;',context);
+  await context.subject.refresh();
+  await context.subject.refresh();
+  assert.equal(urls.length,2);
+  assert.match(urls[1],/communications_after=1/);
+  assert.deepEqual(notes,[]);
 });

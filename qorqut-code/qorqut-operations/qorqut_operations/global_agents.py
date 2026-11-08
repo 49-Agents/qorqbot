@@ -81,6 +81,13 @@ def is_global_agent(connection, agent_id) -> bool:
     return global_profile(connection, agent_id) is not None
 
 
+def is_coordinator(connection, principal_id) -> bool:
+    profile = global_profile(connection, principal_id)
+    installation = connection.execute("SELECT management_coordinator_id FROM installation WHERE id='service'").fetchone()
+    return bool(profile and installation and installation[0] == principal_id
+                and profile['profile']['role']['id'] == ORDUBASHY_ROLE)
+
+
 def global_agent_ids(connection) -> list[str]:
     return [row["agent_id"] for row in connection.execute(
         _GLOBAL_PROFILES + " WHERE a.status='active' AND a.home_business_id IS NULL ORDER BY a.agent_id")
@@ -92,4 +99,4 @@ def effective_business_ids(connection, agent_id) -> frozenset:
 
 
 __all__ = ["REPEATABLE_GLOBAL_ROLES", "SUPPORTED_GLOBAL_ROLES", "current_global_data", "current_global_row", "effective_business_ids",
-           "global_agent_ids", "global_profile", "is_global_agent"]
+           "global_agent_ids", "global_profile", "is_global_agent", "is_coordinator"]

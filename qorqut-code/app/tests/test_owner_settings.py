@@ -6,6 +6,7 @@ import stat
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 from bazarlyk import owner_settings
 
@@ -53,7 +54,10 @@ class AgentClientsTest(unittest.TestCase):
         return run
 
     def view(self, outputs):
-        return owner_settings.agent_clients_view({"PATH": str(self.bin), "HOME": str(self.bin)}, run=self.fake_run(outputs))
+        # Only discover this fixture's CLIs, even when the development host has
+        # Claude installed in one of the production fallback directories.
+        with mock.patch("bazarlyk.connectors.SYSTEM_PATH", ()):
+            return owner_settings.agent_clients_view({"PATH": str(self.bin), "HOME": str(self.bin)}, run=self.fake_run(outputs))
 
     def test_both_installed_and_signed_in(self):
         self.cli("claude"); self.cli("codex")

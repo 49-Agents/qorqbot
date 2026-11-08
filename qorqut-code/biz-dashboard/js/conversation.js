@@ -77,12 +77,18 @@ function conversationEntries(notes,adapter) {
   return notes.map(note=>{
     const system=note.entry_kind==='system',owner=!system && (note.is_owner ?? (note.author_kind==='human'));
     const entry={key:note.id,speaker:system?'notice':owner?'user':'agent',text:note.body || '',timestamp:note.created_at,
+      recorder:note.recorder_kind==='agent'?'agent':undefined,
       references:(note.refs || []).filter(ref=>ref.type!=='dev_ticket').map((ref,index)=>({key:`ref${index}`,label:ref.label || ref.type || 'Reference',disabled:!!ref.unavailable,value:ref})),
       actions:note.parent_event_id && adapter.openParent?[{key:'parent',label:'About an earlier entry'}]:[]};
     if(note.title && note.title!=='Message')entry.title=note.title;
     // Consecutive messages from the same sender share one header.
-    const sender=system?null:owner?'\u0000owner':String(note.created_by ?? '');
-    if(!system && !owner){
+    const sender=system?null:`${note.author_id || note.created_by || ''}:${note.recorder_id || ''}`;
+    const relayed=!system && note.author_id && note.recorder_id && note.author_id!==note.recorder_id;
+    if(relayed){
+      entry.author={name:`${conversationPersonName(note)} · ${note.attribution?.kind==='owner_intent'?'interpreted':'recorded'} by ${note.recorder_name || 'Ordubashy'}`};
+      entry.showAuthor=true;
+    }
+    if(!system && !owner && !relayed){
       entry.author={name:conversationPersonName(note),avatarHtml:conversationGlyph(note,31)};
       entry.showAuthor=previous!==sender;
       entry.showAuthorName=false;
@@ -498,7 +504,7 @@ function conversationMount(host,source,adapter={}) {
     onViewportChange:()=>{captureScroll();maybeLoadRelatedPage();},
     // The view hands over the opaque reference value itself; an unavailable reference never reaches this callback.
     mountSignoff:(ref,signoffHost)=>{
-      const card=sgChatMount(ref,signoffHost,{active:current,dropOnDenied:true,omitConversationFor:source.type==='signoff'?conversationKey(source):null});
+      const card=sgChatMount(ref,signoffHost,{active:current,dropOnDenied:true});
       if(!card)return null;
       signoffViews.add(card);
       return {dispose:()=>{signoffViews.delete(card);card.dispose();}};

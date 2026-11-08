@@ -2,7 +2,7 @@
 
 A message is append-only. It records the actual recorder (the authenticated principal that wrote it) and the
 attributed speaker; they differ only for a supported relay, where the registered coordinator reports an explicit
-statement of the installation owner or a report from another current global agent. That is attribution, never a grant:
+statement or interpreted intent of the installation owner, or a report from another current global agent. That is attribution, never a grant:
 the relay carries no permission to decide, approve or write anything the recorder could not write itself, and the
 operation that carries it is authorized for the recorder exactly as for any other comment.
 
@@ -10,6 +10,8 @@ Reading is governed by the item's own authorization, done by the operation that 
 never follows an item and never acknowledges an inbox event."""
 
 from __future__ import annotations
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -19,16 +21,17 @@ from qorqut_operations.application.plans import IDENTITY, PAGE, page, page_posit
 from qorqut_operations.contracts import DomainError, new_id, utc_now
 from qorqut_operations.conversations import author, normalize_summary
 from qorqut_operations.discussion.follows import ThreadItem
-from qorqut_operations.global_agents import global_profile
-from qorqut_operations.roles import ORDUBASHY_ROLE
+from qorqut_operations.global_agents import global_profile, is_coordinator
 
 BODY = {"type": "string", "minLength": 1, "maxLength": 20000}
-RELAY_SOURCE = schema({"provider": {"enum": ["claude", "codex"]}, "session_id": IDENTITY, "message_id": IDENTITY})
-RELAY = {"description": "Optional attribution of a relayed statement. The registered coordinator may record an explicit "
-         "owner statement, or report what another registered agent said. The recorder is always kept; this is "
-         "attribution only and never approval.",
+RELAY_SOURCE = schema({"provider": {"enum": ["claude", "codex", "owner_conversation", "thread", "agent_message"]},
+                       "session_id": IDENTITY, "message_id": IDENTITY, "conversation_id": IDENTITY})
+RELAY = {"description": instruction_text('threads-optional-attribution-of-a-relayed-statement-the-registered'),
          "oneOf": [
              schema({"kind": {"const": "explicit_owner_statement"}, "owner_id": IDENTITY,
+                     "statement_text": {"type": "string", "minLength": 1, "maxLength": 20000}, "source": RELAY_SOURCE},
+                    ("kind", "owner_id", "statement_text")),
+             schema({"kind": {"const": "owner_intent"}, "owner_id": IDENTITY,
                      "statement_text": {"type": "string", "minLength": 1, "maxLength": 20000}, "source": RELAY_SOURCE},
                     ("kind", "owner_id", "statement_text")),
              schema({"kind": {"const": "agent_report"}, "agent_id": IDENTITY,
@@ -57,9 +60,8 @@ class DiscussionReferences:
 
 
 def _registered_coordinator(uow, principal_id) -> bool:
-    """Whether the principal is a current global holding the Ordubashy role (a current global has an ecosystem scope)."""
-    found = global_profile(uow.connection, principal_id)
-    return found is not None and found["profile"]["role"]["id"] == ORDUBASHY_ROLE
+    """Whether the principal is the installation's configured, current Global Ordubashy."""
+    return is_coordinator(uow.connection, principal_id)
 
 
 def attribution(ctx, uow, relay: Mapping | None) -> tuple[str, dict]:
@@ -68,9 +70,10 @@ def attribution(ctx, uow, relay: Mapping | None) -> tuple[str, dict]:
         return ctx.principal_id, dict(SELF)
     relay = dict(relay)
     kind = relay.get("kind")
-    if ctx.principal_kind != "agent" or not _registered_coordinator(uow, ctx.principal_id):
+    if (ctx.principal_kind != "agent" or ctx.delegation_assignment_id
+            or not _registered_coordinator(uow, ctx.principal_id)):
         raise DomainError("forbidden", "Only the registered coordinator may relay a statement")
-    if kind == "explicit_owner_statement":
+    if kind in {"explicit_owner_statement", "owner_intent"}:
         owner = uow.connection.execute("SELECT owner_principal_id FROM installation WHERE id='service'").fetchone()
         if owner is None or owner["owner_principal_id"] != relay["owner_id"]:
             raise DomainError("validation_error", "An owner relay must name the registered installation owner")
@@ -87,6 +90,23 @@ def attribution(ctx, uow, relay: Mapping | None) -> tuple[str, dict]:
     if relay.get("source"):
         stored["source"] = dict(relay["source"])
     return speaker, stored
+
+
+def save_attribution(ctx, uow, message_type, message_id, relay):
+    """Keep represented speech separate from authenticated senders and reply routing."""
+    speaker, value = attribution(ctx, uow, relay)
+    if relay is not None:
+        uow.connection.execute(
+            "INSERT INTO message_attributions(message_type,message_id,author_id,recorder_id,attribution_json) VALUES(?,?,?,?,?)",
+            (message_type, message_id, speaker, ctx.principal_id, json.dumps(value)))
+    return speaker, value
+
+
+def read_attribution(uow, message_type, message_id, recorder_id):
+    row = uow.connection.execute(
+        "SELECT * FROM message_attributions WHERE message_type=? AND message_id=?", (message_type, message_id)).fetchone()
+    return {"author_id": row["author_id"] if row else recorder_id, "recorder_id": recorder_id,
+            "attribution": json.loads(row["attribution_json"]) if row else dict(SELF)}
 
 
 def message_values(ctx, item: ThreadItem, *, body, summary, refs, speaker, attributed, at) -> dict:

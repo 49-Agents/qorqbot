@@ -277,6 +277,13 @@ def _holds_paste(client, rows, first, text, cursor):
             end = index
         if seen != want:
             return None
+        # Whitespace-insensitive matching stops at the last nonblank text row.
+        # A pasted trailing newline leaves the cursor on a further blank row;
+        # include only as many blank rows as the original text actually contains.
+        remaining = text[len(text.rstrip()):].count('\n')
+        while end is not None and remaining and end + 1 < len(rows) and _blank(rows[end + 1]):
+            end += 1
+            remaining -= 1
     if end is None or not _trailing_chrome(client, rows, end + 1):
         return None
     if cursor and cursor[2] and not first <= cursor[1] <= end:
@@ -399,6 +406,8 @@ def _pasted(client, rows, candidates, expect, cursor, result, allow_busy=False):
             continue
         trailing = [_text(rows[index]) for index in range(end + 1, len(rows))]
         above = [_text(rows[index]) for index in range(max(0, first - STATUS_ROWS_ABOVE), first)]
+        if _contains("\n".join(trailing), MODAL_PHRASES):
+            return result("modal", "modal_dialog")
         interrupts = _interrupts(above + trailing)
         running = interrupts or any(_busy_row(text) for text in trailing) or any(_contains(text, BUSY_HINTS) for text in above)
         if running and not allow_busy:

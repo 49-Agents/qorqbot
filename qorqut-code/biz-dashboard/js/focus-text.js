@@ -101,7 +101,23 @@ const focusText = (() => {
   // ---- resize: plain textareas grow to the full content, trailing newlines included
   function resize(ta) {
     if (!ta.isConnected || !ta.offsetParent) return;
-    ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px';
+    const caretScroll = document.activeElement === ta ? ta.scrollTop : 0;
+    // Measure outside the layout: collapsing the live editor clamps the board's
+    // scroll position and scrolls its caret before the height can be restored.
+    const measure = ta.cloneNode();
+    measure.removeAttribute('id'); measure.removeAttribute('aria-label');
+    measure.setAttribute('aria-hidden', 'true'); measure.tabIndex = -1;
+    measure.value = ta.value;
+    Object.assign(measure.style, {position: 'absolute', visibility: 'hidden', pointerEvents: 'none',
+      top: '0', left: '0', height: '0', minHeight: '0', width: ta.getBoundingClientRect().width + 'px'});
+    ta.after(measure);
+    const height = measure.scrollHeight;
+    measure.remove();
+    ta.style.height = height + 'px';
+    // Native editing may scroll inside the old height when adding a final line.
+    // Once the editor grows, carry that movement into the board to reveal it.
+    const board = ta.closest('.agfocus-layout');
+    if (caretScroll && board) board.scrollTop += caretScroll - ta.scrollTop;
   }
 
   // ---- DOM nodes
@@ -109,7 +125,7 @@ const focusText = (() => {
     const node = document.createElement('div');
     node.className = 'agfocus-text'; node.dataset.textId = b.id;
     node.innerHTML = '<button type="button" class="quiet agfocus-text-grip" aria-label="Move text block" aria-describedby="agfocus-move-instructions"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></button>' +
-      `<textarea class="agfocus-text-input" rows="1" maxlength="${MAX_CHARS}" aria-label="Pinned text" placeholder="Type a heading or note" spellcheck="true"></textarea>` +
+      `<textarea class="agfocus-text-input" rows="1" maxlength="${MAX_CHARS}" aria-label="Focus text" placeholder="Type a heading or note" spellcheck="true"></textarea>` +
       '<button type="button" class="quiet agfocus-text-delete" aria-label="Delete text block"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>';
     const ta = node.querySelector('textarea');
     ta.addEventListener('input', () => {
@@ -233,8 +249,8 @@ const focusText = (() => {
   function ready(p) { const s = p.agentId && state(p.agentId); return !!s && s.loaded && s.blocks.length < MAX_BLOCKS; }
   function unavailable(p) {
     const s = state(p.agentId);
-    if (!s.loaded) return s.loadError ? "Notes couldn't load. Retry from the Pinned header." : 'Notes are still loading.';
-    return s.blocks.length >= MAX_BLOCKS ? `A Pinned layout holds at most ${MAX_BLOCKS} text blocks.` : '';
+    if (!s.loaded) return s.loadError ? "Notes couldn't load. Retry from the Focus header." : 'Notes are still loading.';
+    return s.blocks.length >= MAX_BLOCKS ? `A Focus layout holds at most ${MAX_BLOCKS} text blocks.` : '';
   }
   function add(p, text) {
     if (!ready(p) || text.length > MAX_CHARS) return false;

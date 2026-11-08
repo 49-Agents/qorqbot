@@ -4,8 +4,15 @@ A strict native input can reach the terminal composer before the CLI redraws it.
 The transport observes the paste after 300 ms, then permits up to nine further
 read-only observations 200 ms apart. Every observation verifies the same client,
 pane and terminal mode. A changed identity or an interrupting submit key stops
-the attempt. An exact paste authorizes one Enter; the transport never repastes
-or clears text. Free-form Chat's existing optional-echo behavior is unchanged.
+the attempt. An exact paste authorizes Enter. After 400 ms, if the same paste is
+still in the ordinary composer of the same registered session, the transport
+presses Enter once more. It never repastes or clears text during this retry.
+A cleared or different draft, changed session, modal, interrupting mode or
+unreadable screen prevents the second Enter. If the paste remains after the
+second attempt, delivery stays `uncertain` with `submit_unconfirmed`. Receipts
+record `submit_attempts` (1 or 2), without message or screen text. This bounded
+retry happens inside the original delivery attempt; a saved uncertain input is
+never replayed. Free-form Chat's existing optional-echo behavior is unchanged.
 
 If verification still fails, the input stays `uncertain` with `paste_unverified`.
 Its receipt includes `paste_check` and `paste_checks`, alongside the existing
@@ -36,7 +43,7 @@ and Atlas acknowledged the browser-check request and successfully used its
 restored own-browser binding. Private execution evidence remains under the
 instance's `state/atlas-browser-nudge-repair/`, outside Git.
 
-Focused verification: `app/tests/test_owner_input_backend.py` and
-`app/tests/test_terminal_composer.py`, including slow and partial redraws,
-running Claude/Codex turns, bounded failure, identity changes and single-paste,
-single-submit behavior.
+Focused verification: `app/tests/test_terminal_enter_retry.py` covers missed
+Enter, successful submission, bounded failure, changed sessions and composers,
+and busy/interrupting modes. The `app/tests/test_terminal_composer_*.py` fixtures
+cover the supported client layouts, paste placeholders and command hints.

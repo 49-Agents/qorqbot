@@ -1,12 +1,9 @@
 """Always-loaded skills for the configured Ordubashy (stdlib only).
 
-Preparation installs this as `.bazarlyk/always-skills.py` and a separate
-SessionStart/UserPromptSubmit hook entry only for the configured Ordubashy.
-It injects the full text of the agent's own materialized SKILL.md files; the
-files remain the single source. A separate hook keeps its own context budget,
-so neither these skills nor the shared bootstrap configuration is truncated.
-Lifecycle events always inject; prompt events inject only when the rendered
-digest differs from this session's receipt. Failures never block the session.
+The startup composer calls this for the configured Ordubashy before adding
+context. It returns current skill text on lifecycle events or a changed digest,
+and one short operational intake reminder for each UserPromptSubmit. Existing
+skill receipts do not suppress that reminder. No separate prompt hook is installed.
 """
 from __future__ import annotations
 
@@ -18,53 +15,26 @@ from pathlib import Path
 import sys
 import tempfile
 
-SKILLS = (
-    "bazarlyk-role-owner-focus",
-    "bazarlyk-role-chat-references",
-    "bazarlyk-role-owner-input",
-    "bazarlyk-role-action-recording",
-    "bazarlyk-role-owner-reminders",
-    "bazarlyk-role-calendar",
-    "bazarlyk-plugin-email-management",
-    "bazarlyk-role-business-tables",
-    "bazarlyk-role-browser-control",
-    # Owners ask Ordubashy how Qorqbot works; a skill matched only by its description was missed on the first question.
-    "bazarlyk-qorqbot-guide",
-)
-SKILL_ROOTS = {"codex": ".agents/skills", "claude-code": ".claude/skills"}
-# Matches the generated Codex additionalContextLimit for this hook entry.
-LIMIT = 120000
-HEADER = "# Always-loaded skills (already loaded — follow them; do not re-read)"
 
+def agentic_policy(registration_path):
+    import importlib.util
+    path = Path(registration_path).parent / 'agentic-instructions.py'
+    if path.is_symlink() or any(parent.is_symlink() for parent in path.parents):
+        raise ValueError('Agentic hook helper cannot be a symlink')
+    spec = importlib.util.spec_from_file_location('prepared_agentic_instructions', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 def _no_symlink(path: Path) -> bool:
     return not (path.is_symlink() or any(parent.is_symlink() for parent in path.parents))
 
 
-def render(workspace: Path, runtime: str, limit: int = LIMIT) -> str:
-    root = workspace / SKILL_ROOTS[runtime]
-    parts, notes = [HEADER], []
-    size = len(HEADER)
-    for name in SKILLS:
-        path = root / name / "SKILL.md"
-        try:
-            if not _no_symlink(path):
-                raise OSError("symlink")
-            text = path.read_text(encoding="utf-8").strip()
-        except (OSError, UnicodeError):
-            notes.append(f"- {name}: not available in this workspace; skipped.")
-            continue
-        block = f'<skill name="{name}" path="{path}">\n{text}\n</skill>'
-        # Reserve room for a short note per skill so the total stays within limit.
-        if size + len(block) + 2 > limit - 250 * len(SKILLS):
-            # Never truncate a skill: name it so the agent reads it on demand.
-            notes.append(f"- {name}: omitted (context budget); read {path} in full before using it.")
-            continue
-        parts.append(block)
-        size += len(block) + 2
-    if notes:
-        parts.append("Skill notes:\n" + "\n".join(notes))
-    return "\n\n".join(parts)
+def render(workspace: Path, runtime: str, limit=None) -> str:
+    registration_path = workspace / '.bazarlyk/registration.json'
+    policy = agentic_policy(registration_path)
+    return policy.render_skills(policy.from_prepared(registration_path), workspace, runtime,
+                                limit=policy.SKILL_BUDGET if limit is None else limit)
 
 
 def _receipt_path(workspace: Path, session_id: str) -> Path:
@@ -87,7 +57,7 @@ def _write_private(path: Path, value: dict) -> None:
 
 def handle(hook: dict, registration_path: Path, runtime: str) -> dict:
     event = hook.get("hook_event_name")
-    if event not in {"SessionStart", "UserPromptSubmit"} or runtime not in SKILL_ROOTS:
+    if event not in {"SessionStart", "UserPromptSubmit"} or runtime not in {"claude-code", "codex"}:
         return {}
     session_id = hook.get("session_id")
     if not isinstance(session_id, str) or not 1 <= len(session_id) <= 200:
@@ -97,6 +67,8 @@ def handle(hook: dict, registration_path: Path, runtime: str) -> dict:
     registration = json.loads(registration_path.read_text())
     workspace = Path(registration["workspace"])
     context = render(workspace, runtime)
+    policy = agentic_policy(registration_path)
+    reminder = policy.from_prepared(registration_path).render('operational-intake') if event == 'UserPromptSubmit' else ''
     digest = hashlib.sha256(context.encode()).hexdigest()
     receipt_path = _receipt_path(workspace, session_id)
     if event == "UserPromptSubmit":
@@ -106,20 +78,20 @@ def handle(hook: dict, registration_path: Path, runtime: str) -> dict:
             previous = {}
         if (previous.get("registration_id") == registration.get("registration_id")
                 and previous.get("digest") == digest):
-            return {}
+            return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": reminder}}
     try:
         _write_private(receipt_path, {"registration_id": registration.get("registration_id"),
             "session_id": session_id, "runtime": runtime, "digest": digest,
             "event": hook.get("source", "startup") if event == "SessionStart" else "prompt"})
     except OSError:
         pass  # Delivery still proceeds; the next prompt re-injects.
-    return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}}
+    return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": '\n\n'.join(filter(None, [reminder, context]))}}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Always-loaded skills hook")
     parser.add_argument("--registration", type=Path, required=True)
-    parser.add_argument("--runtime", choices=tuple(SKILL_ROOTS), required=True)
+    parser.add_argument("--runtime", choices=('codex', 'claude-code'), required=True)
     args = parser.parse_args()
     try:
         hook = json.loads(sys.stdin.read(4 * 1024 * 1024))

@@ -1,0 +1,1 @@
+Only 30 work neighborhoods per expansion were loaded. Use relationships_list(direction=both) for remaining work.

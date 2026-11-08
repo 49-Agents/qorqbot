@@ -64,7 +64,7 @@ mutations continue returning `{"job_id": ...}` immediately.
 
 The same Signoff UI used for WhatsApp displays/edit emails. Its local outcome projection distinguishes queued, sending,
 reconciling, submitted, failed and unconfirmed, without provider calls during card reads. Submitted means provider acceptance,
-never confirmed recipient delivery. Existing generic input questions remain questions; they are not parsed into executable mail.
+reported to the owner as sent; the outcome has no recipient-delivery field. Existing generic input questions remain questions; they are not parsed into executable mail.
 
 Deploy the matching host, extension, dashboard and Email Management guidance together. This change adds no tables or schema
 migration. Preserve receipts and any in-flight jobs: legacy jobs without exact owner proof must not be retried as new sends.

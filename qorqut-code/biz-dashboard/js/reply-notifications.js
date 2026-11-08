@@ -1,6 +1,6 @@
 // Owner reply notifications and shared unread markers, independent of the current page.
 const replyNotifications=(()=>{
-  let communicationCursor=null,seenCommunications=new Set(),loaded=false,inflight=null,trailing=false,items=[],signature='',seen=new Set(),timer;
+  let communicationCursor=null,loaded=false,inflight=null,trailing=false,items=[],signature='',seen=new Set(),timer;
   try{seen=new Set(JSON.parse(sessionStorage.getItem('reply-notifications:seen') || '[]'));}catch(_){}
   const key=s=>`${s?.type}:${s?.business_id || 'global'}:${s?.id}`;
   const unread=source=>loaded?items.some(item=>item.kind==='thread' && item.unread && key(item.source)===key(source)):null;
@@ -69,15 +69,7 @@ const replyNotifications=(()=>{
       }
       const feed=data.communications;
       if(feed && Number.isSafeInteger(feed.next_cursor)){
-        // The first response is the baseline: earlier traffic never replays. The cursor moves only after enqueueing.
-        if(communicationCursor!==null){
-          for(const c of feed.items || []){
-            if(!(c.event_id>communicationCursor) || seenCommunications.has(c.event_id))continue;
-            seenCommunications.add(c.event_id);
-            notify({text:`${c.sender_name} \u2192 ${c.recipient_name}`,communication:c,ms:3000});
-          }
-          seenCommunications=new Set([...seenCommunications].slice(-1000));
-        }
+        // Passive agent-to-agent traffic is not shown to the owner; only the cursor advances so the feed stays paged.
         communicationCursor=Math.max(communicationCursor ?? 0,feed.next_cursor);
         if(feed.has_more)trailing=true;
       }

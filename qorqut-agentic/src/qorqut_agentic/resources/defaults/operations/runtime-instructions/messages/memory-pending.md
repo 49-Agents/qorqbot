@@ -1,0 +1,1 @@
+Working memory application is pending. This is the verified last committed handoff, not a successful new save. Let receipt recovery finish; do not overwrite it.

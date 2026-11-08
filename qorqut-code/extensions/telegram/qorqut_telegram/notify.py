@@ -8,6 +8,8 @@ full backlog is reported back to the caller as retryable backpressure instead of
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import re
 from urllib.parse import urlsplit
 
@@ -20,12 +22,12 @@ TITLE_LIMIT, TEXT_LIMIT, REASON_LIMIT, LINK_LIMIT = 120, 3500, 500, 500
 EVENT_KEY_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/@#=+-]{0,199}$"
 INPUT_SCHEMA = {
     "event_key": {"type": "string", "pattern": EVENT_KEY_PATTERN, "maxLength": 200,
-                  "description": "Stable identifier of the condition; the same key updates one post."},
+                  "description": instruction_text('notify-stable-identifier-of-the-condition-the-same-key')},
     "title": {"type": "string", "minLength": 1, "maxLength": TITLE_LIMIT},
     "text": {"type": "string", "minLength": 1, "maxLength": TEXT_LIMIT,
-             "description": "What happened, the impact and the action needed."},
-    "reason": {"type": "string", "minLength": 1, "maxLength": REASON_LIMIT, "description": "Why the owner must know now."},
-    "link": {"type": "string", "maxLength": LINK_LIMIT, "description": "Optional credential-free HTTP(S) link."},
+             "description": instruction_text('notify-what-happened-the-impact-and-the-action-needed')},
+    "reason": {"type": "string", "minLength": 1, "maxLength": REASON_LIMIT, "description": instruction_text('notify-why-the-owner-must-know-now')},
+    "link": {"type": "string", "maxLength": LINK_LIMIT, "description": instruction_text('notify-optional-credential-free-http-s-link')},
     "state": {"enum": ["firing", "resolved"]},
 }
 REQUIRED = ("event_key", "title", "text", "reason")

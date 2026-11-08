@@ -180,6 +180,10 @@
 .attention-more{flex:none;margin-left:3px;padding:4px 6px;font-size:11px;background:transparent;color:var(--fg-2)}
 /* One gap before the completed group, not per row. */
 .attention-completed-start{margin-top:50px}
+.agfocus .attention-owner-toggle{display:inline-flex;align-items:center;justify-content:center;width:34px;height:24px;min-height:24px;margin:0 0 6px 3px;padding:0;border:1px solid var(--line-2);border-radius:999px;background:transparent;color:var(--fg-2);cursor:pointer}
+.agfocus .attention-owner-toggle svg{width:14px;height:14px}
+.agfocus .attention-owner-toggle[aria-pressed=true]{background:var(--fg-2);border-color:var(--fg-2);color:var(--bg)}
+.agfocus .attention-owner-toggle:focus-visible{outline:2px solid var(--fg-2);outline-offset:2px}
 .attention-empty{font-size:11px;color:var(--fg-3);padding-left:3px}
 .attention-all{display:grid;gap:7px}.attention-all .attention-chip{margin:0;width:100%;min-height:38px}
 .attention-message{white-space:pre-wrap;overflow-wrap:anywhere}.attention-retry{font-size:10px}
@@ -289,11 +293,8 @@
 /* Attention uses the shared unread dot and worker picker before the state marker. */
 [data-attention-board] .agfocus-notification{display:flex;align-items:center;justify-content:space-between;gap:4px;width:56px;pointer-events:auto}
 [data-attention-board] .agfocus-notification .agfocus-unread{flex:none}
-[data-attention-board] .agfocus-notification .task-workers{display:inline-flex;flex-flow:row nowrap;align-items:center;gap:0;margin:0 0 0 auto;padding:2px;min-height:26px;max-width:44px;border:0;background:none}
-[data-attention-board] .agfocus-notification .task-user-needed{display:none}
 [data-attention-board] .agfocus-row{grid-template-columns:56px 30px clamp(28px,20%,132px) minmax(0,1fr) auto}
 
-[data-attention-board] .agfocus-card:not(:hover):not(:focus-within) .task-workers:not(:has(.identity-avatar)){opacity:0;pointer-events:none}
 
 /* The pill Close is new chrome; it follows the same reduced-motion preference as the rest of Focus. */
 @media (prefers-reduced-motion:reduce){.agfocus-close,.rw-head.rw-close-first .rw-close{transition:none}}
@@ -302,3 +303,25 @@
   .agfocus-close,.rw-head.rw-close-first .rw-close{height:30px;min-height:30px;padding:0 12px;font-size:12px}
   .agfocus-surface-bar{gap:8px}
 }
+
+/* Compact reading pane: one host title and Close, a single padded sheet, forms sized to their content. */
+.agfocus-surface-bar{gap:10px;padding:2px 0 10px}
+.agfocus-surface-title{font-size:13px;color:var(--fg-2)}
+.agfocus-surface-body{border-color:var(--line-2);border-radius:10px}
+.agfocus-expansion-content{padding:20px 24px;box-sizing:border-box}
+.agfocus-surface-body:has(.rem-detail,.rem-form,.task-create-project,.task-type-confirm){flex:0 1 auto;max-height:100%}
+.agfocus-expansion-content>.rem-detail,.agfocus-expansion-content>.task-create-project,.agfocus-expansion-content>.task-type-confirm{padding:0}
+.agfocus-expansion-content>.rem-form{max-width:680px}
+.task-create-project{max-width:680px}
+.task-create-project form{gap:16px}
+.task-create-project .task-type-editor{display:flex;flex-direction:column;gap:16px}
+.task-create-project .task-type-editor>label[data-task-overview-field]{order:1}
+.task-create-project .task-type-editor>label:not([data-task-overview-field]):first-child{order:2}
+.task-create-project .task-type-editor>:not(label:first-child):not([data-task-overview-field]){order:3}
+.task-create-project label{color:var(--fg-2);font-size:12px}
+.agfocus-expansion-content .sg-detail{padding-top:0}
+@media(max-width:600px){.agfocus-expansion-content{padding:16px 12px}}
+
+/* Browser sessions read by name rather than by glyph alone. */
+.agbrowser .agbrowser-switch .agbrowser-seg.agbrowser-named{width:auto;gap:6px;padding:0 10px;font-size:12px}
+.agbrowser-seg .agbrowser-seg-name{white-space:nowrap}

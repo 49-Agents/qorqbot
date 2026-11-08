@@ -10,6 +10,8 @@ integrated sources, Focus cards, incidents, delegated assignments and the automa
 required host adapter, made at the point the flow always made it. There is no default adapter, and the selected extensions'
 source handlers are an explicit required argument: this module neither imports nor builds a registry of its own."""
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import json
 from dataclasses import replace
 from typing import Protocol
@@ -102,16 +104,16 @@ class InboxService:
         operations = {
             'inbox_list': ({'consumer_id': CONSUMER, 'after': {'type': 'integer', 'minimum': 0},
                 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}}, (),
-                'Read a batch of your pending updates. For a fresh reconciliation omit after (or use 0); use next_cursor as after only to continue that bounded pass. A notification watermark does not prove earlier events were handled. Reading never acknowledges. Your authenticated agent identity selects the inbox; consumer_id is accepted for older clients but is unnecessary.'),
-            'inbox_subscriptions_list': (WORKER, (), 'List authorized subscriptions, including automatic owner-task follows for Ordubashy. An ID identifies a removable manual follow; id=null means automatic-only. Removing a manual follow never disables automatic following. The installation owner or Ordubashy may pass agent_id to list a global worker\'s subscriptions, authorized as that worker.'),
+                instruction_text('service-read-a-batch-of-your-pending-updates-for')),
+            'inbox_subscriptions_list': (WORKER, (), instruction_text('service-list-authorized-subscriptions-including-automatic-owner-task-follows')),
             'inbox_acknowledge': ({'consumer_id': CONSUMER, 'event_ids': {'type': 'array', 'minItems': 1, 'maxItems': 100,
                 'uniqueItems': True, 'items': {'type': 'integer', 'minimum': 1}}, 'outcome': {'type': 'string', 'maxLength': 2000}},
-                ('event_ids',), 'Acknowledge exact handled events; a read or a nudge never clears them.'),
+                ('event_ids',), instruction_text('service-acknowledge-exact-handled-events-a-read-or-a')),
             'inbox_subscribe': ({**TARGET, **WORKER, 'include_related': {'type': 'boolean'}}, ('source_type', 'source_id'),
-                'Follow an authorized item. A Task, Action or Table follow is the same preference as tasks_follow/actions_follow/tables_follow and is removed the same way. Only a Task follow can include its directly related work (its child Tasks and the items it is linked to, one hop); that routing lasts while the Task is followed, with no recursive following or time expiry. Remove it with inbox_unsubscribe. The installation owner or Ordubashy may pass agent_id to follow for a global worker; the item must then be readable by that worker.'),
+                instruction_text('service-follow-an-authorized-item-a-task-action-or')),
             'inbox_unsubscribe': ({**WORKER, 'subscription_id': {'type': 'string', 'format': 'uuid'},
                 'source_type': {'enum': list(THREAD_SOURCES)}, 'source_id': SOURCE_ID}, (),
-                'Remove an explicit subscription by subscription_id, or a Task, Action or Table follow by source_type and source_id (the same preference as tasks_follow/actions_follow/tables_follow); automatic owner-task following is independent. The installation owner or Ordubashy may pass agent_id to remove a global worker\'s. Already delivered updates remain pending until acknowledged.'),
+                instruction_text('service-remove-an-explicit-subscription-by-subscription-id-or')),
         }
         for name, (fields, required, description) in operations.items():
             args = schema({**SCOPE, **fields}, required)

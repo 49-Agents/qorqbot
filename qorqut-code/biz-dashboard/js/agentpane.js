@@ -51,7 +51,7 @@ registerWorkspaceRenderer("focus_board", {
     const list = $(".agfocus-layout", p.el);
     if (scroll && p.focus && list) list.scrollTop = scroll;
   }, tick: p => agfocusTick(p), leading: true,
-  views: { focus: { label: "Pinned", icon: typeof T_VIEW_ICON === "object" ? T_VIEW_ICON.focus || "" : "" } },
+  views: { focus: { label: "Focus", icon: typeof T_VIEW_ICON === "object" ? T_VIEW_ICON.focus || "" : "" } },
 });
 
 // Installed extensions' UI assets: the owner-only manifest names same-origin files
@@ -117,8 +117,8 @@ function agpadWorkspaceView(view) { return !WORKSPACE_BASE_VIEWS.has(view); }
 
 // The old Business (Project management) entry, extension-declared campaign_review type and the removed
 // Activity/Inbox overview never add a right-pane tab or restore a stale pane selection; Business keeps its
-// stable key so links work. Project data stays reachable through the existing Global Projects page and
-// Project records, the shared Activity view through the task drawer, and status/inbox delivery through the
+// stable key so links work. Project data stays reachable through
+// Project records and status/inbox delivery through the
 // backend the roster reads.
 const AGPAD_RETIRED_PANE_VIEWS = new Set(["business", "campaign_review", "status", "inbox", "activity"]);
 // Browser appears for any agent with a configured browser binding; the full
@@ -249,7 +249,8 @@ function agTakeLinkedWorkspace(hash) {
 // declaration is still loading, an unrecognized key waits on that read (the default view stays usable) and is
 // honored only if it turns out to be installed and the owner has not moved elsewhere. Anything else is ignored.
 function agpadRequestView(p, view) {
-  if (typeof view !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(view)) return false;
+  // Built-in views keep their camelCase keys (attentionBoard); registered workspace types are lowercase.
+  if (typeof view !== "string" || !(p.views.includes(view) || /^[a-z][a-z0-9_]{0,63}$/.test(view))) return false;
   if (!agentPaneViewAllowed(p.workspaceRole, view)) return false;
   // Tables lives in the shared drawer: the retired key never adds a tab (links translate first).
   if (view === "tables") return false;

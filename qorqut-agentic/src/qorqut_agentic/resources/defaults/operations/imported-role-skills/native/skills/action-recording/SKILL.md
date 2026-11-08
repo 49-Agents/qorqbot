@@ -21,11 +21,15 @@ optional; the larger task may still be open.
   shorten it rather than splitting one result into several entries.
 - Add evidence when available (`url`, `commit`, `pull_request`, record IDs) and
   `task_id` when the result belongs to a task in the same workspace.
-- Attribution is server-derived. Record only your own work. To record the
-  result of your own completed delegated assignment, pass
-  `delegation_assignment_id`: the server verifies it, records you as recorder
-  with an unknown performer and keeps the assignment as provenance. Skip it
-  when the worker already recorded its actions; never create a second copy.
+- Ordubashy records the owner's reported completed Actions on their behalf: pass
+  `performed_by` as the owner ID and an `explicit_owner_statement` relay containing
+  the reported result. For another registered agent use `agent_report`. The server
+  preserves Ordubashy as recorder and validates the performer. An `owner_intent`
+  interpretation is not evidence of completed work. Other workers record their own
+  work. Check for an existing Action before relaying a result.
+- The legacy `delegation_assignment_id` path keeps an unknown performer and the
+  verified assignment as provenance. Do not combine it with a performer relay.
+  Corrections and withdrawals preserve the immutable original performer.
 
 Scope:
 

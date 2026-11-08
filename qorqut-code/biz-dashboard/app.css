@@ -291,22 +291,17 @@ details[open] summary { color: var(--fg); }
 .reply-toast .reply-copy { min-width: 0; flex: 1; }
 .reply-toast .reply-name { display: block; font-size: 12px; font-weight: 600; line-height: 18px; color: var(--fg); }
 .reply-toast .reply-preview { display: block; font-size: 13px; font-weight: 400; line-height: 20px; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* Communication notice: identities only, no text. */
-.toast.comm-toast { box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: fit-content; min-width: 0; padding: 8px 10px; border-radius: 12px; box-shadow: 0 6px 20px #0002; }
-.toast.comm-toast::before { content: none; }
-.comm-toast svg { width: 22px; height: 22px; flex: none; }
-.comm-toast .comm-arrow { font-size: 16px; line-height: 1; color: var(--fg-2); }
-/* Reminder pill: a plain bell and the reminder text on one line, sized at the mockup's 0.85 scale. */
+/* Reminder pill: a bell and the reminder text on one line, centred in the shared queue. */
 .toast.reminder-toast {
-  box-sizing: border-box; display: flex; align-items: center; gap: 11px; width: fit-content;
-  min-width: min(298px, calc(85vw - 27px)); max-width: calc(85vw - 27px); padding: 12px 16px 12px 25px;
+  box-sizing: border-box; display: flex; align-items: center; gap: 12px; width: fit-content;
+  min-width: 0; max-width: calc(85vw - 27px); padding: 12px 18px;
   background: #1b1b1b; border: 0; border-radius: 10000px; box-shadow: 0 10px 34px #0009;
   color: #c9c9c9; font-size: 12.75px; line-height: 1.3; cursor: pointer;
 }
 .toast.reminder-toast::before { content: none; }
 .toast.reminder-toast:focus-visible { outline: 2px solid var(--fg-2); outline-offset: 2px; }
-.reminder-toast .reminder-icon { display: inline-flex; flex: none; width: 31px; height: 31px; align-items: center; justify-content: center; background: none; }
-.reminder-toast .reminder-icon svg { display: block; width: 16px; height: 16px; }
+.reminder-toast .reminder-icon { display: inline-flex; flex: none; width: 24px; height: 24px; align-items: center; justify-content: center; background: none; }
+.reminder-toast .reminder-icon svg { display: block; width: 14px; height: 14px; }
 .reminder-toast .reminder-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
 

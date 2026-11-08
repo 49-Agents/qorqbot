@@ -27,6 +27,16 @@ def public_signoff_notes(uow, request):
     return request.select(uow, "signoff_id NOT IN (SELECT id FROM signoffs WHERE operation_name = ?)", ("whatsapp_send",))
 
 
+def public_message_attributions(uow, request):
+    """Export attribution only for the Signoff notes already included in general history.
+
+    Agent DMs, private owner conversations and personal WhatsApp-send notes stay excluded.
+    """
+    return request.select(uow, "message_type = 'signoff' AND message_id IN ("
+        "SELECT id FROM signoff_notes WHERE signoff_id NOT IN ("
+        "SELECT id FROM signoffs WHERE operation_name = ?))", ("whatsapp_send",))
+
+
 def failed_routine_runs(uow, request):
     """Successful and in-progress execution bookkeeping stays in SQLite only."""
     return request.select(uow, "state = ?", ("failed",))

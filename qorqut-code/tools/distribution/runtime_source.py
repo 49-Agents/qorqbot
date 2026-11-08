@@ -82,13 +82,13 @@ REQUIRED_RUNTIME_ASSETS = {
     "recovery": ("qorqut-code/app/bazarlyk/bootstrap/recovery.py", "qorqut-code/app/bazarlyk/storage/recovery.py",
                  "qorqut-code/app/bazarlyk/storage/full_recovery.py",
                  "qorqut-code/qorqut-context/qorqut_context/recovery.py"),
-    "templates-and-schemas": ("qorqut-code/app/templates/plugins/basic/plugin.yaml", "qorqut-code/app/plugins/agent-terminal-control/plugin.yaml",
+    "templates-and-schemas": ("qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/host/app/templates/plugins/basic/plugin.yaml", "qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/host/app/plugins/agent-terminal-control/plugin.yaml",
                               "qorqut-code/app/package-sources.json", "qorqut-code/app/service-constraints.txt"),
     "native-helpers": ("qorqut-code/app/bazarlyk/bootstrap/browser_init.cjs", "qorqut-code/app/tools/browser/desktop_session.py",
                        "qorqut-code/app/tools/browser/run-agent-browser", "qorqut-code/app/tools/browser/package.json",
                        "qorqut-code/biz-dashboard/index.html", "qorqut-code/biz-dashboard/pty_broker.py"),
     "core-instructions": ("qorqut-agentic/src/qorqut_agentic/resources/defaults/roles/imported-roles",
-                          "dependencies/email-management/plugin.yaml", "qorqut-code/app/bazarlyk/release_worker/lifetime.py"),
+                          "qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/email/plugin.yaml", "qorqut-code/app/bazarlyk/release_worker/lifetime.py"),
     "google-calendar": ("qorqut-code/extensions/google-calendar/pyproject.toml",),
 }
 NOTICE_NAMES = re.compile(r"^(?:LICENSE|LICENCE|NOTICE|COPYING|THIRD[-_ ]PARTY)(?:[-_.].*)?$", re.I)
@@ -443,6 +443,11 @@ def payload_group(relative, packaged=False):
     ``packaged`` is true for a path inside a Python package (or a wheel).
     """
     parts = PurePosixPath(relative).parts
+    # Agentic owns optional-connector prose too. These data-only sources cannot
+    # load a provider or grant its tools; the selected native binding gates delivery.
+    if ("qorqut_agentic/resources/defaults/operations/source-instructions/" in relative
+            and PurePosixPath(relative).suffix in {".md", ".json", ".yaml"}):
+        return None
     if any(p in {"docs", "doc"} or MIGRATION_PARTS.match(p) for p in parts):
         return None
     for directory in parts[:-1]:

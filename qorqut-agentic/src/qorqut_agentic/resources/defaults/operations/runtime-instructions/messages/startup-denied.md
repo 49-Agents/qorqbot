@@ -1,0 +1,1 @@
+Agent identity was refused ({{CODE}}): {{MESSAGE}}. Do not use this agent's service identity until repaired.

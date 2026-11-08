@@ -33,6 +33,8 @@ admission closes it; a damaged or missing snapshot fails before any request exis
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from contextlib import contextmanager
 from dataclasses import replace
 
@@ -57,26 +59,14 @@ ARGUMENTS = schema({
     "source": SOURCE_SCHEMA,
     "expected_sha256": EXPECTED_SHA256_SCHEMA,
     "send_as": {"enum": ["document", "photo"],
-                "description": "document keeps any file up to 50,000,000 bytes. photo accepts only a static JPEG or PNG up to "
-                               "10,000,000 bytes, is never converted, and is never sent as a document instead."},
-    "purpose": {"enum": list(PURPOSES), "description": "reply answers the owner; update reports progress."},
+                "description": instruction_text('media-operations-document-keeps-any-file-up-to-50')},
+    "purpose": {"enum": list(PURPOSES), "description": instruction_text('media-operations-reply-answers-the-owner-update-reports-progress')},
     "caption": {"type": "string", "maxLength": CAPTION_MAX_CHARS,
-                "description": "Optional plain-text caption, at most 1024 characters. Omit it for a file without a caption."},
-    "reply_to": {**UUID, "description": "Optional local message_id from telegram_history, in your own chat."},
+                "description": instruction_text('media-operations-optional-plain-text-caption-at-most-1024')},
+    "reply_to": {**UUID, "description": instruction_text('media-operations-optional-local-message-id-from-telegram-history')},
 }, ("source", "expected_sha256", "send_as", "purpose"))
 DESCRIPTION = (
-    "Send one file or photo to the owner in your own Telegram chat; you cannot choose the chat. source is a file below exports/ "
-    "or downloads/ of your own workspace ({type: workspace, path}) or a registered document you may read ({type: document, "
-    "document_id, business_id: null for Global}). expected_sha256 is the lowercase SHA-256 of the exact bytes you expect to send; "
-    "a different file is refused. send_as=document sends any file up to 50 MB; send_as=photo accepts only a static JPEG or PNG up "
-    "to 10 MB and is never converted or sent as a document instead. purpose=reply answers the owner and update reports progress. "
-    "The optional caption (plain text, at most 1024 characters) and reply_to (a local message_id from telegram_history in your own "
-    "chat) are frozen with the request. The bytes are copied once into a private snapshot when you call this, and that snapshot "
-    "is what is sent: later edits, moves or deletion of the source change nothing, and reusing an idempotency_key returns the "
-    "same queued file without copying or sending it again. The result is the local message_id, its attachment (filename, "
-    "send_as, size, sha256) and the delivery state (queued at return; read telegram_delivery_get for sent, failed, cancelled or "
-    "uncertain, and never assume either outcome for uncertain). A Telegram file is owner-facing communication, not blanket "
-    "authorization; use Signoffs for approvals.")
+    instruction_text('media-operations-send-one-file-or-photo-to-the'))
 
 
 def _damaged(message="The saved file request is damaged"):

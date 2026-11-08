@@ -22,4 +22,4 @@ qorqut-agentic = "qorqut_agentic.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-qorqut_agentic = ["py.typed", "resources/**/*", "resources/defaults/plugins/.gitkeep"]
+qorqut_agentic = ["py.typed", "resources/**/*", "resources/defaults/plugins/.gitkeep", "resources/defaults/operations/source-instructions/host/app/templates/plugins/basic/.gitignore"]

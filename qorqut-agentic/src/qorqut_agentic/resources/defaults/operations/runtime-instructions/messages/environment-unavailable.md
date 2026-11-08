@@ -1,0 +1,1 @@
+Settings inventory unavailable; this does not mean no credentials are configured.

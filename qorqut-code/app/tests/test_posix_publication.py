@@ -142,6 +142,7 @@ class SimulatedDarwinTest(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.root)
         self.previous = dict(posix_files._staging)
+        posix_files._staging.clear()  # Isolate the fixture without closing another test's staging fd.
         self.addCleanup(self.restore_staging)
         simulated = mock.patch.object(posix_files, "_darwin", return_value=True)
         simulated.start()

@@ -6,6 +6,8 @@ Ordubashy holding ``coordinate_businesses`` (plus the ordinary operation grant a
 human or agent (including a worker with an old setup capability or an explicit allow) and every system program are refused at
 preparation, validation and application, and again on recovery: the owner asks Ordubashy. The owner is still the new project's
 owner member. Nothing here starts a session, a provider action, a resident agent or any provisioning."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, TEXT, schema
 from qorqut_operations.contracts import DomainError
@@ -26,15 +28,7 @@ PROJECT = schema({"id": {"type": "string"}, "slug": {"type": "string"}, "name": 
 OUTPUT = schema({"business": PROJECT, "business_id": {"type": "string"}, "slug": {"type": "string"}}, ["business", "business_id", "slug"])
 VERSION = 2
 DESCRIPTION = (
-    "Create a new Project: an empty container for Tasks, documents, tables, assets and code. Supply name (required, up to 200 "
-    "characters), optionally summary (the project's Description, up to 2000 characters, may be empty) and optionally slug (the "
-    "folder name under projects/: lowercase letters, digits and hyphens, starting with a letter, up to 64 characters; when omitted "
-    "it is derived from the name). A later name change never renames the folder. Creation makes only the project record, the "
-    "owner's membership and an empty projects/<slug> folder with hq/ and code/: no agents, documents, Tasks, routines, Context "
-    "inputs, external accounts or domains, and no session is started. If the folder name is taken the call fails with "
-    "revision_conflict and the available suggested_slug; nothing existing is ever adopted. Only the configured Ordubashy can "
-    "create projects; the owner and other agents ask Ordubashy. The response returns business (id, slug, name, summary, "
-    "workspace_path, hq_path), business_id and slug. Retry the same idempotency_key after interruption.")
+    instruction_text('operations-create-a-new-project-an-empty-container-for'))
 
 
 class BusinessCreationOperations:

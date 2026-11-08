@@ -8,6 +8,8 @@ access is resolved, in the owning item operation."""
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from qorqut_operations.application.catalog import CatalogContribution
 from qorqut_operations.application.plans import PAGE, PlanBuilder, apply_records, page, ref, schema, utc_clock
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
@@ -39,15 +41,11 @@ class TagOperations:
         return (
             OperationDescriptor("tags_list", schema({**PAGE, "query": {"type": "string", "maxLength": 64}}),
                 effect_kind="read", supports_signoff=False, read=self.list_tags, **common,
-                description="List the shared tag catalog: every label ever used on a Task or Action, in the form it was "
-                            "first created. Tags are labels only: they grant no access and the catalog shows no item "
-                            "contents or counts."),
+                description=instruction_text('operations-list-the-shared-tag-catalog-every-label-ever')),
             OperationDescriptor("tags_create", schema({"label": LABEL_SCHEMA, "rationale": {"type": "string", "minLength": 1, "maxLength": 2000}},
                                                       ("label",)),
                 prepare=self.prepare, apply=self.apply, **common,
-                description="Add a label to the shared tag catalog (or find the existing one: labels equal by normalized "
-                            "text are one entry). Labels cannot be renamed or merged. Applying a tag to a Task or "
-                            "Action also creates it, so this is only needed to prepare a label in advance."))
+                description=instruction_text('operations-add-a-label-to-the-shared-tag-catalog')))
 
     def list_tags(self, ctx, arguments, options, uow):
         query = label_key(arguments["query"]) if arguments.get("query") else None

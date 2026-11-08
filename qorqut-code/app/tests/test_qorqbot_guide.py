@@ -5,7 +5,8 @@ import unittest
 
 import yaml
 
-from bazarlyk.bootstrap import always_skills, qorqbot_guide
+from bazarlyk.bootstrap import qorqbot_guide
+from qorqut_agentic.behavior.instructions import ALWAYS_SKILLS
 from bazarlyk.bootstrap.preparation import OWNER_START, managed_skill_file
 
 
@@ -19,7 +20,7 @@ class QorqbotGuideTest(unittest.TestCase):
         self.assertTrue(all(managed_skill_file(name) for name in files))
 
     def test_ordubashy_loads_it_and_agents_are_pointed_to_it(self):
-        self.assertIn(qorqbot_guide.SKILL_NAME, always_skills.SKILLS)
+        self.assertIn(qorqbot_guide.SKILL_NAME, ALWAYS_SKILLS)
         self.assertIn(qorqbot_guide.SKILL_NAME, OWNER_START)
 
     def test_it_never_tells_the_owner_to_use_role_commands(self):

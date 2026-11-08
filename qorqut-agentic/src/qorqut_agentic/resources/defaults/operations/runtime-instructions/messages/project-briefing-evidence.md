@@ -1,0 +1,1 @@
+Bounded snapshot, not an inventory: lists are capped and sorted by relevance. Read the named tools before acting; unavailable sections are not empty.

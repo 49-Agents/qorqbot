@@ -17,6 +17,6 @@ dependencies = ["bazarlyk-core==1.3.0.dev0", "httpx>=0.27,<1", "icalendar>=7.2,<
 where = ["."]
 include = ["qorqut_fastmail*"]
 
-# Only the selected extension imports this managed guide and loads these approval assets.
+# The guide is supplied by Agentic; only this selected extension binds it and loads these approval assets.
 [tool.setuptools.package-data]
-qorqut_fastmail = ["resources/index.json", "resources/email-management/providers/*.md", "assets/*.js", "assets/*.css"]
+qorqut_fastmail = ["resources/index.json", "assets/*.js", "assets/*.css"]

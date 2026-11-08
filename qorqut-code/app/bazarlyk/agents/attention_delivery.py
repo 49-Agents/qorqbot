@@ -92,9 +92,11 @@ class AttentionRuntime:
     """Attention scheduling shares the existing nudge pass and input arbiter."""
 
     def __init__(self, runtime):
+        from bazarlyk.agents.todo_adjustment import TodoAdjustment
         self.runtime = runtime
         self.attention = runtime.application.ordubashy_attention
         self.hooks = HookClaims(self._hook_eligible, self._delivered)
+        self.todo_adjustment = TodoAdjustment(runtime)
 
     def _now(self):
         return _stamp(datetime.now(timezone.utc))
@@ -102,18 +104,19 @@ class AttentionRuntime:
     def _text(self, uow, agent_id, kind):
         """The one reminder text shared by the hook and chat routes; reads only, never changes Attention state."""
         from bazarlyk.agents import attention_prompt
+        instructions = self.runtime.application.policy.agent_resolver.require_agentic_view().runtime_instructions()
         state = self.attention.state(uow, agent_id)
         focus = _focus(state.get('focus_json'))
         focus = focus if isinstance(focus, dict) else None
         if not focus and not kind.startswith('board_'):
-            return attention_prompt.render(kind, None)
+            return attention_prompt.render(kind, None, instructions=instructions)
         snapshot = self._snapshot(uow, agent_id, state, focus)
         if focus and focus.get('type') == 'workflow':
             workflow = uow.connection.execute('SELECT workflow_name,run_id FROM attention_workflows '
                 'WHERE agent_id=? AND run_id=?', (agent_id, focus.get('id'))).fetchone()
             if workflow:
                 snapshot['workflow'] = {'name': workflow['workflow_name'], 'run_id': workflow['run_id']}
-        return attention_prompt.render(kind, snapshot)
+        return attention_prompt.render(kind, snapshot, instructions=instructions)
 
     def _snapshot(self, uow, agent_id, state, focus):
         """Bounded projection through scoped, lifecycle-only Task reads.
@@ -360,6 +363,8 @@ class AttentionRuntime:
 
     def send_due(self, profile):
         """At most one chat attempt, under the arbiter's existing agent lock."""
+        if self.todo_adjustment.send_due(profile):
+            return
         from bazarlyk.management.identity import configured_ordubashy
         from bazarlyk.native_chat import store
         from bazarlyk.native_chat.arbiter import StaleSession

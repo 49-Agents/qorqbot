@@ -11,21 +11,8 @@ from bazarlyk.bootstrap.activity_hook import safe_path
 from bazarlyk.composition.locations import agent_workspace_of
 
 RUNTIMES = frozenset({'claude-code', 'codex'})
-REVIEW = 'work-review'
-FOCUS_REVIEW = 'focus-review'
-FOCUS_INSTRUCTION = ('Before finishing, review the complete current Focus board below. Adjust its contents, wording, flags, '
-    'visibility or order where warranted by the work just performed or the owner’s instructions. Make only useful changes. '
-    'Do not start unrelated work or report routine maintenance. If nothing needs changing, finish. '
-    'Make sure to update all the respective tasks with a message in respective thread if needed.')
-REMINDER = ('Before reporting verified completion, persist the task\'s actual state and one short evidence/result note; '
-            'use tasks_complete(note=...) or tasks_update(note=...) when appropriate instead of a duplicate comment. '
-            'Do not record proposals as approved. Update the related parent or group Task only if the outcome or '
-            'blocker changed. Global peers with Focus rights archive or reframe the card for remaining owner action, '
-            'preserving owner questions and required review. Clear finished current-work items and obsolete blockers; '
-            'save only meaningful working-memory changes. Read receipts and reread on revision conflict. For recurring '
-            'work, note this dated occurrence and keep its standing task open. Keep bookkeeping silent: no unchanged '
-            'replies or sync-only notes. Record each atomic completed action once with actions_record (at most 20 words); '
-            'if none exists, record nothing and never repeat a receipt. Guidance, not proof of completion.')
+from qorqut_agentic.behavior import completion as completion_policy
+from qorqut_agentic.behavior.completion import REVIEW, FOCUS_REVIEW
 
 
 def native_checkpoint(runtime, agent_id, session_id, registration_id=None):
@@ -82,6 +69,7 @@ class AgentCheckpoints:
     def _findings(self, ctx, row, native, uow, *, focus_only=False):
         from bazarlyk.management.identity import configured_ordubashy
         coordinator = ctx.principal_id == configured_ordubashy(uow)
+        instructions = self.app.policy.agent_resolver.require_agentic_view().runtime_instructions()
         items = row['items_json']  # Repository rows already decode JSON columns.
         if is_worker(uow.connection, ctx.principal_id):
             # A worker's one shared assignment, not its observed session list, is the work these checks look at.
@@ -99,22 +87,23 @@ class AgentCheckpoints:
                 task = uow.repository('tasks', business_id=business).get(task_id, required=True)
                 if task['archived'] or task['status'] in CLOSED_STATES:
                     code = 'finished_work_listed'
-                    message = f'Remove completed or archived task {task_id} from current work, or record its actual follow-up.'
+                    message = instructions.render("completion-finished-work", TASK_ID=str(task_id))
             except DomainError as exc:
                 if exc.code not in {'forbidden', 'not_found', 'policy_denied', 'operation_unavailable'}:
                     raise
                 code = 'unavailable_work_reference'
-                message = 'Remove a current-work task reference whose source is no longer accessible.'
+                message = instructions.render("completion-unavailable-work")
             if code:
                 issues[key] = {'code': code, 'message': message, 'business_id': business,
                                'task_id': task_id}
         reviewed = (row['work_reviewed_turn'] == native['root_turn_id']
                     and row['work_reviewed_sequence'] >= native['dirty_sequence'])
-        if not focus_only and not coordinator and native['dirty_sequence'] and not reviewed:
+        if completion_policy.review_required(focus_only=focus_only, coordinator=coordinator,
+                dirty_sequence=native['dirty_sequence'], reviewed=reviewed):
             # One reminder episode per substantive root turn, never per Stop or continuation.
             issues[REVIEW + ':' + native['root_turn_id']] = {
                 'code': 'work_review_missing', 'business_id': ctx.business_id, 'task_id': None,
-                'message': REMINDER}
+                'message': instructions.render('completion-records')}
         # The per-turn Focus board review (with the full board pasted into the Stop hook) is retired; Attention
         # board nudges keep the board current instead.
         inbox = getattr(self.app, 'inbox', None)
@@ -123,7 +112,7 @@ class AgentCheckpoints:
             # may be private even when its notification is old or was delivered.
             issues['owner-inbox'] = {
                 'code': 'pending_owner_messages', 'business_id': None, 'task_id': None,
-                'message': 'There are pending owner messages; reconcile and handle or explicitly defer them.'}
+                'message': instructions.render("completion-owner-inbox")}
         return issues, reviewed
 
     def check(self, ctx, registration_id, session_id, turn_id, *, allow_correction=False, claim_id=None, binding_generation=None, focus_only=False):
@@ -202,26 +191,15 @@ class AgentCheckpoints:
             current = {r['check_key']: dict(r) for r in uow.connection.execute(
                 "SELECT * FROM agent_checkpoint_findings WHERE agent_id=? AND state='open'", (ctx.principal_id,))}
             result = self._result(issues, current, claimed, 'checked')
-            if FOCUS_INSTRUCTION in claimed:
+            if self.app.policy.agent_resolver.require_agentic_view().runtime_instructions().render('completion-focus-retired') in claimed:
                 result['focus_board'] = focus_board
             return result
 
-    @staticmethod
-    def _closes(key, issues, reviewed):
-        """A review reminder stays open until reviewed or replaced by a later turn's reminder."""
-        if key in issues:
-            return False
-        return not key.startswith(REVIEW) or reviewed or any(k.startswith(REVIEW) for k in issues)
+    _closes = staticmethod(completion_policy.closes)
 
-    @staticmethod
-    def _result(issues, saved, claimed, state):
-        if FOCUS_INSTRUCTION in claimed:
-            claimed=[FOCUS_INSTRUCTION,*[message for message in claimed if message!=FOCUS_INSTRUCTION]]
-        return {'state': state, 'outstanding_count': len(saved),
-                'issues': [{'code': issue['code'], 'message': issue['message'],
-                            'correction_attempted': bool(saved.get(key, {}).get('claimed_at'))}
-                           for key, issue in issues.items()],
-                'correction': '\n'.join(dict.fromkeys(claimed))[:2500] if claimed else None}
+    def _result(self, issues, saved, claimed, state):
+        instructions = self.app.policy.agent_resolver.require_agentic_view().runtime_instructions()
+        return completion_policy.result(instructions, issues, saved, claimed, state)
 
     def summary(self, ctx, agent_id, session, uow):
         visible = []
