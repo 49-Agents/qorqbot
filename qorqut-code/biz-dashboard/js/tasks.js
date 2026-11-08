@@ -610,8 +610,8 @@ function tDetail(t,{host=null,onClose=null,recordPanelOpen=false,embedded=false,
     </div>
     <h4>Linked tasks</h4><div class="task-cross-links"></div>
     <h4>Related context</h4><div id="td-work" class="small muted">Loading…</div>
-    ${special || embedded ? '' : `<h4>Progress notes${t.note_count ? " · " + t.note_count : ""}</h4>
-    <section id="td-progress" aria-label="Task progress notes"></section>`}
+    ${special || embedded ? '' : `<h4>Chat</h4>
+    <section id="td-progress" aria-label="Task conversation and activity"></section>`}
     <div id="td-error" class="ferr" role="alert" hidden></div><button id="td-reload" class="ghost" type="button" hidden>Reload task</button>
   </div>`;
   };

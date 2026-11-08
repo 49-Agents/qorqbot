@@ -31,9 +31,10 @@ Options:
   the feed root. For a collapsed inline composer use its composerHost, so send/retry
   failures remain visible. Append the banner after the form, remove it on disposal,
   and keep banner styling/ARIA shared; never duplicate the banner DOM.
-- `recordReferences`: record threads only. `true` draws consecutive related Task/Action
-  `referenceOnly` entries as flat attachment rows in one left-ruled list and gives a
-  message's own consecutive Task/Action references the same rows inside that message.
+- `recordReferences`: record threads only. `true` draws related Task/Action
+  `referenceOnly` entries as compact attachment rows, grouping Task runs in a left-ruled
+  list and Action runs in a collapsed count. A message's own Task/Action references
+  remain attachment rows inside that message.
   Omitted keeps the native Chat/typed-reference presentation. Never infer this option from
   entry shape.
 - `sourceTitle`, `sourceKey`: presentation-only record-thread fields. The supplied title
@@ -102,7 +103,8 @@ Entry:
   references: [{key:'ref0', label:'Task', disabled:false, value: opaqueReference}],
   actions: [{key:'parent', label:'About an earlier entry', disabled:false}],
   typedReferences: [TypedReference],  // optional; agent entries only (see below)
-  referenceRow: 'task' | 'action'     // optional controller provenance for a referenceOnly row
+  referenceRow: 'task' | 'action',    // optional controller provenance for a referenceOnly row
+  activity: {preview, author, time, dateTime, attribution} // optional canonical progress note; never a message bubble
 }
 ```
 
@@ -126,14 +128,18 @@ button. It draws only its `typedReferences` (through the same typed components, 
 `references` buttons. With `recordReferences`, an entry whose controller marks `referenceRow:'task'|'action'` is one flat
 attachment row instead: the Task keeps only the Focus status ball, its title and its existing Task opener; the Action keeps the
 existing activity icon, shows `Action` plus only a supplied known state (never an invented Done) and opens through the ordinary
-reference opener and canonical value. `available:false` stays an inert disabled row. A contiguous run of those rows becomes one
-flat attachment list — the same subtle left rule and small left inset as the approved flat reference, with no visible heading,
-count, type label or collapse control — named only by its accessible group label. Any other entry ends the run, so messages,
-Signoffs, Projects and other records never merge across it.
-Group containers and rows use `.gchat-ref-group`, `.gchat-ref-rows`, `.gchat-ref-row` and `.gchat-reference-row`; a native
-message's Task rows use `.gchat-attachment`; message-attached record-thread rows use `.gchat-ref-group-inline`. Entries stay the same keyed nodes inside their group. The controller mounts the one shared Signoff card through `sgChatMount(ref, host, options)`
-(js/signoffs.js), which native Chat and `conversationMount` both call; a thread omits the card's nested channel composer
-when the card's channel is the enclosing thread (`omitConversationFor`).
+reference opener and canonical value. `available:false` stays an inert disabled row.
+Consecutive Task rows form a flat attachment list. Consecutive Action references and
+canonical `activity` entries form a collapsed **n actions** disclosure, using the same text
+styling as Inbox nudge. Other entries end the run, preserving message boundaries. Expanding
+reveals compact rows with the original text and authorized reference controls. Disclosure
+state survives refresh and pagination; the view never writes a synthetic message or unread state.
+
+Group containers and rows use `.gchat-ref-group`, `.gchat-ref-rows`, `.gchat-ref-row` and `.gchat-reference-row`; action
+counts add `.gchat-action-group`. A native message's Task rows use `.gchat-attachment`; message-attached record-thread
+rows use `.gchat-ref-group-inline`. Entries stay the same keyed nodes inside their group. The controller mounts the shared
+Signoff card through `sgChatMount(ref, host, options)` (js/signoffs.js), which native Chat and `conversationMount` both call;
+a thread omits the card's nested channel composer when its channel is the enclosing thread (`omitConversationFor`).
 
 `notice` is supplied only from controller metadata, never inferred from text.
 An outgoing agent message adds `notice.agentMessage: {recipients: [{id, name, glyphHtml}]}` with
