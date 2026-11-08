@@ -114,6 +114,79 @@ class BridgeConcurrencyTests(unittest.TestCase):
         self.assertTrue(all(r['result']['isError'] for r in responses))
         b.close()
 
+    def test_worker_and_output_errors_propagate_and_close(self):
+        prefix = [{'jsonrpc': '2.0', 'id': 0, 'method': 'initialize'},
+                  {'jsonrpc': '2.0', 'method': 'notifications/initialized'},
+                  {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}]
+        for failure, count in [('worker', 1), ('output', 5)]:
+            with self.subTest(failure=failure):
+                def handler(request):
+                    m = json.loads(request.content)
+                    method = m['method']
+                    if method == 'notifications/initialized': return httpx.Response(202)
+                    if method == 'tools/call' and failure == 'worker':
+                        raise RuntimeError('worker failed')
+                    if method == 'initialize':
+                        result = {'protocolVersion': '1'}
+                    elif method == 'tools/list':
+                        result = {'tools': [{'name': 'read', 'annotations': {'readOnlyHint': True}}]}
+                    else:
+                        result = {}
+                    return httpx.Response(200, headers={'mcp-session-id': 's'},
+                                          json={'jsonrpc': '2.0', 'id': m['id'], 'result': result})
+                class Output(io.StringIO):
+                    def write(self, text):
+                        if failure == 'output' and '"id":2' in text:
+                            raise RuntimeError('output failed')
+                        return super().write(text)
+                client = httpx.Client(transport=httpx.MockTransport(handler))
+                messages = prefix + [call(i) for i in range(2, 2 + count)]
+                stream = io.BytesIO(b''.join(json.dumps(m).encode() + b'\n' for m in messages))
+                with self.assertRaisesRegex(RuntimeError, failure + ' failed'):
+                    bridge_module.run('unused', stream=stream, output=Output(), client=client)
+                self.assertTrue(client.is_closed)
+                self.assertFalse(any(t.name.startswith('qorqut-mcp-read') for t in threading.enumerate()))
+
+    def test_late_success_does_not_replace_repaired_session(self):
+        started, release = threading.Event(), threading.Event()
+        def handler(request):
+            m = json.loads(request.content)
+            method = m['method']
+            session = request.headers.get('mcp-session-id')
+            if method == 'tools/call' and session == 'old':
+                if m['id'] == 1:
+                    started.set()
+                    self.assertTrue(release.wait(3))
+                    return httpx.Response(200, headers={'mcp-session-id': 'old'}, json={
+                        'jsonrpc': '2.0', 'id': 1, 'result': {'value': 'old response'}})
+                return httpx.Response(404)
+            if method == 'initialize':
+                return httpx.Response(200, headers={'mcp-session-id': 'new'}, json={
+                    'jsonrpc': '2.0', 'id': m['id'], 'result': {'protocolVersion': 'new-version'}})
+            if method == 'notifications/initialized': return httpx.Response(202)
+            if method == 'tools/list':
+                result = {'tools': [{'name': 'read', 'annotations': {'readOnlyHint': True}}]}
+            else:
+                result = {'value': 'replacement response'}
+            return httpx.Response(200, json={'jsonrpc': '2.0', 'id': m['id'], 'result': result})
+        b = bridge_module.ReconnectBridge('unused', client=httpx.Client(transport=httpx.MockTransport(handler)))
+        b.session, b.protocol, b.discovered, b.read_tools = 'old', 'old-version', True, {'read'}
+        b.initialize = {'jsonrpc': '2.0', 'id': 0, 'method': 'initialize'}
+        responses = []
+        t = threading.Thread(target=lambda: responses.append(b.handle_read(call(1), time.monotonic()+5)))
+        t.start()
+        try:
+            self.assertTrue(started.wait(2))
+            self.assertEqual(b.handle_read(call(2), time.monotonic()+5)['result']['value'], 'replacement response')
+            self.assertEqual((b.session, b.protocol), ('new', 'new-version'))
+        finally:
+            release.set()
+            t.join(5)
+            b.close()
+        self.assertFalse(t.is_alive())
+        self.assertEqual(responses[0]['result']['value'], 'old response')
+        self.assertEqual((b.session, b.protocol), ('new', 'new-version'))
+
     def test_deadline_and_uncertain_write(self):
         requests = []
         def handler(request):

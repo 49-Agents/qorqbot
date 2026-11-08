@@ -334,8 +334,10 @@ def run(registration_path, *, stream=sys.stdin.buffer, output=sys.stdout, client
             emit(response)
     def drain():
         if pending:
-            wait(pending)
-            pending.clear()
+            done, _ = wait(pending)
+            pending.difference_update(done)
+            for future in done:
+                future.result()
     try:
         while raw := stream.readline(MAX_MESSAGE + 1):
             deadline = bridge.clock() + RETRY_WINDOW
@@ -351,7 +353,10 @@ def run(registration_path, *, stream=sys.stdin.buffer, output=sys.stdout, client
                 continue
             if bridge.parallel_candidate(message, deadline):
                 while len(pending) >= 4:
-                    done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                    done, remaining = wait(pending, return_when=FIRST_COMPLETED)
+                    pending = remaining
+                    for future in done:
+                        future.result()
                 if bridge.clock() >= deadline:
                     response = bridge.failure(message, 'MCP recovery is in progress; this request was not dispatched')
                     if response is not None: emit(response)
@@ -364,9 +369,13 @@ def run(registration_path, *, stream=sys.stdin.buffer, output=sys.stdout, client
                 if response is not None:
                     emit(response)
     finally:
-        drain()
-        executor.shutdown(wait=True)
-        bridge.close()
+        try:
+            drain()
+        finally:
+            try:
+                executor.shutdown(wait=True)
+            finally:
+                bridge.close()
     return 0
 
 
