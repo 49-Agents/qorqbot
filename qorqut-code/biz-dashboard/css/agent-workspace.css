@@ -44,11 +44,11 @@
 .agent-workspace-app .agpad .thead { display:flex; flex-wrap:wrap; align-items:center; gap:5px; padding:13px 18px 10px; }
 .agent-workspace-app .agpad .thead.agpad-ping-head { gap:4px; padding-right:18px; }
 .agent-workspace-app .agpad .thead .ttabs { flex:1 1 180px; min-width:0; gap:4px; margin:0; padding:0; overflow-y:hidden; }
-.agent-workspace-app .agsplit { --ag-ctl:33.75px; --ag-ctl-icon:21.375px; }
+.agent-workspace-app .agsplit { --ag-ctl:var(--nav-control-size); --ag-ctl-icon:var(--nav-control-icon); }
 /* Pane tabs and the Chat/Terminal/Refresh controls share one shape and selected fill. */
-.agent-workspace-app .agpad .ttab, .agent-workspace-app .gchat-session-switch .ttab { min-width:var(--ag-ctl); padding:6px; border-radius:5px; }
+.agent-workspace-app .agpad .ttab, .agent-workspace-app .gchat-session-switch .ttab { min-width:var(--ag-ctl); padding:6px; border-radius:var(--nav-control-radius); }
 .agent-workspace-app .gchat-view-toggle .ttab[aria-pressed="true"],
-.agent-workspace-app .agpad .tind { border-radius:5px; background:#252525; }
+.agent-workspace-app .agpad .tind { border-radius:var(--nav-control-radius); background:var(--nav-selected); }
 .agent-workspace-app .agpad .tind::before { display:none; }
 .agent-workspace-app .agpad-ping.switch { height:32px; }
 .agent-workspace-app .agpad .tbody { padding:5px 23px 21px; }
