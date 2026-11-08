@@ -13,12 +13,12 @@ from unittest import mock
 
 from qorqut_operations.contracts import DomainError
 
-from bazarlyk.native_chat import arbiter as arbiter_module, commands, schema, store
-from bazarlyk.native_chat.arbiter import InputArbiter, TERMINAL_COMMAND
-from bazarlyk.native_chat.chat import NativeChat
-from bazarlyk.native_chat.contracts import (InputRequest, NativeChatError, RESULT_REJECTED, STATE_SUBMITTED, STATE_WAITING,
+from qorqut.native_chat import arbiter as arbiter_module, commands, schema, store
+from qorqut.native_chat.arbiter import InputArbiter, TERMINAL_COMMAND
+from qorqut.native_chat.chat import NativeChat
+from qorqut.native_chat.contracts import (InputRequest, NativeChatError, RESULT_REJECTED, STATE_SUBMITTED, STATE_WAITING,
                                             TYPE_BROADCAST, TYPE_CHAT, TYPE_DIRECT, TYPE_NUDGE, TYPE_RECOVERY, TYPE_TELEGRAM)
-from bazarlyk.transport.agent_terminal_control import OwnerInputOutcome
+from qorqut.transport.agent_terminal_control import OwnerInputOutcome
 
 AGENT, OWNER = "agent-1", "owner-1"
 SHARED, TERMINAL = "session-shared-1", "session-terminal-1"
@@ -97,10 +97,10 @@ class ChatCodexCommandTest(unittest.TestCase):
         self.forwarded = mock.Mock()
         for patcher in (mock.patch.object(InputArbiter, "_profile", lambda arbiter, agent_id: PROFILE),
                         mock.patch.object(arbiter_module, "forward_owner_message", self.forwarded),
-                        mock.patch("bazarlyk.management.identity.configured_ordubashy", return_value=None),
+                        mock.patch("qorqut.management.identity.configured_ordubashy", return_value=None),
                         # This fixture has no Attention board, so no owner-message watermark is recorded.
-                        mock.patch("bazarlyk.agents.attention.enrolled_board", return_value=False),
-                        mock.patch("bazarlyk.management.identity.installation_owner", return_value=OWNER)):
+                        mock.patch("qorqut.agents.attention.enrolled_board", return_value=False),
+                        mock.patch("qorqut.management.identity.installation_owner", return_value=OWNER)):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.use(SHARED)

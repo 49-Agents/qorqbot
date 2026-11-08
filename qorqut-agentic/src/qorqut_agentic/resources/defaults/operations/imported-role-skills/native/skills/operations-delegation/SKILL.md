@@ -1,5 +1,5 @@
 ---
-name: bazarlyk-role-operations-delegation
+name: qorqut-role-operations-delegation
 description: Create and supervise an explicitly selected legacy delegated assignment, a saved plan run by a durable Qorqut worker. Ordinary requests to hand work to a worker go to the permanent team; native Codex subagents require an explicit owner request for that runtime.
 ---
 
@@ -52,7 +52,7 @@ dispatch enabled, and a compatible Codex CLI 0.155.x runtime attached to
 the parent agent's trusted inbox watcher. A source branch or queued assignment does not
 prove these gates are active; inspect the returned assignment state and runtime
 reason. Unsupported or unprepared runtimes leave work queued. The child gets a
-separate generation-bound registration and only the required Bazarlyk MCP
+separate generation-bound registration and only the required Qorqut MCP
 connection; it does not start a watcher, own the parent agent's inbox, or spawn nested
 helpers.
 
@@ -139,7 +139,7 @@ uncertain submissions and detach. Return the resulting URL/state, verification,
 changed record IDs where relevant and unresolved work. A click alone is not
 completion evidence.
 
-Durable workers have only assignment-scoped Bazarlyk operations plus the
+Durable workers have only assignment-scoped Qorqut operations plus the
 assignment-bound `browser_turn` MCP operation: no shell, web search, Apps, other
 MCP servers, writable local files or nested helpers. The operation accepts
 `acquire`, `status`, `command`, `checkpoint`, `renew`, `artifact`, `reconcile`

@@ -52,7 +52,7 @@ configuration that ignores user configuration and exposes only the
 assignment-bound Qorqut MCP connection. Claude Code workers use
 `--setting-sources project,local` (no user settings, hooks or memory; the private
 folder has no project settings), `--tools ""` (no built-in tools),
-`--strict-mcp-config` with one HTTP `bazarlyk` server authenticated by the same
+`--strict-mcp-config` with one HTTP `qorqut` server authenticated by the same
 `mcp_headers` helper as Codex workers, and `--permission-mode dontAsk` with
 `--allowedTools` naming only the assignment's operations. They keep the real home
 folder for their sign-in and resumable sessions. Claude usage is recorded as all
@@ -139,7 +139,7 @@ blocked. Transactional record effects mirror the ordinary application
 idempotency receipt in the assignment action ledger in the same SQLite
 transaction. File effects are not available through this path.
 
-The local adapter is implemented in `bazarlyk/bootstrap/delegated_runtime.py`
+The local adapter is implemented in `qorqut/bootstrap/delegated_runtime.py`
 and runs only beside the trusted parent's inbox watcher. The parent remains the
 single inbox consumer; the dispatcher claims only assignments whose exact
 linked events are visible to that parent, while ambiguous and unlinked events
@@ -148,7 +148,7 @@ stay parent-visible. A worker runs at most three Codex CLI `0.155.x`
 project tree, a generation-scoped credential, and a minimal configuration
 that ignores user/project settings and disables Apps, plugins, shell, browser,
 web search, code mode, native subagents, and network-capable filesystem
-permissions. It exposes only the required Bazarlyk MCP endpoint. The child
+permissions. It exposes only the required Qorqut MCP endpoint. The child
 does not start a watcher or acquire the parent's inbox lease.
 
 Waiting workers exit and release local capacity; a due wake time or an exact
@@ -230,7 +230,7 @@ Current native-helper and durable-assignment defaults use `gpt-6-luna`.
 The live Codex `model/list` catalog verified that identifier and low/medium
 support on 2026-09-22. Earlier trial results above retain their original model.
 Durable assignments no longer take a model or effort from Ordubashy: the worker
-configuration in `bazarlyk/agents/worker_models.py` always selects `gpt-6-luna`,
+configuration in `qorqut/agents/worker_models.py` always selects `gpt-6-luna`,
 with high effort when the assignment grants browser use and medium otherwise;
 revisions recompute the effort.
 

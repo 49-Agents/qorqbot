@@ -169,7 +169,7 @@ Global), normalized non-null `target_namespace`, `revision`, `created_by`, `crea
 exact revision CAS. Private conversation content stays out of operational Git exports; the link table is exported
 only under the existing non-private allowlist (`host.project_links` history contribution, `BUSINESS_TABLES`).
 
-`app/bazarlyk/migration/project_sources.py` is the narrow, explicitly callable offline conversion. It requires an
+`app/qorqut/migration/project_sources.py` is the narrow, explicitly callable offline conversion. It requires an
 explicit existing target path and takes the before and after composed `Assembly` as arguments; the test fixture uses
 the immutable pre-feature host `ceb46263` with Operations `6ff63572` and Context `8ba00f6b` and verifies the before
 Assembly's exact target digest (`a8e1f553…`) and 509-object inventory (`be828d9f…`), not a reverse-derived fixture

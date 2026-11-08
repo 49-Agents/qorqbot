@@ -5,8 +5,8 @@ import unittest
 
 from qorqut_operations.contracts import DomainError, Principal
 
-from bazarlyk.agents.models import EffectiveAgentConfig
-from bazarlyk.agents.resolver import AgentConfigResolver
+from qorqut.agents.models import EffectiveAgentConfig
+from qorqut.agents.resolver import AgentConfigResolver
 
 BUSINESS = '6f1a1f6e-6a1b-4a1e-9a2e-2f4b1f0e0001'
 REVIEW = '6f1a1f6e-6a1b-4a1e-9a2e-2f4b1f0e0002'

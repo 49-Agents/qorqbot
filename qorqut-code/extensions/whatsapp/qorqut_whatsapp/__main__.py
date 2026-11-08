@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 from uuid import UUID
 
-from bazarlyk.private_files import require_private_directory, write_private_file
+from qorqut.private_files import require_private_directory, write_private_file
 from . import binding
 
 

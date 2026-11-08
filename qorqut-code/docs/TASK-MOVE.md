@@ -152,7 +152,7 @@ immutable during a relocation.
 
 - Install: the store needs the offline upgrade in [CRM-UPGRADE.md](CRM-UPGRADE.md) (new `task_moves` table, the nullable
   `thread_messages.reference_namespace` column and five rewritten triggers). The service does not migrate it.
-- A new column or table that names a Task must be classified in `bazarlyk/domains/tasks/relocation.py`
+- A new column or table that names a Task must be classified in `qorqut/domains/tasks/relocation.py`
   (`TASK_COLUMNS`); `tests/test_task_move_inventory.py` fails otherwise, and an unclassified foreign key to `tasks` with
   rows already blocks a move at run time.
 - Operations-side behavior and tests: `qorqut-operations/docs/EXTRACTION.md` (Task relocation) and

@@ -3,7 +3,7 @@ import base64
 import json
 import unittest
 
-from bazarlyk.transport.mcp import MCPTransport
+from qorqut.transport.mcp import MCPTransport
 
 
 class ContentBlocksTests(unittest.TestCase):

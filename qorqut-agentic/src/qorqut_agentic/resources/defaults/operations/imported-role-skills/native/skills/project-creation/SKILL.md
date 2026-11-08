@@ -1,5 +1,5 @@
 ---
-name: bazarlyk-role-project-creation
+name: qorqut-role-project-creation
 description: Create a Project, the container for Tasks, assets, documents, tables, code and routines, with business_create when the owner asks you for or agrees to a new one. Only the configured Ordubashy creates projects. It takes a name, an optional Description and a folder slug and makes only the record and empty hq/ and code/ folders, with no agents, setup, services or documents.
 ---
 

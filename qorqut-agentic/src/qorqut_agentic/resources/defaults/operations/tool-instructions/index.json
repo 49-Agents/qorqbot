@@ -3,742 +3,742 @@
   "entries": [
     {
       "id": "access-read-current-native-toolkit-access-and-routing-performs",
-      "source": "qorqut-code/app/bazarlyk/agentic/access.py",
+      "source": "qorqut-code/app/qorqut/agentic/access.py",
       "line": 62
     },
     {
       "id": "activity-read-current-agent-sessions-and-declared-work-in",
-      "source": "qorqut-code/app/bazarlyk/agents/activity.py",
+      "source": "qorqut-code/app/qorqut/agents/activity.py",
       "line": 74
     },
     {
       "id": "activity-replace-or-explicitly-confirm-your-session-s-current",
-      "source": "qorqut-code/app/bazarlyk/agents/activity.py",
+      "source": "qorqut-code/app/qorqut/agents/activity.py",
       "line": 85
     },
     {
       "id": "attention-detail-includes-full-tasks-summary-returns-board-rows",
-      "source": "qorqut-code/app/bazarlyk/agents/attention.py",
+      "source": "qorqut-code/app/qorqut/agents/attention.py",
       "line": 45
     },
     {
       "id": "diagnostics-diagnose-your-own-preparation-inbox-notice-state-and",
-      "source": "qorqut-code/app/bazarlyk/agents/diagnostics.py",
+      "source": "qorqut-code/app/qorqut/agents/diagnostics.py",
       "line": 30
     },
     {
       "id": "diagnostics-read-exact-live-mcp-schemas-for-1-10",
-      "source": "qorqut-code/app/bazarlyk/agents/diagnostics.py",
+      "source": "qorqut-code/app/qorqut/agents/diagnostics.py",
       "line": 36
     },
     {
       "id": "operational-delegation-read-compact-durable-delegated-assignment-status",
-      "source": "qorqut-code/app/bazarlyk/agents/operational_delegation.py",
+      "source": "qorqut-code/app/qorqut/agents/operational_delegation.py",
       "line": 1188
     },
     {
       "id": "operational-delegation-manage-or-checkpoint-a-durable-bounded-assignment",
-      "source": "qorqut-code/app/bazarlyk/agents/operational_delegation.py",
+      "source": "qorqut-code/app/qorqut/agents/operational_delegation.py",
       "line": 1519
     },
     {
       "id": "operations-read-your-current-identity-role-grants-and-project",
-      "source": "qorqut-code/app/bazarlyk/agents/operations.py",
+      "source": "qorqut-code/app/qorqut/agents/operations.py",
       "line": 189
     },
     {
       "id": "operations-list-the-bundled-icons-a-worker-can-be",
-      "source": "qorqut-code/app/bazarlyk/agents/operations.py",
+      "source": "qorqut-code/app/qorqut/agents/operations.py",
       "line": 190
     },
     {
       "id": "operations-establish-a-supported-global-agent-with-ecosystem-scope",
-      "source": "qorqut-code/app/bazarlyk/agents/operations.py",
+      "source": "qorqut-code/app/qorqut/agents/operations.py",
       "line": 207
     },
     {
       "id": "integration-inspect-a-scoped-background-job-the-initiating-agent",
-      "source": "qorqut-code/app/bazarlyk/background/integration.py",
+      "source": "qorqut-code/app/qorqut/background/integration.py",
       "line": 119
     },
     {
       "id": "operations-use-handles-on-acquire-for-compact-replies-and",
-      "source": "qorqut-code/app/bazarlyk/browser/operations.py",
+      "source": "qorqut-code/app/qorqut/browser/operations.py",
       "line": 26
     },
     {
       "id": "operations-legacy-callers-only-omit-when-using-handle",
-      "source": "qorqut-code/app/bazarlyk/browser/operations.py",
+      "source": "qorqut-code/app/qorqut/browser/operations.py",
       "line": 27
     },
     {
       "id": "operations-legacy-callers-only-omit-when-using-handle",
-      "source": "qorqut-code/app/bazarlyk/browser/operations.py",
+      "source": "qorqut-code/app/qorqut/browser/operations.py",
       "line": 28
     },
     {
       "id": "operations-legacy-callers-only-omit-when-using-handle",
-      "source": "qorqut-code/app/bazarlyk/browser/operations.py",
+      "source": "qorqut-code/app/qorqut/browser/operations.py",
       "line": 29
     },
     {
       "id": "operations-optional-uuid-of-your-own-choosing-given-on",
-      "source": "qorqut-code/app/bazarlyk/browser/operations.py",
+      "source": "qorqut-code/app/qorqut/browser/operations.py",
       "line": 30
     },
     {
       "id": "operations-ordubashy-only-on-acquire-with-protocol-handles-the",
-      "source": "qorqut-code/app/bazarlyk/browser/operations.py",
+      "source": "qorqut-code/app/qorqut/browser/operations.py",
       "line": 31
     },
     {
       "id": "operations-durable-workers-use-the-exact-assignment-target-native",
-      "source": "qorqut-code/app/bazarlyk/browser/operations.py",
+      "source": "qorqut-code/app/qorqut/browser/operations.py",
       "line": 32
     },
     {
       "id": "operations-short-browser-handle-returned-by-acquire-use-it",
-      "source": "qorqut-code/app/bazarlyk/browser/operations.py",
+      "source": "qorqut-code/app/qorqut/browser/operations.py",
       "line": 33
     },
     {
       "id": "operations-stable-action-identity-reused-exactly-for-reconciliation-defaults",
-      "source": "qorqut-code/app/bazarlyk/browser/operations.py",
+      "source": "qorqut-code/app/qorqut/browser/operations.py",
       "line": 34
     },
     {
       "id": "operations-use-a-browser-over-trusted-mcp-native-callers",
-      "source": "qorqut-code/app/bazarlyk/browser/operations.py",
+      "source": "qorqut-code/app/qorqut/browser/operations.py",
       "line": 48
     },
     {
       "id": "operations-the-active-permanent-worker-whose-own-browser-to",
-      "source": "qorqut-code/app/bazarlyk/browser/operations.py",
+      "source": "qorqut-code/app/qorqut/browser/operations.py",
       "line": 68
     },
     {
       "id": "operations-set-up-diagnose-repair-restart-or-stop-an",
-      "source": "qorqut-code/app/bazarlyk/browser/operations.py",
+      "source": "qorqut-code/app/qorqut/browser/operations.py",
       "line": 74
     },
     {
       "id": "operations-iso-date-for-all-day-events-or-iso",
-      "source": "qorqut-code/app/bazarlyk/calendar/operations.py",
+      "source": "qorqut-code/app/qorqut/calendar/operations.py",
       "line": 21
     },
     {
       "id": "operations-iana-timezone-e-g-america-new-york-required",
-      "source": "qorqut-code/app/bazarlyk/calendar/operations.py",
+      "source": "qorqut-code/app/qorqut/calendar/operations.py",
       "line": 25
     },
     {
       "id": "operations-icalendar-rrule-exdate-rdate-lines-removes-recurrence-series",
-      "source": "qorqut-code/app/bazarlyk/calendar/operations.py",
+      "source": "qorqut-code/app/qorqut/calendar/operations.py",
       "line": 29
     },
     {
       "id": "operations-popup-reminders-in-minutes-before-start-disables-event",
-      "source": "qorqut-code/app/bazarlyk/calendar/operations.py",
+      "source": "qorqut-code/app/qorqut/calendar/operations.py",
       "line": 32
     },
     {
       "id": "operations-create-a-google-meet-link-on-a-google",
-      "source": "qorqut-code/app/bazarlyk/calendar/operations.py",
+      "source": "qorqut-code/app/qorqut/calendar/operations.py",
       "line": 33
     },
     {
       "id": "operations-publish-an-exact-immutable-authored-revision-without-updating",
-      "source": "qorqut-code/app/bazarlyk/catalog/operations.py",
+      "source": "qorqut-code/app/qorqut/catalog/operations.py",
       "line": 28
     },
     {
       "id": "business-briefing-one-bounded-snapshot-of-a-project-the",
-      "source": "qorqut-code/app/bazarlyk/domains/business_briefing.py",
+      "source": "qorqut-code/app/qorqut/domains/business_briefing.py",
       "line": 18
     },
     {
       "id": "business-progress-owner-read-all-time-recorded-totals-and",
-      "source": "qorqut-code/app/bazarlyk/domains/business_progress.py",
+      "source": "qorqut-code/app/qorqut/domains/business_progress.py",
       "line": 29
     },
     {
       "id": "business-progress-owner-daily-installation-local-counts-across-authorized",
-      "source": "qorqut-code/app/bazarlyk/domains/business_progress.py",
+      "source": "qorqut-code/app/qorqut/domains/business_progress.py",
       "line": 34
     },
     {
       "id": "costs-owner-view-global-usd-spend-by-source-observed",
-      "source": "qorqut-code/app/bazarlyk/domains/costs.py",
+      "source": "qorqut-code/app/qorqut/domains/costs.py",
       "line": 152
     },
     {
       "id": "activity-also-merge-the-events-of-sources-this-record",
-      "source": "qorqut-code/app/bazarlyk/domains/crm/activity.py",
+      "source": "qorqut-code/app/qorqut/domains/crm/activity.py",
       "line": 62
     },
     {
       "id": "activity-one-record-s-activity-newest-first-its-own",
-      "source": "qorqut-code/app/bazarlyk/domains/crm/activity.py",
+      "source": "qorqut-code/app/qorqut/domains/crm/activity.py",
       "line": 67
     },
     {
       "id": "dashboard-summary-owner-project-counts-and-fourteen-daily-installation",
-      "source": "qorqut-code/app/bazarlyk/domains/dashboard_summary.py",
+      "source": "qorqut-code/app/qorqut/domains/dashboard_summary.py",
       "line": 46
     },
     {
       "id": "dev-tickets-owner-list-system-dev-reports-open-by",
-      "source": "qorqut-code/app/bazarlyk/domains/dev_tickets.py",
+      "source": "qorqut-code/app/qorqut/domains/dev_tickets.py",
       "line": 30
     },
     {
       "id": "dev-tickets-owner-close-or-reopen-a-system-dev",
-      "source": "qorqut-code/app/bazarlyk/domains/dev_tickets.py",
+      "source": "qorqut-code/app/qorqut/domains/dev_tickets.py",
       "line": 35
     },
     {
       "id": "dev-tickets-read-one-system-dev-report-and-its",
-      "source": "qorqut-code/app/bazarlyk/domains/dev_tickets.py",
+      "source": "qorqut-code/app/qorqut/domains/dev_tickets.py",
       "line": 47
     },
     {
       "id": "file-links-build-an-ordinary-link-the-owner-can",
-      "source": "qorqut-code/app/bazarlyk/domains/file_links.py",
+      "source": "qorqut-code/app/qorqut/domains/file_links.py",
       "line": 24
     },
     {
       "id": "operations-preview-cross-day-unresolved-replacements-or-automatically-reject",
-      "source": "qorqut-code/app/bazarlyk/domains/learnings/operations.py",
+      "source": "qorqut-code/app/qorqut/domains/learnings/operations.py",
       "line": 20
     },
     {
       "id": "operations-explicitly-retry-paused-global-transcript-snapshots-normal-routines",
-      "source": "qorqut-code/app/bazarlyk/domains/learnings/operations.py",
+      "source": "qorqut-code/app/qorqut/domains/learnings/operations.py",
       "line": 23
     },
     {
       "id": "operations-exact-owner-instruction-from-the-current-conversation-authorizing",
-      "source": "qorqut-code/app/bazarlyk/domains/learnings/operations.py",
+      "source": "qorqut-code/app/qorqut/domains/learnings/operations.py",
       "line": 454
     },
     {
       "id": "operations-the-owner-s-own-explanation-for-this-decision",
-      "source": "qorqut-code/app/bazarlyk/domains/learnings/operations.py",
+      "source": "qorqut-code/app/qorqut/domains/learnings/operations.py",
       "line": 456
     },
     {
       "id": "operations-optional-rationale-of-the-recording-agent-it-is",
-      "source": "qorqut-code/app/bazarlyk/domains/learnings/operations.py",
+      "source": "qorqut-code/app/qorqut/domains/learnings/operations.py",
       "line": 458
     },
     {
       "id": "operations-legacy-name-of-reasoning",
-      "source": "qorqut-code/app/bazarlyk/domains/learnings/operations.py",
+      "source": "qorqut-code/app/qorqut/domains/learnings/operations.py",
       "line": 459
     },
     {
       "id": "operations-learning-applier-only-record-the-owner-s-explicit",
-      "source": "qorqut-code/app/bazarlyk/domains/learnings/operations.py",
+      "source": "qorqut-code/app/qorqut/domains/learnings/operations.py",
       "line": 463
     },
     {
       "id": "operations-read-only-inventory-of-retained-procedural-bucket-delta",
-      "source": "qorqut-code/app/bazarlyk/domains/learnings/operations.py",
+      "source": "qorqut-code/app/qorqut/domains/learnings/operations.py",
       "line": 473
     },
     {
       "id": "review-read-the-compact-factual-context-review-agenda-across",
-      "source": "qorqut-code/app/bazarlyk/domains/learnings/review.py",
+      "source": "qorqut-code/app/qorqut/domains/learnings/review.py",
       "line": 310
     },
     {
       "id": "review-byte-continuation-of-the-exact-selected-page-repeat",
-      "source": "qorqut-code/app/bazarlyk/domains/learnings/review.py",
+      "source": "qorqut-code/app/qorqut/domains/learnings/review.py",
       "line": 313
     },
     {
       "id": "review-continue-the-frozen-evidence-collection-at-this-position",
-      "source": "qorqut-code/app/bazarlyk/domains/learnings/review.py",
+      "source": "qorqut-code/app/qorqut/domains/learnings/review.py",
       "line": 314
     },
     {
       "id": "review-continue-the-append-only-history-collection-at-this",
-      "source": "qorqut-code/app/bazarlyk/domains/learnings/review.py",
+      "source": "qorqut-code/app/qorqut/domains/learnings/review.py",
       "line": 315
     },
     {
       "id": "review-read-one-retained-learning-candidate-with-its-owner",
-      "source": "qorqut-code/app/bazarlyk/domains/learnings/review.py",
+      "source": "qorqut-code/app/qorqut/domains/learnings/review.py",
       "line": 318
     },
     {
       "id": "owner-actions-ordubashy-only-propose-engineering-update-in-an",
-      "source": "qorqut-code/app/bazarlyk/domains/owner_actions.py",
+      "source": "qorqut-code/app/qorqut/domains/owner_actions.py",
       "line": 37
     },
     {
       "id": "compose-the-actual-project-uuid-on-a-business-route",
-      "source": "qorqut-code/app/bazarlyk/domains/projects/compose.py",
+      "source": "qorqut-code/app/qorqut/domains/projects/compose.py",
       "line": 35
     },
     {
       "id": "compose-business-on-the-project-route-global-from-the",
-      "source": "qorqut-code/app/bazarlyk/domains/projects/compose.py",
+      "source": "qorqut-code/app/qorqut/domains/projects/compose.py",
       "line": 37
     },
     {
       "id": "compose-one-existing-readable-item-keeping-its-own-scope",
-      "source": "qorqut-code/app/bazarlyk/domains/projects/compose.py",
+      "source": "qorqut-code/app/qorqut/domains/projects/compose.py",
       "line": 42
     },
     {
       "id": "compose-owner-and-configured-ordubashy-one-existing-project-s",
-      "source": "qorqut-code/app/bazarlyk/domains/projects/compose.py",
+      "source": "qorqut-code/app/qorqut/domains/projects/compose.py",
       "line": 70
     },
     {
       "id": "compose-owner-and-configured-ordubashy-one-project-s-accessible",
-      "source": "qorqut-code/app/bazarlyk/domains/projects/compose.py",
+      "source": "qorqut-code/app/qorqut/domains/projects/compose.py",
       "line": 74
     },
     {
       "id": "compose-the-chosen-source-scope-a-project-uuid-or",
-      "source": "qorqut-code/app/bazarlyk/domains/projects/compose.py",
+      "source": "qorqut-code/app/qorqut/domains/projects/compose.py",
       "line": 79
     },
     {
       "id": "compose-owner-and-configured-ordubashy-actual-readable-records-of",
-      "source": "qorqut-code/app/bazarlyk/domains/projects/compose.py",
+      "source": "qorqut-code/app/qorqut/domains/projects/compose.py",
       "line": 85
     },
     {
       "id": "compose-owner-and-configured-ordubashy-one-authorized-project-item",
-      "source": "qorqut-code/app/bazarlyk/domains/projects/compose.py",
+      "source": "qorqut-code/app/qorqut/domains/projects/compose.py",
       "line": 89
     },
     {
       "id": "compose-owner-and-configured-ordubashy-explicitly-associate-one-currently",
-      "source": "qorqut-code/app/bazarlyk/domains/projects/compose.py",
+      "source": "qorqut-code/app/qorqut/domains/projects/compose.py",
       "line": 93
     },
     {
       "id": "compose-owner-and-configured-ordubashy-remove-exactly-this-explicit",
-      "source": "qorqut-code/app/bazarlyk/domains/projects/compose.py",
+      "source": "qorqut-code/app/qorqut/domains/projects/compose.py",
       "line": 98
     },
     {
       "id": "moves-the-project-the-tasks-are-in-now-its",
-      "source": "qorqut-code/app/bazarlyk/domains/tasks/moves.py",
+      "source": "qorqut-code/app/qorqut/domains/tasks/moves.py",
       "line": 40
     },
     {
       "id": "moves-the-active-destination-project-never-inferred",
-      "source": "qorqut-code/app/bazarlyk/domains/tasks/moves.py",
+      "source": "qorqut-code/app/qorqut/domains/tasks/moves.py",
       "line": 41
     },
     {
       "id": "moves-root-tasks-to-move-with-all-of-their",
-      "source": "qorqut-code/app/bazarlyk/domains/tasks/moves.py",
+      "source": "qorqut-code/app/qorqut/domains/tasks/moves.py",
       "line": 43
     },
     {
       "id": "moves-owner-and-configured-ordubashy-the-active-projects-tasks",
-      "source": "qorqut-code/app/bazarlyk/domains/tasks/moves.py",
+      "source": "qorqut-code/app/qorqut/domains/tasks/moves.py",
       "line": 72
     },
     {
       "id": "moves-owner-and-configured-ordubashy-read-exactly-what-moving",
-      "source": "qorqut-code/app/bazarlyk/domains/tasks/moves.py",
+      "source": "qorqut-code/app/qorqut/domains/tasks/moves.py",
       "line": 76
     },
     {
       "id": "moves-owner-and-configured-ordubashy-move-the-previewed-tasks",
-      "source": "qorqut-code/app/bazarlyk/domains/tasks/moves.py",
+      "source": "qorqut-code/app/qorqut/domains/tasks/moves.py",
       "line": 83
     },
     {
       "id": "viewbox-show-the-owner-a-link-beside-this-session",
-      "source": "qorqut-code/app/bazarlyk/domains/viewbox.py",
+      "source": "qorqut-code/app/qorqut/domains/viewbox.py",
       "line": 197
     },
     {
       "id": "working-memory-pass-next-cursor-exactly-new-cursors-are",
-      "source": "qorqut-code/app/bazarlyk/domains/working_memory.py",
+      "source": "qorqut-code/app/qorqut/domains/working_memory.py",
       "line": 44
     },
     {
       "id": "working-memory-read-committed-own-working-memory-or-bounded",
-      "source": "qorqut-code/app/bazarlyk/domains/working_memory.py",
+      "source": "qorqut-code/app/qorqut/domains/working_memory.py",
       "line": 50
     },
     {
       "id": "working-memory-read-compact-current-working-memory-and-live",
-      "source": "qorqut-code/app/bazarlyk/domains/working_memory.py",
+      "source": "qorqut-code/app/qorqut/domains/working_memory.py",
       "line": 53
     },
     {
       "id": "working-memory-save-own-working-handoff-focus-approach-findings",
-      "source": "qorqut-code/app/bazarlyk/domains/working_memory.py",
+      "source": "qorqut-code/app/qorqut/domains/working_memory.py",
       "line": 63
     },
     {
       "id": "attention-focus-only-name-written-by-the-curator-use",
-      "source": "qorqut-code/app/bazarlyk/inbox/attention.py",
+      "source": "qorqut-code/app/qorqut/inbox/attention.py",
       "line": 21
     },
     {
       "id": "attention-action-for-the-founder-owner-one-short-direct",
-      "source": "qorqut-code/app/bazarlyk/inbox/attention.py",
+      "source": "qorqut-code/app/qorqut/inbox/attention.py",
       "line": 23
     },
     {
       "id": "attention-true-when-this-item-currently-blocks-further-work",
-      "source": "qorqut-code/app/bazarlyk/inbox/attention.py",
+      "source": "qorqut-code/app/qorqut/inbox/attention.py",
       "line": 24
     },
     {
       "id": "attention-true-when-this-needs-prompt-attention-due-to",
-      "source": "qorqut-code/app/bazarlyk/inbox/attention.py",
+      "source": "qorqut-code/app/qorqut/inbox/attention.py",
       "line": 25
     },
     {
       "id": "attention-curate-persistent-focus-presentation-source-permissions-and-conversations",
-      "source": "qorqut-code/app/bazarlyk/inbox/attention.py",
+      "source": "qorqut-code/app/qorqut/inbox/attention.py",
       "line": 84
     },
     {
       "id": "private-conversations-show-the-owner-s-one-private-channel",
-      "source": "qorqut-code/app/bazarlyk/inbox/private_conversations.py",
+      "source": "qorqut-code/app/qorqut/inbox/private_conversations.py",
       "line": 125
     },
     {
       "id": "private-conversations-read-the-private-owner-ordubashy-conversation-on",
-      "source": "qorqut-code/app/bazarlyk/inbox/private_conversations.py",
+      "source": "qorqut-code/app/qorqut/inbox/private_conversations.py",
       "line": 129
     },
     {
       "id": "private-conversations-send-one-private-message-to-the-owner",
-      "source": "qorqut-code/app/bazarlyk/inbox/private_conversations.py",
+      "source": "qorqut-code/app/qorqut/inbox/private_conversations.py",
       "line": 134
     },
     {
       "id": "private-conversations-record-the-owner-s-private-read-position",
-      "source": "qorqut-code/app/bazarlyk/inbox/private_conversations.py",
+      "source": "qorqut-code/app/qorqut/inbox/private_conversations.py",
       "line": 142
     },
     {
       "id": "private-conversations-list-readable-owner-ordubashy-threads-by-their",
-      "source": "qorqut-code/app/bazarlyk/inbox/private_conversations.py",
+      "source": "qorqut-code/app/qorqut/inbox/private_conversations.py",
       "line": 150
     },
     {
       "id": "private-conversations-read-related-records-for-visual-thread-context",
-      "source": "qorqut-code/app/bazarlyk/inbox/private_conversations.py",
+      "source": "qorqut-code/app/qorqut/inbox/private_conversations.py",
       "line": 156
     },
     {
       "id": "incidents-owner-list-bounded-system-dev-incident-summaries",
-      "source": "qorqut-code/app/bazarlyk/incidents.py",
+      "source": "qorqut-code/app/qorqut/incidents.py",
       "line": 704
     },
     {
       "id": "incidents-owner-inspect-one-system-dev-incident-and-bounded",
-      "source": "qorqut-code/app/bazarlyk/incidents.py",
+      "source": "qorqut-code/app/qorqut/incidents.py",
       "line": 710
     },
     {
       "id": "service-list-authorized-management-intake-with-source-links-and",
-      "source": "qorqut-code/app/bazarlyk/management/service.py",
+      "source": "qorqut-code/app/qorqut/management/service.py",
       "line": 41
     },
     {
       "id": "service-read-one-authorized-management-intake-item",
-      "source": "qorqut-code/app/bazarlyk/management/service.py",
+      "source": "qorqut-code/app/qorqut/management/service.py",
       "line": 43
     },
     {
       "id": "service-route-one-canonical-message-or-input-request-to",
-      "source": "qorqut-code/app/bazarlyk/management/service.py",
+      "source": "qorqut-code/app/qorqut/management/service.py",
       "line": 50
     },
     {
       "id": "service-send-a-durable-management-message-to-the-exact",
-      "source": "qorqut-code/app/bazarlyk/management/service.py",
+      "source": "qorqut-code/app/qorqut/management/service.py",
       "line": 53
     },
     {
       "id": "service-set-the-one-installation-management-coordinator-the-target",
-      "source": "qorqut-code/app/bazarlyk/management/service.py",
+      "source": "qorqut-code/app/qorqut/management/service.py",
       "line": 56
     },
     {
       "id": "service-resolve-or-dismiss-a-management-route-while-retaining",
-      "source": "qorqut-code/app/bazarlyk/management/service.py",
+      "source": "qorqut-code/app/qorqut/management/service.py",
       "line": 61
     },
     {
       "id": "user-input-ordubashy-or-the-current-overseer-show-the",
-      "source": "qorqut-code/app/bazarlyk/native_chat/user_input.py",
+      "source": "qorqut-code/app/qorqut/native_chat/user_input.py",
       "line": 28
     },
     {
       "id": "direct-explicit-owner-instruction-in-the-submitting-agent-s",
-      "source": "qorqut-code/app/bazarlyk/overseer/direct.py",
+      "source": "qorqut-code/app/qorqut/overseer/direct.py",
       "line": 140
     },
     {
       "id": "operations-read-your-submitted-instruction-exact-review-signoff-and",
-      "source": "qorqut-code/app/bazarlyk/overseer/operations.py",
+      "source": "qorqut-code/app/qorqut/overseer/operations.py",
       "line": 111
     },
     {
       "id": "operations-read-authorized-overseer-records-and-current-source-availability",
-      "source": "qorqut-code/app/bazarlyk/overseer/operations.py",
+      "source": "qorqut-code/app/qorqut/overseer/operations.py",
       "line": 112
     },
     {
       "id": "operations-worker-only-output-of-the-scheduled-extraction-program",
-      "source": "qorqut-code/app/bazarlyk/overseer/operations.py",
+      "source": "qorqut-code/app/qorqut/overseer/operations.py",
       "line": 120
     },
     {
       "id": "operations-submit-an-explicit-owner-chat-instruction-as-a",
-      "source": "qorqut-code/app/bazarlyk/overseer/operations.py",
+      "source": "qorqut-code/app/qorqut/overseer/operations.py",
       "line": 130
     },
     {
       "id": "operations-read-the-actual-owner-answer-to-your-exact",
-      "source": "qorqut-code/app/bazarlyk/overseer/operations.py",
+      "source": "qorqut-code/app/qorqut/overseer/operations.py",
       "line": 131
     },
     {
       "id": "operations-run-an-authorized-overseer-bridge-operation-with-its",
-      "source": "qorqut-code/app/bazarlyk/overseer/operations.py",
+      "source": "qorqut-code/app/qorqut/overseer/operations.py",
       "line": 132
     },
     {
       "id": "owner-bootstrap-deeper-context-is-fetched-on-demand-start",
-      "source": "qorqut-code/app/bazarlyk/owner_bootstrap.py",
+      "source": "qorqut-code/app/qorqut/owner_bootstrap.py",
       "line": 39
     },
     {
       "id": "owner-bootstrap-project-direction-belongs-to-the-owner-with",
-      "source": "qorqut-code/app/bazarlyk/owner_bootstrap.py",
+      "source": "qorqut-code/app/qorqut/owner_bootstrap.py",
       "line": 41
     },
     {
       "id": "owner-bootstrap-direct-coordination-uses-agents-message-recipients-agents",
-      "source": "qorqut-code/app/bazarlyk/owner_bootstrap.py",
+      "source": "qorqut-code/app/qorqut/owner_bootstrap.py",
       "line": 44
     },
     {
       "id": "owner-bootstrap-no-autonomous-work-loop-is-started-and",
-      "source": "qorqut-code/app/bazarlyk/owner_bootstrap.py",
+      "source": "qorqut-code/app/qorqut/owner_bootstrap.py",
       "line": 48
     },
     {
       "id": "owner-bootstrap-a-specific-owner-instruction-for-example-create",
-      "source": "qorqut-code/app/bazarlyk/owner_bootstrap.py",
+      "source": "qorqut-code/app/qorqut/owner_bootstrap.py",
       "line": 50
     },
     {
       "id": "owner-bootstrap-orientation-for-an-owner-directed-code-session",
-      "source": "qorqut-code/app/bazarlyk/owner_bootstrap.py",
+      "source": "qorqut-code/app/qorqut/owner_bootstrap.py",
       "line": 72
     },
     {
       "id": "legacy-when-to-remind-the-owner-include-a-timezone",
-      "source": "qorqut-code/app/bazarlyk/reminders/legacy.py",
+      "source": "qorqut-code/app/qorqut/reminders/legacy.py",
       "line": 35
     },
     {
       "id": "legacy-short-alias-for-the-owner-s-own-one",
-      "source": "qorqut-code/app/bazarlyk/reminders/legacy.py",
+      "source": "qorqut-code/app/qorqut/reminders/legacy.py",
       "line": 41
     },
     {
       "id": "legacy-owner-and-configured-ordubashy-read-of-the-owner",
-      "source": "qorqut-code/app/bazarlyk/reminders/legacy.py",
+      "source": "qorqut-code/app/qorqut/reminders/legacy.py",
       "line": 53
     },
     {
       "id": "service-one-concise-sentence-the-recipient-will-read-when",
-      "source": "qorqut-code/app/bazarlyk/reminders/service.py",
+      "source": "qorqut-code/app/qorqut/reminders/service.py",
       "line": 48
     },
     {
       "id": "service-a-time-with-its-timezone-offset-for-example",
-      "source": "qorqut-code/app/bazarlyk/reminders/service.py",
+      "source": "qorqut-code/app/qorqut/reminders/service.py",
       "line": 49
     },
     {
       "id": "service-five-field-cron-minute-hour-day-of-month",
-      "source": "qorqut-code/app/bazarlyk/reminders/service.py",
+      "source": "qorqut-code/app/qorqut/reminders/service.py",
       "line": 51
     },
     {
       "id": "service-iana-timezone-name-for-example-america-new-york",
-      "source": "qorqut-code/app/bazarlyk/reminders/service.py",
+      "source": "qorqut-code/app/qorqut/reminders/service.py",
       "line": 53
     },
     {
       "id": "service-read-one-reminder-you-may-see-its-state",
-      "source": "qorqut-code/app/bazarlyk/reminders/service.py",
+      "source": "qorqut-code/app/qorqut/reminders/service.py",
       "line": 117
     },
     {
       "id": "service-list-your-reminders-scheduled-and-due-by-default",
-      "source": "qorqut-code/app/bazarlyk/reminders/service.py",
+      "source": "qorqut-code/app/qorqut/reminders/service.py",
       "line": 122
     },
     {
       "id": "environment-retrieve-one-settings-value-by-key-including-private",
-      "source": "qorqut-code/app/bazarlyk/service/environment.py",
+      "source": "qorqut-code/app/qorqut/service/environment.py",
       "line": 43
     },
     {
       "id": "environment-list-effective-settings-variable-names-configured-nonempty-status",
-      "source": "qorqut-code/app/bazarlyk/service/environment.py",
+      "source": "qorqut-code/app/qorqut/service/environment.py",
       "line": 84
     },
     {
       "id": "environment-write-set-one-settings-key-value-in-the",
-      "source": "qorqut-code/app/bazarlyk/service/environment_write.py",
+      "source": "qorqut-code/app/qorqut/service/environment_write.py",
       "line": 156
     },
     {
       "id": "main-shared-qorqut-dashboard-and-http-mcp-service",
-      "source": "qorqut-code/app/bazarlyk/service/main.py",
+      "source": "qorqut-code/app/qorqut/service/main.py",
       "line": 122
     },
     {
       "id": "full-recovery-registered-hq-git-metadata",
-      "source": "qorqut-code/app/bazarlyk/storage/full_recovery.py",
+      "source": "qorqut-code/app/qorqut/storage/full_recovery.py",
       "line": 135
     },
     {
       "id": "full-recovery-registered-hq-git-directory",
-      "source": "qorqut-code/app/bazarlyk/storage/full_recovery.py",
+      "source": "qorqut-code/app/qorqut/storage/full_recovery.py",
       "line": 139
     },
     {
       "id": "full-recovery-registered-hq-git-common-directory",
-      "source": "qorqut-code/app/bazarlyk/storage/full_recovery.py",
+      "source": "qorqut-code/app/qorqut/storage/full_recovery.py",
       "line": 143
     },
     {
       "id": "full-recovery-registered-hq-git-common-directory",
-      "source": "qorqut-code/app/bazarlyk/storage/full_recovery.py",
+      "source": "qorqut-code/app/qorqut/storage/full_recovery.py",
       "line": 144
     },
     {
       "id": "recovery-admin-local-encrypted-recovery-administration-client",
-      "source": "qorqut-code/app/bazarlyk/storage/recovery_admin.py",
+      "source": "qorqut-code/app/qorqut/storage/recovery_admin.py",
       "line": 419
     },
     {
       "id": "mcp-presentation-compact-receipt-index-by-default-platform-defaults",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_presentation.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 35
     },
     {
       "id": "mcp-presentation-compact-by-default-summary-is-a-bounded",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_presentation.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 37
     },
     {
       "id": "mcp-presentation-identity-scope-by-default-summary-is-readiness",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_presentation.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 56
     },
     {
       "id": "mcp-presentation-optional-exact-operation-names-aliases-whose-current",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_presentation.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 59
     },
     {
       "id": "mcp-presentation-context-only-return-exactly-these-sections-of",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_presentation.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 62
     },
     {
       "id": "mcp-presentation-returns-a-compact-task-index-receipt-tasks",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_presentation.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 300
     },
     {
       "id": "mcp-presentation-returns-row-ids-revisions-not-echoed-cells",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_presentation.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 302
     },
     {
       "id": "mcp-presentation-compact-identity-scope-by-default-response-detail",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_presentation.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 304
     },
     {
       "id": "mcp-presentation-compact-status-attention-index-signoffs-get-reads",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_presentation.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 306
     },
     {
       "id": "mcp-presentation-decision-bindings-and-approval-evidence-are-complete",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_presentation.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 308
     },
     {
       "id": "mcp-presentation-returns-a-short-decision-execution-receipt-approval",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_presentation.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 310
     },
     {
       "id": "mcp-presentation-returns-a-delivery-receipt-message-thread-event",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_presentation.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 312
     },
     {
       "id": "mcp-presentation-returns-the-created-signoff-s-status-index",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_presentation.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 314
     },
     {
       "id": "mcp-presentation-returns-a-compact-focus-receipt-with-revisions",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_presentation.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 316
     },
     {
       "id": "mcp-presentation-compact-index-by-default-response-detail-summary",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_presentation.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 318
     },
     {
       "id": "mcp-presentation-note-text-is-complete-omitted-per-note",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_presentation.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 320
     },
     {
       "id": "mcp-presentation-multiple-names-return-availability-mode-description-name",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_presentation.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 322
     },
     {
       "id": "mcp-presentation-compact-index-omitted-fields-are-empty-or",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_presentation.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 324
     },
     {
       "id": "mcp-reads-optional-revalidation-focus-board-lists-only-send",
-      "source": "qorqut-code/app/bazarlyk/transport/mcp_reads.py",
+      "source": "qorqut-code/app/qorqut/transport/mcp_reads.py",
       "line": 22
     },
     {
       "id": "init-read-the-installed-workspace-types-with-each-type",
-      "source": "qorqut-code/app/bazarlyk/workspaces/__init__.py",
+      "source": "qorqut-code/app/qorqut/workspaces/__init__.py",
       "line": 120
     },
     {
       "id": "init-read-stored-workspace-presentation-state-agents-read-their",
-      "source": "qorqut-code/app/bazarlyk/workspaces/__init__.py",
+      "source": "qorqut-code/app/qorqut/workspaces/__init__.py",
       "line": 126
     },
     {
@@ -1213,57 +1213,57 @@
     },
     {
       "id": "focus-replace-your-ordered-focus-cards-with-current-object",
-      "source": "qorqut-code/app/bazarlyk/inbox/focus.py",
+      "source": "qorqut-code/app/qorqut/inbox/focus.py",
       "line": 38
     },
     {
       "id": "focus-clear-focus-and-explicitly-cancel-pending-browser-input",
-      "source": "qorqut-code/app/bazarlyk/inbox/focus.py",
+      "source": "qorqut-code/app/qorqut/inbox/focus.py",
       "line": 39
     },
     {
       "id": "focus-ask-the-owner-for-browser-input-on-the",
-      "source": "qorqut-code/app/bazarlyk/inbox/focus.py",
+      "source": "qorqut-code/app/qorqut/inbox/focus.py",
       "line": 42
     },
     {
       "id": "service-create-a-reminder-for-yourself-the-owner-and",
-      "source": "qorqut-code/app/bazarlyk/reminders/service.py",
+      "source": "qorqut-code/app/qorqut/reminders/service.py",
       "line": 98
     },
     {
       "id": "service-change-a-reminder-using-its-current-revision-a",
-      "source": "qorqut-code/app/bazarlyk/reminders/service.py",
+      "source": "qorqut-code/app/qorqut/reminders/service.py",
       "line": 103
     },
     {
       "id": "service-defer-a-scheduled-or-due-reminder-to-a",
-      "source": "qorqut-code/app/bazarlyk/reminders/service.py",
+      "source": "qorqut-code/app/qorqut/reminders/service.py",
       "line": 106
     },
     {
       "id": "service-clear-the-current-due-occurrence-using-its-occurrence",
-      "source": "qorqut-code/app/bazarlyk/reminders/service.py",
+      "source": "qorqut-code/app/qorqut/reminders/service.py",
       "line": 109
     },
     {
       "id": "service-stop-the-whole-reminder-or-series-and-discard",
-      "source": "qorqut-code/app/bazarlyk/reminders/service.py",
+      "source": "qorqut-code/app/qorqut/reminders/service.py",
       "line": 112
     },
     {
       "id": "init-present-a-permitted-workspace-to-its-renderer-with",
-      "source": "qorqut-code/app/bazarlyk/workspaces/__init__.py",
+      "source": "qorqut-code/app/qorqut/workspaces/__init__.py",
       "line": 135
     },
     {
       "id": "init-select-what-is-shown-in-the-presented-workspace",
-      "source": "qorqut-code/app/bazarlyk/workspaces/__init__.py",
+      "source": "qorqut-code/app/qorqut/workspaces/__init__.py",
       "line": 137
     },
     {
       "id": "init-ask-for-owner-attention-on-the-presented-workspace",
-      "source": "qorqut-code/app/bazarlyk/workspaces/__init__.py",
+      "source": "qorqut-code/app/qorqut/workspaces/__init__.py",
       "line": 140
     },
     {

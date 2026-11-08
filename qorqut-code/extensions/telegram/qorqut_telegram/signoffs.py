@@ -16,8 +16,8 @@ import json
 import logging
 
 from qorqut_operations.contracts import DomainError, new_id
-from bazarlyk.agents.global_scope import active_global
-from bazarlyk.signoffs.execution import execution_sql
+from qorqut.agents.global_scope import active_global
+from qorqut.signoffs.execution import execution_sql
 from qorqut_operations.signoffs.inputs import validate_response
 from qorqut_operations.signoffs.notes import eligible as has_owner_note
 from qorqut_operations.storage.repositories import decode_row

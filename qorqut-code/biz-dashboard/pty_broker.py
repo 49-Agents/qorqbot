@@ -1,13 +1,13 @@
 """Terminal mirroring for biz-dashboard.
 
 Two layers. The agent's shell lives in a **tmux session** on a dedicated tmux server (socket
-`-L bazarlyk`), one session per agent, so it outlives the dashboard: a restart kills only the
+`-L qorqut`), one session per agent, so it outlives the dashboard: a restart kills only the
 mirror, never the agent. The dashboard mirrors it through a **PTY** whose child is
 `tmux attach-session`; output is captured by a reader thread into a scrollback ring buffer and
 streamed to any number of viewers (SSE), input is written back to the PTY master. When `tmux`
 is not installed the PTY child is the shell itself (the old behaviour, no persistence).
 
-The owner can attach to the same session from any shell: `tmux -L bazarlyk attach -t NAME`.
+The owner can attach to the same session from any shell: `tmux -L qorqut attach -t NAME`.
 
 Linux only (stdlib `pty`); the target host is Linux. No third-party Python dependencies.
 """
@@ -253,7 +253,7 @@ def keys() -> list[str]:
 # Targets: `=NAME` is an exact session match; window commands take `=NAME:`.
 
 TMUX = shutil.which("tmux")
-TMUX_SOCK = os.environ.get("BIZ_TMUX_SOCKET", "bazarlyk")
+TMUX_SOCK = os.environ.get("BIZ_TMUX_SOCKET", "qorqut")
 # Runtime files must not mutate an immutable dashboard release.
 TMUX_CONFIG_DIR = os.environ.get("BIZ_DASH_STATE") or os.path.join(
     os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "qorqut", "terminals")
@@ -305,7 +305,7 @@ def _conf_path() -> str:
 
 
 def tmux(*args: str, env: dict | None = None) -> tuple[int, str]:
-    """Run one tmux command against the bazarlyk server. (rc, combined output)."""
+    """Run one tmux command against the qorqut server. (rc, combined output)."""
     if TMUX is None:
         return 127, "tmux not installed"
     try:

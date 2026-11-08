@@ -1,5 +1,5 @@
 ---
-name: bazarlyk-role-owner-reminders
+name: qorqut-role-owner-reminders
 description: Create, change, snooze, dismiss or cancel a one-off or recurring reminder for yourself or, for Ordubashy, the owner or another agent; also handle a due reminder notice. Use when the owner says "remind me", "remind me to", "remind me about", or asks to be reminded later, and when a reminder notice reaches you.
 ---
 

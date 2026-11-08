@@ -14,7 +14,7 @@ code: the Routine names two business secrets and Qorqut does the rest.
    minutes, then requires it to be a gzipped SQLite database that passes
    `PRAGMA quick_check`. Anything else fails the job and keeps nothing.
 3. Keeps the copy as
-   `<businesses root>/.bazarlyk/business-backups/<business id>/<job time>-<job>.sqlite3.gz`
+   `<businesses root>/.qorqut/business-backups/<business id>/<job time>-<job>.sqlite3.gz`
    (directories 0700, files 0600) and removes the oldest beyond `keep`.
 
 That folder is outside Git, outside the business workspace agents use, and outside the nightly authored backup. Errors never contain the

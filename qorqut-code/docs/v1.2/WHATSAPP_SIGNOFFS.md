@@ -154,7 +154,7 @@ database mutation). Production adoption is a separately authorized release.
 
    ```python
    from qorqut_operations.background import BackgroundAuthority, ProgramRegistry
-   from bazarlyk.background.integration import register_programs
+   from qorqut.background.integration import register_programs
 
    programs = register_programs(ProgramRegistry())
    authority = BackgroundAuthority(database, programs)     # `database`: the instance's operational database

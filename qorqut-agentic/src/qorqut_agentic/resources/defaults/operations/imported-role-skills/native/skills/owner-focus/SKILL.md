@@ -1,5 +1,5 @@
 ---
-name: bazarlyk-role-owner-focus
+name: qorqut-role-owner-focus
 description: Curate the owner's persistent Focus board with source-owned conversations and explicit domain actions.
 ---
 

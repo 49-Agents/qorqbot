@@ -1,5 +1,5 @@
 ---
-name: bazarlyk-role-ecosystem-review
+name: qorqut-role-ecosystem-review
 description: Review coordination, platform-request tracking and shared instruction proposals across explicitly permitted projects without widening their scope.
 ---
 

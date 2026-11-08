@@ -11,7 +11,7 @@ owner request takes priority, then the agent returns to its queue at completion
 or a dependency. Task-specific pauses, holds and required approvals remain active.
 
 The shared procedure is
-[`bazarlyk/agents/skills/role/SKILL.md`](../app/bazarlyk/agents/skills/role/SKILL.md).
+[`qorqut/agents/skills/role/SKILL.md`](../app/qorqut/agents/skills/role/SKILL.md).
 It recovers working context, reconciles inbox events with unfinished assignments
 and signoff outcomes, starts actionable work, records progress and continues
 independent work while one dependency is pending. An empty inbox does not mean
@@ -46,7 +46,7 @@ bootstrap and existing inbox delivery; it does not rerun hooks, take another
 session's consumer ID, or introduce a second watcher. Repeated preparation and
 bootstrap do not acknowledge events, modify tasks or apply signoffs.
 
-The short `role` name is explicitly managed alongside existing `bazarlyk-*`
+The short `role` name is explicitly managed alongside existing `qorqut-*`
 skills. Preparation refuses to overwrite an unregistered local skill at that
 name, adopt unknown supporting files, follow symlinks, or shadow a local legacy
 `.claude/commands/role.md`. Existing registered skill bytes can be repaired by

@@ -155,7 +155,7 @@ def forward_source(client, message_id):
 
 def account_authority(ctx, uow, resolver):
     """The one account gate: the installation owner, the configured ecosystem Ordubashy or an explicitly granted global worker."""
-    from bazarlyk.agents.worker_access import is_worker
+    from qorqut.agents.worker_access import is_worker
     if ctx.business_id is not None or ctx.home_business_id is not None or CAPABILITY not in ctx.global_capabilities:
         raise DomainError("forbidden", "Fastmail requires the explicit Global account grant")
     installation = uow.repository("installation").get("service")
@@ -170,7 +170,7 @@ def account_authority(ctx, uow, resolver):
     # A global capability is necessary but deliberately insufficient on its own: a generic ecosystem profile must not become a
     # private-mail proxy. Resolve from the authoritative profile, never from a caller field.
     profile, _ = resolver.profile(ctx.principal, connection=uow.connection)
-    from bazarlyk.management import ManagementService
+    from qorqut.management import ManagementService
     coordinator = profile.data["role"]["id"] == "ordubashy" and ManagementService._coordinator(uow) == ctx.principal_id
     if (profile.data["status"] != "active" or profile.scope.kind != "ecosystem"
             or not (coordinator or is_worker(uow.connection, ctx.principal_id))):

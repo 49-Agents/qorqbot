@@ -20,8 +20,8 @@ import threading
 import time
 
 from qorqut_operations.contracts import DomainError, canonical_hash
-from bazarlyk.agents.global_scope import active_global
-from bazarlyk.private_files import require_private_directory
+from qorqut.agents.global_scope import active_global
+from qorqut.private_files import require_private_directory
 from . import store
 from .api import HttpBotApi, TelegramApiError
 from .config import AGENT_CHATS, CONFIG_ENV, TelegramConfig, load_config, read_token

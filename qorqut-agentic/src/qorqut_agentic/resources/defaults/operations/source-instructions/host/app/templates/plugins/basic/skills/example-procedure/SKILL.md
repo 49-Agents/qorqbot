@@ -1,5 +1,5 @@
 ---
-name: bazarlyk-plugin-example-procedure
+name: qorqut-plugin-example-procedure
 description: Execute the example procedure.
 ---
 

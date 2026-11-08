@@ -2,7 +2,7 @@
 import sqlite3
 import unittest
 
-from bazarlyk.native_chat.store import conversation_markers
+from qorqut.native_chat.store import conversation_markers
 
 
 class RelocatedMarkersTests(unittest.TestCase):

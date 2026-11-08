@@ -7,12 +7,12 @@ default), a fresh venv is created there, the wheel is installed with its runtime
 script is run from an unrelated working directory with a clean ``sys.path``. The script proves that
 
 * the package imports from the installed wheel (not from the checkout),
-* no module named ``bazarlyk`` is importable or has been imported,
+* no module named ``qorqut`` is importable or has been imported,
 * a trusted assembly freezes, a store initializes in a temporary path and an operation applies with its idempotent
   replay, using only the installed package,
 * a second script runs a small actual Signoff slice (a restricted agent's proposal is approved by the owner and
   applied once, through typed ``SignoffPorts``) and a registered-program slice (a manual routine run executes a
-  synthetic program whose frozen output is applied under its worker identity), again with no ``bazarlyk``,
+  synthetic program whose frozen output is applied under its worker identity), again with no ``qorqut``,
 * a third script runs one neutral-item/relationship slice over two synthetic item kinds: an authorized link versus
   a denied endpoint, a read that acknowledges nothing, and an explicit review committed with a same-item edit,
 * a fourth script runs the ``create_directory_tree`` file effect through the installed ``Application`` and prepared
@@ -44,7 +44,7 @@ PROBE = r'''
 import importlib.util, json, sys, tempfile
 from pathlib import Path
 
-assert importlib.util.find_spec("bazarlyk") is None, "bazarlyk must not be importable"
+assert importlib.util.find_spec("qorqut") is None, "qorqut must not be importable"
 import qorqut_operations
 from qorqut_operations.application import Application, CatalogContribution, OperationDescriptor, compose_catalog
 from qorqut_operations.application.plans import PlanBuilder, apply_records
@@ -54,12 +54,12 @@ from qorqut_operations.storage import (AssemblyBuilder, Database, FileEffectCont
 
 location = Path(qorqut_operations.__file__).resolve()
 assert "site-packages" in location.parts, location
-assert not any(name == "bazarlyk" or name.startswith("bazarlyk.") for name in sys.modules)
+assert not any(name == "qorqut" or name.startswith("qorqut.") for name in sys.modules)
 # The source-document and exact-history packages import their two document libraries; both come with the wheel.
 import markdown_it, qorqut_business_docs_versioning
 import qorqut_operations.document_history.reads, qorqut_operations.documents.library
 assert "site-packages" in Path(qorqut_business_docs_versioning.__file__).resolve().parts
-assert not any(name.partition(".")[0] in {"bazarlyk", "qorqut_context", "qorqut_paper", "qorqut_content"} for name in sys.modules)
+assert not any(name.partition(".")[0] in {"qorqut", "qorqut_context", "qorqut_paper", "qorqut_content"} for name in sys.modules)
 
 class History:
     def capture_receipt(self, uow, receipt, plan): pass
@@ -107,7 +107,7 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-probe-") as directory:
     with reopened.read(business_id=BUSINESS) as uow:
         assert [row["id"] for row in uow.repository("things").list()] == ["a"]
     reopened.close()
-assert not any(name == "bazarlyk" or name.startswith("bazarlyk.") for name in sys.modules)
+assert not any(name == "qorqut" or name.startswith("qorqut.") for name in sys.modules)
 print(json.dumps({"version": qorqut_operations.__version__, "location": str(location)}))
 '''
 
@@ -117,7 +117,7 @@ import importlib.util, json, sys, tempfile
 from dataclasses import replace
 from pathlib import Path
 
-assert importlib.util.find_spec("bazarlyk") is None, "bazarlyk must not be importable"
+assert importlib.util.find_spec("qorqut") is None, "qorqut must not be importable"
 from qorqut_operations import background, signoffs
 from qorqut_operations.application import (Application, CatalogContribution, CatalogEntry, OperationDescriptor,
                                            compose_catalog)
@@ -277,7 +277,7 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-slice-") as directory:
     assert sorted(things) == ["a", "from-program"], things
     assert things["a"]["created_by"] == AGENT and things["from-program"]["created_by"] in workers
     database.close()
-assert not any(name == "bazarlyk" or name.startswith("bazarlyk.") for name in sys.modules)
+assert not any(name == "qorqut" or name.startswith("qorqut.") for name in sys.modules)
 print(json.dumps({"signoff": "applied-once", "program": "succeeded", "digest": golden.definition["digest"][:12]}))
 '''
 
@@ -286,7 +286,7 @@ NEUTRAL = r'''
 import importlib.util, json, sqlite3, sys, tempfile
 from pathlib import Path
 
-assert importlib.util.find_spec("bazarlyk") is None, "bazarlyk must not be importable"
+assert importlib.util.find_spec("qorqut") is None, "qorqut must not be importable"
 from qorqut_operations.application import Application, CatalogContribution, CatalogEntry, OperationDescriptor, OperationRegistry
 from qorqut_operations.application.plans import PlanBuilder, apply_records, ref, require_revision
 from qorqut_operations.contracts import DomainError, InvocationContext, PolicyDecision, Principal, canonical_hash, plain
@@ -448,7 +448,7 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-neutral-") as directory:
         else:
             raise AssertionError("review decisions must be immutable")
     database.close()
-assert not any(name == "bazarlyk" or name.startswith("bazarlyk.") for name in sys.modules)
+assert not any(name == "qorqut" or name.startswith("qorqut.") for name in sys.modules)
 print(json.dumps({"items": ["note", "task"], "link": "authorized-vs-denied", "review": "atomic-with-edit"}))
 '''
 
@@ -457,7 +457,7 @@ DIRECTORY = r'''
 import importlib.util, json, sys, tempfile
 from pathlib import Path
 
-assert importlib.util.find_spec("bazarlyk") is None, "bazarlyk must not be importable"
+assert importlib.util.find_spec("qorqut") is None, "qorqut must not be importable"
 import qorqut_operations.storage.directories as directories
 from qorqut_operations.application import Application, OperationDescriptor, OperationRegistry
 from qorqut_operations.contracts import (ChangePreview, ChangeSet, ExpectedTarget, FieldChange, InvocationContext, PolicyDecision,
@@ -536,7 +536,7 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-directory-") as directory:
         assert [row[0] for row in uow.connection.execute(
             "SELECT state FROM apply_receipts WHERE operation_name='projects_make' ORDER BY created_at")].count("applied") == 1
     database.close()
-assert not any(name == "bazarlyk" or name.startswith("bazarlyk.") for name in sys.modules)
+assert not any(name == "qorqut" or name.startswith("qorqut.") for name in sys.modules)
 print(json.dumps({"directory": "published-once", "replay": "same-key", "foreign-tree": "never-adopted"}))
 '''
 

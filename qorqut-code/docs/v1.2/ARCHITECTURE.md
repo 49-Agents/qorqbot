@@ -59,7 +59,7 @@ The starting source inventory is below. Split files by responsibility when a cur
 
 | Existing v1 source | Planned destination/treatment |
 | --- | --- |
-| `bazarlyk/contracts.py`, `application/{engine,registry,ports,batches}.py` | Operations contracts and application machinery |
+| `qorqut/contracts.py`, `application/{engine,registry,ports,batches}.py` | Operations contracts and application machinery |
 | `application/catalog.py` | Engine-owned definitions in Operations; domain-specific registrations supplied by host composition |
 | `storage/{database,repositories,receipts,files}.py` | Operations storage and generic prepared file execution; host supplies registered target resolution |
 | `policy/resolver.py` | Operations policy logic; domain-specific defaults/restrictions become trusted registered policy contributions |
@@ -73,7 +73,7 @@ The starting source inventory is below. Split files by responsibility when a cur
 | `domains` unrelated to selected changes | Retained host-domain modules; update imports, paths, item references and changed contracts only |
 | Existing document/table history and recovery metadata | Preserve their domain contracts, split storage versus host I/O explicitly; do not replace them with periodic snapshots |
 
-The final tree has one implementation of each moved module. Update current callers to `qorqut_operations` directly and remove the old active implementation/import path. Do not maintain a `bazarlyk.application` re-export layer or `v1_*` engine beside the new one to keep stale imports working. Retained host modules can keep their existing Python namespace; renaming unrelated domain code is unnecessary.
+The final tree has one implementation of each moved module. Update current callers to `qorqut_operations` directly and remove the old active implementation/import path. Do not maintain a `qorqut.application` re-export layer or `v1_*` engine beside the new one to keep stale imports working. Retained host modules can keep their existing Python namespace; renaming unrelated domain code is unnecessary.
 
 ## Concrete coupling that must be removed
 
@@ -85,7 +85,7 @@ These are observed source dependencies, not hypothetical risks:
 4. **Storage knows all tables and document history.** The repository catalog and mutation/history hooks currently include both operational and business-domain tables. Use a composed, frozen schema/repository catalog and explicit transaction hooks; do not blindly move every business feature into Operations or silently omit its history hook.
 5. **Background registration mixes schedule and implementations.** Preserve program IDs, definition digests, declared outputs, worker grants and recovery semantics. Register concrete callbacks from the host; moving their file paths must not accidentally change a program's semantic definition/digest.
 6. **The host has many retained services.** Current `Runtime` includes browser/sandbox, broadcasts, owner reminders, Telegram, private conversations, change feeds, previews and more. The new host must account for every installed service; importing the smaller v2.2 `Backend` alone would lose functionality.
-7. **Path derivation is distributed.** Service startup, dashboard launchers, package source resolution, agent preparation, native hooks and table/document history use old roots. All use the explicit instance paths (`bazarlyk/instance_paths.py`) after the restructure.
+7. **Path derivation is distributed.** Service startup, dashboard launchers, package source resolution, agent preparation, native hooks and table/document history use old roots. All use the explicit instance paths (`qorqut/instance_paths.py`) after the restructure.
 
 Before extraction, create an implementation ledger with source module/symbol, target owner, policy/scope requirements, schema dependencies, background effects, history treatment, focused check and deletion/update status. Include each registration from the current composition root; an unclassified entry prevents marking the host complete.
 

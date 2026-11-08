@@ -44,7 +44,7 @@ are verified independently of those mappings.
 Append the common instance/component/selection arguments to:
 
 ```text
-python -m bazarlyk.bootstrap.learning_removal prepare
+python -m qorqut.bootstrap.learning_removal prepare
   --coordinator-request /private/request.json --release-reference /private/release-reference.json
   --save /private/plan.json
 ```
@@ -65,7 +65,7 @@ After separate deployment authorization, quiesce all writers through the current
 predecessor restart. With the same candidate interpreter and common path/selection arguments:
 
 ```text
-python -m bazarlyk.bootstrap.learning_removal apply
+python -m qorqut.bootstrap.learning_removal apply
   --plan /private/plan.json --backup /private/new-before.sqlite3 --coordinate
 ```
 

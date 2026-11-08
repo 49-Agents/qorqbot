@@ -1,0 +1,286 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "role-workflow",
+      "path": "app/qorqut/agentic/assets/role-workflow.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/role_workflow.py:INSTRUCTIONS"
+    },
+    {
+      "id": "inbox-session",
+      "path": "app/qorqut/agentic/assets/inbox-session-note.md",
+      "parameters": [],
+      "source_site": "app/qorqut/inbox/defaults.py:INBOX_SESSION_NOTE"
+    },
+    {
+      "id": "inbox",
+      "path": "app/qorqut/agentic/assets/inbox.md",
+      "parameters": [],
+      "source_site": "app/qorqut/inbox/defaults.py:INBOX_INSTRUCTIONS"
+    },
+    {
+      "id": "software-ownership",
+      "path": "app/qorqut/agentic/assets/software-ownership.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/engineering.py:SOFTWARE_OWNERSHIP_BOUNDARY"
+    },
+    {
+      "id": "viewbox-guidance",
+      "path": "app/qorqut/agentic/assets/viewbox-guidance.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:VIEWBOX_GUIDANCE"
+    },
+    {
+      "id": "files-link-guidance",
+      "path": "app/qorqut/agentic/assets/files-link-guidance.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:FILES_LINK_GUIDANCE"
+    },
+    {
+      "id": "context-provenance",
+      "path": "app/qorqut/agentic/assets/context-provenance.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "startup",
+      "path": "app/qorqut/agentic/assets/startup.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "completion-report",
+      "path": "app/qorqut/agentic/assets/completion-report.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "thread-replies",
+      "path": "app/qorqut/agentic/assets/thread-replies.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "owner-decisions",
+      "path": "app/qorqut/agentic/assets/owner-decisions.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "trusted-handoffs",
+      "path": "app/qorqut/agentic/assets/trusted-handoffs.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "project-briefing",
+      "path": "app/qorqut/agentic/assets/project-briefing.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "working-memory",
+      "path": "app/qorqut/agentic/assets/working-memory.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "capability-handoffs",
+      "path": "app/qorqut/agentic/assets/capability-handoffs.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "environment-set",
+      "path": "app/qorqut/agentic/assets/environment-set.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "environment-get",
+      "path": "app/qorqut/agentic/assets/environment-get.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "operation-batches",
+      "path": "app/qorqut/agentic/assets/operation-batches.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "task-overview",
+      "path": "app/qorqut/agentic/assets/task-overview.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "environment-list",
+      "path": "app/qorqut/agentic/assets/environment-list.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "legacy-working-memory",
+      "path": "app/qorqut/agentic/assets/legacy-working-memory.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "backlog",
+      "path": "app/qorqut/agentic/assets/backlog.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "private-owner-replies",
+      "path": "app/qorqut/agentic/assets/private-owner-replies.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "task-relations",
+      "path": "app/qorqut/agentic/assets/task-relations.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "signoff-evidence",
+      "path": "app/qorqut/agentic/assets/signoff-evidence.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "learning-review",
+      "path": "app/qorqut/agentic/assets/learning-review.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "context-reads",
+      "path": "app/qorqut/agentic/assets/context-reads.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "context-evidence",
+      "path": "app/qorqut/agentic/assets/context-evidence.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "context-unavailable",
+      "path": "app/qorqut/agentic/assets/context-unavailable.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "identity",
+      "path": "app/qorqut/agentic/assets/identity.md",
+      "parameters": [
+        "DISPLAY_NAME",
+        "NAME",
+        "AGENT_ID",
+        "ROLE_ID",
+        "ROLE_VERSION",
+        "OWNER_NAME",
+        "ASSIGNMENT",
+        "PROFILE_REVISION",
+        "CONFIGURATION"
+      ],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "scope",
+      "path": "app/qorqut/agentic/assets/scope.md",
+      "parameters": [
+        "PROJECT_COUNT"
+      ],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "workspace",
+      "path": "app/qorqut/agentic/assets/workspace.md",
+      "parameters": [
+        "WORKSPACE"
+      ],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "current-configuration",
+      "path": "app/qorqut/agentic/assets/current-configuration.md",
+      "parameters": [
+        "CONFIGURATION"
+      ],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "configuration-header",
+      "path": "app/qorqut/agentic/assets/configuration-header.md",
+      "parameters": [
+        "CONFIGURATION"
+      ],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "selected-project",
+      "path": "app/qorqut/agentic/assets/selected-project.md",
+      "parameters": [
+        "PROJECT_NAME",
+        "PROJECT_ID",
+        "STAGE",
+        "PROJECT_REVISION"
+      ],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "plugins",
+      "path": "app/qorqut/agentic/assets/plugins.md",
+      "parameters": [
+        "PLUGINS"
+      ],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "code-root",
+      "path": "app/qorqut/agentic/assets/code-root.md",
+      "parameters": [
+        "WORKSPACE"
+      ],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "toolkit",
+      "path": "app/qorqut/agentic/assets/toolkit.md",
+      "parameters": [
+        "TOOLKIT_COMMAND"
+      ],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "project-aliases",
+      "path": "app/qorqut/agentic/assets/project-aliases.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:business_directory"
+    },
+    {
+      "id": "team-queue",
+      "path": "app/qorqut/agentic/assets/team-queue.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "task-assignment",
+      "path": "app/qorqut/agentic/assets/task-assignment.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
+      "id": "selected-scope",
+      "path": "app/qorqut/agentic/assets/selected-scope.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    }
+  ]
+}

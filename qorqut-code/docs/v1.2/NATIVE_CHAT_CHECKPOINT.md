@@ -5,10 +5,10 @@ Branch `v1.2/native-chat`, built from the foundation-integration parent `7679f28
 Implements the P2 section of `FEATURE_PORT_DISPATCH.md` for the host (`app/`). Dashboard presentation is the later UI worker's:
 the DTO contract is in `NATIVE_CHAT_DTO.md`.
 
-Reused, not recreated: `bazarlyk.native_archive` (capture, receipts, verified reads). The v2.2 donor snapshot writer is not
+Reused, not recreated: `qorqut.native_archive` (capture, receipts, verified reads). The v2.2 donor snapshot writer is not
 ported. The Operations engine, Context, Task/Action model, role/template sources and history coverage are untouched.
 
-## What is built (`app/bazarlyk/native_chat/`)
+## What is built (`app/qorqut/native_chat/`)
 
 | Module | Role |
 | --- | --- |
@@ -134,7 +134,7 @@ never counts as owner input. See `docs/v1.2/INBOX_NUDGES.md`.
 
 ## Removed / rewired
 
-* Removed: `bazarlyk/global_chat/` (runner, launcher, legacy mirror, correlation, store, terminal observer, http), `tools/global_chat/service.py`
+* Removed: `qorqut/global_chat/` (runner, launcher, legacy mirror, correlation, store, terminal observer, http), `tools/global_chat/service.py`
   (the runner's release recipe), the `chat` extra / `claude-agent-sdk` pin, `QORQUT_GLOBAL_CHAT` branches in the agent hooks, the
   chat-managed branches of `AgentTerminalBackend`, `reply_notifications.snapshot_replies`, and the hook-side flat transcript copy
   (`bootstrap/transcript_snapshot.py::snapshot`; the hook module still publishes the session marker). The retired runner tests,
@@ -189,7 +189,7 @@ Transcript bytes remain only in the archive (separate ownership). The private it
   bounded window.
 * Broadcasts to host-native agents are tightened: they need a verified native session and a ready composer (previously any attached mirror).
 * Owner deletion of a transcript, cross-agent search and the dashboard are out of scope.
-* Legacy tests that cannot be collected on this baseline (`bazarlyk.contracts` is gone) and mention the removed paths were only
+* Legacy tests that cannot be collected on this baseline (`qorqut.contracts` is gone) and mention the removed paths were only
   adjusted textually where they named removed symbols: `test_dual_cli.py`, `test_codex_cli_contract.py`,
   `test_global_learning_real_chats.py`, `test_reply_notifications.py`.
 

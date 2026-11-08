@@ -31,7 +31,7 @@ that is called on this path is a bug.
 ## The operation
 
 * Body exactly `{"edit": <plan>}`; there is no outer `rationale` (the plan carries its own). The schema is the closed D1 plan
-  schema (`bazarlyk.shared_context.graph_edit.PLAN_SCHEMA`: `put_node`, `put_edge`, `remove_node`, `remove_edge`, full records,
+  schema (`qorqut.shared_context.graph_edit.PLAN_SCHEMA`: `put_node`, `put_edge`, `remove_node`, `remove_edge`, full records,
   caller-supplied IDs, explanations, citations and `support_after`), and the library's own `normalize` runs on top of it. Exposures
   (`mcp`, `dashboard`, `worker`), `owner_only=False` and `supports_signoff=False` are unchanged; a policy that requires a Signoff
   for it cannot be configured (`permissions_set` refuses it).

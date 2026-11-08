@@ -7,8 +7,8 @@ policy. It returns the canonical actor, explicit eligible package selection,
 opened module root/state/instance identity, profile revision and registration.
 It performs no toolkit mutation and runs no user-authored program in the service.
 
-The prepared `.bazarlyk/agentic` launcher uses the existing installation helper
-to run `bazarlyk.agentic.client --registration /absolute/prepared/registration.json`.
+The prepared `.qorqut/agentic` launcher uses the existing installation helper
+to run `qorqut.agentic.client --registration /absolute/prepared/registration.json`.
 Preparation owns launcher generation. The client follows MCP initialization and
 calls only `agentic_access` as an operation through `ReconnectBridge`. It then
 opens the module locally and dispatches one request:

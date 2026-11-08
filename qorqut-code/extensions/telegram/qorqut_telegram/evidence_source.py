@@ -1,9 +1,9 @@
 """Exact previously reconciled Telegram-to-native attribution, never a new matcher."""
 import json
 from qorqut_operations.contracts import DomainError
-from bazarlyk.management.identity import installation_owner
-from bazarlyk.native_chat import store
-from bazarlyk.overseer.access import EvidenceAccess
+from qorqut.management.identity import installation_owner
+from qorqut.native_chat import store
+from qorqut.overseer.access import EvidenceAccess
 
 
 def association(runtime, uow, ctx, session, source, position, length):
@@ -74,7 +74,7 @@ def references(source, association):
 kinds = ("telegram_owner_input", "telegram_message")
 
 def authorize(self, ctx, kind, identity, loc, business, uow):
-    from bazarlyk.overseer.access import _forbidden
+    from qorqut.overseer.access import _forbidden
     if kind == 'telegram_owner_input':
         if identity != loc.get('owner_input_id'): _forbidden()
         rows = uow.connection.execute('SELECT agent_id,owner_principal_id,sensitive FROM telegram_owner_inputs WHERE id=?', (identity,)).fetchall()

@@ -13,7 +13,7 @@ Start with the [operating guide](OPERATING_GUIDE.md), then:
   database and policy, and the host lifecycle.
 - [Contracts and boundaries](CONTRACTS.md): behavior, permissions, record ownership and
   retained features.
-- [Committed host DDL](../../app/bazarlyk/composition/schema_ddl.py) and current
+- [Committed host DDL](../../app/qorqut/composition/schema_ddl.py) and current
   [source export integrity](../distribution/RELEASE-RUNBOOK.md). Historical private source receipts are not release gates.
 - [Runtime lifetime, write admission and the recovery barrier](RUNTIME_LIFETIME.md) and
   [idle worker ticks](IDLE_WORKER_TICKS.md).

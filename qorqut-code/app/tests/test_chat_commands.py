@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from bazarlyk.native_chat import commands
+from qorqut.native_chat import commands
 
 
 class CatalogTest(unittest.TestCase):
@@ -29,14 +29,14 @@ class CatalogTest(unittest.TestCase):
         self.write(self.home / ".claude/commands/standup.md", "---\ndescription: Write my standup\n---\nDo it")
         self.write(self.home / ".claude/commands/git/sync.md", "# Sync the branch\nsteps")
         self.write(self.home / ".claude/skills/pdf/SKILL.md", "---\nname: pdf\ndescription: Read PDFs\n---\n")
-        self.write(self.agent / ".claude/skills/bazarlyk-role-owner-focus/SKILL.md", "---\nname: bazarlyk-role-owner-focus\ndescription: x\n---\n")
+        self.write(self.agent / ".claude/skills/qorqut-role-owner-focus/SKILL.md", "---\nname: qorqut-role-owner-focus\ndescription: x\n---\n")
         self.write(self.agent / ".claude/skills/role/SKILL.md", "---\nname: role\ndescription: x\n---\n")
         self.write(self.agent / ".claude/commands/compact.md", "Shadow attempt")
         found = {item["name"]: item for item in commands.catalog("claude", home=self.home, workspace=self.agent)["commands"]}
         self.assertEqual(found["/standup"]["description"], "Write my standup")
         self.assertEqual(found["/git:sync"]["description"], "Sync the branch")
         self.assertEqual((found["/pdf"]["source"], found["/pdf"]["where"]), ("skill", "chat"))
-        self.assertNotIn("/bazarlyk-role-owner-focus", found)
+        self.assertNotIn("/qorqut-role-owner-focus", found)
         self.assertNotIn("/role", found)
         self.assertEqual(found["/compact"]["source"], "built-in")
         self.assertNotIn("/standup", {item["name"] for item in commands.catalog("codex", home=self.home)["commands"]})

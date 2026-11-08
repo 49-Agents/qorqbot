@@ -5,7 +5,7 @@ operations, their permissions and validation, and the common provider helpers; i
 call. Everything Google-specific lives here and is switched on only by selecting the extension in the trusted installation
 configuration. This directory is ordinary source inside the host repository, not a submodule and not a dependency of the core.
 
-- `qorqut_google_calendar.extension:create` is the factory selected through the host's `bazarlyk.extensions` mechanism
+- `qorqut_google_calendar.extension:create` is the factory selected through the host's `qorqut.extensions` mechanism
   (extension id `google_calendar`). It takes an empty configuration, reads no credential, contacts no Google service and starts
   nothing; it contributes one `CalendarProvider("google", GoogleCalendar)`.
 - The adapter keeps the established `google` connection type: one connection is the account's primary Google calendar, with

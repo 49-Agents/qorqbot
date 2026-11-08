@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from bazarlyk import posix_files
+from qorqut import posix_files
 
 
 @unittest.skipUnless(sys.platform == 'darwin' or sys.platform.startswith('linux'), 'POSIX descriptor paths')

@@ -66,7 +66,7 @@ except ImportError:
         Requirement = canonicalize_name = None
 
 # (receipt key, source directory under the export) of the wheels the host environment needs before the host itself.
-_spec = importlib.util.spec_from_file_location("qorqut_source_snapshot", Path(__file__).resolve().parents[1] / "app/bazarlyk/source_snapshot.py")
+_spec = importlib.util.spec_from_file_location("qorqut_source_snapshot", Path(__file__).resolve().parents[1] / "app/qorqut/source_snapshot.py")
 _snapshot = importlib.util.module_from_spec(_spec)
 exec(compile(Path(_spec.origin).read_bytes(), _spec.origin, "exec"), _snapshot.__dict__)
 
@@ -110,7 +110,7 @@ class PrepareError(Exception):
     pass
 
 
-FIRST_PARTY = re.compile(r"(qorqut|bazarlyk)-")
+FIRST_PARTY = re.compile(r"qorqut-")
 HOST_EXTRAS = ("service",)
 # The only pip settings taken from the ambient environment: index, network and cache selection for third-party packages.
 PIP_KEEP = {"PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL", "PIP_TRUSTED_HOST", "PIP_CERT", "PIP_CLIENT_CERT", "PIP_PROXY", "PIP_CACHE_DIR",

@@ -21,7 +21,7 @@ from scripts.measure_mcp_tool_read_efficiency import packed, tokens, source_iden
 def measure(service):
     from starlette.testclient import TestClient
     from qorqut_operations.contracts import new_id
-    from bazarlyk.transport.mcp_reads import OPERATIONS
+    from qorqut.transport.mcp_reads import OPERATIONS
     from mcp_efficiency_support import seed_reads
 
     records = seed_reads(service)
@@ -116,7 +116,7 @@ def measure(service):
             del definition["inputSchema"]["properties"]["if_read_token"]
         return {"repeat_rounds_including_cold_read": repeat_report, "mixed_workflow": total(mixed),
             "comparisons": comparisons, "source": {**source_identity(ROOT),
-                "revalidation_sha256": hashlib.sha256((ROOT / "bazarlyk/transport/mcp_reads.py").read_bytes()).hexdigest()},
+                "revalidation_sha256": hashlib.sha256((ROOT / "qorqut/transport/mcp_reads.py").read_bytes()).hexdigest()},
             "changed_tool_definition_delta_tokens": tokens(packed(selected_definitions)) - tokens(packed(original_definitions)),
             "tokenizer": "tiktoken 0.14.0 / cl100k_base", "production_target_validated": False,
             "harness_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),

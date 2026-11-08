@@ -16,8 +16,8 @@ that the running installation supports this route.
 
 - `/mcp/owner` is a second Streamable-HTTP MCP route beside the unchanged
   registered-agent `/mcp`. Both share one transport implementation through a
-  caller-policy adapter (`bazarlyk/transport/mcp.py`,
-  `bazarlyk/transport/owner_mcp.py`).
+  caller-policy adapter (`qorqut/transport/mcp.py`,
+  `qorqut/transport/owner_mcp.py`).
 - An owner-session credential is an ordinary revocable `credentials` row on
   the installation owner's human principal. Trusted `metadata_json` carries
   `purpose: owner_session`, a version, the bound business UUID, the machine
@@ -52,14 +52,14 @@ section, i.e. disabled, until the owner explicitly enrolls a business.
 
 ## Operation catalog
 
-The route exposes a fixed, explicit catalog (`bazarlyk/owner_sessions.py`);
+The route exposes a fixed, explicit catalog (`qorqut/owner_sessions.py`);
 newly registered operations never enter it automatically, and the catalog
 binds direct calls, aliases and batch entries as well as `tools/list`.
 
 - Orientation: `owner_session_bootstrap`, which includes only compact
   coordinator metadata and operation pointers, never task/message/secret data.
 - Business reads and writes cover the explicit catalog in
-  `bazarlyk/owner_sessions.py`: context/documents/relationships, stories,
+  `qorqut/owner_sessions.py`: context/documents/relationships, stories,
   tables/uploads/assets, metrics/ledger/activity, business settings,
   business-only Settings metadata/value access, tasks, and direct messaging.
   Tasks include `tasks_create`, `tasks_assign`, `assignees_list`,
@@ -157,7 +157,7 @@ dashboard messages read, never change Focus placement and never create work.
    the deployed `biz-core` Python environment to run:
 
    ```sh
-   python -m bazarlyk.bootstrap.owner_prepare prepare \
+   python -m qorqut.bootstrap.owner_prepare prepare \
      --businesses-root <businesses root> \
      --business <uuid-or-slug> \
      --root /abs/path/to/business/code \
@@ -174,13 +174,13 @@ dashboard messages read, never change Focus placement and never create work.
    exposure is required. Server-side business identity is the business UUID;
    a remote machine's paths need not mirror the server's.
 
-Each prepared root receives: `.bazarlyk-owner/` (0600 `credential`, 0700
-POSIX-sh `headers` helper, `registration.json` receipt), a `bazarlyk-owner`
+Each prepared root receives: `.qorqut-owner/` (0600 `credential`, 0700
+POSIX-sh `headers` helper, `registration.json` receipt), a `qorqut-owner`
 entry merged into `.mcp.json`, one marker-delimited instruction block in
-`CLAUDE.md` and `AGENTS.md`, and a `.gitignore` entry for `.bazarlyk-owner/`.
+`CLAUDE.md` and `AGENTS.md`, and a `.gitignore` entry for `.qorqut-owner/`.
 Every prepared root also gets an owned MCP block in `.codex/config.toml`. Unrelated
 MCP servers, authored instructions, ignore entries and client settings are
-preserved; collisions (an existing unrelated `bazarlyk-owner` server, invalid
+preserved; collisions (an existing unrelated `qorqut-owner` server, invalid
 JSON/TOML, unbalanced markers, symlinked paths) abort before anything is written.
 Re-running is idempotent and rotates the machine's credential. Global
 Claude/Codex configuration is never touched, and no approval requirement is
@@ -200,7 +200,7 @@ and does not depend on Python at runtime.
 
    ```sh
    install -d -m 700 "$HOME/.local/share/qorqut/owner-sessions"
-   python -m bazarlyk.bootstrap.owner_prepare issue \
+   python -m qorqut.bootstrap.owner_prepare issue \
      --businesses-root /absolute/path/to/businesses-root \
      --business <uuid-or-slug> \
      --endpoint http://qorqut.example:1071 --label laptop \
@@ -223,7 +223,7 @@ and does not depend on Python at runtime.
    scp <qorqut-host>:.local/share/qorqut/owner-sessions/business-laptop.json \
      "$HOME/.local/share/qorqut/owner-sessions/business-laptop.json"
    chmod 600 "$HOME/.local/share/qorqut/owner-sessions/business-laptop.json"
-   python -m bazarlyk.bootstrap.owner_prepare install \
+   python -m qorqut.bootstrap.owner_prepare install \
      --bundle "$HOME/.local/share/qorqut/owner-sessions/business-laptop.json" \
      --root /absolute/client/path/to/code --nested some/repository
    ```
@@ -234,13 +234,13 @@ and does not depend on Python at runtime.
 
 3. After successful installation, remove the transfer bundle from both
    machines when no longer needed. Credentials remain in each prepared root's
-   private, ignored `.bazarlyk-owner/credential` file. For rotation, issue a new
+   private, ignored `.qorqut-owner/credential` file. For rotation, issue a new
    bundle on Qorqut and reinstall it on that machine. Revocation runs on Qorqut.
 
 ## Launch, reconnect, and concurrency
 
 - Claude Code: `cd <prepared root> && claude` (plain; project `.mcp.json`
-  supplies the `bazarlyk-owner` server).
+  supplies the `qorqut-owner` server).
 - Codex: `cd <prepared root> && codex`. The project-local MCP configuration
   augments the normal user configuration. Do not change `CODEX_HOME`: existing
   authentication, models, permissions, plugins and user MCP settings keep their
@@ -264,13 +264,13 @@ and does not depend on Python at runtime.
 
 - Rotate one machine: re-run `prepare` with the same `--label` (the previous
   credential is revoked and files rewritten).
-- Disable one machine: `python -m bazarlyk.bootstrap.owner_prepare revoke
+- Disable one machine: `python -m qorqut.bootstrap.owner_prepare revoke
   --businesses-root <root> --business <uuid-or-slug> --label <machine>`
   (`--label` defaults to the current hostname).
 - Disable the business: set `owner_sessions.enabled` to `false` — every
   session fails immediately with `forbidden`, without touching credentials.
 - Remove the client integration:
-  `python -m bazarlyk.bootstrap.owner_prepare remove --root <top>
+  `python -m qorqut.bootstrap.owner_prepare remove --root <top>
   [--nested ...]` deletes only owned files and entries and restores prior
   content. Removal does not revoke credentials; revoke separately.
 - Rollback of the whole feature is disable + revoke + remove. Owner-attributed

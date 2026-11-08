@@ -2,7 +2,7 @@ from types import SimpleNamespace
 import unittest
 
 from qorqut_operations.contracts import DomainError
-from bazarlyk.transport.agent_terminal_control import AgentTerminalBackend
+from qorqut.transport.agent_terminal_control import AgentTerminalBackend
 
 
 class Broker:

@@ -1,10 +1,10 @@
 # Native archive checkpoint: the lossless raw transcript library
 
-This is a library checkpoint: `bazarlyk.native_archive` is importable and tested, and nothing calls it. No provider, native product agent, model, database, discovery, Chat projection, notification or lifecycle code runs or was changed, and nothing was deployed, merged or published.
+This is a library checkpoint: `qorqut.native_archive` is importable and tested, and nothing calls it. No provider, native product agent, model, database, discovery, Chat projection, notification or lifecycle code runs or was changed, and nothing was deployed, merged or published.
 
 ## Scope
 
-New files only: `app/bazarlyk/native_archive/` (six modules), `app/tests/test_native_archive*.py` (five files) and this document. No existing runtime, Chat, provider bootstrap/session adapter, schema, import, dependency manifest or package export changed; the package is stdlib-only, so the dependency list is untouched, and the wheel picks the package up through the existing `bazarlyk*` package discovery.
+New files only: `app/qorqut/native_archive/` (six modules), `app/tests/test_native_archive*.py` (five files) and this document. No existing runtime, Chat, provider bootstrap/session adapter, schema, import, dependency manifest or package export changed; the package is stdlib-only, so the dependency list is untouched, and the wheel picks the package up through the existing `qorqut*` package discovery.
 
 The library archives bytes. It never decides who wrote a record: no record text, role or equality is used to infer owner/system provenance, and `RawRecord.value` is only the parsed JSON object of a valid line. Deriving Chat identity, read metadata or input correlation from the archive is later work (see "Remaining P2 work").
 
@@ -21,7 +21,7 @@ The donor's whole-prefix snapshots are not used: the archive keeps one append-on
 
 ## Public API
 
-`from bazarlyk.native_archive import CaptureBinding, CaptureError, CaptureReceipt, FinalCaptureEvidence, IndexEntry, MAX_READ_BYTES, RawRange, RawRecord, RecordIterator, TranscriptArchive`.
+`from qorqut.native_archive import CaptureBinding, CaptureError, CaptureReceipt, FinalCaptureEvidence, IndexEntry, MAX_READ_BYTES, RawRange, RawRecord, RecordIterator, TranscriptArchive`.
 
 - `TranscriptArchive(archive_root, *, clock=None, lock_timeout=10.0)` validates an absolute path string and creates nothing. The caller supplies the root (an agent's transcripts directory from `InstancePaths`); the library never discovers agents, businesses, provider homes or processes. `capture` creates only the root's final directory (its parent must exist: `archive_root_missing`), so a mistaken root cannot fabricate a tree.
 - `capture(binding, *, final_evidence=None) -> CaptureReceipt`: the only writer. Returns the existing latest receipt with no new storage when bytes, binding generation and completeness evidence are unchanged.
@@ -169,14 +169,14 @@ Durability-ordering correction (review of `7af4c84`): the payload flush used to 
 **Installed-wheel check.** `test_native_archive_installed.py` skips unless `NATIVE_ARCHIVE_INSTALLED_PYTHON` names an interpreter. Procedure used (all under `/tmp`, nothing global):
 
 ```
-cp -r pyproject.toml bazarlyk /tmp/na-build/src
-python -m pip wheel --no-deps -w /tmp/na-build/wheels /tmp/na-build/src      # bazarlyk_core-1.2.0.dev0-py3-none-any.whl
+cp -r pyproject.toml qorqut /tmp/na-build/src
+python -m pip wheel --no-deps -w /tmp/na-build/wheels /tmp/na-build/src      # qorqut_core-1.2.0.dev0-py3-none-any.whl
 python -m venv /tmp/na-installed
-/tmp/na-installed/bin/python -m pip install --no-deps /tmp/na-build/wheels/bazarlyk_core-*.whl
+/tmp/na-installed/bin/python -m pip install --no-deps /tmp/na-build/wheels/qorqut_core-*.whl
 NATIVE_ARCHIVE_INSTALLED_PYTHON=/tmp/na-installed/bin/python python -m pytest tests/test_native_archive_installed.py
 ```
 
-`--no-deps` is used because the distribution's other dependencies (one a Git URL) are irrelevant to this stdlib-only package. The child runs `python -I` from an unrelated directory with no `PYTHONPATH`, asserts the imported `bazarlyk.native_archive` lives in `site-packages` and not in the source tree, performs a synthetic Claude capture sequence (partial tail → completed record → final-tail evidence), reads the bytes and records back and walks the hash chain. The built wheel (sha256 `739f8a842d04560c34777b50f6029aac9d6109916ccacd6f0bdd762e7956e93a`) contained `bazarlyk/native_archive/{__init__,_archive,_files,_format,_providers,_types}.py`. The wheel's build backend was fetched from the package index by pip in the isolated build environment; nothing else left the machine.
+`--no-deps` is used because the distribution's other dependencies (one a Git URL) are irrelevant to this stdlib-only package. The child runs `python -I` from an unrelated directory with no `PYTHONPATH`, asserts the imported `qorqut.native_archive` lives in `site-packages` and not in the source tree, performs a synthetic Claude capture sequence (partial tail → completed record → final-tail evidence), reads the bytes and records back and walks the hash chain. The built wheel (sha256 `739f8a842d04560c34777b50f6029aac9d6109916ccacd6f0bdd762e7956e93a`) contained `qorqut/native_archive/{__init__,_archive,_files,_format,_providers,_types}.py`. The wheel's build backend was fetched from the package index by pip in the isolated build environment; nothing else left the machine.
 
 ## Decisions
 

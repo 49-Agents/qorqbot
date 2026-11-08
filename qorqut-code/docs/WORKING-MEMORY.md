@@ -107,7 +107,7 @@ this model keep their paths and IDs.
   `tag` keeps notes carrying that tag. Plain agent listings still return only the caller's own notes.
 - A Global agent's private note with `related_business_id` stays private; tagging or mentioning a project never makes it
   project-owned. Project notes are not automatic Context Base sources; an author may snapshot one with `notes_upload`.
-- Legacy `category` metadata is not interpreted at run time. `python -m bazarlyk.migration.project_note_tags` (dry-run
+- Legacy `category` metadata is not interpreted at run time. `python -m qorqut.migration.project_note_tags` (dry-run
   unless `--apply`) converts an explicit workspace copy: the old label becomes an ordinary tag, `category` leaves the metadata
   and frontmatter, and ID, author, path and body text are preserved. A file whose canonical metadata changes gets a freshly
   computed content hash, reported as before/after; unchanged bytes keep their hash. It never touches a live database.

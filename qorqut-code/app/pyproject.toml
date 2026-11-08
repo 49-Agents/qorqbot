@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 license-files = ["LICENSE", "LICENSES/Apache-2.0.txt", "RELEASE-LICENSES.json"]
-name = "bazarlyk-core"
+name = "qorqut-core"
 version = "1.3.0.dev0"
 description = "Shared Qorqut application operations and operational storage"
 requires-python = ">=3.12"
@@ -19,18 +19,18 @@ dependencies = ["qorqut-agentic==0.2.0", "qorqut-operations==1.3.0.dev0", "qorqu
     "qorqut-business-docs-versioning==0.2.0"]
 
 [project.scripts]
-release-worker = "bazarlyk.release_worker.cli:main"
-qorqut-release-worker = "bazarlyk.release_worker.cli:main"
+release-worker = "qorqut.release_worker.cli:main"
+qorqut-release-worker = "qorqut.release_worker.cli:main"
 
 [project.optional-dependencies]
 service = ["mcp>=1.29,<2", "starlette>=1.0,<2", "uvicorn>=0.52,<1", "httpx>=0.27,<1", "websockets>=16,<17"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["bazarlyk*"]
+include = ["qorqut*"]
 
 [tool.setuptools.package-data]
-"bazarlyk.agentic" = ["assets/index.json"]
-"bazarlyk.bootstrap" = ["browser_init.cjs", "learning_removal_predecessor.json"]
-"bazarlyk.migration" = ["crm_baseline_fingerprint.json", "crm_release_fingerprints.json"]
-"bazarlyk.release_worker" = ["installation.schema.json"]
+"qorqut.agentic" = ["assets/index.json"]
+"qorqut.bootstrap" = ["browser_init.cjs", "learning_removal_predecessor.json"]
+"qorqut.migration" = ["crm_baseline_fingerprint.json", "crm_release_fingerprints.json"]
+"qorqut.release_worker" = ["installation.schema.json"]

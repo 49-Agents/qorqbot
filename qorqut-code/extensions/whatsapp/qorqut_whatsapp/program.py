@@ -127,7 +127,7 @@ class WhatsAppSendProgram:
 
     @staticmethod
     def _approved(job, args, uow, denied):
-        from bazarlyk.background.approved_send import approved_send_plan
+        from qorqut.background.approved_send import approved_send_plan
         plan = approved_send_plan(job, args, OPERATION, uow)
         if plan.arguments.get("chat_id") != args["chat_id"] or plan.arguments.get("text") != args["text"]:
             raise denied

@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 import unittest
 
-from bazarlyk.native_chat import projection
+from qorqut.native_chat import projection
 
 
 def record(text, uuid, offset=0):

@@ -6,12 +6,12 @@ This is a **driver and its isolated proof, not the finished Context writer**: it
 
 | Piece | Where | Needs |
 | --- | --- | --- |
-| Queue driver | `app/bazarlyk/shared_context/driver.py`: `ContextQueueDriver` | Operations at `5e856de` (`context_queue.queue`/`transitions`) **plus** the `queued -> blocked` correction (`5faa01e`) and the `context_filing` contribution (`e008efd`); Context library `2e59b525ddc0cedba3bc342d901520b0643a7c54` (`record_context` on `begin`/`begin_action`/`Pipeline.submit*`); `bazarlyk.management.identity.configured_ordubashy` |
-| Bounded loop | `app/bazarlyk/shared_context/loop.py`: `ContextDriverLoop` | the driver |
+| Queue driver | `app/qorqut/shared_context/driver.py`: `ContextQueueDriver` | Operations at `5e856de` (`context_queue.queue`/`transitions`) **plus** the `queued -> blocked` correction (`5faa01e`) and the `context_filing` contribution (`e008efd`); Context library `2e59b525ddc0cedba3bc342d901520b0643a7c54` (`record_context` on `begin`/`begin_action`/`Pipeline.submit*`); `qorqut.management.identity.configured_ordubashy` |
+| Bounded loop | `app/qorqut/shared_context/loop.py`: `ContextDriverLoop` | the driver |
 | Source ownership | Operations `qorqut_operations/context_filing/` | `context_inputs`; composed after `context_queue` |
 | Isolated fixture | `app/tests/test_shared_context_driver.py` | the Operations synthetic host (`tests/operational_support.py`, path in `QORQUT_OPERATIONS_TESTS`) and a library with `record_context`; the module skips otherwise |
 
-`bazarlyk.shared_context.__init__` deliberately does **not** import the driver or the loop. The driver imports `qorqut_operations.context_filing` and the queue transitions, which the current foundation pin (`138f40c`) does not carry; composition imports `bazarlyk.shared_context.driver` and `.loop` explicitly once the Operations pin carries both. The P3 binding of the host (`0943145`) is not merged here, so this was proven against the real Operations queue and unit of work, not a combined installed host.
+`qorqut.shared_context.__init__` deliberately does **not** import the driver or the loop. The driver imports `qorqut_operations.context_filing` and the queue transitions, which the current foundation pin (`138f40c`) does not carry; composition imports `qorqut.shared_context.driver` and `.loop` explicitly once the Operations pin carries both. The P3 binding of the host (`0943145`) is not merged here, so this was proven against the real Operations queue and unit of work, not a combined installed host.
 
 ## Operations: `context_filing` (source ownership)
 

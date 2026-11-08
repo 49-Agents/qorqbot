@@ -4,7 +4,7 @@ Package `qorqut_operations.history_exports`. It holds both halves of the operati
 (`ExportCatalog` and its contributions) and the generic read-only snapshot engine that versions the exported rows and the
 authored areas in a private Git repository ([Snapshot engine](#snapshot-engine) below). The host decides where things are and
 when to run; it keeps the installation's area resolution, cross-feature export catalog and lifecycle wiring
-(`bazarlyk.operations_history.composition`).
+(`qorqut.operations_history.composition`).
 
 The package is a library. Importing it or constructing anything in it opens, writes and commits nothing, loads no plugin and
 registers nothing with HTTP/MCP; it is not re-exported from `qorqut_operations`, `storage`, the schema, the assembly or any

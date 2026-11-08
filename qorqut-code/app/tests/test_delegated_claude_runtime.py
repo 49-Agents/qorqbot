@@ -11,8 +11,8 @@ import uuid
 
 from qorqut_operations.contracts import DomainError
 
-from bazarlyk.bootstrap import delegated_runtime as runtime_module
-from bazarlyk.bootstrap.delegated_runtime import (DelegatedRuntime, MissingRuntimeThread, claude_usage,
+from qorqut.bootstrap import delegated_runtime as runtime_module
+from qorqut.bootstrap.delegated_runtime import (DelegatedRuntime, MissingRuntimeThread, claude_usage,
                                                   claude_worker_command, interpret_event, worker_command)
 
 SESSION = "7d1e7c52-9a0b-4c55-8f0e-2f4d3b1c9a10"
@@ -44,7 +44,7 @@ emit({{"type": "result", "subtype": "success", "is_error": False, "session_id": 
 
 class CommandTests(unittest.TestCase):
     def test_new_session_is_isolated_headless_and_scoped(self):
-        command = claude_worker_command(ASSIGNMENT, REGISTRATION, Path("/tmp/worker/.bazarlyk/registration.json"))
+        command = claude_worker_command(ASSIGNMENT, REGISTRATION, Path("/tmp/worker/.qorqut/registration.json"))
         self.assertEqual(command[:2], ["claude", "-p"])
         self.assertIn("stream-json", command)
         self.assertEqual(command[command.index("--setting-sources") + 1], "project,local")
@@ -52,14 +52,14 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(command[command.index("--permission-mode") + 1], "dontAsk")
         self.assertIn("--strict-mcp-config", command)
         servers = json.loads(command[command.index("--mcp-config") + 1])["mcpServers"]
-        self.assertEqual(list(servers), ["bazarlyk"])
-        self.assertEqual(servers["bazarlyk"]["type"], "http")
-        self.assertEqual(servers["bazarlyk"]["url"], "http://127.0.0.1:1049/mcp")
-        self.assertIn("bazarlyk.bootstrap.mcp_headers", servers["bazarlyk"]["headersHelper"])
+        self.assertEqual(list(servers), ["qorqut"])
+        self.assertEqual(servers["qorqut"]["type"], "http")
+        self.assertEqual(servers["qorqut"]["url"], "http://127.0.0.1:1049/mcp")
+        self.assertIn("qorqut.bootstrap.mcp_headers", servers["qorqut"]["headersHelper"])
         allowed = command[command.index("--allowedTools") + 1:]
         allowed = allowed[:next((i for i, value in enumerate(allowed) if value.startswith("--")), len(allowed))]
-        self.assertIn("mcp__bazarlyk__tasks_get", allowed)
-        self.assertTrue(all(name.startswith("mcp__bazarlyk__") for name in allowed))
+        self.assertIn("mcp__qorqut__tasks_get", allowed)
+        self.assertTrue(all(name.startswith("mcp__qorqut__") for name in allowed))
         self.assertNotIn("--resume", command)
 
     def test_codex_model_is_not_passed_to_claude_but_effort_is(self):

@@ -61,9 +61,9 @@ WHEEL_RUNTIME_DATA = ("qorqut_agentic/resources/",)
 PRIVATE_ROOTS = {"execution", "inventory", "worktrees"}
 SOURCE_ONLY_REPORTS = {"REPORT.md", "RESULT.md", "IMPLEMENTATION-PLAN.md"}
 RELEASE_HELPERS = {"__init__.py", "lifetime.py", "reference_targets.py", "continuity.py"}
-RELEASE_PACKAGE = "app/bazarlyk/release_worker/"
+RELEASE_PACKAGE = "app/qorqut/release_worker/"
 RELEASE_ENTRY_POINTS = ("release-worker", "qorqut-release-worker")
-RELEASE_TARGET = "bazarlyk.release_worker.cli:main"
+RELEASE_TARGET = "qorqut.release_worker.cli:main"
 HOST_EXCLUDES = (
     "tools", "docs/release", "docs/distribution", "docs/v1.2", "docs/INSTALLED-TOOLING.md",
     "app/scripts", "app/tools/release_worker", "app/tools/check_installed_host.py", "app/tools/installed_host_probe.py",
@@ -76,19 +76,19 @@ RUNTIME_INIT = b'"""Shared runtime/session helpers; release execution is not inc
 # Initialization, migration, recovery, schema/template, helper, instruction and notice files the runtime cannot do without.
 # Paths are relative to the export root. A missing file is reported by the audit, never created.
 REQUIRED_RUNTIME_ASSETS = {
-    "initialization": ("qorqut-code/app/bazarlyk/bootstrap/initialize.py",),
-    "migrations": ("qorqut-code/app/bazarlyk/migration/crm_upgrade.py", "qorqut-code/app/bazarlyk/migration/crm_baseline_fingerprint.json",
-                   "qorqut-code/app/bazarlyk/agentic/upgrade.py", "qorqut-code/app/bazarlyk/reminders/upgrade.py"),
-    "recovery": ("qorqut-code/app/bazarlyk/bootstrap/recovery.py", "qorqut-code/app/bazarlyk/storage/recovery.py",
-                 "qorqut-code/app/bazarlyk/storage/full_recovery.py",
+    "initialization": ("qorqut-code/app/qorqut/bootstrap/initialize.py",),
+    "migrations": ("qorqut-code/app/qorqut/migration/crm_upgrade.py", "qorqut-code/app/qorqut/migration/crm_baseline_fingerprint.json",
+                   "qorqut-code/app/qorqut/agentic/upgrade.py", "qorqut-code/app/qorqut/reminders/upgrade.py"),
+    "recovery": ("qorqut-code/app/qorqut/bootstrap/recovery.py", "qorqut-code/app/qorqut/storage/recovery.py",
+                 "qorqut-code/app/qorqut/storage/full_recovery.py",
                  "qorqut-code/qorqut-context/qorqut_context/recovery.py"),
     "templates-and-schemas": ("qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/host/app/templates/plugins/basic/plugin.yaml", "qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/host/app/plugins/agent-terminal-control/plugin.yaml",
                               "qorqut-code/app/package-sources.json", "qorqut-code/app/service-constraints.txt"),
-    "native-helpers": ("qorqut-code/app/bazarlyk/bootstrap/browser_init.cjs", "qorqut-code/app/tools/browser/desktop_session.py",
+    "native-helpers": ("qorqut-code/app/qorqut/bootstrap/browser_init.cjs", "qorqut-code/app/tools/browser/desktop_session.py",
                        "qorqut-code/app/tools/browser/run-agent-browser", "qorqut-code/app/tools/browser/package.json",
                        "qorqut-code/biz-dashboard/index.html", "qorqut-code/biz-dashboard/pty_broker.py"),
     "core-instructions": ("qorqut-agentic/src/qorqut_agentic/resources/defaults/roles/imported-roles",
-                          "qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/email/plugin.yaml", "qorqut-code/app/bazarlyk/release_worker/lifetime.py"),
+                          "qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/email/plugin.yaml", "qorqut-code/app/qorqut/release_worker/lifetime.py"),
     "google-calendar": ("qorqut-code/extensions/google-calendar/pyproject.toml",),
 }
 NOTICE_NAMES = re.compile(r"^(?:LICENSE|LICENCE|NOTICE|COPYING|THIRD[-_ ]PARTY)(?:[-_.].*)?$", re.I)
@@ -115,7 +115,7 @@ class AuditError(ValueError):
 
 def load_snapshot(path=None):
     """The host's pure format-1 integrity helper, executed from the tooling checkout without writing bytecode."""
-    path = Path(path) if path else Path(__file__).resolve().parents[2] / "app/bazarlyk/source_snapshot.py"
+    path = Path(path) if path else Path(__file__).resolve().parents[2] / "app/qorqut/source_snapshot.py"
     module = type(sys)("qorqut_source_snapshot")
     exec(compile(path.read_bytes(), str(path), "exec"), module.__dict__)
     return module
@@ -216,12 +216,12 @@ def runtime_pyproject(raw):
         text, count = re.subn(r"^" + re.escape(name) + r'\s*=\s*"' + re.escape(RELEASE_TARGET) + r'"\s*\n', "", text, flags=re.M)
         if count != 1:
             raise ValueError("Cannot remove release entry point: " + name)
-    text = re.sub(r'^"bazarlyk\.release_worker"\s*=\s*\["installation\.schema\.json"\]\s*\n', "", text, flags=re.M)
+    text = re.sub(r'^"qorqut\.release_worker"\s*=\s*\["installation\.schema\.json"\]\s*\n', "", text, flags=re.M)
     after = tomllib.loads(text)
     expected = json.loads(json.dumps(before))
     for name in RELEASE_ENTRY_POINTS:
         del expected["project"]["scripts"][name]
-    expected.get("tool", {}).get("setuptools", {}).get("package-data", {}).pop("bazarlyk.release_worker", None)
+    expected.get("tool", {}).get("setuptools", {}).get("package-data", {}).pop("qorqut.release_worker", None)
     if after != expected:
         raise ValueError("Runtime metadata edit changed unrelated fields")
     return text.encode()
@@ -234,7 +234,7 @@ def runtime_release_init(raw):
 
 
 EDITS = {("qorqut-code", "app/pyproject.toml"): ("release-entry-points", runtime_pyproject),
-         ("qorqut-code", "app/bazarlyk/release_worker/__init__.py"): ("release-worker-initializer", runtime_release_init)}
+         ("qorqut-code", "app/qorqut/release_worker/__init__.py"): ("release-worker-initializer", runtime_release_init)}
 
 
 # --- projection ------------------------------------------------------------------------------------------------------
@@ -761,7 +761,7 @@ def _wheel_reason(member):
         return "test-case"
     if parts[0] in {"tools", "scripts", "deploy", "examples", "evaluations", *PRIVATE_ROOTS}:
         return "development-deployment-tools"
-    if member.startswith("bazarlyk/release_worker/") and name not in RELEASE_HELPERS:
+    if member.startswith("qorqut/release_worker/") and name not in RELEASE_HELPERS:
         return "release-executor"
     if re.fullmatch(r"[^/]+\.data/scripts/(?:qorqut-)?release-worker", member):
         return "release-executor"

@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from bazarlyk.agents.resolver import AgentConfigResolver
+from qorqut.agents.resolver import AgentConfigResolver
 from qorqut_operations.contracts import DomainError, Principal
 
 AGENT = '11111111-1111-4111-8111-111111111111'
@@ -71,7 +71,7 @@ class BootstrapQueryTests(unittest.TestCase):
             yield SimpleNamespace(connection=self.db)
         resolver.database = SimpleNamespace(read=read)
         self.resolver = resolver
-        patcher = patch('bazarlyk.agents.resolver.with_effective_scope', lambda profile, connection: profile)
+        patcher = patch('qorqut.agents.resolver.with_effective_scope', lambda profile, connection: profile)
         patcher.start()
         self.addCleanup(patcher.stop)
 

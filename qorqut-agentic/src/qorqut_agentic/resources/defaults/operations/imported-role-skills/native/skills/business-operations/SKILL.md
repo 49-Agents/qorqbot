@@ -1,5 +1,5 @@
 ---
-name: bazarlyk-role-business-operations
+name: qorqut-role-business-operations
 description: Authorized project technical operations, configuration and release verification. Software, site/UI design, landing-page, script, test, CI and IaC development is the owner's by default; an agent builds only on the owner's direct instruction.
 ---
 

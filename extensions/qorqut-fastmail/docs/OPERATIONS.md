@@ -2,7 +2,7 @@
 
 ## Configuration
 
-Selected through the existing `bazarlyk.extensions` mechanism in the trusted installation configuration; nothing else enables it.
+Selected through the existing `qorqut.extensions` mechanism in the trusted installation configuration; nothing else enables it.
 
 | key | required | meaning |
 | --- | --- | --- |

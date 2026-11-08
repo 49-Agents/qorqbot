@@ -6,7 +6,7 @@ import shutil
 import tempfile
 import unittest
 
-from bazarlyk.native_archive import CaptureBinding, CaptureError, TranscriptArchive
+from qorqut.native_archive import CaptureBinding, CaptureError, TranscriptArchive
 
 
 class RelocationTests(unittest.TestCase):

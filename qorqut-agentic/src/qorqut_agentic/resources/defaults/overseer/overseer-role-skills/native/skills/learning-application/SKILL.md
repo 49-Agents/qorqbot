@@ -1,5 +1,5 @@
 ---
-name: bazarlyk-role-learning-application
+name: qorqut-role-learning-application
 description: Extract evidence-backed agentic proposals, review them with the owner, and apply selected accepted changes through the managed Overseer workflows; factual Context remains separate.
 ---
 

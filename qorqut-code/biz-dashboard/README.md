@@ -2,7 +2,7 @@
 
 The owner dashboard for the Qorqut agent platform. It is a component of the
 Qorqut host, not an independent production server: the host service
-(`bazarlyk.service`, from `qorqut-code/app`) serves these static assets, the
+(`qorqut.service`, from `qorqut-code/app`) serves these static assets, the
 tmux terminal mirrors and the authenticated HTTP MCP endpoint from one process.
 `start.sh` launches that service; `server.py` is only a thin entry point that
 forwards its arguments to it. There is no business-chat subprocess, CLI domain
@@ -23,7 +23,7 @@ Nothing in this component installs, deploys or restarts a service.
 |---|---|
 | `index.html`, `file-viewer.html`, `tables-view.html` | Entry pages: the shell, the standalone file reader and the read-only table page. |
 | `js/`, `css/`, `app.css` | Static modules and styles. There is no frontend build step. |
-| `server.py` | Thin entry point: imports the installed host's `bazarlyk.service.main` and forwards its arguments. It never looks for a sibling host checkout and holds no service, configuration or write logic. |
+| `server.py` | Thin entry point: imports the installed host's `qorqut.service.main` and forwards its arguments. It never looks for a sibling host checkout and holds no service, configuration or write logic. |
 | `pty_broker.py` | The tmux/PTY mirror. |
 | `start.sh`, `.env.dashboard.example` | Launcher and its machine config (see [Setup and lifecycle](#setup-and-lifecycle)). |
 | `docs/` | Component contracts (see [Documents](#documents)). |
@@ -62,7 +62,7 @@ Copy `.env.dashboard.example` to `.env.dashboard` (gitignored) and fill it in.
 `COMPONENT_OPERATIONS_ENGINE`, `COMPONENT_CONTEXT_ENGINE` and `COMPONENT_ROLES`.
 Every selection is an absolute, normalized path; nothing is discovered. It
 forwards them as `--workspace`, `--instance-root` and `--component NAME=PATH` to
-`python -I -m bazarlyk.service`. `BIZ_ROOT` and `BIZ_DIRS` are retired.
+`python -I -m qorqut.service`. `BIZ_ROOT` and `BIZ_DIRS` are retired.
 
 ```sh
 ./start.sh argv        # print the command without starting anything
@@ -391,7 +391,7 @@ From this directory, with the host's `app` checkout and an interpreter that has 
 Operations and Context engines installed:
 
 ```sh
-BAZARLYK_CORE_ROOT=/absolute/path/to/qorqut-code/app \
+QORQUT_CORE_ROOT=/absolute/path/to/qorqut-code/app \
 QORQUT_TEST_ROLE_ROOT=/absolute/path/to/qorqut-agentic/src/qorqut_agentic/resources/defaults \
 TEST_PYTHON=/absolute/path/to/python \
   node tests/<file>.js

@@ -10,13 +10,13 @@ from unittest.mock import patch
 
 from qorqut_agentic.behavior.instructions import from_catalog
 from qorqut_agentic.behavior.todo_adjustment import due
-from bazarlyk.agents.todo_adjustment import TodoAdjustment
-from bazarlyk.agents.attention_delivery import AttentionRuntime
-from bazarlyk.native_chat.arbiter import InputArbiter
-from bazarlyk.native_chat import schema, store
-from bazarlyk.native_chat.contracts import InputRequest, TYPE_NUDGE
-from bazarlyk.native_chat.probe import Observation, ProbeResult
-from bazarlyk.transport.agent_terminal_control import OwnerInputOutcome
+from qorqut.agents.todo_adjustment import TodoAdjustment
+from qorqut.agents.attention_delivery import AttentionRuntime
+from qorqut.native_chat.arbiter import InputArbiter
+from qorqut.native_chat import schema, store
+from qorqut.native_chat.contracts import InputRequest, TYPE_NUDGE
+from qorqut.native_chat.probe import Observation, ProbeResult
+from qorqut.transport.agent_terminal_control import OwnerInputOutcome
 
 AGENT = 'ordubashy'
 START = datetime(2026, 11, 8, 12, tzinfo=timezone.utc)
@@ -77,8 +77,8 @@ class AdjustmentTests(unittest.TestCase):
         self.runtime.native_chat = NS(probe=probe, registry=registry, arbiter=arbiter)
         self.review = TodoAdjustment(self.runtime, clock=lambda: self.stamp())
         self.addCleanup(patch.stopall)
-        patch('bazarlyk.agents.todo_adjustment.configured_ordubashy', lambda _: self.coordinator).start()
-        patch('bazarlyk.native_chat.store.utc_now', lambda: self.stamp()).start()
+        patch('qorqut.agents.todo_adjustment.configured_ordubashy', lambda _: self.coordinator).start()
+        patch('qorqut.native_chat.store.utc_now', lambda: self.stamp()).start()
 
     def stamp(self, value=None):
         return (value or self.now).isoformat().replace('+00:00', 'Z')
@@ -266,8 +266,8 @@ class TimingTests(unittest.TestCase):
 
 class InstallationTests(unittest.TestCase):
     def test_imported_instruction_catalog_includes_daily_adjustment(self):
-        from bazarlyk.agentic.inventory import inventory_sources
-        from bazarlyk.agentic.support import decoded
+        from qorqut.agentic.inventory import inventory_sources
+        from qorqut.agentic.support import decoded
         root = Path(str(files('qorqut_agentic').joinpath('resources/defaults'))).resolve()
         inventory = inventory_sources({'roles': str(root)}, [])
         package = next(p for p in inventory['packages'] if p['id'] == 'runtime-instructions')

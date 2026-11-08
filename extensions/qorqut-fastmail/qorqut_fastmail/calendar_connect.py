@@ -1,6 +1,6 @@
 """One-time local Fastmail calendar connection setup: python -m qorqut_fastmail.calendar_connect --help.
 
-Core keeps the Google OAuth helper (``python -m bazarlyk.calendar.connect``). This helper saves a ``fastmail`` CalDAV connection
+Core keeps the Google OAuth helper (``python -m qorqut.calendar.connect``). This helper saves a ``fastmail`` CalDAV connection
 into the same private ``calendar.json``: it asks for a calendar app password on the terminal, creates no event and prints no
 credential."""
 
@@ -8,7 +8,7 @@ import argparse
 import getpass
 from pathlib import Path
 
-from bazarlyk.calendar.connect import save_connection
+from qorqut.calendar.connect import save_connection
 
 
 def connection(username: str, app_password: str, identities: str = "") -> dict:

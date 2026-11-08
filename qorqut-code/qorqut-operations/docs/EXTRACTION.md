@@ -5,12 +5,12 @@ deliberate differences from that code, the ports a host supplies, table ownershi
 documents contracts, not release status.
 
 After the v1.32 merge: the host's `platform_actions` and `domains.email` that this document names as host-owned were retired with core
-email. Their two Signoff ports (`platform`, `email`) remain optional declarations a host may leave `ABSENT`, which the Bazarlyk host does,
+email. Their two Signoff ports (`platform`, `email`) remain optional declarations a host may leave `ABSENT`, which the Qorqut host does,
 and `ActionOperations` is the one Action writer the host composes; `ActionWriteback` stays here as a library capability with no host caller.
 
 ## Source map
 
-| v1 (`bazarlyk/…`) | Here (`qorqut_operations/…`) | Change |
+| v1 (`qorqut/…`) | Here (`qorqut_operations/…`) | Change |
 |---|---|---|
 | `contracts.py` | `contracts.py` | verbatim |
 | `local_time.py`, `business_lifecycle.py` | same names | import path only |
@@ -24,7 +24,7 @@ and `ActionOperations` is the one Action writer the host composes; `ActionWriteb
 | `storage/receipts.py` | `storage/receipts.py` | document availability/history behind `ResourceLifecycle` / `ReceiptHistory` |
 | `storage/files.py` (`FileApplier`, `RegisteredFileTarget`) | `storage/files.py` | explicit `LockPaths` |
 | `signoffs/execution.py` (`PreparedFileExecutor`, `application_claim`) | `storage/executor.py` | the file-execution part only, with explicit `LockPaths`; Signoff execution proper is in `signoffs/service.py` (see "Signoff, routine and quiescence") |
-| `storage/safe_io.py` | `storage/safe_io.py` | unchanged on disk: `TEMPORARY_PREFIX = ".bazarlyk-"` is the retained v1 temporary-file prefix that recovery sweeps match (`storage/recovery.py`); the constant stays, there is no second prefix |
+| `storage/safe_io.py` | `storage/safe_io.py` | new temporary files use `TEMPORARY_PREFIX = ".qorqut-"`; recovery excludes every `TEMPORARY_PREFIXES` entry, including interrupted pre-rename writes |
 | `storage/recovery.py` admission classes | `storage/admission.py` | `InstallationRecoveryLock` takes an explicit path; `RecoveryAdmission` unchanged |
 | `policy/resolver.py` | `policy/rules.py`, `resolver.py` | hard rules here, domain rules contributed |
 | migrations 001–113 (SQL) | `storage/core_schema.py` | engine tables only; v1.3 maintains it directly (the derivation tool is removed, see "Retired product surface" below) |
@@ -157,7 +157,7 @@ or scheduling freedoms; approval still applies the saved v1 proposal automatical
 
 ### Source map
 
-| v1 (`bazarlyk/…`) | Here (`qorqut_operations/…`) | Change |
+| v1 (`qorqut/…`) | Here (`qorqut_operations/…`) | Change |
 |---|---|---|
 | `signoffs/service.py` | `signoffs/service.py` | host reaches → `SignoffPorts`; `SignoffService(database, ports, *, locks, file_applier=None, clock, id_factory)` + one `bind(application)` |
 | `signoffs/inputs.py`, `notes.py`, `rejection.py`, `notifications.py` | same names | ports only; `NOTE_REFS` derives from `ReferenceVocabulary.targets` |
@@ -166,7 +166,7 @@ or scheduling freedoms; approval still applies the saved v1 proposal automatical
 | `domains/routines/operations.py`, `reads.py` | `routines/operations.py`, `reads.py` | `RoutineOperations(programs, authority, *, clock)` is application-free; catalog entries + `contribution()` |
 | `sandbox/quiescence.py` (generic part), `sandbox/recovery_gate.py` | `storage/quiescence.py`, `storage/recovery_gate.py` | `RecoveryQuiescer`, `QuiescenceProof`, `BoundedWriter`, `KnownZeroWriters`, `DatabaseMaintenanceGate`; Docker freezers/ownership stay host |
 | `roles.py` ids, `domains/conversations.py`, `domains/team_channel.py` | same names | pure helpers the extracted code compares against; the department registry (`departments.py`) is removed in v1.3 |
-| thread names `bazarlyk-signoffs`, `bazarlyk-background` | `operations-signoffs`, `operations-background` | the only identifier changes that are not import paths |
+| thread names `qorqut-signoffs`, `qorqut-background` | `operations-signoffs`, `operations-background` | the only identifier changes that are not import paths |
 
 ### Precise differences from the extracted code (Signoff, routine, quiescence)
 
@@ -342,7 +342,7 @@ access: registering a kind grants none, enumeration grants none, a port cannot r
 
 ### Source map
 
-| v1 (`bazarlyk/…`) | Here (`qorqut_operations/…`) | Change |
+| v1 (`qorqut/…`) | Here (`qorqut_operations/…`) | Change |
 |---|---|---|
 | `domains/relationships/items.py` (`ContextItems`) | `items.py` | a class that held the Story service and every domain → `ItemContribution`, `ItemLookup`, `ItemCandidates`, `ItemResolver`; `authorize` → `authorize_item_read`; `item_revision`; `UNAVAILABLE` |
 | `domains/relationships/operations.py` | `relationships/operations.py`, `edges.py`, `ports.py` | `RelationshipOperations(items, ports, *, clock)`; `ROLES`/`WORKFLOW_ROLES`/`protected_edge`/Material/archive/navigation → `RelationshipPorts`; helpers `endpoints`, `edge_view`, `edge_values`, `related_rows`, `create_edge` |
@@ -685,7 +685,7 @@ workflow_roles, materials, archive, navigation, review_edits)` are the complete 
 
 ## Installed-wheel smoke
 
-`tools/check_installed_wheel.py` runs four scripts from the installed wheel, with no `bazarlyk` importable:
+`tools/check_installed_wheel.py` runs four scripts from the installed wheel, with no `qorqut` importable:
 
 * the foundation probe,
 * the Signoff and registered-program slice. Its proposer is an active global agent (a supported role, an ecosystem scope,

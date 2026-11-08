@@ -110,7 +110,7 @@ class FastmailMutationProgram:
         app.fastmail.access(ctx, uow)
         from .operations import SENDING
         if operation in SENDING:
-            from bazarlyk.background.approved_send import approved_send_plan
+            from qorqut.background.approved_send import approved_send_plan
             plan = approved_send_plan(control.job, args, operation, uow)
             if plain(plan.arguments) != plain(payload):
                 raise DomainError('forbidden', 'Email payload differs from the owner-approved draft')

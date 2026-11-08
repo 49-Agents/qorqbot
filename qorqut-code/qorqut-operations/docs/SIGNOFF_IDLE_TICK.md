@@ -41,7 +41,7 @@ Ordinary (non-urgent) alerts cannot make a tick due by themselves; they are deli
 The preflight deliberately does not run visibility, management routing or the owners' scopes (above). A notify-enabled, pending,
 unsnoozed urgent or blocking Signoff whose `next_notify_at` is due therefore makes the preflight answer yes even when the
 authoritative tick later filters it out for every owner. An example is a management-routed question. The host's managed-input
-predicate (`bazarlyk.management.service.MANAGED_INPUT_SQL`: a pending `input_request` question with `management_allowed` response
+predicate (`qorqut.management.service.MANAGED_INPUT_SQL`: a pending `input_request` question with `management_allowed` response
 policy and a `management_routing` row that sends attention to management) is applied by the tick through
 `ports.management.managed_input_sql`, so no owner's tick sees it, and no owner can receive it while that routing stands.
 

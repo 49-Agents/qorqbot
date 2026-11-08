@@ -96,7 +96,7 @@ Task port; `TaskWrites` announcing a Task written inside another domain's plan o
   `root/operations` route list in `transport/http.py` and `transport/mcp_presentation.py` name `actions_thread_get`
   nowhere. Add them with the Chat/UI integration (the owner cannot `actions_comment`).
 * Generated schema: the `global_chat` tables (`composition/schema_ddl.py`, group `global-chat`, and
-  `bazarlyk/global_chat`, `reply_notifications.py`) are intentionally NOT removed on this isolated branch; their exact
+  `qorqut/global_chat`, `reply_notifications.py`) are intentionally NOT removed on this isolated branch; their exact
   deletion belongs to the approved combined feature integration after P2. Full Story removal is P6.
 * `ContextQueueOperations` is built without a content cap (`max_content_bytes=None`); the Context piece supplies its limit.
 * Dashboard repository: `biz-dashboard/js/actions.js` still calls `actions_update` and `task-snooze.js` reads
@@ -108,4 +108,4 @@ Task port; `TaskWrites` announcing a Task written inside another domain's plan o
 * `composition/tables.py` is hand-maintained; the retired specs were removed by hand.
 * `maintenance/single_agent` remains a conversion tool for the v1 schema (data migration is a later phase); it only lost
   its import of the removed Task configuration.
-* About 399 retained legacy host tests are not migrated (they import `bazarlyk.contracts`); they were not run.
+* About 399 retained legacy host tests are not migrated (they import `qorqut.contracts`); they were not run.

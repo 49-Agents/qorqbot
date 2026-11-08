@@ -9,7 +9,7 @@ Installed distributions are selected once by the trusted installation configurat
                 "config": {"engine_url": "http://127.0.0.1:8787", "admin_token_file": "/absolute/private/engine-admin-token"}}]
 ```
 
-- **Selection** is read once from the trusted installation configuration (`bazarlyk.extensions.installed_selection`), never from a
+- **Selection** is read once from the trusted installation configuration (`qorqut.extensions.installed_selection`), never from a
   request, agent, role package or environment variable. A listed factory that is not installed is a startup error.
 - **Composition**: each extension returns an immutable `Extension` declaration (storage, catalog entries, history
   classifications, workspace types, item kinds, source handlers, calendar providers, note derivations, native MCP connections, package validators,
@@ -21,7 +21,7 @@ Installed distributions are selected once by the trusted installation configurat
   overlap core's API, MCP, health, static and asset namespaces or pages, or another extension's route, and its frame rules must
   lie inside its own routes.
 - **Store**: an extension's tables come from its storage contribution and are part of the store fingerprint. A store is prepared
-  offline for one selection (`initialize_empty_target`, used by `python -m bazarlyk.bootstrap.initialize --extensions-config`, see [Installation](INSTALLATION.md)), the runtime never migrates, and a store prepared for a different
+  offline for one selection (`initialize_empty_target`, used by `python -m qorqut.bootstrap.initialize --extensions-config`, see [Installation](INSTALLATION.md)), the runtime never migrates, and a store prepared for a different
   selection is refused when serving: the opened store's extension owners, ordered DDL, table specifications, immutable columns and
   required table / lifecycle metadata must equal the selected extensions' own storage, not only carry the same owner names.
 - **Distributions**: each connector declares its compatible host version and its own optional dependencies.
@@ -42,4 +42,4 @@ Installed distributions are selected once by the trusted installation configurat
 - **Native connections**: an extension that provides an MCP connection names the roles it serves (`NativeConnection.roles`); the
   default role packages do not name any extension.
 
-The declaration contract is [extensions.py](../app/bazarlyk/extensions.py); each package documents its own configuration in its README.
+The declaration contract is [extensions.py](../app/qorqut/extensions.py); each package documents its own configuration in its README.

@@ -2,7 +2,7 @@
 import json
 import unittest
 
-from bazarlyk.native_chat.chat import launch_commands
+from qorqut.native_chat.chat import launch_commands
 
 
 def profile(data):

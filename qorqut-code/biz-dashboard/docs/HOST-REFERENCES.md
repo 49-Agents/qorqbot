@@ -6,7 +6,7 @@ The host's `docs/v1.2/OPERATING_GUIDE.md` is the entry point for operating the d
 
 ## Service
 
-`qorqut-code/app/bazarlyk/service/README.md`: host composition and the origin the dashboard is served from.
+`qorqut-code/app/qorqut/service/README.md`: host composition and the origin the dashboard is served from.
 
 ## Tables
 

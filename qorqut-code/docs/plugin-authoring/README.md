@@ -7,7 +7,7 @@ CLI. Rename IDs and skill paths together, then validate the instantiated directo
 
 ```python
 from pathlib import Path
-from bazarlyk.catalog.packages import load_package
+from qorqut.catalog.packages import load_package
 package = load_package(Path("/absolute/plugin"), "plugin.yaml", "plugin", registry)
 ```
 
@@ -19,7 +19,7 @@ Required manifest fields: `schema_version: 1`, a lowercase hyphenated `id`, sema
 `version`, bounded `description`, `scope_kinds` (business and/or ecosystem),
 `config_schema`, `tools`, `rules` and `skills`. Each skill has a unique `id` and a
 relative `path` ending in `SKILL.md`. Its YAML frontmatter must name exactly
-`bazarlyk-plugin-<skill-id>` with a bounded description. Unknown fields, unsafe paths,
+`qorqut-plugin-<skill-id>` with a bounded description. Unknown fields, unsafe paths,
 missing files, symlinks, executable/unsupported skill files and invalid names fail.
 Configuration defaults to an object with `properties: {}` and
 `additionalProperties: false`; tools default to `tools: {}` and rules to `{}`.

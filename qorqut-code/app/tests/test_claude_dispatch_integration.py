@@ -18,12 +18,12 @@ from unittest import mock
 
 from qorqut_operations.contracts import ArtifactRef, DomainError, InvocationContext, Principal, new_id
 from qorqut_operations.storage.database import Database
-from bazarlyk.agents.operational_delegation import OperationalDelegation, OperationalDelegationOperations
-from bazarlyk.bootstrap.delegated_runtime import DelegatedRuntime
-from bazarlyk.composition.assembly import host_assembly
-from bazarlyk.inbox.service import InboxService
-from bazarlyk.service.changes import ChangeFeed
-from bazarlyk.transport.auth import Authentication
+from qorqut.agents.operational_delegation import OperationalDelegation, OperationalDelegationOperations
+from qorqut.bootstrap.delegated_runtime import DelegatedRuntime
+from qorqut.composition.assembly import host_assembly
+from qorqut.inbox.service import InboxService
+from qorqut.service.changes import ChangeFeed
+from qorqut.transport.auth import Authentication
 
 
 class ClaudeDispatchIntegration(unittest.TestCase):
@@ -47,8 +47,8 @@ class ClaudeDispatchIntegration(unittest.TestCase):
         from qorqut_agentic.behavior.instructions import from_catalog
         instruction_root = files('qorqut_agentic').joinpath('resources/defaults/operations/runtime-instructions')
         instructions = from_catalog(lambda path: instruction_root.joinpath(path).read_text())
-        (workspace / '.bazarlyk').mkdir()
-        (workspace / '.bazarlyk/runtime-instructions.json').write_bytes(instructions.bytes())
+        (workspace / '.qorqut').mkdir()
+        (workspace / '.qorqut/runtime-instructions.json').write_bytes(instructions.bytes())
         authentication = Authentication(database, root, clock=lambda: now.timestamp())
         failures = []
 
@@ -123,8 +123,8 @@ class ClaudeDispatchIntegration(unittest.TestCase):
             invoked = []
             child_code = '''import json,pathlib,sys,urllib.request
 sys.stdin.read()
-registration=json.loads(pathlib.Path('.bazarlyk/registration.json').read_text())
-token=pathlib.Path('.bazarlyk/credential').read_text().strip()
+registration=json.loads(pathlib.Path('.qorqut/registration.json').read_text())
+token=pathlib.Path('.qorqut/credential').read_text().strip()
 print(json.dumps({'type':'system','subtype':'init','session_id':sys.argv[1]}),flush=True)
 request=urllib.request.Request(registration['service_url']+'/checkpoint',data=b'{}',
     headers={'Authorization':'Bearer '+token},method='POST')
@@ -141,7 +141,7 @@ print(json.dumps({'type':'result','subtype':'success','is_error':False,
                 'workspace': str(workspace), 'service_url': endpoint, 'durable_delegation_enabled': True}
             driver = DelegatedRuntime(parent_registration, consumer, alive=lambda: True,
                 runtime='claude-code', executable='claude', client=Client(), popen=launch,
-                state_root=state / 'bazarlyk' / 'delegated-workers')
+                state_root=state / 'qorqut' / 'delegated-workers')
             driver._execute(claim)
             self.assertEqual(failures, [])
             self.assertEqual(invoked[:2], ['claude', '-p'])
@@ -151,7 +151,7 @@ print(json.dumps({'type':'result','subtype':'success','is_error':False,
                 self.assertEqual(completed['runtime_thread_id'], conversation)
                 self.assertEqual(store.worker_usage(uow, saved['id'])['turns'], 1)
                 self.assertEqual(store.worker_usage(uow, saved['id'])['input_tokens'], 10)
-            self.assertFalse((Path(claim['worker_workspace']) / '.bazarlyk/credential').exists())
+            self.assertFalse((Path(claim['worker_workspace']) / '.qorqut/credential').exists())
         finally:
             server.shutdown()
             server.server_close()

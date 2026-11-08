@@ -13,8 +13,8 @@ import tempfile
 from pathlib import Path
 import unittest
 
-from bazarlyk import agent_trust
-from bazarlyk.bootstrap.preparation import agent_shell, agent_zshrc
+from qorqut import agent_trust
+from qorqut.bootstrap.preparation import agent_shell, agent_zshrc
 
 # Arguments the owner might type: spaces, an empty value, shell metacharacters and an option Qorqbot also sets.
 USER_ARGUMENTS = ["--resume", "two words", "", "$HOME", "*", "x;y", "--settings", "mine.json"]
@@ -59,7 +59,7 @@ class Scope:
         self.subdirectory_link = self.base / "link to sub"
         self.subdirectory_link.symlink_to(self.subdirectory)
         (self.workspace / "out").symlink_to(self.project)
-        self.launch_settings = self.workspace / ".bazarlyk" / "claude-launch-settings.json"
+        self.launch_settings = self.workspace / ".qorqut" / "claude-launch-settings.json"
         self.shell_file = self.write_shell(self.workspace)
 
     def write_shell(self, workspace, name="agent-shell"):

@@ -1,8 +1,8 @@
 # Supervised (manual) Context edits
 
 Source of truth for the supervised variant of `context_edit` (production contract decisions 2 and 3). Code:
-`app/bazarlyk/shared_context/supervised_edit.py` (adapter), `graph_edit.py` (`GraphEditPorts.supervised_pipeline`, ownership rules and
-`GraphEditAuthority`, otherwise unchanged) and `app/bazarlyk/domains/context_sources.py` (the one `context_edit` descriptor). The queued
+`app/qorqut/shared_context/supervised_edit.py` (adapter), `graph_edit.py` (`GraphEditPorts.supervised_pipeline`, ownership rules and
+`GraphEditAuthority`, otherwise unchanged) and `app/qorqut/domains/context_sources.py` (the one `context_edit` descriptor). The queued
 `qorqut-graph-edit-v1` edit, its Operations `context_graph_edits` binding and its driver are untouched; this variant does not use them.
 
 ## What it is

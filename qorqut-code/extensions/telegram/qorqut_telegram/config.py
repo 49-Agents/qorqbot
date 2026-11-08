@@ -16,9 +16,9 @@ import re
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from bazarlyk.agents.roles import ORDUBASHY_ROLE
+from qorqut.agents.roles import ORDUBASHY_ROLE
 from qorqut_operations.contracts import DomainError, canonical_hash
-from bazarlyk.private_files import read_private_file
+from qorqut.private_files import read_private_file
 
 CONFIG_ENV = "QORQUT_TELEGRAM_CONFIG_FILE"
 VERSION = 1

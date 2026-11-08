@@ -1,5 +1,5 @@
 ---
-name: bazarlyk-plugin-agent-terminal-control
+name: qorqut-plugin-agent-terminal-control
 description: Inspect and control scoped agent terminals; Ordubashy and Global Marketing can start, restart, stop and directly message business Dev sessions.
 ---
 
