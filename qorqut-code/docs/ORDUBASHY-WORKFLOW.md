@@ -10,6 +10,16 @@ Todo is the existing persistent Attention list under its current name. `todo_get
 
 The same list shows work for the owner and agents, with Everyone, You and Agents filters based on the current Worker set. Delegation does not remove the coordinator's commitment. Done and blocked records retain the existing removal protections. Focus keeps its existing curated-priorities purpose and tools; presenting a reference does not automatically add a Focus card.
 
+### Daily Todo adjustment
+
+The existing inactivity polling pass invites the configured Ordubashy to run a careful Todo list adjustment at most once per elapsed 24 hours. The first eligible pass sends the invitation; it is not a calendar-day schedule and missed days do not accumulate. Eligibility requires a live, idle native session, at least 15 minutes since session observation and agent activity, and at least 30 minutes since the last owner message. Paused or stopped sessions, pending native input and revoked session authority prevent delivery. A stale Focus does not prevent housekeeping when the session is actually idle. Done-only lists qualify; empty lists do not.
+
+The authored `todo-adjustment` instruction asks Ordubashy to read every page, remove Done memberships while retaining the underlying records and history, reconcile states, Workers and stale focus, and update the appropriate threads with meaningful progress. The owner's standing daily-cleanup request supplies the explicit owner authorization required for Done removal. Unfinished commitments, unanswered questions and private messages retain their existing protections. The invitation itself never changes Tasks or Todo memberships.
+
+Native input receipts preserve the interval across host restarts and session/provider changes without a schema change. A known-not-typed attempt can retry with its original text; an uncertain delivery consumes the interval conservatively and is not replayed. After 24 hours, the next eligible invitation is a new occurrence, independent of any earlier uncertain receipt. The daily invitation takes precedence over an ordinary Attention nudge and suppresses another ordinary chat reminder for 15 minutes. It uses the existing idle-only input arbiter and never launches or resumes an agent.
+
+Existing installations need both the host change and adoption of the Agentic instruction. Until `todo-adjustment` is available in the active instruction catalog, ordinary nudges continue without the daily invitation.
+
 ## Recording on behalf of the owner
 
 Task, Action and Table discussions, Signoff notes, private item conversations and agent messages accept attributed relays. `explicit_owner_statement` records a reported statement; `owner_intent` marks Ordubashy's interpretation; `agent_report` reports another registered agent. The actual writer remains recorded, and agent-message replies continue routing to the actual sender. Relayed owner text is right-aligned with agent colouring and a recorder label.
