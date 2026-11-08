@@ -7,8 +7,7 @@ def email_outcome(row, uow, *, detail=False):
     state = row['state']
     stage = {'pending': 'awaiting_approval', 'approved': 'approved', 'applied': 'approved',
              'rejected': 'cancelled', 'conflicted': 'failed', 'failed': 'failed'}.get(state, 'failed')
-    result = {'kind': 'account_email', 'stage': stage, 'provider_submission_accepted': False,
-              'recipient_delivery_confirmed': False}
+    result = {'kind': 'account_email', 'stage': stage, 'provider_submission_accepted': False}
     job_id = ((row.get('apply_result_json') or {}).get('data') or {}).get('job_id')
     job = uow.repository('jobs', business_id=None).get(job_id) if job_id else None
     if not job or job['kind'] != 'fastmail.account_mutation':

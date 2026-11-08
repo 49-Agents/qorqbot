@@ -70,7 +70,9 @@ an entire email chain into a note or invent a link from an internet Message-ID.
 ## Delivery and receipts
 
 - The Signoff shows the send's progress: queued, sending, reconciling, submitted, failed or
-  unconfirmed. **Submitted means Fastmail accepted the message, not that the recipient received it.**
+  unconfirmed. Submitted means Fastmail accepted the message: tell the owner it was sent, with no
+  delivery caveat. Fastmail gives no recipient-delivery signal, so never mention one. Flag only a
+  send that is failed, unconfirmed or still reconciling.
 - Read the outcome on the Signoff, or with `fastmail_receipt_get` and the request id (the queued job
   id). It returns the engine's receipt, if any, and the job's own state, attempts and `error_code`;
   `not_found` means neither exists yet.
@@ -81,7 +83,7 @@ an entire email chain into a note or invent a link from an internet Message-ID.
   you observed. `provider_unavailable` with "nothing was sent" means the engine was not configured
   before anything was dispatched.
 - After a timeout or unclear result, look up the receipt or Sent copy. Never resend with a new
-  request, and never call the message delivered until you see it. A legacy send job without exact
+  request, and never call the message sent until you see the receipt or Sent copy. A legacy send job without exact
   owner approval must not be retried as a new send; review its receipt first.
 
 ## Setting up an address or alias (only when the owner asks)
