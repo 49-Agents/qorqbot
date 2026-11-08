@@ -134,7 +134,7 @@ class PortAndHintTests(unittest.TestCase):
         self.assertTrue(any('brew install tmux' in note for note in notes))
         self.assertTrue(any('claude' in note and 'codex' in note for note in notes))
         tools = Path(tempfile.mkdtemp())
-        for name in ('tmux', 'codex'):
+        for name in ('tmux', 'codex', 'google-chrome'):
             (tools / name).write_text('#!/bin/sh\n')
             (tools / name).chmod(0o755)
         self.assertEqual(readiness_notes(str(tools), system='Linux'), [])

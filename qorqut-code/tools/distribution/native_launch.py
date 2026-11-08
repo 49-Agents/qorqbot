@@ -7,6 +7,7 @@ No installer, daemon, permission broker or host configuration is installed.
 from __future__ import annotations
 
 import argparse
+import base64
 import fcntl
 import hashlib
 import json
@@ -19,6 +20,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tarfile
 import time
 import urllib.request
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -103,6 +105,9 @@ def environment(root, home):
     # Vendor clients remain user-installed and use the user's existing account
     # configuration. Qorqbot's own state and generated workspace files stay here.
     env.setdefault('CODEX_HOME', str(user_home / '.codex'))
+    browser_tool = agent_browser_path(root)
+    if 'QORQUT_AGENT_BROWSER_EXECUTABLE' not in env and browser_tool.is_file():
+        env['QORQUT_AGENT_BROWSER_EXECUTABLE'] = str(browser_tool)
     env.setdefault('CLAUDE_CONFIG_DIR', str(user_home / '.claude'))
     timezone_file = root / 'instance/config/operational-timezone'
     if timezone_file.exists():
@@ -165,6 +170,94 @@ def require_prerequisites(env):
                            + install_hint('python3.12-venv')) from None
 
 
+# The browser tool the agents' own browser control drives (bazarlyk.browser), pinned to the version and npm integrity
+# in qorqut-code/app/tools/browser/package-lock.json. Qorqbot installs it into the folder itself on first launch; only the
+# native binary for this machine is kept, so no Node is needed to run it.
+AGENT_BROWSER_VERSION = '0.38.1'
+AGENT_BROWSER_URL = 'https://registry.npmjs.org/agent-browser/-/agent-browser-0.38.1.tgz'
+AGENT_BROWSER_SHA512 = 'k58FCz0yUOCANoNkMiqJe+H2y6r6sUZazqXsWF+MYq1iRC42PjtLcBoag6SSTOD/FRQppvPDvE5HDYEhclvnhw=='
+AGENT_BROWSER_LIMIT = 200 * 1024 * 1024
+MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+CHROME_URL = 'https://www.google.com/chrome/'
+
+
+def agent_browser_binary_name(system=None, machine=None):
+    """The binary in the agent-browser package for this machine, or None where Qorqbot has no package."""
+    system, machine = (system or platform.system()), (machine or platform.machine()).lower()
+    if system == 'Darwin' and machine in ('arm64', 'aarch64'):
+        return 'agent-browser-darwin-arm64'
+    if system == 'Linux' and machine in ('x86_64', 'amd64'):
+        return 'agent-browser-linux-x64'
+    return None
+
+
+def agent_browser_path(root):
+    return Path(root) / 'tools' / ('agent-browser-' + AGENT_BROWSER_VERSION) / 'agent-browser'
+
+
+def _download(url, destination, limit, timeout=120, opener=urllib.request.urlopen):
+    digest = hashlib.sha512()
+    size = 0
+    with opener(url, timeout=timeout) as response, destination.open('wb') as output:
+        while True:
+            chunk = response.read(1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > limit:
+                raise RuntimeError('The agent-browser download is larger than expected')
+            digest.update(chunk)
+            output.write(chunk)
+    return base64.b64encode(digest.digest()).decode()
+
+
+def ensure_agent_browser(root, *, system=None, machine=None, download=_download):
+    """Install the pinned agent-browser into ``root/tools`` if it is not there yet. Returns its path, or None with the
+    reason as a second value when it could not be installed (offline, unsupported machine). Never raises for those."""
+    target = agent_browser_path(root)
+    if target.is_file() and os.access(target, os.X_OK):
+        return target, None
+    name = agent_browser_binary_name(system, machine)
+    if name is None:
+        return None, 'Web browsing for agents is not available on this machine type.'
+    work = target.parent.parent / ('.agent-browser-download-' + str(os.getpid()))
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True, mode=0o700)
+    try:
+        archive = work / 'package.tgz'
+        try:
+            integrity = download(AGENT_BROWSER_URL, archive, AGENT_BROWSER_LIMIT)
+        except OSError:
+            return None, 'Could not download the browser tool for agents. Qorqbot tries again at the next start.'
+        if integrity != AGENT_BROWSER_SHA512:
+            raise RuntimeError('The agent-browser download does not match its pinned checksum')
+        with tarfile.open(archive, 'r:gz') as package:
+            member = package.getmember('package/bin/' + name)
+            if not member.isfile():
+                raise RuntimeError('The agent-browser package has an unexpected layout')
+            source = package.extractfile(member)
+            staged = work / 'agent-browser'
+            with staged.open('wb') as output:
+                shutil.copyfileobj(source, output)
+        staged.chmod(0o755)
+        check = subprocess.run([str(staged), '--version'], capture_output=True, text=True, timeout=30,
+                               stdin=subprocess.DEVNULL)
+        if check.returncode != 0 or AGENT_BROWSER_VERSION not in check.stdout:
+            raise RuntimeError('The downloaded agent-browser does not run on this machine')
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.replace(staged, target)
+        return target, None
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def chrome_installed(path=None, system=None):
+    """Google Chrome, which the agents' browsers run on. Qorqbot cannot install it; the owner is told when it is missing."""
+    if (system or platform.system()) == 'Darwin' and os.access(MAC_CHROME, os.X_OK):
+        return True
+    return any(shutil.which(name, path=path) for name in ('google-chrome-stable', 'google-chrome', 'chromium', 'chromium-browser'))
+
+
 AGENT_CLIS = (('claude', 'Claude Code', 'https://docs.anthropic.com/en/docs/claude-code'),
               ('codex', 'Codex', 'https://github.com/openai/codex'))
 
@@ -172,6 +265,8 @@ AGENT_CLIS = (('claude', 'Claude Code', 'https://docs.anthropic.com/en/docs/clau
 def readiness_notes(path, system=None):
     """Optional tools the dashboard works without but agents need. Returned as lines to print, never raised."""
     notes = []
+    if not chrome_installed(path, system):
+        notes.append('Your agents need Google Chrome to work on the web. Install it from ' + CHROME_URL)
     if not shutil.which('tmux', path=path):
         notes.append('Agent terminals need tmux. Install it with: ' + install_hint('tmux', system=system))
     if not any(shutil.which(command, path=path) for command, _, _ in AGENT_CLIS):
@@ -483,6 +578,13 @@ def main(argv=None):
         require_prerequisites(env)
         prepare(root, env)
         record = initialize(root, env)
+        # First launch installs the agents' browser tool; later launches find it in place.
+        try:
+            _, browser_problem = ensure_agent_browser(root)
+        except (RuntimeError, OSError, KeyError, tarfile.TarError, subprocess.SubprocessError) as error:
+            browser_problem = 'The browser tool for agents could not be installed: ' + str(error)
+        if browser_problem:
+            print(browser_problem, flush=True)
         if args.command == 'calendar-connect':
             env = environment(root, root / 'instance/home')
             run([runtime / 'venv/bin/python', '-I', '-B', '-m', 'qorqut_google_calendar.connect',

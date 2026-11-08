@@ -6,6 +6,7 @@ import stat
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 from bazarlyk import owner_settings
 
@@ -25,6 +26,13 @@ class AboutTest(unittest.TestCase):
     def test_a_development_server_has_no_install_facts(self):
         view = owner_settings.about_view({})
         self.assertEqual((view["version"], view["install_folder"], view["data_folder"]), (None, None, None))
+
+    def test_reports_whether_chrome_is_installed(self):
+        from unittest import mock
+        with mock.patch("bazarlyk.native_paths.installed_chrome", return_value=None):
+            self.assertIs(owner_settings.about_view({})["chrome_installed"], False)
+        with mock.patch("bazarlyk.native_paths.installed_chrome", return_value="/Applications/Google Chrome.app"):
+            self.assertIs(owner_settings.about_view({})["chrome_installed"], True)
 
 
 class AgentClientsTest(unittest.TestCase):
@@ -46,7 +54,10 @@ class AgentClientsTest(unittest.TestCase):
         return run
 
     def view(self, outputs):
-        return owner_settings.agent_clients_view({"PATH": str(self.bin), "HOME": str(self.bin)}, run=self.fake_run(outputs))
+        # Only discover this fixture's CLIs, even when the development host has
+        # Claude installed in one of the production fallback directories.
+        with mock.patch("bazarlyk.connectors.SYSTEM_PATH", ()):
+            return owner_settings.agent_clients_view({"PATH": str(self.bin), "HOME": str(self.bin)}, run=self.fake_run(outputs))
 
     def test_both_installed_and_signed_in(self):
         self.cli("claude"); self.cli("codex")

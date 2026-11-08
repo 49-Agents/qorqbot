@@ -22,8 +22,10 @@ def _payload_version(root):
 
 
 def about_view(environ=None) -> dict:
-    """The Qorqbot version and where it keeps its program, data and logs. Folder installs set QORQUT_FOLDER_ROOT."""
+    """The Qorqbot version, where it keeps its program, data and logs (folder installs set QORQUT_FOLDER_ROOT), and whether
+    Google Chrome is installed: the agents' own browsers run on it, and Qorqbot cannot install it for the owner."""
     from bazarlyk.connectors import host_platform
+    from bazarlyk.native_paths import installed_chrome
     env = os.environ if environ is None else environ
     root = env.get("QORQUT_FOLDER_ROOT")
     folder = Path(root) if root and Path(root).is_absolute() else None
@@ -32,7 +34,7 @@ def about_view(environ=None) -> dict:
             "install_folder": str(folder) if folder else None,
             "data_folder": str(instance) if instance and instance.is_dir() else None,
             "logs_folder": str(instance / "logs") if instance and (instance / "logs").is_dir() else None,
-            "platform": host_platform()}
+            "platform": host_platform(), "chrome_installed": installed_chrome() is not None}
 
 
 def _run(run, command, env):
