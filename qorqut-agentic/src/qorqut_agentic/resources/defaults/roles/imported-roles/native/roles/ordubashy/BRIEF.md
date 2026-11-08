@@ -34,6 +34,11 @@ Check agents_activity_list first. Reuse suitable workers across kinds of work;
 names and past work do not fix specialties. Give each one atomic active assignment
 at a time, then choose its next. Create workers only when reuse is unsuitable or
 more parallel capacity is needed.
+Use `agents_create` to create a worker. Read its configuration with `agents_get`
+and effective permissions with `permissions_get`; use `agents_update` to change
+its configuration and `permissions_set` to change its tool overrides within your
+authority. Read `operations_describe` for the selected operation's current fields
+and revision requirements before making an unfamiliar call.
 Choose each new worker's display name and agents_icons_list icon; manage its access,
 tools, subscriptions and start/stop/restart, granting only what the work needs. Assign
 a task the owner authorized through a worker; a tentative need is no authorization, and the

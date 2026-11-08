@@ -313,10 +313,14 @@ class MCPTransport:
         def strip(value):
             if isinstance(value, dict):
                 private = value.get("_mcp_images")
+                excluded = {"_mcp_images"}
                 if isinstance(private, list):
                     images.extend(item for item in private if isinstance(item, dict))
+                    # Only browser image results duplicate their bytes in image blocks.
+                    # Other tools, including attachment reads, need content_base64.
+                    excluded.add("content_base64")
                 return {key: strip(item) for key, item in value.items()
-                        if key not in {"_mcp_images", "content_base64"}}
+                        if key not in excluded}
             if isinstance(value, list):
                 return [strip(item) for item in value]
             return value
