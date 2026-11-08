@@ -13,6 +13,7 @@ async function fixture(width) {
   const page = await browser.newPage();
   await page.setViewportSize({width,height:520});
   await page.setContent('<div class="agfocus" data-attention-board><header><div data-attention-focus></div><p data-attention-error hidden></p></header><div data-attention-list></div></div>');
+  await page.addStyleTag({path:path.join(__dirname,'../app.css')});
   await page.addStyleTag({path:path.join(__dirname,'../css/agent-focus.css')});
   await page.evaluate(() => {
     window.state = {bizs:[]};
@@ -62,19 +63,29 @@ browserTest('Todo owner toggle switches between my tasks and everyone', async ()
   }
 });
 
-browserTest('Todo rows carry the shared worker control and an unassigned row stays visible', async () => {
+browserTest('Todo displays assigned workers without offering assignment controls', async () => {
   const {browser, page} = await fixture(1024);
   try {
-    // Every row mounts the one shared control; an unassigned row keeps the quiet empty marker.
+    // Read-only avatars preserve worker visibility; unassigned tasks have no plus button.
     assert.equal(await page.locator('[data-attention-list] [data-task-workers]').count(), 4);
     assert.equal(await page.evaluate(() => workerMounts), 4);
     const empty = page.locator('[data-attention-member="m3"] [data-task-workers]');
     assert.equal(await empty.count(), 1);
-    assert.equal(await empty.locator('.muted').textContent(), '+');
+    assert.equal(await empty.isVisible(), false);
+    assert.equal(await empty.textContent(), '');
     assert.equal(await empty.getAttribute('aria-label'), 'Workers: none');
     const shared = page.locator('[data-attention-member="m4"] [data-task-workers]');
     assert.equal(await shared.locator('.identity-avatar').count(), 2);
     assert.equal(await shared.getAttribute('aria-label'), 'Workers: me, agent-1');
+    assert.equal(await shared.evaluate(el => el.tagName), 'SPAN');
+    assert.equal(await shared.getAttribute('role'), 'img');
+    assert.equal(await page.locator('button[data-task-workers]').count(), 0);
+    await page.evaluate(() => { window.assignmentCalls=0; window.taskOpens=0; window.workCall=async()=>{assignmentCalls++;throw Error('Unexpected worker editor');}; window.attentionBoardOpen=async()=>{taskOpens++;}; });
+    await shared.click();
+    assert.equal(await page.evaluate(() => assignmentCalls), 0);
+    assert.equal(await page.locator('.task-worker-picker').count(), 0);
+    assert.equal(await page.evaluate(() => taskOpens), 1);
+    assert.deepEqual(await titles(page), ['Mine', 'Agent only', 'Unassigned', 'Shared']);
     assert.equal(await page.evaluate(() => typeof taskWorkerMount), 'function');
   } finally { await browser.close(); }
 });
