@@ -5,6 +5,10 @@ Signoffs is the owner-response inbox. `input_request` extends the existing
 approval or execution bindings. The shared application, SQLite, existing MCP,
 and dashboard HTTP transports remain authoritative.
 
+For editable content, use [Draft reviews](DRAFT-REVIEWS.md): the same input
+request lifecycle with owner-edited fields, saved versions and a returned draft.
+Returning a draft is separate from approval to execute an action.
+
 ## Agent operations
 
 `signoffs_input_create` takes a stable `request_key`, a `form`, optional

@@ -21,11 +21,16 @@ CHOICE = schema({"id": {"type": "string", "pattern": "^[a-zA-Z0-9_-]{1,40}$"},
 ATTENTION = schema({"notify": {"type": "boolean"}, "urgent": {"type": "boolean"},
     "blocking": {"type": "boolean"}, "reason": {"type": "string", "maxLength": 2000},
     "deadline": {"type": ["string", "null"], "format": "date-time"}})
+DRAFT_FIELD = schema({"id": {"type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,39}$"},
+    "label": {**TEXT, "maxLength": 100}, "value": {"type": "string", "maxLength": 16000},
+    "multiline": {"type": "boolean"}, "required": {"type": "boolean"}}, ("id", "label", "value"))
 FORM = schema({"title": {**TEXT, "maxLength": 200}, "explanation": TEXT,
-    "kind": {"enum": ["question", "request"]}, "selection_mode": {"enum": ["none", "single", "multiple"]},
+    "kind": {"enum": ["question", "request", "draft_review"]}, "selection_mode": {"enum": ["none", "single", "multiple"]},
     "response_policy": {"enum": ["management_allowed", "owner_only"]},
     "choices": {"type": "array", "items": CHOICE, "maxItems": 26},
-    "selection_required": {"type": "boolean"}, "notes_required": {"type": "boolean"}},
+    "selection_required": {"type": "boolean"}, "notes_required": {"type": "boolean"},
+    "draft_fields": {"type": "array", "minItems": 1, "maxItems": 12, "items": DRAFT_FIELD},
+    "previous_review_id": {"type": "string", "format": "uuid"}},
     ("title", "explanation", "kind", "selection_mode"))
 SCOPE = {"scope": {"enum": ["business", "global"]}}
 
@@ -46,6 +51,19 @@ def validate_form(form):
         raise DomainError('validation_error', 'Choice IDs must be unique')
     if (mode == 'none' and (choices or form['selection_required'])) or (mode != 'none' and len(choices) < 2):
         raise DomainError('validation_error', 'Selection mode and choices disagree')
+    if form['kind'] == 'draft_review':
+        if not form.get('draft_fields'):
+            raise DomainError('validation_error', 'Draft review requires editable fields')
+        fields = form['draft_fields']
+        if len({field['id'] for field in fields}) != len(fields):
+            raise DomainError('validation_error', 'Draft field IDs must be unique')
+        if sum(len(field['value']) for field in fields) > 32000:
+            raise DomainError('validation_error', 'Draft content must contain at most 32000 characters')
+        if any(not field.get('multiline', True) and any(c in field['value'] for c in '\r\n') for field in fields):
+            raise DomainError('validation_error', 'Single-line draft fields cannot contain line breaks')
+        form['response_policy'] = 'owner_only'
+    elif 'draft_fields' in form or 'previous_review_id' in form:
+        raise DomainError('validation_error', 'Draft fields and previous reviews require draft_review kind')
     return form
 
 
@@ -111,6 +129,12 @@ class InputRequests:
             if 'focus' in args:
                 self.service.ports.require('focus', FOCUS_UNAVAILABLE).creation_access(self.service.app,ctx,args['focus'],uow)
             form = validate_form(args['form'])
+            if form.get('previous_review_id'):
+                previous = self.service._row(ctx, form['previous_review_id'], uow)
+                if (previous['proposer_principal_id'] != ctx.principal_id or previous['state'] != 'answered'
+                        or previous['review_business_id'] != ctx.business_id
+                        or previous['preview_json'].get('input', {}).get('kind') != 'draft_review'):
+                    raise DomainError('validation_error', 'Previous review must be an answered draft review by the same proposer in this scope')
             attention = normalize_attention(args.get('attention', {}))
             row = decode_row(uow.connection.execute("SELECT * FROM signoffs WHERE proposer_principal_id=? AND review_business_id IS ? AND request_key=? AND state='pending' AND superseded_by_id IS NULL",
                 (ctx.principal_id, ctx.business_id, args['request_key'])).fetchone())

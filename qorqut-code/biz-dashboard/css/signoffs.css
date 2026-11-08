@@ -261,3 +261,17 @@
   .sg-focus .sg .sg-rowhead[aria-expanded="true"] .sg-rowtitle { font-size: 17px; }
 }
 .sg-focus .sg-content-value .sg-val-list, .sg-focus .sg-content-value ul { margin: 0; }
+
+/* Draft fields share the Signoff editor surface and remain usable in narrow chat cards. */
+.sg-draft-review { min-width: 0; margin-top: 16px; }
+.sg-draft-fields { display: grid; gap: 14px; margin: 12px 0; }
+.sg-draft-field { display: block; min-width: 0; }
+.sg .sg-feedback.sg-draft-editor { box-sizing: border-box; min-height: 44px; resize: vertical; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sg .sg-draft-editor[rows="4"] { min-height: 140px; }
+.sg .sg-draft-editor[readonly] { background: transparent; }
+.sg-draft-controls { flex-wrap: wrap; margin: 10px 0; }
+.sg-draft-history { margin-top: 14px; }
+.sg-draft-history summary { cursor: pointer; padding: 8px 0; }
+.sg-draft-versions > details { border-top: 1px solid var(--line); }
+.sg-draft-version-field { margin: 8px 0 14px; min-width: 0; }
+.sg-draft-version-field pre { margin: 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
