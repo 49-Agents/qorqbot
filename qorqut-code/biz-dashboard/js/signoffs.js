@@ -679,7 +679,8 @@ function sgCreateView(options) {
       }).join("")}</div>` : "");
     html(detail.querySelector(".sg-savedresponse"), s.decision ? `<p class="sg-response-notes">${esc(s.decision.message_id && !sgIsDraftReview(s) ? "" : (s.decision.notes ?? s.decision.feedback ?? ""))}</p>${options.focusLayout ? "" : `<p class="sg-meta">Submitted ${esc(stamp(s.decision.at))}</p>`}` : "");
     const feedback = detail.querySelector(".sg-feedbackwrap");
-    if (s.state === "pending" && completePreview(s) && owner() && !s.superseded_by_id && (!options.inline || s.input || rejectionNeedsMessage(s))) {
+    const retainedFeedback = sgIsDraftReview(s) && reviewEdits.has(s.id) && s.state !== 'pending';
+    if ((s.state === "pending" || retainedFeedback) && completePreview(s) && owner() && !s.superseded_by_id && (!options.inline || s.input || rejectionNeedsMessage(s))) {
       const requirement = s.input ? (s.input.notes_required ? "(required)" : "(optional)") : rejectionNeedsMessage(s) ? "(required to reject)" : "(optional)";
       if (!feedback.querySelector("textarea")) {
         const fieldId = `sg-feedback-${prefix}${esc(s.id)}`;
@@ -689,7 +690,8 @@ function sgCreateView(options) {
         feedback.innerHTML = `${unlabeled ? "" : `<label class="sg-label" for="${fieldId}">${sgIsDraftReview(s) ? "Feedback" : s.input ? "Answer" : "Message to send with decision"} ${requirement}</label>`}<textarea id="${fieldId}" class="sg-feedback" rows="${options.inline ? 1 : 3}" spellcheck="true"${unlabeled ? ` aria-label="Message to send with decision ${requirement}" placeholder="${placeholder}"` : ""}></textarea>`;
         feedback.querySelector("textarea").value = draft(s);
       }
-      feedback.querySelector("textarea").disabled = !!busy || !canReview;
+      feedback.querySelector("textarea").disabled = !retainedFeedback && (!!busy || !canReview);
+      feedback.querySelector("textarea").readOnly = retainedFeedback;
       if (options.inline) fitFeedback(feedback.querySelector("textarea"));
     } else feedback.innerHTML = "";
     const disabled = !canReview || !!busy ? " disabled" : "";
