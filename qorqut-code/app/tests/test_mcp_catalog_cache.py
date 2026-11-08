@@ -7,7 +7,6 @@ import os
 import shutil
 import tempfile
 import threading
-import time
 from pathlib import Path
 import unittest
 from unittest import mock
@@ -158,6 +157,7 @@ class CatalogSnapshotTest(unittest.TestCase):
     def test_a_hit_attaches_its_own_source_and_never_reads_cached_bytes(self):
         self.inventory()  # publishes a parse and reads the body through that snapshot
         entered = threading.Event()
+        edited = threading.Event()
         observed = {}
 
         def pinned():
@@ -165,7 +165,7 @@ class CatalogSnapshotTest(unittest.TestCase):
                 with self.layer.catalog.read_snapshot():
                     observed['catalog'] = self.layer.catalog._active_catalog()
                     entered.set()
-                    time.sleep(0.2)  # Long enough for the edit below to land.
+                    self.assertTrue(edited.wait(DEADLINE))
                     observed['resource'] = self.layer.catalog.read_resource(
                         'demo', 'skills/greeting/SKILL.md')
             except RevisionConflictError as exc:
@@ -175,11 +175,24 @@ class CatalogSnapshotTest(unittest.TestCase):
         thread.start()
         self.assertTrue(entered.wait(DEADLINE))
         self.write_skill(SKILL + '\nEdited while pinned.\n')
+        edited.set()
         thread.join(DEADLINE)
         self.assertFalse(thread.is_alive())
         # A fresh source verifies the current bytes, so a shared old read cache cannot hide the edit.
         self.assertIn('conflict', observed)
         self.assertNotIn('resource', observed)
+
+    def test_pid_change_discards_parse_without_acquiring_inherited_lock(self):
+        self.inventory()
+        reader = self.layer.catalog
+        source = reader._parsed[3].source
+        child_pid = os.getpid() + 1
+        with mock.patch.object(reader, '_parsed_lock') as inherited:
+            inherited.__enter__.side_effect = AssertionError('Inherited lock must not be acquired')
+            with mock.patch.object(catalog_api.os, 'getpid', return_value=child_pid):
+                self.assertIsNone(reader._parsed_catalog(source))
+                inherited.__enter__.assert_not_called()
+        self.assertIsNone(reader._parsed)
 
     def test_concurrent_snapshots_share_parsed_containers_but_not_sources(self):
         self.inventory()  # One published parse both concurrent snapshots can hit.

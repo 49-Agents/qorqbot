@@ -35,7 +35,7 @@ class CatalogReader:
         # load_catalog, and a hit attaches a fresh source to a shallow copy, so
         # no request reads through, or shares a read cache with, another one.
         self._parsed_lock = threading.Lock()
-        self._parsed_pid: int | None = None
+        self._parsed_pid = os.getpid()
         self._parsed: tuple | None = None
 
     def _active_catalog(self):
@@ -55,11 +55,18 @@ class CatalogReader:
         return bundle_digest((path, item.sha256) for path, item in source.files.items()
                              if path.split("/", 1)[0] in AREAS)
 
+    def _reset_parsed_after_fork(self):
+        if self._parsed_pid != os.getpid():
+            # A fork may inherit a lock held by a thread that no longer exists.
+            # Replace it before acquiring it, as well as discarding the parse.
+            self._parsed_lock = threading.Lock()
+            self._parsed = None
+            self._parsed_pid = os.getpid()
+
     def _parsed_catalog(self, source):
         """The cached container for exactly ``source``'s bytes, if one was published."""
+        self._reset_parsed_after_fork()
         with self._parsed_lock:
-            if self._parsed_pid != os.getpid():
-                return None  # A fork never reuses another process's parse.
             entry = self._parsed
         if entry is None:
             return None
@@ -70,6 +77,7 @@ class CatalogReader:
 
     def _remember_catalog(self, source, catalog) -> None:
         """Keep the one parsed container produced by a verified snapshot."""
+        self._reset_parsed_after_fork()
         with self._parsed_lock:
             self._parsed_pid = os.getpid()
             self._parsed = (source.files, source.special, source.legacy_nonempty, catalog)
