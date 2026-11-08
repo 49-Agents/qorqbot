@@ -26,7 +26,7 @@
       "status": "conditional",
       "trigger": "agents/attention.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/attention.py:542"
+      "previous_source": "qorqut-code/app/bazarlyk/agents/attention.py:13"
     },
     {
       "id": "attention-candidates",
@@ -91,7 +91,7 @@
       "status": "conditional",
       "trigger": "agents/attention.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/attention.py:535"
+      "previous_source": "qorqut-code/app/bazarlyk/agents/attention.py:446"
     },
     {
       "id": "attention-more",
@@ -109,7 +109,7 @@
       "status": "conditional",
       "trigger": "agents/attention.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/attention.py:544"
+      "previous_source": "qorqut-code/app/bazarlyk/agents/attention.py:455"
     },
     {
       "id": "attention-unavailable",

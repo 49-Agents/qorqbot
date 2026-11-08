@@ -216,7 +216,7 @@ function attentionReferenceRow(p, source, task = null) {
   agfocusUnread(p,row,row._attentionReference);
   const leading=row.querySelector('.agfocus-notification');
   leading.removeAttribute('aria-hidden');
-  // The board's own agent owns the row's assignment: an empty one stays visible as the quiet "+" control.
+  // Show the Task's shared assignees; board membership does not assign a worker.
   if (task && !(source.business_id != null && !scope)) {
     taskWorkerMount(leading,scope,task,p.agentId);
     leading.append(leading.querySelector('[data-task-workers]'));

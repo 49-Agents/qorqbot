@@ -694,21 +694,16 @@ class AgentActivity:
         if focus and isinstance(task_ref, dict):
             stored = {'business_id': task_ref['business_id'], 'task_id': task_ref['id'],
                       'summary': intent, 'blocked_reason': ''}
-            item = {'business_id': task_ref['business_id'], 'task_id': task_ref['id'], 'summary': intent,
-                    'blocked_reason': '', 'title': None, 'task_status': None, 'business_slug': None,
-                    'business_name': None, 'blocked': False, 'blockers': []}
             try:
                 membership = attention.task_membership(uow, agent_id, task_ref)
-                task = attention.task(ctx, task_ref, uow, lifecycle_only=True)
+                task = attention.board_task(ctx, agent_id, task_ref, uow, lifecycle_only=True)
                 if membership and task['created_at'] == membership['task_created_at']:
-                    visible = self.work_item(ctx, stored, uow, access)
-                    if visible is not None:
-                        item.update(visible)
+                    item = self.work_item(ctx, stored, uow, access)
             except DomainError as error:
                 if error.code not in UNREADABLE:
                     raise
         return {'revision': state['revision'], 'source': 'todo', 'item': item, 'item_key': None,
-                'focus': focus, 'intent': intent if focus else '',
+                'focus': focus if item else None, 'intent': intent if item else '',
                 'updated_at': state['updated_at'], 'reviewed_at': state['focus_started_at'], 'stale': False}
 
     def nudge(self, agent_id):

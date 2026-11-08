@@ -187,6 +187,9 @@ class AttentionRuntime:
                 return None
             with self.runtime.database.transaction(operation='attention.hook_claim') as uow:
                 self.runtime.application.ensure_writes_open(uow)
+                from bazarlyk.agents.attention import enrolled_board
+                if not enrolled_board(uow, agent_id):
+                    return None
                 binding = uow.connection.execute('SELECT * FROM native_session_owners WHERE agent_id=?', (agent_id,)).fetchone()
                 registered = uow.connection.execute('SELECT 1 FROM agent_activity WHERE agent_id=? AND session_id=? '
                     'AND registration_id=?', (agent_id, consumer_id, registration_id)).fetchone()
@@ -342,8 +345,15 @@ class AttentionRuntime:
         state = native['state'] if native else 'pending'
         if state == 'submitting':
             return
-        if state == 'submitted':
-            delivered_at = native['settled_at'] or native['updated_at']
+        # Keep the transport's uncertainty as history. Exact marked transcript
+        # evidence proves arrival, not processing, and consumes this occurrence
+        # without typing it again. Ordinary uncertain inputs stay quarantined.
+        evidence = json.loads(native.get('evidence_json') or '{}') if native else {}
+        observed_at = (evidence.get('native_input_observed_at') if state == 'uncertain'
+            and native.get('reason') == 'transcript_confirmed'
+            and evidence.get('native_input_observed') is True else None)
+        if state == 'submitted' or observed_at:
+            delivered_at = observed_at or native['settled_at'] or native['updated_at']
             changed = uow.connection.execute("UPDATE attention_reminders SET state='submitted',native_input_id=?,"
                 "delivered_at=?,updated_at=?,revision=revision+1 WHERE id=? AND state IN ('claimed','cancelled','uncertain') AND route='chat'",
                 (native['id'], delivered_at, now, row['id']))
@@ -388,7 +398,10 @@ class AttentionRuntime:
                 # bound, so old unresolved inputs cannot hide newer evidence.
                 known = uow.connection.execute("SELECT r.* FROM attention_reminders r WHERE r.agent_id=? "
                     "AND r.state='uncertain' AND r.route='chat' AND EXISTS (SELECT 1 FROM native_inputs n "
-                    "WHERE n.agent_id=r.agent_id AND n.source_key='attention:'||r.id AND n.state='submitted' "
+                    "WHERE n.agent_id=r.agent_id AND n.source_key='attention:'||r.id AND (n.state='submitted' "
+                    "OR (n.state='uncertain' AND n.reason='transcript_confirmed' "
+                    "AND json_extract(n.evidence_json,'$.native_input_observed')=1 "
+                    "AND json_extract(n.evidence_json,'$.native_input_observed_at') IS NOT NULL)) "
                     "AND NOT EXISTS (SELECT 1 FROM native_inputs newer WHERE newer.agent_id=n.agent_id "
                     "AND newer.source_key=n.source_key AND newer.attempt>n.attempt)) ORDER BY r.updated_at,r.id LIMIT 10",
                     (agent,)).fetchall()

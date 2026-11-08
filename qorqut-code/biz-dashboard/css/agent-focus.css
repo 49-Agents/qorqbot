@@ -297,7 +297,6 @@
 [data-attention-board] .agfocus-notification .task-user-needed{display:none}
 [data-attention-board] .agfocus-row{grid-template-columns:56px 30px clamp(28px,20%,132px) minmax(0,1fr) auto}
 
-[data-attention-board] .agfocus-card:not(:hover):not(:focus-within) .task-workers:not(:has(.identity-avatar)){opacity:0;pointer-events:none}
 
 /* The pill Close is new chrome; it follows the same reduced-motion preference as the rest of Focus. */
 @media (prefers-reduced-motion:reduce){.agfocus-close,.rw-head.rw-close-first .rw-close{transition:none}}

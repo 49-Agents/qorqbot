@@ -1,4 +1,4 @@
-"""Persistent attention board for the configured Ordubashy."""
+"""Shared Todo boards for the configured Ordubashy and permanent workers."""
 
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
@@ -158,7 +158,7 @@ class Attention:
         """Read one Task under the caller's authority and, for another board, the board agent's authority too."""
         task = self.task(ctx, ref, uow, **options)
         if not (ctx.principal_kind == 'agent' and ctx.principal_id == agent):
-            self.task(self.board_context(ctx, agent, uow), ref, uow, **options)
+            self.task(self.board_context(ctx, agent, uow), ref, uow, lifecycle_only=True)
         return task
 
     def state(self, uow, agent_id):
@@ -229,18 +229,8 @@ class Attention:
         uow.connection.execute("UPDATE attention_reminders SET state=CASE WHEN emission_started_at IS NOT NULL THEN 'uncertain' ELSE 'cancelled' END,updated_at=?,revision=revision+1 WHERE agent_id=? AND state IN ('pending','claimed')" + (" AND kind IN ('focus','workflow_detach')" if focus_only else ''), (now, agent))
 
     def task(self, ctx, ref, uow, *, lifecycle_only=False, notes=True):
-        if ctx.principal_kind == 'human':
-            memo = getattr(uow, 'memo', None) if not getattr(uow, 'writable', True) else None
-            key = ('attention_coordinator_context', id(self))
-            peer = memo.get(key) if memo is not None else None
-            if peer is None:
-                agent = configured_ordubashy(uow)
-                peer = self.app.policy.context_for(agent, business_id=None, review_business_id=None, uow=uow)
-                if memo is not None:
-                    memo[key] = peer
-            # The coordinator's reach must be checked, but its thread/history is
-            # not part of the owner's response. Authorize the same Task only.
-            self.task(peer, ref, uow, lifecycle_only=True)
+        # Board callers use board_task to check both actor and target. A plain
+        # source read must not implicitly add a third principal's permissions.
         selected = self.app.current_context(replace(ctx, business_id=ref['business_id'], review_business_id=ref['business_id']), uow)
         descriptor = self.app.registry.get('tasks_get')
         if ref['business_id'] is not None: descriptor = replace(descriptor, global_capability=None)
@@ -262,9 +252,6 @@ class Attention:
                 raise DomainError('not_found', 'Workflow association is unavailable')
             self.task(ctx, json.loads(row['work_task_json']), uow, lifecycle_only=True)
             return {**ref, 'label': row['workflow_name']}
-        if ctx.principal_kind == 'human':
-            peer = self.app.policy.context_for(agent, business_id=None, review_business_id=None, uow=uow)
-            self.runtime.focus.resolve(peer, ref, uow)
         return self.runtime.focus.resolve(ctx, ref, uow)
 
     def board_mode(self, uow, agent_id):
@@ -318,6 +305,7 @@ class Attention:
             if kind in ('board_normal', 'board_reassess'):
                 return not state['focus_json'] and self.board_mode(uow, agent_id) == kind.removeprefix('board_')
             if kind not in ('focus','workflow_detach') or not state['focus_json'] or state['focus_generation'] != focus_generation: return False
+            if agent_id != configured_ordubashy(uow) and state['focus_json'] != state['work_task_json']: return False
             self.authorized_task(uow, ctx, agent_id, state['work_task_json'])
             focus = state['focus_json']
             self.resolve(self.board_context(ctx, agent_id, uow), agent_id, focus, uow)
@@ -452,7 +440,9 @@ class Attention:
         if focus:
             try:
                 self.board_task(ctx, agent, task_ref, uow, lifecycle_only=True)
-                focus = self.resolve(self.board_context(ctx, agent, uow), agent, focus, uow)
+                if ctx.principal_kind != 'agent' or ctx.principal_id != agent:
+                    self.resolve(self.board_context(ctx, agent, uow), agent, focus, uow)
+                focus = self.resolve(ctx, agent, focus, uow)
             except DomainError as error:
                 if error.code not in UNREADABLE: raise
                 focus, task_ref, intent = {'unavailable': True}, None, ''
@@ -487,6 +477,8 @@ class Attention:
             if task.get('archived'):
                 raise DomainError('validation_error', 'Todo requires an unarchived work item')
             if op == 'attention_focus_set':
+                if agent != configured_ordubashy(uow) and args['focus'] != args['task']:
+                    raise DomainError('validation_error', 'A worker focuses on its exact Todo Task; use the same Task reference for focus and task')
                 membership = self.task_membership(uow, agent, args['task'])
                 if not membership or membership['task_created_at'] != task['created_at']: raise DomainError('not_found', 'Work item is not on Todo')
                 if not isinstance(args['intent'], str) or not args['intent'].strip() or len(args['intent']) > 1000: raise DomainError('validation_error', 'Intent must contain at most 1000 characters')

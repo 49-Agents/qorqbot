@@ -42,12 +42,15 @@ does not prove earlier events were handled. Read the authorized source and handl
 explicitly defer each event before acknowledging its exact ID; acknowledgment does
 not complete underlying work or mark a private owner conversation read.
 
-A permanent worker keeps its commitments on its own Todo board, not in a list: todo_get
+An adopted permanent worker keeps its commitments on its own Todo board: todo_get
 reads it, todo_add and todo_remove change membership, and one focus with a precise Intent is
 declared through attention_focus_set (attention_focus_clear clears it). That focus is its
 current work, so it keeps no second agent_work_update record; the list rules below are for
 other agents.
-Agents other than Ordubashy keep a short shared current-work list with agent_work_update for
+Workers adopt Todo on the first explicit Task addition; an empty read does not enroll them.
+Before adoption they retain their one-item `agent_work_update` assignment. After adoption,
+use the same Task reference for `focus` and `task`; only the worker declares its own focus.
+Agents other than Ordubashy and adopted workers keep a short shared current-work list with agent_work_update for
 your native session UUID. Read agents_activity_list(session_id=your_native_session_id) in the
 intended
 scope for work_revision and item_keys. Prefer patch actions add/replace/remove;
