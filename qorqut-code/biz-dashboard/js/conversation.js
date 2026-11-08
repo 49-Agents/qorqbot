@@ -97,6 +97,15 @@ function conversationEntries(notes,adapter) {
     return entry;
   });
 }
+// Canonical task comments are activity, never synthetic private messages.
+function conversationActivityEntry(note) {
+  const relayed=note.author_id && note.recorder_id && note.author_id!==note.recorder_id;
+  return {key:`progress:${note.id}`,timestamp:note.created_at,text:note.body || '',
+    activity:{preview:messagePreview(note.body,note.summary) || 'Progress note',author:conversationPersonName(note),
+      time:sjTime(note.created_at),dateTime:sjDateTime(note.created_at),
+      attribution:relayed?`${conversationPersonName(note)} · ${note.attribution?.kind==='owner_intent'?'interpreted':'recorded'} by ${note.recorder_name || 'Ordubashy'}`:''},
+    references:(note.refs || []).filter(ref=>ref.type!=='dev_ticket').map((ref,index)=>({key:`ref${index}`,label:ref.label || ref.type || 'Reference',disabled:!!ref.unavailable,value:ref}))};
+}
 // Related records have their own identities and pagination; they never enter the message store.
 function conversationRecordKey(record) { return `${record.type}:${record.business_id || 'global'}:${record.id}`; }
 function conversationRelatedRecords(s,source) {
@@ -208,8 +217,8 @@ function conversationMount(host,source,adapter={}) {
   const toggle=host.querySelector('.conversation-toggle'),panel=host.querySelector('.conversation-panel');
   const unreadDot=host.querySelector('[data-conversation-unread]');
   const readerEl=panel.querySelector('.conversation-reference-reader'),viewEl=panel.querySelector('.conversation-view');
-  // Task progress and overview have their own views; this feed contains private messages and related records only.
-  let ctxError=false,referenceGeneration=0;
+  // Progress stays outside private message state and renders as collapsed action runs.
+  let ctx=null,ctxError=false,ctxGen=0,ctxMoreBusy=false,ctxMoreError=false,ctxPages=0,referenceGeneration=0;
   const referenceReader=conversationReferenceMount(readerEl,()=>{
     if(disposed)return;
     viewEl.hidden=false;paintContext();
@@ -244,10 +253,15 @@ function conversationMount(host,source,adapter={}) {
   const clearError=()=>{if(errorText)setError('');};
   let painted='';
   function paint(mode='auto') {
-    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before,adapter.related?s.related:null,relatedReady,ctxError]);
+    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before,adapter.related?s.related:null,relatedReady,ctx,ctxError,ctxMoreBusy,ctxMoreError]);
     if(painted===signature && mode==='auto')return;
     painted=signature;
     const entries=conversationTimeline(s,{...adapter,related:adapter.related && relatedReady},recordSource);
+    const earliest=s.before?s.notes[0]?.created_at:null;
+    for(const note of ctx?.notes || [])if(!earliest || note.created_at>=earliest)entries.push(conversationActivityEntry(note));
+    entries.sort((a,b)=>(a.timestamp || '').localeCompare(b.timestamp || ''));
+    if(ctx?.notes_next_cursor || ctxMoreError)entries.unshift({key:'progress-more',speaker:'notice',text:ctxMoreError?"Couldn't load earlier actions.":'',
+      actions:[{key:'progress-more',label:ctxMoreBusy?'Loading…':'Load earlier actions',disabled:ctxMoreBusy}]});
     if(ctxError)entries.unshift({key:'context-error',speaker:'notice',text:"Couldn't load task context.",actions:[{key:'context-retry',label:'Retry'}]});
     chat.render({entries,older:{visible:!!s.before,disabled:false},empty:{text:s.loaded && !entries.length?'No messages yet':''}},{scroll:mode});
     if(adapter.inlineComposer)host.querySelectorAll('[title]').forEach(el=>el.removeAttribute('title'));
@@ -255,8 +269,32 @@ function conversationMount(host,source,adapter={}) {
   function paintContext() {if(!disposed)paint('preserve');}
   // The source is no longer readable: drop everything read from it and invalidate outstanding context and mail reads.
   function dropContext() {
-    ctxError=false;relatedGeneration++;referenceGeneration++;
+    ctx=null;ctxError=false;ctxGen++;ctxMoreBusy=false;ctxMoreError=false;ctxPages=0;relatedGeneration++;referenceGeneration++;
     referenceReader.close();paintContext();
+  }
+  async function activityPage(context) {
+    const slug=context.business_slug,path=slug?`/biz/${encodeURIComponent(slug)}`:'/root';
+    const data=coreData(await conversationRequest(post(`${path}/operations/tasks_get`,{
+      scope:slug?'business':'global',task_id:source.id,notes_cursor:context.notes_next_cursor,notes_limit:10,
+    })));
+    if(!data.task)throw Object.assign(new Error('Task unavailable'),{code:'not_found'});
+    const next=data.task.notes_next_cursor;
+    return {...context,notes:[...new Map([...(context.notes || []),...(data.task.notes || [])].map(note=>[note.id,note])).values()],
+      notes_next_cursor:next===context.notes_next_cursor?null:next || null};
+  }
+  async function loadEarlier() {
+    if(relatedPending || ctxMoreBusy || !ctx?.notes_next_cursor || !current())return;
+    const gen=ctxGen;
+    ctxMoreBusy=true;ctxMoreError=false;paintContext();
+    try {
+      const next=await activityPage(ctx);
+      if(!current() || gen!==ctxGen)return;
+      ctx=next;ctxPages++;
+    } catch(e) {
+      if(!current() || gen!==ctxGen)return;
+      if(CONVERSATION_GONE.includes(e.code) || e.code==='record_moved'){dropContext();void load(false);return;}
+      ctxMoreError=true;
+    } finally {if(gen===ctxGen){ctxMoreBusy=false;paintContext();}}
   }
   async function openRef(ref) {
     if(ref?.type==='email') {
@@ -298,6 +336,14 @@ function conversationMount(host,source,adapter={}) {
     try {
       let result=await conversationPrivateCall(source,adapter,'owner_conversation_related',{limit:50,...(more?{offset}:{})});
       if(!current() || generation!==relatedGeneration)return;
+      let context=!more && source.type==='task'?result.context:null;
+      const contextGeneration=more?ctxGen:++ctxGen;
+      if(!more){ctxMoreBusy=false;ctxMoreError=false;}
+      let contextPages=0;
+      while(context?.notes_next_cursor && contextPages<ctxPages) {
+        context=await activityPage(context);contextPages++;
+        if(!current() || generation!==relatedGeneration || contextGeneration!==ctxGen)return;
+      }
       const records=more?[...(s.related || []),...(result.items || [])]:[...(result.items || [])];
       let pages=more?(s.relatedPages || 1)+1:1;
       // Refresh the depth already opened, so polling neither discards older related rows nor retains revoked ones.
@@ -316,7 +362,7 @@ function conversationMount(host,source,adapter={}) {
       relatedReady=true;
       if(!more) {
         // A refresh replaces the snapshot; a later related page leaves it alone.
-        ctxError=false;
+        ctx=context;ctxPages=contextPages;ctxError=false;
         paintContext();
       }
       paint();adapter.onRelated?.(s.related);
@@ -482,6 +528,7 @@ function conversationMount(host,source,adapter={}) {
     onTask:adapter.openReference ? ref=>adapter.openReference(ref) : null,
     onReference:ref=>{if(ref)void openRef(ref);},
     onEntryAction:(actionKey,entryKey)=>{
+      if(actionKey==='progress-more'){void loadEarlier();return;}
       if(actionKey==='context-retry'){void loadRelated();return;}
       const note=actionKey==='parent'?s.notes.find(n=>n.id===entryKey):null;
       if(note && adapter.openParent)Promise.resolve().then(()=>adapter.openParent(note)).catch(()=>setError(CONVERSATION_TEXT.load));

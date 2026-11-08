@@ -203,9 +203,9 @@
 .task-activity-preview{color:var(--fg);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .task-activity-actor,.task-activity-time{flex:none;color:var(--fg-2);font-size:11px;white-space:nowrap}
 .task-activity-actor{max-width:22%;overflow:hidden;text-overflow:ellipsis}
-.task-activity-chevron{color:var(--fg-2);flex:none;font-size:16px}
+.task-activity-chevron{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;line-height:14px;color:var(--fg-2);flex:none;font-size:16px}
 .task-activity-entry[open] .task-activity-chevron{transform:rotate(90deg)}
-.task-activity-detail{margin:2px 0 10px 13px;padding:8px 12px;border-left:1px solid var(--line-2);overflow-wrap:anywhere}
+.task-activity-detail{margin:2px 0 10px 13px;padding:8px 12px;border-left:1px solid var(--line-2);overflow-wrap:anywhere;font-size:12px}
 .task-activity-body{line-height:1.6;font-size:12px}
 .task-activity-body p{margin:0 0 8px}.task-activity-body>:last-child{margin-bottom:0}
 .task-activity-body ul,.task-activity-body ol{padding-left:20px}

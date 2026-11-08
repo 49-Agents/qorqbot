@@ -683,7 +683,7 @@ function mountChatView(host, options = {}) {
 
   // ---- entries
   const entrySignature = entry => JSON.stringify([entry.speaker, entry.recorder, entry.text, entry.partial === true, entry.timestamp, entry.title, entry.showAuthor, entry.showAuthorName,
-    entry.author?.name, entry.author?.avatarHtml, entry.notice, entry.collapsedSource, entry.referenceOnly === true, entry.referenceRow,
+    entry.author?.name, entry.author?.avatarHtml, entry.notice, entry.activity, entry.collapsedSource, entry.referenceOnly === true, entry.referenceRow,
     (entry.references || []).map(ref => [ref.key, ref.label, !!ref.disabled, ref.value?.type, ref.value?.label, ref.value?.state, ref.value?.unavailable === true]),
     (entry.typedReferences || []).map(chatViewTypedSignature), (entry.actions || []).map(action => [action.key, action.label, !!action.disabled])]);
   const authorHtml = entry => entry.author && entry.showAuthor !== false
@@ -799,19 +799,31 @@ function mountChatView(host, options = {}) {
     }
     node.append(referenceRowButton('task', ref.label, ref.state, available, null));
   }
-  // One flat attachment container per contiguous run of related Task/Action rows. It is a plain list with a subtle
-  // left rule: no visible heading, count or collapse control, and no routing is invented for the container itself.
-  // The accessible group name still says which record's thread these rows belong to.
+  // Task references stay in flat lists. Consecutive activity/action entries use a collapsed count,
+  // styled like a system marker; expanding never navigates or changes the private message state.
   function relatedGroupNode(group) {
     let item = groupNodes.get(group.key);
     if (!item) {
-      const el = document.createElement('div');
-      el.className = 'gchat-ref-group gchat-ref-group-related';
+      const el = document.createElement(group.kind === 'actions' ? 'details' : 'div');
+      el.className = 'gchat-ref-group ' + (group.kind === 'actions' ? 'gchat-action-group' : 'gchat-ref-group-related');
+      if (group.kind === 'actions') {
+        const summary = document.createElement('summary');
+        summary.innerHTML = '<span class="gchat-marker"></span><span class="gchat-action-chevron" aria-hidden="true">›</span>';
+        el.append(summary);
+      }
       el.setAttribute('role', 'group');
       const rows = document.createElement('div'); rows.className = 'gchat-ref-rows';
       el.append(rows);
       item = {el, rows, key: group.key};
       groupNodes.set(group.key, item);
+    }
+    item.kind = group.kind;
+    item.entryKeys = new Set(group.entries.map(entry => entry.key));
+    if (group.kind === 'actions') {
+      const label = `${group.entries.length} ${group.entries.length === 1 ? 'action' : 'actions'}`;
+      item.el.querySelector('.gchat-marker').textContent = label;
+      item.el.setAttribute('aria-label', label);
+      return item;
     }
     const title = relatedGroupTitle();
     item.el.setAttribute('aria-label', title === 'Related work' ? 'Related work' : `Related work in ${title}`);
@@ -823,10 +835,23 @@ function mountChatView(host, options = {}) {
     const groups = [], groupOf = new Map();
     let current = null;
     for (const entry of entries) {
-      if (referenceRows && entry.referenceOnly && entry.referenceRow) {
-        if (!current) { current = {key: relatedGroupKey(entry.key), entries: []}; groups.push(current); }
+      const kind = entry.activity || (referenceRows && entry.referenceOnly && entry.referenceRow === 'action') ? 'actions'
+        : referenceRows && entry.referenceOnly && entry.referenceRow ? 'related' : null;
+      if (kind) {
+        if (!current || current.kind !== kind) { current = {key: relatedGroupKey(kind + ':' + entry.key), kind, entries: []}; groups.push(current); }
         current.entries.push(entry); groupOf.set(entry.key, current);
       } else current = null;
+    }
+    // Prepending older actions or appending a new action keeps the existing disclosure open.
+    // When a message splits a run, at most one new run can retain the old container.
+    const used = new Set();
+    for (const group of groups) {
+      const direct = groupNodes.get(group.key);
+      const match = (direct && !used.has(direct.key) ? direct : null) || [...groupNodes.values()].find(item =>
+        item.kind === group.kind && !used.has(item.key) && group.entries.some(entry => item.entryKeys?.has(entry.key)));
+      if (match && !used.has(match.key)) group.key = match.key;
+      if (used.has(group.key)) group.key += '|split:' + group.entries[0].key;
+      used.add(group.key);
     }
     const items = [], seen = new Set();
     for (const entry of entries) {
@@ -890,7 +915,7 @@ function mountChatView(host, options = {}) {
     const isNew = !node;
     if (isNew) { node = document.createElement('div'); nodes.set(entry.key, node); }
     const speaker = entry.speaker || 'agent';
-    node.className = entry.referenceOnly
+    node.className = entry.activity ? 'gchat-msg gchat-activity-note' : entry.referenceOnly
       ? `gchat-msg gchat-reference-only${referenceRows && entry.referenceRow ? ' gchat-reference-row' : ''}`
       : `gchat-msg gchat-${speaker}${entry.recorder === 'agent' ? ' gchat-recorded-by-agent' : ''}`;
     node.dataset.id = entry.key;
@@ -904,6 +929,16 @@ function mountChatView(host, options = {}) {
     const notice = entry.notice;
     if (speaker === 'notice' && notice && typeof notice.verified === 'boolean') node.dataset.verified = String(notice.verified); else delete node.dataset.verified;
     if (speaker === 'notice' && notice?.inputType) node.dataset.inputType = notice.inputType; else delete node.dataset.inputType;
+    if (entry.activity) {
+      const wasOpen = !!node.querySelector('details')?.open;
+      disposeTyped(node);
+      const activity = entry.activity;
+      node.innerHTML = `<details class="task-activity-entry"><summary><span class="task-activity-preview">${esc(activity.preview)}</span><span class="task-activity-actor">${esc(activity.author)}</span><time class="task-activity-time" datetime="${esc(entry.timestamp || '')}" title="${esc(activity.dateTime)}">${esc(activity.time)}</time><span class="task-activity-chevron" aria-hidden="true">›</span></summary><div class="task-activity-detail">${activity.attribution ? `<p class="muted">${esc(activity.attribution)}</p>` : ''}<div class="task-activity-body">${chatViewMarkdown(entry.text)}</div></div></details>`;
+      node.querySelector('details').open = wasOpen;
+      const refs = referenceButtons(entry, document.createElement('div'), [], node);
+      if (refs.childElementCount) node.querySelector('.task-activity-detail').append(refs);
+      return {node, isNew};
+    }
     if (entry.referenceOnly) {
       // Existing reference components only: no body, author, time or copy button. A related Task/Action is one
       // flat attachment row in a record thread; every other record kind keeps its typed component or reference buttons.

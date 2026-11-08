@@ -54,8 +54,15 @@ Chat and back can retry the same read rather than getting stuck on an empty dash
 
 ## Progress notes and Activity
 
-Task overview and progress notes are not inserted into the Chat feed. Chat reads the
-private conversation; Overview remains in the task dashboard. Activity reads canonical
+Chat interleaves private messages with collapsed **n actions** disclosures. Each disclosure
+groups consecutive task progress notes and Action references in chronological order; a message
+or another record kind ends the run. The label uses the same quiet treatment as Inbox nudge,
+and expands in place without navigation. Notes remain separate from private message state
+and unread counts. Older actions can be loaded, with loaded depth retained on refresh; actions
+older than the loaded message window wait until those messages are loaded, so unseen messages
+do not get grouped across. There is no View activity button. Overview remains in the task dashboard.
+
+The separate Activity tab reads canonical
 `tasks_get` comments in the task's own scope, using `notes_cursor` and at most ten notes
 per page. Previews use the stored summary or a shortened body; expanded text retains the
 complete original note, with the shared safe Markdown renderer and reference readers.
