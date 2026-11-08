@@ -1,5 +1,5 @@
 ---
-name: bazarlyk-role-context-relationships
+name: qorqut-role-context-relationships
 description: Relate project items, file and correct shared Context, and diagnose blocked Context inputs.
 ---
 

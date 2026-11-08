@@ -74,9 +74,9 @@ discovery and assignment; no marketplace repository or service is needed.
 
 ## Compatibility names
 
-The Python distribution and import (`bazarlyk-core`, `bazarlyk`), `BAZARLYK_*` and
+The Python distribution and import (`qorqut-core`, `qorqut`), `QORQUT_*` and
 `BIZ_*` environment variables, MCP key/tool namespace, generated skill names, tmux
-socket, `.bazarlyk` storage directories, saved history refs and internal identifiers
+socket, `.qorqut` storage directories, saved history refs and internal identifiers
 such as `business_id` and `business_create` remain stable compatibility identifiers.
 Renaming them would change active integrations and stored receipts.
 

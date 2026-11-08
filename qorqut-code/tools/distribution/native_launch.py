@@ -77,7 +77,7 @@ def environment(root, home):
     env['QORQUT_NATIVE_USER_ENV'] = json.dumps(native_env)
     for key in ('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', 'QORQUT_INSTALLATION_CONFIG',
                 'QORQUT_APP_MANIFEST', 'QORQUT_TELEGRAM_CONFIG_FILE', 'BIZ_DASH_TOKEN',
-                'BAZARLYK_MCP_URL', 'QORQUT_TERMINAL_WORKSPACE', 'PIP_TARGET',
+                'QORQUT_MCP_URL', 'BAZARLYK_MCP_URL', 'QORQUT_TERMINAL_WORKSPACE', 'PIP_TARGET',
                 'PIP_PREFIX', 'PIP_ROOT', 'PIP_USER', 'PYTHONUSERBASE',
                 'QORQUT_NATIVE_ROOT'):
         env.pop(key, None)
@@ -96,7 +96,7 @@ def environment(root, home):
         'PATH': str(runtime / 'venv/bin') + os.pathsep + user_path,
         'QORQUT_FOLDER_ROOT': str(root),
         'QORQUT_CALENDAR_CONFIG': str(root / 'instance/config/calendar.json'),
-        'BIZ_DASH_HOST': '127.0.0.1', 'BIZ_TMUX_SOCKET': 'bazarlyk',
+        'BIZ_DASH_HOST': '127.0.0.1', 'BIZ_TMUX_SOCKET': 'qorqut',
         'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
         'PYTHONDONTWRITEBYTECODE': '1', 'PIP_DISABLE_PIP_VERSION_CHECK': '1',
         'PIP_CONFIG_FILE': os.devnull, 'PIP_NO_INDEX': '1',
@@ -170,7 +170,7 @@ def require_prerequisites(env):
                            + install_hint('python3.12-venv')) from None
 
 
-# The browser tool the agents' own browser control drives (bazarlyk.browser), pinned to the version and npm integrity
+# The browser tool the agents' own browser control drives (qorqut.browser), pinned to the version and npm integrity
 # in qorqut-code/app/tools/browser/package-lock.json. Qorqbot installs it into the folder itself on first launch; only the
 # native binary for this machine is kept, so no Node is needed to run it.
 AGENT_BROWSER_VERSION = '0.38.1'
@@ -389,7 +389,7 @@ def inspect_darwin(root, *arguments):
     if python is None:
         raise RuntimeError('A completed Python environment is needed to inspect macOS processes safely. For a fresh download, run ./qorqbot setup first.')
     try:
-        result = subprocess.run([str(python), '-I', '-B', '-m', 'bazarlyk.process_info', *map(str, arguments)],
+        result = subprocess.run([str(python), '-I', '-B', '-m', 'qorqut.process_info', *map(str, arguments)],
                                 capture_output=True, text=True, timeout=20)
     except (OSError, subprocess.SubprocessError) as error:
         raise RuntimeError('Unable to run macOS process inspection safely') from error
@@ -406,12 +406,14 @@ def require_stopped_terminals(root, env):
         if any((root / '.run').glob('tmux-*/*')):
             raise ValueError('tmux is unavailable and terminal sockets remain; restore tmux and close this installation’s terminals.')
         return
-    result = subprocess.run([executable, '-L', 'bazarlyk', 'list-sessions'],
-                            env=env, capture_output=True, text=True)
-    if result.returncode == 0:
-        raise ValueError('Stop this installation’s agent terminals before changing its runtime')
-    if not any(text in result.stderr.lower() for text in ('no server running', 'no such file or directory')):
-        raise ValueError('Could not prove that this installation’s agent terminals are stopped')
+    # A pre-rename installation can still have live native clients on the old socket.
+    for socket in ('qorqut', 'bazarlyk'):
+        result = subprocess.run([executable, '-L', socket, 'list-sessions'],
+                                env=env, capture_output=True, text=True)
+        if result.returncode == 0:
+            raise ValueError('Stop this installation’s agent terminals before changing its runtime')
+        if not any(text in result.stderr.lower() for text in ('no server running', 'no such file or directory')):
+            raise ValueError('Could not prove that this installation’s agent terminals are stopped')
 
 
 def installation_processes(root):
@@ -470,7 +472,7 @@ def initialize(root, env):
         return record
     if instance.exists() and any(instance.iterdir()):
         raise RuntimeError('The instance folder is not empty and has no successful initialization receipt; nothing was replaced')
-    run([runtime / 'venv/bin/python', '-I', '-B', '-m', 'bazarlyk.bootstrap.initialize',
+    run([runtime / 'venv/bin/python', '-I', '-B', '-m', 'qorqut.bootstrap.initialize',
          '--prepared-root', runtime, '--instance-root', instance], env=env, cwd=root)
     (instance / 'config/operational-timezone').write_text(env['QORQUT_TIMEZONE'] + '\n')
     return read_json(receipt)
@@ -536,7 +538,7 @@ def main(argv=None):
     os.umask(0o077)
     run_dir = root / '.run'
     run_dir.mkdir(mode=0o700, exist_ok=True)
-    if max(len(os.fsencode(run_dir / f'tmux-{os.getuid()}/bazarlyk')),
+    if max(len(os.fsencode(run_dir / f'tmux-{os.getuid()}/qorqut')),
            len(os.fsencode(run_dir / 'c/org.chromium.Chromium.XXXXXX/SingletonSocket'))) >= 104:
         raise RuntimeError('Choose a shorter installation path so local terminal sockets fit (roughly 50 characters or fewer)')
     state = run_dir / 'app.json'
@@ -610,7 +612,7 @@ def main(argv=None):
                 raise RuntimeError(f'Port {args.port} is in use by another program. Close it, or start with --port and a free port.') from None
         (run_dir / 'port').write_text(f'{args.port}\n')
         env = environment(root, root / 'instance/home')
-        argv = [runtime / 'venv/bin/python', '-I', '-B', '-m', 'bazarlyk.service',
+        argv = [runtime / 'venv/bin/python', '-I', '-B', '-m', 'qorqut.service',
                 '--workspace', runtime / 'src', '--instance-root', root / 'instance',
                 '--extensions-config', root / 'instance/config/extensions.json',
                 '--token-file', root / 'instance/config/owner-token', '--host', '127.0.0.1', '--port', str(args.port)]

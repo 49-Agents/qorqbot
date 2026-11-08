@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 import socket
 
-from bazarlyk.private_files import read_private_file
+from qorqut.private_files import read_private_file
 
 MAX_RESPONSE_BYTES = 64 * 1024
 

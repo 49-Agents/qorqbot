@@ -129,8 +129,8 @@ def collect(repo):
 def measure(repo, profile, corpus):
     repo = Path(repo).resolve()
     sys.path.insert(0, str(repo))
-    from bazarlyk.transport import mcp_presentation as presentation
-    from bazarlyk.transport.mcp import tool_schema
+    from qorqut.transport import mcp_presentation as presentation
+    from qorqut.transport.mcp import tool_schema
     assert Path(presentation.__file__).resolve().is_relative_to(repo), "Wrong checkout imported"
     accepts_arguments = "arguments" in inspect.signature(presentation.present).parameters
     rows = {}
@@ -155,7 +155,7 @@ def measure(repo, profile, corpus):
 def source_identity(repo):
     def git(*args):
         return subprocess.check_output(["git", "-C", str(repo), *args], text=True).strip()
-    files = ("bazarlyk/transport/mcp.py", "bazarlyk/transport/mcp_presentation.py")
+    files = ("qorqut/transport/mcp.py", "qorqut/transport/mcp_presentation.py")
     return {"commit": git("rev-parse", "HEAD"), "dirty": bool(git("status", "--porcelain")),
             "sha256": {path: hashlib.sha256((Path(repo) / path).read_bytes()).hexdigest() for path in files}}
 

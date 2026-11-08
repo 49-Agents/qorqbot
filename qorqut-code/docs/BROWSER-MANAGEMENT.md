@@ -52,13 +52,13 @@ refused; a worker with an `allow` override is still refused, and an explicit `de
   worker's ownership record written as one step under a global allocation lock (released before Chrome starts), so two workers
   can never pick the same free port; a port saved for another worker, configured in any workspace or deployment file, or with
   a live listener is skipped. A reservation interrupted before the browser ran is picked up again by the next `ensure`/`repair`;
-* a host-owned supervisor (`python -m bazarlyk.browser.agent_supervisor --state <dir>`) run as a **transient systemd user
+* a host-owned supervisor (`python -m qorqut.browser.agent_supervisor --state <dir>`) run as a **transient systemd user
   service** (`systemd-run --user --unit=qorqut-agent-browser-<installation hash>-<worker UUID>.service --collect`, fixed argv and
   environment, no shell). It therefore lives outside the application service's cgroup and **survives application restarts and
   releases**. A unit that is already running is reused, never duplicated. The supervisor holds a per-worker process lock, records
   boot-bound identities for itself and Chrome, and publishes `ready` only after the CDP endpoint answers *and* that exact Chrome
   owns the listener;
-* a generated `.bazarlyk/browser.json` (unchanged schema: `schema_version`, `cdp_endpoint`, `runtime_dir`) written only after
+* a generated `.qorqut/browser.json` (unchanged schema: `schema_version`, `cdp_endpoint`, `runtime_dir`) written only after
   the browser is verified, using the installation's pinned browser runtime.
 
 Ownership (`meta.json`) is written before launch, so a timeout can never lead to a second browser. A random listener on the
@@ -76,14 +76,14 @@ that differs from the saved record is reported `conflict` and left untouched.
 
 ## Existing browsers and the legacy binding
 
-A healthy existing `.bazarlyk/browser.json` is never replaced, migrated, cloned or restarted by `ensure`. The file alone does
+A healthy existing `.qorqut/browser.json` is never replaced, migrated, cloned or restarted by `ensure`. The file alone does
 not prove which OS service runs the browser, so `status` and a healthy `ensure` work, but `repair`, `restart` and `stop` of an
 **unbound** existing browser answer `browser_management_unconfigured`. That is an installation step, not a missing permission.
 
 The operator binds the exact unit once, from a shell on the host, as the application's OS user:
 
 ```sh
-python -m bazarlyk.browser.agent_binding bind --instance-root <instance> [--component NAME=PATH ...] \
+python -m qorqut.browser.agent_binding bind --instance-root <instance> [--component NAME=PATH ...] \
     --agent-id <worker UUID> --scope user|system --unit <name>.service \
     --profile <absolute profile directory> --endpoint http://127.0.0.1:<port>
 ```

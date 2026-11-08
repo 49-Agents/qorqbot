@@ -22,7 +22,7 @@ service can override this path with `QORQUT_CALENDAR_CONFIG`. The file is read o
 each tool call, so credential changes do not require a calendar worker restart.
 Only run connection setup as part of an authorized installation configuration.
 
-Core saves a connection with the provider-neutral `bazarlyk.calendar.connect.save_connection`; each provider package supplies
+Core saves a connection with the provider-neutral `qorqut.calendar.connect.save_connection`; each provider package supplies
 its own one-time setup helper that calls it. Neither provider is part of the core, and a connection works only while its
 extension is selected.
 

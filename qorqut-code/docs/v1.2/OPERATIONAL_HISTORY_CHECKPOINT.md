@@ -1,12 +1,12 @@
 # Operational history host framework (first checkpoint)
 
 Design: [History](HISTORY.md). Package:
-`app/bazarlyk/operations_history/`; tests: `app/tests/test_operations_history*.py`. The matching trusted row-export library is
+`app/qorqut/operations_history/`; tests: `app/tests/test_operations_history*.py`. The matching trusted row-export library is
 `qorqut_operations.history_exports` in `qorqut-operations` (same branch name, based on accepted `f1fa10a`, its own
 `docs/HISTORY_EXPORT_CHECKPOINT.md`).
 
 This is code only. Nothing is wired into application startup, the change publisher, `Database` construction, the existing
-`qorqut-tables`/`bazarlyk-history`/nightly/document history code, the schema or any dependency manifest or submodule pin, and no
+`qorqut-tables`/`qorqut-history`/nightly/document history code, the schema or any dependency manifest or submodule pin, and no
 history repository exists anywhere except in synthetic test directories. It is not a complete H1 port.
 
 ## Source and what changed from the donor
@@ -171,8 +171,8 @@ ref. Host tests import the sibling Operations worktree of this same branch throu
   `QORQUT_HISTORY_OPERATIONS_SOURCE`): `git archive HEAD` of both repositories into a temporary directory, both wheels built
   (`--no-deps --no-build-isolation`) and installed together with `--no-deps` plus `jsonschema` into a fresh venv, then run with
   `python -I` from an unrelated directory: both packages import from `site-packages`, no source tree on `sys.path`, an
-  Operations-only import pulls in no `bazarlyk` module, and one synthetic snapshot commits exactly the expected files with no
-  secret in any object. The host wheel carries the whole existing `bazarlyk` tree; only the new package and
+  Operations-only import pulls in no `qorqut` module, and one synthetic snapshot commits exactly the expected files with no
+  secret in any object. The host wheel carries the whole existing `qorqut` tree; only the new package and
   `instance_paths` are imported.
 
 Results: 22 + 8 passed and the installed check passed (see the final report for the exact commits). No existing host test and

@@ -7,7 +7,7 @@ database. Files and domain tables remain the authority for current content and s
 library is the history authority. Its version numbers are an independent sequence and
 never replace `documents.revision` or a domain CAS revision.
 
-The adapter is `bazarlyk/storage/history.py`; nothing else
+The adapter is `qorqut/storage/history.py`; nothing else
 writes the `qbdv_*` tables. The Context Base keeps its own history in its own database;
 see `qorqut-context/docs/HISTORY.md`.
 
@@ -146,9 +146,9 @@ written to Git. Full SQLite backups include them; snapshot validation counts the
 ## Existing databases: baseline
 
 ```bash
-python -m bazarlyk.maintenance.history_baseline --root <businesses-root> \
+python -m qorqut.maintenance.history_baseline --root <businesses-root> \
     [--database <state.sqlite3>] [--context-dir <root>/.contextbase]          # preview
-python -m bazarlyk.maintenance.history_baseline --root <businesses-root> ... --apply
+python -m qorqut.maintenance.history_baseline --root <businesses-root> ... --apply
 ```
 
 Preview reads only and reports counts and IDs (no bodies). Apply saves one

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import unittest
 from unittest import mock
 
-from bazarlyk import connectors
+from qorqut import connectors
 from qorqut_operations.contracts import DomainError
 
 CLAUDE_LIST = """Checking MCP server health…
@@ -221,8 +221,8 @@ class AgentShellTest(unittest.TestCase):
             path.write_text("#!/bin/sh\nprintf '%s|' " + name + " \"$@\"\necho\n")
             path.chmod(0o755)
         self.environ = {"PATH": str(bin_dir) + ":/usr/bin:/bin", "HOME": str(self.directory)}
-        from bazarlyk.agent_trust import marker_path
-        from bazarlyk.bootstrap.preparation import agent_shell
+        from qorqut.agent_trust import marker_path
+        from qorqut.bootstrap.preparation import agent_shell
         self.marker = marker_path(self.runtime_dir)
         self.shell = self.directory / "agent-shell.bash"
         self.trusted = self.directory / "trust ran"
@@ -258,7 +258,7 @@ class AgentShellTest(unittest.TestCase):
         self.assertTrue(self.trusted.exists())
 
     def test_a_failing_trust_check_never_blocks_the_launch(self):
-        from bazarlyk.bootstrap.preparation import agent_shell
+        from qorqut.bootstrap.preparation import agent_shell
         self.marker.write_text("{}")
         self.shell.write_text(agent_shell(shlex.quote(str(self.directory / "launch settings.json")), shlex.quote(str(self.marker)),
                                           shlex.quote(str(self.workspace)), "false"))
@@ -272,8 +272,8 @@ class ZshAgentShellTest(unittest.TestCase):
     def setUp(self):
         if not shutil.which("zsh"):
             self.skipTest("zsh is not installed")
-        from bazarlyk.agent_trust import marker_path
-        from bazarlyk.bootstrap.preparation import ZSH_ENV, agent_zshrc
+        from qorqut.agent_trust import marker_path
+        from qorqut.bootstrap.preparation import ZSH_ENV, agent_zshrc
         self.directory = Path(tempfile.mkdtemp(prefix="zsh shell "))
         self.addCleanup(shutil.rmtree, self.directory)
         self.home = self.directory / "home"
@@ -289,7 +289,7 @@ class ZshAgentShellTest(unittest.TestCase):
         self.runtime_dir.mkdir()
         self.marker = marker_path(self.runtime_dir)
         self.workspace = self.directory / "workspace"
-        self.prepared = self.workspace / ".bazarlyk/zsh"
+        self.prepared = self.workspace / ".qorqut/zsh"
         self.prepared.mkdir(parents=True)
         (self.prepared / ".zshenv").write_text(ZSH_ENV)
         (self.prepared / ".zshrc").write_text(agent_zshrc(shlex.quote(str(self.directory / "launch settings.json")),

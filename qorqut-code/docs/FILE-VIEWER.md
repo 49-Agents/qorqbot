@@ -7,13 +7,13 @@ needed, and viewing writes nothing.
 
 | Piece | Where |
 |---|---|
-| Link builder for agents and the owner | read operation `files_link` (`bazarlyk/domains/file_links.py`) |
-| Path and URL rules, no filesystem | `bazarlyk/file_viewer/paths.py` |
-| Descriptor-anchored file opening | `bazarlyk/file_viewer/files.py` |
-| Bounded previews (Markdown, text, CSV, HTML) | `bazarlyk/file_viewer/previews.py` |
-| One backend resolver (metadata, content, download, history) | `bazarlyk/file_viewer/service.py` |
-| Owner HTTP routes | `HTTPAPI.files_route` (`bazarlyk/transport/http.py`) |
-| Viewer page | `GET /files/view` serving `biz-dashboard/file-viewer.html` (`bazarlyk/service/web.py`) |
+| Link builder for agents and the owner | read operation `files_link` (`qorqut/domains/file_links.py`) |
+| Path and URL rules, no filesystem | `qorqut/file_viewer/paths.py` |
+| Descriptor-anchored file opening | `qorqut/file_viewer/files.py` |
+| Bounded previews (Markdown, text, CSV, HTML) | `qorqut/file_viewer/previews.py` |
+| One backend resolver (metadata, content, download, history) | `qorqut/file_viewer/service.py` |
+| Owner HTTP routes | `HTTPAPI.files_route` (`qorqut/transport/http.py`) |
+| Viewer page | `GET /files/view` serving `biz-dashboard/file-viewer.html` (`qorqut/service/web.py`) |
 | Shared safe link rendering in prose | `biz-dashboard/js/safe-links.js` |
 
 ## URLs

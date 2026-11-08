@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from qorqut_operations.contracts import DomainError
 
-from bazarlyk.calendar.providers import Provider, instant, invalid, validate_event, window
+from qorqut.calendar.providers import Provider, instant, invalid, validate_event, window
 
 DAV = "DAV:"
 CAL = "urn:ietf:params:xml:ns:caldav"

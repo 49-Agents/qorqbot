@@ -3,7 +3,7 @@ from pathlib import Path
 
 from qorqut_operations.application.catalog import CatalogContribution
 from qorqut_operations.contracts import DomainError
-from bazarlyk.extensions import Extension, OwnerRoute, ServiceDeclaration
+from qorqut.extensions import Extension, OwnerRoute, ServiceDeclaration
 
 from .catalog import ENTRIES
 from .history import CONTRIBUTION
@@ -33,7 +33,7 @@ class Telegram(Extension):
         return {name: rule for name in (*TELEGRAM_AGENT_OPERATIONS, 'telegram_notify')}
 
     def operation_guidance(self):
-        from bazarlyk.agentic.text import render
+        from qorqut.agentic.text import render
         return {"telegram_send": lambda view: render(view, "telegram", "qorqut_telegram/resources/telegram-replies.md")}
 
     def owner_input_sources(self):
@@ -71,7 +71,7 @@ class Telegram(Extension):
 def operation_route(name):
     async def handle(api, request, actor, request_id):
         import anyio
-        from bazarlyk.transport.http import read_json, response, split_options
+        from qorqut.transport.http import read_json, response, split_options
         ctx, _ = api.context(actor)
         args, options = split_options(await read_json(request))
         if options.business_id is not None:

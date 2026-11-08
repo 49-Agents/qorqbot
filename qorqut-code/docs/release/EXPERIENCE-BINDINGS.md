@@ -63,7 +63,7 @@ identity. No Git commit is made by runtime writes.
 The trusted helper supports:
 
 ```sh
-python -m bazarlyk.release_worker.experience_binding --plan PLAN --component CHANNEL --artifact ARTIFACT --operation verify
+python -m qorqut.release_worker.experience_binding --plan PLAN --component CHANNEL --artifact ARTIFACT --operation verify
 ```
 
 `bind` requires that exact plan's recorded adopt authorization; `unbind` requires its

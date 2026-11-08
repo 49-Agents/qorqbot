@@ -1,6 +1,6 @@
 # Release worker (source tooling)
 
-`bazarlyk.release_worker` is the coordinated release tooling shipped with the host source. It is
+`qorqut.release_worker` is the coordinated release tooling shipped with the host source. It is
 versioned with `qorqut-code`. This directory documents the contract that the source retains.
 
 **Supported surface.** Fresh local preparation (source export, `tools/prepare-local.py`, a prepared
@@ -128,10 +128,10 @@ category, or with `adapter: qorqut-dashboard`, is refused at planning. Host comp
 source-export and fresh-preparation inputs (see [Installation](../INSTALLATION.md)).
 
 Adding a component means adding a manifest recipe or a small adapter in
-`bazarlyk/release_worker/adapters.py`; approval, locking, records and retry
+`qorqut/release_worker/adapters.py`; approval, locking, records and retry
 policy stay in the common worker.
 
-The canonical plugin recipe is `python -m bazarlyk.release_worker.plugin_adoption`
+The canonical plugin recipe is `python -m qorqut.release_worker.plugin_adoption`
 with `--plan`, `--component`, `--artifact`, `--runtime` and `--receipt`. Its
 frozen `adoption_recipe` includes `businesses_root` and `profiles`, keyed by
 the exact selected agent IDs with each current `revision` and `service_url`.

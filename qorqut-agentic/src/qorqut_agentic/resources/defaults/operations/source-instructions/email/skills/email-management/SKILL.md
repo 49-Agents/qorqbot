@@ -1,5 +1,5 @@
 ---
-name: bazarlyk-plugin-email-management
+name: qorqut-plugin-email-management
 description: Use for any email request - reading, searching, drafting, replying, forwarding, sending or organizing mail in Gmail or another mailbox; choosing which account, inbox or sender to use; and recording or changing the owner's saved mail instructions. Start from the owner's local mail instructions named in this skill.
 ---
 

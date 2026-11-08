@@ -41,6 +41,6 @@ The saved-installation lifecycle helpers (`release_worker.installation` dependen
 supersede them.
 
 `app/tools/derive_host_schema.py` and its generated ownership ledger are gone: the committed host and extension storage
-contributions (`bazarlyk/composition/schema_ddl.py`, `tables.py` and each extension's own contribution) are authoritative and are
+contributions (`qorqut/composition/schema_ddl.py`, `tables.py` and each extension's own contribution) are authoritative and are
 edited directly. The earlier private foundation-receipt installed-host gate and its default pytest sweep are
 replaced by the checker above.

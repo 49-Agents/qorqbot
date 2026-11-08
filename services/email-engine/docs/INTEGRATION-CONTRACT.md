@@ -247,7 +247,7 @@ payload and from `digest()` when unset, so a caller that sends nothing new is
 unaffected and a labelled row carries the unchanged `Store.receipt` shape.
 
 The Qorqut cold-outbound-marketing batch producer is the implemented caller:
-in `bazarlyk/background/fastmail_batch.py::_specification` every message the
+in `qorqut/background/fastmail_batch.py::_specification` every message the
 batch books gets `workflow_owner: "qorqut"` and a `stop_key` built from the
 recipient's normalized address plus the business ID. Conversational and human
 sends through the same `EmailDelivery` path stay unlabelled. Engine-email must
@@ -441,7 +441,7 @@ the server from the envelope correlation rather than by the caller.
 10. **Qorqut cold-producer labeling**: implemented on both sides. The engine
    accepts and guards the legacy `/sends` label described above; the Qorqut
    cold-batch producer sets it in
-   `bazarlyk/background/fastmail_batch.py::_specification`.
+   `qorqut/background/fastmail_batch.py::_specification`.
 11. **Sender/business validation timing**: `submit_intent` fails fast on an
    unresolvable sender/business combination (mirroring the legacy `/sends`
    validation) rather than leaving a doomed row queued for the worker to

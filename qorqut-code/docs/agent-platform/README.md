@@ -20,7 +20,7 @@ operational records, and owner Signoffs for protected changes.
 7. [Owner and Ordubashy private conversations](../OWNER-PRIVATE-CONVERSATIONS.md): the
    private channel's identity, canonical binding, storage, operations and the owner
    team-write guard.
-8. [Recovery](../../app/bazarlyk/storage/RECOVERY.md): backups, exports and restoration.
+8. [Recovery](../../app/qorqut/storage/RECOVERY.md): backups, exports and restoration.
 
 ## Product boundaries
 

@@ -21,7 +21,7 @@ import struct
 import threading
 import time
 
-from bazarlyk.private_files import require_private_directory
+from qorqut.private_files import require_private_directory
 from qorqut_operations.contracts import DomainError
 from . import notify as urgent
 from . import store

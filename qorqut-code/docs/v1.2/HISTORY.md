@@ -53,13 +53,13 @@ The inspected v1 source already has several different contracts:
 | --- | --- |
 | Per-mutation `tables.version` / `tables.global-version` snapshots and `qorqut-tables` references | Preserve the exact revision receipts and domain retry behavior; a coalesced general snapshot cannot substitute for them |
 | `qorqut-business-docs-versioning` document versions/events | Preserve typed revision/source evidence, adapt moved Task/Action/Story callbacks and target paths |
-| Nightly maintenance exports/optional `bazarlyk-history` | Preserve the registered program's existing behavior; classify its target under retained history configuration rather than redirect it silently |
+| Nightly maintenance exports/optional `qorqut-history` | Preserve the registered program's existing behavior; classify its target under retained history configuration rather than redirect it silently |
 | Context's published Git history | Owned by the Context engine and excluded from operational file capture |
 | Source repository history | Unchanged by the operational history service |
 
 The new snapshot history is the broad operational overview; existing per-record history remains the source for its exact revision APIs and receipts. These have different permanent purposes and are not two editable operational authorities or a temporary old/new rollout.
 
-Leave the existing `qorqut-tables` and `bazarlyk-history` refs untouched during this work, including their contents, tips and checkout state. They are system data history. Their real locations and eventual relocation are later data work, not a reason to access them now. Synthetic tests may construct their own independent repositories.
+Leave the existing `qorqut-tables` and `qorqut-history` refs untouched during this work, including their contents, tips and checkout state. They are system data history. Their real locations and eventual relocation are later data work, not a reason to access them now. Synthetic tests may construct their own independent repositories.
 
 ## Capture and scheduling
 

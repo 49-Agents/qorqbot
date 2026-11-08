@@ -1,6 +1,6 @@
 # Managed instruction projection
 
-`bazarlyk.agentic.view.HostAgenticView` reads an opened layer and verified inventory.
+`qorqut.agentic.view.HostAgenticView` reads an opened layer and verified inventory.
 The host resolver composes the canonical role and managed guidance with its own
 native profile and authorization. The defaults contain Ordubashy, global worker
 and learning applier; role definitions and native implementations are not editable

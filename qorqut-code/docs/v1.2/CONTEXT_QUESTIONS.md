@@ -15,7 +15,7 @@ status/priority/archive and no automatic resolution. Resolving a question means 
 `InstancePaths.context_questions` is `operations/.runtime/context-questions.sqlite3`, explicitly resolved like every other
 instance path (a symlinked path is refused). It is a sibling of `.runtime/context/`, not inside it.
 
-`bazarlyk.context_questions.QuestionStore(path)` is the approved standalone question store, ported with lazy initialization:
+`qorqut.context_questions.QuestionStore(path)` is the approved standalone question store, ported with lazy initialization:
 
 | Call | Result |
 | --- | --- |

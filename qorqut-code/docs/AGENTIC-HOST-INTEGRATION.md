@@ -6,7 +6,7 @@ native sessions, authorization and inbox bridge. A verified source export and
 fresh initializer seed an empty instance; see [fresh installation](agentic/fresh-install.md)
 and [installation](INSTALLATION.md). Opening an existing instance does not
 initialize, repair or silently migrate it. The old layout needs the explicit
-[offline upgrade](../app/bazarlyk/agentic/LAYOUT-UPGRADE.md). Source integration
+[offline upgrade](../app/qorqut/agentic/LAYOUT-UPGRADE.md). Source integration
 does not migrate an existing installation; an operator must explicitly prepare
 and apply the reviewed plan while the instance is offline.
 

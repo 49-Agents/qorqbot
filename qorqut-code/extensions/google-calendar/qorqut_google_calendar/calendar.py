@@ -1,6 +1,6 @@
 """The Google Calendar adapter: the ``google`` connection type of the host's ``calendar_*`` operations.
 
-The host keeps the common provider interface and helpers (``bazarlyk.calendar.providers``: ``Provider``, event validation, time
+The host keeps the common provider interface and helpers (``qorqut.calendar.providers``: ``Provider``, event validation, time
 parsing and error mapping); this module adds only Google's native API behavior. A connection is the owner's primary Google
 calendar, authorized by the OAuth client credentials and refresh token stored in that connection's private configuration.
 Nothing is read or contacted at import: the token exchange happens when a connection is opened (``__enter__``)."""
@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 from qorqut_operations.contracts import DomainError
 
-from bazarlyk.calendar.providers import Provider, instant, invalid, validate_event, window
+from qorqut.calendar.providers import Provider, instant, invalid, validate_event, window
 
 GOOGLE = "https://www.googleapis.com/calendar/v3"
 

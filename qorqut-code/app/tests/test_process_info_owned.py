@@ -13,7 +13,7 @@ import time
 import unittest
 from unittest import mock
 
-from bazarlyk import process_info
+from qorqut import process_info
 
 ROOT = Path('/fake/qorqbot').resolve()
 UID = os.geteuid()

@@ -37,7 +37,7 @@ import sys
 import tempfile
 import zipfile
 
-_spec = importlib.util.spec_from_file_location("qorqut_source_snapshot", Path(__file__).resolve().parents[1] / "bazarlyk/source_snapshot.py")
+_spec = importlib.util.spec_from_file_location("qorqut_source_snapshot", Path(__file__).resolve().parents[1] / "qorqut/source_snapshot.py")
 _snapshot = importlib.util.module_from_spec(_spec)
 exec(compile(Path(_spec.origin).read_bytes(), _spec.origin, "exec"), _snapshot.__dict__)
 

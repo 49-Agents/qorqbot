@@ -6,7 +6,7 @@ Optional. Not selected by any default role.
 
 - Skill `telegram-owner-communication`: `skills/telegram-owner-communication/SKILL.md` in this
   directory, unchanged from the former default skill (published name
-  `bazarlyk-role-telegram-owner-communication`). Only Ordubashy selected it.
+  `qorqut-role-telegram-owner-communication`). Only Ordubashy selected it.
 - Brief section: `BRIEF-SECTION.md`, the paragraph that used to sit in Ordubashy's default brief.
   Append it to the brief where the package composes one, keeping the 10,000-character limit.
 - Role grants for Ordubashy only, each `allow`: `telegram_send`, `telegram_history`,

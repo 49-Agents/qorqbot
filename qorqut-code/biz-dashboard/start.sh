@@ -14,7 +14,7 @@
 # migrates data and never searches a sibling checkout, a default interpreter or an old businesses root.
 #
 # Explicit host selection (every one required; absolute, normalized paths; nothing is discovered):
-#   INTERPRETER (or BIZ_DASH_PYTHON)   the Python of the installed host, used with -I -m bazarlyk.service;
+#   INTERPRETER (or BIZ_DASH_PYTHON)   the Python of the installed host, used with -I -m qorqut.service;
 #                                      not needed when BIZ_DASH_LAUNCHER names the stable application launcher
 #   WORKSPACE (or BIZ_DASH_WORKSPACE)  the protected configuration / package-source workspace
 #   INSTANCE_ROOT                      the instance root holding operations/
@@ -22,9 +22,9 @@
 #   COMPONENT_OPERATIONS_ENGINE, COMPONENT_CONTEXT_ENGINE, COMPONENT_ROLES   optional component locations
 # `start.sh argv` prints the exact launch command, one element per line, without starting anything.
 #
-# `stop` ends the dashboard only. Agent shells live in tmux (`tmux -L bazarlyk`) and keep running;
+# `stop` ends the dashboard only. Agent shells live in tmux (`tmux -L qorqut`) and keep running;
 # the next `start` re-attaches to them. Kill one on purpose with the Stop button or
-# `tmux -L bazarlyk kill-session -t =<slug>__<agent>`.
+# `tmux -L qorqut kill-session -t =<slug>__<agent>`.
 set -euo pipefail
 umask 077
 
@@ -110,7 +110,7 @@ resolve_launch() {
   else
     [ -n "$interpreter" ] || die "no host interpreter selected (set INTERPRETER in $CONF or BIZ_DASH_PYTHON); no sibling checkout is searched"
     require_absolute INTERPRETER "$interpreter"
-    COMMAND=("$interpreter" -I -u -m bazarlyk.service "${LAUNCH_ARGS[@]}")
+    COMMAND=("$interpreter" -I -u -m qorqut.service "${LAUNCH_ARGS[@]}")
   fi
 }
 
@@ -178,8 +178,8 @@ cmd_foreground() {
 cmd_status() {
   if pid=$(running_pid); then echo "running (pid $pid)"; else echo "not running"; fi
   if command -v tmux >/dev/null; then
-    echo "agent shells (tmux -L bazarlyk):"
-    tmux -L bazarlyk list-sessions -F '  #{session_name}  #{pane_current_command}  #{pane_current_path}' 2>/dev/null || echo "  none"
+    echo "agent shells (tmux -L qorqut):"
+    tmux -L qorqut list-sessions -F '  #{session_name}  #{pane_current_command}  #{pane_current_path}' 2>/dev/null || echo "  none"
   fi
 }
 

@@ -59,9 +59,9 @@ def validate_source(source: Path, expected_commit: str, provenance_repo: Path, t
         fail(f"source artifact does not exist or is not a directory: {source}")
     if (source / ".git").exists():
         fail(f"source must be an assembled release artifact, not a development checkout: {source}")
-    worker = source / "bazarlyk/release_worker/__main__.py"
-    package = source / "bazarlyk/release_worker/__init__.py"
-    root_package = source / "bazarlyk/__init__.py"
+    worker = source / "qorqut/release_worker/__main__.py"
+    package = source / "qorqut/release_worker/__init__.py"
+    root_package = source / "qorqut/__init__.py"
     python = Path(interpreter) if interpreter else source / ".venv/bin/python"
     if not worker.is_file() or not package.is_file() or not root_package.is_file():
         fail(f"source artifact is missing merged release-worker code: {worker}")
@@ -81,12 +81,12 @@ def validate_source(source: Path, expected_commit: str, provenance_repo: Path, t
         fail("--source-subdirectory must be app for v1.2, or omitted for a legacy artifact")
     prefix = source_subdirectory + "/" if source_subdirectory else ""
     relative_files = [path.removeprefix(prefix) for path in _git(
-        provenance_repo, "ls-tree", "-r", "--name-only", expected_commit, prefix + "bazarlyk"
+        provenance_repo, "ls-tree", "-r", "--name-only", expected_commit, prefix + "qorqut"
     ).splitlines() if path.endswith(".py")]
     if not relative_files:
         fail("trusted commit has no first-party Python files at the selected source subdirectory")
     expected_set = set(relative_files)
-    actual_set = {path.relative_to(source).as_posix() for path in (source / "bazarlyk").rglob("*.py")}
+    actual_set = {path.relative_to(source).as_posix() for path in (source / "qorqut").rglob("*.py")}
     extras = sorted(actual_set - expected_set)
     missing = sorted(expected_set - actual_set)
     if extras or missing:
@@ -111,7 +111,7 @@ def validate_source(source: Path, expected_commit: str, provenance_repo: Path, t
         with tempfile.TemporaryDirectory(prefix="release-worker-import-") as cache:
             subprocess.run(
                 [str(python), "-I", "-B", "-X", f"pycache_prefix={cache}", "-c",
-                 "import sys; sys.path.insert(0, sys.argv[1]); import bazarlyk.release_worker", str(source)],
+                 "import sys; sys.path.insert(0, sys.argv[1]); import qorqut.release_worker", str(source)],
                 check=True, capture_output=True, text=True,
             )
     except (OSError, subprocess.CalledProcessError) as exc:
@@ -200,7 +200,7 @@ def version_assets_valid(metadata: dict[str, object], manifest: Path) -> bool:
 
 def validate_bytecode(source: Path) -> None:
     """Reject sourceless and native shadows; source-backed caches are not read."""
-    for path in (source / "bazarlyk").rglob("*"):
+    for path in (source / "qorqut").rglob("*"):
         if path.is_symlink():
             fail(f"source first-party tree may not contain symlinks: {path}")
         if path.is_file() and path.suffix.lower() in {".so", ".pyd", ".dll", ".dylib"}:
@@ -246,7 +246,7 @@ if not source.is_dir():
     raise SystemExit(f"release-worker: installed source is missing or invalid: {{source}}")
 if not python.is_file() or not os.access(python, os.X_OK):
     raise SystemExit(f"release-worker: installed Python is missing or not executable: {{python}}")
-for path in (source / "bazarlyk").rglob("*"):
+for path in (source / "qorqut").rglob("*"):
     if path.is_symlink():
         raise SystemExit(f"release-worker: installed first-party tree contains a symlink: {{path}}")
     if path.is_file() and path.suffix.lower() in {{".so", ".pyd", ".dll", ".dylib"}}:
@@ -270,7 +270,7 @@ if docs_digest != manifest.get("docs_digest") or hashlib.sha256(installer_path.r
 files = manifest.get("worker_files")
 if not isinstance(files, dict) or not files:
     raise SystemExit(f"release-worker: installed manifest has no worker provenance: {{manifest_path}}")
-actual_paths = {{path.relative_to(source).as_posix() for path in (source / "bazarlyk").rglob("*.py")}}
+actual_paths = {{path.relative_to(source).as_posix() for path in (source / "qorqut").rglob("*.py")}}
 expected_paths = set(files)
 if actual_paths != expected_paths:
     raise SystemExit(f"release-worker: installed first-party Python tree differs from manifest: {{source}}")
@@ -297,7 +297,7 @@ if len(sys.argv) == 2 and sys.argv[1] == "--installer-path":
     print(manifest["installer_path"])
     raise SystemExit(0)
 command = [str(python), "-I", "-c",
-           "import sys; source=sys.argv.pop(1); sys.path.insert(0, source); from bazarlyk.release_worker.cli import main; raise SystemExit(main(sys.argv[1:]))",
+           "import sys; source=sys.argv.pop(1); sys.path.insert(0, source); from qorqut.release_worker.cli import main; raise SystemExit(main(sys.argv[1:]))",
            str(source), *sys.argv[1:]]
 # A fresh private prefix prevents reading artifact or venv caches. -B also
 # prevents this invocation from writing caches. Keep the original source paths
@@ -379,7 +379,7 @@ def install(args):
     if not manifest_exists:
         stage = Path(tempfile.mkdtemp(prefix=f".{args.version}.", dir=version_dir.parent))
         try:
-            shutil.copytree(source / "bazarlyk", stage / "code/bazarlyk", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+            shutil.copytree(source / "qorqut", stage / "code/qorqut", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
             atomic_json(stage / "manifest.json", metadata)
             (stage / "installer.py").write_bytes(installer_bytes)
             (stage / "installer.py").chmod(0o755)

@@ -1,5 +1,5 @@
 ---
-name: bazarlyk-role-chat-references
+name: qorqut-role-chat-references
 description: Show the owner a message in Chat with pending Signoffs, configured browsers, Tasks or registered agents right below it (request_user_input), and select an exact browser with browser_turn action=list and browser_id.
 ---
 

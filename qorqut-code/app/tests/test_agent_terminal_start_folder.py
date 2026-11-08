@@ -19,9 +19,9 @@ from unittest import mock
 
 from qorqut_operations.contracts import DomainError
 
-from bazarlyk import agent_trust
-from bazarlyk.agents import roles
-from bazarlyk.transport.agent_terminal_control import AgentTerminalBackend
+from qorqut import agent_trust
+from qorqut.agents import roles
+from qorqut.transport.agent_terminal_control import AgentTerminalBackend
 
 SHELL = {"state": "present", "server_pid": "10", "session_id": "$1", "pane_id": "%1", "pane_pid": "4242", "command": "bash",
          "foreground_pid": 4242, "foreground_started": "1000", "client": "claude", "selection_revision": None}
@@ -107,7 +107,7 @@ class Fixture(unittest.TestCase):
             if isinstance(item, Exception):
                 raise item
             return Path(item)
-        self.process_cwd = mock.patch("bazarlyk.process_info.cwd", cwd)
+        self.process_cwd = mock.patch("qorqut.process_info.cwd", cwd)
         self.process_cwd.start()
         self.addCleanup(self.process_cwd.stop)
         self.row = row or {"agent_id": "ordubashy", "home_business_id": None,

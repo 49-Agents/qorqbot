@@ -16,8 +16,8 @@ import types
 import unittest
 from unittest import mock
 
-from bazarlyk import posix_files
-from bazarlyk.agentic import managed_update as module
+from qorqut import posix_files
+from qorqut.agentic import managed_update as module
 
 PD = "a" * 64
 SHA = "b" * 64
@@ -218,7 +218,7 @@ class SimulatedDarwinTest(Harness):
         record = {"managed_upgrade": {"plan_digest": PD, "prior_binding_sha256": SHA}}
         installed = mock.MagicMock()
         installed.__enter__.return_value = record
-        self.patch(sys.modules["bazarlyk.agentic.installation"], "_validated_installed_binding", return_value=installed)
+        self.patch(sys.modules["qorqut.agentic.installation"], "_validated_installed_binding", return_value=installed)
         with foreign_device(self.agentic_root / ".git", self.config):
             result = self.apply()
         self.assertTrue(result["replayed"])

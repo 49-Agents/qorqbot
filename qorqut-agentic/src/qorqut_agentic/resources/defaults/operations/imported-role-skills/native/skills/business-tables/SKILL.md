@@ -1,5 +1,5 @@
 ---
-name: bazarlyk-role-business-tables
+name: qorqut-role-business-tables
 description: Create and maintain project-shared tables, and transform original CSV or spreadsheet uploads into structured records.
 ---
 

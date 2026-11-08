@@ -123,7 +123,7 @@ conversation is starting and enable itself when `reason` becomes `live`.
   never verifies anything.
 * A **successful outgoing agent message** is a `notice` entry with `text:""`, `system:null`, no completion fields and an
   `agent_message` object. It is derived from the agent's own archived `agents_message_send` result, never from delivery state, the
-  composer or the inbox: for Codex a completed `bazarlyk` MCP tool-call item of this conversation, for Claude a `tool_result` of
+  composer or the inbox: for Codex a completed `qorqut` MCP tool-call item of this conversation, for Claude a `tool_result` of
   this conversation's own record, parsed only as the JSON success envelope (`status:"ok"`, `data.message` with `id`, `event_id`,
   `thread_id`, `created_at`, `recipient_id`). An attempted or failed send, an `is_error`/`isError` result, a messages-list result,
   and text that merely quotes a result are not messages; a record that also carries visible user text stays that user entry. One

@@ -1,5 +1,7 @@
 # Development preparation from a source export
 
+For installations predating the application package rename, see [Qorqut identifiers and upgrade boundaries](QORQUT-RENAME.md).
+
 For the downloadable Linux application, use the [native distribution guide](distribution/README.md).
 For a single publication repository, export the exact commit with `tools/export-unified.py`; its output uses the same
 source manifest and preparation contract below. The multi-repository export examples are retained for private development assembly.
@@ -17,7 +19,7 @@ configuration, and the fourth is one initialization command followed by a start 
 | 1. Source export | Exact commits of local Git repositories become one clean directory | `tools/export-source.py` |
 | 2. Environment preparation | Wheels are built from that export; environments are created | `tools/prepare-local.py` |
 | 3. Service configuration | Optional extension selection, credentials, optional services | Owner (below; this guide only points) |
-| 4. Initialization and startup | One fresh instance with its owner, then a manual service start | `python -m bazarlyk.bootstrap.initialize`; the owner starts the service |
+| 4. Initialization and startup | One fresh instance with its owner, then a manual service start | `python -m qorqut.bootstrap.initialize`; the owner starts the service |
 
 Stages 1–2 create no owner identity or instance configuration, install no operating-system service or native
 CLI, start no process and contact no provider. The output is **prepared, not configured and not running**.
@@ -113,14 +115,14 @@ environment are ignored (index, proxy, certificate and cache settings are kept f
 1. creates `prepared/venv` and builds every first-party wheel from the copy into `prepared/wheels`
    (`pip wheel --no-deps`);
 2. **before anything is installed**, reads each wheel's metadata and reconciles every active first-party requirement
-   (`qorqut-*` / `bazarlyk-*`, markers and extras applied) of each environment against the wheels selected for it. A
+   (`qorqut-*`, markers and extras applied) of each environment against the wheels selected for it. A
    requirement that is a URL, has no wheel among the selected sources, is satisfied only by a wheel built for a different
    environment (for example the Paper service's FastAPI closure), or does not match the local version is reported as an
    integration error, as is the same distribution built twice;
 3. installs `prepared/venv` in one `pip install` with the complete first-party set as explicit wheel files (Operations,
    Context, document history, any selected content library/adapter, Paper host bridge and Fastmail host
    bridge, the optional Google Calendar provider (`--with-google-calendar`, built from
-   `qorqut-code/extensions/google-calendar`) and the host as `bazarlyk_core-….whl[service]`) under `app/service-constraints.txt` (and, with
+   `qorqut-code/extensions/google-calendar`) and the host as `qorqut_core-….whl[service]`) under `app/service-constraints.txt` (and, with
    `--with-fastmail`, the Fastmail package's own `constraints.txt`); third-party dependencies come from the package index;
 4. with `--with-fastmail`, creates `prepared/email-engine-venv` for the email engine (the transport of the Fastmail provider)
    and installs its wheel there. A standard preparation builds no email engine and creates no such environment;
@@ -223,7 +225,7 @@ nothing from an existing installation, and it starts no service. Run it with the
 host and any selected extension are imported from the installed wheels and not from the source copy:
 
 ```sh
-prepared/venv/bin/python -m bazarlyk.bootstrap.initialize \
+prepared/venv/bin/python -m qorqut.bootstrap.initialize \
   --prepared-root /abs/path/prepared --instance-root /abs/path/new-instance \
   [--owner-name "Your Name"] [--extensions-config /abs/path/extensions.json]
 ```
@@ -259,7 +261,7 @@ empty bootstrap commit**: Git's empty tree, no parent, authored by the local mac
 <qorqut@localhost>`. It is built explicitly (no staging, no scan of the instance, no index), with no remote, no hooks, no
 signing and no global or system Git configuration, always against that exact `.git` directory so Git can never fall back
 to a repository that contains the instance. The two publishers keep their own branches (`qorqut-tables`,
-`bazarlyk-history`) and temporary indexes and never move `qorqut-instance`; `<instance>/operations/.runtime/history.git`
+`qorqut-history`) and temporary indexes and never move `qorqut-instance`; `<instance>/operations/.runtime/history.git`
 (operational snapshots) and the Context and project repositories are separate stores. The receipt records the repository
 path, branch and bootstrap commit. Only a repository this command creates receives that commit: starting, reading or
 serving never creates, repairs or completes one, and an existing instance with a missing or unborn repository stays a
@@ -373,7 +375,7 @@ On success the command prints a summary and **one manual service command** (show
 instance; the instance, component and workspace paths are all explicit, the token only by file):
 
 ```sh
-/abs/path/prepared/venv/bin/python -m bazarlyk.service --workspace /abs/path/prepared/src \
+/abs/path/prepared/venv/bin/python -m qorqut.service --workspace /abs/path/prepared/src \
   <instance and component paths as printed> \
   --extensions-config /abs/path/new-instance/config/extensions.json \
   --token-file /abs/path/new-instance/config/owner-token
@@ -393,7 +395,7 @@ NEW-REPORT.json`, which verifies every wheel and environment against the prepara
 
 Agentic initialization is part of this fresh-instance path. The separate
 `qorqut-agentic==0.2.0` local wheel and exported component are required. Export,
-preparation and import share `app/bazarlyk/source_snapshot.py`: it hashes sorted
+preparation and import share `app/qorqut/source_snapshot.py`: it hashes sorted
 canonical JSON records of file paths, byte hashes and executable bits (or literal
 symlink targets), excluding descendant component roots. Old format-1 exports
 without `snapshot_sha256` must be re-exported. This integrity check detects changed

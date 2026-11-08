@@ -1,7 +1,7 @@
 # Ordubashy browser interventions
 
 For an explicit owner Chrome task, keep the prepared launcher prefix:
-`sh .bazarlyk/browser --consumer-id <your session inbox UUID> <command> [arguments]`.
+`sh .qorqut/browser --consumer-id <your session inbox UUID> <command> [arguments]`.
 Native command safety and session identity checks still apply.
 
 For new login/browser help, present a stable Reference with an accurate headline

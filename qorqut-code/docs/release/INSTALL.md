@@ -1,6 +1,6 @@
 # Release-worker installation
 
-This guide describes how the release worker (`bazarlyk.release_worker`, see the
+This guide describes how the release worker (`qorqut.release_worker`, see the
 [release guide](README.md)) is installed from an assembled immutable artifact. It
 describes the worker's own installer only (`tools/release_worker/install.py`). Local source export, environment
 preparation and manual startup of a Qorqut instance are in [Installation](../INSTALLATION.md); this guide is not

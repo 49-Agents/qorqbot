@@ -1,6 +1,6 @@
 from qorqut_operations.contracts import DomainError
-from bazarlyk.management.identity import is_active_installation_owner
-from bazarlyk.reminders.legacy import NAME
+from qorqut.management.identity import is_active_installation_owner
+from qorqut.reminders.legacy import NAME
 
 def legacy_admit(self, uow, row):
     """Admission of a still-queued legacy ``owner_reminder`` outbox row.

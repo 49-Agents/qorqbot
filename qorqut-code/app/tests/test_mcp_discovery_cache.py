@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from qorqut_agentic.behavior.tool_help import ToolInstructions, defaults
-from bazarlyk.transport import mcp
+from qorqut.transport import mcp
 
 
 class Registry:

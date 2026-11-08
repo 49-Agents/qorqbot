@@ -82,7 +82,7 @@ global agent reaches the new project at once. A later explicit request may add a
 
 Project creation uses no template repository, checkout or environment setting, and the v1.2 composition has no template
 component. The three initial shared instructions (`foundation`, `ecosystem-agent`, `ecosystem`) are package resources of the
-host, read with `importlib.resources` from `bazarlyk/bootstrap/instructions/` and registered once as ordinary global
+host, read with `importlib.resources` from `qorqut/bootstrap/instructions/` and registered once as ordinary global
 `shared_instruction` documents under `operations/files/instructions/`. They say that only the configured active Ordubashy
 creates projects, that strategy and review stay with Ordubashy and the owner, and that there is no Ideas or setup-checklist workflow.
 

@@ -1,5 +1,5 @@
 ---
-name: bazarlyk-role-owner-input
+name: qorqut-role-owner-input
 description: Ask the owner a question or request a missing decision, access, or input through Signoffs; retrieve the submitted response and manage notification urgency.
 ---
 

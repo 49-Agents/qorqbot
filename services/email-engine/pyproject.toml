@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 license-files = ["LICENSE", "LICENSES/Apache-2.0.txt", "RELEASE-LICENSES.json"]
-name = "bazarlyk-engine-email"
+name = "qorqut-engine-email"
 version = "0.2.0"
 description = "Fastmail JMAP synchronization and approved account email execution"
 requires-python = ">=3.12"

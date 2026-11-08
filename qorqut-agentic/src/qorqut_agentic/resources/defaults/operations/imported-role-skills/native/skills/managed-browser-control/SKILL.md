@@ -1,5 +1,5 @@
 ---
-name: bazarlyk-role-browser-control
+name: qorqut-role-browser-control
 description: Operate the configured Chrome browser when the owner explicitly asks to use Chrome or a browser, or when work assigned to you needs a browser. Ordinary research, a one-off web request, or a URL supplied as context does not activate this skill.
 ---
 
@@ -23,7 +23,7 @@ assigned task. Do not spawn helpers or wait for helpers on the direct path.
 The backend uses pinned Vercel agent-browser; do not invoke its AI chat.
 
 Global agents and explicitly requested native Codex subagents use `browser_turn` over their authenticated
-Bazarlyk MCP connection, not the app's computer/browser tools. Your own configured
+Qorqut MCP connection, not the app's computer/browser tools. Your own configured
 browser, when the installation configures one for you, is lease-free: nothing
 reserves it and no call waits. For direct work, call `acquire` with
 `protocol: "handles"`. `consumer_id` is optional: omit it to begin, and do not look

@@ -6,7 +6,7 @@ import unittest
 
 from qorqut_operations.contracts import DomainError
 
-from bazarlyk import onboarding_preferences as module
+from qorqut import onboarding_preferences as module
 
 
 class ProgressTests(unittest.TestCase):

@@ -12,7 +12,7 @@ import re
 import sys
 from urllib.parse import unquote, urlparse
 
-FIRST_PARTY = re.compile(r"(qorqut|bazarlyk)-")
+FIRST_PARTY = re.compile(r"qorqut-")
 config = json.loads(Path(sys.argv[1]).read_text())
 wheels = config["wheels"]
 wheel_directory = Path(config["wheel_directory"]).resolve()

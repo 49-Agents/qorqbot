@@ -13,18 +13,18 @@ import re
 import stat
 
 PACKAGE = "runtime-instructions"
-SNAPSHOT = ".bazarlyk/runtime-instructions.json"
-HELPER = ".bazarlyk/agentic-instructions.py"
+SNAPSHOT = ".qorqut/runtime-instructions.json"
+HELPER = ".qorqut/agentic-instructions.py"
 MAX_BYTES = 512 * 1024
 TOKEN = re.compile(r"\{\{([A-Z][A-Z0-9_]*)\}\}")
 
 ALWAYS_SKILLS = (
-    "bazarlyk-role-owner-focus", "bazarlyk-role-chat-references",
-    "bazarlyk-role-owner-input", "bazarlyk-role-action-recording",
-    "bazarlyk-role-owner-reminders", "bazarlyk-role-calendar",
-    "bazarlyk-plugin-email-management", "bazarlyk-role-business-tables",
-    "bazarlyk-role-browser-control",
-    "bazarlyk-qorqbot-guide",
+    "qorqut-role-owner-focus", "qorqut-role-chat-references",
+    "qorqut-role-owner-input", "qorqut-role-action-recording",
+    "qorqut-role-owner-reminders", "qorqut-role-calendar",
+    "qorqut-plugin-email-management", "qorqut-role-business-tables",
+    "qorqut-role-browser-control",
+    "qorqut-qorqbot-guide",
 )
 SKILL_ROOTS = {"codex": ".agents/skills", "claude-code": ".claude/skills"}
 SKILL_BUDGET = 120000

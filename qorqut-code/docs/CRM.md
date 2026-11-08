@@ -11,11 +11,11 @@ mailbox orchestration, contact matching or dataset import exists here, and no li
 
 ## Composition
 
-`bazarlyk.domains.register_business_domains` builds the Domain once, after Tasks, Tables and the neutral items
+`qorqut.domains.register_business_domains` builds the Domain once, after Tasks, Tables and the neutral items
 exist and **before the registry freezes**: `CRMOperations(application, tables, tasks, items, clock=…)`, then
 `tables.bind_crm(crm)` so the Table service reads CRM rows through it, then `crm.register(registry)`. It is exposed
 as `runtime.domains.crm`. The host adds one operation of its own, `crm_activity_list`
-(`bazarlyk.domains.crm.CRMActivityOperations`, `runtime.crm_activity`). There is no substitute CRM
+(`qorqut.domains.crm.CRMActivityOperations`, `runtime.crm_activity`). There is no substitute CRM
 implementation: the host imports the Domain's `CATALOG_ENTRIES`, `TABLES`, `IMMUTABLE_FIELDS`, `SCHEMA`,
 `CLASSIFICATIONS` and `storage_contribution()` and never keeps a second copy of its schema.
 
@@ -71,7 +71,7 @@ explicitly** linked to:
   linked sources, on the discovery rows examined or on the length of any history; each is read in stable keyset
   batches, so a link, source or version is never silently dropped however many exist.
 - Each source is opened with the **caller's current authority on every page**, and the read is admitted exactly as a
-  direct call of the source's own read operation is (`bazarlyk/read_admission.py`: the operation's exposure, the Global
+  direct call of the source's own read operation is (`qorqut/read_admission.py`: the operation's exposure, the Global
   capability, the policy decision and, for a delegated assignment, the explicit in-boundary record selector - not the
   policy decision alone). One that is absent, archived away or no longer readable is skipped without a trace: no
   label, count or placeholder. Another business's Task needs the caller's own access to that business; a Global Task

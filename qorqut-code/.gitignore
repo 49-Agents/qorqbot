@@ -4,7 +4,7 @@ __pycache__/
 .pytest_cache/
 .env
 .env.*
-.bazarlyk/
+.qorqut/
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm

@@ -1,5 +1,5 @@
 ---
-name: bazarlyk-role-calendar
+name: qorqut-role-calendar
 description: Use the owner's native Qorqut Calendar - list calendars, read, create, change or delete events, respond to invitations - and get an owner Signoff before any change that notifies guests.
 ---
 

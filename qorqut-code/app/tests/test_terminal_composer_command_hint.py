@@ -1,6 +1,6 @@
 import unittest
 
-from bazarlyk.transport import terminal_composer as tc
+from qorqut.transport import terminal_composer as tc
 
 RULE = "\x1b[38;5;245m" + "─" * 66 + "\x1b[39m"
 HINT = "\x1b[39m❯\xa0\x1b[38;5;105m/compact\x1b[39m  \x1b[38;5;241m<optional custom summarization instructions>\x1b[39m"

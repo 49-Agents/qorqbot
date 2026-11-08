@@ -5,7 +5,7 @@ The logical source ID `roles` points to the engine's
 `src/qorqut_agentic/resources/defaults/`, which supplies the three role manifests
 and protected operations and Overseer guidance. A separate roles checkout is not
 an active fresh-build dependency. Host-owned assets remain in
-`app/bazarlyk/agentic/assets/`; native implementations and authority remain in
+`app/qorqut/agentic/assets/`; native implementations and authority remain in
 host or extension code. The version 2 inventory records physical package paths,
 bindings, provenance and hashes; selection or discovery grants no authority.
 
@@ -19,9 +19,9 @@ restriction is not an OS sandbox. See [fresh installation](../agentic/fresh-inst
 and [host integration](../AGENTIC-HOST-INTEGRATION.md).
 
 Source inventory and planning interfaces are implemented in
-`app/bazarlyk/agentic/inventory.py` and `app/bazarlyk/agentic/plans.py`; they
+`app/qorqut/agentic/inventory.py` and `app/qorqut/agentic/plans.py`; they
 retain provenance, conflict checks and explicit selection. Existing installations
-require the explicit [offline layout upgrade](../../app/bazarlyk/agentic/LAYOUT-UPGRADE.md).
+require the explicit [offline layout upgrade](../../app/qorqut/agentic/LAYOUT-UPGRADE.md).
 Legacy apply is still in progress; fresh initialization must not overwrite an
 existing installation or be treated as its migration.
 
@@ -47,7 +47,7 @@ existing authoring API and returns `result`, `no_op` and `import_manifest`; save
 the manifest outside authored content for later updates. Digests are integrity
 checks, not authorization.
 
-The local JSON command `python -m bazarlyk.agentic` accepts one request with
+The local JSON command `python -m qorqut.agentic` accepts one request with
 `operation` and `arguments`. `inventory_sources`, `build_import_plan` and
 `apply_import_plan` use the same named arguments as Python; apply requires an
 already opened layer identified by `--root` and `--state`. For example, use

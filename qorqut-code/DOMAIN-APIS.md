@@ -1,6 +1,6 @@
 # Business Domain Integration
 
-`register_business_domains(registry, application, paths, *, catalog, agent_resolver, clock=utc_clock, job_programs=None, filing=None, graph_edits=None, queue=None)` composes the retained domains with Operations and shared Context. Read the exact current signature in [domain composition](app/bazarlyk/domains/__init__.py); optional integration arguments evolve there. `paths` is explicit `InstancePaths`, not a businesses-root string. The `BusinessDomains` dataclass includes Tasks, Actions, tags, queue, shared Context, neutral items and retained domain services. Stories and the former Requests domain are not members.
+`register_business_domains(registry, application, paths, *, catalog, agent_resolver, clock=utc_clock, job_programs=None, filing=None, graph_edits=None, queue=None)` composes the retained domains with Operations and shared Context. Read the exact current signature in [domain composition](app/qorqut/domains/__init__.py); optional integration arguments evolve there. `paths` is explicit `InstancePaths`, not a businesses-root string. The `BusinessDomains` dataclass includes Tasks, Actions, tags, queue, shared Context, neutral items and retained domain services. Stories and the former Requests domain are not members.
 `job_programs` is the shared `ProgramRegistry`, not an ad hoc task map.
 Missing required programs fail explicitly. No handler starts agent sessions.
 
@@ -148,7 +148,7 @@ To adopt current entries across all registered businesses, inspect first, then
 apply the same explicit migration command with `--apply`:
 
 ```sh
-python -I -m bazarlyk.migration.journal_notes --root /path/to/businesses --workspace /path/to/workspace
+python -I -m qorqut.migration.journal_notes --root /path/to/businesses --workspace /path/to/workspace
 ```
 
 The migration uses the installation owner's normal application policy, checks

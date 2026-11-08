@@ -19,12 +19,12 @@ see the [native distribution guide](../distribution/README.md) for the downloada
   not the published graph. Runtime files are not source code.
 - Agent UUIDs remain identity; display names and folder labels do not confer authority.
 - Reusable roles live in the bundled defaults of `qorqut-agentic`; see [repositories](../REPOSITORIES.md).
-- Recovery: [recovery guide](../../app/bazarlyk/storage/RECOVERY.md). Owner API:
+- Recovery: [recovery guide](../../app/qorqut/storage/RECOVERY.md). Owner API:
   [native API guide](CONTROL_VIA_API.md). Behavior: [contracts](CONTRACTS.md).
 
 ## Release worker
 
-The release worker is source tooling under `app/bazarlyk/release_worker/`; its contract
+The release worker is source tooling under `app/qorqut/release_worker/`; its contract
 is in [docs/release](../release/README.md). It must be activated through its versioned
 installer from an immutable artifact and is never run from a development checkout.
 Documentation is not release authorization: merge, worker activation, stop and deploy

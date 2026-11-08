@@ -1,7 +1,7 @@
 # Agentic helper startup
 
-The generated `.bazarlyk/agentic` wrapper calls the installation's stable
-`agent-helper` with `bazarlyk.agentic.client`. The selected helper descriptor must
+The generated `.qorqut/agentic` wrapper calls the installation's stable
+`agent-helper` with `qorqut.agentic.client`. The selected helper descriptor must
 allow that module as well as provide its installed code and dependencies.
 An import check alone does not establish launcher readiness. Native helper
 diagnostics check both the required module allowlist and actual imports.
@@ -28,5 +28,5 @@ so no application or native-session restart is needed for this descriptor-only
 repair. Do not bypass the allowlist or execute extraction as a startup probe.
 
 For subsequent releases, ensure every newly selected helper descriptor includes
-`bazarlyk.agentic.client`; inheriting an older application manifest can otherwise
+`qorqut.agentic.client`; inheriting an older application manifest can otherwise
 reintroduce the omission. Keep helper selection distinct from app selection.

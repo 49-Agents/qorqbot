@@ -1,6 +1,6 @@
 # Offline Upgrade To The CRM-Capable Store
 
-`bazarlyk.migration.crm_upgrade` copies a stopped **pre-CRM** Operations store into a **new** database file for the
+`qorqut.migration.crm_upgrade` copies a stopped **pre-CRM** Operations store into a **new** database file for the
 current composition. It is an explicitly invoked offline command: nothing runs it at startup, no default path
 exists, it never modifies the source, never writes to an existing path and never touches a live instance. This
 source delivery supplies and tests the tool; it does **not** run it on any real installation.
@@ -31,7 +31,7 @@ record.
    with the engine's backup is also a valid source.)
 2. The source is exactly the pre-CRM `qorqut-v1.2` target: the Operations application id, the recorded target name,
    version and digest, and every table, index and trigger of the frozen fingerprint
-   (`app/bazarlyk/migration/crm_baseline_fingerprint.json`, plus `crm_release_fingerprints.json` for the deployed
+   (`app/qorqut/migration/crm_baseline_fingerprint.json`, plus `crm_release_fingerprints.json` for the deployed
    v1.3 release: per object its owner table and the SHA-256 of its stored definition; no row data). The release file
    recognizes the exact core+Overseer composition and the exact composition with Content, Fastmail and Paper.
    Other extension combinations, hand-edited schemas, already-upgraded stores and unknown targets are refused.
@@ -40,8 +40,8 @@ record.
 ## Procedure
 
 ```
-python -m bazarlyk.migration.crm_upgrade --source OLD.sqlite3 --destination NEW.sqlite3 --dry-run
-python -m bazarlyk.migration.crm_upgrade --source OLD.sqlite3 --destination NEW.sqlite3
+python -m qorqut.migration.crm_upgrade --source OLD.sqlite3 --destination NEW.sqlite3 --dry-run
+python -m qorqut.migration.crm_upgrade --source OLD.sqlite3 --destination NEW.sqlite3
 ```
 
 For the deployed installation with extensions, add `--installation-config /absolute/path/to/installation.json`
@@ -106,8 +106,8 @@ fingerprint file also holds the **current CRM** store, generated from the unmodi
 extension set must be passed with `--installation-config` exactly as above; any other set is refused.
 
 ```
-python -m bazarlyk.migration.crm_upgrade --source CRM.sqlite3 --destination MOVE.sqlite3 --installation-config INSTALL.json --dry-run
-python -m bazarlyk.migration.crm_upgrade --source CRM.sqlite3 --destination MOVE.sqlite3 --installation-config INSTALL.json
+python -m qorqut.migration.crm_upgrade --source CRM.sqlite3 --destination MOVE.sqlite3 --installation-config INSTALL.json --dry-run
+python -m qorqut.migration.crm_upgrade --source CRM.sqlite3 --destination MOVE.sqlite3 --installation-config INSTALL.json
 ```
 
 The dry run must report `new_tables: ["task_moves"]`, `rebuilt_tables: ["thread_messages"]`, `added_columns:
@@ -157,7 +157,7 @@ validation, a failed link and a failed directory flush all leave the source byte
 flush removes only the file this run created and never a replacement another actor put at the path).
 
 The suite now uses the integrated Domain's real DDL and widened sources. A separate subprocess invokes
-`python -m bazarlyk.migration.crm_upgrade` for dry-run, successful upgrade and existing-output refusal, checking source
+`python -m qorqut.migration.crm_upgrade` for dry-run, successful upgrade and existing-output refusal, checking source
 hash preservation, target integrity and foreign keys. The in-process tests retain the detailed failure-path coverage.
 
 These checks use disposable synthetic data only. `test_crm_release_upgrade.py` additionally rehearses both frozen

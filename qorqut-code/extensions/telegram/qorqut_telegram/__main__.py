@@ -22,7 +22,7 @@ from pathlib import Path
 import secrets
 import sys
 
-from bazarlyk.private_files import write_private_file
+from qorqut.private_files import write_private_file
 from qorqut_operations.contracts import DomainError, new_id
 from .client import GatewayError, notify
 from .config import load_config, read_token, redacted_example
@@ -148,7 +148,7 @@ def cmd_resolve(args):
 
 def cmd_composer_check(args):
     """Classify a saved ``tmux capture-pane -p -e`` screen offline. Nothing is typed and no terminal is touched."""
-    from bazarlyk.transport import terminal_composer
+    from qorqut.transport import terminal_composer
     try:
         raw = Path(args.screen).read_text(encoding="utf-8", errors="replace")
         cursor = None

@@ -2,7 +2,7 @@
 
 The installed-application OAuth flow with PKCE and a loopback callback; it requests calendar event editing and calendar metadata
 reading, not Gmail access. The connection is saved in the private calendar configuration by the host's provider-neutral
-``bazarlyk.calendar.connect.save_connection``. Nothing is read or contacted when this module is imported."""
+``qorqut.calendar.connect.save_connection``. Nothing is read or contacted when this module is imported."""
 
 import argparse
 import base64
@@ -17,7 +17,7 @@ import webbrowser
 
 import httpx
 
-from bazarlyk.calendar.connect import save_connection
+from qorqut.calendar.connect import save_connection
 
 SCOPES = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendars.readonly"
 

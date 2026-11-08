@@ -1,10 +1,10 @@
 # Operational cleanup skill
 
 Prepared Claude Code and Codex agents receive the core-owned
-`bazarlyk-cleanup` project skill. Ask the agent in ordinary language to clean up
+`qorqut-cleanup` project skill. Ask the agent in ordinary language to clean up
 its operational work, inbox, commitments, subscriptions, Focus, or activity; this
 is not a filesystem or Git cleanup. Preparation makes the skill discoverable in
-`.claude/skills/bazarlyk-cleanup` and `.agents/skills/bazarlyk-cleanup`. No slash
+`.claude/skills/qorqut-cleanup` and `.agents/skills/qorqut-cleanup`. No slash
 command is promised.
 
 The workflow reconciles messages before acknowledging events or retiring manual

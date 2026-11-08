@@ -198,7 +198,7 @@ def main(argv=None):
                              'm.prepare(root,env);m.initialize(root,env)')
                     subprocess.run([sys.executable, '-I', '-B', '-c', setup, root],
                                    env=env, cwd=root, check=True)
-                    subprocess.run([runtime / 'venv/bin/python', '-I', '-B', '-m', 'bazarlyk.bootstrap.native_update_check',
+                    subprocess.run([runtime / 'venv/bin/python', '-I', '-B', '-m', 'qorqut.bootstrap.native_update_check',
                                     '--prepared-root', runtime, '--instance-root', instance], env=env, cwd=root, check=True)
                 except BaseException:
                     # No new application was admitted and no data migration ran. Keep failed bytes for inspection.
