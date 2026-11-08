@@ -2,6 +2,15 @@
   "format": 1,
   "entries": [
     {
+      "id": "todo-adjustment",
+      "path": "messages/todo-adjustment.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "first eligible inactivity pass at least 24 hours after the previous daily Todo adjustment nudge",
+      "audience": "configured Ordubashy",
+      "previous_source": "agents/todo_adjustment.py"
+    },
+    {
       "id": "activity-reminder",
       "path": "messages/activity-reminder.md",
       "parameters": [],
