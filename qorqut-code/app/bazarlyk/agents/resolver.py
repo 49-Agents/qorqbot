@@ -30,6 +30,8 @@ from .models import AgentProfile, EffectiveAgentConfig, RETIRED_ROLE_IDS
 from .roles import RETIRED_PLUGIN_IDS, SUPPORTED_GLOBAL_ROLES
 
 PROFILE_CACHE_LIMIT = 128
+# Only global agents run; these are the registered mandatory orientation sources, all in the Global namespace.
+BOOTSTRAP_KEYS = frozenset({"foundation", "ecosystem-agent", "ecosystem"})
 # Private account capabilities: an operation declaring one is available only to a profile holding it.
 EXPLICIT_CAPABILITY_OPERATIONS = frozenset({"manage_calendar"})
 # Repair-ticket removal, phase 1: these readers stay installed and keep their internal standing grant because
@@ -296,8 +298,12 @@ class AgentConfigResolver:
             if target is None:  # Global scope names the registered installation owner.
                 owner_names = [item[0] for item in connection.execute(
                     "SELECT p.display_name FROM installation i JOIN principals p ON p.id=i.owner_principal_id WHERE i.id='service'")]
+            # Only rows carrying a needed bootstrap key are read; a matching key in the selected project still
+            # reaches the wrong-scope rejection below.
             docs = [dict(item) for item in connection.execute(
-                "SELECT * FROM documents WHERE (business_id IS NULL AND namespace='global') OR business_id=? ORDER BY id", (target,))]
+                "SELECT * FROM documents WHERE ((business_id IS NULL AND namespace='global') OR business_id=?) "
+                f"AND json_extract(metadata_json, '$.bootstrap_key') IN ({','.join('?' * len(BOOTSTRAP_KEYS))}) ORDER BY id",
+                (target, *sorted(BOOTSTRAP_KEYS)))]
             artifacts = []
             for kind, ref in [("role", profile.data["role"]), *(("plugin", item) for item in profile.data["plugins"])]:
                 artifact = connection.execute("SELECT * FROM artifacts WHERE kind=? AND artifact_id=? AND version=? AND digest=?",
@@ -319,7 +325,6 @@ class AgentConfigResolver:
 
         selected_docs, signatures = {}, []
         # Only global agents run; the retired business-agent instruction source is never required.
-        needed = {"foundation", "ecosystem-agent", "ecosystem"}
         if profile.scope.kind != "ecosystem":
             raise DomainError("invalid_scope", "Only ecosystem agents receive orientation")
         if "read_global_context" not in profile.scope.global_capabilities:
@@ -333,9 +338,9 @@ class AgentConfigResolver:
 
         for doc in docs:
             key = json.loads(doc["metadata_json"]).get("bootstrap_key")
-            if key not in needed:
+            if key not in BOOTSTRAP_KEYS:
                 continue
-            global_source = key in {"foundation", "ecosystem-agent", "ecosystem"}
+            global_source = key in BOOTSTRAP_KEYS
             if (doc["business_id"] is None) != global_source:
                 raise DomainError("context_scope_conflict", f"Mandatory source has the wrong registered scope: {key}")
             if key in selected_docs:
