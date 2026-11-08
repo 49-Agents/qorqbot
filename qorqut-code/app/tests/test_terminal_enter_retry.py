@@ -33,7 +33,9 @@ class Terminal:
     def tmux(self, *args):
         command = args[0]
         if command == "display-message":
-            return 0, f"0|0|1|{len(self.composer) + 2}|2"
+            x = len(self.composer.split('\n')[-1]) + 2
+            y = self.history.count('\n') + 2 + self.composer.count('\n')
+            return 0, f"0|0|1|{x}|{y}"
         if command == "capture-pane":
             return (1, "") if self.unreadable else (0, self.screen())
         if command == "load-buffer":
@@ -107,6 +109,16 @@ class TerminalEnterRetryTest(unittest.TestCase):
                 self.assertEqual(outcome.status, "submitted")
                 self.assertEqual(outcome.receipt["submit_attempts"], 1)
                 self.assertEqual(len(terminal.enters), 1)
+
+    def test_trailing_blank_lines_reach_enter_and_can_retry_a_missed_submit(self):
+        for client in ('codex', 'claude'):
+            for text in ('Check the calendar\n', 'Check the calendar\n\n', 'First task\nSecond task\n  '):
+                with self.subTest(client=client, text=text):
+                    terminal = Terminal(client, ['missed', 'delivered'])
+                    outcome = self.deliver(terminal, text=text, replace=True)
+                    self.assertEqual(outcome.status, 'submitted')
+                    self.assertEqual(outcome.receipt['submit_attempts'], 2)
+                    self.assertAlmostEqual(terminal.enters[1] - terminal.enters[0], .4)
 
     def test_two_missed_enters_leave_uncertain_delivery_without_a_third_attempt(self):
         terminal = Terminal("codex", ["missed", "missed"])

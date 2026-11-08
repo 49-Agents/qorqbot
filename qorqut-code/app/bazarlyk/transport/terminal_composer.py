@@ -277,6 +277,13 @@ def _holds_paste(client, rows, first, text, cursor):
             end = index
         if seen != want:
             return None
+        # Whitespace-insensitive matching stops at the last nonblank text row.
+        # A pasted trailing newline leaves the cursor on a further blank row;
+        # include only as many blank rows as the original text actually contains.
+        remaining = text[len(text.rstrip()):].count('\n')
+        while end is not None and remaining and end + 1 < len(rows) and _blank(rows[end + 1]):
+            end += 1
+            remaining -= 1
     if end is None or not _trailing_chrome(client, rows, end + 1):
         return None
     if cursor and cursor[2] and not first <= cursor[1] <= end:
