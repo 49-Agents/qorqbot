@@ -266,6 +266,7 @@ class SupervisedEdits:
                               "submit a newly reviewed plan", details={"expected_revision": request.plan["expected_revision"],
                                                                        "published_revision": snapshot.revision})
         targets = analyze(request.plan, snapshot, admission, lambda business: uow.repository("businesses").get(business) is not None)
+        authority.check_personal(uow, caller, snapshot, request.plan)
         authority.check(uow, caller, needed_namespaces(targets, admission), arguments)
         return targets
 

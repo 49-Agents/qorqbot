@@ -38,7 +38,7 @@ def parser():
     result.add_argument("--repo", required=True, help="Explicit shared context repository (never the engine repository)")
     result.add_argument("--runtime", help="Separate runtime; default is <repo>.runtime")
     commands = result.add_subparsers(dest="command", required=True)
-    init = commands.add_parser("init", help="Initialize a new empty shared context repository")
+    init = commands.add_parser("init", help="Initialize shared context with its canonical owner person node")
     init.add_argument("--basic-entity-type", action="append", default=[])
     submit = commands.add_parser("submit", help="Submit and propagate one source change")
     submit.add_argument("operation", choices=("add", "edit", "remove"))

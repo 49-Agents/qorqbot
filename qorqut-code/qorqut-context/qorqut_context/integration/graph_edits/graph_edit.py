@@ -265,8 +265,20 @@ class GraphEditAuthority:
     always built from its *current* registration (``refresh_context`` for an invocation, ``context_for`` for a stored
     attribution), so a revoked grant, an inactive agent or an owner change is seen the next time anything is checked."""
 
-    def __init__(self, application, *, roles, name: str = "context_edit"):
+    def __init__(self, application, *, roles, name: str = "context_edit", coordinator=None):
         self.application, self.roles, self.name = application, frozenset(roles), name
+        self.coordinator = coordinator
+
+    def check_personal(self, uow, ctx, snapshot, plan):
+        """Profile maintenance belongs to the configured coordinator, not every agent with a Context role."""
+        from qorqut_context.personal import edits_profile
+        try:
+            affected = edits_profile(snapshot, plan)
+        except ContextError as error:
+            raise DomainError("validation_error", str(error)) from error
+        if affected and (ctx.principal_kind != "agent" or self.coordinator is None
+                         or ctx.principal_id != self.coordinator(uow)):
+            raise DomainError("forbidden", "Only the configured Ordubashy may maintain personal context")
 
     @property
     def descriptor(self):
@@ -346,6 +358,7 @@ class GraphEditAuthority:
                                    "preparation; discard it and submit a newly reviewed plan", "integrity")
         try:
             caller = self.caller(uow, binding["attribution"], binding["business_id"])
+            self.check_personal(uow, caller, snapshot, plan)
             self.check(uow, caller, namespaces(fresh, binding["business_id"]), {"edit": binding["plan"]})
         except DomainError as error:
             raise GraphEditRefused("authority_revoked", "The original caller no longer holds the authority this edit needs: "
@@ -357,10 +370,11 @@ class GraphEditAuthority:
 class GraphEdits:
     """Prepare and apply ``context_edit``: the admission of one binding and its queue input."""
 
-    def __init__(self, application, ports: GraphEditPorts, *, roles, id_source: Callable[[], str] | None = None):
+    def __init__(self, application, ports: GraphEditPorts, *, roles, id_source: Callable[[], str] | None = None,
+                 coordinator=None):
         if not isinstance(ports, GraphEditPorts):
             raise TypeError("Graph edits need the typed GraphEditPorts")
-        self.ports, self.authority = ports, GraphEditAuthority(application, roles=roles)
+        self.ports, self.authority = ports, GraphEditAuthority(application, roles=roles, coordinator=coordinator)
         self._new_id = id_source or (lambda: "".join(secrets.choice(_ALPHABET) for _ in range(5)))
 
     # -- reads of the published Context -------------------------------------------------------------------------------
@@ -414,6 +428,7 @@ class GraphEdits:
         admission = ctx.business_id
         caller = self.application_context(ctx, uow)
         snapshot, targets = self._evidence(uow, plan, admission)
+        self.authority.check_personal(uow, caller, snapshot, plan)
         self.authority.check(uow, caller, namespaces(targets, admission), arguments)
         namespace = namespace_name(admission)
         builder = PlanBuilder(ctx, "context_edit", arguments, "Context Graph Edit", clock=clock, namespace=namespace,
@@ -478,7 +493,9 @@ class GraphEdits:
         snapshot, targets = self._evidence(uow, fresh, admission)
         if targets != companion["targets_json"]:
             raise DomainError("revision_conflict", "The objects this edit changes were re-owned or removed since preparation")
-        self.authority.check(uow, self.application_context(ctx, uow), namespaces(targets, admission), plan.arguments)
+        caller = self.application_context(ctx, uow)
+        self.authority.check_personal(uow, caller, snapshot, fresh)
+        self.authority.check(uow, caller, namespaces(targets, admission), plan.arguments)
         event_id = companion["reserved_event_id"]
         if event_id in bindings.taken_event_ids(uow) or event_id in snapshot.used_ids or event_id in self._pending_ids():
             raise DomainError("conflict", "The reserved Context event ID is no longer available; prepare the edit again")

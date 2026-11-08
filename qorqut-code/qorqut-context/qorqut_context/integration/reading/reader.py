@@ -257,6 +257,8 @@ class SharedContextReader:
         more = offset + len(selected) < len(order)
         totals = graph.totals()
         return {"status": "ready", "revision": graph.revision, "empty": totals["nodes"] == 0 and totals["edges"] == 0,
+                "personal_context": ({"ref": make_ref("node", graph.snapshot.personal_context_node)}
+                                     if graph.snapshot.personal_context_node else None),
                 "totals": totals, "nodes": [graph.home_node(node_id) for node_id in selected],
                 "page": _page(len(selected), limit, more,
                               cursors.encode("context_home", {}, graph.revision, offset + len(selected)) if more else None)}
