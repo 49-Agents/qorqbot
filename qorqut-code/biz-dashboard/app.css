@@ -17,6 +17,11 @@
   --accent: #f5f0e8;
   --accent-fg: #090909;
 
+  --nav-control-size: 33.75px;
+  --nav-control-icon: 21.375px;
+  --nav-control-radius: 5px;
+  --nav-selected: color-mix(in srgb, var(--fg) 12%, var(--bg));
+
   --ok: #6BAA82;
   --warn: #C9A064;
   --danger: #D55A5A;
