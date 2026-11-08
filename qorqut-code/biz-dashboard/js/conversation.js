@@ -208,8 +208,8 @@ function conversationMount(host,source,adapter={}) {
   const toggle=host.querySelector('.conversation-toggle'),panel=host.querySelector('.conversation-panel');
   const unreadDot=host.querySelector('[data-conversation-unread]');
   const readerEl=panel.querySelector('.conversation-reference-reader'),viewEl=panel.querySelector('.conversation-view');
-  // Canonical overview/progress render in the shared feed without writing duplicate private messages.
-  let ctx=null,ctxError=false,ctxGen=0,ctxMoreBusy=false,ctxMoreError=false,overviewExpanded=false,referenceGeneration=0;
+  // Task progress and overview have their own views; this feed contains private messages and related records only.
+  let ctxError=false,referenceGeneration=0;
   const referenceReader=conversationReferenceMount(readerEl,()=>{
     if(disposed)return;
     viewEl.hidden=false;paintContext();
@@ -244,49 +244,19 @@ function conversationMount(host,source,adapter={}) {
   const clearError=()=>{if(errorText)setError('');};
   let painted='';
   function paint(mode='auto') {
-    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before,adapter.related?s.related:null,relatedReady,ctx,ctxError,ctxMoreBusy,ctxMoreError,overviewExpanded]);
+    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before,adapter.related?s.related:null,relatedReady,ctxError]);
     if(painted===signature && mode==='auto')return;
     painted=signature;
-    const notes=[...s.notes,...(ctx?.notes || []).map(note=>({...note,id:`progress:${note.id}`}))]
-      .sort((a,b)=>(a.created_at || '').localeCompare(b.created_at || ''));
-    const entries=conversationTimeline({...s,notes},{...adapter,related:adapter.related && relatedReady},recordSource);
-    const overview=String(ctx?.overview || '').trim();
-    if(overview) {
-      const words=plainSafeLinks(overview).trim().split(/\s+/u),long=words.length>100;
-      const coordinator=s.participants.find(person=>person.author_kind==='agent');
-      entries.unshift({key:'task-overview',speaker:'agent',text:long && !overviewExpanded?words.slice(0,100).join(' ')+'…':overview,
-        author:{name:'Ordubashy',avatarHtml:coordinator?conversationGlyph(coordinator,31):'Or'},showAuthorName:false,
-        actions:long?[{key:'overview-toggle',label:overviewExpanded?'Show less':'Read full overview'}]:[]});
-    }
-    if(ctx?.notes_next_cursor || ctxMoreError)entries.unshift({key:'progress-more',speaker:'notice',text:ctxMoreError?"Couldn't load earlier progress.":'',
-      actions:[{key:'progress-more',label:ctxMoreBusy?'Loading…':'Load earlier progress',disabled:ctxMoreBusy}]});
+    const entries=conversationTimeline(s,{...adapter,related:adapter.related && relatedReady},recordSource);
     if(ctxError)entries.unshift({key:'context-error',speaker:'notice',text:"Couldn't load task context.",actions:[{key:'context-retry',label:'Retry'}]});
     chat.render({entries,older:{visible:!!s.before,disabled:false},empty:{text:s.loaded && !entries.length?'No messages yet':''}},{scroll:mode});
     if(adapter.inlineComposer)host.querySelectorAll('[title]').forEach(el=>el.removeAttribute('title'));
   }
   function paintContext() {if(!disposed)paint('preserve');}
-  // Earlier progress uses the canonical Task read in the Project the context named.
   // The source is no longer readable: drop everything read from it and invalidate outstanding context and mail reads.
   function dropContext() {
-    ctx=null;ctxError=false;ctxGen++;relatedGeneration++;referenceGeneration++;ctxMoreBusy=false;ctxMoreError=false;
+    ctxError=false;relatedGeneration++;referenceGeneration++;
     referenceReader.close();paintContext();
-  }
-  async function loadEarlier() {
-    if(ctxMoreBusy || !ctx?.notes_next_cursor || !current())return;
-    const gen=ctxGen,slug=ctx.business_slug;
-    ctxMoreBusy=true;ctxMoreError=false;paintContext();
-    try {
-      const path=slug?`/biz/${encodeURIComponent(slug)}`:'/root';
-      const data=coreData(await conversationRequest(post(`${path}/operations/tasks_get`,{scope:slug?'business':'global',task_id:source.id,notes_cursor:ctx.notes_next_cursor,notes_limit:5})));
-      if(!current() || gen!==ctxGen)return;
-      const seen=new Set(ctx.notes.map(n=>n.id));
-      const task=data.task || {};
-      ctx={...ctx,notes:[...ctx.notes,...(task.notes || []).filter(n=>!seen.has(n.id))],notes_next_cursor:task.notes_next_cursor ?? null};
-    } catch(e) {
-      if(!current() || gen!==ctxGen)return;
-      if(CONVERSATION_GONE.includes(e.code)){dropContext();return;}
-      ctxMoreError=true;
-    } finally {if(gen===ctxGen){ctxMoreBusy=false;if(current())paintContext();}}
   }
   async function openRef(ref) {
     if(ref?.type==='email') {
@@ -328,7 +298,6 @@ function conversationMount(host,source,adapter={}) {
     try {
       let result=await conversationPrivateCall(source,adapter,'owner_conversation_related',{limit:50,...(more?{offset}:{})});
       if(!current() || generation!==relatedGeneration)return;
-      const first=result;
       const records=more?[...(s.related || []),...(result.items || [])]:[...(result.items || [])];
       let pages=more?(s.relatedPages || 1)+1:1;
       // Refresh the depth already opened, so polling neither discards older related rows nor retains revoked ones.
@@ -347,7 +316,7 @@ function conversationMount(host,source,adapter={}) {
       relatedReady=true;
       if(!more) {
         // A refresh replaces the snapshot; a later related page leaves it alone.
-        ctx=source.type==='task' && first.context?first.context:null;ctxError=false;ctxMoreError=false;ctxMoreBusy=false;ctxGen++;
+        ctxError=false;
         paintContext();
       }
       paint();adapter.onRelated?.(s.related);
@@ -513,8 +482,6 @@ function conversationMount(host,source,adapter={}) {
     onTask:adapter.openReference ? ref=>adapter.openReference(ref) : null,
     onReference:ref=>{if(ref)void openRef(ref);},
     onEntryAction:(actionKey,entryKey)=>{
-      if(actionKey==='overview-toggle'){overviewExpanded=!overviewExpanded;paint('preserve');return;}
-      if(actionKey==='progress-more'){void loadEarlier();return;}
       if(actionKey==='context-retry'){void loadRelated();return;}
       const note=actionKey==='parent'?s.notes.find(n=>n.id===entryKey):null;
       if(note && adapter.openParent)Promise.resolve().then(()=>adapter.openParent(note)).catch(()=>setError(CONVERSATION_TEXT.load));

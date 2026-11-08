@@ -1,5 +1,5 @@
-/* The shared record workspace: one full-width dashboard or existing chat.
-   Header order: optional Back, title, flexible space, type icon tab, Chat icon tab, close. */
+/* The shared record workspace: one full-width dashboard, chat or task Activity.
+   Header order: optional Back, title, flexible space, type, Chat and Activity tabs, close. */
 .rw{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;box-sizing:border-box}
 .rw-records{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
 .rw-record{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
@@ -183,3 +183,34 @@
 .rw-leave-choice { border-top: 1px solid var(--line); }
 .rw-leave-choice button + button { margin-left: 8px; }
 .rw-move-panel .mfoot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* Progress notes stay outside Chat. Compact rows expand to the original text and references. */
+.rw-activity{overflow:auto;overscroll-behavior:contain;padding:18px 24px}
+.task-activity{min-width:0;font-size:12px}
+.task-activity-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.task-activity-head h4{margin:0;font-size:13px;font-weight:500}
+.task-activity-count{margin-left:auto;font-size:11px;color:var(--fg-2)}
+.task-activity .quiet{min-height:24px;height:auto;padding:3px 7px;font-size:11px;font-weight:400}
+.task-activity-status{font-size:12px;margin:6px 0}
+.task-activity-status:empty{display:none}
+.task-activity-date{font-size:11px;font-weight:400;color:var(--fg-2);margin:16px 0 4px}
+.task-activity-entry{border-bottom:1px solid var(--line);min-width:0}
+.task-activity-entry>summary{display:flex;align-items:center;gap:9px;min-width:0;min-height:32px;padding:6px 0;cursor:pointer;list-style:none;font-size:12px;line-height:20px}
+.task-activity-entry>summary::-webkit-details-marker{display:none}
+.task-activity-entry>summary::before{content:'';width:4px;height:4px;border-radius:50%;background:var(--fg-2);flex:none}
+.task-activity-entry>summary:hover{background:var(--wash)}
+.task-activity-entry>summary:focus-visible{outline:1px solid var(--fg-2);outline-offset:2px;border-radius:4px}
+.task-activity-preview{color:var(--fg);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.task-activity-actor,.task-activity-time{flex:none;color:var(--fg-2);font-size:11px;white-space:nowrap}
+.task-activity-actor{max-width:22%;overflow:hidden;text-overflow:ellipsis}
+.task-activity-chevron{color:var(--fg-2);flex:none;font-size:16px}
+.task-activity-entry[open] .task-activity-chevron{transform:rotate(90deg)}
+.task-activity-detail{margin:2px 0 10px 13px;padding:8px 12px;border-left:1px solid var(--line-2);overflow-wrap:anywhere}
+.task-activity-body{line-height:1.6;font-size:12px}
+.task-activity-body p{margin:0 0 8px}.task-activity-body>:last-child{margin-bottom:0}
+.task-activity-body ul,.task-activity-body ol{padding-left:20px}
+.task-activity-body pre{white-space:pre-wrap;font-size:11px}
+.task-activity-body .gc-table-wrap{overflow:auto}
+.task-activity-refs{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.task-progress-activity{margin-bottom:14px}.task-progress-activity>summary{cursor:pointer;font-size:12px;color:var(--fg-2)}
+@media(max-width:600px){.rw-activity{padding:12px}.task-activity-entry>summary{gap:6px}.task-activity-actor{max-width:20%}}
