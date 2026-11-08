@@ -1,6 +1,6 @@
 // The shared record workspace. A selected record shows exactly one
-// full-width pane: its dashboard or its existing Ordubashy conversation. The header keeps
-// Back (in-pane related navigation), the record title, the record-type and Chat icon tabs,
+// full-width pane: its dashboard, private conversation, or task Activity. The header keeps
+// Back (in-pane related navigation), the record title, the record-type, Chat and Activity tabs,
 // and Close. Entries stay mounted in a bounded navigation stack so tab changes and Back
 // preserve dashboard edits, drafts and scroll instead of rebuilding conversations.
 const RW_MAX_STACK = 20;
@@ -286,13 +286,15 @@ function recordWorkspaceMount(host, options = {}) {
       <span class="rw-context" hidden>CRM /</span><span class="rw-title" role="heading" aria-level="2"></span>
       <button type="button" class="quiet rw-move" hidden>Move to project…</button>
       <div class="rw-tabs" role="tablist" aria-label="Record views"></div>${closeIcon}
-    </header><div class="rw-body"><div class="rw-pane rw-dashboard" role="tabpanel" tabindex="0"></div><div class="rw-pane rw-chat" role="tabpanel" tabindex="0" hidden><div class="agfocus-conversation rw-conversation"></div></div></div>`;
+    </header><div class="rw-body"><div class="rw-pane rw-dashboard" role="tabpanel" tabindex="0"></div><div class="rw-pane rw-activity" role="tabpanel" tabindex="0" hidden></div><div class="rw-pane rw-chat" role="tabpanel" tabindex="0" hidden><div class="agfocus-conversation rw-conversation"></div></div></div>`;
     item.dashHost = item.recordEl.querySelector('.rw-dashboard');
     item.chatHost = item.recordEl.querySelector('.rw-chat');
+    item.activityHost = item.recordEl.querySelector('.rw-activity');
     item.conversationHost = item.recordEl.querySelector('.rw-conversation');
     item.panelId = 'rw-' + (++rwPanelSequence);
     item.dashHost.id = item.panelId + '-dashboard';
     item.chatHost.id = item.panelId + '-chat';
+    item.activityHost.id = item.panelId + '-activity';
     item.tabs = item.recordEl.querySelector('.rw-tabs');
     item.tabs.innerHTML = tabsHtml(record, item);
     // The record title is the canonical label; Project cards never use a Focus display-name override.
@@ -315,6 +317,7 @@ function recordWorkspaceMount(host, options = {}) {
     const tabs = [];
     tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="dashboard" id="${item.dashHost.id}-tab" aria-controls="${item.dashHost.id}" aria-label="${rwEsc(rwTypeLabel(record))} dashboard" title="${rwEsc(rwTypeLabel(record))} dashboard">${rwTypeIcon(record)}</button>`);
     if (record.can_thread && !options.paired) tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="chat" id="${item.chatHost.id}-tab" aria-controls="${item.chatHost.id}" aria-label="Chat" title="Chat">${RW_CHAT_ICON}</button>`);
+    if (record.source.type === 'task') tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="activity" id="${item.activityHost.id}-tab" aria-controls="${item.activityHost.id}" aria-label="Activity" title="Activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.7-6.4L3 8M3 3v5h5"/><path d="M12 7v5l3 2"/></svg></button>`);
     return tabs.join('');
   }
   function paintTabs(item) {
@@ -494,7 +497,7 @@ function recordWorkspaceMount(host, options = {}) {
     if (options.paired && !(await pairedSelect(existing.record, existing.pairedParent))) { reveal(); return false; }
     for (const item of currentAbove) removeEntry(item);
     stack.splice(now + 1);
-    if (tab) existing.tab = existing.record.can_thread && !options.paired ? tab : 'dashboard';
+    if (tab) selectTab(existing, tab, {initial: true, restore: true});
     reveal();
     return true;
   }
@@ -561,6 +564,7 @@ function recordWorkspaceMount(host, options = {}) {
     if (item.tab === 'dashboard') { try { item.dashboard?.onShow?.(); } catch (_) { /* its own error state */ } }
     if (!options.paired) mountChat(item);
     if (item.tab === 'chat') { showChat(item); void item.chat?.refresh?.(); }
+    if (item.tab === 'activity') mountActivity(item);
     options.onTitleChange?.(item.record);
     syncChatVisibility();
   }
@@ -569,8 +573,7 @@ function recordWorkspaceMount(host, options = {}) {
     paintTabs(item);
     paintBack();
     if (tab) item.tab = tab;
-    else if (!item.record.can_thread || options.paired) item.tab = 'dashboard';
-    item.tab = item.record.can_thread && !options.paired ? item.tab : 'dashboard';
+    else if (item.tab === 'chat' && (!item.record.can_thread || options.paired)) item.tab = 'dashboard';
     selectTab(item, item.tab, {initial: true});
     options.onTitleChange?.(item.record);
   }
@@ -598,6 +601,8 @@ function recordWorkspaceMount(host, options = {}) {
     try { item.chat?.dispose?.(); } catch (_) { /* idem */ }
     item.chat = null;
     item.chatMounted = false;
+    try { item.activity?.dispose(); } catch (_) { /* idem */ }
+    item.activity = null;
     const focusedOutside = !item.recordEl.contains(document.activeElement);
     item.recordEl.remove();
     if (!focusedOutside) entry()?.tabs.querySelector('[data-rw-tab]')?.focus({preventScroll: true});
@@ -606,13 +611,15 @@ function recordWorkspaceMount(host, options = {}) {
     for (const item of stack.splice(0)) removeEntry(item);
   }
   function captureScroll(item) {
-    if (!item?.recordEl || item.recordEl.hidden || item.dashHost?.hidden) return;
-    item.scroll = item.dashHost?.scrollTop || 0;
+    if (!item?.recordEl || item.recordEl.hidden) return;
+    if (!item.dashHost?.hidden) item.scroll = item.dashHost?.scrollTop || 0;
+    if (!item.activityHost?.hidden) item.activityScroll = item.activityHost?.scrollTop || 0;
   }
   function restoreScroll(item) {
     if (!item?.dashHost) return;
     // A hidden/detached pane can lose its scroll position; restore the retained value when shown.
     item.dashHost.scrollTop = item.scroll || 0;
+    if (!item.activityHost?.hidden) item.activityHost.scrollTop = item.activityScroll || 0;
   }
   async function back() {
     if (disposed || stack.length < 2) return false;
@@ -669,7 +676,10 @@ function recordWorkspaceMount(host, options = {}) {
   }
   function refresh() {
     const item = entry();
-    if (item?.alive) item.chat?.refresh?.();
+    if (item?.alive) {
+      item.chat?.refresh?.();
+      if (item.tab === 'activity') item.activity?.refresh();
+    }
   }
   function updateTitle(record) {
     const item = stack.find(row => rwRecordKey(row.record) === rwRecordKey(record));
@@ -697,6 +707,7 @@ function recordWorkspaceMount(host, options = {}) {
   // -------------------------------------------------------------- tabs
   function selectTab(item, tab, {initial = false, restore = false} = {}) {
     if (!item?.alive) return;
+    if (tab === 'activity' && item.record.source.type !== 'task') tab = 'dashboard';
     if (tab === 'chat' && (!item.record.can_thread || options.paired)) tab = 'dashboard';
     // A hidden dashboard is at scrollTop 0; never let the return toggle overwrite its saved position.
     if (!restore) captureScroll(item);
@@ -705,6 +716,7 @@ function recordWorkspaceMount(host, options = {}) {
     item.recordEl.dataset.tab = tab;
     item.dashHost.hidden = tab !== 'dashboard';
     item.chatHost.hidden = tab !== 'chat';
+    item.activityHost.hidden = tab !== 'activity';
     const dashTab = item.tabs.querySelector('[data-rw-tab="dashboard"]');
     if (dashTab) dashTab.setAttribute('aria-selected', String(tab === 'dashboard'));
     paintTabs(item);
@@ -717,6 +729,7 @@ function recordWorkspaceMount(host, options = {}) {
       mountChat(item);
       showChat(item);
     } else if (previous === 'chat' || item.chat) collapseChat(item);
+    if (tab === 'activity') { mountActivity(item); restoreScroll(item); }
     syncChatVisibility();
     options.onToggleTab?.(tab);
   }
@@ -727,6 +740,25 @@ function recordWorkspaceMount(host, options = {}) {
   }
   function collapseChat(item) {
     item.chat?.collapse?.();
+  }
+
+  function mountActivity(item) {
+    if (!item?.alive || item.record.source.type !== 'task') return;
+    if (item.activity) { void item.activity.refresh(); return; }
+    const record = item.record;
+    item.activity = taskActivityMount(item.activityHost, {id: record.source.id}, record.biz || null, {
+      revalidate: async () => {
+        if (record.scopeMissing) throw Object.assign(new Error('Project unavailable'), {code: 'forbidden'});
+        if (record.project_id) {
+          const result = coreData(await post('/root/operations/project_item_get', {scope: 'global', project_id: record.project_id,
+            item: {type: 'task', id: record.source.id, business_id: record.source.business_id ?? null}}));
+          if (!result.item) throw Object.assign(new Error('Record unavailable'), {code: 'not_found'});
+        }
+      },
+      openReference: ref => rwOpenChatReference(item, ref),
+      onUnavailable: () => { void rwRecordUnavailable(item); },
+      onMoved: error => showMoved(item, error),
+    });
   }
 
   // -------------------------------------------------------------- dashboard mount
@@ -925,6 +957,7 @@ function recordWorkspaceMount(host, options = {}) {
     // Drop every cached source view so a stale detached body cannot be read or resurrected.
     try { item.dashHost?.replaceChildren(); } catch (_) {}
     try { item.conversationHost?.replaceChildren(); } catch (_) {}
+    item.activityHost?.replaceChildren();
     item.record = null;
     if (!stack.length) { dispose(); options.onClose?.(); return; }
     if (wasTop) reveal();
@@ -1000,7 +1033,7 @@ async function rwDashboardMount(host, record, ctx) {
 function rwWithActivity(host, record, ctx, controller) {
   if (!controller || typeof crmActivityMount !== 'function') return controller;
   const section = rwNode('details', 'rw-activity-section');
-  section.append(rwNode('summary', '', 'Activity'));
+  section.append(rwNode('summary', '', 'Related history'));
   const body = rwNode('div', 'rw-activity-body');
   section.append(body);
   let activity = null;

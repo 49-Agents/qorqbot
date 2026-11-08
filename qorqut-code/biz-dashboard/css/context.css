@@ -26,6 +26,8 @@
 .ctxtree .h { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; color: var(--fg-3); padding: 6px 24px 6px; }
 .ctxtree .h:not(:first-child) { margin-top: 16px; }
 .ctxtree .item .nm { font-size: 13px; gap: 6px; }
+.global-context .ctxtree button.item:hover,
+.global-context .ctxtree button.item.on { background: var(--hover); color: var(--fg); }
 .ctxtree .item.bt .bdot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-left: 4px; background: var(--accent); }
 .ctxtree .item.bt .bdot.bad { background: var(--danger); }
 .ctxtree .empty.pad, .listcol .empty.pad { padding: 4px 24px 8px; font-size: 12.5px; }

@@ -160,17 +160,12 @@ physically in the agent's workspace root (see below). Revoking it in Settings
 deletes the file, so new Codex launches return to native hook review. Without
 consent nothing changes and the `/hooks` review above still applies.
 
-Local connectors (`bazarlyk/connectors.py`) are the one exception to external
-MCP servers coming only from installed extensions. In Settings, Connectors the
-owner turns on Playwright (an MCP server started with `npx`) or Claude in Chrome
-(`--chrome`). Qorqbot records the choice in `<runtime>/connectors.json` and
-writes `<runtime>/connectors/launch.bash`, and the prepared agent shell reads that
-file at every launch. These reach Qorqbot's agents only, never the projection or
-the owner's other projects, and turning one off applies at the next start. Claude
-account connectors (Gmail, Calendar, Drive and others) belong to the owner's
-Claude account. Qorqbot only reads `claude mcp list` to show their status.
-Business-scoped agents run Claude with `dontAsk` and the prepared allow list, so
-a connector's tools reach Global agents such as Ordubashy first.
+Claude account connectors (Gmail, Calendar, Drive and others) belong to the
+owner's Claude account. Qorqbot only reads `claude mcp list` to show their
+status (`bazarlyk/connectors.py`). Business-scoped agents run Claude with
+`dontAsk` and the prepared allow list, so a connector's tools reach Global
+agents such as Ordubashy first. Agents browse with Qorqbot's own browser
+control (`browser_turn`, docs/BROWSER-CONTROL.md), not with local connectors.
 
 Codex reviews the exact hook definition, including its command. Embedding an
 archive release's Python path in that command invalidated trust whenever agents

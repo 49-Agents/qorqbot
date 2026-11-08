@@ -225,7 +225,7 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
       ${task ? `<label><input name="archived" type="checkbox" ${task.archived ? 'checked' : ''}>Archived</label>` : ''}
       <button data-save>${task ? 'Save task' : 'Create task'}</button></form>
       ${task ? `<section aria-label="Related work"><h4>Linked tasks</h4><div class="task-cross-links"></div><h4>Related work</h4>${task.email_conversation_id ? '<button type="button" data-task-read-email>Historical email reference</button>' : ''}<button type="button" data-add-child>Add child task</button><div class="global-task-related"></div><div data-task-family></div></section>` : ''}
-      ${task && !special ? '<section aria-label="Task notes"><h4>Progress notes</h4><div data-task-progress></div></section>' : ''}
+      ${task && !special ? '<section aria-label="Task conversation and activity"><h4>Chat</h4><div data-task-progress></div></section>' : ''}
       <button type="button" data-retry hidden>Retry exact save</button><button type="button" data-reload hidden>Discard edits and reload current task</button>`);
     host.querySelector('[data-back]')?.addEventListener('click', () => {
       if (initialCreate && session) { void session.close(); return; }

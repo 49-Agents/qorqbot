@@ -223,3 +223,14 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 @media (pointer:coarse) {
   .chat-view .gchat-ref-row { min-height:44px; }
 }
+
+/* Consecutive actions share the quiet Inbox nudge marker treatment between messages. */
+.gchat-log > .gchat-action-group{display:block;align-self:center;width:min(760px,100%);padding:0;border:0;margin:10px 0}
+.gchat-action-group>summary{display:flex;align-items:center;justify-content:center;gap:5px;padding:2px 10px;list-style:none;cursor:pointer;line-height:1.45}
+.gchat-action-group>summary::-webkit-details-marker{display:none}
+.gchat-action-group>summary .gchat-marker{margin:0}
+.gchat-action-chevron{color:var(--fg-2);font-size:14px;line-height:1}
+.gchat-action-group[open]>summary .gchat-action-chevron{transform:rotate(90deg)}
+.gchat-action-group>summary:focus-visible{outline:1px solid var(--fg-2);outline-offset:2px;border-radius:4px}
+.gchat-action-group>.gchat-ref-rows{margin-top:6px}
+.gchat-activity-note{display:block;max-width:none;width:100%;margin:0}

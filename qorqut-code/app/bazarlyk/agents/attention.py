@@ -302,6 +302,8 @@ class Attention:
             for operation in ('attention_get', 'inbox_list'):
                 if self.app.policy.resolve(ctx, self.app.registry.get(operation), (), uow).mode != 'allow': return False
             state = self.state(uow, agent_id)
+            if kind == 'todo_adjustment':
+                return True  # Daily housekeeping may also review a stale focus or a Done-only board.
             if kind in ('board_normal', 'board_reassess'):
                 return not state['focus_json'] and self.board_mode(uow, agent_id) == kind.removeprefix('board_')
             if kind not in ('focus','workflow_detach') or not state['focus_json'] or state['focus_generation'] != focus_generation: return False

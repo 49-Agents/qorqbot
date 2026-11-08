@@ -92,9 +92,11 @@ class AttentionRuntime:
     """Attention scheduling shares the existing nudge pass and input arbiter."""
 
     def __init__(self, runtime):
+        from bazarlyk.agents.todo_adjustment import TodoAdjustment
         self.runtime = runtime
         self.attention = runtime.application.ordubashy_attention
         self.hooks = HookClaims(self._hook_eligible, self._delivered)
+        self.todo_adjustment = TodoAdjustment(runtime)
 
     def _now(self):
         return _stamp(datetime.now(timezone.utc))
@@ -373,6 +375,8 @@ class AttentionRuntime:
 
     def send_due(self, profile):
         """At most one chat attempt, under the arbiter's existing agent lock."""
+        if self.todo_adjustment.send_due(profile):
+            return
         from bazarlyk.native_chat import store
         from bazarlyk.native_chat.arbiter import StaleSession
         agent = profile['agent_id']
