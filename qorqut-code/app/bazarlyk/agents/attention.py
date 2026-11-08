@@ -19,15 +19,46 @@ CLOCK_FIELDS = frozenset({'board_mode', 'board_due_at', 'focus_due_at', 'last_ag
 UNREADABLE = frozenset({'forbidden', 'policy_denied', 'invalid_policy', 'not_found', 'operation_unavailable'})
 
 
+def board_agent(uow, agent_id):
+    """An agent that keeps a Todo board: the configured Ordubashy or an active permanent worker."""
+    if not agent_id:
+        return False
+    if agent_id == configured_ordubashy(uow):
+        return True
+    from bazarlyk.agents.worker_access import is_worker
+    return is_worker(uow.connection, agent_id)
+
+
+def enrolled_board(uow, agent_id):
+    """A board that adopted Todo: Ordubashy, or a worker whose first explicit membership created its state row.
+
+    The existing ``agent_attention`` row is the enrollment marker, so an empty-board read and an agent that never chose a
+    Todo item keep their previous current-work behaviour and gain no reminder state.
+    """
+    if not board_agent(uow, agent_id):
+        return False
+    if agent_id == configured_ordubashy(uow):
+        return True
+    return uow.connection.execute('SELECT 1 FROM agent_attention WHERE agent_id=?', (agent_id,)).fetchone() is not None
+
+
+def enrolled_boards(uow):
+    """Every board that currently owns reminder state, in a stable order."""
+    from bazarlyk.agents.worker_access import is_worker
+    coordinator = configured_ordubashy(uow)
+    found = [coordinator] if coordinator else []
+    for row in uow.connection.execute('SELECT agent_id FROM agent_attention ORDER BY agent_id'):
+        if row[0] != coordinator and is_worker(uow.connection, row[0]):
+            found.append(row[0])
+    return found
+
+
 def task_recipients(uow, business_id, task, actor_id):
     """Current board membership is a routing reason, never a source grant."""
-    agent = configured_ordubashy(uow)
-    if not agent or agent == actor_id:
-        return set()
-    found = uow.connection.execute(
-        'SELECT 1 FROM attention_memberships WHERE agent_id=? AND task_business_id IS ? AND task_id=? AND task_created_at=?',
-        (agent, business_id, task['id'], task['created_at'])).fetchone()
-    return {agent} if found else set()
+    rows = uow.connection.execute(
+        'SELECT DISTINCT agent_id FROM attention_memberships WHERE task_business_id IS ? AND task_id=? AND task_created_at=?',
+        (business_id, task['id'], task['created_at']))
+    return {row[0] for row in rows if row[0] != actor_id and board_agent(uow, row[0])}
 
 
 class Attention:
@@ -78,19 +109,57 @@ class Attention:
         return self.read(ctx, args, uow)
 
     def context(self, ctx, args, uow):
+        """The acting principal and the board this invocation selects; the actor is never assumed to be its target."""
         ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
-        agent = configured_ordubashy(uow)
-        if not agent or (args.get('agent_id') and args['agent_id'] != agent):
-            raise DomainError('not_found', 'Configured Ordubashy is unavailable')
-        if ctx.principal_kind == 'agent' and ctx.principal_id == agent:
-            if 'agent_id' in args: raise DomainError('forbidden', 'Only the owner can select the coordinator')
-            if ctx.delegation_assignment_id is not None: raise DomainError('forbidden', 'Delegated identities cannot change Attention')
+        agent = self.board_target(ctx, args, uow)
+        if ctx.principal_kind == 'agent':
+            if ctx.delegation_assignment_id is not None:
+                raise DomainError('forbidden', 'Delegated identities cannot change Attention')
             owner = self.inbox.session_owner(ctx, ctx.inbox_session_id, uow)
             if not ctx.session_registration_id or json.loads(owner['binding_json']).get('registration_id') != ctx.session_registration_id:
                 raise DomainError('inbox_generation_stale', 'Native registration does not match the current binding')
-        elif not is_active_installation_owner(uow, ctx.principal_id, ctx.principal_kind):
-            raise DomainError('forbidden', 'Attention requires the installation owner or Ordubashy')
         return ctx, agent
+
+    def board_target(self, ctx, args, uow):
+        """Resolve the selected board from the actor's own identity and the existing worker-management authority."""
+        from bazarlyk.agents.worker_access import require_worker_manager
+        coordinator = configured_ordubashy(uow)
+        requested = args.get('agent_id')
+        if ctx.principal_kind == 'agent':
+            actor = ctx.principal_id
+            if requested is None or requested == actor:
+                target = actor
+            elif actor != coordinator:
+                raise DomainError('forbidden', 'A worker reads and maintains only its own Todo board')
+            else:
+                require_worker_manager(ctx, uow, requested)
+                target = requested
+        else:
+            if not is_active_installation_owner(uow, ctx.principal_id, ctx.principal_kind):
+                raise DomainError('forbidden', 'Attention requires the installation owner or Ordubashy')
+            if requested is None or requested == coordinator:
+                if not coordinator:
+                    raise DomainError('not_found', 'Configured Ordubashy is unavailable')
+                target = coordinator
+            else:
+                require_worker_manager(ctx, uow, requested)
+                target = requested
+        if not board_agent(uow, target):
+            raise DomainError('not_found', 'Todo is available for the configured Ordubashy and active permanent workers')
+        return target
+
+    def board_context(self, ctx, agent, uow):
+        """The board agent's own invocation context when a manager acts on another agent's board."""
+        if ctx.principal_kind == 'agent' and ctx.principal_id == agent:
+            return ctx
+        return self.app.policy.context_for(agent, business_id=None, review_business_id=None, uow=uow)
+
+    def board_task(self, ctx, agent, ref, uow, **options):
+        """Read one Task under the caller's authority and, for another board, the board agent's authority too."""
+        task = self.task(ctx, ref, uow, **options)
+        if not (ctx.principal_kind == 'agent' and ctx.principal_id == agent):
+            self.task(self.board_context(ctx, agent, uow), ref, uow, **options)
+        return task
 
     def state(self, uow, agent_id):
         row = uow.connection.execute('SELECT * FROM agent_attention WHERE agent_id=?', (agent_id,)).fetchone()
@@ -122,8 +191,8 @@ class Attention:
 
     def authorized_task(self, uow, ctx, agent_id, task_ref):
         ctx, current = self.context(ctx, {}, uow)
-        if current != agent_id: raise DomainError('forbidden', 'Attention coordinator changed')
-        task = self.task(ctx, task_ref, uow)
+        if current != agent_id: raise DomainError('forbidden', 'Attention board changed')
+        task = self.board_task(ctx, agent_id, task_ref, uow)
         membership = self.task_membership(uow, agent_id, task_ref)
         if not membership or membership['task_created_at'] != task['created_at']:
             raise DomainError('not_found', 'Work item is not on Todo')
@@ -136,7 +205,7 @@ class Attention:
         if state['focus_generation'] != expected_focus_generation: return False
         args = {'focus':focus, 'task':task, 'intent':intent, 'expected_revision':state['revision']}
         ctx, current, state = self.validate('attention_focus_set', ctx, args, uow)
-        if current != agent_id: raise DomainError('forbidden', 'Attention coordinator changed')
+        if current != agent_id: raise DomainError('forbidden', 'Attention board changed')
         self._set_focus(uow, agent_id, state, args, timestamp(self.clock))
         return True
 
@@ -232,7 +301,7 @@ class Attention:
     def reminder_eligible(self, uow, agent_id, *, consumer_id, binding_generation, focus_generation, kind):
         """Recheck current identity, binding and source authority before delivery."""
         try:
-            if configured_ordubashy(uow) != agent_id: return False
+            if not enrolled_board(uow, agent_id): return False
             row = uow.connection.execute('SELECT * FROM native_session_owners WHERE agent_id=?', (agent_id,)).fetchone()
             if not row or row['consumer_id'] != consumer_id or row['generation'] != binding_generation or row['desired_state'] in ('paused','stopped'): return False
             binding = json.loads(row['binding_json'])
@@ -251,7 +320,7 @@ class Attention:
             if kind not in ('focus','workflow_detach') or not state['focus_json'] or state['focus_generation'] != focus_generation: return False
             self.authorized_task(uow, ctx, agent_id, state['work_task_json'])
             focus = state['focus_json']
-            self.resolve(ctx, agent_id, focus, uow)
+            self.resolve(self.board_context(ctx, agent_id, uow), agent_id, focus, uow)
             if focus['type'] == 'workflow':
                 workflow = uow.connection.execute('SELECT consumer_id,paused,detached_at,blocked_since,blocker_key FROM attention_workflows WHERE agent_id=? AND run_id=?', (agent_id,focus['id'])).fetchone()
                 if not workflow or workflow['consumer_id'] != consumer_id or workflow['paused'] or workflow['detached_at']: return False
@@ -287,7 +356,8 @@ class Attention:
                 or 'note_added' in (event.get('event_type') or '').split(',')): return True
         if event.get('source_type') == 'agent_messages':
             message = uow.connection.execute('SELECT current_sender_id,current_recipient_id FROM agent_messages WHERE id=?', (event.get('source_id'),)).fetchone()
-            if message and message['current_sender_id'] == owner and message['current_recipient_id'] == agent_id: return True
+            if message and message['current_recipient_id'] == agent_id and message['current_sender_id'] in (
+                    owner, configured_ordubashy(uow)): return True
         refs = [state['focus_json'], state['work_task_json']]
         focus = state['focus_json']
         if focus['type'] == 'workflow':
@@ -357,7 +427,7 @@ class Attention:
             try:
                 # Ordering and membership checks need lifecycle fields, not
                 # every Task's notes, related records and worker projections.
-                task = self.task(ctx, ref, uow, lifecycle_only=True)
+                task = self.board_task(ctx, agent, ref, uow, lifecycle_only=True)
                 if task.get('created_at') != row['task_created_at']: continue
             except DomainError as error:
                 if error.code not in UNREADABLE: raise
@@ -376,13 +446,13 @@ class Attention:
         # and the workflow header opts into focus only instead of reading a board.
         for item in selected:
             item['task'] = (self.task_summary(item['task'], uow) if projection == 'summary'
-                            else self.task(ctx, item['task_ref'], uow, notes=notes))
+                            else self.board_task(ctx, agent, item['task_ref'], uow, notes=notes))
         focus = state['focus_json']
         intent, task_ref = state['intent'], state['work_task_json']
         if focus:
             try:
-                self.task(ctx, task_ref, uow, lifecycle_only=True)
-                focus = self.resolve(ctx, agent, focus, uow)
+                self.board_task(ctx, agent, task_ref, uow, lifecycle_only=True)
+                focus = self.resolve(self.board_context(ctx, agent, uow), agent, focus, uow)
             except DomainError as error:
                 if error.code not in UNREADABLE: raise
                 focus, task_ref, intent = {'unavailable': True}, None, ''
@@ -408,15 +478,19 @@ class Attention:
         state = self.state(uow, agent)
         if 'expected_revision' in args and args['expected_revision'] != state['revision']:
             raise DomainError('revision_conflict', 'Todo changed; reread it', current_revision=state['revision'])
+        if op in ('attention_focus_set', 'attention_focus_clear', 'attention_workflow_update') and not (
+                ctx.principal_kind == 'agent' and ctx.principal_id == agent):
+            # A manager reads and curates membership; the native focus stays the board agent's own declaration.
+            raise DomainError('forbidden', "A board's focus is declared by its own agent")
         if op in ('attention_add','attention_focus_set'):
-            task = self.task(ctx, args['task'], uow, notes=False)
+            task = self.board_task(ctx, agent, args['task'], uow, notes=False)
             if task.get('archived'):
                 raise DomainError('validation_error', 'Todo requires an unarchived work item')
             if op == 'attention_focus_set':
                 membership = self.task_membership(uow, agent, args['task'])
                 if not membership or membership['task_created_at'] != task['created_at']: raise DomainError('not_found', 'Work item is not on Todo')
                 if not isinstance(args['intent'], str) or not args['intent'].strip() or len(args['intent']) > 1000: raise DomainError('validation_error', 'Intent must contain at most 1000 characters')
-                self.resolve(ctx, agent, args['focus'], uow)
+                self.resolve(self.board_context(ctx, agent, uow), agent, args['focus'], uow)
                 if args['focus']['type'] == 'workflow':
                     association = uow.connection.execute('SELECT work_task_json FROM attention_workflows WHERE agent_id=? AND run_id=?', (agent,args['focus']['id'])).fetchone()
                     if json.loads(association[0]) != args['task']: raise DomainError('validation_error', 'Workflow belongs to another work Task')
@@ -425,16 +499,16 @@ class Attention:
             if not row: raise DomainError('not_found', 'Membership is unavailable')
             if row['revision'] != args['expected_membership_revision']: raise DomainError('revision_conflict', 'Membership changed; reread it', current_revision=row['revision'])
             ref = {'type':'task','id':row['task_id'],'business_id':row['task_business_id']}
-            task = self.task(ctx, ref, uow, lifecycle_only=True)
+            task = self.board_task(ctx, agent, ref, uow, lifecycle_only=True)
             if task['created_at'] != row['task_created_at']: raise DomainError('not_found', 'Task is unavailable')
             if ctx.principal_kind == 'agent' and task['status'] in ('blocked','needs_input','done') and (args.get('owner_requested') is not True or not args.get('rationale','').strip()):
                 raise DomainError('forbidden', {'blocked':'Blocked','needs_input':'Needs input','done':'Done'}[task['status']] + ' removal requires an owner instruction and rationale (owner_requested: true)')
         if op == 'attention_workflow_update':
             row = uow.connection.execute('SELECT * FROM attention_workflows WHERE agent_id=? AND run_id=?', (agent,args['run_id'])).fetchone()
             if not row: raise DomainError('not_found', 'Workflow association is unavailable')
-            self.task(ctx, json.loads(row['work_task_json']), uow)
+            self.board_task(ctx, agent, json.loads(row['work_task_json']), uow)
             if args['state'] == 'blocked' and (not args.get('blocker_key','').strip() or not args.get('reason','').strip()): raise DomainError('validation_error', 'Blocked requires a blocker key and reason')
-            for ref in args.get('related_refs', []): self.resolve(ctx, agent, ref, uow)
+            for ref in args.get('related_refs', []): self.resolve(self.board_context(ctx, agent, uow), agent, ref, uow)
         return ctx, agent, state
 
     def task_update_hint(self, ctx, args, operation):
@@ -450,8 +524,8 @@ class Attention:
         if status not in ('working', 'done'):
             return None
         with self.runtime.database.read() as uow:
-            agent = configured_ordubashy(uow)
-            if ctx.principal_id != agent:
+            agent = ctx.principal_id
+            if not enrolled_board(uow, agent):
                 return None
             if status == 'working':
                 return self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-board-transition')
@@ -461,9 +535,9 @@ class Attention:
                 return self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-focus-transition')
         return None
 
-    def add_result(self, ctx, task, uow):
-        # The full board, without each Task's comment thread.
-        result = self.read(ctx, {}, uow, notes=False)
+    def add_result(self, ctx, agent, task, uow):
+        # The selected full board, without each Task's comment thread.
+        result = self.read(ctx, {'agent_id': agent}, uow, notes=False)
         if ctx.principal_kind == 'agent':
             result['agent_hint'] = self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-board-transition')
             if not task.get('worker_ids'):
@@ -476,8 +550,8 @@ class Attention:
         op = op.replace('todo_', 'attention_', 1)
         now = timestamp(self.clock)
         if op == 'attention_add':
-            task = self.task(ctx,args['task'],uow,notes=False)
-            if self.task_membership(uow,agent,args['task']): return self.add_result(ctx,task,uow)
+            task = self.board_task(ctx,agent,args['task'],uow,notes=False)
+            if self.task_membership(uow,agent,args['task']): return self.add_result(ctx,agent,task,uow)
             self.ensure(uow,agent)
             membership_id = new_id()
             uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_business_id,task_id,task_created_at,created_at) VALUES(?,?,?,?,?,?)', (membership_id,agent,args['task']['business_id'],args['task']['id'],task['created_at'],now))
@@ -487,7 +561,7 @@ class Attention:
         elif op == 'attention_remove':
             row = uow.connection.execute('SELECT * FROM attention_memberships WHERE id=?',(args['membership_id'],)).fetchone()
             ref = {'type':'task','id':row['task_id'],'business_id':row['task_business_id']}
-            task = self.task(ctx,ref,uow,lifecycle_only=True)
+            task = self.board_task(ctx,agent,ref,uow,lifecycle_only=True)
             self.membership_event(uow,agent,row['id'],ref,row['task_created_at'],ctx.principal_id,'removed',now,owner_requested=args.get('owner_requested',False),rationale=args.get('rationale',''))
             uow.connection.execute('DELETE FROM attention_memberships WHERE id=?',(row['id'],))
             uow.connection.execute("UPDATE attention_workflows SET detached_at=?,updated_at=?,revision=revision+1 WHERE agent_id=? AND detached_at IS NULL AND json_extract(work_task_json,'$.id')=? AND json_extract(work_task_json,'$.business_id') IS ?", (now,now,agent,ref['id'],ref['business_id']))
@@ -511,12 +585,12 @@ class Attention:
                 self.ensure(uow,agent)
                 uow.connection.execute('UPDATE agent_attention SET revision=revision+1,updated_at=? WHERE agent_id=?',(now,agent))
         if op == 'attention_add':
-            return self.add_result(ctx,task,uow)
+            return self.add_result(ctx,agent,task,uow)
         if op == 'attention_remove':
             return {'agent_id': agent, 'membership_id': args['membership_id'],
                     'removed': True, 'revision': self.state(uow, agent)['revision']}
         # A mutation receipt confirms focus and revision; it does not rebuild the board.
-        result = self.read(ctx,{'projection':'focus'},uow)
+        result = self.read(ctx,{'agent_id':agent,'projection':'focus'},uow)
         if op == 'attention_focus_set' and ctx.principal_kind == 'agent':
             result['agent_hint'] = self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-board-transition')
         return result

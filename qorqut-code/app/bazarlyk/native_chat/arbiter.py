@@ -147,8 +147,9 @@ class InputArbiter:
                     if retention is not None:
                         retention.capture_owner_input(uow, session, request, row)
                     if request.input_type == TYPE_CHAT:
-                        from bazarlyk.management.identity import configured_ordubashy, installation_owner
-                        if (request.agent_id == configured_ordubashy(uow)
+                        from bazarlyk.agents.attention import enrolled_board
+                        from bazarlyk.management.identity import installation_owner
+                        if (enrolled_board(uow, request.agent_id)
                                 and request.principal_id == installation_owner(uow)):
                             from bazarlyk.agents.attention_delivery import record_attention_activity
                             record_attention_activity(uow, request.agent_id, 'owner_message', row['created_at'],

@@ -88,9 +88,9 @@ class HostVisibility:
             return set()
         # This port is used only for automatic announcements. Explicit inbox
         # reads and acknowledgements retain the inbox's normal authorization.
-        from bazarlyk.management.identity import configured_ordubashy
+        from bazarlyk.agents.attention import enrolled_board
         attention = (self.inbox.app.ordubashy_attention
-                     if agent_id == configured_ordubashy(uow) else None)
+                     if enrolled_board(uow, agent_id) else None)
         focused = bool(attention and attention.state(uow, agent_id).get('focus_json'))
         granted: set[int] = set()
         source_visibility = {}

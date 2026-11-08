@@ -279,12 +279,14 @@ class AttentionRuntime:
             self.attention.update_clock(uow, row['agent_id'], {field: prior})
 
     def reconcile(self, uow):
-        from bazarlyk.management.identity import configured_ordubashy
-        agent_id = configured_ordubashy(uow)
-        if not agent_id:
-            return
+        """One bounded pass over every enrolled board; none of them can postpone another's occurrence."""
+        from bazarlyk.agents.attention import enrolled_boards
         now = self._now()
         self.hooks.recover_expired(uow, now)
+        for agent_id in enrolled_boards(uow):
+            self.reconcile_board(uow, agent_id, now)
+
+    def reconcile_board(self, uow, agent_id, now):
         advice = clock_advice(uow, agent_id, self.attention, now)
         kind, due = advice.get('kind'), advice.get('due_at')
         if not kind or not due:
@@ -361,7 +363,6 @@ class AttentionRuntime:
 
     def send_due(self, profile):
         """At most one chat attempt, under the arbiter's existing agent lock."""
-        from bazarlyk.management.identity import configured_ordubashy
         from bazarlyk.native_chat import store
         from bazarlyk.native_chat.arbiter import StaleSession
         agent = profile['agent_id']
@@ -374,9 +375,13 @@ class AttentionRuntime:
                     'AND r.emission_started_at IS NOT NULL ORDER BY r.updated_at LIMIT 10', (agent,)).fetchall()
             for receipt in receipts:
                 self.hook_settle(agent, receipt['registration_id'], dict(receipt))
+            with self.runtime.database.read() as uow:
+                from bazarlyk.agents.attention import enrolled_board
+                if not enrolled_board(uow, agent):
+                    return
             with self.runtime.database.transaction(operation='attention.reconcile_chat') as uow:
                 self.runtime.application.ensure_writes_open(uow)
-                if agent != configured_ordubashy(uow):
+                if not enrolled_board(uow, agent):
                     return
                 now = self._now()
                 # Search for definitive receipts in SQL before applying the
