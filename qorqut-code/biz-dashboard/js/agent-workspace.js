@@ -147,8 +147,7 @@ async function agentWorkspaceEscape({agent, business, table, signoffs}) {
 }
 
 // The right agent pane keeps only Focus, the agent's own workspaces and Learning Applier's Context.
-// Project management left this navigation; its data stays reachable through the existing Global
-// Projects page and Project records.
+// Project management left this navigation; its data stays reachable through Project records.
 // This offers a pane, not an agent tool grant. Backend authorization is unchanged.
 function agentWorkspaceViews(scope, role) {
   if (scope !== 'global') return [];
@@ -281,6 +280,18 @@ function agentWorkspaceMount(p, view) {
     p.workspaceDispose = () => { dispose(); host.remove(); };
     return true;
   }
+  if (view === 'journal') {
+    // The Global Journal mounts natively in this pane: the same editor and API in this document, so opening it
+    // fetches no second app shell and none of the dashboard's assets, and its own leave guard still runs.
+    const host = document.createElement('div');
+    host.className = 'agent-journal-host';
+    body.replaceChildren(host);
+    const mount = journalMount(host, {scope: '/root',
+      isCurrent: () => _agpad === p && p.view === 'journal' && host.isConnected});
+    p.journalMount = mount;
+    p.workspaceDispose = () => { mount.dispose(); p.journalMount = null; host.remove(); };
+    return true;
+  }
   if (view !== 'business') {
     const frame = agentWorkspaceFrame(view, undefined, undefined, hint);
     body.replaceChildren(frame);
@@ -348,6 +359,8 @@ function agentWorkspaceMount(p, view) {
 
 // Native editors retain their save/leave contract when hosted in a pane.
 async function agentWorkspaceCanLeave(p) {
+  if (p?.view === 'focus' && !await agpadFocusCanLeave(p)) return false;
+  if (p?.journalMount) return p.journalMount.flush();
   const child = p?.workspaceFrame?.contentWindow;
   if (child?.agentWorkspaceLeaveEmbedded) return child.agentWorkspaceLeaveEmbedded();
   return true;
@@ -365,12 +378,29 @@ async function agentWorkspaceLeaveEmbedded() {
   return true;
 }
 
+function overseerEmbeddedComingSoon(c) {
+  const error = testingModeFailed() ? `<p class="overseer-coming-soon-error" role="alert">${esc(testingModeMessage())}</p>` : '';
+  c.innerHTML = `<section class="overseer-coming-soon overseer-coming-soon-embed" aria-label="Overseer" aria-live="polite">
+    <div class="overseer-coming-soon-box">
+      <h2>Overseer</h2>
+      <p class="overseer-coming-soon-description">Overseer will be managing the agentic layer, tailoring Qorqbot for you on the lowest level.</p>
+      <p class="overseer-coming-soon-hint">Available in testing mode only</p>
+      ${error}
+    </div>
+  </section>`;
+}
 async function agentWorkspaceBootEmbedded() {
   document.body.classList.add('agent-pane-embedded');
   const params = new URLSearchParams(location.search), view = params.get('agent-pane-embed');
   const c = $('#content');
   c.innerHTML = '<p class="muted" role="status">Loading…</p>';
   try {
+    // A directly opened Learning Applier workspace frame is still Overseer
+    // navigation and stays closed while Testing mode is off.
+    if (view === 'global_context' && !testingModeEnabled()) {
+      await testingModeReady();
+      if (!testingModeEnabled()) { overseerEmbeddedComingSoon(c); return; }
+    }
     const snapshot = window.parent !== window && window.parent.agentWorkspaceSnapshot?.();
     if (snapshot) { state.bizs = snapshot.bizs; state.session = snapshot.session; }
     else state.bizs = await api('/biz');
@@ -451,6 +481,9 @@ function agentWorkspaceShellStart() {
   document.body.classList.add('agent-workspace-app');
   $('#workspace-back button').onclick = () => selectGlobal('agents');
   window.addEventListener('beforeunload', event => {
+    // A native editor cannot finish a save while the page is leaving, so warn instead of promising one.
+    // The mount reports false once its edit is saved and once it is disposed.
+    if (_agpad?.journalMount?.dirty()) { event.preventDefault(); event.returnValue = ''; return; }
     const child = _agpad?.workspaceFrame?.contentWindow;
     if (!child) return;
     const pending = new Event('beforeunload', {cancelable: true});
@@ -462,10 +495,10 @@ function agentWorkspaceShellStart() {
 async function agentJournalOpen(id) {
   if(embeddedAgentPane)return parent.agentJournalOpen(id);
   await selectGlobal('journal');
-  const frame=_agpad?.workspaceFrame;
-  if(!frame || !await frame.workspaceReady || _agpad?.workspaceFrame!==frame)return;
-  await frame.contentWindow.ntFetch();
-  if(_agpad?.workspaceFrame===frame)await frame.contentWindow.ntSelect(id);
+  const mount=_agpad?.journalMount;
+  if(!mount || _agpad?.view!=='journal' || !mount.root.isConnected)return;
+  await mount.fetch();
+  if(_agpad?.journalMount===mount && mount.root.isConnected)await mount.select(id);
 }
 
 // Exact record links remain usable after removing the drawer's management screens.

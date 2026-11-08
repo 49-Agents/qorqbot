@@ -1,6 +1,6 @@
 // Owner reply notifications and shared unread markers, independent of the current page.
 const replyNotifications=(()=>{
-  let communicationCursor=null,seenCommunications=new Set(),loaded=false,inflight=null,trailing=false,items=[],signature='',seen=new Set(),timer;
+  let communicationCursor=null,loaded=false,inflight=null,trailing=false,items=[],signature='',seen=new Set(),timer;
   try{seen=new Set(JSON.parse(sessionStorage.getItem('reply-notifications:seen') || '[]'));}catch(_){}
   const key=s=>`${s?.type}:${s?.business_id || 'global'}:${s?.id}`;
   const unread=source=>loaded?items.some(item=>item.kind==='thread' && item.unread && key(item.source)===key(source)):null;
@@ -34,16 +34,19 @@ const replyNotifications=(()=>{
     // it opens nothing to write to and carries no text to another conversation.
     await loadGlobalAgentProfiles().catch(()=>{});
     if(globalAgentProfile(item.agent_id)?.role?.id!=='ordubashy'){
-      modal({title:'Thread unavailable',width:520,stack:true,body:'<p class="reply-notification-retired" role="status">This agent thread on a record is no longer available. Record conversations are with Ordubashy only.</p>',actions:[]});
-      void refresh();return;
+      await window.focusExpansion.open({title:'Thread unavailable', agentId:item.agent_id, mount(host){
+        const message=document.createElement('p');message.className='reply-notification-retired';message.setAttribute('role','status');
+        message.textContent='This agent thread on a record is no longer available. Record conversations are with Ordubashy only.';host.append(message);
+        return ()=>{message.remove();void refresh();};
+      }});
+      return;
     }
-    let conversation;
-    modal({title:`${esc(item.agent_name)} · ${esc(item.source.type)} thread`,width:760,stack:true,body:'<div class="reply-notification-thread"></div>',
-      onOpen:el=>{
-        const host=el.querySelector('.reply-notification-thread');
-        conversation=conversationMount(host,{type:item.source.type,id:item.source.id,biz:item.biz},{dismissOnOutside:false});
-        conversation.expand();
-      },onClose:()=>{conversation?.dispose();void refresh();}});
+    await window.focusExpansion.open({title:`${item.agent_name} · ${item.source.type} thread`,agentId:item.agent_id,mount(host,session){
+      const conversation=conversationMount(host,{type:item.source.type,id:item.source.id,biz:item.biz,business_id:item.source.business_id},{dismissOnOutside:false});
+      session.setBeforeLeave(async()=>!conversation.state.sending);
+      conversation.expand();
+      return ()=>{conversation.dispose();void refresh();};
+    }});
   }
   // Order-independent comparison of every field, so a changed flag or preview counts as well as a new ID.
   const canonical=value=>JSON.stringify(value,(_,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([x],[y])=>x<y?-1:x>y?1:0)):v);
@@ -59,19 +62,14 @@ const replyNotifications=(()=>{
         seen.add(item.id);
         // Establish a baseline on first load; existing unread markers still appear.
         // The owner already looking at that chat does not need a toast for what is on screen.
-        if(!first && eligible(item.agent_id) && !item.nav_only && !viewing(item))notify({replyAgentId:item.agent_id,text:item.agent_name,sub:item.text,onClick:()=>open(item),ms:6000});
+        if(!first && eligible(item.agent_id) && !item.nav_only && !viewing(item)){
+          notify({replyAgentId:item.agent_id,text:item.agent_name,sub:item.text,onClick:()=>open(item),ms:6000});
+          if(typeof desktopNotify!=='undefined')desktopNotify.send({kind:'replies',title:item.agent_name,body:item.text,tag:'reply:'+item.id,onClick:()=>open(item)});
+        }
       }
       const feed=data.communications;
       if(feed && Number.isSafeInteger(feed.next_cursor)){
-        // The first response is the baseline: earlier traffic never replays. The cursor moves only after enqueueing.
-        if(communicationCursor!==null){
-          for(const c of feed.items || []){
-            if(!(c.event_id>communicationCursor) || seenCommunications.has(c.event_id))continue;
-            seenCommunications.add(c.event_id);
-            notify({text:`${c.sender_name} \u2192 ${c.recipient_name}`,communication:c,ms:3000});
-          }
-          seenCommunications=new Set([...seenCommunications].slice(-1000));
-        }
+        // Passive agent-to-agent traffic is not shown to the owner; only the cursor advances so the feed stays paged.
         communicationCursor=Math.max(communicationCursor ?? 0,feed.next_cursor);
         if(feed.has_more)trailing=true;
       }

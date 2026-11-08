@@ -62,6 +62,8 @@ STATUS_ROWS_ABOVE = 2
 FOOTER_PHRASES = (
     "for shortcuts", "context left", "context used", "shift+tab", "ctrl+", "esc to", "tab to", "accept edits",
     "plan mode", "bypass permissions", "auto-accept", "tokens", "/status", "? for",
+    # Codex 0.166 keeps "⚠ N warnings · f2 to view" on its own bottom row while the composer holds text.
+    "f2 to view",
 )
 # Codex's configurable status line (``  <model> · <directory>``), drawn in explicit 256-colour/RGB tints below the
 # composer and its blank separator row. Its colours are not the gray "dim" range, so it is recognized by shape instead.
@@ -196,9 +198,10 @@ def _footer(cells):
 def _codex_status_line(cells):
     """Codex's status line: indented, ``<label> · <path>``-shaped, with no default-coloured character and some tint.
 
-    Text typed or pasted into the composer is drawn in the default colour, so it never has this shape."""
+    Text typed or pasted into the composer is drawn in the default colour, so it never has this shape. Codex 0.166 draws
+    the separators themselves in the default colour; only the separator character may be plain."""
     text = _text(cells)
-    visible = [style for char, style in cells if char.strip()]
+    visible = [style for char, style in cells if char.strip() and char != STATUS_SEPARATOR.strip()]
     return (text[:1].isspace() and STATUS_SEPARATOR in text and "plain" not in visible and "tinted" in visible)
 
 
@@ -237,6 +240,15 @@ def _placeholder_fits(content, text):
     return abs(int(counted.group(2)) - len(text)) <= 2
 
 
+def _typed(cells):
+    """A composer row without a trailing dim run: a client's argument hint (Claude Code shows ``/compact  <optional custom
+    summarization instructions>`` once a command and a space are typed) or placeholder is never part of what was pasted."""
+    end = len(cells)
+    while end and (not cells[end - 1][0].strip() or cells[end - 1][1] == "dim"):
+        end -= 1
+    return cells[:end]
+
+
 def _holds_paste(client, rows, first, text, cursor):
     """The last row of the composer holding exactly ``text`` from the prompt row ``first``, else None.
 
@@ -246,6 +258,8 @@ def _holds_paste(client, rows, first, text, cursor):
     marker = MARKERS[client]
     match = marker.match(_text(rows[first]))
     end = None
+    # The placeholder is judged on the whole raw row, before any dim run is dropped: a client may draw it dim, and a row that
+    # only starts like a placeholder (extra text, a suggestion, a menu item) is not one.
     head = _content(_text(rows[first]), match, True)
     if PLACEHOLDER.match(head):
         end = first if _placeholder_fits(head, text) else None
@@ -257,12 +271,19 @@ def _holds_paste(client, rows, first, text, cursor):
             raw = _text(rows[index])
             if index > first and RULE.match(raw):
                 break
-            seen += _squash(_content(raw, match, index == first))
+            seen += _squash(_content(_text(_typed(rows[index])), match, index == first))
             if not want.startswith(seen):
                 return None
             end = index
         if seen != want:
             return None
+        # Whitespace-insensitive matching stops at the last nonblank text row.
+        # A pasted trailing newline leaves the cursor on a further blank row;
+        # include only as many blank rows as the original text actually contains.
+        remaining = text[len(text.rstrip()):].count('\n')
+        while end is not None and remaining and end + 1 < len(rows) and _blank(rows[end + 1]):
+            end += 1
+            remaining -= 1
     if end is None or not _trailing_chrome(client, rows, end + 1):
         return None
     if cursor and cursor[2] and not first <= cursor[1] <= end:
@@ -385,6 +406,8 @@ def _pasted(client, rows, candidates, expect, cursor, result, allow_busy=False):
             continue
         trailing = [_text(rows[index]) for index in range(end + 1, len(rows))]
         above = [_text(rows[index]) for index in range(max(0, first - STATUS_ROWS_ABOVE), first)]
+        if _contains("\n".join(trailing), MODAL_PHRASES):
+            return result("modal", "modal_dialog")
         interrupts = _interrupts(above + trailing)
         running = interrupts or any(_busy_row(text) for text in trailing) or any(_contains(text, BUSY_HINTS) for text in above)
         if running and not allow_busy:

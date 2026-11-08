@@ -68,10 +68,12 @@ broadcasts, terminal-control direct messages and the future inbox nudge.
   `InputResult.marker` and stored on the input. Chat attributes an entry as a verified system input only by that stored marker. No
   provider has a system role and no correlation is fabricated: unmarked text is just a user turn. The dispatcher is not built here.
   The owner chose immediate nudge submission while busy: `admit_nudge` requests `steer`, so the nudge is typed at once through the
-  same adapter path and checks as every input (verified empty composer, the whole text echoed, one normal submit; processing is
+  same adapter path and checks as every input (verified empty composer, the whole text echoed, normal submit; processing is
   never confirmed unless the transport evidences it). When that is not safe — an owner's draft in the composer, a modal, an
   unreadable or changing screen, no verified session — nothing is typed: `wait=False` returns `deferred` (never success) and
-  `wait=True` keeps it `waiting` for that very session. Chat and Telegram free-form text may go without the whole-text echo when the client collapses a paste; exact-session, empty-composer and post-paste mode checks still precede one Enter.
+  `wait=True` keeps it `waiting` for that very session. Chat and Telegram free-form text may go without the whole-text echo when the client collapses a paste; exact-session, empty-composer and post-paste mode checks still precede Enter.
+  After 400 ms, Enter is retried once only if the exact pending paste is still visible in the same verified composer.
+  No text is repasted; changed sessions, different drafts, dialogs and interrupting modes prevent that retry.
 
 ### Behavior implemented
 

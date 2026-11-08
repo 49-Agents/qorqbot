@@ -6,6 +6,8 @@ No credentials or provider exception strings are written to stdout/stderr.
 """
 from __future__ import annotations
 
+from qorqut_agentic.behavior.instructions import from_prepared as prepared_instructions
+
 import argparse
 import json
 from pathlib import Path
@@ -13,6 +15,7 @@ import sys
 import time
 import threading
 import random
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
 import httpx
 
@@ -49,6 +52,7 @@ class ReconnectBridge:
         self.stop = threading.Event()
         self.background = background
         self.repair = None
+        self.generation = 0
         self.session = None
         self.protocol = None
         self.initialize = None
@@ -59,13 +63,17 @@ class ReconnectBridge:
         from .bridge_binding import BridgeBinding
         self.binding = BridgeBinding(load_registration(self.registration_path))
 
-    def post(self, message, deadline):
+    def request_snapshot(self):
         registration = load_registration(self.registration_path)
         headers = {**auth_headers(registration), **self.binding.headers(), 'Accept': 'application/json, text/event-stream'}
         if self.session:
             headers['Mcp-Session-Id'] = self.session
         if self.protocol:
             headers['MCP-Protocol-Version'] = self.protocol
+        return registration['service_url'] + '/mcp', headers, self.session, self.generation
+
+    def post(self, message, deadline, snapshot=None):
+        endpoint, headers, session, generation = snapshot or self.request_snapshot()
         remaining = deadline - self.clock()
         if remaining <= 0:
             raise Unavailable(undispatched=True)
@@ -74,11 +82,11 @@ class ReconnectBridge:
         timeout = httpx.Timeout(read_timeout, connect=min(HTTP_REQUEST_TIMEOUT, remaining),
                                 pool=min(HTTP_REQUEST_TIMEOUT, remaining))
         try:
-            with self.client.stream('POST', registration['service_url'] + '/mcp', json=message,
+            with self.client.stream('POST', endpoint, json=message,
                                     headers=headers, timeout=timeout) as response:
                 if response.status_code in (401, 403):
                     raise DomainError('forbidden', 'MCP access was refused; check agent preparation and grants')
-                if response.status_code == 404 and self.session:
+                if response.status_code == 404 and session:
                     raise ExpiredSession(undispatched=True)
                 if response.status_code in (429, 500, 502, 503, 504):
                     raise Unavailable()
@@ -147,6 +155,7 @@ class ReconnectBridge:
         return False
 
     def reset_connection(self):
+        self.generation += 1
         self.session = self.protocol = None
         self.read_tools.clear()
         self.listing_tools.clear()
@@ -177,12 +186,12 @@ class ReconnectBridge:
 
     def close(self):
         self.stop.set()
-        if self.repair is not None: self.repair.join(timeout=1)
+        if self.repair is not None: self.repair.join()
         self.client.close()
 
-    def handle(self, message):
-        deadline = self.clock()+RETRY_WINDOW
-        if not self.lock.acquire(timeout=RETRY_WINDOW):
+    def handle(self, message, deadline=None):
+        deadline = self.clock()+RETRY_WINDOW if deadline is None else deadline
+        if not self.lock.acquire(timeout=max(0, deadline-self.clock())):
             return self.failure(message, 'MCP recovery is in progress; this request was not dispatched')
         try:
             if self.clock() >= deadline:
@@ -190,7 +199,50 @@ class ReconnectBridge:
             return self._handle(message, deadline)
         finally: self.lock.release()
 
-    def _handle(self, message, deadline):
+    def parallel_candidate(self, message, deadline):
+        if not self.lock.acquire(timeout=max(0, deadline-self.clock())):
+            return False
+        try:
+            params = message.get('params')
+            return (self.clock() < deadline and 'id' in message and
+                    message.get('method') == 'tools/call' and isinstance(params, dict) and
+                    isinstance(params.get('name'), str) and params['name'] != 'operations_batch' and
+                    self.session is not None and
+                    self.discovered and params['name'] in self.read_tools)
+        finally:
+            self.lock.release()
+
+    def handle_read(self, message, deadline):
+        if not self.lock.acquire(timeout=max(0, deadline-self.clock())):
+            return self.failure(message, 'MCP recovery is in progress; this request was not dispatched')
+        try:
+            if self.clock() >= deadline:
+                return self.failure(message, 'MCP recovery is in progress; this request was not dispatched')
+            if not self.discovered or message['params']['name'] not in self.read_tools:
+                return self.failure(message, self.instruction('connection-refused'))
+            try:
+                snapshot = self.request_snapshot()
+            except (DomainError, OSError, ValueError):
+                return self.failure(message, self.instruction('connection-refused'))
+        finally:
+            self.lock.release()
+        try:
+            return self.post(message, deadline, snapshot)
+        except Unavailable:
+            if not self.lock.acquire(timeout=max(0, deadline-self.clock())):
+                return self.failure(message, self.instruction('connection-unavailable'))
+            try:
+                if self.clock() >= deadline:
+                    return self.failure(message, self.instruction('connection-unavailable'))
+                if snapshot[3] == self.generation:
+                    self.reset_connection()
+                return self._handle(message, deadline, require_read=True)
+            finally:
+                self.lock.release()
+        except (DomainError, OSError, ValueError):
+            return self.failure(message, self.instruction('connection-refused'))
+
+    def _handle(self, message, deadline, require_read=False):
         method = message.get('method')
         if not method:  # No server-initiated requests are used by this endpoint.
             return None
@@ -200,6 +252,7 @@ class ReconnectBridge:
             self.initialize = message
             self.reset_connection()
         safe = method in SAFE_METHODS or (method == 'tools/call' and
+                    isinstance(message.get('params', {}).get('name'), str) and
                     message.get('params', {}).get('name') in self.read_tools)
         needs_reconnect = method != 'initialize' and self.session is None and self.initialize is not None
         immediate_reconnect = False
@@ -211,13 +264,14 @@ class ReconnectBridge:
                     self.reconnect(deadline)
                     needs_reconnect = False
                     if uncertain:
-                        return self.failure(message, 'MCP reconnected, but the previous tool outcome is unknown. '
-                            'Do not send a new mutation. Reconcile its result or retry the exact original request '
-                            'with its original idempotency key.')
+                        return self.failure(message, self.instruction('connection-uncertain-write'))
                     # Discovery may have been empty when this request arrived.
                     # Reclassify before dispatch, never after an uncertain write.
                     safe = method in SAFE_METHODS or (method == 'tools/call' and
+                        isinstance(message.get('params', {}).get('name'), str) and
                         message.get('params', {}).get('name') in self.read_tools)
+                if require_read and (not self.discovered or message['params']['name'] not in self.read_tools):
+                    return self.failure(message, self.instruction('connection-refused'))
                 response = self.post(message, deadline)
                 if method == 'notifications/initialized':self.initialized_notice = True
                 if method == 'tools/list' and response and 'result' in response:
@@ -241,14 +295,19 @@ class ReconnectBridge:
                 if self.clock() >= deadline:
                     self.reset_connection()
                     self.schedule_repair()
-                    return self.failure(message, 'MCP service temporarily unavailable within this request budget. The local connection '
-                        'remains open; its helper reconnects in the background.' + (' The previous tool outcome is unknown; '
-                        'reconcile it before retrying with the original idempotency key.' if uncertain else ''))
+                    return self.failure(message, self.instruction('connection-unavailable') + (self.instruction('connection-pending-outcome') if uncertain else ''))
             except (DomainError, OSError, ValueError):
-                return self.failure(message, 'MCP connection or preparation was refused. Check agent preparation '
-                    'and access; no tool request was automatically replayed.' +
-                    (' A write outcome may be unknown; reconcile it before retrying with the original idempotency key.'
+                return self.failure(message, self.instruction('connection-refused') +
+                    (self.instruction('connection-possible-write')
                      if method == 'tools/call' and not safe else ''))
+
+    def instruction(self, key):
+        try:
+            return prepared_instructions(self.registration_path).render(key)
+        except (OSError, ValueError, KeyError):
+            # A missing prepared source is a preparation fault, never a reason
+            # to substitute a different set of behavioral instructions.
+            return "Prepared agent instructions are unavailable."
 
     @staticmethod
     def failure(message, text):
@@ -267,8 +326,21 @@ def run(registration_path, *, stream=sys.stdin.buffer, output=sys.stdout, client
             output.write(json.dumps(message, separators=(',', ':')) + '\n')
             output.flush()
     bridge = ReconnectBridge(registration_path, client=client, emit=emit, background=True)
+    pending = set()
+    executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix='qorqut-mcp-read')
+    def deliver(message, deadline):
+        response = bridge.handle_read(message, deadline)
+        if response is not None:
+            emit(response)
+    def drain():
+        if pending:
+            done, _ = wait(pending)
+            pending.difference_update(done)
+            for future in done:
+                future.result()
     try:
         while raw := stream.readline(MAX_MESSAGE + 1):
+            deadline = bridge.clock() + RETRY_WINDOW
             if len(raw) > MAX_MESSAGE:
                 return 1
             try:
@@ -276,13 +348,34 @@ def run(registration_path, *, stream=sys.stdin.buffer, output=sys.stdout, client
                 if not isinstance(message, dict) or message.get('jsonrpc') != '2.0':
                     raise ValueError
             except ValueError:
+                drain()
                 emit({'jsonrpc': '2.0', 'id': None, 'error': {'code': -32700, 'message': 'Invalid MCP request'}})
                 continue
-            response = bridge.handle(message)
-            if response is not None:
-                emit(response)
+            if bridge.parallel_candidate(message, deadline):
+                while len(pending) >= 4:
+                    done, remaining = wait(pending, return_when=FIRST_COMPLETED)
+                    pending = remaining
+                    for future in done:
+                        future.result()
+                if bridge.clock() >= deadline:
+                    response = bridge.failure(message, 'MCP recovery is in progress; this request was not dispatched')
+                    if response is not None: emit(response)
+                else:
+                    future = executor.submit(deliver, message, deadline)
+                    pending.add(future)
+            else:
+                drain()
+                response = bridge.handle(message, deadline)
+                if response is not None:
+                    emit(response)
     finally:
-        bridge.close()
+        try:
+            drain()
+        finally:
+            try:
+                executor.shutdown(wait=True)
+            finally:
+                bridge.close()
     return 0
 
 

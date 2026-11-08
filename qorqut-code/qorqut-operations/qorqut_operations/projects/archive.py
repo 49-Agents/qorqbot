@@ -5,6 +5,8 @@ agent identities stay inactive, and the supported globals reach it again through
 their derived scope without profile or membership writes.
 """
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, ExpectedTarget, PolicyDecision, ResourceRef, canonical_hash
 from qorqut_operations.policy.rules import PolicyRules
@@ -40,20 +42,20 @@ class BusinessArchive:
 
     def register(self, registry):
         registry.register(OperationDescriptor(OPERATION,
-            schema({"business_id": {**UUID, "description": "Project to archive; the invocation and human review remain in Global."},
+            schema({"business_id": {**UUID, "description": instruction_text('archive-project-to-archive-the-invocation-and-human-review')},
                     "rationale": TEXT}, ("business_id", "rationale")),
             scope_kinds=frozenset({"global"}), global_capability="read_global_context",
-            description="Ordubashy: propose archiving an owner project in Global. Always requires an urgent human Signoff, even with an allow override. Supply its current expected_revision. Approval hides the project from normal discovery and resets its terminal sessions. Keeps all records, folders, domains and mailboxes.",
+            description=instruction_text('archive-ordubashy-propose-archiving-an-owner-project-in-global'),
             prepare=self.prepare, apply=self.apply, validate_targets=self.guard))
         registry.register(OperationDescriptor(RESTORE,
             schema({"business_id": UUID, "rationale": TEXT}, ("business_id",)),
             scope_kinds=frozenset({"global"}), global_capability="read_global_context", owner_only=True,
             supports_signoff=False, exposure=frozenset({"dashboard"}),
-            description="Owner: restore an archived project's resources to the active project menu. No agent is created, reactivated or prepared; historical agents stay inactive. Every active global agent reaches the restored project again through derived access.",
+            description=instruction_text('archive-owner-restore-an-archived-project-s-resources-to'),
             prepare=self.prepare_restore, apply=self.apply_restore, validate_targets=self.validate_restore))
         registry.register(OperationDescriptor(ARCHIVED, schema({}, ()), effect_kind="read", supports_signoff=False,
             scope_kinds=frozenset({"global"}), global_capability="read_global_context", owner_only=True,
-            exposure=frozenset({"dashboard"}), description="Owner: list archived projects that can be restored.",
+            exposure=frozenset({"dashboard"}), description=instruction_text('archive-owner-list-archived-projects-that-can-be-restored'),
             read=self.archived))
         self.application.register_target_resolver("business_archive_agents", self.snapshot)
 

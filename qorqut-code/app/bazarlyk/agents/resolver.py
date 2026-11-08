@@ -30,6 +30,8 @@ from .models import AgentProfile, EffectiveAgentConfig, RETIRED_ROLE_IDS
 from .roles import RETIRED_PLUGIN_IDS, SUPPORTED_GLOBAL_ROLES
 
 PROFILE_CACHE_LIMIT = 128
+# Only global agents run; these are the registered mandatory orientation sources, all in the Global namespace.
+BOOTSTRAP_KEYS = frozenset({"foundation", "ecosystem-agent", "ecosystem"})
 # Private account capabilities: an operation declaring one is available only to a profile holding it.
 EXPLICIT_CAPABILITY_OPERATIONS = frozenset({"manage_calendar"})
 # Repair-ticket removal, phase 1: these readers stay installed and keep their internal standing grant because
@@ -224,7 +226,7 @@ class AgentConfigResolver:
     def invocation_context(self, principal: Principal, *, business_id: str | None = None,
                            source: str = "mcp", session_registration_id: str | None = None,
                            review_business_id: str | None = None) -> InvocationContext:
-        config = self.resolve_agent_config(principal, business_id=business_id)
+        config = self.resolve_agent_config(principal, business_id=business_id, include_preparation=False)
         data = config.data
         scope = data["scope"]
         allowed = frozenset((scope["business_id"],)) if scope["kind"] == "business" else frozenset(scope["allowed_business_ids"])
@@ -296,8 +298,12 @@ class AgentConfigResolver:
             if target is None:  # Global scope names the registered installation owner.
                 owner_names = [item[0] for item in connection.execute(
                     "SELECT p.display_name FROM installation i JOIN principals p ON p.id=i.owner_principal_id WHERE i.id='service'")]
+            # Only rows carrying a needed bootstrap key are read; a matching key in the selected project still
+            # reaches the wrong-scope rejection below.
             docs = [dict(item) for item in connection.execute(
-                "SELECT * FROM documents WHERE (business_id IS NULL AND namespace='global') OR business_id=? ORDER BY id", (target,))]
+                "SELECT * FROM documents WHERE ((business_id IS NULL AND namespace='global') OR business_id=?) "
+                f"AND json_extract(metadata_json, '$.bootstrap_key') IN ({','.join('?' * len(BOOTSTRAP_KEYS))}) ORDER BY id",
+                (target, *sorted(BOOTSTRAP_KEYS)))]
             artifacts = []
             for kind, ref in [("role", profile.data["role"]), *(("plugin", item) for item in profile.data["plugins"])]:
                 artifact = connection.execute("SELECT * FROM artifacts WHERE kind=? AND artifact_id=? AND version=? AND digest=?",
@@ -319,7 +325,6 @@ class AgentConfigResolver:
 
         selected_docs, signatures = {}, []
         # Only global agents run; the retired business-agent instruction source is never required.
-        needed = {"foundation", "ecosystem-agent", "ecosystem"}
         if profile.scope.kind != "ecosystem":
             raise DomainError("invalid_scope", "Only ecosystem agents receive orientation")
         if "read_global_context" not in profile.scope.global_capabilities:
@@ -333,9 +338,9 @@ class AgentConfigResolver:
 
         for doc in docs:
             key = json.loads(doc["metadata_json"]).get("bootstrap_key")
-            if key not in needed:
+            if key not in BOOTSTRAP_KEYS:
                 continue
-            global_source = key in {"foundation", "ecosystem-agent", "ecosystem"}
+            global_source = key in BOOTSTRAP_KEYS
             if (doc["business_id"] is None) != global_source:
                 raise DomainError("context_scope_conflict", f"Mandatory source has the wrong registered scope: {key}")
             if key in selected_docs:
@@ -360,20 +365,23 @@ class AgentConfigResolver:
                 "cache_key": canonical_hash({"fingerprint": fingerprint, "signatures": signatures})}
 
     def resolve_agent_config(self, principal: Principal, *, business_id: str | None = None,
-                             session_registration: Mapping | str | None = None) -> EffectiveAgentConfig:
+                             session_registration: Mapping | str | None = None,
+                             include_preparation: bool = True) -> EffectiveAgentConfig:
         from bazarlyk.agentic.view import CONSISTENCY_ATTEMPTS
         for _ in range(CONSISTENCY_ATTEMPTS):
             try:
                 with self.require_agentic_view().read_snapshot():
                     return self._resolve_agent_config(principal, business_id=business_id,
-                                                      session_registration=session_registration)
+                                                      session_registration=session_registration,
+                                                      include_preparation=include_preparation)
             except DomainError as exc:
                 if exc.code != "agentic_revision_conflict":
                     raise
         raise DomainError("agentic_revision_conflict", "Managed instructions kept changing during composition", retryable=True)
 
     def _resolve_agent_config(self, principal: Principal, *, business_id: str | None = None,
-                              session_registration: Mapping | str | None = None) -> EffectiveAgentConfig:
+                              session_registration: Mapping | str | None = None,
+                              include_preparation: bool = True) -> EffectiveAgentConfig:
         snapshot = self._snapshot(principal, business_id)
         provider = getattr(self, "context_home", None)
         home_text = provider(snapshot["business"]["id"] if snapshot["business"] else None) if provider else None
@@ -391,7 +399,11 @@ class AgentConfigResolver:
                     self._cache.popitem(last=False)
         data = config.to_dict()
         self.check_agentic_revision(snapshot["agentic_catalog_revision"])
-        data["preparation"] = self.preparation_status(snapshot["registration"], data)
+        # Only the diagnostic projection consults readiness; invocation and
+        # inventory resolution keep the composed empty preparation value and
+        # skip its credential/projection inspection.
+        data["preparation"] = (self.preparation_status(snapshot["registration"], data)
+                               if include_preparation else {})
         delivery = None
         if session_registration:
             registration_id = session_registration if isinstance(session_registration, str) else session_registration.get("registration_id")
@@ -525,6 +537,7 @@ class AgentConfigResolver:
         config_id = "sha256:" + canonical_hash({"fingerprint": snapshot["fingerprint"],
                                                "native_guidance_digest": native_guidance_digest})
         tools = effective_tool_policy(profile, role, self.registry, packages=packages)
+        tools = view.tool_instructions().metadata(tools)
         mandatory = compose_context(profile, role, sources, effective_config_id=config_id,
             workspace=snapshot["row"]["workspace"], business=snapshot["business"],
             allowed_businesses=tuple(snapshot["businesses"]), owner_name=snapshot["owner_name"],
@@ -605,6 +618,13 @@ class AgentConfigResolver:
         expected_skills = {item["name"]: item["materialization_hash"] for item in config["skills"]}
         if projection.get("selected_skills") != expected_skills:
             drift.append("selected_skills_changed")
+        from qorqut_agentic.behavior.instructions import SNAPSHOT, HELPER
+        runtime_files = projection.get("files", {})
+        if SNAPSHOT not in runtime_files or HELPER not in runtime_files:
+            drift.append("runtime_instructions_unprepared")
+        elif runtime_files[SNAPSHOT] != content_hash(self.require_agentic_view().runtime_instructions().bytes()):
+            if "selected_skills_changed" not in drift:
+                drift.append("selected_skills_changed")
         native_guidance = projection.get("native_guidance_digest")
         if (not isinstance(native_guidance, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", native_guidance)
                 or native_guidance != config["native_guidance_digest"]):
@@ -635,7 +655,7 @@ class AgentConfigResolver:
     def briefing(self, principal: Principal, config: dict) -> dict:
         builder = getattr(self, "work_briefing", None)
         if builder is None:
-            return {"rendered": "# Live Work Briefing\nWork briefing is unavailable in this configuration-only runtime. Use domain tools to retrieve current work.",
+            return {"rendered": self.require_agentic_view().runtime_instructions().render('briefing-runtime-unavailable'),
                     "available": False}
         return builder.build(principal, config)
 
@@ -690,6 +710,7 @@ class AgentConfigResolver:
             reasons = {
                 "scoped_credential_unavailable": "The saved agent credential is missing, expired or revoked",
                 "selected_skills_changed": "The selected skill instructions changed",
+                "runtime_instructions_unprepared": "Managed runtime instructions require explicit agent preparation",
                 "artifact_pins_changed": "The selected role or plugins changed",
                 "tool_configuration_changed": "Generated Claude tool permissions need refreshing",
                 "native_guidance_changed": "Managed native orientation changed; explicit agent preparation is required",
@@ -775,5 +796,7 @@ class AgentConfigResolver:
         return {"recorded": True, "effective_config_id": effective_config_id, "observation": "hook_emitted"}
 
 
-def resolve_agent_config(resolver: AgentConfigResolver, principal: Principal, *, business_id=None, session_registration=None) -> EffectiveAgentConfig:
-    return resolver.resolve_agent_config(principal, business_id=business_id, session_registration=session_registration)
+def resolve_agent_config(resolver: AgentConfigResolver, principal: Principal, *, business_id=None, session_registration=None,
+                         include_preparation: bool = True) -> EffectiveAgentConfig:
+    return resolver.resolve_agent_config(principal, business_id=business_id, session_registration=session_registration,
+                                         include_preparation=include_preparation)

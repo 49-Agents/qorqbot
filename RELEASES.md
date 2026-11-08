@@ -35,4 +35,6 @@ compatibility.
 
 The [release runbook](qorqut-code/docs/distribution/RELEASE-RUNBOOK.md) describes
 build and acceptance steps. Publication is a distinct maintainer action after
-source, artifact and license checks are complete.
+source, artifact and license checks are complete. The current unpublished
+candidate is described in
+[1.3.0-preview.3](qorqut-code/docs/distribution/PREVIEW-3-CANDIDATE.md).

@@ -644,16 +644,37 @@ def installed_selection(configuration=None, *, instances=None):
 def arrange(steps, stop_order, declarations, make_step):
     """Insert extension lifecycle steps at their named anchors; returns the new ``(steps, stop_order)``.
 
-    ``make_step(declaration)`` builds the ``ServiceStep``. Anchors must exist among the steps and stop order as they
-    stand, names must be new, and declarations keep their order ahead of a shared anchor."""
+    ``make_step(declaration)`` builds the ``ServiceStep``. Anchors may name core steps or another selected extension;
+    names must be new, and declarations keep their order ahead of a shared anchor."""
     steps, stop_order = list(steps), list(stop_order)
+    declarations = tuple(declarations)
+    names = {step.name for step in steps} | set(stop_order)
     for declaration in declarations:
-        if declaration.name in {step.name for step in steps} or declaration.name in stop_order:
+        if declaration.name in names:
             raise _invalid(f"Duplicate lifecycle step: {declaration.name}")
-        start = next((index for index, step in enumerate(steps) if step.name == declaration.start_before), None)
-        if start is None or declaration.stop_before not in stop_order:
-            raise _invalid(f"Service {declaration.name} names an unknown anchor: "
-                           f"{declaration.start_before if start is None else declaration.stop_before}")
-        steps.insert(start, make_step(declaration))
-        stop_order.insert(stop_order.index(declaration.stop_before), declaration.name)
-    return tuple(steps), tuple(stop_order)
+        names.add(declaration.name)
+
+    def ordered(initial, attribute):
+        result, pending = list(initial), list(declarations)
+        available = set(initial) | {item.name for item in declarations}
+        for item in pending:
+            if getattr(item, attribute) not in available:
+                raise _invalid(f"Service {item.name} names an unknown anchor: {getattr(item, attribute)}")
+        while pending:
+            remaining = []
+            for item in pending:
+                anchor = getattr(item, attribute)
+                if anchor in result:
+                    result.insert(result.index(anchor), item.name)
+                else:
+                    remaining.append(item)
+            if len(remaining) == len(pending):
+                raise _invalid(f"Cyclic lifecycle anchors for {attribute}")
+            pending = remaining
+        return result
+
+    start_names = ordered([step.name for step in steps], 'start_before')
+    stop_names = ordered(stop_order, 'stop_before')
+    by_name = {step.name: step for step in steps}
+    by_name.update((item.name, make_step(item)) for item in declarations)
+    return tuple(by_name[name] for name in start_names), tuple(stop_names)

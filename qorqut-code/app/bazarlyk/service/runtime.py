@@ -272,7 +272,7 @@ class Runtime:
             step("incidents", self.incidents, lambda x: x.start(), stop_with_timeout, "no incident drain", required=True),
             step("signoffs", self.signoffs, lambda x: x.start(), stop_with_timeout, required=True, recovery="engine"),
             step("background", self.background, lambda x: x.start(), stop_with_timeout, "background service is not attached",
-                 recovery="engine"),
+                 recovery="engine", running=lambda x: x.is_running()),
             # The shared Context driver loop (lane B's ``runtime.context_services``): recovers mechanically on start and
             # reports ``{"stopped", "in_flight"}`` on stop; only a stop with nothing in flight is a stop.
             step("context", getattr(self, "context_services", None), lambda x: x.start(),
@@ -282,6 +282,10 @@ class Runtime:
                  timeout=35, required=True, running=thread_running("thread")),
             step("broadcast_dispatcher", self.broadcast_dispatcher, lambda x: x.start(), stop_with_timeout,
                  "no broadcast dispatcher", running=thread_running("thread")),
+            # Retain the old ordering boundaries for installed extensions. These
+            # absent steps neither install nor start a sandbox or preview host.
+            step("sandbox", None, absent="project sandbox is not installed"),
+            step("previews", None, absent="private previews are not installed"),
             # Do not stop/restart other writer services beneath a capture that is still completing its verified
             # thaw and maintenance restore: recovery administration drains before the services it quiesces (``stop_order``).
             # It is the barrier's own caller, so the barrier never drains it.
@@ -302,7 +306,7 @@ class Runtime:
         # The recovery orchestrators drain first: an in-flight capture or thaw owns the services and resources below it.
         stop_order = ("recovery_admin", "maintenance_capture", "context", "history", "inbox_nudges",
                       "native_chat", "terminal_control", "broadcast_dispatcher", "activity", "incidents", "changes",
-                      "background", "signoffs")
+                      "previews", "sandbox", "background", "signoffs")
         # A selected extension's services join at the start-before and stop-before anchors they name. Each is a required
         # recovery writer: it drains and resumes through the same stop adapter and start the lifetime uses.
         steps, stop_order = arrange(steps, stop_order, (declaration for extension in self.selection.extensions

@@ -51,7 +51,7 @@ registerWorkspaceRenderer("focus_board", {
     const list = $(".agfocus-layout", p.el);
     if (scroll && p.focus && list) list.scrollTop = scroll;
   }, tick: p => agfocusTick(p), leading: true,
-  views: { focus: { label: "Pinned", icon: typeof T_VIEW_ICON === "object" ? T_VIEW_ICON.focus || "" : "" } },
+  views: { focus: { label: "Focus", icon: typeof T_VIEW_ICON === "object" ? T_VIEW_ICON.focus || "" : "" } },
 });
 
 // Installed extensions' UI assets: the owner-only manifest names same-origin files
@@ -117,8 +117,8 @@ function agpadWorkspaceView(view) { return !WORKSPACE_BASE_VIEWS.has(view); }
 
 // The old Business (Project management) entry, extension-declared campaign_review type and the removed
 // Activity/Inbox overview never add a right-pane tab or restore a stale pane selection; Business keeps its
-// stable key so links work. Project data stays reachable through the existing Global Projects page and
-// Project records, the shared Activity view through the task drawer, and status/inbox delivery through the
+// stable key so links work. Project data stays reachable through
+// Project records and status/inbox delivery through the
 // backend the roster reads.
 const AGPAD_RETIRED_PANE_VIEWS = new Set(["business", "campaign_review", "status", "inbox", "activity"]);
 // Browser appears for any agent with a configured browser binding; the full
@@ -133,8 +133,9 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   for (const type of workspaceViewsFor(roleId)) (WORKSPACE_RENDERERS.get(type.renderer)?.leading ? leading : trailing).push(type.key);
   const personal = typeof agentWorkspaceViews === 'function' ? agentWorkspaceViews(scope, roleId) : [];
   leading.unshift(...personal.filter(view => !['journal', 'calendar'].includes(view)));
-  // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer.
-  if (roleId === "ordubashy") leading.push("attentionBoard");
+  // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer. A permanent worker gets
+  // the same shared Todo board for its own commitments; its Focus stays the existing workspace view.
+  if (roleId === "ordubashy" || roleId === "global-worker") leading.push("attentionBoard");
   if (roleId === "learning-applier") leading.push("changes");
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
@@ -201,7 +202,7 @@ function agpadWorkspaceViewsSync(p) {
 
 function agpadWorkspaceMount(p, view) {
   if (!agentPaneViewAllowed(p.workspaceRole, view)) return;
-  if (view === "attentionBoard" && p.workspaceRole === "ordubashy") { attentionBoardMount(p); return; }
+  if (view === "attentionBoard" && (p.workspaceRole === "ordubashy" || p.workspaceRole === "global-worker")) { attentionBoardMount(p); return; }
   if (view === "changes" && p.workspaceRole === "learning-applier") { overseerMount(p); return; }
   if (typeof agentWorkspaceMount === 'function' && agentWorkspaceMount(p, view)) return;
   if (view === "desktop" && p.workspaceRole === "ordubashy") { agfocusDesktopMount(p); return; }
@@ -249,7 +250,8 @@ function agTakeLinkedWorkspace(hash) {
 // declaration is still loading, an unrecognized key waits on that read (the default view stays usable) and is
 // honored only if it turns out to be installed and the owner has not moved elsewhere. Anything else is ignored.
 function agpadRequestView(p, view) {
-  if (typeof view !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(view)) return false;
+  // Built-in views keep their camelCase keys (attentionBoard); registered workspace types are lowercase.
+  if (typeof view !== "string" || !(p.views.includes(view) || /^[a-z][a-z0-9_]{0,63}$/.test(view))) return false;
   if (!agentPaneViewAllowed(p.workspaceRole, view)) return false;
   // Tables lives in the shared drawer: the retired key never adds a tab (links translate first).
   if (view === "tables") return false;
@@ -260,16 +262,17 @@ function agpadRequestView(p, view) {
     if (!loading) return false;
     if (!p.viewShown) agpadSetView(p, p.views[0]);
     const pending = p.pendingView = {view};
-    loading.then(() => {
-      if (p.pendingView !== pending) return;
+    return loading.then(() => {
+      if (p.pendingView !== pending) return false;
       p.pendingView = null;
-      if (_agpad === p && workspaceType(view)) agpadRequestView(p, view);
+      if (_agpad === p && workspaceType(view)) return agpadRequestView(p, view);
+      return false;
     });
-    return true;
   }
   if (!p.views.includes(view)) p.views.push(view);
-  agpadSetView(p, view);
-  return true;
+  const result = agpadSetView(p, view);
+  const succeeded = () => _agpad === p && agpadShownView(p) === view;
+  return result?.then ? result.then(succeeded) : succeeded();
 }
 
 function agpadWorkspaceTick(p) {
@@ -467,12 +470,14 @@ function agpadSetView(p, view, leaveChecked = false) {
   if (agpadFocusSurfaces(p)) {
     // Browser, Desktop and Viewbox items open inside the mounted Focus shell; Focus itself closes them.
     if (AGPAD_FOCUS_SURFACES.has(view)) return agpadSurfaceRequest(p, view, leaveChecked);
-    if (view === "focus" && p.view === "focus" && p.surface) { agpadSurfaceClose(p); return; }
+    if (view === "focus" && p.view === "focus" && p.surface) return agpadSurfaceClose(p);
   }
-  if (!leaveChecked && p.workspaceFrame && typeof agentWorkspaceCanLeave === 'function') {
-    const frame = p.workspaceFrame;
+  if (!leaveChecked && (p.workspaceFrame || p.journalMount || p.surface?.beforeLeave || p.focusWorkspace?.isOpen?.()) && typeof agentWorkspaceCanLeave === 'function') {
+    // Resume only against the exact screen the guard inspected: a replaced frame or Journal mount was
+    // never checked for unsaved edits, so its own guard has to run instead of this one's result.
+    const frame = p.workspaceFrame, journal = p.journalMount, surface = p.surface, priorView = p.view;
     return agentWorkspaceCanLeave(p).then(ok => {
-      if (ok && _agpad === p && p.workspaceFrame === frame) agpadSetView(p, view, true);
+      if (ok && _agpad === p && p.workspaceFrame === frame && p.journalMount === journal && p.surface === surface && p.view === priorView) return agpadSetView(p, view, true);
     });
   }
   if (p.workspaceFrame && typeof agentWorkspacePairedDetach === 'function') agentWorkspacePairedDetach(p.workspaceFrame.contentWindow);
@@ -519,17 +524,24 @@ function agpadShownView(p) { return p.surface ? p.surface.kind : p.view; }
 
 function agpadSurfaceRequest(p, kind, leaveChecked) {
   if (!AGPAD_FOCUS_SURFACES.has(kind) || !p.views.includes(kind) || !agentPaneViewAllowed(p.workspaceRole, kind)) return;
-  const open = () => { if (_agpad === p && p.view === "focus" && p.focusMount?.isConnected) agpadSurfaceOpen(p, kind); };
-  if (p.view === "focus" && p.focusMount?.isConnected) { open(); return; }
+  const open = () => { if (_agpad === p && p.view === "focus" && p.focusMount?.isConnected) return agpadSurfaceOpen(p, kind); };
+  if (p.view === "focus" && p.focusMount?.isConnected) return open();
   const moved = agpadSetView(p, "focus", leaveChecked);
   if (moved?.then) return moved.then(open);
   open();
 }
 
-function agpadSurfaceOpen(p, kind) {
+// The expanded item's title beside its pill Close. Each mode is opened and closed from the persistent launcher row.
+const AGPAD_SURFACE_TITLE = {browser: "Browser", desktop: "Desktop", viewbox: "Viewbox"};
+async function agpadSurfaceOpen(p, kind) {
+  return agpadSurfaceTransition(p, () => agpadSurfaceOpenNow(p, kind));
+}
+async function agpadSurfaceOpenNow(p, kind) {
   if (!AGPAD_FOCUS_SURFACES.has(kind) || !p.views.includes(kind) || !agentPaneViewAllowed(p.workspaceRole, kind)) return;
   const board = p.focusMount, host = board?.querySelector(":scope > .agfocus-surface");
   if (!host || (kind === "desktop" && p.workspaceRole !== "ordubashy")) return;
+  const transition = p.surfaceTransition = (p.surfaceTransition || 0) + 1;
+  if (!await agpadFocusCanLeave(p) || p.surfaceTransition !== transition || _agpad !== p || p.focusMount !== board || p.view !== 'focus') return;
   p.focusDetail?.back?.();
   const layout = board.querySelector(".agfocus-layout"), switching = !!p.surface;
   if (!switching) p.surfaceScroll = layout?.scrollTop || 0;
@@ -541,7 +553,10 @@ function agpadSurfaceOpen(p, kind) {
     reset: () => surface.cleanups.splice(0).reverse().forEach(fn => fn())};
   p.surface = surface;
   board.classList.add("agfocus-surface-open");
+  const title = AGPAD_SURFACE_TITLE[kind] || "";
   host.hidden = false;
+  host.setAttribute("aria-label", title);
+  $(".agfocus-surface-title", host).textContent = title;
   p.pendingView = null;
   if (kind === "browser" || kind === "desktop") {
     p.browserMode = kind;
@@ -553,7 +568,7 @@ function agpadSurfaceOpen(p, kind) {
   else if (kind === "browser" && typeof agbrowserMount === "function") agbrowserMount(p, false, surface.ctx);
   else if (kind === "viewbox" && typeof agviewboxMount === "function") agviewboxMount(p, surface.ctx);
   agpadSurfacePaint(p);
-  if (!switching) $("[data-surface-back]", host)?.focus({preventScroll: true});
+  if (!switching) $("[data-surface-close]", host)?.focus({preventScroll: true});
 }
 
 // Everything the surface owns (frames, observers, listeners, requests) is released here; Focus's own DOM and state stay.
@@ -567,9 +582,14 @@ function agpadSurfaceDispose(p) {
   surface.ctx.host.className = "agfocus-surface-body";
 }
 
-function agpadSurfaceClose(p) {
+async function agpadSurfaceClose(p) {
+  return agpadSurfaceTransition(p, () => agpadSurfaceCloseNow(p));
+}
+async function agpadSurfaceCloseNow(p) {
   const surface = p.surface, board = p.focusMount;
   if (!surface) return;
+  const transition = p.surfaceTransition = (p.surfaceTransition || 0) + 1;
+  if (surface.beforeLeave && (!await agpadSurfaceBeforeLeave(surface) || p.surfaceTransition !== transition || p.surface !== surface || _agpad !== p)) return false;
   agpadSurfaceDispose(p);
   agpadRememberView(p, "focus");
   agpadSurfacePaint(p);
@@ -579,13 +599,115 @@ function agpadSurfaceClose(p) {
   const layout = board.querySelector(".agfocus-layout");
   if (layout) layout.scrollTop = p.surfaceScroll || 0;
   agfocusPaint(p);
-  const opener = p.focusSurfaces?.chip(surface.kind) || $('.ttab[data-v="focus"]', p.el);
+  const opener = surface.opener?.isConnected ? surface.opener : p.focusSurfaces?.chip(surface.kind) || $('.ttab[data-v="focus"]', p.el);
   opener?.focus({preventScroll: true});
+  return true;
+}
+
+// The first request owns a pending leave prompt. Repeated clicks share its
+// result and cannot invalidate an already accepted discard.
+function agpadSurfaceTransition(p, action) {
+  if (p.surfaceTransitionPending) return p.surfaceTransitionPending;
+  const pending = Promise.resolve().then(action);
+  p.surfaceTransitionPending = pending;
+  pending.finally(() => { if (p.surfaceTransitionPending === pending) p.surfaceTransitionPending = null; }).catch(() => {});
+  return pending;
+}
+function agpadSurfaceBeforeLeave(surface) {
+  if (!surface.beforeLeave) return Promise.resolve(true);
+  if (surface.leavePending) return surface.leavePending;
+  const pending = Promise.resolve().then(() => surface.beforeLeave());
+  surface.leavePending = pending;
+  pending.finally(() => { if (surface.leavePending === pending) surface.leavePending = null; }).catch(() => {});
+  return pending;
+}
+
+// Displacement uses the record workspace's own guard, and only continues against
+// the exact surface and workspace that were checked.
+async function agpadFocusCanLeave(p) {
+  if (!p) return true;
+  const surface = p.surface, workspace = p.focusWorkspace;
+  if (surface?.beforeLeave && !await agpadSurfaceBeforeLeave(surface)) return false;
+  if (_agpad !== p || p.surface !== surface || p.focusWorkspace !== workspace) return false;
+  if (workspace?.isOpen?.()) {
+    await workspace.close();
+    if (_agpad !== p || p.surface !== surface || p.focusWorkspace !== workspace || workspace.isOpen?.()) return false;
+  }
+  return true;
 }
 
 function agpadSurfacePaint(p) {
   p.focusSurfaces?.setActive(p.surface ? p.surface.kind : null, p.surface?.kind === "viewbox" ? p.vb?.selected?.id : null);
 }
+
+let focusExpansionGeneration = 0;
+window.focusExpansion = {
+  async open(spec) {
+    if (!spec || typeof spec.mount !== 'function') return null;
+    // A child document cannot transfer DOM ownership or mount closures through
+    // its own teardown; features forward canonical data to a parent entry point.
+    if (typeof embeddedAgentPane !== 'undefined' && embeddedAgentPane) return null;
+    if (_agpad?.surfaceTransitionPending && _agpad.surface?.beforeLeave) {
+      await _agpad.surfaceTransitionPending;
+      return null;
+    }
+    const generation = ++focusExpansionGeneration, opener = document.activeElement;
+    const live = () => generation === focusExpansionGeneration;
+    let pane = _agpad;
+    const eligible = p => p && p.agentId && agpadActive(p, true) && agpadFocusSurfaces(p);
+    if (!eligible(pane) || (spec.agentId != null && String(pane.agentId) !== String(spec.agentId))) {
+      const oldPane = pane, oldView = pane?.view, oldSurface = pane?.surface, oldScope = state.scope, oldTab = state.globalTab;
+      const profiles = await loadGlobalAgentProfiles().catch(() => []);
+      if (!live() || _agpad !== oldPane || oldPane?.view !== oldView || oldPane?.surface !== oldSurface || state.scope !== oldScope || state.globalTab !== oldTab) return null;
+      const agent = profiles.find(a => globalRosterAgent(a) && (spec.agentId != null
+        ? String(a.agent_id) === String(spec.agentId) : (a.role?.id || a.role_id) === 'ordubashy'));
+      if (!agent) { toast('The requested Focus pane is unavailable.'); return null; }
+      if (state.scope !== 'global' || state.globalTab !== 'agents') await selectGlobal('agents');
+      if (!live() || state.scope !== 'global' || state.globalTab !== 'agents') return null;
+      await globalAgentsNavigate(agent.agent_id, {view: 'focus'});
+      pane = _agpad;
+      if (!live() || !eligible(pane) || String(pane.agentId) !== String(agent.agent_id)) return null;
+    }
+    if (pane.view !== 'focus') await agpadSetView(pane, 'focus');
+    if (!live() || _agpad !== pane || pane.view !== 'focus' || !pane.focusMount?.isConnected) return null;
+    const result = await agpadSurfaceTransition(pane, async () => {
+    const board = pane.focusMount, shell = board.querySelector(':scope > .agfocus-surface');
+    const transition = pane.surfaceTransition = (pane.surfaceTransition || 0) + 1;
+    if (!shell || !await agpadFocusCanLeave(pane) || pane.surfaceTransition !== transition || !live() || _agpad !== pane || pane.focusMount !== board || pane.view !== 'focus') return null;
+    const layout = board.querySelector('.agfocus-layout');
+    if (!pane.surface) pane.surfaceScroll = layout?.scrollTop || 0;
+    agpadSurfaceDispose(pane);
+    const body = $('.agfocus-surface-body', shell), content = document.createElement('div');
+    content.className = 'agfocus-expansion-content';
+    body.replaceChildren(content);
+    const surface = {kind: 'expansion', dead: false, cleanups: [], opener, beforeLeave: null};
+    surface.ctx = {host: body};
+    pane.surface = surface;
+    board.classList.add('agfocus-surface-open'); shell.hidden = false;
+    const current = () => !surface.dead && pane.surface === surface && _agpad === pane && pane.view === 'focus' && pane.focusMount === board && board.isConnected && agpadActive(pane, true);
+    const session = {
+      host: content, isCurrent: current,
+      setTitle(value) { if (current()) { const title = String(value ?? ''); shell.setAttribute('aria-label', title); $('.agfocus-surface-title', shell).textContent = title; } },
+      setBeforeLeave(fn) { if (current()) surface.beforeLeave = typeof fn === 'function' ? fn : null; },
+      onDispose(fn) { if (typeof fn !== 'function') return; if (surface.dead) { try { fn(); } catch (_) {} } else surface.cleanups.push(fn); },
+      async close() { return current() ? agpadSurfaceClose(pane) : false; },
+    };
+    session.setTitle(spec.title || '');
+    agpadSurfacePaint(pane);
+    $('[data-surface-close]', shell)?.focus({preventScroll: true});
+    return {session, current, surface, mounting: Promise.resolve().then(() => spec.mount(content, session))};
+    });
+    if (!result?.session) return null;
+    try {
+      const dispose = await result.mounting;
+      if (typeof dispose === 'function') result.session.onDispose(dispose);
+      return result.current() ? result.session : null;
+    } catch (_) {
+      if (result.current()) { result.surface.beforeLeave = null; await agpadSurfaceClose(pane); toast('Could not open this content.'); }
+      return null;
+    }
+  },
+};
 
 
 function agpadVisibility(p) {

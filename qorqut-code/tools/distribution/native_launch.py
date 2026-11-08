@@ -7,17 +7,20 @@ No installer, daemon, permission broker or host configuration is installed.
 from __future__ import annotations
 
 import argparse
+import base64
 import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
 import platform
+import shlex
 import signal
 import shutil
 import socket
 import subprocess
 import sys
+import tarfile
 import time
 import urllib.request
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -102,6 +105,9 @@ def environment(root, home):
     # Vendor clients remain user-installed and use the user's existing account
     # configuration. Qorqbot's own state and generated workspace files stay here.
     env.setdefault('CODEX_HOME', str(user_home / '.codex'))
+    browser_tool = agent_browser_path(root)
+    if 'QORQUT_AGENT_BROWSER_EXECUTABLE' not in env and browser_tool.is_file():
+        env['QORQUT_AGENT_BROWSER_EXECUTABLE'] = str(browser_tool)
     env.setdefault('CLAUDE_CONFIG_DIR', str(user_home / '.claude'))
     timezone_file = root / 'instance/config/operational-timezone'
     if timezone_file.exists():
@@ -143,15 +149,219 @@ def run(argv, *, env, cwd):
     subprocess.run(list(map(str, argv)), env=env, cwd=cwd, check=True)
 
 
+def install_hint(*packages, system=None):
+    """The command that installs ``packages`` here: Homebrew on macOS, apt on Ubuntu (including Ubuntu in WSL)."""
+    if (system or platform.system()) == 'Darwin':
+        names = {'python3.12': 'python@3.12', 'python3.12-venv': None}
+        return 'brew install ' + ' '.join(n for n in (names.get(p, p) for p in packages) if n)
+    return 'sudo apt install ' + ' '.join(packages)
+
+
 def require_prerequisites(env):
     if sys.version_info[:2] != (3, 12):
-        raise RuntimeError('This download requires Python 3.12 with venv support')
+        raise RuntimeError('This download requires Python 3.12 with venv support. Install it with: '
+                           + install_hint('python3.12', 'python3.12-venv'))
     if not shutil.which('git', path=env.get('PATH')):
-        raise RuntimeError('Git is required. Install git using your system package manager, then retry.')
+        raise RuntimeError('Git is required. Install it with: ' + install_hint('git'))
     try:
         import ensurepip
     except ImportError:
-        raise RuntimeError('Python venv support is required. Install Python 3.12 with venv support, then retry.') from None
+        raise RuntimeError('Python venv support is required. Install it with: '
+                           + install_hint('python3.12-venv')) from None
+
+
+# The browser tool the agents' own browser control drives (bazarlyk.browser), pinned to the version and npm integrity
+# in qorqut-code/app/tools/browser/package-lock.json. Qorqbot installs it into the folder itself on first launch; only the
+# native binary for this machine is kept, so no Node is needed to run it.
+AGENT_BROWSER_VERSION = '0.38.1'
+AGENT_BROWSER_URL = 'https://registry.npmjs.org/agent-browser/-/agent-browser-0.38.1.tgz'
+AGENT_BROWSER_SHA512 = 'k58FCz0yUOCANoNkMiqJe+H2y6r6sUZazqXsWF+MYq1iRC42PjtLcBoag6SSTOD/FRQppvPDvE5HDYEhclvnhw=='
+AGENT_BROWSER_LIMIT = 200 * 1024 * 1024
+MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+CHROME_URL = 'https://www.google.com/chrome/'
+
+
+def agent_browser_binary_name(system=None, machine=None):
+    """The binary in the agent-browser package for this machine, or None where Qorqbot has no package."""
+    system, machine = (system or platform.system()), (machine or platform.machine()).lower()
+    if system == 'Darwin' and machine in ('arm64', 'aarch64'):
+        return 'agent-browser-darwin-arm64'
+    if system == 'Linux' and machine in ('x86_64', 'amd64'):
+        return 'agent-browser-linux-x64'
+    return None
+
+
+def agent_browser_path(root):
+    return Path(root) / 'tools' / ('agent-browser-' + AGENT_BROWSER_VERSION) / 'agent-browser'
+
+
+def _download(url, destination, limit, timeout=120, opener=urllib.request.urlopen):
+    digest = hashlib.sha512()
+    size = 0
+    with opener(url, timeout=timeout) as response, destination.open('wb') as output:
+        while True:
+            chunk = response.read(1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > limit:
+                raise RuntimeError('The agent-browser download is larger than expected')
+            digest.update(chunk)
+            output.write(chunk)
+    return base64.b64encode(digest.digest()).decode()
+
+
+def ensure_agent_browser(root, *, system=None, machine=None, download=_download):
+    """Install the pinned agent-browser into ``root/tools`` if it is not there yet. Returns its path, or None with the
+    reason as a second value when it could not be installed (offline, unsupported machine). Never raises for those."""
+    target = agent_browser_path(root)
+    if target.is_file() and os.access(target, os.X_OK):
+        return target, None
+    name = agent_browser_binary_name(system, machine)
+    if name is None:
+        return None, 'Web browsing for agents is not available on this machine type.'
+    work = target.parent.parent / ('.agent-browser-download-' + str(os.getpid()))
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True, mode=0o700)
+    try:
+        archive = work / 'package.tgz'
+        try:
+            integrity = download(AGENT_BROWSER_URL, archive, AGENT_BROWSER_LIMIT)
+        except OSError:
+            return None, 'Could not download the browser tool for agents. Qorqbot tries again at the next start.'
+        if integrity != AGENT_BROWSER_SHA512:
+            raise RuntimeError('The agent-browser download does not match its pinned checksum')
+        with tarfile.open(archive, 'r:gz') as package:
+            member = package.getmember('package/bin/' + name)
+            if not member.isfile():
+                raise RuntimeError('The agent-browser package has an unexpected layout')
+            source = package.extractfile(member)
+            staged = work / 'agent-browser'
+            with staged.open('wb') as output:
+                shutil.copyfileobj(source, output)
+        staged.chmod(0o755)
+        check = subprocess.run([str(staged), '--version'], capture_output=True, text=True, timeout=30,
+                               stdin=subprocess.DEVNULL)
+        if check.returncode != 0 or AGENT_BROWSER_VERSION not in check.stdout:
+            raise RuntimeError('The downloaded agent-browser does not run on this machine')
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.replace(staged, target)
+        return target, None
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def chrome_installed(path=None, system=None):
+    """Google Chrome, which the agents' browsers run on. Qorqbot cannot install it; the owner is told when it is missing."""
+    if (system or platform.system()) == 'Darwin' and os.access(MAC_CHROME, os.X_OK):
+        return True
+    return any(shutil.which(name, path=path) for name in ('google-chrome-stable', 'google-chrome', 'chromium', 'chromium-browser'))
+
+
+AGENT_CLIS = (('claude', 'Claude Code', 'https://docs.anthropic.com/en/docs/claude-code'),
+              ('codex', 'Codex', 'https://github.com/openai/codex'))
+
+
+def readiness_notes(path, system=None):
+    """Optional tools the dashboard works without but agents need. Returned as lines to print, never raised."""
+    notes = []
+    if not chrome_installed(path, system):
+        notes.append('Your agents need Google Chrome to work on the web. Install it from ' + CHROME_URL)
+    if not shutil.which('tmux', path=path):
+        notes.append('Agent terminals need tmux. Install it with: ' + install_hint('tmux', system=system))
+    if not any(shutil.which(command, path=path) for command, _, _ in AGENT_CLIS):
+        notes.append('No agent CLI found. Install one and sign in once in a terminal: '
+                     + '; '.join(f'{name} ({command}) {url}' for command, name, url in AGENT_CLIS))
+    return notes
+
+
+def browser_command(url, system=None, release=None):
+    """How to show ``url`` in the user's browser, or None when no browser opener is known.
+    Under WSL the Windows browser is used, because the dashboard is forwarded to Windows localhost."""
+    system = system or platform.system()
+    if system == 'Darwin':
+        return ['open', url]
+    if release is None:
+        try:
+            release = Path('/proc/sys/kernel/osrelease').read_text()
+        except OSError:
+            release = ''
+    if 'microsoft' in release.lower():
+        for opener in ('wslview', 'explorer.exe'):
+            if shutil.which(opener):
+                return [opener, url]
+        return None
+    return ['xdg-open', url] if shutil.which('xdg-open') else None
+
+
+def open_browser(url):
+    command = browser_command(url)
+    if command is None:
+        return False
+    try:
+        # explorer.exe reports a non-zero status even when it opened the page, so the status is not checked.
+        subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return True
+
+
+COMMAND_MARKER = '# Qorqbot terminal command'
+
+
+def command_shim(root):
+    return f"#!/bin/sh\n{COMMAND_MARKER}. Runs the installation in the folder below.\nexec {shlex.quote(str(root / 'qorqbot'))} \"$@\"\n"
+
+
+def command_directory(path_value, home, system=None):
+    """A directory on PATH the user can write without a password: Homebrew's bin on macOS (Homebrew is already a
+    prerequisite), otherwise ~/.local/bin. Returns (directory, on_path)."""
+    entries = [Path(entry) for entry in path_value.split(os.pathsep) if entry]
+    candidates = [Path('/opt/homebrew/bin'), Path('/usr/local/bin')] if (system or platform.system()) == 'Darwin' else []
+    for candidate in candidates:
+        if candidate in entries and candidate.is_dir() and os.access(candidate, os.W_OK):
+            return candidate, True
+    local = Path(home) / '.local/bin'
+    return local, local in entries
+
+
+def install_command(root, directory=None, remove=False, path_value=None, home=None):
+    """Write or remove the ``qorqbot`` command. A file that Qorqbot did not write is never replaced or removed."""
+    path_value = os.environ.get('PATH', os.defpath) if path_value is None else path_value
+    home = Path(home or os.environ.get('HOME') or Path.home())
+    if directory is None:
+        directory, on_path = command_directory(path_value, home)
+    else:
+        directory = Path(directory)
+        on_path = directory in [Path(entry) for entry in path_value.split(os.pathsep) if entry]
+    target = directory / 'qorqbot'
+    owned = target.is_file() and not target.is_symlink() and COMMAND_MARKER in target.read_text(errors='replace')
+    if (target.exists() or target.is_symlink()) and not owned:
+        raise RuntimeError(f'{target} already exists and was not created by Qorqbot; it was left unchanged')
+    if remove:
+        if owned:
+            target.unlink()
+            return f'Removed {target}'
+        return f'There is no qorqbot command in {directory}'
+    directory.mkdir(parents=True, exist_ok=True)
+    temporary = directory / '.qorqbot.new'
+    temporary.write_text(command_shim(root))
+    temporary.chmod(0o755)
+    temporary.replace(target)
+    message = f'Installed {target}. Run qorqbot from any folder to start Qorqbot and open it in your browser.'
+    if not on_path:
+        message += f'\n{directory} is not on your PATH yet. Add this line to your shell profile, then open a new terminal:\n  export PATH="{directory}:$PATH"'
+    return message
+
+
+def default_port(run_dir):
+    """The port this folder last served on. Agents keep the dashboard address they were started with, so a later
+    start without --port reuses it; 1049 is the first default."""
+    try:
+        value = (run_dir / 'port').read_text().strip()
+    except OSError:
+        return 1049
+    return int(value) if value.isdigit() and 1024 <= int(value) <= 65535 else 1049
 
 
 def package_platform(runtime):
@@ -306,13 +516,22 @@ def require_completed_update(root):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Run Qorqbot in this folder.')
-    parser.add_argument('command', nargs='?', choices=('start', 'stop', 'status', 'verify', 'setup', 'calendar-connect'), default='start')
-    parser.add_argument('--port', type=int, default=1049)
+    parser.add_argument('command', nargs='?', default='start',
+                        choices=('start', 'stop', 'status', 'verify', 'setup', 'calendar-connect', 'install-command'))
+    parser.add_argument('--port', type=int, help='Local port. Defaults to the port this folder last used, first 1049.')
+    parser.add_argument('--no-open', action='store_true', help='Do not open the dashboard in your browser.')
+    parser.add_argument('--dir', type=Path, help='install-command: directory for the qorqbot command.')
+    parser.add_argument('--remove', action='store_true', help='install-command: remove the qorqbot command.')
     args, remaining = parser.parse_known_args(argv)
     if remaining and args.command != 'calendar-connect':
         parser.error('Unrecognized arguments: ' + ' '.join(remaining))
     root = Path(__file__).resolve().parent.parent
     runtime = root / 'runtime'
+    if args.command == 'install-command':
+        print(install_command(root, args.dir, args.remove))
+        return 0
+    # The browser opens only for a person at a terminal, never for the desktop app or a service manager.
+    show = args.command == 'start' and not args.no_open and sys.stdout.isatty()
     require_platform(runtime)
     os.umask(0o077)
     run_dir = root / '.run'
@@ -322,8 +541,11 @@ def main(argv=None):
         raise RuntimeError('Choose a shorter installation path so local terminal sockets fit (roughly 50 characters or fewer)')
     state = run_dir / 'app.json'
     existing = active(state)
+    if args.port is None:
+        args.port = default_port(run_dir)
     if args.command == 'status':
-        print('Running at ' + existing['url'] if existing else 'Stopped')
+        # The desktop app reads "from Terminal" to leave a Terminal-started server running when it quits.
+        print(('Running at ' + existing['url'] + (' from Terminal' if existing.get('terminal') else '')) if existing else 'Stopped')
         return 0 if existing else 1
     if args.command == 'stop':
         if existing:
@@ -340,6 +562,11 @@ def main(argv=None):
         verify(runtime)
         print('Package checksums verified')
         return 0
+    if args.command == 'start' and existing:
+        print('Qorqbot is already running at ' + existing['url'], flush=True)
+        if show:
+            open_browser(existing['url'])
+        return 0
     with (run_dir / 'app.lock').open('a') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -351,6 +578,13 @@ def main(argv=None):
         require_prerequisites(env)
         prepare(root, env)
         record = initialize(root, env)
+        # First launch installs the agents' browser tool; later launches find it in place.
+        try:
+            _, browser_problem = ensure_agent_browser(root)
+        except (RuntimeError, OSError, KeyError, tarfile.TarError, subprocess.SubprocessError) as error:
+            browser_problem = 'The browser tool for agents could not be installed: ' + str(error)
+        if browser_problem:
+            print(browser_problem, flush=True)
         if args.command == 'calendar-connect':
             env = environment(root, root / 'instance/home')
             run([runtime / 'venv/bin/python', '-I', '-B', '-m', 'qorqut_google_calendar.connect',
@@ -370,7 +604,11 @@ def main(argv=None):
             raise RuntimeError('Choose a port from 1024 to 65535')
         with socket.socket() as probe:
             probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            probe.bind(('127.0.0.1', args.port))
+            try:
+                probe.bind(('127.0.0.1', args.port))
+            except OSError:
+                raise RuntimeError(f'Port {args.port} is in use by another program. Close it, or start with --port and a free port.') from None
+        (run_dir / 'port').write_text(f'{args.port}\n')
         env = environment(root, root / 'instance/home')
         argv = [runtime / 'venv/bin/python', '-I', '-B', '-m', 'bazarlyk.service',
                 '--workspace', runtime / 'src', '--instance-root', root / 'instance',
@@ -391,7 +629,8 @@ def main(argv=None):
             signal.signal(signal.SIGTERM, stop)
             signal.signal(signal.SIGINT, stop)
             url = f'http://127.0.0.1:{args.port}'
-            save_json(state, {'pid': os.getpid(), 'identity': identity(os.getpid()), 'url': url})
+            save_json(state, {'pid': os.getpid(), 'identity': identity(os.getpid()), 'url': url,
+                              'terminal': sys.stdin.isatty()})
             try:
                 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
                 for _ in range(300):
@@ -410,6 +649,11 @@ def main(argv=None):
                     child.wait(timeout=30)
                     raise RuntimeError('Qorqbot did not become ready. Details are in instance/logs/application.log')
                 print(f'Qorqbot is running at {url}\nPress Ctrl+C to stop.', flush=True)
+                if sys.stdout.isatty():
+                    for note in readiness_notes(env.get('PATH')):
+                        print(note, flush=True)
+                if show and not open_browser(url):
+                    print('Open the address above in your browser.', flush=True)
                 code = child.wait()
                 # Uvicorn can finish graceful shutdown by re-raising the received
                 # signal. An owner-requested stop is a successful launcher exit.

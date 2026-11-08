@@ -42,13 +42,15 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 .global-agents .item.agent { width: calc(100% - 20px); text-align: left; height: auto; background: none; color: var(--fg-2); font-weight: 400; transform: none; }
 .global-agents .item.agent:hover { background: var(--hover); color: var(--fg); }
 .global-agents .item.agent.on { background: rgba(247,247,247,.06); color: var(--fg); }
+/* Testing mode OFF keeps the real Overseer avatar but dims it in the roster. */
+.global-agents .overseer-coming-soon-entry .identity-avatar { opacity: .4; }
 /* The global agents form one roster that takes the height it needs and scrolls when the navigation body is short.
    The owner's icon-only workspace Terminal stays at the bottom of the navigation. */
 .global-agents .global-nav-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
 .global-agents .listcol .global-primary { flex: 0 1 auto; min-height: 64px; overflow-y: auto; }
 .global-agents .global-roster { display: flex; flex-direction: column; }
 .global-agents .global-workspace-terminals { flex: none; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line); }
-.global-agents .global-workspace-terminal svg, .global-agents .global-workspace-settings svg { width: 20px; height: 20px; flex: none; }
+.global-agents .global-workspace-terminal svg, .global-agents .global-workspace-settings svg, .global-agents .global-workspace-guide svg { width: 20px; height: 20px; flex: none; }
 .agsplit.nav-off > .listcol .global-nav-body { display: none; }
 .global-agent-session { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .global-agent-session .chat.termmode { flex: 1; min-height: 180px; padding: 24px; }
@@ -77,6 +79,6 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 .global-agents .item.agent .nm { position: relative; flex: 0 1 auto; max-width: 100%; justify-content: flex-start; }
 .global-agents .global-roster .item.agent { justify-content: flex-start; }
 .global-agents .nm > .chat-unread-dot { position: absolute; top: -3px; right: -6px; margin: 0; }
-.global-agents .global-workspace-terminal .nm, .global-agents .global-workspace-settings .nm { gap: 6px; }
+.global-agents .global-workspace-terminal .nm, .global-agents .global-workspace-settings .nm, .global-agents .global-workspace-guide .nm { gap: 6px; }
 .global-heading-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; max-width: 866px; }
 .global-heading-row h1 { margin-bottom: 0; }

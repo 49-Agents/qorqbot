@@ -1,6 +1,10 @@
 """The SDK's one stateful HTTP endpoint, with a fresh principal on every request."""
 
+import hashlib
 import logging
+import threading
+import time
+from contextlib import contextmanager
 from dataclasses import replace
 import json
 from uuid import UUID
@@ -27,6 +31,32 @@ from . import batches, mcp_presentation, mcp_reads
 
 logger = logging.getLogger(__name__)
 
+SLOW_TOOL_MS = 250
+
+
+@contextmanager
+def _phase(timing, key):
+    """Record one phase's elapsed milliseconds in this call's own timing dict, including when it fails."""
+    started = time.perf_counter()
+    try:
+        yield
+    finally:
+        timing[key] = (time.perf_counter() - started) * 1000
+
+
+def _log_slow_tool(timing, request_id, started):
+    # Best effort and fixed fields only: never arguments, responses, headers, principals or exception text. These
+    # clocks cover _single_result, not HTTP authentication or the SDK's final wire serialization. The total also
+    # includes worker queue wait and presentation, so configuration + execution need not equal it.
+    try:
+        total = (time.perf_counter() - started) * 1000
+        if total >= SLOW_TOOL_MS:
+            logger.warning("MCP tool slow: operation=%s request_id=%s configuration_ms=%.1f execution_ms=%.1f total_tool_ms=%.1f",
+                timing["operation"], request_id, timing["configuration_ms"], timing["execution_ms"], total)
+    except Exception:
+        pass
+
+
 OVERSEER_SESSION_OPERATIONS = frozenset({
     'overseer_evidence_list', 'overseer_episode_get', 'overseer_input_request', 'overseer_input_reconcile',
     'overseer_delta_get', 'overseer_application_get', 'overseer_proposals_list',
@@ -36,7 +66,7 @@ OVERSEER_SESSION_OPERATIONS = frozenset({
     'overseer_development_task_link', 'overseer_development_tasks_reconcile',
 })
 
-ATTENTION_SESSION_OPERATIONS = frozenset({'attention_get', 'attention_add', 'attention_remove',
+ATTENTION_SESSION_OPERATIONS = frozenset({'todo_get', 'todo_add', 'todo_remove', 'attention_get', 'attention_add', 'attention_remove',
     'attention_focus_set', 'attention_focus_clear', 'attention_workflow_update'})
 
 
@@ -74,14 +104,13 @@ def split_options(arguments, *, domain_fields=()):
     return {key: value for key, value in arguments.items() if key not in options}, InvocationOptions.from_mapping(options)
 
 
-def validation_hint(value, operation):
+def validation_hint(value, operation, *, read_instructions):
     """Point a rejected call of a known operation to its current schema; never replaces an existing hint."""
     error = value.get("error")
     if (operation is None or "agent_hint" in value or value.get("status") != "error"
             or not isinstance(error, dict) or error.get("code") != "validation_error"):
         return value
-    return {**value, "agent_hint": (f"Read operations_describe(names={json.dumps([operation])}) for the current schema, "
-                                    "correct this call, and preserve its idempotency key if present.")}
+    return {**value, "agent_hint": (read_instructions().render('tool-validation-recovery', VALUE0=f'{json.dumps([operation])}'))}
 
 
 def tool_schema(registry, name):
@@ -153,7 +182,7 @@ class RegisteredAgentCaller:
                 from bazarlyk.agents.operational_delegation import WORKER_OPERATIONS
                 allowed = set(assignment["allowed_operations_json"]) | set(WORKER_OPERATIONS)
         try:
-            rows = self.runtime.resolver.resolve_agent_config(actor.principal).data["tools"]
+            rows = self.runtime.resolver.resolve_agent_config(actor.principal, include_preparation=False).data["tools"]
             visible = [row for row in rows if row["canonical_operation"] not in INTERNAL_ONLY_OPERATIONS
                        and (allowed is None or row["canonical_operation"] in allowed)]
             if allowed is not None and BROWSER_OPERATION in allowed and not any(
@@ -243,7 +272,7 @@ class RegisteredAgentCaller:
     def check_batch(self, actor):
         if actor.delegation_assignment_id:
             raise DomainError("forbidden", "Delegated workers cannot execute batches")
-        config = self.runtime.resolver.resolve_agent_config(actor.principal)
+        config = self.runtime.resolver.resolve_agent_config(actor.principal, include_preparation=False)
         if not any(row["canonical_operation"] == BATCH_NAME and row["available"] and row["effective_mode"] == "allow"
                    for row in config.data["tools"]):
             raise DomainError("policy_denied", "Batch execution is not allowed for this agent")
@@ -255,6 +284,11 @@ class MCPTransport:
         self.runtime, self.authentication, self.origins = runtime, authentication, origins
         self.caller = caller or RegisteredAgentCaller(runtime, authentication)
         self.read_revalidation = mcp_reads.ReadRevalidation()
+        self._discovery_lock = threading.Lock()
+        self._discovery_sequence = 0
+        self._discovery_generation_sequence = 0
+        self._discovery_generation = None
+        self._discovery_definitions = {}
         self.server = Server("bazarlyk", version="2.0.0")
         self.manager = StreamableHTTPSessionManager(self.server, json_response=True,
             security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
@@ -264,18 +298,7 @@ class MCPTransport:
         async def list_tools():
             try:
                 actor = self._request_actor()
-                inventory = await anyio.to_thread.run_sync(lambda: self.caller.inventory(actor))
-                tools = []
-                for row in inventory:
-                    if not row["available"]:
-                        continue
-                    descriptor = self.runtime.registry.get(row["canonical_operation"])
-                    for name in (row["canonical_operation"], *row["exposed_aliases"]):
-                        tools.append(types.Tool(name=name,
-                            description=(descriptor.description or name.replace("_", " ")) + mcp_presentation.description(descriptor.name),
-                            inputSchema=tool_schema(self.runtime.registry, name),
-                            annotations=tool_annotations(descriptor)))
-                return tools
+                return await anyio.to_thread.run_sync(lambda: self._discover_tools(actor))
             except DomainError as exc:
                 raise McpError(types.ErrorData(code=-32000, message=exc.message, data=exc.to_dict())) from exc
 
@@ -304,6 +327,52 @@ class MCPTransport:
             wire = mcp_presentation.finalize(value)
             return types.CallToolResult(content=self._content_blocks(wire),
                 isError=value["status"] == "error")
+
+    def _discover_tools(self, actor):
+        # Sequence requests before taking the snapshot so an older reader cannot
+        # replace a generation published by a newer concurrent reader.
+        with self._discovery_lock:
+            self._discovery_sequence += 1
+            sequence = self._discovery_sequence
+        view = self.runtime.resolver.require_agentic_view()
+        with view.read_snapshot():
+            inventory = self.caller.inventory(actor)
+            instructions = view.tool_instructions()
+            registry = self.runtime.registry
+            digest = hashlib.sha256(json.dumps(instructions.messages, sort_keys=True,
+                separators=(",", ":"), ensure_ascii=False).encode("utf-8")).digest()
+            generation = (registry, digest)
+            frozen = registry.frozen
+            def current_generation():
+                return (self._discovery_generation is not None
+                    and self._discovery_generation[0] is registry
+                    and self._discovery_generation[1] == digest)
+            with self._discovery_lock:
+                if sequence >= self._discovery_generation_sequence:
+                    self._discovery_generation_sequence = sequence
+                    if not frozen or not current_generation():
+                        self._discovery_generation = generation if frozen else None
+                        self._discovery_definitions.clear()
+            tools = []
+            for row in inventory:
+                if not row["available"]:
+                    continue
+                descriptor = registry.get(row["canonical_operation"])
+                for name in (row["canonical_operation"], *row["exposed_aliases"]):
+                    with self._discovery_lock:
+                        definition = (self._discovery_definitions.get(name)
+                            if frozen and current_generation() else None)
+                    if definition is None:
+                        definition = types.Tool(name=name,
+                            description=instructions.description((descriptor.description or name.replace("_", " "))
+                                + mcp_presentation.description(descriptor.name)),
+                            inputSchema=instructions.metadata(tool_schema(registry, name)),
+                            annotations=tool_annotations(descriptor))
+                        with self._discovery_lock:
+                            if frozen and current_generation():
+                                definition = self._discovery_definitions.setdefault(name, definition)
+                    tools.append(definition.model_copy(deep=True))
+            return tools
 
     @staticmethod
     def _content_blocks(wire):
@@ -365,6 +434,14 @@ class MCPTransport:
 
     async def _single_result(self, name, arguments, actor=None):
         request_id = new_id()
+        timing = {"operation": "unknown", "configuration_ms": 0.0, "execution_ms": 0.0}
+        started = time.perf_counter()
+        try:
+            return await self._single_result_timed(name, arguments, actor, request_id, timing)
+        finally:
+            _log_slow_tool(timing, request_id, started)
+
+    async def _single_result_timed(self, name, arguments, actor, request_id, timing):
         detail = "full"
         canonical_name = name
         known_operation = None
@@ -372,6 +449,7 @@ class MCPTransport:
         try:
             actor = actor or self._request_actor()
             descriptor = self.runtime.registry.get(name)
+            timing["operation"] = descriptor.name
             if not self.caller.exposes(descriptor):
                 raise DomainError("forbidden", "This operation is not exposed to agent MCP")
             from bazarlyk.overseer.operations import WRITE as OVERSEER_WRITES
@@ -402,48 +480,50 @@ class MCPTransport:
                 options = replace(options, omit_work_briefing=True)
             def invoke():
                 nonlocal context
-                binding = (self.caller.attention_binding(actor, request_context.request.headers, request_context.meta)
-                           if requires_binding else None)
-                if binding is not None:
-                    context = self.caller.invocation_context(actor, canonical_name=canonical_name, options=options,
-                                                             native_binding=binding)
-                else:
-                    context = self.caller.invocation_context(actor, canonical_name=canonical_name, options=options)
+                with _phase(timing, "configuration_ms"):
+                    binding = (self.caller.attention_binding(actor, request_context.request.headers, request_context.meta)
+                               if requires_binding else None)
+                    if binding is not None:
+                        context = self.caller.invocation_context(actor, canonical_name=canonical_name, options=options,
+                                                                 native_binding=binding)
+                    else:
+                        context = self.caller.invocation_context(actor, canonical_name=canonical_name, options=options)
                 # Bind application observation to this transport call's
                 # correlation ID after trusted context resolution.
                 context = replace(context, request_id=request_id)
-                if bridge_operation:
-                    from qorqut_agentic.errors import AgenticError
-                    self.runtime.registry.bind_arguments(canonical_name, args)
-                    with self.runtime.database.read() as uow:
-                        current = self.runtime.application.current_context(context, uow)
-                        self.runtime.application.authorize(current, descriptor, (), uow, namespace='global')
-                    try:
-                        value = self.runtime.overseer.mutate(canonical_name, context, args)
-                    except AgenticError as error:
-                        raise DomainError(error.code, str(error), details=error.details) from error
-                    return OperationResult.ok(value, request_id=request_id)
-                if canonical_name == AGENT_BROWSER_MANAGE:
-                    self.runtime.registry.bind_arguments(canonical_name, args)
-                    namespace = self.runtime.application.namespace(context, descriptor, args)
-                    with self.runtime.database.read() as uow:
-                        self.runtime.application.authorize(context, descriptor, (), uow, namespace=namespace, arguments=args)
-                    # The manager decides the exact worker target and rechecks it under the agent's lock; host effects run
-                    # here, outside every database transaction, under the instance's writer admission.
-                    value = self.runtime.browser_manager.manage(actor.principal.id, args, options.idempotency_key)
-                    return OperationResult.ok(value, request_id=request_id)
-                if canonical_name == BROWSER_OPERATION:
-                    self.runtime.registry.bind_arguments(canonical_name, args)
-                    namespace = self.runtime.application.namespace(context, descriptor, args)
-                    with self.runtime.database.read() as uow:
-                        self.runtime.application.authorize(context, descriptor, (), uow,
-                            namespace=namespace, arguments=args)
-                    # Projects have no browsers: a call's project context never selects one.
-                    body = dict(args)
-                    body["idempotency_key"] = options.idempotency_key
-                    value = self.runtime.browser_access.tool(actor, body["action"], body)
-                    return OperationResult.ok(value, request_id=request_id)
-                return self.runtime.application.invoke(context, name, args, options)
+                with _phase(timing, "execution_ms"):
+                    if bridge_operation:
+                        from qorqut_agentic.errors import AgenticError
+                        self.runtime.registry.bind_arguments(canonical_name, args)
+                        with self.runtime.database.read() as uow:
+                            current = self.runtime.application.current_context(context, uow)
+                            self.runtime.application.authorize(current, descriptor, (), uow, namespace='global')
+                        try:
+                            value = self.runtime.overseer.mutate(canonical_name, context, args)
+                        except AgenticError as error:
+                            raise DomainError(error.code, str(error), details=error.details) from error
+                        return OperationResult.ok(value, request_id=request_id)
+                    if canonical_name == AGENT_BROWSER_MANAGE:
+                        self.runtime.registry.bind_arguments(canonical_name, args)
+                        namespace = self.runtime.application.namespace(context, descriptor, args)
+                        with self.runtime.database.read() as uow:
+                            self.runtime.application.authorize(context, descriptor, (), uow, namespace=namespace, arguments=args)
+                        # The manager decides the exact worker target and rechecks it under the agent's lock; host effects run
+                        # here, outside every database transaction, under the instance's writer admission.
+                        value = self.runtime.browser_manager.manage(actor.principal.id, args, options.idempotency_key)
+                        return OperationResult.ok(value, request_id=request_id)
+                    if canonical_name == BROWSER_OPERATION:
+                        self.runtime.registry.bind_arguments(canonical_name, args)
+                        namespace = self.runtime.application.namespace(context, descriptor, args)
+                        with self.runtime.database.read() as uow:
+                            self.runtime.application.authorize(context, descriptor, (), uow,
+                                namespace=namespace, arguments=args)
+                        # Projects have no browsers: a call's project context never selects one.
+                        body = dict(args)
+                        body["idempotency_key"] = options.idempotency_key
+                        value = self.runtime.browser_access.tool(actor, body["action"], body)
+                        return OperationResult.ok(value, request_id=request_id)
+                    return self.runtime.application.invoke(context, name, args, options)
             result = await anyio.to_thread.run_sync(invoke)
             presented = mcp_presentation.present(canonical_name, result.to_dict(), detail,
                 tool_names=tool_names, sections=sections, arguments=args)
@@ -476,7 +556,8 @@ class MCPTransport:
             if presented.get("status") == "ok":
                 self._report_transport_success(operation=canonical_name, request_id=request_id,
                     actor=actor, context=context)
-            return validation_hint(presented, known_operation)
+            return validation_hint(presented, known_operation,
+                read_instructions=lambda: self.runtime.resolver.require_agentic_view().runtime_instructions())
         except DomainError as exc:
             result = OperationResult.failure(exc, request_id=request_id)
         except Exception as exc:
@@ -489,7 +570,8 @@ class MCPTransport:
                     actor=actor, context=context)
             logger.exception("MCP operation failed: %s", request_id)
             result = OperationResult.failure(DomainError("internal_error", "The operation failed; use its correlation ID for diagnosis"), request_id=request_id)
-        return validation_hint(result.to_dict(), known_operation)
+        return validation_hint(result.to_dict(), known_operation,
+            read_instructions=lambda: self.runtime.resolver.require_agentic_view().runtime_instructions())
 
     async def _authorize_batch(self):
         bound = self._request_actor()

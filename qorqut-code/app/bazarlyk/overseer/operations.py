@@ -1,4 +1,6 @@
 """Authenticated host operations over the portable Overseer layer."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError
 from qorqut_agentic.overseer.views import Views
@@ -108,8 +110,8 @@ class OverseerOperations:
             self.runtime.registry.register(OperationDescriptor(name, _schema(properties, required), effect_kind='read',
                 supports_signoff=False, exposure=frozenset({'mcp'}), scope_kinds=frozenset({'global'}),
                 global_capability=capability, resolve_namespace=lambda c, a: 'global',
-                description=('Read your submitted instruction, exact review Signoff and decision; performs no application.'
-                             if name == 'agentic_change_get' else 'Read authorized Overseer records and current source availability.'),
+                description=(instruction_text('operations-read-your-submitted-instruction-exact-review-signoff-and')
+                             if name == 'agentic_change_get' else instruction_text('operations-read-authorized-overseer-records-and-current-source-availability')),
                 read=lambda c, a, o, u, n=name: self.safe_read(n, c, a, u)))
         from .due import DueRecord, OUTPUT as DUE_OUTPUT, ARGUMENTS as DUE_ARGUMENTS
         due = DueRecord(self.runtime)
@@ -117,7 +119,7 @@ class OverseerOperations:
             supports_signoff=False, exposure=frozenset({'worker'}), scope_kinds=frozenset({'global'}),
             global_capability='manage_agentic_layer', resolve_namespace=lambda c, a: 'global',
             prepare=due.prepare, apply=due.apply,
-            description='Worker-only output of the scheduled extraction program: record its one derived due occurrence.'))
+            description=instruction_text('operations-worker-only-output-of-the-scheduled-extraction-program')))
         for name, (properties, required) in WRITE.items():
             if name == 'overseer_development_task_create':
                 from qorqut_operations.contracts import plain
@@ -127,9 +129,9 @@ class OverseerOperations:
             self.runtime.registry.register(OperationDescriptor(name, _schema(properties, required), effect_kind='compound',
                 supports_signoff=False, exposure=frozenset({'mcp'}), scope_kinds=frozenset({'global'}),
                 global_capability='manage_agentic_layer', transport_only=True, external_read=True,
-                description=({'agentic_change_propose': 'Submit an explicit owner Chat instruction as a proposed delta with an owner-only review Signoff. Supply the exact full original message, proposed change, scope (description, project_ids, work_types, workflow_refs, conditions, exceptions), and catalog target references. Reuse request_key on retry. Creates no active edit; acceptance queues separate application.',
-                              'agentic_change_reconcile': 'Read the actual owner answer to your exact proposal Signoff and update the shared delta queue. Response contains reference (provider, signoff_id, proposal_revision, payload_hash, status_revision) and interpretation (null for a choice without notes; otherwise clarity/action/rationale). Never applies active files.'}.get(name,
-                             'Run an authorized Overseer bridge operation with its exact saved binding.'))))
+                description=({'agentic_change_propose': instruction_text('operations-submit-an-explicit-owner-chat-instruction-as-a'),
+                              'agentic_change_reconcile': instruction_text('operations-read-the-actual-owner-answer-to-your-exact')}.get(name,
+                             instruction_text('operations-run-an-authorized-overseer-bridge-operation-with-its')))))
         from .executor import configure
         from qorqut_agentic.errors import AgenticError
         try:

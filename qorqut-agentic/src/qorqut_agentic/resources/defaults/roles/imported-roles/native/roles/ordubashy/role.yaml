@@ -1,6 +1,6 @@
 schema_version: 1
 id: ordubashy
-version: 1.75.1
+version: 1.76.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/ordubashy/BRIEF.md
@@ -42,8 +42,15 @@ default_tool_policy:
   actions_get: allow
   actions_list: allow
   actions_record: allow
+  actions_comment: allow
+  actions_thread_get: allow
+  actions_correct: allow
+  actions_withdraw: allow
   journal_entries_list: allow
   journal_entry_get: allow
+  journal_entry_create: allow
+  journal_entry_update: allow
+  journal_entry_archive: allow
   browser_turn: allow
   agent_browser_manage: allow
   request_user_input: allow
@@ -200,6 +207,9 @@ default_tool_policy:
   tasks_overview: allow
   tasks_update: allow
   workers_list: allow
+  todo_get: allow
+  todo_add: allow
+  todo_remove: allow
   attention_get: allow
   attention_add: allow
   attention_remove: allow

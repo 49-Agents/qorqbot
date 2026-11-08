@@ -24,7 +24,7 @@ from bazarlyk.native_archive import CaptureError
 from . import selection, store
 from .adapters import CodexQueueAdapter, TerminalAdapter
 from .attachment import AttachmentService
-from .arbiter import AgentLocks, InputArbiter
+from .arbiter import AgentLocks, InputArbiter, TERMINAL_COMMAND
 from .captures import Indexer
 from .contracts import (InputRequest, NativeChatError, PROVIDER_RUNTIMES, PROVIDERS, RESULT_DEFERRED, RESULT_REJECTED,
                         TYPE_CHAT)
@@ -60,6 +60,7 @@ _REFUSALS = {
     "unsupported_runtime": ("unsupported_runtime", "Chat supports Claude Code and Codex agents only"),
     "stale_session": ("terminal_changed", "The terminal conversation changed; send again"),
     "agent_unavailable": ("not_found", "Select an active registered agent"),
+    TERMINAL_COMMAND: ("terminal_required", "Codex commands run only in the agent's Terminal. Open Terminal and run it there."),
 }
 
 
@@ -285,7 +286,8 @@ class NativeChat:
         lineage = Lineage(agent_id, provider, conversation, receipt.archive_id)
         with self.database.read() as uow:
             markers = store.conversation_markers(uow.connection, agent_id, provider, conversation,
-                                                 [entry.marker for entry in window.entries], capture["transcript_path"])
+                                                 [entry.marker for entry in window.entries],
+                                                 (capture["transcript_path"], receipt.source_path))
             replies = {row["raw_offset"]: row for row in store.replies_at(
                 uow.connection, agent_id, provider, conversation, [entry.offset for entry in window.entries])}
             sends = store.sent_messages(uow.connection, agent_id,

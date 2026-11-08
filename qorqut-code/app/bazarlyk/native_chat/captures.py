@@ -234,8 +234,8 @@ class Indexer:
                     except (ValueError, TypeError):
                         stamp = None
                     if stamp is not None and stamp.tzinfo is not None:
-                        from bazarlyk.management.identity import configured_ordubashy
-                        if session['agent_id'] == configured_ordubashy(uow):
+                        from bazarlyk.agents.attention import enrolled_board
+                        if enrolled_board(uow, session['agent_id']):
                             from bazarlyk.agents.attention_delivery import record_attention_activity
                             key = hashlib.sha256((session['conversation_id'] + ':' + completion.identity_kind + ':'
                                                   + completion.key).encode()).hexdigest()

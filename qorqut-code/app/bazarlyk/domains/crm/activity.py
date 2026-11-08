@@ -21,6 +21,8 @@ its start. A malformed cursor is a ``validation_error``."""
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import base64
 import json
 
@@ -59,15 +61,12 @@ class CRMActivityOperations:
         registry.register(OperationDescriptor(
             NAME, schema({
                 "scope": {"enum": ["business", "global"]}, "task_id": IDENTITY,
-                "include_linked": {"type": "boolean", "description": "Also merge the events of sources this record is directly linked to. Default true."},
+                "include_linked": {"type": "boolean", "description": instruction_text('activity-also-merge-the-events-of-sources-this-record')},
                 "cursor": {"type": "string", "maxLength": 2000},
                 "limit": {"type": "integer", "minimum": 1, "maximum": MAXIMUM_LIMIT}}, ("task_id",)),
             effect_kind="read", supports_signoff=False, scope_kinds=frozenset({"business", "global"}),
             global_capability="read_global_context", resolve_namespace=task_namespace,
-            description="One record's activity, newest first: its own discussion, recorded emails/messages/developments and CRM "
-                        "membership changes, plus the events of Tasks, Signoffs, Actions and documents it is directly and "
-                        "explicitly linked to (each read with your current access; unreadable sources are omitted). Reading "
-                        "never acknowledges, sends or changes anything. Page with next_cursor.",
+            description=instruction_text('activity-one-record-s-activity-newest-first-its-own'),
             read=lambda ctx, args, options, uow: self.read(ctx, args, uow)))
         self.application.crm_activity = self
         return self

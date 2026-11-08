@@ -77,12 +77,18 @@ function conversationEntries(notes,adapter) {
   return notes.map(note=>{
     const system=note.entry_kind==='system',owner=!system && (note.is_owner ?? (note.author_kind==='human'));
     const entry={key:note.id,speaker:system?'notice':owner?'user':'agent',text:note.body || '',timestamp:note.created_at,
+      recorder:note.recorder_kind==='agent'?'agent':undefined,
       references:(note.refs || []).filter(ref=>ref.type!=='dev_ticket').map((ref,index)=>({key:`ref${index}`,label:ref.label || ref.type || 'Reference',disabled:!!ref.unavailable,value:ref})),
       actions:note.parent_event_id && adapter.openParent?[{key:'parent',label:'About an earlier entry'}]:[]};
     if(note.title && note.title!=='Message')entry.title=note.title;
     // Consecutive messages from the same sender share one header.
-    const sender=system?null:owner?'\u0000owner':String(note.created_by ?? '');
-    if(!system && !owner){
+    const sender=system?null:`${note.author_id || note.created_by || ''}:${note.recorder_id || ''}`;
+    const relayed=!system && note.author_id && note.recorder_id && note.author_id!==note.recorder_id;
+    if(relayed){
+      entry.author={name:`${conversationPersonName(note)} · ${note.attribution?.kind==='owner_intent'?'interpreted':'recorded'} by ${note.recorder_name || 'Ordubashy'}`};
+      entry.showAuthor=true;
+    }
+    if(!system && !owner && !relayed){
       entry.author={name:conversationPersonName(note),avatarHtml:conversationGlyph(note,31)};
       entry.showAuthor=previous!==sender;
       entry.showAuthorName=false;
@@ -90,6 +96,15 @@ function conversationEntries(notes,adapter) {
     previous=sender;
     return entry;
   });
+}
+// Canonical task comments are activity, never synthetic private messages.
+function conversationActivityEntry(note) {
+  const relayed=note.author_id && note.recorder_id && note.author_id!==note.recorder_id;
+  return {key:`progress:${note.id}`,timestamp:note.created_at,text:note.body || '',
+    activity:{preview:messagePreview(note.body,note.summary) || 'Progress note',author:conversationPersonName(note),
+      time:sjTime(note.created_at),dateTime:sjDateTime(note.created_at),
+      attribution:relayed?`${conversationPersonName(note)} · ${note.attribution?.kind==='owner_intent'?'interpreted':'recorded'} by ${note.recorder_name || 'Ordubashy'}`:''},
+    references:(note.refs || []).filter(ref=>ref.type!=='dev_ticket').map((ref,index)=>({key:`ref${index}`,label:ref.label || ref.type || 'Reference',disabled:!!ref.unavailable,value:ref}))};
 }
 // Related records have their own identities and pagination; they never enter the message store.
 function conversationRecordKey(record) { return `${record.type}:${record.business_id || 'global'}:${record.id}`; }
@@ -202,8 +217,8 @@ function conversationMount(host,source,adapter={}) {
   const toggle=host.querySelector('.conversation-toggle'),panel=host.querySelector('.conversation-panel');
   const unreadDot=host.querySelector('[data-conversation-unread]');
   const readerEl=panel.querySelector('.conversation-reference-reader'),viewEl=panel.querySelector('.conversation-view');
-  // Canonical overview/progress render in the shared feed without writing duplicate private messages.
-  let ctx=null,ctxError=false,ctxGen=0,ctxMoreBusy=false,ctxMoreError=false,overviewExpanded=false,referenceGeneration=0;
+  // Progress stays outside private message state and renders as collapsed action runs.
+  let ctx=null,ctxError=false,ctxGen=0,ctxMoreBusy=false,ctxMoreError=false,ctxPages=0,referenceGeneration=0;
   const referenceReader=conversationReferenceMount(readerEl,()=>{
     if(disposed)return;
     viewEl.hidden=false;paintContext();
@@ -238,49 +253,48 @@ function conversationMount(host,source,adapter={}) {
   const clearError=()=>{if(errorText)setError('');};
   let painted='';
   function paint(mode='auto') {
-    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before,adapter.related?s.related:null,relatedReady,ctx,ctxError,ctxMoreBusy,ctxMoreError,overviewExpanded]);
+    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before,adapter.related?s.related:null,relatedReady,ctx,ctxError,ctxMoreBusy,ctxMoreError]);
     if(painted===signature && mode==='auto')return;
     painted=signature;
-    const notes=[...s.notes,...(ctx?.notes || []).map(note=>({...note,id:`progress:${note.id}`}))]
-      .sort((a,b)=>(a.created_at || '').localeCompare(b.created_at || ''));
-    const entries=conversationTimeline({...s,notes},{...adapter,related:adapter.related && relatedReady},recordSource);
-    const overview=String(ctx?.overview || '').trim();
-    if(overview) {
-      const words=plainSafeLinks(overview).trim().split(/\s+/u),long=words.length>100;
-      const coordinator=s.participants.find(person=>person.author_kind==='agent');
-      entries.unshift({key:'task-overview',speaker:'agent',text:long && !overviewExpanded?words.slice(0,100).join(' ')+'…':overview,
-        author:{name:'Ordubashy',avatarHtml:coordinator?conversationGlyph(coordinator,31):'Or'},showAuthorName:false,
-        actions:long?[{key:'overview-toggle',label:overviewExpanded?'Show less':'Read full overview'}]:[]});
-    }
-    if(ctx?.notes_next_cursor || ctxMoreError)entries.unshift({key:'progress-more',speaker:'notice',text:ctxMoreError?"Couldn't load earlier progress.":'',
-      actions:[{key:'progress-more',label:ctxMoreBusy?'Loading…':'Load earlier progress',disabled:ctxMoreBusy}]});
+    const entries=conversationTimeline(s,{...adapter,related:adapter.related && relatedReady},recordSource);
+    const earliest=s.before?s.notes[0]?.created_at:null;
+    for(const note of ctx?.notes || [])if(!earliest || note.created_at>=earliest)entries.push(conversationActivityEntry(note));
+    entries.sort((a,b)=>(a.timestamp || '').localeCompare(b.timestamp || ''));
+    if(ctx?.notes_next_cursor || ctxMoreError)entries.unshift({key:'progress-more',speaker:'notice',text:ctxMoreError?"Couldn't load earlier actions.":'',
+      actions:[{key:'progress-more',label:ctxMoreBusy?'Loading…':'Load earlier actions',disabled:ctxMoreBusy}]});
     if(ctxError)entries.unshift({key:'context-error',speaker:'notice',text:"Couldn't load task context.",actions:[{key:'context-retry',label:'Retry'}]});
     chat.render({entries,older:{visible:!!s.before,disabled:false},empty:{text:s.loaded && !entries.length?'No messages yet':''}},{scroll:mode});
     if(adapter.inlineComposer)host.querySelectorAll('[title]').forEach(el=>el.removeAttribute('title'));
   }
   function paintContext() {if(!disposed)paint('preserve');}
-  // Earlier progress uses the canonical Task read in the Project the context named.
   // The source is no longer readable: drop everything read from it and invalidate outstanding context and mail reads.
   function dropContext() {
-    ctx=null;ctxError=false;ctxGen++;relatedGeneration++;referenceGeneration++;ctxMoreBusy=false;ctxMoreError=false;
+    ctx=null;ctxError=false;ctxGen++;ctxMoreBusy=false;ctxMoreError=false;ctxPages=0;relatedGeneration++;referenceGeneration++;
     referenceReader.close();paintContext();
   }
+  async function activityPage(context) {
+    const slug=context.business_slug,path=slug?`/biz/${encodeURIComponent(slug)}`:'/root';
+    const data=coreData(await conversationRequest(post(`${path}/operations/tasks_get`,{
+      scope:slug?'business':'global',task_id:source.id,notes_cursor:context.notes_next_cursor,notes_limit:10,
+    })));
+    if(!data.task)throw Object.assign(new Error('Task unavailable'),{code:'not_found'});
+    const next=data.task.notes_next_cursor;
+    return {...context,notes:[...new Map([...(context.notes || []),...(data.task.notes || [])].map(note=>[note.id,note])).values()],
+      notes_next_cursor:next===context.notes_next_cursor?null:next || null};
+  }
   async function loadEarlier() {
-    if(ctxMoreBusy || !ctx?.notes_next_cursor || !current())return;
-    const gen=ctxGen,slug=ctx.business_slug;
+    if(relatedPending || ctxMoreBusy || !ctx?.notes_next_cursor || !current())return;
+    const gen=ctxGen;
     ctxMoreBusy=true;ctxMoreError=false;paintContext();
     try {
-      const path=slug?`/biz/${encodeURIComponent(slug)}`:'/root';
-      const data=coreData(await conversationRequest(post(`${path}/operations/tasks_get`,{scope:slug?'business':'global',task_id:source.id,notes_cursor:ctx.notes_next_cursor,notes_limit:5})));
+      const next=await activityPage(ctx);
       if(!current() || gen!==ctxGen)return;
-      const seen=new Set(ctx.notes.map(n=>n.id));
-      const task=data.task || {};
-      ctx={...ctx,notes:[...ctx.notes,...(task.notes || []).filter(n=>!seen.has(n.id))],notes_next_cursor:task.notes_next_cursor ?? null};
+      ctx=next;ctxPages++;
     } catch(e) {
       if(!current() || gen!==ctxGen)return;
-      if(CONVERSATION_GONE.includes(e.code)){dropContext();return;}
+      if(CONVERSATION_GONE.includes(e.code) || e.code==='record_moved'){dropContext();void load(false);return;}
       ctxMoreError=true;
-    } finally {if(gen===ctxGen){ctxMoreBusy=false;if(current())paintContext();}}
+    } finally {if(gen===ctxGen){ctxMoreBusy=false;paintContext();}}
   }
   async function openRef(ref) {
     if(ref?.type==='email') {
@@ -322,7 +336,14 @@ function conversationMount(host,source,adapter={}) {
     try {
       let result=await conversationPrivateCall(source,adapter,'owner_conversation_related',{limit:50,...(more?{offset}:{})});
       if(!current() || generation!==relatedGeneration)return;
-      const first=result;
+      let context=!more && source.type==='task'?result.context:null;
+      const contextGeneration=more?ctxGen:++ctxGen;
+      if(!more){ctxMoreBusy=false;ctxMoreError=false;}
+      let contextPages=0;
+      while(context?.notes_next_cursor && contextPages<ctxPages) {
+        context=await activityPage(context);contextPages++;
+        if(!current() || generation!==relatedGeneration || contextGeneration!==ctxGen)return;
+      }
       const records=more?[...(s.related || []),...(result.items || [])]:[...(result.items || [])];
       let pages=more?(s.relatedPages || 1)+1:1;
       // Refresh the depth already opened, so polling neither discards older related rows nor retains revoked ones.
@@ -341,7 +362,7 @@ function conversationMount(host,source,adapter={}) {
       relatedReady=true;
       if(!more) {
         // A refresh replaces the snapshot; a later related page leaves it alone.
-        ctx=source.type==='task' && first.context?first.context:null;ctxError=false;ctxMoreError=false;ctxMoreBusy=false;ctxGen++;
+        ctx=context;ctxPages=contextPages;ctxError=false;
         paintContext();
       }
       paint();adapter.onRelated?.(s.related);
@@ -498,7 +519,7 @@ function conversationMount(host,source,adapter={}) {
     onViewportChange:()=>{captureScroll();maybeLoadRelatedPage();},
     // The view hands over the opaque reference value itself; an unavailable reference never reaches this callback.
     mountSignoff:(ref,signoffHost)=>{
-      const card=sgChatMount(ref,signoffHost,{active:current,dropOnDenied:true,omitConversationFor:source.type==='signoff'?conversationKey(source):null});
+      const card=sgChatMount(ref,signoffHost,{active:current,dropOnDenied:true});
       if(!card)return null;
       signoffViews.add(card);
       return {dispose:()=>{signoffViews.delete(card);card.dispose();}};
@@ -507,7 +528,6 @@ function conversationMount(host,source,adapter={}) {
     onTask:adapter.openReference ? ref=>adapter.openReference(ref) : null,
     onReference:ref=>{if(ref)void openRef(ref);},
     onEntryAction:(actionKey,entryKey)=>{
-      if(actionKey==='overview-toggle'){overviewExpanded=!overviewExpanded;paint('preserve');return;}
       if(actionKey==='progress-more'){void loadEarlier();return;}
       if(actionKey==='context-retry'){void loadRelated();return;}
       const note=actionKey==='parent'?s.notes.find(n=>n.id===entryKey):null;

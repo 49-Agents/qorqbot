@@ -93,10 +93,11 @@ unmanaged Codex file requires explicit migration before preparation overwrites i
 An ecosystem Ordubashy profile whose adopted, role-owned skills include
 `bazarlyk-role-operations-delegation` receives a Codex `[agents]` block with
 Luna/low defaults and a three-helper limit. These defaults apply only when the
-owner explicitly requests a native Codex subagent. All generic delegation, even
-short chores, means a durable Qorqut assignment. Preparation repeats this rule
-even when durable dispatch is unavailable: report the blocker without native or
-parent fallback. The parent yields for completion/blocker inbox delivery rather
+owner explicitly requests a native Codex subagent. Ordinary delegation uses the
+permanent global team; durable delegated assignments require explicit selection.
+If dispatch is unavailable, Ordubashy first tries another suitable worker or
+repairs the obstacle, then may perform authorized work directly when useful.
+The parent yields for completion/blocker inbox delivery rather
 than repeatedly polling status. The role skill selects medium worker effort for
 source comparison. Existing Ordubashy pins
 without that exact role skill, plugin lookalikes and every other role retain the
@@ -145,6 +146,26 @@ Codex hooks with `/hooks` and start a fresh conversation. Prepared Codex uses a
 restricted permission profile; legacy personal `sandbox_mode` settings override
 such profiles and must be reconciled by the owner. Do not disable the sandbox or
 silently grant hook trust.
+
+Owner consent (`bazarlyk/agent_trust.py`) is the one exception, and it is
+explicit, not silent: on one dashboard screen the owner allows Qorqbot to start
+agents itself. Qorqbot then records folder trust for its prepared agent
+workspaces only (`~/.claude.json`, `~/.codex/config.toml`): the workspace folder
+as given and, when different, its resolved path. An enclosing git repository
+(Qorqbot's operations repository or an external one) is never recorded, so a CLI
+can still ask the owner to trust it; the owner answers that in the terminal. The
+prepared agent shell runs Codex with `--dangerously-bypass-hook-trust` while the
+consent file `<runtime>/agent-trust.json` exists, and only when the shell is
+physically in the agent's workspace root (see below). Revoking it in Settings
+deletes the file, so new Codex launches return to native hook review. Without
+consent nothing changes and the `/hooks` review above still applies.
+
+Claude account connectors (Gmail, Calendar, Drive and others) belong to the
+owner's Claude account. Qorqbot only reads `claude mcp list` to show their
+status (`bazarlyk/connectors.py`). Business-scoped agents run Claude with
+`dontAsk` and the prepared allow list, so a connector's tools reach Global
+agents such as Ordubashy first. Agents browse with Qorqbot's own browser
+control (`browser_turn`, docs/BROWSER-CONTROL.md), not with local connectors.
 
 Codex reviews the exact hook definition, including its command. Embedding an
 archive release's Python path in that command invalidated trust whenever agents
@@ -247,8 +268,13 @@ no authority and never acknowledges context reviews. Requests must reject unknow
 fields and bind each registration to the authenticated principal.
 
 SessionStart always emits the bounded full bundle; failure emits a visible
-preparation error. UserPromptSubmit uses the same composer, emits a replacement
-when changed, and blocks when unready. Cached prompts can additionally emit a
+preparation error. The primary composer emits core and topic instructions before
+identity, assignment and contextual data. It incorporates the always-loaded skills
+instead of installing a second skills hook. The combined limit preserves the
+previous mandatory-context and skill budgets (120,000 characters each).
+UserPromptSubmit uses the same composer, emits a replacement when changed, and
+blocks when unready. Ordubashy's operational-intake reminder is emitted on every
+prompt, including when configuration and skills are unchanged. Cached prompts can additionally emit a
 short uppercase inbox recovery reminder when `inbox_watcher_check_needed` is
 true. This advisory bootstrap field checks agent-level heartbeat freshness
 (five minutes plus one minute of grace) and lease expiry; it is not proof of
@@ -415,7 +441,12 @@ tools and carry no generated filesystem deny rules. Its prepared Bash
 terminal loads `.bazarlyk/agent-shell.bash`, which preserves personal `.bashrc`
 and makes plain `claude` pass the prepared launch settings via `--settings`.
 That trusted launch file selects `bypassPermissions`; the local settings keep
-`dontAsk`. Claude ignores bypass when set only in project
+`dontAsk`. The `claude` and `codex` wrappers (bash and zsh) apply that, the
+connector arguments, the trust refresh, the Codex hook-trust bypass and the
+opening `/role` or `$role` prompt only when `pwd -P` equals the physical workspace
+root. From any other folder, a workspace subfolder included, or when the folder
+cannot be determined, they run `command claude "$@"` / `command codex "$@"` with
+exactly the owner's arguments. Claude ignores bypass when set only in project
 settings, so outside the prepared terminal use:
 
 ```

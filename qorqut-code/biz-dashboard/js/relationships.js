@@ -7,7 +7,7 @@ const contextMaterialLabel = item => [item.origin,...(item.tags || [])].filter(B
 async function contextOpenGlobalItem(item, beforeOpen) {
   if (await beforeOpen?.() === false) return;
   if (item.type === 'task') {
-    return modal({title:'Global task',width:700,stack:true,body:'<div class="global-work-task"></div>',onOpen:el=>globalTasksMount(el.querySelector('.global-work-task'),{initialTaskId:item.id})});
+    return taskOpenReference({id:item.id,business_id:null,label:item.label,task_type:item.task_type});
   }
   if (['email_conversations', 'email_messages'].includes(item.resource_type)) return historicalEmailOpen(item.label);
   modal({title:esc(item.label || 'Related item'),stack:true,body:`<p class="muted">${esc(contextItemType(item))}</p>`,actions:[]});
@@ -16,6 +16,7 @@ async function contextOpenGlobalItem(item, beforeOpen) {
 async function contextOpenItem(biz, item, beforeOpen) {
   if (!biz) return contextOpenGlobalItem(item, beforeOpen);
   if (await beforeOpen?.() === false) return;
+  if (item.type === 'task') return taskOpenReference({id:item.id,label:item.label,task_type:item.task_type},biz);
   if (['email_conversations', 'email_messages'].includes(item.resource_type)) return historicalEmailOpen(item.label);
   if (state.biz !== biz || state.scope === 'global') await selectBiz(biz);
   if (item.type === 'topic' && item.path?.startsWith('context/')) {
@@ -27,7 +28,6 @@ async function contextOpenItem(biz, item, beforeOpen) {
     await goTab('context'); return;
   }
   if (item.type === 'person') { await editPersonDetails(biz, item.id); return; }
-  if (item.type === 'task') { await tOpenTask(item.id); return; }
   await workOpenLink({biz, error:e=>toast(e.message)}, {resource_type:item.resource_type === 'context_entities' ? 'entity' : item.resource_type,
     resource_id:item.id, current:{...item, kind:item.kind || item.subtype}, snapshot_json:item});
 }
@@ -50,6 +50,7 @@ async function contextRelatedGlobal(host, item, beforeOpen) {
   if(!host.isConnected)return;
   host.replaceChildren();
   const label=document.createElement('span');label.className='muted';label.textContent=`${edges.length}${cursor?'+':''} related`;
+  if(!edges.length)label.dataset.empty='1';
   const button=document.createElement('button');button.className='quiet';button.textContent='Related context';
   button.onclick=()=>modal({stack:true,title:'Related context',body:'<div class="context-review-panel"><div class="context-review-rows"></div></div>',onOpen:el=>{
     const list=el.querySelector('.context-review-rows');
@@ -81,6 +82,7 @@ async function contextRelatedChips(host, biz, item, beforeOpen) {
   const pending = data.items.filter(row=>row.pending).length;
   const label = document.createElement('span'); label.className='muted';
   label.textContent = `${data.items.length}${data.next_cursor ? '+' : ''} related · ${pending}${data.next_cursor ? '+' : ''} pending`;
+  if (!data.items.length) label.dataset.empty = '1';
   const button = document.createElement('button'); button.className='quiet'; button.textContent='Related context';
   button.onclick=()=>modal({stack:true, title:'Related context', body:'<div class="context-review-panel"></div>',
     onOpen:el=>contextReviewPanel(el.querySelector('.context-review-panel'),biz,item,{beforeOpen:async()=>{

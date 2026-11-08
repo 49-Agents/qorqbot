@@ -11,6 +11,12 @@
 .agent-workspace-app .split.global-agents.agsplit.pad-off { grid-template-columns:76.8px minmax(0,1fr) 0; }
 .agent-workspace-app .split.global-agents.agsplit.nav-off { grid-template-columns:0 minmax(0,var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0,var(--ag-pane-fr)); }
 .agent-workspace-app .split.global-agents.agsplit.nav-off.pad-off { grid-template-columns:0 minmax(0,1fr) 0; }
+/* Testing mode OFF keeps the icon rail and gives the centered state the rest of the row. */
+.agent-workspace-app .split.global-agents.agsplit.overseer-gated { grid-template-columns:76.8px minmax(0,1fr); }
+.agent-workspace-app .split.global-agents.agsplit.overseer-gated.nav-off { grid-template-columns:0 minmax(0,1fr); }
+.agent-workspace-app .overseer-gated > .global-agent-session,
+.agent-workspace-app .overseer-gated > .agent-pane-divider,
+.agent-workspace-app .overseer-gated > .agpad { display:none !important; }
 .agent-workspace-app .global-agents > .listcol { position:relative; padding:10px 0; border-right:1px solid var(--line); overflow:visible; z-index:8; }
 .agent-workspace-app .global-agents .ctop { padding:0 0 9px; align-items:center; }
 .agent-workspace-app .global-agents .ctop .global-eyebrow,
@@ -38,11 +44,11 @@
 .agent-workspace-app .agpad .thead { display:flex; flex-wrap:wrap; align-items:center; gap:5px; padding:13px 18px 10px; }
 .agent-workspace-app .agpad .thead.agpad-ping-head { gap:4px; padding-right:18px; }
 .agent-workspace-app .agpad .thead .ttabs { flex:1 1 180px; min-width:0; gap:4px; margin:0; padding:0; overflow-y:hidden; }
-.agent-workspace-app .agsplit { --ag-ctl:33.75px; --ag-ctl-icon:21.375px; }
+.agent-workspace-app .agsplit { --ag-ctl:var(--nav-control-size); --ag-ctl-icon:var(--nav-control-icon); }
 /* Pane tabs and the Chat/Terminal/Refresh controls share one shape and selected fill. */
-.agent-workspace-app .agpad .ttab, .agent-workspace-app .gchat-session-switch .ttab { min-width:var(--ag-ctl); padding:6px; border-radius:5px; }
+.agent-workspace-app .agpad .ttab, .agent-workspace-app .gchat-session-switch .ttab { min-width:var(--ag-ctl); padding:6px; border-radius:var(--nav-control-radius); }
 .agent-workspace-app .gchat-view-toggle .ttab[aria-pressed="true"],
-.agent-workspace-app .agpad .tind { border-radius:5px; background:#252525; }
+.agent-workspace-app .agpad .tind { border-radius:var(--nav-control-radius); background:var(--nav-selected); }
 .agent-workspace-app .agpad .tind::before { display:none; }
 .agent-workspace-app .agpad-ping.switch { height:32px; }
 .agent-workspace-app .agpad .tbody { padding:5px 23px 21px; }
@@ -110,11 +116,13 @@
 .agent-business-sections button[aria-pressed="true"] { box-shadow:inset 0 -1px var(--fg); color:var(--fg); }
 .agent-business-screen { flex:1; min-height:0; display:flex; padding-top:10px; }
 .agent-workspace-frame { flex:1; min-width:0; min-height:0; width:100%; height:100%; border:0; background:var(--bg); }
+/* The native Journal mount fills the same pane body an embedded screen would, with no page padding. */
+.agent-workspace-app .agpad .agent-journal-host { flex:1; min-width:0; min-height:0; display:flex; overflow:hidden; background:var(--bg); }
+.agent-workspace-app .agpad .agent-journal-host > .tbody.nt { flex:1; min-width:0; min-height:0; padding:0; }
 
 /* Same-origin embedded native screens; the main application is untouched. */
 .agent-pane-embedded .app { padding:0; height:100vh; }
-.agent-pane-embedded > .ac-capture,
-.agent-pane-embedded .workspace-composer { display:none; }
+.agent-pane-embedded > .ac-capture { display:none; }
 .agent-pane-embedded #content { display:flex; flex-direction:column; overflow:auto; padding:8px 20px 24px; width:100%; min-width:0; }
 .agent-pane-embedded .global-content, .agent-pane-embedded .business-progress-page { padding:0; max-width:none; width:100%; }
 .agent-pane-embedded .global-content > .global-eyebrow,
@@ -145,7 +153,11 @@
 }
 @media (max-width:700px) {
   .agent-workspace-app .split.global-agents.agsplit { display:grid; grid-template-columns:64.8px minmax(0,1fr); grid-template-rows: minmax(320px,45vh) minmax(420px,1fr); overflow:auto; }
+  .agent-workspace-app .split.global-agents.agsplit.overseer-gated { grid-template-columns:64.8px minmax(0,1fr); grid-template-rows:minmax(0,1fr); overflow:hidden; }
+  .agent-workspace-app .split.global-agents.agsplit.overseer-gated.nav-off { grid-template-columns:0 minmax(0,1fr); }
   .agent-workspace-app .global-agents > .listcol { grid-row:1 / 3; }
+  .agent-workspace-app .global-agents.overseer-gated > .listcol { grid-row:1; }
+  .agent-workspace-app .global-agents.overseer-gated > .overseer-coming-soon { grid-column:2; grid-row:1; }
   .agent-workspace-app .global-agent-session { grid-column:2; grid-row:1; }
   .agent-workspace-app .global-agents > .agpad { grid-column:2; grid-row:2; display:flex; border-top:1px solid var(--line); }
   .agent-workspace-app .global-agents > .agent-pane-divider { display:none; }
@@ -154,6 +166,6 @@
   .agent-workspace-app .split.global-agents.agsplit.pad-off > .agpad { display:none; }
 }
 
-.agent-workspace-app .global-agents .global-workspace-terminal svg, .agent-workspace-app .global-agents .global-workspace-settings svg { width:24px; height:24px; }
+.agent-workspace-app .global-agents .global-workspace-terminal svg, .agent-workspace-app .global-agents .global-workspace-settings svg, .agent-workspace-app .global-agents .global-workspace-guide svg { width:24px; height:24px; }
 
 .agent-workspace-app .agfocus[data-attention-board]{--agfocus-lead:56px}

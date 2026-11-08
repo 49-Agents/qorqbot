@@ -9,6 +9,8 @@ and table edits never file."""
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import hashlib
 
 from qorqut_context.integration import filing as context_filing
@@ -42,9 +44,9 @@ MUTATIONS = {
     RECEIPT_OPERATION: ({"receipt_id": UUID}, ("receipt_id",)),
 }
 FILING_DESCRIPTIONS = {
-    RECEIPT_OPERATION: "Apply the terminal outcome of one registered Context filing (worker only; the receipt ID is the only input).",
-    "context_retry": "Retry the current source of an unfiled upload: queue it as a new version when it changed, retry a blocked Context input, or requeue a filing job that failed before its completion applied. A discarded filing or a cancelled job is never revived.",
-    "context_retract": "Owner only. Queue the removal of the exact published source of an upload from the shared Context. A pending input is discarded with its own control instead; this is not a rollback of other graph changes.",
+    RECEIPT_OPERATION: instruction_text('operations-apply-the-terminal-outcome-of-one-registered-context'),
+    "context_retry": instruction_text('operations-retry-the-current-source-of-an-unfiled-upload'),
+    "context_retract": instruction_text('operations-owner-only-queue-the-removal-of-the-exact'),
 }
 # The authority metadata of the filing operations (declared once, here; the host's registry takes it from ``registration``).
 ENTRIES = (

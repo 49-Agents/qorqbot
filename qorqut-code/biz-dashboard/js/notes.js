@@ -12,10 +12,25 @@ let ntNotes = [];                   // cache of the last /notes fetch
 let ntSearch = "";                  // detail sidebar search (in-memory filter)
 const ntContentZoom = new Map();    // per scope/page, retained during this browser session
 
+// ---- host
+// A native mount (the dashboard's right-side agent pane) supplies the element every DOM query is scoped to
+// and the explicit scope it edits, so the editor never reads or writes the surrounding page's navigation
+// state (tView/state.scope) and never reaches into another pane's elements. Without a mount the editor keeps
+// its original contract: this page's own document, with view and scope coming from tView/state.scope.
+let ntMount = null;                 // { root, scope, live(), dead }
+// Bumped whenever a mount starts or is retired. Every read records it, so a response can only land in
+// the editor that started it. The unmounted document path never bumps it and keeps its old contract.
+let ntGeneration = 0;
+const ntRoot = () => ntMount ? ntMount.root : document;
+const nt$ = (sel, el = ntRoot()) => el.querySelector(sel);
+const nt$$ = (sel, el = ntRoot()) => el.querySelectorAll(sel);
+const ntLive = () => !!ntMount && !ntMount.dead && ntMount.live();
+const ntPaneWidth = () => (ntMount ? ntMount.root.getBoundingClientRect().width : innerWidth) || innerWidth;
 // remember what was open (a note id, or "" for the homepage) per business
-const ntScope = () => state.scope === 'global' || tView === 'globalNotes' ? '/root' : tView === 'businessNotes' && state.biz ? state.biz : null;
+const ntScope = () => ntMount ? ntMount.scope
+  : state.scope === 'global' || tView === 'globalNotes' ? '/root' : tView === 'businessNotes' && state.biz ? state.biz : null;
 const ntEndpoint = (scope = ntScope()) => scope === '/root' ? '/root/notes' : `/biz/${encodeURIComponent(scope)}/notes`;
-const ntActive = () => tView === 'notes' || tView === 'globalNotes' || tView === 'businessNotes';
+const ntActive = () => ntMount ? ntLive() : tView === 'notes' || tView === 'globalNotes' || tView === 'businessNotes';
 const ntBusinessScope = () => !!ntScope() && ntScope() !== '/root';
 // Project notes are ordinary documents of one project. The routes keep the URL slug, but `target_business_id` is the stable
 // project UUID from the project directory, resolved from the slug captured when the operation started (never a slug, never the
@@ -61,10 +76,12 @@ function ntPreview(content) {
 // ---- data
 async function ntFetch() {
   if (!ntScope()) { ntNotes = []; return; }
-  const key = ntListKey(), biz = ntScope();
+  const key = ntListKey(), biz = ntScope(), owner = ntMount, generation = ntGeneration;
   if (ntTargetMissing(biz)) { toast("Couldn't load. Retry"); return; }
   const r = await api(ntEndpoint(biz) + (biz !== '/root' ? `?target_business_id=${encodeURIComponent(ntProjectId(biz))}` : ''));
-  if (ntListKey() !== key) return;
+  // The read belongs to the editor that started it: once that mount is gone the response can neither
+  // replace this list nor be painted into a later mount (both mounts read the same Global scope).
+  if (ntMount !== owner || ntGeneration !== generation || ntListKey() !== key) return;
   if (Array.isArray(r)) { ntNotes = r; ntLoadedScope = key; } else if (r && r.error) toast("Couldn't load. Retry");
 }
 const ntById = id => ntNotes.find(n => n.id === id);
@@ -103,9 +120,9 @@ async function ntDeleteReq(id, version = ntById(id) || {}, biz = ntScope()) {
 // called by tasks.js's tSetView(v) on tab-entry ("notes") and by its 500ms business-change interval
 function tPaintNotes() { ntOpenView(); }
 function ntOpenView() {
-  if (ls("ntlistoff") == null && innerWidth <= 760) ntListOff = true;
+  if (ls("ntlistoff") == null && ntPaneWidth() <= 760) ntListOff = true;
   let justRestored = false;
-  if(ntRestoredBiz!==ntListKey()){ntNotes=[];ntSel=null;ntSearch="";ntLoadedScope=null;const body=$("#tbody");if(body)body.innerHTML='<p class="muted">Loading notes…</p>';}
+  if(ntRestoredBiz!==ntListKey()){ntNotes=[];ntSel=null;ntSearch="";ntLoadedScope=null;const body=nt$("#tbody");if(body)body.innerHTML='<p class="muted">Loading notes…</p>';}
   if (ntScope() && ntRestoredBiz !== ntListKey()) {
     ntRestoredBiz = ntListKey();
     const saved = ls(ntKey());
@@ -115,11 +132,11 @@ function ntOpenView() {
   }
   if (!justRestored && ntLoadedScope === ntListKey()) ntRender();
   if (!ntScope()) return;
-  const key = ntListKey();
+  const key = ntListKey(), generation = ntGeneration;
   // Until the session lands the owner is assumed; repaint if this viewer only reads.
   if (ntBusinessScope() && !state.session && typeof loadSession === "function")
-    loadSession().then(() => { if (ntActive() && ntListKey() === key && ntReadOnly() && !ntEditState?.dirty) ntRender(); }).catch(() => {});
-  ntFetch().then(() => { if (ntActive() && ntListKey() === key && !ntEditState?.dirty && !ntEditState?.saving) ntRender(); });
+    loadSession().then(() => { if (ntGeneration === generation && ntActive() && ntListKey() === key && ntReadOnly() && !ntEditState?.dirty) ntRender(); }).catch(() => {});
+  ntFetch().then(() => { if (ntGeneration === generation && ntActive() && ntListKey() === key && !ntEditState?.dirty && !ntEditState?.saving) ntRender(); });
 }
 // force-save whatever's dirty in the open editor, reading the DOM/model before it's torn down by a
 // repaint; used when the tab is left or the business/selection changes (tasks.js's tSetView/interval)
@@ -134,7 +151,7 @@ async function ntFlush() {
 
 // ---- render dispatch
 function ntRender() {
-  const body = $("#tbody"); if (!body) return;
+  const body = nt$("#tbody"); if (!body) return;
   if (!ntScope()) { body.className = "tbody"; body.innerHTML = `<div class="tempty"><div class="ic">${SVG_TINBOX}</div><p class="t">Pick a project first.</p></div>`; return; }
   if (ntSel == null) {
     body.className = "tbody nt nt-home";
@@ -188,7 +205,7 @@ function ntHomeHtml() {
       ${ntReadOnly() ? "" : `<button id="ntnew" class="btn" type="button">${ICO_PLUS}Create new</button>`}
     </div>
     ${writingHeatmapHtml(heatEntries)}
-    ${sec("Pinned", NT_ICO_PIN_TINY, pinned)}
+    ${sec("Focus", NT_ICO_PIN_TINY, pinned)}
     ${sec("Edited today", "", editedToday)}
     ${sec("Edited last week", "", editedWeek)}
     ${sec("All notes", "", byUpdated)}
@@ -227,7 +244,7 @@ function ntListHtml() {
   const filtered = ntFilterNotes();
   const pinned = filtered.filter(n => n.pinned), rest = filtered.filter(n => !n.pinned);
   let html = "";
-  if (pinned.length) html += `<div class="nteyebrow ntsm">Pinned</div>` + pinned.map(ntRowHtml).join("");
+  if (pinned.length) html += `<div class="nteyebrow ntsm">Focus</div>` + pinned.map(ntRowHtml).join("");
   html += rest.map(ntRowHtml).join("");
   if (!filtered.length) html += `<div class="ntfaint ntfaint-pad">No pages found.</div>`;
   return html;
@@ -241,12 +258,12 @@ function ntWireListRows(list) {
   list.querySelectorAll(".ntrowdel").forEach(b => b.onclick = e => { e.stopPropagation(); ntDeleteFlow(b.dataset.id); });
 }
 function ntPatchSidebar() {
-  const list = $("#ntlist"); if (!list) return;
+  const list = nt$("#ntlist"); if (!list) return;
   const scroll = list.scrollTop;
   list.innerHTML = ntListHtml();
   list.scrollTop = scroll;
   ntWireListRows(list);
-  const foot = $("#ntfoot"); if (foot) foot.textContent = `${ntNotes.length} ${ntNotes.length === 1 ? "page" : "pages"}`;
+  const foot = nt$("#ntfoot"); if (foot) foot.textContent = `${ntNotes.length} ${ntNotes.length === 1 ? "page" : "pages"}`;
 }
 
 // ---- detail: editor chrome (meta line, save pill) — patchable without touching the lines editor
@@ -269,12 +286,12 @@ function ntSaveHtml() {
   return "";  // nothing to save: no pill at all, same as Discard
 }
 function ntPaintSaveState() {
-  const el = $("#ntsavewrap"); if (!el) return;
+  const el = nt$("#ntsavewrap"); if (!el) return;
   el.innerHTML = ntSaveHtml();
   const btn = el.querySelector(".ntsavepill"); if (btn) btn.onclick = () => ntSaveNow();
   // Discard only exists while there are unsaved changes: hidden otherwise, not just disabled
-  const disc = $("#ntdiscard"); if (disc) disc.hidden = !ntEditState || !ntEditState.dirty;
-  const error = $('#nterror');
+  const disc = nt$("#ntdiscard"); if (disc) disc.hidden = !ntEditState || !ntEditState.dirty;
+  const error = nt$('#nterror');
   if (error) {
     error.hidden = !ntEditState || !ntEditState.error;
     error.querySelector('span').textContent = ntEditState && ntEditState.error || '';
@@ -283,7 +300,7 @@ function ntPaintSaveState() {
 }
 function ntPatchMeta() {
   const n = ntById(ntSel); if (!n) return;
-  const meta = $("#ntmeta"); if (meta) meta.innerHTML = ntMetaHtml(n);
+  const meta = nt$("#ntmeta"); if (meta) meta.innerHTML = ntMetaHtml(n);
   ntPaintUpload();
 }
 
@@ -363,13 +380,19 @@ function ntWireDetail(root, n) {
   if(ntScope()!=='/root')workRelatedChips(root.querySelector('#nt-work'),ntScope(),'notes',n.id,()=>ntFlush());
   const lines = (n.content || "").split("\n");
   const statuses = Object.assign({}, n.statuses || {});
-  ntEditState = {
+  // A draft that outlived its editor (a failed save, or a teardown outside the leave guard) is reopened
+  // as the owner left it instead of being replaced by the stored revision.
+  const kept = ntEditState && ntEditState.dirty && !ntEditState.saving
+    && ntEditState.id === n.id && ntEditState.biz === ntScope() ? ntEditState : null;
+  if (kept) kept.countdown = null;
+  ntEditState = kept || {
     id: n.id, biz: ntScope(), revision:n.revision, content_hash:n.content_hash, title0: n.title || "", lines0: lines.slice(), statuses0: JSON.stringify(statuses),
     lines: lines.slice(), statuses, dirty: false, saving: false, countdown: null,
   };
+  ntEditState.title = kept ? kept.title || "" : n.title || "";
   if (ntScope() === '/root' && ntGetUploadAttempt(n.id)) ntUploadUncertainIds.add(n.id);
-  const titleEl = $("#nttitle");
-  titleEl.value = n.title || ""; titleEl.readOnly = ntReadOnly() || ntUploadUncertainIds.has(n.id); ntGrow(titleEl);
+  const titleEl = nt$("#nttitle");
+  titleEl.value = ntEditState.title; titleEl.readOnly = ntReadOnly() || ntUploadUncertainIds.has(n.id); ntGrow(titleEl);
   ntRenderLines();
   ntEditState.history = [ntHistorySnapshot()];
   ntEditState.historyIndex = 0;
@@ -390,7 +413,7 @@ function ntWireDetail(root, n) {
     } else if (!e.defaultPrevented) ntRememberSelection();
   };
 
-  titleEl.oninput = () => { ntGrow(titleEl); ntEditState.dirty = true; ntSchedule(); };
+  titleEl.oninput = () => { ntGrow(titleEl); ntEditState.title = titleEl.value; ntEditState.dirty = true; ntSchedule(); };
   titleEl.onkeydown = e => {
     if (e.key === "Enter") { e.preventDefault(); titleEl.blur(); }
     else if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) { e.preventDefault(); ntSaveNow(); }
@@ -402,21 +425,22 @@ function ntWireDetail(root, n) {
   root.querySelector("#ntdiscard").onclick = () => ntDiscard();
   const visibility = root.querySelector("#ntvisibility");
   if (visibility) visibility.onclick = async event => {
-    const button = event.currentTarget;
+    const button = event.currentTarget, generation = ntGeneration;
     button.disabled = true;
     try {
       if (!await ntFlush()) return;
       const current = ntById(n.id);
       if (!current) return;
       const saved = await ntPatch('/root', n.id, {ordubashy_visible: current.ordubashyVisible === false});
-      if (saved) await ntFetch();
-      if (ntActive() && ntSel === n.id) ntRender();
+      if (saved && ntGeneration === generation) await ntFetch();
+      if (ntGeneration === generation && ntActive() && ntSel === n.id) ntRender();
     } finally { button.disabled = false; }
   };
 
   const search = root.querySelector("#ntsearch");
   let searchT = null;
-  search.oninput = () => { clearTimeout(searchT); searchT = setTimeout(() => { ntSearch = search.value; ntPatchSidebar(); }, 80); };
+  const searchGeneration = ntGeneration;
+  search.oninput = () => { clearTimeout(searchT); searchT = setTimeout(() => { if (ntGeneration !== searchGeneration) return; ntSearch = search.value; ntPatchSidebar(); }, 80); };
   ntWireListRows(root.querySelector("#ntlist"));
 
   // click anywhere in the editor's empty space (not on a line/ball) focuses the end of the last line
@@ -475,7 +499,7 @@ function ntPruneStatuses(es) {
 // drag, shift-click or Ctrl+A selects across tasks, dividers and prose alike. Typing inside a block is
 // native and re-read into es.lines; anything that changes block structure (Enter, joins, edits that
 // span blocks, paste, cut) is applied to the model and the surface is rebuilt.
-const ntDoc = () => $("#ntdoc");
+const ntDoc = () => nt$("#ntdoc");
 let ntLineResizeObserver = null;
 const ntBlockText = b => b.textContent.replace(/​/g, "");
 function ntSetEditable(doc, on) {
@@ -580,7 +604,7 @@ function ntFocusLine(index, pos) {
 }
 
 function ntRenderLines() {
-  const wrap = $("#ntlines"); if (!wrap) return;
+  const wrap = nt$("#ntlines"); if (!wrap) return;
   const es = ntEditState; if (!es) return;
   let doc = ntDoc();
   if (!doc) {
@@ -610,7 +634,7 @@ function ntRenderLines() {
 // Status balls live in a layer beside the editable text, not inside it, so they never sit in the
 // selectable flow (a non-editable node at a block start makes triple-click and range ends collapse).
 function ntRenderBalls() {
-  const es = ntEditState, g = $("#ntgutter"); if (!es || !g) return;
+  const es = ntEditState, g = nt$("#ntgutter"); if (!es || !g) return;
   g.replaceChildren(...es.lines.flatMap((raw, i) => {
     if (!ntIsTaskLine(raw) || ntIsRuleAt(es, i)) return [];
     const status = ntLineStatus(es, i), w = document.createElement("span");
@@ -624,7 +648,7 @@ function ntRenderBalls() {
   ntPlaceBalls();
 }
 function ntPlaceBalls() {
-  const doc = ntDoc(), g = $("#ntgutter"); if (!doc || !g) return;
+  const doc = ntDoc(), g = nt$("#ntgutter"); if (!doc || !g) return;
   g.querySelectorAll(".ntball").forEach(b => {
     const blk = doc.children[Number(b.dataset.i)];
     if (blk) b.parentNode.style.top = `calc(${blk.offsetTop}px + 15.5px * 1.75 / 2)`;
@@ -632,7 +656,7 @@ function ntPlaceBalls() {
 }
 function ntPaintOverlay() {
   const es = ntEditState; if (!es) return;
-  const ov = $("#ntoverlay"); if (!ov) return;
+  const ov = nt$("#ntoverlay"); if (!ov) return;
   const empty = es.lines.length <= 1 && !es.lines[0];
   ov.hidden = !(empty && document.activeElement !== ntDoc());
 }
@@ -804,7 +828,7 @@ function ntPatchBall(i) {
   const es = ntEditState; if (!es) return;
   const status = ntLineStatus(es, i);
   const closed = status === "done" || status === "cancelled";
-  const btn = document.querySelector(`.ntball[data-i="${i}"]`); if (!btn) return;
+  const btn = nt$(`.ntball[data-i="${i}"]`); if (!btn) return;
   btn.className = `ntball ntb-${status}`;
   btn.setAttribute("aria-label", `Status: ${NT_STATUS_LABEL[status] || status}. Click to change.`);
   ntBlockClass(i, "done", closed);
@@ -816,7 +840,7 @@ function ntHistorySnapshot() {
   let focus = null;
   if (el?.id === 'nttitle') focus = {title: true, start: el.selectionStart, end: el.selectionEnd};
   else if (el && el === ntDoc()) { const sel = ntSelection(); if (sel) focus = {a: sel.a, f: sel.f}; }
-  return {title: $('#nttitle').value, lines: es.lines.slice(), statuses: {...es.statuses}, focus};
+  return {title: nt$('#nttitle').value, lines: es.lines.slice(), statuses: {...es.statuses}, focus};
 }
 function ntRememberSelection() {
   const es = ntEditState;
@@ -840,7 +864,7 @@ function ntUndoRedo(redo) {
   const snapshot = es.history[index];
   es.historyIndex = index; es.restoringHistory = true;
   es.lines = snapshot.lines.slice(); es.statuses = {...snapshot.statuses}; es.dirty = true;
-  const title = $('#nttitle'); title.value = snapshot.title; ntGrow(title);
+  const title = nt$('#nttitle'); title.value = snapshot.title; es.title = snapshot.title; ntGrow(title);
   ntRenderLines();
   const f = snapshot.focus;
   if (f?.title) { title.focus(); title.setSelectionRange(Math.min(f.start || 0, title.value.length), Math.min(f.end || 0, title.value.length)); }
@@ -875,7 +899,7 @@ async function ntSaveNow() {
     return ntSaveNow();
   }
   ntClearTimers();
-  const titleEl = $("#nttitle"); if (!titleEl) return;
+  const titleEl = nt$("#nttitle"); if (!titleEl) return;
   ntPruneStatuses(s);
   const title = titleEl.value, content = s.lines.join("\n");
   const statusesJson = JSON.stringify(s.statuses);
@@ -886,7 +910,7 @@ async function ntSaveNow() {
   if (ntEditState !== s) return;   // navigated away while saving
   s.saving = false;
   if (r) {
-    s.title0 = title; s.lines0 = content.split('\n'); s.statuses0 = statusesJson; s.revision=r.revision; s.content_hash=r.content_hash;
+    s.title0 = title; s.title = title; s.lines0 = content.split('\n'); s.statuses0 = statusesJson; s.revision=r.revision; s.content_hash=r.content_hash;
     s.dirty = titleEl.value!==title || s.lines.join('\n')!==content || JSON.stringify(s.statuses)!==statusesJson; s.countdown = null;
     if(s.dirty)ntSchedule();
     ntPatchMeta(); ntPatchSidebar();
@@ -901,8 +925,9 @@ function ntDiscard() {
   ntClearTimers();
   s.dirty = false; s.saving = false; s.countdown = null;
   s.lines = s.lines0.slice(); s.statuses = JSON.parse(s.statuses0);
-  const titleEl = $("#nttitle");
+  const titleEl = nt$("#nttitle");
   if (titleEl) { titleEl.value = s.title0; ntGrow(titleEl); }
+  s.title = s.title0;
   ntRenderLines();
   ntRecordHistory();
   ntPaintSaveState(); ntPaintUpload();
@@ -948,8 +973,8 @@ function ntRenameFlow(n) {
     await ntFetch();
     if (ntSel === n.id) {
       ntPatchMeta();
-      const t = $("#nttitle"); if (t) { t.value = v; ntGrow(t); }
-      if (ntEditState && ntEditState.id === n.id) {ntEditState.title0=v;ntEditState.revision=r.revision;ntEditState.content_hash=r.content_hash;}
+      const t = nt$("#nttitle"); if (t) { t.value = v; ntGrow(t); }
+      if (ntEditState && ntEditState.id === n.id) {ntEditState.title0=v;ntEditState.title=v;ntEditState.revision=r.revision;ntEditState.content_hash=r.content_hash;}
     }
     ntPatchSidebar();
   };
@@ -1041,26 +1066,27 @@ function ntFilingHtml(n) {
 }
 function ntWireUpload() {
   const n = ntById(ntSel); if (!n) return;
-  const button = $("#ntupload"); if (button) button.onclick = () => ntDoUpload(n.id);
+  const button = nt$("#ntupload"); if (button) button.onclick = () => ntDoUpload(n.id);
   if (ntScope() === '/root') {
-    document.querySelectorAll('.ntretryfiler').forEach(retry => retry.onclick = () => ntRetryFiling(retry.dataset.uploadId));
+    nt$$('.ntretryfiler').forEach(retry => retry.onclick = () => ntRetryFiling(retry.dataset.uploadId));
     return;
   }
-  const view = $("#ntviewcontext"); if (view) view.onclick = async () => {
+  const view = nt$("#ntviewcontext"); if (view) view.onclick = async () => {
     const biz = ntScope();
     if (!await ntFlush() || ntScope() !== biz) return;
     state.ctx = "_source/" + n.uploadId;
     openTasks(false); goTab("context");
   };
-  const retry = $("#ntretry"); if (retry) retry.onclick = () => ntRetryFiling(n.uploadId);
+  const retry = nt$("#ntretry"); if (retry) retry.onclick = () => ntRetryFiling(n.uploadId);
 }
 // Exact retry of one submitted source: current document revision is inspected first; an uncertain outcome repeats the same request.
 function ntRetryFiling(uploadId) {
   const where = ntScope(), scope = where === '/root' ? {kind: 'root'} : {kind: 'business', id: where};
-  const noteId = ntSel, listKey = ntListKey(), view = tView, wrap = $("#ntuploadwrap");
+  const noteId = ntSel, listKey = ntListKey(), wrap = nt$("#ntuploadwrap"), generation = ntGeneration;
   const note = ntById(noteId), shown = (where === '/root' ? (note?.filerSubmissions || []).find(item => item.uploadId === uploadId)?.filing : note?.filing)?.document_revision;   // what the owner is looking at
-  // Bound to this note, its list and this editor's lifetime: leaving for another note sends nothing and repaints nothing.
-  const live = () => ntActive() && tView === view && ntScope() === where && ntListKey() === listKey && ntSel === noteId && !!wrap && wrap.isConnected && $("#ntuploadwrap") === wrap;
+  // Bound to this note, this editor's lifetime, its list and the exact wrap on screen: leaving for another
+  // note or mount sends nothing and repaints nothing.
+  const live = () => ntGeneration === generation && ntActive() && ntScope() === where && ntListKey() === listKey && ntSel === noteId && !!wrap && wrap.isConnected && nt$("#ntuploadwrap") === wrap;
   return srcAct({scope, op: 'context_retry', target: uploadId, live,
     inspect: srcRevisionInspect(scope, uploadId, shown), success: 'Requested.',
     report: (text, tone) => { if (tone !== 'info' && live()) toast(text); },
@@ -1069,20 +1095,20 @@ function ntRetryFiling(uploadId) {
 function ntPaintUpload() {
   if (!ntActive()) return;
   const n = ntById(ntSel); if (!n) return;
-  const wrap = $("#ntuploadwrap"); if (wrap) wrap.innerHTML = ntUploadButton(n);
-  const status = $("#ntfiling"); if (status) status.innerHTML = ntFilingHtml(n);
+  const wrap = nt$("#ntuploadwrap"); if (wrap) wrap.innerHTML = ntUploadButton(n);
+  const status = nt$("#ntfiling"); if (status) status.innerHTML = ntFilingHtml(n);
   ntWireUpload();
 }
 async function ntDoUpload(id) {
   if (ntUploadingIds.has(id)) return;
-  const scope = ntScope();
+  const scope = ntScope(), generation = ntGeneration;
   let locked = [], uncertain = false, attempt = null;
   ntUploadingIds.add(id); ntPaintUpload();
   try {
     attempt = ntScope() === '/root' ? ntGetUploadAttempt(id) : null;
     if (!attempt) {
       if (ntEditState && !await ntSaveNow()) return;
-      if (ntScope() !== scope || ntEditState?.dirty) return;
+      if (ntGeneration !== generation || ntScope() !== scope || ntEditState?.dirty) return;
       const n = ntById(id); if (!n) return;
       attempt = {idempotency_key: newRequestId(), document_id: id,
         expected_revision: n.revision, expected_content_hash: n.content_hash};
@@ -1091,7 +1117,7 @@ async function ntDoUpload(id) {
       // The exact original key and revision/hash survive a lost response, even if the editor was reloaded.
       ntUploadUncertainIds.add(id);
     }
-    locked = [...document.querySelectorAll('#nttitle')];
+    locked = [...nt$$('#nttitle')];
     locked.forEach(el => el.readOnly = true);
     if (ntDoc()) ntSetEditable(ntDoc(), false);
     // The entry ID is already bound by the route. Keep it in local storage so
@@ -1113,7 +1139,7 @@ async function ntDoUpload(id) {
     if (!['accepted', 'ok'].includes(r?.status)) throw new Error('The filing response was uncertain.');
     if (scope === '/root') ntClearUploadAttempt(id);
     ntUploadUncertainIds.delete(id);
-    if (ntScope() !== scope) return;
+    if (ntGeneration !== generation || ntScope() !== scope) return;
     await ntFetch();
     if (scope !== '/root') {
       const fresh = ntById(id), es = ntEditState;
@@ -1142,20 +1168,74 @@ function ntClearUploadAttempt(id) { try { localStorage.removeItem(ntUploadAttemp
 function ntWatchFiling() {
   clearTimeout(ntFilingPoll);
   ntFilingPoll = null;
-  const scope = ntScope();
+  const scope = ntScope(), generation = ntGeneration;
   const active = ntNotes.some(n => scope === '/root'
     ? (n.filerSubmissions || []).some(sub => srcActive(sub.filing))
     : srcActive(n.filing));
   if (!ntActive() || !active) return;
   ntFilingPoll = setTimeout(async () => {
-    if (ntScope() !== scope || !ntActive()) return;
+    if (ntGeneration !== generation || ntScope() !== scope || !ntActive()) return;
     try {await ntFetch(); ntPaintUpload();} catch (_) { /* retry on the next poll */ }
-    ntWatchFiling();
+    if (ntGeneration === generation) ntWatchFiling();
   }, 3000);
 }
 // A Context queue change in any namespace may alter a submitted snapshot's status; this only rereads it (view-only, no timer).
 onChange(['context_queue'], null, async () => {
   if (!ntActive() || !ntNotes.some(n => n.uploadId || (n.filerSubmissions || []).length)) return;
-  const scope = ntScope();
-  try { await ntFetch(); if (ntActive() && ntScope() === scope) { ntPaintUpload(); ntWatchFiling(); } } catch (_) { /* the next event or the filing poll retries */ }
+  const scope = ntScope(), generation = ntGeneration;
+  try { await ntFetch(); if (ntGeneration === generation && ntActive() && ntScope() === scope) { ntPaintUpload(); ntWatchFiling(); } } catch (_) { /* the next event or the filing poll retries */ }
 });
+
+// ---- native mount (the dashboard's agent pane)
+// The pane mounts the same Global Journal in its own host element instead of booting a second dashboard document.
+// The mount owns the root, the explicit scope and the lifetime: async paints stop through `live` as soon as the
+// pane leaves the view, and every timer, observer and listener is released by `dispose`. One Journal is mounted
+// per document, so the editor's element ids stay unique and its queries always resolve inside this host.
+function journalMount(root, options = {}) {
+  if (!root) return null;
+  if (ntMount) journalDispose();
+  const mount = {
+    root, scope: options.scope || '/root', dead: false,
+    live: typeof options.isCurrent === 'function' ? options.isCurrent : () => root.isConnected,
+  };
+  ntMount = mount;
+  ntGeneration++;   // a new editor: reads started by any earlier one can no longer land in it
+  // A new mount never inherits another pane's list, restore marker or pending timer.
+  ntClearTimers(); clearTimeout(ntFilingPoll); ntFilingPoll = null;
+  ntNotes = []; ntSel = null; ntSearch = ''; ntLoadedScope = null; ntRestoredBiz = null;
+  if (ntEditState && !ntEditState.dirty) ntEditState = null;   // an unsaved draft stays until its own entry is shown
+  root.innerHTML = '<section id="tbody" class="tbody nt" aria-label="Journal"></section>';
+  ntOpenView();
+  // The mount's own API is bound to this lifetime: a retired mount reads, saves and repaints nothing.
+  const current = () => ntMount === mount && !mount.dead;
+  return {
+    root,
+    fetch: () => current() ? ntFetch() : Promise.resolve(null),
+    select: id => current() ? ntSelect(id) : Promise.resolve(),
+    flush: () => current() ? ntFlush() : Promise.resolve(true),
+    dirty: () => current() && !!ntEditState && (ntEditState.dirty || ntEditState.saving),
+    dispose: () => (current() ? journalDispose() : false),
+  };
+}
+// Tear the mounted Journal down: it stops being live first (no repaint or poll can land afterwards), then its
+// timers, resize observer and host DOM go. An edit still in flight is saved; a draft that cannot be saved is
+// kept so reopening its entry shows the owner's text instead of the stored revision.
+function journalDispose() {
+  const mount = ntMount;
+  if (!mount) return false;
+  mount.dead = true;
+  ntGeneration++;   // retire the read generation with the mount
+  ntLineResizeObserver?.disconnect(); ntLineResizeObserver = null;
+  ntClearTimers(); clearTimeout(ntFilingPoll); ntFilingPoll = null;
+  const edit = ntEditState;
+  const finish = saved => {
+    if (ntMount === mount) {
+      ntMount = null;
+      if (saved || !ntEditState || !(ntEditState.dirty || ntEditState.saving)) ntEditState = null;
+    }
+    mount.root.replaceChildren();
+  };
+  if (edit && (edit.dirty || edit.saving)) ntFlush().then(finish, () => finish(false));
+  else finish(true);
+  return true;
+}

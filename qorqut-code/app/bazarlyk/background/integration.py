@@ -1,9 +1,11 @@
 """Fixed program registration and the retained background service assembly.
 
-The generic machinery (program registry, authority, serial job service, routine scheduler and operations) is the
+The generic machinery (program registry, authority, queue job service, routine scheduler and operations) is the
 Operations engine's. This module registers the host's concrete programs on the one ``ProgramRegistry``, installs the
 routine/learning/job operations and attaches the one ``BackgroundService`` with its ``JobObserver`` and scheduler.
 The program registry is frozen with the operation registry by ``Runtime.freeze_registry`` before traffic."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 
 from bazarlyk.signoffs.privacy import PRIVATE_JOB_KINDS
 from qorqut_operations.application import OperationDescriptor
@@ -116,8 +118,7 @@ def register_operations(runtime, programs, authority, *, clock=None):
         effect_kind="read", supports_signoff=False, scope_kinds={"business", "global"},
         resolve_namespace=lambda c,a: "global" if a.get("scope") == "global" else "business:" + c.business_id,
         global_capability="manage_global_routines",
-        read=job_get, description="Inspect a scoped background job. The initiating agent and owner can read its full result; "
-            "other agents receive status and error codes for coordination without private payloads."))
+        read=job_get, description=instruction_text('integration-inspect-a-scoped-background-job-the-initiating-agent')))
 
     runtime.background_operations = (routines, learnings)
     return routines, learnings
@@ -144,15 +145,22 @@ def attach_background(runtime, programs, *, model_client_factory=None, transcrip
     from bazarlyk.overseer.due import register_program as register_overseer_due
     register_overseer_due(runtime, programs)
     routines, learnings = register_operations(runtime, programs, authority, clock=clock)
+    # Each selected provider declares its own routing. Absent extensions create no provider queues.
+    # Capture this trusted configuration once; callers cannot reroute queued work.
+    queues = {}
+    for program in programs:
+        if program.background_queue != "general":
+            queues.setdefault(program.background_queue, []).append(program.id)
     # The host's incident reporter observes every job result after its own commit; it cannot change the outcome.
     background = BackgroundService(runtime.application, programs, authority, locks=runtime.locks,
                                    job_observer=runtime.application.incident_reporter,
-                                   scheduler=RoutineScheduler(routines, runtime.database), clock=clock)
+                                   scheduler=RoutineScheduler(routines, runtime.database), clock=clock,
+                                   queues=queues)
     background.routines, background.learnings = routines, learnings
 
     runtime.background = background
     # Recovery uses the service's real bounded stop/join, rather than inferring
     # durability from a job row or a process label.
     if runtime.recovery_quiescer is not None:
-        runtime.recovery_quiescer.background = BoundedWriter(background, "background")
+        runtime.recovery_quiescer.background = BoundedWriter(background, "background", running=lambda x: x.is_running())
     return background

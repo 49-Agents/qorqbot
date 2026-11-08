@@ -31,6 +31,33 @@ owner-issued ping command. Input broadcasts are now installation-owner-only;
 Ordubashy retains inbox broadcasts. Already queued agent input broadcasts are
 rechecked and denied by the dispatcher. Raw shell access is unchanged, as requested.
 
+## Starting an agent from Chat
+
+The installation owner may invoke `agent_terminal_start` directly from the
+dashboard (owner policy on the global scope allows it; the plugin requirement
+applies to agent principals). Chat's **Start** button does exactly that. Nothing
+starts an agent by itself: every start is the owner's, from that button or by
+typing `claude` or `codex` in the agent's own terminal. The queued action is
+dispatched like any other: same rechecks, same idle-shell preflight. Before
+typing the launcher, the dispatcher records folder trust for the target's
+workspace folder when the owner has consented (`bazarlyk/agent_trust.py`), so the
+readiness wait reaches the composer instead of stopping at that folder's trust
+prompt. A CLI can still ask about an enclosing git repository, which is never
+trusted on the owner's behalf; the readiness wait never types into that prompt, so
+the owner answers it in the agent's terminal.
+
+For every agent except Dev, Start also requires the observed idle foreground shell
+to be physically in the agent's prepared workspace root (`process_info.cwd` of the
+observed foreground process, both paths resolved through symlinks), because that
+shell's `claude` and `codex` wrappers apply only there. The check runs before
+any trust is recorded, selected conversation resumed, Ctrl-U sent or launcher
+typed, and again at the last moment before the resume or Ctrl-U with the same
+pane and the same foreground process (a changed process or an unreadable folder
+refuses). Another folder is refused with advice to return the terminal to the
+agent's folder; Start never changes the folder or types a `cd`. Dev's
+owner-project launch is exempt. A person typing into the same tmux pane outside
+the terminal lock cannot be excluded.
+
 ## Target selectors and batch review
 
 Lifecycle tools and owner command issuance accept any combination of:

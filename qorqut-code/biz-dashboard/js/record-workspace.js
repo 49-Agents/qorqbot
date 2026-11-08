@@ -1,6 +1,6 @@
 // The shared record workspace. A selected record shows exactly one
-// full-width pane: its dashboard or its existing Ordubashy conversation. The header keeps
-// Back (in-pane related navigation), the record title, the record-type and Chat icon tabs,
+// full-width pane: its dashboard, private conversation, or task Activity. The header keeps
+// Back (in-pane related navigation), the record title, the record-type, Chat and Activity tabs,
 // and Close. Entries stay mounted in a bounded navigation stack so tab changes and Back
 // preserve dashboard edits, drafts and scroll instead of rebuilding conversations.
 const RW_MAX_STACK = 20;
@@ -183,6 +183,89 @@ function recordWorkspaceMount(host, options = {}) {
   };
   return api;
 
+  // Leave decisions stay inside the Focus record and share one pending decision.
+  function inlineChoice(item, message, choices) {
+    if (item.leaveChoice) return item.leaveChoice.promise;
+    let finish;
+    const promise = new Promise(resolve => { finish = resolve; });
+    const previousFocus = document.activeElement;
+    const hostItem = item.recordEl.hidden ? entry() : item;
+    const guarded = new Set([item.recordEl, hostItem?.recordEl].filter(Boolean));
+    const inertStates = [];
+    for (const recordEl of guarded) for (const child of recordEl.children) {
+      inertStates.push([child, child.inert]); child.inert = true;
+    }
+    const panel = rwNode('section', 'rw-leave-choice');
+    panel.setAttribute('role', 'group'); panel.setAttribute('aria-label', 'Unsaved work');
+    panel.append(rwNode('p', '', message));
+    const error = rwNode('p', 'ferr'); error.hidden = true; panel.append(error);
+    const settle = value => {
+      if (item.leaveChoice?.panel !== panel) return;
+      item.leaveChoice = null; panel.remove();
+      for (const [child, wasInert] of inertStates) child.inert = wasInert;
+      if (previousFocus?.isConnected && !previousFocus.closest?.('[hidden], [inert]')) previousFocus.focus?.({preventScroll: true});
+      finish(value);
+    };
+    item.leaveChoice = {promise, panel, settle};
+    for (const choice of choices) {
+      const button = rwNode('button', 'quiet', choice.label); button.type = 'button';
+      button.onclick = async () => {
+        if (panel.dataset.busy) return;
+        panel.dataset.busy = 'yes'; panel.querySelectorAll('button').forEach(b => { b.disabled = true; });
+        try { const result = await choice.run(); settle(result); }
+        catch (failure) { error.textContent = uiFailure(failure); error.hidden = false; delete panel.dataset.busy; panel.querySelectorAll('button').forEach(b => { b.disabled = false; }); }
+      };
+      panel.append(button);
+    }
+    hostItem?.recordEl.append(panel); panel.querySelector('button')?.focus({preventScroll: true});
+    return promise;
+  }
+  async function confirmRecordDiscard(item) {
+    if (options.entry !== 'focus' || item.record.source.type !== 'task') return rwConfirmDiscard(item);
+    const choices = [{label: 'Keep editing', run: () => false}];
+    if (typeof item.dashboard?.save === 'function') choices.push({label: 'Save', run: async () => {
+      if (await item.dashboard.save() === false) throw new Error('The dashboard could not save. Your edits are still here.');
+      return true;
+    }});
+    choices.push({label: 'Discard', run: () => {
+      if (typeof item.dashboard?.discard === 'function') item.dashboard.discard();
+      else {
+        item.dashboard?.dispose?.(); item.dashboard = null; item.dashboardLoaded = false;
+        item.dashboardMounting = false; item.dashboardGeneration = (item.dashboardGeneration || 0) + 1;
+        mountDashboard(item);
+      }
+      return true;
+    }});
+    return inlineChoice(item, 'This record dashboard has unsaved changes.', choices);
+  }
+  async function beforeLeave(item, {guardDirty = true} = {}) {
+    if (!item?.alive) return false;
+    if (!item.leaveGuard) {
+      item.leaveGuard = (async () => {
+        if (item.moveDialog && !await leaveMove(item)) return false;
+        if (item.dashboard?.beforeLeave && await item.dashboard.beforeLeave() === false) return false;
+        return !disposed && item.alive && entry() === item;
+      })();
+    }
+    const guard = item.leaveGuard;
+    let allowed;
+    try { allowed = await guard; } finally { if (item.leaveGuard === guard) item.leaveGuard = null; }
+    if (!allowed || disposed || !item.alive || entry() !== item) return false;
+    if (guardDirty && rwDirty(item.dashboard) && !await confirmRecordDiscard(item)) return false;
+    return !disposed && item.alive && entry() === item;
+  }
+  async function leaveMove(item) {
+    const dialog = item.moveDialog;
+    if (!dialog) return true;
+    const status = dialog.status?.();
+    if (!status?.pending && !status?.uncertain) { dialog.close(); return true; }
+    const choices = [{label: 'Keep', run: () => false}];
+    if (status.uncertain) choices.push({label: 'Retry move', run: () => { dialog.retry(); return false; }});
+    choices.push({label: 'Leave', run: () => { item.leaveChoice?.settle(true); dialog.close(); return true; }});
+    return inlineChoice(item, status.pending
+      ? 'The move is still in progress. Leaving cannot undo a move that may succeed.'
+      : 'The move outcome is unknown. Leaving cannot undo a move that may have succeeded.', choices);
+  }
   function entry() { return stack[stack.length - 1] || null; }
   function current() { const item = entry(); return item && item.alive ? item.record : null; }
   function makeEntry(record) {
@@ -193,19 +276,25 @@ function recordWorkspaceMount(host, options = {}) {
     item.recordEl = rwNode('article', 'rw-record');
     item.recordEl.dataset.rwKey = rwRecordKey(record);
     item.recordEl.dataset.rwType = record.source.type;
-    item.recordEl.innerHTML = `<header class="rw-head">
+    // Focus expands a record in its board, so that header leads with the pill Close the owner uses to leave it.
+    const closeButton = options.closeFirst
+      ? `<button type="button" class="quiet rw-close" aria-label="Close record"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg><span class="rw-close-label">Close</span></button>`
+      : '';
+    const closeIcon = options.closeFirst ? '' : `<button type="button" class="quiet rw-close" aria-label="Close record"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>`;
+    item.recordEl.innerHTML = `<header class="rw-head${options.closeFirst ? ' rw-close-first' : ''}">${closeButton}
       <button type="button" class="quiet rw-back" aria-label="Back" hidden>← Back</button>
       <span class="rw-context" hidden>CRM /</span><span class="rw-title" role="heading" aria-level="2"></span>
       <button type="button" class="quiet rw-move" hidden>Move to project…</button>
-      <div class="rw-tabs" role="tablist" aria-label="Record views"></div>
-      <button type="button" class="quiet rw-close" aria-label="Close record"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
-    </header><div class="rw-body"><div class="rw-pane rw-dashboard" role="tabpanel" tabindex="0"></div><div class="rw-pane rw-chat" role="tabpanel" tabindex="0" hidden><div class="agfocus-conversation rw-conversation"></div></div></div>`;
+      <div class="rw-tabs" role="tablist" aria-label="Record views"></div>${closeIcon}
+    </header><div class="rw-body"><div class="rw-pane rw-dashboard" role="tabpanel" tabindex="0"></div><div class="rw-pane rw-activity" role="tabpanel" tabindex="0" hidden></div><div class="rw-pane rw-chat" role="tabpanel" tabindex="0" hidden><div class="agfocus-conversation rw-conversation"></div></div></div>`;
     item.dashHost = item.recordEl.querySelector('.rw-dashboard');
     item.chatHost = item.recordEl.querySelector('.rw-chat');
+    item.activityHost = item.recordEl.querySelector('.rw-activity');
     item.conversationHost = item.recordEl.querySelector('.rw-conversation');
     item.panelId = 'rw-' + (++rwPanelSequence);
     item.dashHost.id = item.panelId + '-dashboard';
     item.chatHost.id = item.panelId + '-chat';
+    item.activityHost.id = item.panelId + '-activity';
     item.tabs = item.recordEl.querySelector('.rw-tabs');
     item.tabs.innerHTML = tabsHtml(record, item);
     // The record title is the canonical label; Project cards never use a Focus display-name override.
@@ -228,6 +317,7 @@ function recordWorkspaceMount(host, options = {}) {
     const tabs = [];
     tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="dashboard" id="${item.dashHost.id}-tab" aria-controls="${item.dashHost.id}" aria-label="${rwEsc(rwTypeLabel(record))} dashboard" title="${rwEsc(rwTypeLabel(record))} dashboard">${rwTypeIcon(record)}</button>`);
     if (record.can_thread && !options.paired) tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="chat" id="${item.chatHost.id}-tab" aria-controls="${item.chatHost.id}" aria-label="Chat" title="Chat">${RW_CHAT_ICON}</button>`);
+    if (record.source.type === 'task') tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="activity" id="${item.activityHost.id}-tab" aria-controls="${item.activityHost.id}" aria-label="Activity" title="Activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.7-6.4L3 8M3 3v5h5"/><path d="M12 7v5l3 2"/></svg></button>`);
     return tabs.join('');
   }
   function paintTabs(item) {
@@ -261,15 +351,29 @@ function recordWorkspaceMount(host, options = {}) {
   }
   async function moveRecord(item) {
     if (disposed || !item.alive || item.moveDialog) return;
-    // The normal editor guard: Save or Discard is the owner's explicit choice, never implied.
+    if (item.dashboard?.beforeLeave && await item.dashboard.beforeLeave() === false) return;
+    if (disposed || !item.alive || entry() !== item) return;
     if (rwDirty(item.dashboard)) {
-      if (!await rwConfirmDiscard(item)) return;
-      if (disposed || !item.alive) return;
+      if (!await confirmRecordDiscard(item)) return;
+      if (disposed || !item.alive || entry() !== item || item.moveDialog || rwDirty(item.dashboard)) return;
     }
     const record = item.record, source = record.source;
-    let dialog = null;
+    let dialog = null, panel = null, body = null, previousFocus = null, dashboardScroll = 0;
+    if (options.entry === 'focus') {
+      previousFocus = document.activeElement; dashboardScroll = item.dashHost.scrollTop;
+      body = item.recordEl.querySelector('.rw-body');
+      panel = rwNode('section', 'rw-move-panel');
+      body.hidden = true; body.inert = true;
+      body.after(panel);
+    }
     dialog = taskMoveOpen({
-      onClosed: () => { if (item.moveDialog === dialog || !dialog) item.moveDialog = null; },
+      hostedContent: panel,
+      onRequestClose: () => { void leaveMove(item); },
+      onClosed: () => {
+        if (item.moveDialog === dialog || !dialog) item.moveDialog = null;
+        if (panel) { panel.remove(); body.hidden = false; body.inert = false; item.dashHost.scrollTop = dashboardScroll; if (item.alive) previousFocus?.focus?.({preventScroll: true}); }
+        item.leaveChoice?.settle(false);
+      },
       task: {id: source.id, title: record.label, task_type: record.task_type},
       sourceBusinessId: source.business_id ?? null, sourceSlug: record.biz || null,
       onSourceLost: () => { if (item.alive) void rwRecordUnavailable(item); },
@@ -277,18 +381,20 @@ function recordWorkspaceMount(host, options = {}) {
       onMoved: reference => { void replaceWithReference(item, reference); },
       onMovedElsewhere: reference => { void replaceWithReference(item, reference); },
     });
-    if (!dialog) return;
+    if (!dialog) { panel?.remove(); if (body) { body.hidden = false; body.inert = false; } return; }
     item.moveDialog = dialog;
+    panel?.querySelector('select')?.focus({preventScroll: true});
   }
   // The moved Task keeps its id; its new scope is a new canonical record. Replace this entry in place so Back never
   // returns to the old-scope copy.
   function replaceWithReference(item, reference) {
     const target = rwRecordFromItem({source: {type: 'task', id: reference.id, business_id: reference.business_id, business_slug: reference.business_slug,
       business_name: reference.business_name, label: reference.label, task_type: reference.task_type}});
-    return target ? replace(item, target, {tab: item.tab}) : false;
+    return target ? replace(item, target, {tab: item.tab, confirmedMove: true}) : false;
   }
-  async function replace(oldItem, record, {tab = null} = {}) {
+  async function replace(oldItem, record, {tab = null, confirmedMove = false} = {}) {
     if (disposed || !record) return false;
+    if (!confirmedMove && oldItem === entry() && !await beforeLeave(oldItem)) return false;
     const index = stack.indexOf(oldItem);
     if (index < 0 || index !== stack.length - 1) return navigate(record, {tab});
     stack.pop();
@@ -306,7 +412,7 @@ function recordWorkspaceMount(host, options = {}) {
     notice.append(rwNode('span', '', `This record moved to ${where.destination.name || 'another project'}. `));
     const open = rwNode('button', 'quiet', 'Open in new project'); open.type = 'button';
     open.onclick = async () => {
-      if (rwDirty(item.dashboard) && !await rwConfirmDiscard(item)) return;
+      if (!await beforeLeave(item)) return;
       if (disposed || !item.alive) return;
       void replaceWithReference(item, {id: where.task.id, business_id: where.task.business_id ?? where.destination.id,
         business_slug: where.destination.slug ?? null, business_name: where.destination.name ?? null, label: item.record.label,
@@ -367,17 +473,19 @@ function recordWorkspaceMount(host, options = {}) {
   }
   async function navigate(record, {tab = null, parentTable = null} = {}) {
     if (disposed || !record) return false;
+    const leaving = entry();
     const existing = stack.find(item => rwRecordKey(item.record) === rwRecordKey(record));
-    if (existing) return finishExistingNavigation(existing, tab);
+    if (leaving && rwRecordKey(leaving.record) !== rwRecordKey(record) && !await beforeLeave(leaving, {guardDirty: !!existing})) return false;
+    if (existing) return finishExistingNavigation(existing, tab, leaving);
     return pushEntry(record, tab, parentTable);
   }
   // Returning to an earlier record pops only the finite slice above it. Collect that slice
   // once (never loop on an unchanged stack), guard it, then recheck the stack before removal.
-  async function finishExistingNavigation(existing, tab = null) {
+  async function finishExistingNavigation(existing, tab = null, guardedItem = null) {
     const index = stack.indexOf(existing);
     if (index < 0) return false;
     const above = stack.slice(index + 1);
-    if (above.length && !await confirmDiscardEntries(above)) return false;
+    if (above.length && !await confirmDiscardEntries(above, guardedItem)) return false;
     if (disposed || !existing.alive) return false;
     const now = stack.indexOf(existing);
     if (now < 0) return false;
@@ -389,7 +497,7 @@ function recordWorkspaceMount(host, options = {}) {
     if (options.paired && !(await pairedSelect(existing.record, existing.pairedParent))) { reveal(); return false; }
     for (const item of currentAbove) removeEntry(item);
     stack.splice(now + 1);
-    if (tab) existing.tab = existing.record.can_thread && !options.paired ? tab : 'dashboard';
+    if (tab) selectTab(existing, tab, {initial: true, restore: true});
     reveal();
     return true;
   }
@@ -403,7 +511,7 @@ function recordWorkspaceMount(host, options = {}) {
         // requested navigation once the owner has chosen.
         if (pendingEviction) return false;
         pendingEviction = true;
-        void rwConfirmDiscard(oldest).then(chosen => {
+        void confirmRecordDiscard(oldest).then(chosen => {
           pendingEviction = false;
           if (!chosen || disposed || !oldest.alive) return;
           if (stack[0] !== oldest) return;
@@ -434,10 +542,12 @@ function recordWorkspaceMount(host, options = {}) {
     return true;
   }
   // Prompt only for entries that would actually be removed; cancellation keeps the stack intact.
-  async function confirmDiscardEntries(items) {
+  async function confirmDiscardEntries(items, guardedItem = null) {
     for (const item of items) {
-      if (!item?.alive || !rwDirty(item.dashboard)) continue;
-      if (!await rwConfirmDiscard(item)) { reveal(); return false; }
+      if (!item?.alive || item === guardedItem) continue;
+      if (item === entry()) { if (!await beforeLeave(item)) { reveal(); return false; } continue; }
+      if (!rwDirty(item.dashboard)) continue;
+      if (!await confirmRecordDiscard(item)) { reveal(); return false; }
       if (disposed || !item.alive) return false;
     }
     return true;
@@ -454,6 +564,7 @@ function recordWorkspaceMount(host, options = {}) {
     if (item.tab === 'dashboard') { try { item.dashboard?.onShow?.(); } catch (_) { /* its own error state */ } }
     if (!options.paired) mountChat(item);
     if (item.tab === 'chat') { showChat(item); void item.chat?.refresh?.(); }
+    if (item.tab === 'activity') mountActivity(item);
     options.onTitleChange?.(item.record);
     syncChatVisibility();
   }
@@ -462,8 +573,7 @@ function recordWorkspaceMount(host, options = {}) {
     paintTabs(item);
     paintBack();
     if (tab) item.tab = tab;
-    else if (!item.record.can_thread || options.paired) item.tab = 'dashboard';
-    item.tab = item.record.can_thread && !options.paired ? item.tab : 'dashboard';
+    else if (item.tab === 'chat' && (!item.record.can_thread || options.paired)) item.tab = 'dashboard';
     selectTab(item, item.tab, {initial: true});
     options.onTitleChange?.(item.record);
   }
@@ -481,6 +591,7 @@ function recordWorkspaceMount(host, options = {}) {
   function removeEntry(item) {
     if (!item || !item.alive) return;
     item.alive = false;
+    item.leaveChoice?.settle(false);
     try { item.moveDialog?.close(); } catch (_) { /* a dead dialog cannot keep the stack alive */ }
     item.moveDialog = null;
     item._scrollSave?.();
@@ -490,6 +601,8 @@ function recordWorkspaceMount(host, options = {}) {
     try { item.chat?.dispose?.(); } catch (_) { /* idem */ }
     item.chat = null;
     item.chatMounted = false;
+    try { item.activity?.dispose(); } catch (_) { /* idem */ }
+    item.activity = null;
     const focusedOutside = !item.recordEl.contains(document.activeElement);
     item.recordEl.remove();
     if (!focusedOutside) entry()?.tabs.querySelector('[data-rw-tab]')?.focus({preventScroll: true});
@@ -498,22 +611,21 @@ function recordWorkspaceMount(host, options = {}) {
     for (const item of stack.splice(0)) removeEntry(item);
   }
   function captureScroll(item) {
-    if (!item?.recordEl || item.recordEl.hidden || item.dashHost?.hidden) return;
-    item.scroll = item.dashHost?.scrollTop || 0;
+    if (!item?.recordEl || item.recordEl.hidden) return;
+    if (!item.dashHost?.hidden) item.scroll = item.dashHost?.scrollTop || 0;
+    if (!item.activityHost?.hidden) item.activityScroll = item.activityHost?.scrollTop || 0;
   }
   function restoreScroll(item) {
     if (!item?.dashHost) return;
     // A hidden/detached pane can lose its scroll position; restore the retained value when shown.
     item.dashHost.scrollTop = item.scroll || 0;
+    if (!item.activityHost?.hidden) item.activityHost.scrollTop = item.activityScroll || 0;
   }
   async function back() {
     if (disposed || stack.length < 2) return false;
     const leaving = entry();
     // Back restores the prior record; leaving a dashboard with unsaved edits still asks first.
-    if (rwDirty(leaving.dashboard)) {
-      if (!await rwConfirmDiscard(leaving)) { reveal(); return false; }
-      if (disposed || !leaving.alive || entry() !== leaving) return false;
-    }
+    if (!await beforeLeave(leaving)) { reveal(); return false; }
     const prior = stack[stack.length - 2];
     if (options.paired && !(await pairedSelect(prior.record, prior.pairedParent))) { reveal(); return false; }
     captureScroll(leaving);
@@ -539,13 +651,15 @@ function recordWorkspaceMount(host, options = {}) {
   }
   async function discardAny() {
     // More than one dashboard on the Back path can be dirty; each gets its own explicit choice.
+    const currentEntry = entry();
+    if (currentEntry && !await beforeLeave(currentEntry)) return false;
     const handled = new Set();
     for (;;) {
       if (disposed) return false;
       const dirty = stack.find(item => !handled.has(item) && rwDirty(item.dashboard)) || null;
       if (!dirty) return true;
       handled.add(dirty);
-      if (!await rwConfirmDiscard(dirty)) { reveal(); return false; }
+      if (!await confirmRecordDiscard(dirty)) { reveal(); return false; }
       if (disposed || !dirty.alive) return false;
     }
   }
@@ -562,7 +676,10 @@ function recordWorkspaceMount(host, options = {}) {
   }
   function refresh() {
     const item = entry();
-    if (item?.alive) item.chat?.refresh?.();
+    if (item?.alive) {
+      item.chat?.refresh?.();
+      if (item.tab === 'activity') item.activity?.refresh();
+    }
   }
   function updateTitle(record) {
     const item = stack.find(row => rwRecordKey(row.record) === rwRecordKey(record));
@@ -590,6 +707,7 @@ function recordWorkspaceMount(host, options = {}) {
   // -------------------------------------------------------------- tabs
   function selectTab(item, tab, {initial = false, restore = false} = {}) {
     if (!item?.alive) return;
+    if (tab === 'activity' && item.record.source.type !== 'task') tab = 'dashboard';
     if (tab === 'chat' && (!item.record.can_thread || options.paired)) tab = 'dashboard';
     // A hidden dashboard is at scrollTop 0; never let the return toggle overwrite its saved position.
     if (!restore) captureScroll(item);
@@ -598,6 +716,7 @@ function recordWorkspaceMount(host, options = {}) {
     item.recordEl.dataset.tab = tab;
     item.dashHost.hidden = tab !== 'dashboard';
     item.chatHost.hidden = tab !== 'chat';
+    item.activityHost.hidden = tab !== 'activity';
     const dashTab = item.tabs.querySelector('[data-rw-tab="dashboard"]');
     if (dashTab) dashTab.setAttribute('aria-selected', String(tab === 'dashboard'));
     paintTabs(item);
@@ -610,6 +729,7 @@ function recordWorkspaceMount(host, options = {}) {
       mountChat(item);
       showChat(item);
     } else if (previous === 'chat' || item.chat) collapseChat(item);
+    if (tab === 'activity') { mountActivity(item); restoreScroll(item); }
     syncChatVisibility();
     options.onToggleTab?.(tab);
   }
@@ -620,6 +740,25 @@ function recordWorkspaceMount(host, options = {}) {
   }
   function collapseChat(item) {
     item.chat?.collapse?.();
+  }
+
+  function mountActivity(item) {
+    if (!item?.alive || item.record.source.type !== 'task') return;
+    if (item.activity) { void item.activity.refresh(); return; }
+    const record = item.record;
+    item.activity = taskActivityMount(item.activityHost, {id: record.source.id}, record.biz || null, {
+      revalidate: async () => {
+        if (record.scopeMissing) throw Object.assign(new Error('Project unavailable'), {code: 'forbidden'});
+        if (record.project_id) {
+          const result = coreData(await post('/root/operations/project_item_get', {scope: 'global', project_id: record.project_id,
+            item: {type: 'task', id: record.source.id, business_id: record.source.business_id ?? null}}));
+          if (!result.item) throw Object.assign(new Error('Record unavailable'), {code: 'not_found'});
+        }
+      },
+      openReference: ref => rwOpenChatReference(item, ref),
+      onUnavailable: () => { void rwRecordUnavailable(item); },
+      onMoved: error => showMoved(item, error),
+    });
   }
 
   // -------------------------------------------------------------- dashboard mount
@@ -818,6 +957,7 @@ function recordWorkspaceMount(host, options = {}) {
     // Drop every cached source view so a stale detached body cannot be read or resurrected.
     try { item.dashHost?.replaceChildren(); } catch (_) {}
     try { item.conversationHost?.replaceChildren(); } catch (_) {}
+    item.activityHost?.replaceChildren();
     item.record = null;
     if (!stack.length) { dispose(); options.onClose?.(); return; }
     if (wasTop) reveal();
@@ -893,7 +1033,7 @@ async function rwDashboardMount(host, record, ctx) {
 function rwWithActivity(host, record, ctx, controller) {
   if (!controller || typeof crmActivityMount !== 'function') return controller;
   const section = rwNode('details', 'rw-activity-section');
-  section.append(rwNode('summary', '', 'Activity'));
+  section.append(rwNode('summary', '', 'Related history'));
   const body = rwNode('div', 'rw-activity-body');
   section.append(body);
   let activity = null;
@@ -1003,6 +1143,7 @@ async function rwTaskDashboard(host, record, ctx, call) {
         return true;
       }});
     return {dirty: () => !!token?.dirty?.(), hasUnsaved: () => !!token?.dirty?.(), onShow: revalidateTask,
+      beforeLeave: () => token?.beforeLeave?.() ?? true,
       changed(message) { token?.changed?.(message); },
       dispose() { token?.dispose?.(); host.replaceChildren(); }};
   }
@@ -1099,8 +1240,6 @@ function rwSignoffDashboard(host, record, ctx) {
     global: record.source.business_id == null,
     category: record.category,
     item: () => ({id: record.source.id, businessId: record.source.business_id ?? null}),
-    // The workspace Chat tab is this Signoff's own channel: the card's nested copy would be a second composer.
-    omitConversationFor: conversationKey({type: 'signoff', id: record.source.id, biz: record.biz || null}),
     dropOnDenied: true,
     onUnavailable: () => { void ctx.unavailable?.(); },
   });

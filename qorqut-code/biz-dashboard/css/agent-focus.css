@@ -78,24 +78,28 @@
 .agfocus .agfocus-row .agfocus-actions button{display:inline-flex;align-items:center;justify-content:center;margin:0;width:24px;height:24px;min-height:24px;padding:3px;border:0;background:transparent;font-size:9px}
 .agfocus-unavailable > .agfocus-row{cursor:default}
 
-/* One selected source is moved here; its hidden keyed host stays mounted on close. */
+/* One selected record fills the board below the persistent control row; the items list stays mounted behind it. */
 .agfocus-layout{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;min-width:0;gap:8px}
 .agfocus-layout.agfocus-thread-open{grid-template-columns:repeat(2,minmax(0,1fr))}
-.agfocus-layout.agfocus-paired-workspace{display:flex;flex:1;min-height:0;overflow:hidden;align-items:stretch}
-.agfocus-layout.agfocus-paired-workspace>:not(.agfocus-dock){display:none}
-.agfocus-layout.agfocus-paired-workspace .agfocus-dock{position:relative;flex:1;min-height:0;border:0;border-radius:0}
-.agfocus-layout.agfocus-paired-workspace .agfocus-thread-resize{display:none}
-/* The paired CRM editor owns the pane while selected. Its Back/Close remain inside the dock;
-   ordinary Focus chrome returns on close, navigation out, disposal or agent changes. */
-.agent-workspace-app .agpad.agfocus-record-selected > .thead,
-.agpad.agfocus-record-selected > .thead,
-.agpad.agfocus-record-selected .agfocus > header,
-.agpad.agfocus-record-selected .agfocus > .agfocus-calendar,
-.agpad.agfocus-record-selected .agfocus > .attention-queue,
-.agpad.agfocus-record-selected .agfocus > .focus-signoff-queue,
-.agpad.agfocus-record-selected .agfocus > .agfocus-activity,
-.agpad.agfocus-record-selected .agfocus > .agfocus-pages{display:none}
+.agfocus-layout.agfocus-record-open{display:flex;flex:1;min-height:0;overflow:hidden;align-items:stretch;margin-top:8px}
+.agfocus-layout.agfocus-record-open>:not(.agfocus-dock){display:none}
+.agfocus-layout.agfocus-record-open .agfocus-dock{position:relative;flex:1;min-height:0}
+/* The expanded item owns everything below that row: calendar, Pinned heading, list and paging step aside. */
+.agfocus.agfocus-record-open>.agfocus-calendar,
+.agfocus.agfocus-record-open>header,
+.agfocus.agfocus-record-open>.agfocus-empty,
+.agfocus.agfocus-record-open>.agfocus-pages,
+.agfocus.agfocus-surface-open>.agfocus-calendar,
+.agfocus.agfocus-surface-open>header,
+.agfocus.agfocus-surface-open>.agfocus-empty,
+.agfocus.agfocus-surface-open>.agfocus-layout,
+.agfocus.agfocus-surface-open>.agfocus-pages{display:none}
 .agfocus-dock{position:sticky;top:0;display:flex;flex-direction:column;min-width:0;min-height:180px;box-sizing:border-box;border:1px solid var(--line-2);border-radius:10px;background:var(--bg);overflow:hidden;container:agfocus-thread/inline-size}
+/* Focus's expanded record fills that area itself, so its dock is not the Attention board's
+   sticky right column: the record header joins the board's row and its content gets the panel. */
+.agfocus:not([data-attention-board]) .agfocus-dock{position:relative;min-height:0;border:0;background:transparent}
+.agfocus:not([data-attention-board]) .agfocus-dock .rw-head{border-bottom:0;background:transparent}
+.agfocus:not([data-attention-board]) .agfocus-dock .rw-body{border:1px solid var(--line-2);border-radius:10px;background:var(--surface);overflow:hidden}
 .agfocus-dock[hidden],.agfocus-retained[hidden]{display:none}
 /* The shared record workspace fills this dock; its own header and one pane carry the content. */
 .agfocus-dock .agfocus-dock-content{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0}
@@ -103,10 +107,6 @@
 .agfocus .agfocus-context{margin:0 0 4px}
 .agfocus .agfocus-related{margin:0 0 4px;gap:3px}
 .agfocus .agfocus-related button{min-height:22px;padding:2px 5px;font-size:10px}
-.agfocus-thread-resize{flex:none;height:12px;cursor:ns-resize;touch-action:none;user-select:none;display:grid;place-items:center}
-.agfocus-thread-resize::after{content:"";height:2px;width:30px;border-radius:2px;background:var(--line-2)}
-.agfocus-thread-resize:hover::after,.agfocus-thread-resize:focus-visible::after{background:var(--fg-2)}
-.agfocus-thread-resize:focus-visible{outline:2px solid var(--fg-2);outline-offset:-2px}
 
 @media(max-width:600px){.rw-dashboard{padding:8px}}
 /* The pane, not the window, sets the width: narrow panes tighten the row and let a collapsed title take two lines. */
@@ -139,7 +139,6 @@
 
 .agfocus-layout.agfocus-overlay-open{grid-template-columns:minmax(0,1fr)}
 .agfocus-dock.agfocus-chat-overlay{position:fixed;z-index:40;box-sizing:border-box;min-height:0;background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(10px);border-radius:12px;box-shadow:0 12px 40px #0005}
-.agfocus-chat-overlay .agfocus-thread-resize{display:none}
 
 /* The entire state column is a status hit target, never a row-open target. */
 .agfocus .agfocus-row .agfocus-task-state{width:26px;height:26px;padding:0;flex:none}
@@ -181,6 +180,10 @@
 .attention-more{flex:none;margin-left:3px;padding:4px 6px;font-size:11px;background:transparent;color:var(--fg-2)}
 /* One gap before the completed group, not per row. */
 .attention-completed-start{margin-top:50px}
+.agfocus .attention-owner-toggle{display:inline-flex;align-items:center;justify-content:center;width:34px;height:24px;min-height:24px;margin:0 0 6px 3px;padding:0;border:1px solid var(--line-2);border-radius:999px;background:transparent;color:var(--fg-2);cursor:pointer}
+.agfocus .attention-owner-toggle svg{width:14px;height:14px}
+.agfocus .attention-owner-toggle[aria-pressed=true]{background:var(--fg-2);border-color:var(--fg-2);color:var(--bg)}
+.agfocus .attention-owner-toggle:focus-visible{outline:2px solid var(--fg-2);outline-offset:2px}
 .attention-empty{font-size:11px;color:var(--fg-3);padding-left:3px}
 .attention-all{display:grid;gap:7px}.attention-all .attention-chip{margin:0;width:100%;min-height:38px}
 .attention-message{white-space:pre-wrap;overflow-wrap:anywhere}.attention-retry{font-size:10px}
@@ -191,6 +194,7 @@
 .agpad .tbody > .agfocus[hidden] { display:none; }
 .agfocus > header,.agfocus > .attention-queue,.agfocus > .focus-signoff-queue,.agfocus > .agfocus-pages { flex:none; }
 .agfocus > .agfocus-layout { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; align-content:start; }
+.agfocus.agfocus-record-open > .agfocus-layout { overflow:hidden; }
 .attention-queue .attention-label { display:none; }
 .agfocus .attention-queue .attention-chip,.attention-queue .attention-chip { flex:0 1 54px; width:54px; height:51px; min-height:51px; padding:7px 0; justify-content:center; }
 .attention-queue .attention-chip+.attention-chip { margin-left:0; }
@@ -216,19 +220,31 @@
 .agfocus-fixed{display:flex;align-items:center;gap:6px;flex:none}
 .agfocus-divider{flex:none;align-self:center;width:1px;height:30px;margin:0 2px;background:var(--line-2);pointer-events:none}
 
-/* Browser, Desktop or a Viewbox item replaces only the items list, below the queue strip; the list stays mounted but hidden. */
+/* Browser, Desktop or a Viewbox item replaces the board below the launcher row and fills its height. */
 .agfocus-surface[hidden]{display:none}
 .agpad .tbody > .agfocus > .agfocus-surface{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0}
-.agfocus-surface-bar{flex:none;display:flex;align-items:center;gap:8px;padding:4px 0}
-.agfocus-surface-bar button{height:28px;font-size:11px;padding:4px 9px}
-.agfocus-surface-body{flex:1;min-height:0;min-width:0;max-width:100%;overflow:auto;display:flex;flex-direction:column}
+.agfocus-surface-bar{flex:none;display:flex;align-items:center;gap:12px;min-height:36px;padding:2px 0 8px}
+.agfocus-surface-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--fg-2)}
+/* One pill Close leads every expanded item, in the same place and shape as the record header's. */
+.agfocus-close,.rw-head.rw-close-first .rw-close{display:inline-flex;align-items:center;gap:7px;flex:none;width:auto;height:32px;min-height:32px;margin:0;padding:0 14px;border:0;border-radius:9999px;background:#202020;color:#e8e8e8;font-weight:600;font-size:12.5px}
+.agfocus-close:hover,.rw-head.rw-close-first .rw-close:hover{background:#262626;color:#fff}
+.agfocus-close:focus-visible,.rw-head.rw-close-first .rw-close:focus-visible{outline:2px solid var(--fg-2);outline-offset:2px}
+.agfocus-close svg,.rw-head.rw-close-first .rw-close svg{width:13px;height:13px}
+.rw-head.rw-close-first .rw-close{margin-right:6px}
+.agfocus-surface-body{flex:1;min-height:0;min-width:0;max-width:100%;overflow:auto;display:flex;flex-direction:column;box-sizing:border-box;border:1px solid var(--line-2);border-radius:10px;background:var(--surface)}
+.agfocus-expansion-content{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column}
+.task-create-project{padding:16px;overflow:auto}
+.task-create-project form{display:grid;gap:12px}
+.task-create-project form>label{display:grid;gap:5px}
+.task-create-project .task-inline-actions{display:flex;justify-content:flex-end;gap:8px}
+.task-create-project [data-project-discard] button+button{margin-left:8px}
+.task-type-confirm{padding:16px}
+.task-type-confirm button+button{margin-left:8px}
 .agfocus-surface-body > .agvb{flex:1;min-height:0}
 .agfocus-surface-body .agvb-frameview{min-height:240px}
 .agfocus-surface-body .agfocus-desktop-view{padding:0 0 10px}
-.agfocus.agfocus-surface-open > .agfocus-layout,.agfocus.agfocus-surface-open > .agfocus-pages{display:none}
 .agfocus-surfaces .agfocus-surface-chip[aria-pressed="true"]{border-color:var(--fg-2);background:var(--hover)}
-.agpad .tbody > .agfocus.agfocus-surface-open{overflow-y:auto}
-.agpad .tbody > .agfocus.agfocus-surface-open > .agfocus-surface{flex:1 0 260px}
+.agpad .tbody > .agfocus.agfocus-surface-open{overflow:hidden}
 
 /* Text blocks: quiet flat rows; the heading look comes from whitespace, not type. */
 .agfocus-text{position:relative;min-width:0;padding:0 8px 0 0}
@@ -281,4 +297,33 @@
 [data-attention-board] .agfocus-notification .task-user-needed{display:none}
 [data-attention-board] .agfocus-row{grid-template-columns:56px 30px clamp(28px,20%,132px) minmax(0,1fr) auto}
 
-[data-attention-board] .agfocus-card:not(:hover):not(:focus-within) .task-workers:not(:has(.identity-avatar)){opacity:0;pointer-events:none}
+
+/* The pill Close is new chrome; it follows the same reduced-motion preference as the rest of Focus. */
+@media (prefers-reduced-motion:reduce){.agfocus-close,.rw-head.rw-close-first .rw-close{transition:none}}
+/* Narrow panes keep the same expanded area; the pill shrinks instead of scrolling the row. */
+@media(max-width:600px){
+  .agfocus-close,.rw-head.rw-close-first .rw-close{height:30px;min-height:30px;padding:0 12px;font-size:12px}
+  .agfocus-surface-bar{gap:8px}
+}
+
+/* Compact reading pane: one host title and Close, a single padded sheet, forms sized to their content. */
+.agfocus-surface-bar{gap:10px;padding:2px 0 10px}
+.agfocus-surface-title{font-size:13px;color:var(--fg-2)}
+.agfocus-surface-body{border-color:var(--line-2);border-radius:10px}
+.agfocus-expansion-content{padding:20px 24px;box-sizing:border-box}
+.agfocus-surface-body:has(.rem-detail,.rem-form,.task-create-project,.task-type-confirm){flex:0 1 auto;max-height:100%}
+.agfocus-expansion-content>.rem-detail,.agfocus-expansion-content>.task-create-project,.agfocus-expansion-content>.task-type-confirm{padding:0}
+.agfocus-expansion-content>.rem-form{max-width:680px}
+.task-create-project{max-width:680px}
+.task-create-project form{gap:16px}
+.task-create-project .task-type-editor{display:flex;flex-direction:column;gap:16px}
+.task-create-project .task-type-editor>label[data-task-overview-field]{order:1}
+.task-create-project .task-type-editor>label:not([data-task-overview-field]):first-child{order:2}
+.task-create-project .task-type-editor>:not(label:first-child):not([data-task-overview-field]){order:3}
+.task-create-project label{color:var(--fg-2);font-size:12px}
+.agfocus-expansion-content .sg-detail{padding-top:0}
+@media(max-width:600px){.agfocus-expansion-content{padding:16px 12px}}
+
+/* Browser sessions read by name rather than by glyph alone. */
+.agbrowser .agbrowser-switch .agbrowser-seg.agbrowser-named{width:auto;gap:6px;padding:0 10px;font-size:12px}
+.agbrowser-seg .agbrowser-seg-name{white-space:nowrap}

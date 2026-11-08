@@ -5,6 +5,8 @@ of leaking a field; the reader's tests validate real responses against these sch
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 # (minimum, maximum, default)
 HOME_LIMIT = (1, 60, 30)
 HISTORY_LIMIT = (1, 25, 10)
@@ -33,12 +35,12 @@ def object_schema(properties, required=None):
 
 # ---- request schemas (the operation layer closes each top-level object)
 
-HOME_INPUT = {"limit": _limit(HOME_LIMIT, "Nodes per page, most connected first."), "cursor": CURSOR}
+HOME_INPUT = {"limit": _limit(HOME_LIMIT, instruction_text('schemas-nodes-per-page-most-connected-first')), "cursor": CURSOR}
 OBJECT_INPUT = {
     "ref": {**RECORD_REF,
-            "description": "node:ID, edge:ID, note:ID, source:ID or a bare five-character ID from a previous result."},
+            "description": instruction_text('schemas-node-id-edge-id-note-id-source-id')},
     "history_limit": _limit(HISTORY_LIMIT), "history_cursor": CURSOR,
-    "text_limit": _limit(TEXT_LIMIT, "Characters of a source's committed text per page."), "text_cursor": CURSOR,
+    "text_limit": _limit(TEXT_LIMIT, instruction_text('schemas-characters-of-a-source-s-committed-text-per')), "text_cursor": CURSOR,
 }
 FIND_INPUT = {
     "query": {"type": "string", "maxLength": 2000, "default": ""},
@@ -48,7 +50,7 @@ FIND_INPUT = {
     "limit": _limit(FIND_LIMIT), "cursor": CURSOR,
 }
 EXPAND_INPUT = {
-    "ref": {**REF, "description": "A node reference."},
+    "ref": {**REF, "description": instruction_text('schemas-a-node-reference')},
     "depth": {"type": "integer", "minimum": 1, "maximum": 3, "default": 1},
     "direction": {"enum": ["out", "in", "both"], "default": "both"},
     "limit": _limit(EXPAND_LIMIT), "cursor": CURSOR,

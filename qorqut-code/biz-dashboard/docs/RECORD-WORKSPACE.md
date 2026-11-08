@@ -2,19 +2,27 @@
 
 Focus uses the shared record workspace: `recordWorkspaceMount(host, options)` in
 `js/record-workspace.js`, with layout in `css/record-workspace.css`. Selecting a record
-from Focus shows exactly one full-width pane in the dock:
+from Focus expands it in the board below the persistent launcher row, filling the board's
+height, and shows exactly one full-width pane:
 
 - **Chat** — the record's existing private Ordubashy conversation
   (`js/conversation.js` → `js/chat-view.js`). This is the fresh-selection default for
   every source that has a private thread: Task, Story, Signoff, Reference and Project.
 - **Dashboard** — the icon tab named for the record type (`Story dashboard`,
   `Signoff dashboard`, `Project dashboard`, …). Selecting it replaces the chat area; the
-  two panes are never side by side.
+  panes are never side by side.
+- **Activity** — Task, Story, Customer and Email task progress notes, newest first.
+  Each collapsed row is a single line containing a short preview, author and time.
+  Expand a row for its original text and references; load older notes without changing
+  the private conversation. All rows start collapsed.
 
-The header holds Back, the canonical title, the record-type icon tab, the Chat icon tab
-(only when the source has a private thread) and Close. A record with no thread (an email
-reading, table, document or generic reference) opens its reader directly and has no Chat
-tab. Related records open in the same workspace on a bounded stack (20 entries), so Back
+The Focus header leads with a pill Close (the same control a Browser/Desktop surface
+carries; there is no back-to-Pinned control), then Back, the canonical title, the
+record-type icon tab, the Chat icon tab (only when the source has a private thread),
+and an Activity icon tab for task-backed records.
+Elsewhere the workspace keeps Close as its trailing icon. A record with no thread (an
+email reading, table, document or generic reference) opens its reader directly and has
+no Chat tab. Related records open in the same workspace on a bounded stack (20 entries), so Back
 restores the previous record's selected tab, dashboard edits and dashboard scroll.
 
 Every entry stays mounted while hidden. Switching tabs, opening a related record and
@@ -43,6 +51,30 @@ reveal. Transient network errors are different: they keep the last authorized co
 and any draft, show a Retry or an inline error, and never discard an edit. Initial
 dashboard failures also render a real Retry with loading/liveness guards; switching to
 Chat and back can retry the same read rather than getting stuck on an empty dashboard.
+
+## Progress notes and Activity
+
+Chat interleaves private messages with collapsed **n actions** disclosures. Each disclosure
+groups consecutive task progress notes and Action references in chronological order; a message
+or another record kind ends the run. The label uses the same quiet treatment as Inbox nudge,
+and expands in place without navigation. Notes remain separate from private message state
+and unread counts. Older actions can be loaded, with loaded depth retained on refresh; actions
+older than the loaded message window wait until those messages are loaded, so unseen messages
+do not get grouped across. There is no View activity button. Overview remains in the task dashboard.
+
+The separate Activity tab reads canonical
+`tasks_get` comments in the task's own scope, using `notes_cursor` and at most ten notes
+per page. Previews use the stored summary or a shortened body; expanded text retains the
+complete original note, with the shared safe Markdown renderer and reference readers.
+Dates and times follow the configured operational timezone. No new message or unread
+notification is created by presenting an activity row.
+
+The Activity controller loads only when selected. It retains expanded rows and loaded
+pages across tab switches, refreshes that loaded depth when revealed, and shares the
+workspace's moved-record and access-loss handling. Late reads after disposal are ignored.
+The existing broader CRM/event history stays in the dashboard's **Related history**
+disclosure. Legacy task detail dialogs show a separate Activity disclosure above their
+private conversation.
 
 ## Chat behavior
 

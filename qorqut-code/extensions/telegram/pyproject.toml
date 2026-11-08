@@ -15,4 +15,4 @@ where = ["."]
 include = ["qorqut_telegram*"]
 
 [tool.setuptools.package-data]
-qorqut_telegram = ["resources/**/*.md", "resources/*.json", "optional/**/*.md"]
+qorqut_telegram = ["resources/*.json"]

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from dataclasses import replace
 
 from qorqut_operations.application.plans import PAGE, page, schema, timestamp
@@ -28,12 +30,7 @@ class TaskOverview:
                 "snooze_filter": {"enum": ["all", "active", "snoozed"], "default": "all"},
                 "include_closed": {"type": "boolean", "default": False}}),
             effect_kind="read", supports_signoff=False, scope_kinds=frozenset({"global"}), global_capability="read_global_context",
-            description="Ordubashy only: brief owner/self task overview across Global and all currently authorized projects in one call, "
-                        "regardless of selected project. Defaults to both assignees, unfinished non-archived tasks, active and snoozed "
-                        "separated. Entries include revision and every tag label (or []); titles capped at 180 characters; no notes or "
-                        "custom fields. Counts cover all matches; follow next_cursor if present. Use the returned revision for optimistic "
-                        "edits to explicit overview fields such as due and tags. Read tasks_get first when editing fields or evidence not "
-                        "shown here.", read=self.read)
+            description=instruction_text('overview-ordubashy-only-brief-owner-self-task-overview-across'), read=self.read)
 
     def read(self, ctx, args, options, uow):
         ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)

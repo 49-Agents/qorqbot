@@ -1,5 +1,7 @@
 """Scoped Settings metadata and separately permissioned private-value reads."""
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from bazarlyk.agents.global_scope import active_business_participant
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, canonical_bytes
@@ -40,13 +42,7 @@ def register_environment(runtime):
         effect_kind="read", supports_signoff=False, exposure={"mcp", "dashboard"},
         scope_kinds={"business", "global"}, global_capability="read_global_context", read=get,
         resolve_namespace=lambda ctx, args: "business:" + ctx.business_id if ctx.business_id else "global",
-        description="Retrieve one Settings value by key, including private context or credentials, only when "
-            "environment_get is explicitly granted. Role-private values also require your registered role; "
-            "they are never inherited across scopes. Project scope reads only that project's own Settings, "
-            "without Global inheritance; Global scope reads Global Settings. Missing returns found:false/value:null; "
-            "empty returns found:true/value:''. Values enter model context and may be saved in transcripts. "
-            "Retrieve only what the task needs; never repeat secrets in messages, logs or tasks. "
-            "Retrieval does not authorize payments or other external actions."))
+        description=instruction_text('environment-retrieve-one-settings-value-by-key-including-private')))
 
     def read(ctx, args, options, uow):
         runtime.require_authority()
@@ -81,13 +77,7 @@ def register_environment(runtime):
         effect_kind="read", supports_signoff=False, exposure={"mcp", "dashboard"},
         scope_kinds={"business", "global"}, global_capability="read_global_context", read=read,
         resolve_namespace=lambda ctx, args: "business:" + ctx.business_id if ctx.business_id else "global",
-        description="List effective Settings variable names, configured (nonempty) status and origin (global/business). "
-            "No values are returned. Role-private bindings are visible only to allowed registered roles in their scope. "
-            "Optional names checks specific bindings; origin:null means absent or unavailable to your role. "
-            "Project overrides, including empty overrides, win over Global. Follow next_cursor. "
-            "Configured does not prove credentials are valid or that a tool can use them. "
-            "Pass variable names to supported operations such as backups.pull endpoint_env/token_env; "
-            "the existing runtime resolves values. This tool does not grant script execution or secret access."))
+        description=instruction_text('environment-list-effective-settings-variable-names-configured-nonempty-status')))
 
 
 def bootstrap_environment(runtime, ctx):

@@ -27,6 +27,7 @@
 .gchat-user .gchat-body { background: #126bd4; color: #fff; white-space: pre-wrap; line-height: 1.65; }
 .gchat-user .gchat-body, .gchat-agent .gchat-body { border: 0; }
 .gchat-agent .gchat-body { background: color-mix(in srgb, var(--fg, #f7f7f7) 7%, var(--bg, #090909)); text-align: left; line-height: 1.65; }
+.gchat-recorded-by-agent .gchat-body { background: color-mix(in srgb, var(--fg, #f7f7f7) 7%, var(--bg, #090909)); color: inherit; text-align: left; white-space: normal; }
 .gchat-notice .gchat-body { padding: 2px 10px; border: 0; border-radius: 0; background: none; font-size: 12px; line-height: 1.45; text-align: center; white-space: pre-wrap; }
 /* Optional sender label and title: the same primitives for every conversation, never a second message style. */
 .gchat-author { display: flex; align-items: center; gap: 8px; padding: 0 12px; min-width: 0; font-size: 11px; color: var(--fg-2); }
@@ -189,8 +190,9 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 .gchat-ref-group, .gchat-attachment { display:flex; flex-direction:column; min-width:0; max-width:100%; padding-left:9px; border-left:2px solid var(--line-2); }
 /* Record threads and native agent chat draw Task/Action references as flat attachment lists, not cards: a subtle
    vertical rule and a small left inset connect consecutive references. A Task row keeps only the Focus status ball and
-   its title; an Action row keeps the shared activity glyph and its honest state. The whole row is the target, and the
-   hover outline/wash is drawn inside the same box so nothing moves. */
+   its title; an Action row keeps the shared activity glyph and its honest state. A rendered website link uses the same
+   row and list with its globe glyph and full label, so an ordinary site reads as an attachment rather than a chip. The
+   whole row is the target, and the hover outline/wash is drawn inside the same box so nothing moves. */
 .gchat-log > .gchat-ref-group { align-self:flex-start; width:min(760px,100%); margin:12px 0 16px; }
 .gchat-ref-group-inline { flex:1 1 100%; margin:2px 0; }
 .gchat-attachment { width:100%; }
@@ -208,15 +210,27 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 /* The title is the row's flexible text: it wraps instead of truncating, in a record thread and in native chat. */
 .gchat-ref-row > .gchat-ref-row-title, .chat-view .gchat-ref-row > span:not([class]) { flex:1 1 auto; min-width:0; overflow:visible; white-space:normal; text-overflow:clip; overflow-wrap:anywhere; }
 .gchat-ref-row-meta { flex:none; max-width:100%; font-size:10.5px; color:var(--fg-2); }
+.gchat-ref-row-host { flex:0 1 auto; max-width:45%; margin-left:auto; text-align:right; overflow-wrap:anywhere; }
 .gchat-ref-row-unavailable { color:var(--fg-2); cursor:not-allowed; }
 .gchat-ref-row-unavailable .gchat-ref-row-title { color:var(--fg-2); }
 .gchat-ref-row > .gchat-task-state { display:inline-flex; align-items:center; justify-content:center; flex:none; width:16px; height:16px; }
 @media (max-width: 520px) {
   .chat-view .gchat-ref-row { flex-wrap:wrap; align-items:flex-start; }
   .gchat-ref-row > .gchat-ref-row-title, .chat-view .gchat-ref-row > span:not([class]) { flex:1 1 calc(100% - 26px); }
-  .gchat-ref-row > .gchat-ref-row-meta { flex:1 1 100%; margin-left:26px; white-space:normal; }
+  .gchat-ref-row > .gchat-ref-row-meta { flex:1 1 100%; max-width:none; margin-left:26px; text-align:left; white-space:normal; }
   .gchat-ref-row-icon { margin-top:1px; }
 }
 @media (pointer:coarse) {
   .chat-view .gchat-ref-row { min-height:44px; }
 }
+
+/* Consecutive actions share the quiet Inbox nudge marker treatment between messages. */
+.gchat-log > .gchat-action-group{display:block;align-self:center;width:min(760px,100%);padding:0;border:0;margin:10px 0}
+.gchat-action-group>summary{display:flex;align-items:center;justify-content:center;gap:5px;padding:2px 10px;list-style:none;cursor:pointer;line-height:1.45}
+.gchat-action-group>summary::-webkit-details-marker{display:none}
+.gchat-action-group>summary .gchat-marker{margin:0}
+.gchat-action-chevron{color:var(--fg-2);font-size:14px;line-height:1}
+.gchat-action-group[open]>summary .gchat-action-chevron{transform:rotate(90deg)}
+.gchat-action-group>summary:focus-visible{outline:1px solid var(--fg-2);outline-offset:2px;border-radius:4px}
+.gchat-action-group>.gchat-ref-rows{margin-top:6px}
+.gchat-activity-note{display:block;max-width:none;width:100%;margin:0}

@@ -4,15 +4,44 @@ window.sgAttentionBadge = slug => {
   const row = sgAttention.businesses.find(b => b.slug === slug);
   return row?.total ? `<span class="sg-attention-badge${row.urgent ? ' urgent' : ''}" aria-label="${row.total} waiting items${row.urgent ? ', urgent or blocking signoffs' : ''}">${row.total}</span>` : '';
 };
+// Mount the existing signoff renderer in the shared Focus surface.
+window.sgFocusOpen = (title, options, afterClose) => window.focusExpansion.open({title, mount(host, session) {
+  let view, confirmation = null;
+  const notice = document.createElement('p'); notice.className='sg-notice'; notice.setAttribute('role','status'); notice.hidden=true;
+  const prompt = document.createElement('div'); prompt.className='sg-focus-confirm'; prompt.hidden=true;
+  const body = document.createElement('div'); body.className='sg-focus';
+  host.append(notice, prompt, body);
+  const finish = answer => { prompt.hidden=true; prompt.replaceChildren(); const resolve=confirmation; confirmation=null; resolve?.(answer); };
+  const confirmExecutionCancel = () => {
+    if (confirmation) return Promise.resolve(false);
+    prompt.hidden=false;
+    const text=document.createElement('p'); text.textContent='Request cancellation? Work that has already started may still need reconciliation.';
+    const cancel=document.createElement('button'); cancel.type='button'; cancel.className='quiet'; cancel.textContent='Keep execution'; cancel.onclick=()=>finish(false);
+    const confirm=document.createElement('button'); confirm.type='button'; confirm.className='danger'; confirm.textContent='Confirm cancellation'; confirm.onclick=()=>finish(true);
+    prompt.append(text,cancel,confirm); cancel.focus();
+    return new Promise(resolve=>{confirmation=resolve;});
+  };
+  view=sgCreateView({...options, focusLayout:true, active:()=>session.isCurrent() && body.isConnected, body:()=>body, confirmExecutionCancel});
+  session.setBeforeLeave(async()=>{
+    if (confirmation) { notice.textContent='Finish or cancel the confirmation first.'; notice.hidden=false; return false; }
+    if (view.hasPendingWrite()) { notice.textContent='Finish or check the pending signoff operation before leaving.'; notice.hidden=false; return false; }
+    if (view.hasUnsaved()) { notice.textContent='Save or discard the message edit before leaving.'; notice.hidden=false; return false; }
+    return true;
+  });
+  view.paint();
+  return ()=>{finish(false);view.dispose();afterClose?.();};
+}});
+const SG_CLIPBOARD = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#eee" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg>';
 window.sgAttentionNavigate = async (slug, id) => {
-  await Promise.resolve(); // Finish the originating click before mounting a new pane.
-  // Notifications retain exact scope without reopening the retired drawer.
-  let view;
-  return modal({title:'Signoffs',body:'<div data-attention-signoffs></div>',
-    onOpen:el=>{const host=el.querySelector('[data-attention-signoffs]');
-      view=sgCreateView({active:()=>host.isConnected,body:()=>host,workspace:()=>slug || 'scope:global',
-        global:!slug,execution:true,...(id?{item:()=>({id,businessId:slug ? (state.bizs.find(b=>b.slug===slug)?.id || state.bizs.find(b=>b.slug===slug)?.business_id) : null})}:{})});
-      view.paint();},onClose:()=>view?.dispose()});
+  if (typeof embeddedAgentPane !== 'undefined' && embeddedAgentPane) {
+    try {
+      if (parent === window || typeof parent.sgAttentionNavigate !== 'function') throw new Error('The Focus pane is unavailable.');
+      return await parent.sgAttentionNavigate(slug || null, id || null);
+    } catch (error) { throw new Error(error?.message || 'The Focus pane is unavailable.'); }
+  }
+  await Promise.resolve();
+  return sgFocusOpen('Signoffs', {workspace:()=>slug || 'scope:global', global:!slug, execution:true,
+    ...(id?{item:()=>({id,businessId:slug ? (state.bizs.find(b=>b.slug===slug)?.id || state.bizs.find(b=>b.slug===slug)?.business_id) : null})}:{})});
 };
 function sgAttentionPaint() {
   const urgent = sgAttention.urgent.length > 0;
@@ -27,24 +56,75 @@ function sgAttentionPaint() {
   let host = document.querySelector('#sg-toast-host');
   if (!host) {
     host = document.createElement('div'); host.id='sg-toast-host'; host.setAttribute('aria-live','polite');
-    document.body.append(host);
-    host.addEventListener('click', async event => {
-      const button=event.target.closest('button'); if (!button || button.disabled) return;
-      const delivery=sgAttention.deliveries.find(d=>d.id===host.dataset.delivery);
-      if (!delivery) return;
+    (document.querySelector('#toasts') || document.body).append(host);
+    const current = () => sgAttention.deliveries.find(d=>d.id===host.dataset.delivery);
+    // Delivery dismissal and snooze go to the server only from the context menu; opening never approves or dismisses.
+    // The exact delivery and signoff are captured when the menu opens, so a refresh cannot retarget the action.
+    const inflight = new Set();
+    const update = async (action, deliveryId, signoffId) => {
+      const key=action+':'+deliveryId; if (inflight.has(key)) return;
+      inflight.add(key);
       try {
-        button.disabled=true;
-        if (button.dataset.action==='dismiss') coreData(await post(`/me/attention/deliveries/${encodeURIComponent(delivery.id)}/dismiss`,{}));
-        else if (button.dataset.action==='snooze') {
-          coreData(await post(`/me/attention/signoffs/${encodeURIComponent(delivery.items[0].id)}/snooze`, {until:new Date(Date.now()+4*3600000).toISOString()}));
-        } else if (button.dataset.action==='open') {
-          const item=delivery.items.find(i=>i.id===button.dataset.id) || delivery.items.find(i=>(i.business_slug || '')===button.dataset.slug);
-          if (item) await sgAttentionNavigate(item.business_slug, button.dataset.id ? item.id : null);
-          return;
-        }
+        if (action==='dismiss') coreData(await post(`/me/attention/deliveries/${encodeURIComponent(deliveryId)}/dismiss`,{}));
+        else coreData(await post(`/me/attention/signoffs/${encodeURIComponent(signoffId)}/snooze`, {until:new Date(Date.now()+4*3600000).toISOString()}));
         await sgAttentionRefresh();
-      } catch (error) { host.querySelector('.sg-toast-error').textContent=error.message || 'Could not update notification.'; }
-      finally { button.disabled=false; }
+      } catch (error) { toast(error.message || 'Could not update notification.'); }
+      finally { inflight.delete(key); }
+    };
+    const open = async (slug, id) => {
+      try { await sgAttentionNavigate(slug || null, id || null); }
+      catch (error) { toast(error.message || 'Could not open the signoff.'); }
+    };
+    // A grouped delivery spanning projects lists its captured proposals in one Focus expansion.
+    const openGroup = items => window.focusExpansion.open({title:'Signoffs', mount(box, session) {
+      const projects=new Map();
+      for (const item of items) { const key=item.business_slug || ''; if (!projects.has(key)) projects.set(key,{name:item.business_name || 'Global', items:[]}); projects.get(key).items.push(item); }
+      for (const [slug, project] of projects) {
+        const heading=document.createElement('h3'); heading.className='sg-group-title'; heading.textContent=project.name;
+        const list=document.createElement('div'); list.className='sg-group-list';
+        for (const item of project.items) {
+          const button=document.createElement('button'); button.type='button'; button.className='quiet sg-group-item'; button.textContent=item.title;
+          button.onclick=()=>{ if (session.isCurrent()) void open(slug, item.id); };
+          list.append(button);
+        }
+        box.append(heading, list);
+      }
+    }});
+    const activate = async () => {
+      const delivery=current(); if (!delivery) return;
+      if (delivery.kind==='individual') {
+        const item=delivery.items[0];
+        return open(item.business_slug, item.id);
+      }
+      const items=delivery.items.map(item=>({id:item.id, title:item.title, business_slug:item.business_slug, business_name:item.business_name}));
+      const slugs=new Set(items.map(item=>item.business_slug || ''));
+      if (slugs.size===1) return open([...slugs][0], null);
+      try { await openGroup(items); } catch (error) { toast(error.message || 'Could not open the signoffs.'); }
+    };
+    let keyMenuAt = 0;
+    const showMenu = (pill, x, y) => {
+      const delivery=current(); if (!delivery) return;
+      const deliveryId=delivery.id, signoffId=delivery.items[0].id;
+      const items=[{icon:SG_BELL, label:'Dismiss notification', onClick:()=>void update('dismiss', deliveryId, signoffId)}];
+      if (delivery.kind==='individual') items.push({icon:SG_BELL, label:'Snooze 4 hours', onClick:()=>void update('snooze', deliveryId, signoffId)});
+      ctxMenu(x, y, items);
+    };
+    host.addEventListener('click', event => { if (event.target.closest('.sg-toast')) void activate(); });
+    host.addEventListener('keydown', event => {
+      const pill=event.target.closest('.sg-toast');
+      if (!pill || event.target!==pill) return;
+      if (['Enter',' '].includes(event.key)) { event.preventDefault(); void activate(); }
+      else if (event.key==='ContextMenu' || (event.key==='F10' && event.shiftKey)) {
+        event.preventDefault(); keyMenuAt=Date.now();
+        const rect=pill.getBoundingClientRect(); showMenu(pill, rect.left, rect.bottom);
+      }
+    });
+    host.addEventListener('contextmenu', event => {
+      const pill=event.target.closest('.sg-toast'); if (!pill) return;
+      event.preventDefault();
+      if (Date.now()-keyMenuAt<500) return;
+      const rect=pill.getBoundingClientRect(), keyboard=!event.clientX && !event.clientY;
+      showMenu(pill, keyboard ? rect.left : event.clientX, keyboard ? rect.bottom : event.clientY);
     });
   }
   const delivery = sgAttention.deliveries.find(d=>d.kind==='individual') || sgAttention.deliveries[0];
@@ -52,13 +132,12 @@ function sgAttentionPaint() {
   const identity=JSON.stringify(delivery);
   if (host._identity===identity && host.children.length) return;
   host._identity=identity; host.dataset.delivery=delivery.id;
-  const row=delivery.items[0];
-  const groups=new Map();
-  delivery.items.forEach(item=>{ const key=item.business_slug || ''; const old=groups.get(key); groups.set(key,{name:item.business_name,count:(old?.count||0)+1}); });
-  host.innerHTML=`<section class="sg-toast"><header>${SG_BELL}<strong>${delivery.kind==='individual' ? esc(row.business_name) : 'Waiting on you'}</strong><button type="button" data-action="dismiss" aria-label="Dismiss notification">×</button></header>
-    ${delivery.kind==='individual' ? `<button type="button" class="sg-toast-open" data-action="open" data-id="${esc(row.id)}">${esc(row.title)}</button><p>${esc(row.attention.reason || '')}</p>${row.attention.deadline ? `<p>Deadline: ${esc(sjDateTime(row.attention.deadline))}</p>` : ''}<button type="button" class="sg-toast-snooze" data-action="snooze">Snooze 4 hours</button>` :
-      `<p>${delivery.items.length} signoffs need your response</p>${[...groups].map(([slug,g])=>`<button type="button" class="sg-toast-business" data-action="open" data-slug="${esc(slug)}">${esc(g.name)} <span>${g.count}</span></button>`).join('')}`}
-    <p class="sg-toast-error" role="alert"></p></section>`;
+  const row=delivery.items[0], individual=delivery.kind==='individual';
+  const title=individual ? row.title : `${delivery.items.length} signoffs need your response`;
+  if(typeof desktopNotify!=='undefined')desktopNotify.send({kind:'signoffs',title:individual?row.title:'Waiting on you',
+    body:individual?(row.attention?.reason||row.business_name||''):`${delivery.items.length} signoffs need your response`,tag:'signoff:'+delivery.id});
+  // Same capsule as a reminder; it stays until the owner acts and expiry never changes a record.
+  host.innerHTML=`<div class="toast reminder-toast sg-toast" role="button" tabindex="0" aria-keyshortcuts="Shift+F10" aria-label="Approval needed: ${esc(title)}. Press Shift+F10 for dismiss and snooze options." title="${esc(title)}"><span class="reminder-icon" aria-hidden="true">${SG_CLIPBOARD}</span><span class="reminder-text">${esc(title)}</span></div>`;
 }
 window.sgAttentionRefresh = async () => {
   if (sgAttention.loading) return;

@@ -9,6 +9,7 @@ const GLOBAL_CHAT_SENDS = new Map();            // scope -> {text, key, pin}: th
 const GLOBAL_CHAT_INFLIGHT = new Map();         // scope -> {text, promise} of a send still waiting for its response
 const GLOBAL_CHAT_RESENDS = new Map();          // undelivered input id -> {key, pin}: identity of an explicit resend
 const GLOBAL_CHAT_HIDDEN = new Set();           // settled inputs the owner dismissed or already resent
+const GLOBAL_CHAT_STARTS = new Map();           // agent id -> {startedAt, error}: Chat's start attempts for this page
 // scope -> {records, consumed}: owner messages accepted by the backend whose transcript entry has not been seen yet. Browser-only and
 // presentation-only: a record keeps the sent text visible until its exact native user entry arrives, and never touches receipts.
 const GLOBAL_CHAT_ACCEPTED = new Map();
@@ -27,7 +28,7 @@ async function globalChatOpenFocusReference(ref, context = {}) {
         await agpadSetView(pane,'focus');
         if (!current() || pane.view !== 'focus') return false;
       }
-      if(pane.view==='focus' && pane.surface) { agpadSurfaceClose(pane); if (!current()) return false; }
+      if(pane.view==='focus' && pane.surface) { await agpadSurfaceClose(pane); if (!current() || pane.surface) return false; }
       if(pane.view==='focus') {
         const frame=pane.workspaceFrame;
         if(frame?.isConnected && pane.el?.contains(frame)) {
@@ -53,13 +54,13 @@ async function globalChatOpenFocusReference(ref, context = {}) {
   if (!current()) return false;
   return taskProgressOpenReference(ref?.business_slug ?? null,ref,current);
 }
-function globalChatAccept(scope, text, input, position) {
+function globalChatAccept(scope, text, input, position, command = false) {
   if (!scope || !input?.id) return;
   const held = GLOBAL_CHAT_ACCEPTED.get(scope) || {records: [], consumed: new Set()};
   GLOBAL_CHAT_ACCEPTED.set(scope, held);
   const record = held.records.find(item => item.id === input.id) || {id: input.id, entry: null};
   if (!held.records.includes(record)) held.records.push(record);
-  Object.assign(record, {text, position, state: input.state, sequence: input.sequence ?? Number.MAX_SAFE_INTEGER, createdAt: Date.parse(input.created_at)});
+  Object.assign(record, {text, position, command, state: input.state, sequence: input.sequence ?? Number.MAX_SAFE_INTEGER, createdAt: Date.parse(input.created_at)});
 }
 // Exact provider + conversation identity of a captured conversation; the one key for drafts, sends and history queries.
 const globalChatKey = target => target?.conversation_id ? `${target.provider || ''}\n${target.conversation_id}` : null;
@@ -77,13 +78,14 @@ const GLOBAL_CHAT_PAGE = 50;
 const GLOBAL_CHAT_MAX = 17000;
 // Refusals store no input; any other failure leaves the outcome unknown and keeps the send identity.
 const GLOBAL_CHAT_REFUSALS = new Set(['terminal_offline', 'capture_disabled', 'capture_not_ready', 'binding_not_ready', 'operation_unavailable',
-  'unsupported_runtime', 'terminal_changed', 'validation_error', 'not_found', 'forbidden', 'idempotency_conflict']);
+  'unsupported_runtime', 'terminal_changed', 'terminal_required', 'validation_error', 'not_found', 'forbidden', 'idempotency_conflict']);
 const GLOBAL_CHAT_REFUSAL_TEXT = {
   terminal_offline: 'Not running. Start or resume it in Terminal, then send again.',
   capture_disabled: 'Chat unavailable.',
   capture_not_ready: 'Connecting. Try again in a moment.',
   binding_not_ready: 'Connecting. Try again in a moment.',
   terminal_changed: 'Not delivered. Check the agent and try again.',
+  terminal_required: 'This command runs only in the agent’s Terminal. Open Terminal and run it there.',
 };
 const GLOBAL_CHAT_INPUT_LABEL = {inbox_nudge: 'Inbox nudge', bootstrap_recovery: 'Session recovery', telegram: 'Telegram', broadcast: 'Broadcast', direct_message: 'Direct message'};
 const GLOBAL_CHAT_INPUT_STATE = {
@@ -184,12 +186,14 @@ function mountGlobalChat(pane, agent, options = {}) {
   let disposed = false, loading = false, again = false, generation = 0, finished = false, reading = 0;
   let bannerText = '', reconnecting = false, olderBusy = false, view = null;
   let pairedHost = null, pairedConversation = null, pairedGeneration = 0;
+  // Starting from Chat is offered where Chat sits beside the agent's own Terminal. Only the owner starts an agent.
+  const canStart = !!options.openTerminal && typeof agentStart !== 'undefined';
+  let trust = null;
   const cleanups = [];
   const reads = new AbortController();
 
-  // Native shell: header, view switch and the session line stay here; every message, composer and preview is the shared view.
+  // Native shell: view switch and the session line stay here; every message, composer and preview is the shared view.
   pane.innerHTML = `<div class="gchat" data-global-chat="${esc(agentId)}">
-    <header class="gchat-top gchat-identity">${identityAvatar('agent', label, {...agent, ...agent.presentation})}</header>
     ${options.openTerminal ? `<div class="gchat-session-switch">${globalChatViewToggle()}</div>` : ''}
   </div>`;
   const root = pane.firstElementChild;
@@ -199,6 +203,10 @@ function mountGlobalChat(pane, agent, options = {}) {
   sessionLine.innerHTML = `<span class="gchat-working-tag" role="img" aria-label="${esc(label)} is working" hidden><span aria-hidden="true">${identityAvatar('agent', label, {...agent, ...agent.presentation})}</span><span class="gchat-working-dots" aria-hidden="true"><i></i><i></i><i></i></span></span><span class="gchat-session-dot" aria-hidden="true"></span><span class="gchat-session-text">Loading…</span>`;
   const sessionText = sessionLine.querySelector('.gchat-session-text');
   const workingTag = sessionLine.querySelector('.gchat-working-tag');
+  // The Start button also sits in the status line, so an agent with earlier conversation (no empty state) can be started.
+  const startButton = document.createElement('button');
+  startButton.type = 'button'; startButton.className = 'quiet gchat-start'; startButton.hidden = true;
+  sessionLine.append(startButton);
 
   const live = () => !disposed && (root.isConnected || !!pairedHost?.isConnected);
   const originPane = typeof _agpad !== 'undefined' ? _agpad : null;
@@ -287,7 +295,20 @@ function mountGlobalChat(pane, agent, options = {}) {
     // transcript entry gets the small Inbox nudge marker in the conversation.
     if (item.origin === 'system' && item.input_type === 'inbox_nudge') return false;
     if (item.state === 'submitted' || GLOBAL_CHAT_HIDDEN.has(item.id) || noticeIds.has(item.id)) return false;
+    if (supersededOwnerCopy(item)) return false;
     return !!viewedKey() && globalChatKey(item.binding) === viewedKey();
+  }
+  // A failed owner copy stops pinning the bottom once its text reached the transcript later or a newer owner message was delivered.
+  const globalChatSame = text => globalChatText(text).replace(/\s+/g, ' ').trim();
+  function supersededOwnerCopy(item) {
+    if (!ownerChat(item) || !['uncertain', 'failed', 'undelivered'].includes(item.state)) return false;
+    const key = globalChatKey(item.binding), since = Date.parse(item.created_at);
+    if (inputs.some(other => ownerChat(other) && other.state === 'submitted' && other.sequence > item.sequence
+      && globalChatKey(other.binding) === key)) return true;
+    if (!item.body) return false;
+    const want = globalChatSame(item.body);
+    return [...entries.values()].some(entry => entry.speaker === 'user' && globalChatSame(entry.text) === want
+      && !(Number.isFinite(since) && Date.parse(entry.timestamp) < since));
   }
   // Only a definitely undelivered owner Chat message can be offered again; every other producer's receipt is status only.
   const ownerChat = item => item.origin === 'owner' && item.input_type === 'chat';
@@ -315,6 +336,8 @@ function mountGlobalChat(pane, agent, options = {}) {
           && !(Number.isFinite(at) && Number.isFinite(record.createdAt) && at < record.createdAt);
       });
       if (echo) { held.consumed.add(echo.id); record.entry = echo.id; }
+      // A slash command is done once it is typed: Codex records no entry for it, and Claude may record an alias.
+      else if (record.command && record.state === 'submitted') record.entry = 'command';
     }
     // Delivery confirmation can precede transcript capture. Keep the accepted message until its exact echo is loaded.
     held.records = held.records.filter(record => !record.entry);
@@ -357,7 +380,46 @@ function mountGlobalChat(pane, agent, options = {}) {
       : `${startHint()} to send.`;
     if (session.reason === 'capture_disabled') return {key: 'disabled', line: ''};
     if (session.reason === 'unsupported_runtime') return {key: 'offline', line: ''};
+    const start = startPlan();
+    if (start.kind === 'starting') return {key: 'starting', line: `Starting ${label}…`};
+    if (start.kind === 'start') return {key: 'offline', line: `${label} is offline.`};
     return {key: 'offline', line: direction};
+  }
+  // ---- slash commands: the catalog for the CLI this session runs
+  const commandCatalogs = new Map();
+  let slashMenu = null;
+  function commandCatalog() {
+    const provider = session?.provider;
+    if (!provider) return null;
+    if (!commandCatalogs.has(provider)) {
+      commandCatalogs.set(provider, null);
+      api(`${base}/commands?client=${encodeURIComponent(provider)}`)
+        .then(data => { if (!disposed) { commandCatalogs.set(provider, coreData(data).commands || []); slashMenu?.refresh(); } })
+        .catch(() => commandCatalogs.delete(provider));
+    }
+    return commandCatalogs.get(provider);
+  }
+  // ---- starting the agent from Chat (agent-start.js): the button and the owner's one-time consent
+  const startState = () => GLOBAL_CHAT_STARTS.get(agentId) || {startedAt: 0, error: ''};
+  const startPlan = () => canStart ? agentStartPlan.plan(session, trust, startState()) : {kind: 'none'};
+  async function runStart() {
+    if (startPlan().kind === 'starting') return;
+    if (!trust?.granted) {
+      const view = await agentStart.consent(agentId, label);
+      if (!view || disposed) return;
+      trust = view;
+    }
+    GLOBAL_CHAT_STARTS.set(agentId, {startedAt: Date.now(), error: ''});
+    paint();
+    try { await agentStart.start(agentId); }
+    catch (error) { GLOBAL_CHAT_STARTS.set(agentId, {...startState(), startedAt: 0, error: error.message}); }
+    paint();
+    // The plan turns a start that never came online into a failure once its wait runs out.
+    setTimeout(() => paint(), agentStartPlan.STARTING_FOR_MS + 100);
+  }
+  // Online: the attempt is over, so a later exit offers Start again instead of a stale "starting" or failure.
+  function settleStart() {
+    if (session?.state === 'live' && (startState().startedAt || startState().error)) GLOBAL_CHAT_STARTS.delete(agentId);
   }
   // Names the programs that connect: any supported CLI started in this agent's own terminal, the agent's default first.
   function startHint() {
@@ -370,6 +432,9 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (key === 'live' || key === 'working') return {text: 'Your agent conversation appears here.', action: null};
     if (key === 'starting') return {text: 'Connecting…', action: null};
     if (key === 'disabled') return {text: 'Chat unavailable.', action: null};
+    const start = startPlan();
+    if (start.kind === 'start') return {text: `${label} is offline. Start it and its conversation will appear here.`, action: {key: 'start', label: `Start ${label}`}};
+    if (start.kind === 'failed') return {text: `${start.error}`, action: {key: 'start', label: 'Try again'}};
     return {text: `${startHint()}. Its conversation will appear here.`, action: options.openTerminal ? {key: 'terminal', label: 'Open terminal'} : null};
   }
   // One repaint: the native status line, then every presentation field the view displays. `patch` adds fields such as the entries.
@@ -380,6 +445,10 @@ function mountGlobalChat(pane, agent, options = {}) {
     sessionLine.classList.toggle('gchat-session-working', working);
     sessionText.textContent = finished ? 'This chat is no longer available.' : summary.line;
     workingTag.hidden = !working;
+    const start = finished ? {kind: 'none'} : startPlan();
+    startButton.hidden = !(start.kind === 'start' || start.kind === 'failed') || emptyState().action?.key === 'start';
+    startButton.textContent = start.kind === 'failed' ? 'Try again' : `Start ${label}`;
+    if (start.kind === 'failed') sessionText.textContent = start.error;
     sessionLine.hidden = !working && !sessionText.textContent;
     const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope);
     const pending = presentInputs();
@@ -391,7 +460,11 @@ function mountGlobalChat(pane, agent, options = {}) {
       older: {visible: older != null, disabled: olderBusy},
       empty: emptyState(),
     }, {scroll});
+    settleStart();
+    // Load the slash command catalog as soon as the running CLI is known, so "/" lists commands at once.
+    if (session?.provider) commandCatalog();
   }
+  listen(startButton, 'click', () => void runStart());
   const paintEntries = scroll => paint({entries: orderedEntries()}, scroll);
   const paintInputs = () => paint();
   const paintSession = () => paint();
@@ -445,6 +518,11 @@ function mountGlobalChat(pane, agent, options = {}) {
     const mine = composerScope;
     const files = [...selectedFiles()], fileKey = files.map(file => file.key).join(',');
     if (!mine || !text.trim() && !files.length || !canSend() || GLOBAL_CHAT_INFLIGHT.has(mine)) return;
+    // A known slash command is judged for the session it is sent to, before anything is uploaded or sent. A shared Codex server
+    // cannot run it: the draft and attachments stay as they are and the owner is told where it runs (the backend refuses it too).
+    const slash = slashCommands.command(commandCatalog() || [], text), provider = session?.provider;
+    const refusal = slashCommands.sharedServerRefusal(session, slash, label);
+    if (refusal) { showBanner(refusal); return; }
     // A retry of the same text reuses its key and its original binding pin, so a lost response can never become a second
     // message or move to another session. Only a deliberate new send takes the binding observed now.
     let attempt = GLOBAL_CHAT_SENDS.get(mine);
@@ -469,7 +547,11 @@ function mountGlobalChat(pane, agent, options = {}) {
           const error = new Error('Message too long'); error.attachment = true; error.code = 'message_too_long'; throw error;
         }
         const result = await admit(payload, attempt.key, attempt.pin);
-        globalChatAccept(mine, payload, result.input, attempt.position);
+        globalChatAccept(mine, payload, result.input, attempt.position, !!slash);
+        if (slashCommands.opensTerminal(slash, text, provider) && options.openTerminal) {
+          toast(`Finish ${slash.name} in ${label}’s Terminal.`);
+          options.openTerminal();
+        }
         if (GLOBAL_CHAT_SENDS.get(mine) === attempt) GLOBAL_CHAT_SENDS.delete(mine);
         if (GLOBAL_CHAT_DRAFTS.get(mine) === text) GLOBAL_CHAT_DRAFTS.delete(mine);
         const sent = new Set(attempt.files.map(file => file.key));
@@ -545,9 +627,20 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (action === 'resend') void resendInput(id);
       else if (action === 'dismiss') { GLOBAL_CHAT_HIDDEN.add(id); paintInputs(); }
     },
-    onEmptyAction: action => { if (action === 'terminal') options.openTerminal?.(); },
+    onEmptyAction: action => {
+      if (action === 'terminal') options.openTerminal?.();
+      else if (action === 'start') void runStart();
+    },
   });
   paint();
+  if (canStart) {
+    agentStart.read(agentId).then(view => { if (!disposed) { trust = view; paint(); } }).catch(() => { /* Start still asks for consent */ });
+  }
+  // Slash commands: the running CLI's catalog, loaded once per provider (native_chat/commands.py).
+  if (view.elements?.input && view.elements?.composer) {
+    slashMenu = slashCommands.attach({input: view.elements.input, form: view.elements.composer, commands: commandCatalog});
+    cleanups.push(() => slashMenu.dispose());
+  }
   // Ordubashy's current workflow Focus appears above the composer; it refreshes with this chat's own loads (no extra timer).
   const workflowPanel = (agent.role?.id || agent.role_id) === 'ordubashy' && view.elements?.composer ? workflowPanelMount(view.elements.composer, agentId) : null;
   if (workflowPanel) cleanups.push(() => workflowPanel.dispose());

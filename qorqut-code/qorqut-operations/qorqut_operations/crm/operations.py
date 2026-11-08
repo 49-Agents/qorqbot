@@ -9,6 +9,8 @@ Task's own scope. Construction is inert and nothing is discovered by name.
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from qorqut_operations.application.engine import Application
 from qorqut_operations.application.plans import IDENTITY, PAGE, TEXT, UUID, plain, schema, utc_clock
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
@@ -72,15 +74,9 @@ class CRMOperations:
             "crm_entries_list": ({"table_id": UUID, "query": TEXT, "stage_id": KEY, "include_archived": {"type": "boolean"},
                                   "include_removed": {"type": "boolean"}, "order_by": KEY, "descending": {"type": "boolean"},
                                   "equals": CELLS, **LIMIT}, ("table_id",),
-                                 "Read a CRM table's entries (memberships of existing Task records) in stable position order, 50 "
-                                 "by default and at most 100 per page. Each entry shows its local cells, the current Task fields "
-                                 "its projected columns show, and the Task itself; a Task you cannot read appears as a bare "
-                                 "unavailable placeholder. Sort and equals use local columns only. Removed entries and archived "
-                                 "Tasks are hidden unless requested."),
+                                 instruction_text('operations-read-a-crm-table-s-entries-memberships-of')),
             "tables_thread_get": ({"table_id": UUID, **LIMIT}, ("table_id",),
-                                  "Read one bounded page of a table's shared discussion (oldest first within the page; "
-                                  "next_cursor continues to older messages), including the structured developments of CRM "
-                                  "entry changes you are allowed to see, and your own follow state."),
+                                  instruction_text('operations-read-one-bounded-page-of-a-table-s')),
         }
         for name, (fields, required, description) in reads.items():
             registry.register(OperationDescriptor(
@@ -88,29 +84,15 @@ class CRMOperations:
                 read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow), **table_scope))
         writes = {
             "crm_entries_add": ({"table_id": UUID, "record": RECORD_REF, "create": schema(create, ("title",)), **cells}, ("table_id",),
-                                "Add an entry to a CRM table with the table's expected_revision: name exactly one of record (an "
-                                "existing Task of any type, by its scoped reference) or create (a new Customer, by default, made "
-                                "by tasks_create in the same atomic change). cells hold local values only; shared fields are edited "
-                                "on the Task with tasks_update. Adding a removed entry restores it with its data; adding an active "
-                                "one returns it unchanged unless different values conflict.", ("tables_rows_write",)),
+                                instruction_text('operations-add-an-entry-to-a-crm-table-with'), ("tables_rows_write",)),
             "crm_entries_update": ({"table_id": UUID, "entry_id": UUID, "changes": changes, "updates": {
                                        "type": "array", "minItems": 1, "maxItems": MAX_UPDATES,
                                        "items": schema({"entry_id": UUID, "changes": changes}, ("entry_id", "changes"))}},
                                    ("table_id",),
-                                   "Change an entry's local cells (omitted keys are kept, null clears) and/or its stage (null "
-                                   "clears) with the table's expected_revision. Shared Task fields are never written here. Name "
-                                   "either entry_id with changes (one entry), or updates: a list of 1-100 {entry_id, changes} "
-                                   "items, never both. To change several entries of the same table, send ONE call with updates "
-                                   "instead of repeating this call or batching it: all rows share the one starting "
-                                   "expected_revision, succeed or fail together, take one table revision and snapshot, and "
-                                   "return a compact {table_id, table_revision, entries: [{entry_id, revision, changed}], "
-                                   "job_id?} instead of each entry. Each entry may appear once. After a lost response retry the "
-                                   "exact same whole request with the same idempotency_key.",
+                                   instruction_text('operations-change-an-entry-s-local-cells-omitted-keys'),
                                    ("tables_rows_write",)),
             "crm_entries_remove": ({"table_id": UUID, "entry_id": UUID}, ("table_id", "entry_id"),
-                                   "Remove an entry from a CRM table with the table's expected_revision. This is a soft removal "
-                                   "of the membership only: the Task, its thread and its history are untouched and adding the "
-                                   "Task again restores the entry.", ("tables_rows_write",)),
+                                   instruction_text('operations-remove-an-entry-from-a-crm-table-with'), ("tables_rows_write",)),
         }
         for name, (fields, required, description, derived) in writes.items():
             registry.register(OperationDescriptor(
@@ -123,15 +105,12 @@ class CRMOperations:
             "tables_comment", schema({**SCOPE, "table_id": UUID, "text": BODY, "note_refs": refs, "summary": {
                 "type": "string", "minLength": 1, "maxLength": 500, "pattern": r"\S"}, "relay": RELAY, "rationale": TEXT},
                 ("table_id", "text")),
-            description="Add a message to a table's shared discussion (ordinary and CRM tables alike). An archived table can still "
-                        "be discussed. The installation owner's team comments follow the same channel rule as Task discussions. "
-                        "Commenting needs the table's row-write permission as a policy decision only: it grants no data change.",
+            description=instruction_text('operations-add-a-message-to-a-table-s-shared'),
             derived_effects=("tables_rows_write",), prepare=self.threads.prepare_comment, apply=self.threads.apply_comment,
             validate_targets=self.threads.validate_comment, replay_validator=self.threads.validate_comment_replay, **table_scope))
         registry.register(OperationDescriptor(
             "tables_follow", schema({**SCOPE, "table_id": UUID, "following": {"type": "boolean"}}, ("table_id", "following")),
-            description="Follow or unfollow a table's discussion for yourself. Creators and commenters follow by default; an "
-                        "explicit unfollow stays until you follow again. Following a table never follows its entries' Tasks.",
+            description=instruction_text('operations-follow-or-unfollow-a-table-s-discussion-for'),
             derived_effects=("tables_get",), supports_signoff=False, prepare=self.threads.prepare_follow, apply=self.threads.apply_follow,
             replay_validator=self.threads.validate_follow_replay, **table_scope))
         registry.register(OperationDescriptor(
@@ -141,10 +120,7 @@ class CRMOperations:
                 "event_key": {"type": "string", "minLength": 1, "maxLength": EVENT_KEY_LIMIT},
                 "corrects_event_id": UUID, "rationale": TEXT},
                 ("task_id", "kind", "summary", "body", "occurred_at", "source", "event_key")),
-            description="Record an email, message or development you observed about a Task, with its source reference and the time "
-                        "it really happened. This is an append-only record attributed to you: it sends nothing, fetches nothing, "
-                        "verifies nothing and approves nothing. The same event_key returns the original; a correction is a new "
-                        "event naming the earlier one (corrects_event_id).", derived_effects=("tasks_comment",),
+            description=instruction_text('operations-record-an-email-message-or-development-you-observed'), derived_effects=("tasks_comment",),
             prepare=self.activity.prepare_record, apply=self.activity.apply_record, validate_targets=self.activity.validate_record,
             replay_validator=self.activity.validate_replay, **task_scope))
         return self

@@ -4,6 +4,7 @@ Confirm an unchanged configuration against its actual earlier delivery receipt.
 Changed instructions stay pending for the normal startup/prompt composer; a
 background response never pretends that new instructions reached the model.
 """
+from qorqut_agentic.behavior.instructions import from_prepared
 import hashlib
 import json
 from pathlib import Path
@@ -71,8 +72,7 @@ def emit(hook, registration_path, runtime, output, stream, *, deliver=None):
             return False
         if not already:
             return False
-        text = ('The background check succeeded; your current instructions are unchanged. '
-                'The earlier preparation blocker is cleared. Continue authorized work.') if episode else ''
+        text = (from_prepared(registration_path).render("background-recovered")) if episode else ''
         if text:
             output = {'hookSpecificOutput': {'hookEventName': hook['hook_event_name'],
                                              'additionalContext': text}}

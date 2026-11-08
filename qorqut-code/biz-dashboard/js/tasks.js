@@ -44,9 +44,9 @@ let tPersonalLoaded = false, tPersonalError = null, tFetch = 0;
 // ---------------------------------------------------------------- view (tabs)
 // Retired drawer views are no longer offered by shared task headers.
 const T_OVERVIEW_VIEWS = [];
-const T_VIEWS = ["tasks", "notes", "globalNotes", "businessNotes", "signoffs", "uploads", "routines", ...T_OVERVIEW_VIEWS, "activity"];
-const T_GLOBAL_VIEWS = ["notes", "tasks", "signoffs", "uploads", "routines", ...T_OVERVIEW_VIEWS, "activity"];
-const T_VIEW_LABEL = { status: "Agent status", tasks: "Tasks", globalTasks: "Global tasks", activity: "Activity", notes: "Notes", globalNotes: "Global Notes", businessNotes: "Project notes", signoffs: "Signoffs", uploads: "Uploads", routines: "Routines", charts: "Charts", costs: "Costs", tables: "Tables", inbox: "Agent inbox", focus: "Pinned", attentionBoard: "Attention board", calendar: "Calendar", browser: "Browser", viewbox: "Viewbox", desktop: "Desktop", memory: "Working memory" };
+const T_VIEWS = ["tasks", "notes", "globalNotes", "businessNotes", "signoffs", "uploads", "routines", ...T_OVERVIEW_VIEWS];
+const T_GLOBAL_VIEWS = ["notes", "tasks", "signoffs", "uploads", "routines", ...T_OVERVIEW_VIEWS];
+const T_VIEW_LABEL = { status: "Agent status", tasks: "Tasks", globalTasks: "Global tasks", notes: "Notes", globalNotes: "Global Notes", businessNotes: "Project notes", signoffs: "Signoffs", uploads: "Uploads", routines: "Routines", charts: "Charts", costs: "Costs", tables: "Tables", inbox: "Agent inbox", focus: "Focus", attentionBoard: "Todo", calendar: "Calendar", browser: "Browser", viewbox: "Viewbox", desktop: "Desktop", memory: "Working memory" };
 const T_VIEW_ICON = {
   workflow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12h-8M21 6H8M21 18h-8M3 6v4a2 2 0 0 0 2 2h3M3 10v6a2 2 0 0 0 2 2h3"/></svg>',
 
@@ -76,9 +76,6 @@ T_VIEW_ICON.globalTasks = `<svg viewBox="0 0 24 24" fill="none" stroke="currentC
 if (tView === "journal") tView = "notes";
 if (T_VIEWS.indexOf(tView) < 0) tView = "tasks";
 
-// activity (log) view state
-let tLog = [];
-let tLogSig = null;                 // signature of what's on screen for the log list; skips a no-op rebuild
 
 // notes view state (ntSel/ntNotes/ntSearch/...) lives in js/notes.js the same way.
 // uploads view state (upForm/upDone/...) lives in js/uploads.js; it has no editor, so nothing to flush.
@@ -376,7 +373,7 @@ function tEmptyHtml(title, { sub = "", create = false } = {}) {
 function paintTasks() {
   const p = $("#taskspanel"); if (!p) return;
   if (!p.querySelector(".thead")) { p.innerHTML = tHead(); tWireHead(p); }
-  // the tasks rows own #tbody only while the Tasks tab is active: another view (Activity, Journal) is
+  // the tasks rows own #tbody only while the Tasks tab is active: another view (Journal, Files) is
   // painted by its own function, and this repaint must not stomp it
   if (tView !== "tasks") return;
   const newTask=p.querySelector("#task-new");if(newTask)newTask.hidden=!state.biz;
@@ -438,7 +435,6 @@ function tSetView(v) {
   p.innerHTML = tHead(); tWireHead(p, from);
   if (from === "signoffs" && v !== "signoffs" && typeof tPaintSignoffs === "function") tPaintSignoffs();
   if (v === "tasks") { tPaintSig = null; paintTasks(); }
-  else if (v === "activity") { tLogSig = null; tPaintActivity(); tActivityRefresh(); }
   else if (["notes", "globalNotes", "businessNotes"].includes(v)) { tPaintNotes(); }
   else if (v === "signoffs") { tPaintSignoffs(); }
   else if (v === "uploads") { tPaintUploads(); }
@@ -447,38 +443,6 @@ function tSetView(v) {
   globalThis.ovViewChanged?.(v);
   if (tabFocused) p.querySelector(`.ttab[data-v="${v}"]`).focus({ preventScroll: true });
   if (typeof sgAttentionPaint === "function") sgAttentionPaint();
-}
-
-// ---------------------------------------------------------------- activity view
-// Business activity log, reusing side.js's global logHtml()/logTips() so the row look (day
-// gaps) is shared formatting with the other logHtml()/logTips() callers.
-function tActivitySig() { return JSON.stringify([state.biz, tLog.map(e => e.id || `${e.ts}|${e.summary}`)]); }
-
-function tActivityHtml(rows, emptyMessage = "Nothing logged yet.") {
-  return rows.length ? `<div class="tlog">${logHtml(rows)}</div>` : tEmptyHtml(emptyMessage);
-}
-
-function tPaintActivity() {
-  if (tView !== "activity") return;
-  if (typeof acActivityActive === "function" && acActivityActive()) return acListPaint();
-  const body = $("#tbody"); if (!body) return;
-  if (!state.biz) { body.innerHTML = tEmptyHtml("Pick a project first."); tLogSig = null; return; }
-  const sig = tActivitySig();
-  if (sig === tLogSig && body.querySelector(".tlog")) return;   // nothing changed: skip the rebuild, keep tooltips alive
-  tLogSig = sig;
-  body.innerHTML = tActivityHtml(tLog);
-  const wrap = body.querySelector(".tlog");
-  if (wrap) logTips(wrap, tLog);
-}
-
-async function tActivityRefresh() {
-  if (typeof acActivityActive === "function" && acActivityActive()) return acListRefresh();
-  if (!state.biz) { tLog = []; return tPaintActivity(); }
-  const biz = state.biz;
-  const r = await api(`/biz/${biz}/log?n=60`);
-  if (biz !== state.biz || tView !== "activity") return;   // stale by the time it landed
-  tLog = Array.isArray(r) ? r : [];
-  tPaintActivity();
 }
 
 // ---------------------------------------------------------------- add
@@ -581,10 +545,37 @@ async function tOpenTask(id) {
     if (state.biz !== biz) return;
   }
   clearTimeout(tSearchT); tSearch = "";
-  tDetail(t);
+  return tDetail(t);
+}
+
+// Build only a canonical reference; the parent owns the record workspace and
+// any iframe may disappear as soon as navigation begins.
+function taskRecordReference(task, scopeSlug = undefined) {
+  if (!task?.id) return null;
+  const hasId = Object.hasOwn(task, 'business_id') && task.business_id !== undefined;
+  const business = task.business || null;
+  let id = hasId ? task.business_id : business?.id ?? business?.business_id;
+  let slug = task.business_slug || business?.slug || scopeSlug || null;
+  if (id === null) {
+    if (slug) return null;
+    return {type:'task', id:task.id, business_id:null, business_slug:null, label:task.label || task.title || null, task_type:task.task_type || null};
+  }
+  const list = state.bizs || [];
+  const byId = id != null ? list.find(b => (b.id ?? b.business_id) === id) : null;
+  const bySlug = slug ? list.find(b => b.slug === slug) : null;
+  if (id == null && bySlug) id = bySlug.id ?? bySlug.business_id;
+  if (!slug && byId) slug = byId.slug;
+  if (id == null || !slug || !list.some(b => (b.id ?? b.business_id) === id && b.slug === slug)) return null;
+  return {type:'task', id:task.id, business_id:id, business_slug:slug, label:task.label || task.title || null, task_type:task.task_type || null};
+}
+function taskOpenReference(task, scopeSlug = undefined) {
+  const reference = taskRecordReference(task, scopeSlug);
+  if (!reference) { toast('This task’s project is unavailable.'); return Promise.resolve(false); }
+  return agentOpenRecordReference(reference);
 }
 
 function tDetail(t,{host=null,onClose=null,recordPanelOpen=false,embedded=false,navigate=null,relatedMount=null,onMount=null,onCanonical=null}={}) {
+  if (!host) return taskOpenReference(t, t.business || Object.hasOwn(t, 'business_id') ? undefined : state.biz);
   if (!host && typeof modal !== "function") return toast("details need core modal()");
   const biz = tSlug(t);
   Object.assign(t, taskStateObserve(biz, t));
@@ -619,8 +610,8 @@ function tDetail(t,{host=null,onClose=null,recordPanelOpen=false,embedded=false,
     </div>
     <h4>Linked tasks</h4><div class="task-cross-links"></div>
     <h4>Related context</h4><div id="td-work" class="small muted">Loading…</div>
-    ${special || embedded ? '' : `<h4>Progress notes${t.note_count ? " · " + t.note_count : ""}</h4>
-    <section id="td-progress" aria-label="Task progress notes"></section>`}
+    ${special || embedded ? '' : `<h4>Chat</h4>
+    <section id="td-progress" aria-label="Task conversation and activity"></section>`}
     <div id="td-error" class="ferr" role="alert" hidden></div><button id="td-reload" class="ghost" type="button" hidden>Reload task</button>
   </div>`;
   };
@@ -1021,6 +1012,7 @@ function taskTypeMount(host, biz, task = {}) {
   const type=host.querySelector('[data-task-type]');
   const customerBox=host.querySelector('[data-task-customer]'), overviewField=host.querySelector('[data-task-overview-field]');
   const originalType=task.task_type || 'task', ownedElsewhere=!!task.id && ['story','customer'].includes(originalType);
+  let disposed=false, confirmation=null;
   let statesLoaded=false;
   const states=customerStatesMount(customerBox,biz);
   function update(){
@@ -1041,7 +1033,29 @@ function taskTypeMount(host, biz, task = {}) {
     // Converting a Customer away clears its kind, state and profile; the owner confirms that first.
     async confirmConversion(){
       if(originalType!=='customer' || type.value==='customer')return true;
-      return taskConfirm({title:'Remove customer details?',message:`Changing this Customer to ${TASK_TYPE_LABELS[type.value]} clears its kind, state, profile and notes. Its conversation and links stay.`,confirmLabel:'Change type'});
+      const selectedType=type.value;
+      const message=`Changing this Customer to ${TASK_TYPE_LABELS[selectedType]} clears its kind, state, profile and notes. Its conversation and links stay.`;
+      if(!host.closest('.agfocus'))return taskConfirm({title:'Remove customer details?',message,confirmLabel:'Change type'});
+      if(disposed || !host.isConnected || confirmation)return false;
+      const children=[...host.children].map(node=>({node,hidden:node.hidden,inert:node.inert}));
+      const panel=document.createElement('section');panel.className='task-type-confirm';panel.setAttribute('aria-label','Remove customer details?');
+      const heading=document.createElement('h3');heading.textContent='Remove customer details?';
+      const text=document.createElement('p');text.textContent=message;
+      const cancel=document.createElement('button');cancel.type='button';cancel.className='quiet';cancel.textContent='Cancel';
+      const accept=document.createElement('button');accept.type='button';accept.className='btn';accept.textContent='Change type';
+      panel.append(heading,text,cancel,accept);children.forEach(({node})=>{node.hidden=true;node.inert=true;});host.append(panel);
+      return new Promise(resolve=>{
+        const finish=accepted=>{
+          if(!confirmation)return;
+          confirmation=null;panel.remove();children.forEach(({node,hidden,inert})=>{node.hidden=hidden;node.inert=inert;});
+          const ok=accepted && !disposed && host.isConnected && type.value===selectedType;
+          if(!disposed && host.isConnected)type.focus?.();
+          resolve(ok);
+        };
+        confirmation=finish;cancel.onclick=()=>finish(false);accept.onclick=()=>finish(true);
+        panel.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();finish(false);}};
+        cancel.focus();
+      });
     },
     values(){
       // The legacy email link is display-only: it is never sent in a create, update or type change.
@@ -1054,13 +1068,110 @@ function taskTypeMount(host, biz, task = {}) {
     },
     // True while the editor holds a change that has not been saved.
     dirty(){try{return Object.keys(taskTypeChanges(task,this.values())).length>0;}catch(_){return true;}},
-    dispose(){states.dispose();},
+    dispose(){disposed=true;confirmation?.(false);states.dispose();},
   };
 }
 function taskEmailOpen(task) {
   if(task.email_conversation_id)historicalEmailOpen();
 }
+
+// The Project creation controller owns only its Focus content. No callback or
+// DOM node crosses from an embedded document into the parent.
+function taskProjectCreateMount(host, session, biz, initial, onCreated) {
+  host.innerHTML = `<section class="task-create-project"><form data-project-create><label>Title<input class="inp" name="title" required maxlength="1000" value="${esc(initial.title || '')}" autocomplete="off"></label>${taskTypeFields(initial)}<p class="ferr" role="alert" data-project-error hidden></p><div class="task-inline-actions"><button type="button" class="quiet" data-project-cancel>Cancel</button><button type="submit" class="btn" data-project-submit>Create</button></div></form><section data-project-discard hidden aria-label="Discard task draft"><p data-project-discard-message></p><button type="button" class="quiet" data-project-keep>Keep editing</button><button type="button" class="btn" data-project-discard-confirm>Discard</button></section></section>`;
+  const form = host.querySelector('[data-project-create]'), error = host.querySelector('[data-project-error]');
+  const panel = host.querySelector('[data-project-discard]'), submit = host.querySelector('[data-project-submit]');
+  const editor = taskTypeMount(form, biz, initial);
+  let alive = true, busy = false, submission = null, decision = null;
+  const title = form.elements.title;
+  const baselineTitle = title.value;
+  let baseline;
+  try { baseline = JSON.stringify(editor.values()); } catch (_) { baseline = null; }
+  const dirty = () => {
+    try { return title.value !== baselineTitle || baseline === null || JSON.stringify(editor.values()) !== baseline; }
+    catch (_) { return true; }
+  };
+  const restore = () => { panel.hidden = true; form.hidden = false; form.inert = false; title.focus(); };
+  const settle = value => { const resolve = decision; decision = null; if (resolve) resolve(value); };
+  const beforeLeave = () => {
+    if (busy) return false;
+    if (!submission && !dirty()) return true;
+    if (decision) return false;
+    form.hidden = true; form.inert = true; panel.hidden = false;
+    host.querySelector('[data-project-discard-message]').textContent = submission
+      ? 'The request may have succeeded. Discarding this draft does not undo it. Keep editing to retry the same request.'
+      : 'Discard this unsaved task?';
+    host.querySelector('[data-project-keep]').focus();
+    return new Promise(resolve => { decision = resolve; });
+  };
+  host.querySelector('[data-project-keep]').onclick = () => { restore(); settle(false); };
+  host.querySelector('[data-project-discard-confirm]').onclick = () => settle(true);
+  host.querySelector('[data-project-cancel]').onclick = () => { void session.close(); };
+  session.setBeforeLeave(beforeLeave);
+  form.onsubmit = async event => {
+    event.preventDefault();
+    if (busy || !alive) return;
+    try {
+      if (!submission) {
+        if (!form.reportValidity()) return;
+        const values = editor.values(), taskTitle = title.value.trim();
+        if (!taskTitle) { error.textContent = 'A title is required.'; error.hidden = false; return; }
+        busy = true;
+        const {assignees} = await workCall(biz, 'assignees_list');
+        if (!alive) return;
+        const owner = assignees.find(person => person.is_owner);
+        submission = {title:taskTitle,...values,assignee_ids:owner?[owner.id]:[],idempotency_key:newRequestId()};
+      }
+      busy = true; error.hidden = true; submit.disabled = true;
+      form.querySelectorAll('input,select,textarea').forEach(el => { el.disabled = true; });
+      const {task} = await workCall(biz, 'tasks_create', submission, {idempotency_key:submission.idempotency_key});
+      if (typeof task?.id !== 'string' || !task.id.trim()) throw Object.assign(new Error('Invalid create result.'), {code:'invalid_response'});
+      submission = null;
+      try { tGen++; clearEtagCache(); void refreshTasks(); } catch (_) { /* refresh is independent of creation */ }
+      if (!alive) return;
+      session.setBeforeLeave(null);
+      await session.close();
+      onCreated?.(task);
+    } catch (failure) {
+      if (!alive) return;
+      const uncertain = [408,429].includes(failure.httpStatus) || failure.httpStatus >= 500 || ['request_timeout','invalid_response'].includes(failure.code);
+      const decided = !uncertain && ['validation_error','forbidden','not_found','revision_conflict'].includes(failure.code);
+      if (decided) submission = null;
+      error.textContent = submission ? 'Could not confirm creation. Retry to send the same request safely.' : uiFailure(failure);
+      error.hidden = false;
+      form.querySelectorAll('input,select,textarea').forEach(el => { el.disabled = !!submission; });
+      submit.textContent = submission ? 'Retry' : 'Create';
+    } finally { busy = false; if (alive) submit.disabled = false; }
+  };
+  title.focus();
+  return () => { alive = false; settle(false); editor.dispose(); };
+}
+
+async function taskCreateProjectOpen(request, onCreated = null) {
+  const slug = request?.business_slug, id = request?.business_id;
+  let initial;
+  try { initial = JSON.parse(JSON.stringify(request?.initial || {})); }
+  catch (_) { toast('This task draft is unavailable.'); return null; }
+  if (typeof embeddedAgentPane !== 'undefined' && embeddedAgentPane) {
+    return parent.taskCreateProjectOpen({business_slug:slug,business_id:id,initial});
+  }
+  const project = (state.bizs || []).find(b => b.slug === slug && (b.id ?? b.business_id) === id);
+  if (!project || !slug || id == null) { toast('This task’s project is unavailable.'); return null; }
+  const origin = document.activeElement;
+  return window.focusExpansion.open({title:'New task', mount(host, session) {
+    return taskProjectCreateMount(host, session, slug, initial, task => {
+      if (origin?.isConnected) onCreated?.(task);
+    });
+  }});
+}
+window.taskCreateProjectOpen = taskCreateProjectOpen;
+
 function taskCreateDialog(biz, {parentId=null, onCreated=null, initial={}} = {}) {
+  if (biz && !parentId) {
+    const project = (state.bizs || []).find(b => b.slug === biz);
+    if (!project || (project.id ?? project.business_id) == null) { toast('This task’s project is unavailable.'); return null; }
+    return taskCreateProjectOpen({business_slug:biz,business_id:project.id ?? project.business_id,initial}, onCreated);
+  }
   let editor, submission=null, busy=false;
   modal({title:'New task',width:620,stack:true,body:`<form data-task-create><label>Title<input class="inp" name="title" required maxlength="1000" value="${esc(initial.title || '')}" autocomplete="off"></label>${taskTypeFields(initial)}<button type="submit" hidden>Create</button><p class="ferr" role="alert" hidden></p></form>`,
     actions:[{label:'Cancel',onClick:close=>close()},{label:'Create',primary:true,onClick:async(close,el)=>{

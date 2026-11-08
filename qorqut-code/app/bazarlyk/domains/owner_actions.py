@@ -5,6 +5,8 @@ Existing human-only APIs retain their checks. Adding an action requires review
 of its frozen effects, validation, attribution and approval-time scope checks.
 """
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import json
 
 from bazarlyk.agents.engineering import validate_authority
@@ -34,11 +36,7 @@ class OwnerActions:
         arguments["oneOf"] = [{"properties": {"action": {"const": action}, "parameters": fields}}
                               for action, fields in actions.items()]
         registry.register(OperationDescriptor(OPERATION, arguments,
-            description="Ordubashy only: propose engineering_update "
-                "in an authorized project. Supply expected_revision of the project config, parameters "
-                "and rationale. "
-                "Always stages an exact-change owner Signoff; never applies on chat consent or "
-                "an allow override. No signoff approvals, credentials, shell commands or arbitrary owner actions.",
+            description=instruction_text('owner-actions-ordubashy-only-propose-engineering-update-in-an'),
             prepare=self.prepare, apply=self.apply, validate_targets=self.guard))
 
     def guard(self, ctx, plan, uow):

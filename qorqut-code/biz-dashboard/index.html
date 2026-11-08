@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Qorqut</title>
+<title>Qorqbot</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/css/brand/favicon-32.png">
 <link rel="icon" type="image/svg+xml" sizes="any" href="/css/brand/favicon.svg">
+<script src="/js/appearance.js"></script>
 <link rel="stylesheet" href="/app.css">
 <link rel="stylesheet" href="/css/agents.css">
 <link rel="stylesheet" href="/css/agentpane.css">
@@ -16,7 +17,6 @@
 <link rel="stylesheet" href="/css/safe-links.css">
 <link rel="stylesheet" href="/css/agent-focus.css">
 <link rel="stylesheet" href="/css/agent-viewbox.css">
-<link rel="stylesheet" href="/css/workspace-composer.css">
 <link rel="stylesheet" href="/css/writing.css">
 <link rel="stylesheet" href="/css/notes.css">
 <link rel="stylesheet" href="/css/work-groups.css">
@@ -52,6 +52,9 @@
 <link rel="stylesheet" href="/css/broadcast.css">
 <link rel="stylesheet" href="/css/agent-workspace.css">
 <link rel="stylesheet" href="/css/agent-workspace-nav.css">
+<link rel="stylesheet" href="/css/onboarding.css">
+<link rel="stylesheet" href="/css/connectors.css">
+<link rel="stylesheet" href="/css/theme-light.css">
 </head>
 <body>
 <script>
@@ -68,6 +71,7 @@ document.body.classList.add(new URLSearchParams(location.search).has('agent-pane
 
 <script src="/js/xterm.js"></script>
 <script src="/js/core.js"></script>
+<script src="/js/testing-mode.js"></script>
 <script src="/js/safe-links.js"></script>
 <script src="/js/chat-view.js"></script>
 <script src="/js/san-juan-time.js"></script>
@@ -115,9 +119,14 @@ document.body.classList.add(new URLSearchParams(location.search).has('agent-pane
 <script src="/js/agent-viewbox.js"></script>
 <script src="/js/agent-browser.js"></script>
 <script src="/js/working-memory.js"></script>
+<script src="/js/desktop-notify.js"></script>
 <script src="/js/settings.js"></script>
+<script src="/js/setup-notice.js"></script>
 <script src="/js/terminal.js"></script>
 <script src="/js/workflow-panel.js"></script>
+<script src="/js/agent-start.js"></script>
+<script src="/js/connectors.js"></script>
+<script src="/js/slash-commands.js"></script>
 <script src="/js/global-chat.js"></script>
 <script src="/js/global-agents.js"></script>
 <script src="/js/broadcast.js"></script>
@@ -131,12 +140,13 @@ document.body.classList.add(new URLSearchParams(location.search).has('agent-pane
 <script src="/js/global.js"></script>
 <script src="/js/signoff-attention.js"></script>
 <script src="/js/ui-surfaces.js"></script>
-<script src="/js/workspace-composer.js"></script>
 <script src="/js/agent-shortcuts.js"></script>
 <script src="/js/reply-notifications.js"></script>
 <script src="/js/reminders.js"></script>
 <script src="/js/attention-queue.js"></script>
 <script src="/js/agent-workspace.js"></script>
+<script src="/js/onboarding-plan.js"></script>
+<script src="/js/onboarding.js"></script>
 <script src="/js/main.js"></script>
 </body>
 </html>

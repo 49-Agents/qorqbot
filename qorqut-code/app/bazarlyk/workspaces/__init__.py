@@ -9,6 +9,8 @@ stored presentation on read and before an update, ``select`` interprets its own 
 the result. A field no selected type declares is not in the schema, and a type rejects fields it did not declare.
 """
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -117,14 +119,12 @@ class WorkspaceService:
             schema({"role_id": {"type": "string", "maxLength": 64}}), effect_kind="read",
             **{**common, "scope_kinds": frozenset({"business", "global"}),
                "global_capability": "read_global_context"},
-            description="Read the installed workspace types with each type's supported roles, renderer and "
-                "presentation actions. A small registry, not an arbitrary UI builder.",
+            description=instruction_text('init-read-the-installed-workspace-types-with-each-type'),
             read=lambda ctx, args, options, uow: self.read_types(ctx, args, uow)))
         registry.register(OperationDescriptor("workspace_get",
             schema({"workspace": KEY, "business_id": {"anyOf": [UUID, {"type": "null"}]},
                     "agent_id": {"anyOf": [UUID, {"type": "null"}]}}, ("workspace",)), effect_kind="read", **business_common,
-            description="Read stored workspace presentation state. Agents read their own; the installation owner "
-                "may read a selected agent's. This never reads workspace content.",
+            description=instruction_text('init-read-stored-workspace-presentation-state-agents-read-their'),
             read=lambda ctx, args, options, uow: self.read(ctx, args, uow)))
         selection = {**SELECTION, **self.workspaces.fields}
         operations = {
@@ -132,13 +132,10 @@ class WorkspaceService:
                 "attention": {"anyOf": [schema({"reason": TEXT, "urgent": {"type": "boolean"},
                     "blocker": {"type": "boolean"}}, ("reason",)), {"type": "null"}]}},
                 (),
-                "Present a permitted workspace to its renderer with its optional selection fields, item and status. "
-                "Stores presentation state only; content edits always use the owning feature's operations."),
-            "workspace_select": (selection, (), "Select what is shown in the presented workspace. "
-                "Stores presentation state only and changes no content."),
+                instruction_text('init-present-a-permitted-workspace-to-its-renderer-with')),
+            "workspace_select": (selection, (), instruction_text('init-select-what-is-shown-in-the-presented-workspace')),
             "workspace_attention": ({"reason": TEXT, "urgent": {"type": "boolean"}, "blocker": {"type": "boolean"}},
-                ("reason",), "Ask for owner attention on the presented workspace with a short reason. "
-                "Presentation state only; this does not create a Focus card, task or signoff."),
+                ("reason",), instruction_text('init-ask-for-owner-attention-on-the-presented-workspace')),
         }
         for name, (fields, required, description) in operations.items():
             registry.register(OperationDescriptor(name, schema({"workspace": KEY,

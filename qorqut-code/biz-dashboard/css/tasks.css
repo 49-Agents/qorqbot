@@ -146,10 +146,10 @@
 }
 .trow .ball:hover .core, .trow .who:hover .wd { transform: scale(1.1); }
 
-/* status: open and cancelled hollow; working white, waiting blue, done a plain solid green.
+/* status: open and cancelled hollow; working uses the theme foreground, waiting blue, done a plain solid green.
    No check glyph and no animation on any state — the colour alone carries the state. */
 .ball .core { border: 1.5px solid var(--fg-3); background: transparent; }
-.ball.working .core { border: 0; background: #F5F5F0; }
+.ball.working .core { border: 0; background: var(--fg); }
 .ball.blocked .core { border: 0; background: var(--task-blocked-color); }
 .ball.needs_input .core { border: 0; background: var(--task-needs-input-color); }
 .ball.waiting .core { border: 0; background: #0A84FF; }
@@ -205,7 +205,7 @@
 .towner .tn { overflow: hidden; text-overflow: ellipsis; }
 .towner .tsub { font: 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--fg-3); padding-left: 2px; }
 .sdot { display: inline-block; flex: none; width: 6px; height: 6px; border-radius: var(--r-full); border: 1.5px solid var(--fg-3); background: transparent; }
-.sdot.working { border: 0; background: #F5F5F0; }
+.sdot.working { border: 0; background: var(--fg); }
 .sdot.blocked { border: 0; background: var(--task-blocked-color); }
 .sdot.needs_input { border: 0; background: var(--task-needs-input-color); }
 .sdot.waiting { border: 0; background: #0A84FF; }

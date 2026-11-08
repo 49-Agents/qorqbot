@@ -1,6 +1,7 @@
 """Host tmux adapter: registered targets only; no caller-provided commands."""
 import hashlib
 import json
+import logging
 import os
 import sys
 import threading
@@ -145,6 +146,10 @@ class AgentTerminalBackend:
                         if group != foreground:
                             continue
                         name = process_info.name(int(process.name))
+                        # Only the client's own arguments are read: a CLI's short-lived helpers (MCP servers started
+                        # through npx, for example) share its group, and macOS refuses their arguments while they exec.
+                        if name not in CLIENT_PROCESSES[client]:
+                            continue
                         args = [arg.encode() for arg in process_info.cmdline(int(process.name))]
                     else:
                         stat = (process / 'stat').read_text()
@@ -282,11 +287,64 @@ class AgentTerminalBackend:
         if action=='ping' and snapshot.get('command')!=snapshot.get('client', 'codex'):
             raise DomainError('invalid_transition', 'Direct ping requires the agent\'s verified foreground client')
 
+    # The terminal's foreground shell is what receives the launcher and what carries Qorqbot's claude and codex wrappers, which
+    # apply only in the agent's own workspace root (bootstrap/preparation.py). Start never moves it there or types a cd.
+    @staticmethod
+    def _physical(path):
+        return os.path.realpath(os.fspath(path), strict=True)
+
+    def _require_agent_folder(self, snap, workspace):
+        """Refuse unless the observed foreground shell is, physically, in the prepared agent workspace root. Both folders are
+        resolved through symlinks, and anything that cannot be established (the process, its folder, the workspace) refuses
+        too. Nothing is changed or typed."""
+        from bazarlyk import process_info
+        pid = snap.get('foreground_pid')
+        try:
+            if type(pid) is not int or pid <= 0 or workspace is None:
+                raise ValueError('No foreground shell to inspect')
+            here, root = self._physical(process_info.cwd(pid)), self._physical(workspace)
+        except (OSError, ValueError) as exc:
+            raise DomainError('operation_unavailable', "Cannot verify which folder the agent's terminal is in, so nothing was "
+                              "started. Return the agent terminal to its own folder, then press Start again.") from exc
+        if here != root:
+            raise DomainError('invalid_transition', f"The agent's terminal is not in the agent's own folder ({root}). Return it "
+                              "to that folder before pressing Start; Qorqbot does not change folders or type commands for you.")
+
+    def _require_same_shell_in_folder(self, row, observed, workspace):
+        """Observe the pane again, just before anything is typed: the same pane and the same idle foreground shell process as
+        ``observed``, still in the agent's own folder. A different process, or one that cannot be read, refuses."""
+        now = self.snapshot(row)
+        identity = ('state', 'server_pid', 'session_id', 'pane_id', 'pane_pid', 'foreground_pid', 'foreground_started')
+        if now.get('command') not in SHELLS or any(now.get(key) != observed.get(key) for key in identity):
+            raise DomainError('revision_conflict', 'Terminal changed before dispatch')
+        self._require_agent_folder(now, workspace)
+
+    def opened_snapshot(self, row, attempts=50):
+        """The pane just opened for a start. A new pane's shell takes a moment (the owner's zsh setup, a prompt theme) before
+        it has a foreground process; until then the pane cannot be read, so it is read again for up to about ten seconds.
+        Anything else that stops the observation still stops the start."""
+        for attempt in range(attempts):
+            try:
+                return self.snapshot(row)
+            except DomainError as exc:
+                if (exc.code != 'operation_unavailable' or not isinstance(exc.__cause__, (OSError, ValueError))
+                        or attempt == attempts - 1):
+                    raise
+            self.sleep(.2)
+        raise DomainError('operation_unavailable', 'Cannot identify the foreground terminal process')
+
     def wait_ready(self, row, client='codex'):
         broker, _, session, _, _ = self.selected(row)
         until = time.monotonic()+self.timeout
         while time.monotonic()<until:
-            snap = self.snapshot(row)
+            try:
+                snap = self.snapshot(row)
+            except DomainError as exc:
+                # A process changing while it is observed is retried; the observation itself never acts.
+                if exc.code != 'operation_unavailable' or not isinstance(exc.__cause__, OSError):
+                    raise
+                self.sleep(.2)
+                continue
             code, screen = broker.tmux('capture-pane','-p','-t',snap['pane_id'],'-S','-30')
             if not code and ('Blocked by hook' in screen or 'reprepare_required' in screen):
                 raise DomainError('reprepare_required', 'Agent preparation failed')
@@ -322,7 +380,7 @@ class AgentTerminalBackend:
         # The selection this action was authorized against, read before the old pane is touched; start/restart may resume only
         # exactly this one, never whichever selection exists after the old terminal is gone.
         authorized = expected.get('selection_revision')
-        broker, key, session, _, business = self.selected(row)
+        broker, key, session, workspace, business = self.selected(row)
         if action=='ping':
             return self._ping(row, message, input_key or f"terminal-action:{uuid4()}", launcher)
         if action in {'kill','restart'}:
@@ -337,13 +395,30 @@ class AgentTerminalBackend:
             owner = uow.repository('installation').get('service')['owner_principal_id']
             context = self.runtime.policy.context_for(owner, business_id=row['home_business_id'], review_business_id=None, uow=uow)
         self.terminals.open(context, business, row['agent_id'])
-        snap = self.snapshot(row)
+        snap = self.opened_snapshot(row)
         if snap.get('command') not in SHELLS:
             raise DomainError('invalid_transition', 'Terminal is not an idle shell')
         # Every agent runs the client its trusted profile runtime names; there is no Codex default, and nothing is typed for one
         # whose runtime is not a supported client.
         if launcher is None:
             raise DomainError('unsupported_runtime', 'Terminal control supports Claude Code and Codex agents only')
+        # An agent's launcher is typed into its shell, whose wrappers belong to the agent's own folder: a terminal the owner
+        # has moved elsewhere is refused before any trust is recorded or anything is typed. Dev's owner-project launch is
+        # exempt.
+        if not dev:
+            self._require_agent_folder(snap, workspace)
+        # With the owner's consent, the CLI's folder-trust prompt for the workspace is answered in its own file before launch,
+        # so the readiness wait below reaches the composer instead of stopping at a prompt it must never type into. A prompt
+        # about an enclosing repository is the owner's to answer in the terminal. No consent: unchanged.
+        try:
+            from bazarlyk import agent_trust
+            agent_trust.ensure(self.runtime.paths.runtime, workspace)
+        except (OSError, DomainError):
+            logging.getLogger(__name__).warning('Agent folder trust could not be recorded', exc_info=True)
+        # The observed shell and its folder are checked once more at the last moment before the resume or the Ctrl-U. (A person
+        # typing in the same tmux pane outside Qorqbot's lock cannot be excluded.)
+        if not dev:
+            self._require_same_shell_in_folder(row, snap, workspace)
         # An agent with a selected native conversation is resumed as exactly that conversation, with no role bootstrap; a
         # launch that cannot be proved safe is refused, never replaced by a fresh conversation. That path verifies the pane's
         # shell by process identity and does its own line-clear, so nothing is typed before it has.
@@ -359,7 +434,8 @@ class AgentTerminalBackend:
             return 'Startup command submitted; readiness/work is not confirmed'
         client = launcher
         name, role_command = CLIENT_NAMES[client], '/role' if client=='claude' else '$role'
-        broker.submit_input(session, client)
+        # The agent shell's wrapper would otherwise open a bare launch with the role prompt typed again just below.
+        broker.submit_input(session, 'QORQBOT_ROLE_SENT=1 ' + client)
         self.wait_ready(row, client)
         broker.submit_input(session, role_command)
         self.sleep(.2)
@@ -444,7 +520,8 @@ class AgentTerminalBackend:
         is called once after the pre-input checks and before the first input, and one more observation follows it; if
         either fails nothing is typed. ``allow_busy`` (default off) accepts a verified empty composer while the native
         turn is still running. Replacement uses editing keys only, after the durable claim,
-        then requires exact paste verification before the single normal submit.
+        then requires exact paste verification before submit. If the same paste remains in the same composer after
+        ``submit_settle`` (400 ms), retry Enter once without repasting or clearing anything.
         ``workdir`` is a private (0700) directory for the short-lived paste file, which never carries the text in argv.
         """
         self.validate_owner_text(text)
@@ -526,7 +603,7 @@ class AgentTerminalBackend:
         self.sleep(self.paste_settle)
         # Chat owns this successful paste into a verified empty composer. Long
         # text may be clipped or collapsed by the CLI; visible echo is optional.
-        # Identity/mode checks still run before sending exactly one Enter.
+        # Identity/mode checks still run before the initial Enter.
         for attempt in range(1, PASTE_VERIFY_ATTEMPTS + 1):
             try:
                 _, seen, pasted = self._observe(row, client, expect=text, allow_busy=allow_busy)
@@ -546,20 +623,26 @@ class AgentTerminalBackend:
                 return OwnerInputOutcome('uncertain', 'paste_unverified',
                                          {'paste_check': pasted.reason, 'paste_checks': attempt})
             self.sleep(PASTE_VERIFY_INTERVAL)
-        code, _ = broker.tmux('send-keys', '-t', pane, 'Enter')
-        if code:
-            return OwnerInputOutcome('uncertain', 'submit_failed')
-        self.sleep(self.submit_settle)
-        try:
-            _, _, after = self._observe(row, client, expect=text, allow_busy=allow_busy)
-        except OwnerInputDeferred:
-            return OwnerInputOutcome('submitted', 'processing_not_confirmed')
-        # The text still in the composer means the submit did not take.
-        if after.state == 'pasted':
-            return OwnerInputOutcome('uncertain', 'submit_unconfirmed')
-        if after.state == 'text' and after.reason == 'composer_not_empty':
-            return OwnerInputOutcome('uncertain', 'submit_unconfirmed')
-        return OwnerInputOutcome('submitted', 'processing_not_confirmed')
+        for submit_attempt in (1, 2):
+            submit_receipt = {'submit_attempts': submit_attempt}
+            code, _ = broker.tmux('send-keys', '-t', pane, 'Enter')
+            if code:
+                return OwnerInputOutcome('uncertain', 'submit_failed', submit_receipt)
+            self.sleep(self.submit_settle)
+            try:
+                _, seen, after = self._observe(row, client, expect=text, allow_busy=allow_busy)
+            except OwnerInputDeferred:
+                return OwnerInputOutcome('submitted', 'processing_not_confirmed', submit_receipt)
+            if seen != snap:
+                return OwnerInputOutcome('uncertain', 'session_changed', submit_receipt)
+            # Retry only the submit key, only when the exact pending paste is still in the ordinary composer.
+            # A cleared/different draft, modal, interrupting mode or unreadable screen never authorizes another Enter.
+            if after.state == 'pasted':
+                continue
+            if after.state == 'text' and after.reason == 'composer_not_empty':
+                return OwnerInputOutcome('uncertain', 'submit_unconfirmed', submit_receipt)
+            return OwnerInputOutcome('submitted', 'processing_not_confirmed', submit_receipt)
+        return OwnerInputOutcome('uncertain', 'submit_unconfirmed', submit_receipt)
 
     def _paste(self, broker, pane, text, workdir):
         """Bracketed paste through a private file. Returns None on success, else the outcome to report."""

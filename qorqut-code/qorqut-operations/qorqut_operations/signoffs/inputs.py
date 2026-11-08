@@ -1,4 +1,6 @@
 """Typed owner input requests; answering never authorizes a prepared effect."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 from dataclasses import replace
 from datetime import datetime, timezone
 
@@ -78,11 +80,11 @@ class InputRequests:
         for name, properties, required, description in (
             ('signoffs_input_create', {'request_key': {"type": "string", "minLength": 1, "maxLength": 200},
                 'form': FORM, 'attention': ATTENTION, **({'focus': schema(focus.fields)} if focus is not ABSENT else {})}, ('request_key', 'form'),
-                'Ask the owner a question or request input. Use a stable request_key for the same outstanding question. Answers are read through signoffs_get/list; this never runs an action.'),
+                instruction_text('inputs-ask-the-owner-a-question-or-request-input')),
             ('signoffs_attention_set', {'signoff_id': {"type": "string", "format": "uuid"}, 'attention': ATTENTION},
-                ('signoff_id', 'attention'), 'Set notification urgency/blocking for your pending signoff. Active global Ordubashy may also reprioritize other agents\' accessible pending signoffs. This never approves, answers, or executes a signoff. Include a reason; urgent/blocking notifications repeat hourly.'),
+                ('signoff_id', 'attention'), instruction_text('inputs-set-notification-urgency-blocking-for-your-pending-signoff')),
             ('signoffs_input_cancel', {'signoff_id': {"type": "string", "format": "uuid"}}, ('signoff_id',),
-                'Withdraw your pending input request while retaining its history.')):
+                instruction_text('inputs-withdraw-your-pending-input-request-while-retaining-its'))):
             descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties}, required), **common,
                 description=description, prepare=lambda c,a,o,u,n=name: self.prepare(n,c,a,o,u), apply=self.apply))
         # Delegated management answers need the management domain; without it the operation is not installed.
@@ -94,7 +96,7 @@ class InputRequests:
             'expected_status_revision': {"type": "integer", "minimum": 1},
             'summary': SUMMARY, 'notes': {"type": "string", "maxLength": 8000}, 'selected_choices': {"type": "array", "items": {"type": "string"}, "uniqueItems": True}},
             ('signoff_id','proposal_revision','payload_hash','expected_status_revision')),
-            **common, description='Answer an eligible management-routed input request as the configured Codex Ordubashy. This never approves or executes a protected action.',
+            **common, description=instruction_text('inputs-answer-an-eligible-management-routed-input-request-as'),
             prepare=self.prepare_delegated, apply=self.apply_delegated))
         return tuple(descriptors)
 

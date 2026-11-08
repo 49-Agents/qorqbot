@@ -7,6 +7,8 @@ operator-run, offline all-installation procedure.
 """
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 import argparse
@@ -315,7 +317,9 @@ class RecoveryAdministration:
     def _assert_not_background_worker(self) -> None:
         # Runtime composition may supply its actual background service.  Its own
         # thread cannot run recovery because quiescence would join itself.
-        if self._background_worker is not None and getattr(self._background_worker, "_thread", None) is threading.current_thread():
+        worker = self._background_worker
+        if worker is not None and (getattr(worker, "_thread", None) is threading.current_thread()
+                or callable(getattr(worker, "is_worker_thread", None)) and worker.is_worker_thread()):
             raise DomainError("recovery_unavailable", "Recovery cannot run from its background worker")
 
     @staticmethod
@@ -414,7 +418,7 @@ def client_request(config: RecoveryAdminConfig, request: dict[str, Any], *, time
 
 def main(argv: list[str] | None = None) -> int:
     from bazarlyk.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
-    parser = argparse.ArgumentParser(description="Local encrypted recovery administration client")
+    parser = argparse.ArgumentParser(description=instruction_text('recovery-admin-local-encrypted-recovery-administration-client'))
     add_instance_arguments(parser)
     parser.add_argument("--config", required=True, help="private host recovery-admin JSON")
     parser.add_argument("--timeout", type=float, default=30.0)

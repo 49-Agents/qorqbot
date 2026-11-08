@@ -1,4 +1,6 @@
 """Scoped current work and small session observations, separate from durable progress."""
+
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 from dataclasses import replace
 from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
@@ -71,7 +73,7 @@ class AgentActivity:
         self.app.registry.register(OperationDescriptor('agents_activity_list', schema({**PAGE,
             'scope': {'enum': ['business', 'global']}, 'agent_id': UUID,
             'role_id': {'type': 'string', 'maxLength': 100}, 'session_id': UUID}), **common, effect_kind='read',
-            description='Read current agent sessions and declared work in this project; Global aggregates authorized projects. Running/idle is separate from task blockers. Last-seen freshness is explicit. Follow next_cursor. Pass session_id only for your own exact native session to read its current-work revision and item keys. A permanent worker row also carries current_work {revision, item, item_key, updated_at, reviewed_at, stale}: its one shared assignment (revision 0 and no item until first written); authored text is visible to the team and unreadable Task details are withheld. Reads never acknowledge inbox events.',
+            description=instruction_text('activity-read-current-agent-sessions-and-declared-work-in'),
             read=lambda c,a,o,u: self.list(c,a,u)))
         self.app.registry.register(OperationDescriptor('agent_work_update', schema({
             'scope': {'enum': ['business', 'global']}, 'agent_id': UUID, 'session_id': UUID,
@@ -82,7 +84,7 @@ class AgentActivity:
             ('expected_work_revision',)) | {'oneOf': [
                 {'required': ['items'], 'not': {'required': ['patch']}},
                 {'required': ['patch'], 'not': {'required': ['items']}}]}, **common,
-            description='Replace or explicitly confirm your session’s current-work list (up to ten concurrent items), or patch selected items by item_key. Read agents_activity_list(session_id=your_native_session_id) for work_revision and item_keys. Patch actions add an item, replace an item by its current item_key, or remove it; unrelated and unreadable items remain untouched. Every write needs the exact current expected_work_revision. Empty items clears the list; empty patch confirms review. An unchanged update does not claim new progress. Write one short activity or blocker per item, aiming for about 50 characters (roughly 6–10 words) across summary and blocked_reason together; do not repeat the blocker. Keep IDs in reference fields and details in the linked Task or working memory. This is a writing target, not a validation limit; retain essential meaning. Update task outcomes separately; meaningful progress belongs in tasks_comment, not repeated waiting updates. A permanent worker has exactly one current assignment, shared with the team: zero or one item with a Task reference, a short description (summary plus blocked_reason; 100 words is the validation ceiling, not the writing target), or both. It writes from its current native session (session_id); the installation owner or Ordubashy updates a worker with agent_id and no session_id. The first write expects revision 0 (the revision of an absent assignment); read current_work.revision and current_work.item_key (for a patch replace or remove) from agents_activity_list. Replacing the current Task needs replace_current=true; the previous Task is never completed for you, so record its state first.',
+            description=instruction_text('activity-replace-or-explicitly-confirm-your-session-s-current'),
             prepare=self.prepare, apply=self.apply))
         return self
 
@@ -308,14 +310,15 @@ class AgentActivity:
                 self.app.ensure_writes_open(u)
                 u.connection.executemany('UPDATE agent_activity SET state=?,sequence=?,last_seen_at=?,activity_at=?,checkpoint_state=?,checkpoint_checked_at=? '
                     'WHERE agent_id=? AND session_id=? AND sequence<=?', [(*row,row[1]) for row in observations])
-                from bazarlyk.management.identity import configured_ordubashy
-                coordinator = configured_ordubashy(u)
+                from bazarlyk.agents.attention import enrolled_board
                 for agent_id, session_id, registration_id, tool_id, genuine_at in genuine_tools:
-                    if agent_id != coordinator:
-                        continue
                     binding = u.connection.execute('SELECT consumer_id FROM native_session_owners WHERE agent_id=?',
                                                    (agent_id,)).fetchone()
                     if not binding or binding['consumer_id'] != session_id:
+                        continue
+                    # The hook's genuine-activity marker is the existing source signal; the pure timer policy still
+                    # never moves a focused deadline on activity, and each board advances its own watermark only.
+                    if not enrolled_board(u, agent_id):
                         continue
                     from bazarlyk.agents.attention_delivery import record_attention_activity
                     record_attention_activity(u, agent_id, 'agent_activity', genuine_at,
@@ -365,6 +368,21 @@ class AgentActivity:
         if owner and owner['consumer_id'] != session_id:
             raise DomainError('inbox_session_superseded', 'A newer session owns this agent; write current work from it')
         return row
+
+    def todo_board(self, uow, agent_id):
+        """The enrolled Todo board of this worker, or None while it keeps its own current-work record."""
+        attention = getattr(self.app, 'ordubashy_attention', None)
+        if attention is None:
+            return None
+        from bazarlyk.agents.attention import enrolled_board
+        return attention if enrolled_board(uow, agent_id) else None
+
+    def require_legacy_current_work(self, uow, subject):
+        """Once a worker adopted Todo, its focus is the one current assignment and no second list is authored."""
+        if self.todo_board(uow, subject) is not None:
+            raise DomainError('todo_focus_in_use', 'Your current work is your Todo focus now: use todo_get, '
+                'todo_add, todo_remove, attention_focus_set and attention_focus_clear. The old current-work record '
+                'stays stored for recovery and is no longer the assignment.')
 
     def worker_write_state(self, ctx, args, subject, uow):
         """The stored assignment row (None while absent, which reads as revision 0) after the caller and revision checks."""
@@ -447,6 +465,7 @@ class AgentActivity:
 
     def prepare_worker(self, ctx, args, uow, subject):
         ctx = task_context(ctx, args, uow)
+        self.require_legacy_current_work(uow, subject)
         current = self.worker_write_state(ctx, args, subject, uow)
         builder = PlanBuilder(ctx, 'agent_work_update', args, 'Update current work', clock=self.clock,
             namespace=task_namespace(ctx, args), affected_scope={'kind': 'agent', 'agent_id': subject})
@@ -489,6 +508,7 @@ class AgentActivity:
         args = plan.arguments
         ctx = task_context(ctx, args, uow)
         # Recheck the caller, session, revision and source policy at application, including a delayed retry.
+        self.require_legacy_current_work(uow, subject)
         current = self.worker_write_state(ctx, args, subject, uow)
         items, stored, touched = self.worker_items(args, current)
         self.worker_check(ctx, args, items, stored, touched, uow)
@@ -633,7 +653,7 @@ class AgentActivity:
                 'state':state,'last_seen_at':max((x['last_seen_at'] for x in sessions if x['last_seen_at']),default=None),'sessions':sessions,
                 'inbox': nudge}
             if row['agent_id'] in workers:
-                agent['current_work'] = self.current_work(ctx, assignments.get(row['agent_id']), uow, access, now)
+                agent['current_work'] = self.current_work(ctx, row['agent_id'], assignments.get(row['agent_id']), uow, access, now)
             agents.append(agent)
         return {'agents':agents,'next_cursor':cursor,'as_of':timestamp(self.clock)}
 
@@ -641,9 +661,13 @@ class AgentActivity:
     def work_stale(reviewed_at, now):
         return not reviewed_at or (now - datetime.fromisoformat(reviewed_at)).total_seconds() > WORK_STALE_SECONDS
 
-    def current_work(self, ctx, row, uow, access, now):
+    def current_work(self, ctx, agent_id, row, uow, access, now):
         """A worker's one shared assignment (revision 0 and no item while none was ever written). The authored text is the
-        team's to read; the Task link, title, status and blockers appear only where the reader may read their source."""
+        team's to read; the Task link, title, status and blockers appear only where the reader may read their source. An
+        adopted Todo board projects its focus and Intent here instead of asking for a second authored list."""
+        attention = self.todo_board(uow, agent_id)
+        if attention is not None:
+            return self.todo_current_work(ctx, attention, agent_id, uow, access)
         stored = json.loads(row['item_json']) if row and row['item_json'] else None
         item = None
         if stored:
@@ -657,6 +681,30 @@ class AgentActivity:
                 'item_key': work_item_keys([stored])[0] if stored else None,
                 'updated_at': row['work_updated_at'] if row else None, 'reviewed_at': row['work_reviewed_at'] if row else None,
                 'stale': bool(stored and self.work_stale(row['work_reviewed_at'], now))}
+
+    def todo_current_work(self, ctx, attention, agent_id, uow, access):
+        """The one current assignment of an adopting worker: its declared focus, Intent and authorized Task.
+
+        A stored focus is a declaration, never observed execution; the session state above still reports presence. The
+        Task link, title, status and blockers appear only where the reader may read that source, and the old
+        ``agent_current_work`` record is never displayed once a focus was cleared."""
+        state = attention.state(uow, agent_id)
+        focus, task_ref, intent = state['focus_json'], state['work_task_json'], state['intent']
+        item = None
+        if focus and isinstance(task_ref, dict):
+            stored = {'business_id': task_ref['business_id'], 'task_id': task_ref['id'],
+                      'summary': intent, 'blocked_reason': ''}
+            try:
+                membership = attention.task_membership(uow, agent_id, task_ref)
+                task = attention.board_task(ctx, agent_id, task_ref, uow, lifecycle_only=True)
+                if membership and task['created_at'] == membership['task_created_at']:
+                    item = self.work_item(ctx, stored, uow, access)
+            except DomainError as error:
+                if error.code not in UNREADABLE:
+                    raise
+        return {'revision': state['revision'], 'source': 'todo', 'item': item, 'item_key': None,
+                'focus': focus if item else None, 'intent': intent if item else '',
+                'updated_at': state['updated_at'], 'reviewed_at': state['focus_started_at'], 'stale': False}
 
     def nudge(self, agent_id):
         """Where this agent's inbox notice stands (idle, pending, deferred, submitted, uncertain, stale, unavailable or unknown). It

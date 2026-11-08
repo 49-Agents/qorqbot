@@ -1,0 +1,1 @@
+Make sure everything on your Todo list reflects reality: what you’re doing, each task’s state, and who must act next.

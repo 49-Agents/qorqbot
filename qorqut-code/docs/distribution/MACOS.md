@@ -28,7 +28,8 @@ cd qorqbot
 ./qorqbot
 ```
 
-Open the printed localhost address. First launch creates a local virtual
+Your browser opens the printed localhost address (`--no-open` skips that;
+`--port` picks another port and later starts reuse it). First launch creates a local virtual
 environment and installs the included Python libraries offline. The Mac archive
 contains Mac-compatible wheels, not Linux libraries or bundled system tools.
 Application files are in `runtime/`; records/work are in `instance/operations/`.
@@ -36,7 +37,12 @@ Keep the initialized folder at the same path. Roughly 50 bytes or fewer is
 recommended because Unix sockets have short path limits.
 
 Use `./qorqbot stop`, `./qorqbot status` and `./qorqbot verify` from another
-Terminal. Back up the entire stopped folder. The same-schema updater uses a
+Terminal. `./qorqbot install-command` writes a `qorqbot` command into Homebrew's
+`bin` folder (or `~/.local/bin`) so those work from any folder; the app offers
+the same as **Help > Install Terminal Command**. It never replaces a `qorqbot`
+file it did not write; `--remove` takes it out again. The app and a Terminal start
+share one server: whichever starts second uses the running one, and quitting the
+app leaves a Terminal-started server running. Back up the entire stopped folder. The same-schema updater uses a
 matching Mac archive and refuses a Linux or other-CPU archive. Updates with
 separately installed connectors or changed managed instructions are not yet
 supported. Stop agents before updates or removal. Removing the folder removes

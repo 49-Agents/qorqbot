@@ -67,18 +67,10 @@
 .sg-urgent-link { display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; width:100%; height:auto; min-height:0; padding:12px; gap:5px; background:var(--wash); color:var(--fg); border:1px solid var(--line); border-radius:6px; text-align:left; white-space:normal; font-weight:400; }
 .sg-urgent-link:hover { background:var(--wash); color:var(--fg); transform:none; }
 .sg-urgent-link small { color:var(--fg-2); }
-#sg-toast-host { position:fixed; right:20px; bottom:20px; z-index:1000; width:min(360px,calc(100vw - 32px)); }
-.sg-toast { border:1px solid var(--line-2); background:var(--bg); color:var(--fg); border-radius:10px; padding:16px; box-shadow:0 10px 35px #0005; font:13px/1.5 var(--sans); }
-.sg-toast header { display:flex; align-items:center; gap:10px; }
-.sg-toast header strong { flex:1; }
-.sg-toast button { background:none; color:inherit; border:0; cursor:pointer; text-align:left; white-space:normal; }
-.sg-toast header button { font-size:22px; padding:0 6px; }
-.sg-toast .sg-toast-open { display:block; font-size:15px; font-weight:600; margin:14px 0 6px; padding:0; }
-.sg-toast p { margin:6px 0; color:var(--fg-2); overflow-wrap:anywhere; }
-.sg-toast .sg-toast-business { display:flex; justify-content:space-between; width:100%; padding:8px 0; }
-.sg-toast .sg-toast-snooze { border:1px solid var(--line-2); border-radius:12px; padding:3px 10px; margin-top:8px; }
-.sg-toast .sg-toast-error { color:#ef7777; }
-.sg-toast button:focus-visible { outline:2px solid var(--fg); outline-offset:3px; }
+/* Approval attention is the reminder capsule of app.css; this host only stacks it in the centred queue. */
+#sg-toast-host { display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; }
+#sg-toast-host:empty { display:none; }
+.toast.sg-toast .reminder-icon svg { width:14px; height:14px; }
 
 .sg-platform { min-width: 0; }
 .sg-platform-field { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; margin: 6px 0; font-size: 13px; overflow-wrap: anywhere; }
@@ -116,7 +108,8 @@
 .sg-inline .sg .sg-choice { display:inline-flex; justify-content:center; width:auto; max-width:100%; height:auto; min-height:30px; padding:4px 10px; border-color:var(--line-2); }
 .sg-inline .sg-choice-name { font-size:12px; line-height:20px; }
 .sg-inline .sg .sg-choice[aria-checked="true"] { background:var(--accent); border-color:var(--accent); color:var(--accent-fg); }
-.sg-inline .sg .sg-feedback { min-height:56px; }
+.sg-inline .sg .sg-feedback { min-height:0; resize:none; overflow:hidden; padding:6px 12px; }
+.sg-inline .sg-effects { display:none; }
 .sg-inline .sg-feedbackwrap { margin-top:10px; }
 .sg-inline .sg-row:not(.sg-open) .sg-impact, .sg-inline .sg-row:not(.sg-open) .sg-effects, .sg-inline .sg-row:not(.sg-open) .sg-attention-meta,
 .sg-inline .sg-row:not(.sg-open):not([data-input="1"]) .sg-feedbackwrap { display:none; }
@@ -183,17 +176,14 @@
 .sg textarea.sg-message-editor{padding:4px 10px}
 .sg textarea.sg-message-editor[data-sg-edit-field="subject"]{padding:0;border:0;background:transparent;line-height:1.5}
 
-/* Keep feedback available beneath compact Chat proposals without opening Details. */
-.sg-inline .sg-conversation { margin-top:12px; }
-
 /* Inline review: one stable, right-aligned decision/edit action pair. */
 .sg .sg-actions { justify-content:flex-end; }
 .sg .sg-actions .sg-approve, .sg .sg-actions .sg-reject { background:var(--wash); border:1px solid var(--line-2); color:var(--fg); }
 .sg textarea.sg-message-editor, .sg textarea.sg-message-editor[data-sg-edit-field="subject"] { padding:1.5px; border:0; border-left:2px solid var(--line-2); background:var(--wash); }
 .sg-email textarea.sg-message-editor, .sg-email textarea.sg-message-editor[data-sg-edit-field="subject"] { padding-left:12px; }
-/* Compact inline email: recipient and subject stay, the body becomes a three-line preview button. */
+/* Compact inline email: recipient and subject stay, the body becomes a six-line preview button. */
 .sg-email-peek { display:none; }
-.sg-email-collapsed .sg-email-peek { width:100%; margin:6px 0 0; padding:1.5px 12px; border:0; border-left:2px solid var(--line-2); border-radius:0; background:var(--wash); color:var(--fg-2); font:inherit; line-height:1.6; text-align:left; white-space:pre-wrap; overflow-wrap:anywhere; cursor:pointer; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+.sg-email-collapsed .sg-email-peek { width:100%; height:auto; min-height:0; margin:6px 0 0; padding:1.5px 12px; border:0; border-left:2px solid var(--line-2); border-radius:0; background:var(--wash); color:var(--fg-2); font:inherit; line-height:1.6; text-align:left; white-space:pre-wrap; overflow-wrap:anywhere; cursor:pointer; display:-webkit-box; -webkit-line-clamp:6; -webkit-box-orient:vertical; overflow:hidden; }
 .sg-email-collapsed .sg-email-peek:focus-visible { outline:2px solid var(--fg-2); outline-offset:2px; }
 .sg-email-collapsed .sg-email [data-sg-field="from"], .sg-email-collapsed .sg-email [data-sg-field="cc"], .sg-email-collapsed .sg-email [data-sg-field="bcc"],
 .sg-email-collapsed .sg-email [data-sg-field="attachments"], .sg-email-collapsed .sg-email .sg-email-body-label, .sg-email-collapsed .sg-email [data-sg-edit-field="body"],
@@ -202,3 +192,72 @@
 .sg-inline .sg-rowtitle { display:flex; align-items:center; gap:8px; }
 .sg-reference-icon { display:inline-flex; flex:none; }
 .sg-reference-icon svg { width:17px; height:17px; }
+
+/* Grouped approval list inside the Focus expansion. */
+.sg-group-title { margin: 18px 0 6px; font-size: 13px; font-weight: 500; color: var(--fg-2); }
+.sg-group-title:first-child { margin-top: 0; }
+.sg-group-list { display: flex; flex-direction: column; gap: 2px; }
+.sg-group-item { text-align: left; padding: 9px 10px; border: 0; border-radius: 10px; background: none; color: var(--fg); font: 500 13px/20px var(--sans); overflow-wrap: anywhere; white-space: normal; }
+.sg-group-item:hover, .sg-group-item:focus-visible { background: var(--hover); }
+
+/* Signoffs expanded in the right Focus pane (class set by sgFocusOpen): one flat, full-width column.
+   Rows are separated by hairlines instead of nested cards, text grows with its content and nothing is line-clamped. */
+.sg-focus .sg { padding: 0 0 24px; }
+.sg-focus .sg h2 { margin: 16px 0 8px; }
+.sg-focus .sg .sg-rows { gap: 0; }
+.sg-focus .sg .sg-row { padding: 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; }
+.sg-focus .sg .sg-row:last-child { border-bottom: 0; }
+/* app.css restyles every .agfocus button as a bordered pill; the row header and choices opt back out. */
+.sg-focus .sg .sg-rowhead { min-height: 0; padding: 14px 0; border: 0; border-radius: 0; background: none; color: var(--fg); font: inherit; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; text-align: left; gap: 6px 10px; }
+/* Title on its own line, then one compact metadata row: status, project, author, time. */
+.sg-focus .sg-rowtitle { flex: 1 1 100%; }
+.sg-focus .sg-state, .sg-focus .sg-state-tags { display: contents; }
+.sg-focus .sg-state-tags > * { order: 1; }
+.sg-focus .sg-rowmeta { display: contents; }
+.sg-focus .sg-rowmeta > * { order: 2; }
+.sg-focus .sg-state time { order: 3; }
+.sg-focus .sg-work [data-empty] { display: none; }
+.sg-focus .sg .sg-rowhead:hover { background: none; }
+.sg-focus .sg .sg-rowhead:hover .sg-rowtitle { color: var(--fg); }
+.sg-focus .sg-rowtitle { font-size: 15px; font-weight: 500; line-height: 1.45; }
+.sg-focus .sg .sg-rowhead[aria-expanded="true"] { padding-bottom: 6px; }
+.sg-focus .sg .sg-rowhead[aria-expanded="true"] .sg-rowtitle { font-size: 18px; font-weight: 600; line-height: 1.35; }
+.sg-focus .sg-state, .sg-focus .sg-state time { color: var(--fg-3); }
+.sg-focus .sg .sg-row-actions { margin: 0 0 14px; }
+.sg-focus .sg .sg-detail { max-width: none; padding: 0 0 20px; }
+.sg-focus .sg-detail > * + * { margin-top: 20px; }
+.sg-focus .sg-detail > :empty, .sg-focus .sg-detail > [hidden] { display: none; }
+.sg-focus .sg-detail > .sg-detailnotice, .sg-focus .sg-detail > .sg-attention-meta { margin-top: 0; }
+.sg-focus .sg-detail > .sg-attention-meta:not(:empty) { margin-top: 4px; }
+.sg-focus .sg-detail .sg-notice { margin: 0; }
+.sg-focus .sg-detail .sg-attention-meta .sg-notice { color: var(--fg-3); }
+.sg-focus .sg-detail h3, .sg-focus .sg-detail h4 { margin: 0 0 8px; }
+.sg-focus .sg-rationale p { font-size: 14px; line-height: 1.6; color: var(--fg); margin: 0; }
+.sg-focus .sg-rationale, .sg-focus .sg-impact, .sg-focus .sg-effects, .sg-focus .sg-content { margin: 0; }
+.sg-focus .sg-preview > * + * { margin-top: 20px; }
+.sg-focus .sg-text { max-height: none; }
+.sg-focus .sg-choices-title { margin: 0 0 8px; }
+.sg-focus .sg-focus-details details { border-top: 0; }
+.sg-focus .sg-focus-details summary { padding: 0; font-size: 12px; }
+.sg-focus .sg-focus-details summary::before { content: "▸ "; }
+.sg-focus .sg-focus-details details[open] summary::before { content: "▾ "; }
+.sg-focus .sg-focus-details .sg-meta { margin: 6px 0 0; }
+.sg-focus .sg-choices > div { display: flex; flex-direction: column; gap: 8px; }
+.sg-focus .sg .sg-choice { grid-template-columns: 20px minmax(0, 1fr); align-items: start; gap: 2px 12px; height: auto; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 8px; background: none; color: var(--fg); font: 400 14px/1.5 var(--sans); }
+.sg-focus .sg .sg-choice:hover { background: var(--wash); color: var(--fg); }
+.sg-focus .sg-choice > span:not(.sg-choice-marker):not(.sg-choice-name):not(.sg-choice-explanation) { display: none; }
+.sg-focus .sg-choice-marker { grid-row: 1 / span 2; margin-top: 1px; }
+.sg-focus .sg-choice-name { grid-column: 2; font-size: 14px; line-height: 20px; color: var(--fg); }
+.sg-focus .sg-choice-explanation { grid-column: 2; height: auto; display: block; overflow: visible; font-size: 14px; line-height: 1.55; color: var(--fg-2); }
+.sg-focus .sg .sg-choice[aria-checked="true"] { border-color: var(--fg-2); }
+.sg-focus .sg-feedbackwrap { margin-top: 20px; }
+.sg-focus .sg-label { font-size: 12px; margin-bottom: 8px; }
+.sg-focus .sg .sg-feedback { min-height: 88px; border-radius: 8px; font-size: 14px; }
+.sg-focus .sg-actions { gap: 8px; margin-top: 0; }
+.sg-focus .sg-savedresponse .sg-response-notes { margin: 0 0 4px; }
+@media (max-width: 520px) {
+  .sg-focus .sg { padding: 0 0 20px; }
+  .sg-focus .sg .sg-choice { grid-template-columns: 20px minmax(0, 1fr); gap: 2px 10px; padding: 10px; }
+  .sg-focus .sg .sg-rowhead[aria-expanded="true"] .sg-rowtitle { font-size: 17px; }
+}
+.sg-focus .sg-content-value .sg-val-list, .sg-focus .sg-content-value ul { margin: 0; }

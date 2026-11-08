@@ -10,6 +10,8 @@ by attribute or module and the host cannot replace the revision check or the gen
 
 from __future__ import annotations
 
+from qorqut_agentic.behavior.tool_help import text as instruction_text
+
 from collections.abc import Mapping
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -25,8 +27,8 @@ MUTATIONS = {
     "business_config_patch": ({"changes": {"type": "object", "minProperties": 1}}, ("changes",)),
 }
 DESCRIPTIONS = {
-    "business_config_patch": "Patch editable settings in the selected project with current expected_revision. Nested objects merge; null removes a value. Unmentioned fields are preserved. Read business_config_get first.",
-    "business_config_update": "Replace editable settings in the selected project using the current expected_revision. Preserve unrelated config fields. The owner and scoped Ordubashy may directly manage engineering organizations/repositories/deployment targets; other agents cannot. Projects have no browser settings. Registered identity, owner and paths remain protected. Tool overrides still apply.",
+    "business_config_patch": instruction_text('settings-operations-patch-editable-settings-in-the-selected-project'),
+    "business_config_update": instruction_text('settings-operations-replace-editable-settings-in-the-selected-project'),
 }
 OPERATIONS = ("business_config_get", *MUTATIONS)
 # The registered identity and paths a settings change may not edit.

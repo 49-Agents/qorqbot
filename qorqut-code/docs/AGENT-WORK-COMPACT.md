@@ -55,3 +55,20 @@ the complete current list from another authoritative source.
 Runtime presence and last-seen timestamps remain automatic. These operations
 record model-declared current work; task outcomes and meaningful progress belong
 in task comments or the task's ordinary workflow.
+
+## Workers that adopted Todo
+
+A permanent worker's Todo board is its current work. Once its board exists (the
+first explicit `todo_add` creates the state row), `agents_activity_list` projects
+`current_work` from the board instead of the stored record: `source: "todo"`, the
+declared `focus`, its `intent`, and the focused Task when the reader may see it.
+Revision is the board revision. A cleared focus shows no current item; the stored
+`agent_current_work` record is retained for recovery and is never displayed again.
+
+`agent_work_update` then returns an actionable instruction to use `todo_get`,
+`todo_add`, `todo_remove`, `attention_focus_set` and `attention_focus_clear`.
+Workers that never adopted Todo keep their existing current-work record and
+writes unchanged. Completion checks read the same projected source with the same
+enrollment predicate, so a focused worker is not asked to repeat a maintenance
+write at every turn. A declared focus is presentation of intent, never proof that
+the session is executing.
