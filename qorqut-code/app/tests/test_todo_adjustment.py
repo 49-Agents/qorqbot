@@ -2,6 +2,7 @@
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from importlib.resources import files
+from pathlib import Path
 import sqlite3
 from types import SimpleNamespace as NS
 import unittest
@@ -261,6 +262,17 @@ class TimingTests(unittest.TestCase):
             last_nudge_at='2026-11-08T08:00:00-04:00'))
         self.assertTrue(due('2026-11-09T12:05:00Z', session_started_at='2026-11-09T11:50:00Z',
             last_nudge_at='2026-11-08T08:00:00-04:00'))
+
+
+class InstallationTests(unittest.TestCase):
+    def test_imported_instruction_catalog_includes_daily_adjustment(self):
+        from bazarlyk.agentic.inventory import inventory_sources
+        from bazarlyk.agentic.support import decoded
+        root = Path(str(files('qorqut_agentic').joinpath('resources/defaults'))).resolve()
+        inventory = inventory_sources({'roles': str(root)}, [])
+        package = next(p for p in inventory['packages'] if p['id'] == 'runtime-instructions')
+        instructions = from_catalog(lambda path: decoded(package['files'][path]['content_base64']).decode())
+        self.assertIn('Run a careful Todo list adjustment', instructions.render('todo-adjustment'))
 
 
 if __name__ == '__main__':
