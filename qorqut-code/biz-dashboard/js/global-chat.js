@@ -20,8 +20,9 @@ async function globalChatOpenFocusReference(ref, context = {}) {
   const current = () => context.isCurrent?.() !== false
     && (typeof _agpad === 'undefined' || _agpad === pane)
     && (!pane || (pane.open && (!agentId || String(pane.agentId ?? '') === agentId)));
-  const supported=new Set(['table','task','reference','signoff','project']);
+  const supported=new Set(['table','reference','signoff','project']);
   if (!current()) return false;
+  if(ref?.type==='task' && typeof ref.id==='string' && ref.id) return agentOpenRecordReference(ref);
   if(supported.has(ref?.type) && typeof ref.id==='string' && ref.id && pane) {
     if(pane?.open && pane.workspaceRole==='ordubashy' && pane.agentId && state.scope==='global' && state.globalTab==='agents') {
       if(pane.view!=='focus') {

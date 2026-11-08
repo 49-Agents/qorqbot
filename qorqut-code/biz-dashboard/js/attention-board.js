@@ -167,15 +167,15 @@ function attentionBoardForget(p, membershipId) {
 }
 async function attentionBoardOpen(p, source) {
   const b=p.attentionBoard, record=rwRecordFromItem({source});
-  if (!record) return;
-  if (record.scopeMissing) { toast('This project is unavailable.'); return; }
+  if (!record) return false;
+  if (record.scopeMissing) { toast('This project is unavailable.'); return false; }
   if(!b.workspace.alive?.())b.workspace=b.mountWorkspace();
   const dock=b.board.querySelector('[data-attention-record]');
   dock.hidden=false;
   b.board.querySelector('.agfocus-layout').classList.add('agfocus-thread-open');
   agfocusOverlayOpen(p,b.board,dock,()=>{void p.attentionBoard?.workspace.close();});
-  try { await b.workspace.open(record,{root:true,tab:record.can_thread?'chat':'dashboard'}); }
-  catch(error) {toast(error.message);}
+  try { return await b.workspace.open(record,{root:true,tab:record.can_thread?'chat':'dashboard'}); }
+  catch(error) {toast(error.message);return false;}
 }
 // One marker for the focused row and every membership: the existing Focus state ball for an ordinary Task, the
 // existing type marker for a special Task or another source, and a normal inert ball until a canonical Task is known.

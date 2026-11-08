@@ -1074,6 +1074,7 @@ function agfocusPairedSource(record,parentTable) {
   return window.agentWorkspacePairedRecord?.(window,{type:source.type,id:source.id,business_id:source.business_id ?? null},parent) ?? true;
 }
 async function agfocusOpenPairedReference(p,ref) {
+  if(ref?.type==='task')return agentOpenRecordReference(ref);
   if (p.surface) { await agpadSurfaceClose(p); if (p.surface || _agpad !== p) return false; }
   if(!ref?.type || !ref.id)return false;
   const target=rwRecordFromItem({source:{type:ref.type,id:ref.id,business_id:ref.business_id ?? null,

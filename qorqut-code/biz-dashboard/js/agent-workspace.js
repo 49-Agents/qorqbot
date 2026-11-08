@@ -507,8 +507,10 @@ async function agentOpenRecordReference(ref) {
   const agent=(await loadGlobalAgentProfiles()).find(a=>globalRosterAgent(a) && a.role?.id==='ordubashy');
   if(!agent){toast('Ordubashy is unavailable.');return false;}
   if(state.scope!=='global' || state.globalTab!=='agents')await selectGlobal('agents');
-  if(!await globalAgentsNavigate(agent.agent_id,{view:'focus'}))return false;
+  const view=ref?.type==='task'?'attentionBoard':'focus';
+  if(!await globalAgentsNavigate(agent.agent_id,{view}))return false;
   const pane=_agpad;
-  if(pane?.agentId!==agent.agent_id || pane.view!=='focus')return false;
+  if(pane?.agentId!==agent.agent_id || pane.view!==view)return false;
+  if(ref?.type==='task')return attentionBoardOpen(pane,ref);
   return agfocusOpenPairedReference(pane,ref);
 }
