@@ -295,7 +295,20 @@ function mountGlobalChat(pane, agent, options = {}) {
     // transcript entry gets the small Inbox nudge marker in the conversation.
     if (item.origin === 'system' && item.input_type === 'inbox_nudge') return false;
     if (item.state === 'submitted' || GLOBAL_CHAT_HIDDEN.has(item.id) || noticeIds.has(item.id)) return false;
+    if (supersededOwnerCopy(item)) return false;
     return !!viewedKey() && globalChatKey(item.binding) === viewedKey();
+  }
+  // A failed owner copy stops pinning the bottom once its text reached the transcript later or a newer owner message was delivered.
+  const globalChatSame = text => globalChatText(text).replace(/\s+/g, ' ').trim();
+  function supersededOwnerCopy(item) {
+    if (!ownerChat(item) || !['uncertain', 'failed', 'undelivered'].includes(item.state)) return false;
+    const key = globalChatKey(item.binding), since = Date.parse(item.created_at);
+    if (inputs.some(other => ownerChat(other) && other.state === 'submitted' && other.sequence > item.sequence
+      && globalChatKey(other.binding) === key)) return true;
+    if (!item.body) return false;
+    const want = globalChatSame(item.body);
+    return [...entries.values()].some(entry => entry.speaker === 'user' && globalChatSame(entry.text) === want
+      && !(Number.isFinite(since) && Date.parse(entry.timestamp) < since));
   }
   // Only a definitely undelivered owner Chat message can be offered again; every other producer's receipt is status only.
   const ownerChat = item => item.origin === 'owner' && item.input_type === 'chat';
