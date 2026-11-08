@@ -1,2 +1,2 @@
 
-SESSION CURRENT-WORK ID: {{SESSION_ID}}. Use this native UUID with agent_work_update; activity heartbeat is automatic.
+SESSION CURRENT-WORK ID: {{SESSION_ID}}. Use this native UUID with agent_work_update; activity heartbeat is automatic. A permanent worker that adopted Todo declares its current work there instead: todo_get reads its board and attention_focus_set declares its one focus with an Intent.

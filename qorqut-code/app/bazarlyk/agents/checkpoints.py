@@ -6,6 +6,7 @@ import uuid
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.tasks import CLOSED_STATES
 from qorqut_operations.application.plans import timestamp, utc_clock
+from bazarlyk.agents.attention import enrolled_board
 from bazarlyk.agents.worker_access import is_worker
 from bazarlyk.bootstrap.activity_hook import safe_path
 from bazarlyk.composition.locations import agent_workspace_of
@@ -71,7 +72,18 @@ class AgentCheckpoints:
         coordinator = ctx.principal_id == configured_ordubashy(uow)
         instructions = self.app.policy.agent_resolver.require_agentic_view().runtime_instructions()
         items = row['items_json']  # Repository rows already decode JSON columns.
-        if is_worker(uow.connection, ctx.principal_id):
+        # One enrollment predicate selects the source here and in the activity read: an adopting worker's current
+        # assignment is its Todo focus, so these checks never demand a second agent_work_update. The coordinator's
+        # existing session-based review is unchanged.
+        worker = is_worker(uow.connection, ctx.principal_id)
+        attention = getattr(self.app, 'ordubashy_attention', None)
+        todo = (attention.state(uow, ctx.principal_id)
+                if worker and attention is not None and enrolled_board(uow, ctx.principal_id) else None)
+        if todo is not None:
+            work = todo.get('work_task_json')
+            items = ([{'business_id': work['business_id'], 'task_id': work['id']}]
+                     if todo.get('focus_json') and isinstance(work, dict) and work.get('id') else [])
+        elif worker:
             # A worker's one shared assignment, not its observed session list, is the work these checks look at.
             assignment = uow.repository('agent_current_work').get(ctx.principal_id)
             items = [assignment['item_json']] if assignment and assignment['item_json'] else []
@@ -96,8 +108,10 @@ class AgentCheckpoints:
             if code:
                 issues[key] = {'code': code, 'message': message, 'business_id': business,
                                'task_id': task_id}
-        reviewed = (row['work_reviewed_turn'] == native['root_turn_id']
-                    and row['work_reviewed_sequence'] >= native['dirty_sequence'])
+        # A Todo focus with its Intent is declared through the board and focus operations, so it stays reviewed
+        # without a repeated maintenance write at every turn.
+        reviewed = (todo is not None or (row['work_reviewed_turn'] == native['root_turn_id']
+                    and row['work_reviewed_sequence'] >= native['dirty_sequence']))
         if completion_policy.review_required(focus_only=focus_only, coordinator=coordinator,
                 dirty_sequence=native['dirty_sequence'], reviewed=reviewed):
             # One reminder episode per substantive root turn, never per Stop or continuation.

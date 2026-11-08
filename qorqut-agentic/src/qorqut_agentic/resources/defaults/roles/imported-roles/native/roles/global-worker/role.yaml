@@ -1,6 +1,6 @@
 schema_version: 1
 id: global-worker
-version: 1.7.1
+version: 1.8.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/global-worker/BRIEF.md
@@ -29,3 +29,11 @@ default_tool_policy:
   reminders_snooze: allow
   reminders_dismiss: allow
   reminders_cancel: allow
+  todo_get: allow
+  todo_add: allow
+  todo_remove: allow
+  attention_get: allow
+  attention_add: allow
+  attention_remove: allow
+  attention_focus_set: allow
+  attention_focus_clear: allow

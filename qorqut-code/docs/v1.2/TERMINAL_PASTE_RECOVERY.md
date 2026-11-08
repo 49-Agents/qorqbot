@@ -19,6 +19,20 @@ Its receipt includes `paste_check` and `paste_checks`, alongside the existing
 terminal/composer fingerprints. No screen text or message body is added to
 diagnostic receipts. Subsequent notices may defer with `composer_not_empty`.
 
+## Automatic receipt confirmation for Todo reminders
+
+The bounded native transcript scan can confirm a Todo reminder that arrived after
+an uncertain paste attempt. It matches the complete marked notice to its saved
+input in the same agent, provider, conversation and transcript, after admission
+and before session end. It sends no text and presses no keys. The original
+uncertain transport history is retained with `transcript_confirmed` evidence;
+processing or completion is never inferred. Once confirmed, the reminder consumes
+that receipt once and the existing clock schedules its next occurrence. A late
+receipt cannot alter a newer focus or shorten a later owner-message deadline.
+
+An unmatched paste remains uncertain. The manual procedure below is still needed
+when the original notice is held in the composer; no automatic retry is added.
+
 ## Recovering an existing system notice
 
 This is an owner-authorized recovery action, not an automatic retry of uncertain

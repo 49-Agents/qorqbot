@@ -144,11 +144,15 @@ Do not repeat the blocker in both fields. Keep IDs in reference fields; put coun
 prices, evidence, history and detailed next steps in the linked task or working memory.
 Preserve the essential meaning; this is a writing target, not a reason to abbreviate
 cryptically or omit a necessary blocker. Apply it to your own work and worker assignments.
-A permanent worker keeps one current item, not a list: a Task reference, a short
-description, or both. Its 100-word validation ceiling is not a writing target.
-`operations_describe` has the `agent_work_update` fields and revision rules; the list
-rules below are for other agents.
-Agents other than Ordubashy keep a session current-work list with `agent_work_update`. Read
+An adopted permanent worker keeps its commitments on its own Todo board: `todo_get`
+reads it, `todo_add` and `todo_remove` change membership, and one focus with a precise Intent
+is declared through `attention_focus_set` (`attention_focus_clear` clears it). That focus is
+its current work, so an adopting worker keeps no second `agent_work_update` record and that
+operation returns an instruction to use Todo; the list rules below are for other agents.
+Workers adopt Todo on the first explicit Task addition; an empty read does not enroll them.
+Before adoption they retain their one-item `agent_work_update` assignment. After adoption,
+use the same Task reference for `focus` and `task`; only the worker declares its own focus.
+Agents other than Ordubashy and adopted workers keep a session current-work list with `agent_work_update`. Read
 `agents_activity_list(session_id=your_native_session_id)` in the intended scope for
 `work_revision` and parallel `item_keys`; use the native UUID from bootstrap.
 Prefer `patch` actions `add`, `replace` or `remove`, with `item_key` for the latter

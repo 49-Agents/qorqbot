@@ -133,8 +133,9 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   for (const type of workspaceViewsFor(roleId)) (WORKSPACE_RENDERERS.get(type.renderer)?.leading ? leading : trailing).push(type.key);
   const personal = typeof agentWorkspaceViews === 'function' ? agentWorkspaceViews(scope, roleId) : [];
   leading.unshift(...personal.filter(view => !['journal', 'calendar'].includes(view)));
-  // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer.
-  if (roleId === "ordubashy") leading.push("attentionBoard");
+  // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer. A permanent worker gets
+  // the same shared Todo board for its own commitments; its Focus stays the existing workspace view.
+  if (roleId === "ordubashy" || roleId === "global-worker") leading.push("attentionBoard");
   if (roleId === "learning-applier") leading.push("changes");
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
@@ -201,7 +202,7 @@ function agpadWorkspaceViewsSync(p) {
 
 function agpadWorkspaceMount(p, view) {
   if (!agentPaneViewAllowed(p.workspaceRole, view)) return;
-  if (view === "attentionBoard" && p.workspaceRole === "ordubashy") { attentionBoardMount(p); return; }
+  if (view === "attentionBoard" && (p.workspaceRole === "ordubashy" || p.workspaceRole === "global-worker")) { attentionBoardMount(p); return; }
   if (view === "changes" && p.workspaceRole === "learning-applier") { overseerMount(p); return; }
   if (typeof agentWorkspaceMount === 'function' && agentWorkspaceMount(p, view)) return;
   if (view === "desktop" && p.workspaceRole === "ordubashy") { agfocusDesktopMount(p); return; }

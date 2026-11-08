@@ -216,6 +216,11 @@ function attentionReferenceRow(p, source, task = null) {
   agfocusUnread(p,row,row._attentionReference);
   const leading=row.querySelector('.agfocus-notification');
   leading.removeAttribute('aria-hidden');
+  // Show the Task's shared assignees; board membership does not assign a worker.
+  if (task && !(source.business_id != null && !scope)) {
+    taskWorkerMount(leading,scope,task,p.agentId);
+    leading.append(leading.querySelector('[data-task-workers]'));
+  }
   const open=()=>{p.attentionBoard.selected=row.dataset.attentionMember;void attentionBoardOpen(p,source);};
   row.onclick=event=>{if(!event.target.closest('button,a,input,textarea,select'))open();};
   row.onkeydown=event=>{if(event.target===row && ['Enter',' '].includes(event.key)){event.preventDefault();open();}};
@@ -290,7 +295,8 @@ function attentionBoardPaint(p) {
       if(status==='done' && item===items[0] && rows.childElementCount)row.classList.add('attention-completed-start');
       const actions=row.querySelector('.agfocus-actions');
       const remove=document.createElement('button'); remove.type='button'; remove.className='quiet'; remove.innerHTML=SVG_X; remove.setAttribute('aria-label','Remove '+(task.title || 'task')+' from Todo');
-      remove.onclick=async()=>{remove.disabled=true; try { coreData(await post('/root/operations/todo_remove',{scope:'global',membership_id:item.membership_id,expected_membership_revision:item.membership_revision,idempotency_key:newRequestId()})); await attentionBoardForget(p,item.membership_id); } catch(error) {toast(error.message); remove.disabled=false;}};
+      // The displayed board's agent_id is sent explicitly: omitting it would select the owner's default Ordubashy board.
+      remove.onclick=async()=>{remove.disabled=true; try { coreData(await post('/root/operations/todo_remove',{scope:'global',agent_id:attentionBoardCache(p).agentId,membership_id:item.membership_id,expected_membership_revision:item.membership_revision,idempotency_key:newRequestId()})); await attentionBoardForget(p,item.membership_id); } catch(error) {toast(error.message); remove.disabled=false;}};
       actions.append(remove); rows.append(row);
     }
   }

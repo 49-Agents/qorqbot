@@ -1,1 +1,1 @@
-Review the Todo list and delegate useful work or continue coordination, or reassess the blocked, waiting and needs-input commitments. An empty inbox does not establish that no work remains. If nothing is actionable, wait quietly; report only a new result, blocker or decision needed.
+Review the Todo board and take up the next authorized item or delegate useful work, or reassess the blocked, waiting and needs-input commitments. An empty inbox does not establish that no work remains. If nothing is actionable, wait quietly; report only a new result, blocker or decision needed.

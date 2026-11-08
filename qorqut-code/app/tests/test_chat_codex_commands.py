@@ -98,6 +98,8 @@ class ChatCodexCommandTest(unittest.TestCase):
         for patcher in (mock.patch.object(InputArbiter, "_profile", lambda arbiter, agent_id: PROFILE),
                         mock.patch.object(arbiter_module, "forward_owner_message", self.forwarded),
                         mock.patch("bazarlyk.management.identity.configured_ordubashy", return_value=None),
+                        # This fixture has no Attention board, so no owner-message watermark is recorded.
+                        mock.patch("bazarlyk.agents.attention.enrolled_board", return_value=False),
                         mock.patch("bazarlyk.management.identity.installation_owner", return_value=OWNER)):
             patcher.start()
             self.addCleanup(patcher.stop)
