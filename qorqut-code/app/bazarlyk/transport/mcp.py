@@ -1,6 +1,8 @@
 """The SDK's one stateful HTTP endpoint, with a fresh principal on every request."""
 
+import hashlib
 import logging
+import threading
 from dataclasses import replace
 import json
 from uuid import UUID
@@ -152,7 +154,7 @@ class RegisteredAgentCaller:
                 from bazarlyk.agents.operational_delegation import WORKER_OPERATIONS
                 allowed = set(assignment["allowed_operations_json"]) | set(WORKER_OPERATIONS)
         try:
-            rows = self.runtime.resolver.resolve_agent_config(actor.principal).data["tools"]
+            rows = self.runtime.resolver.resolve_agent_config(actor.principal, include_preparation=False).data["tools"]
             visible = [row for row in rows if row["canonical_operation"] not in INTERNAL_ONLY_OPERATIONS
                        and (allowed is None or row["canonical_operation"] in allowed)]
             if allowed is not None and BROWSER_OPERATION in allowed and not any(
@@ -242,7 +244,7 @@ class RegisteredAgentCaller:
     def check_batch(self, actor):
         if actor.delegation_assignment_id:
             raise DomainError("forbidden", "Delegated workers cannot execute batches")
-        config = self.runtime.resolver.resolve_agent_config(actor.principal)
+        config = self.runtime.resolver.resolve_agent_config(actor.principal, include_preparation=False)
         if not any(row["canonical_operation"] == BATCH_NAME and row["available"] and row["effective_mode"] == "allow"
                    for row in config.data["tools"]):
             raise DomainError("policy_denied", "Batch execution is not allowed for this agent")
@@ -254,6 +256,11 @@ class MCPTransport:
         self.runtime, self.authentication, self.origins = runtime, authentication, origins
         self.caller = caller or RegisteredAgentCaller(runtime, authentication)
         self.read_revalidation = mcp_reads.ReadRevalidation()
+        self._discovery_lock = threading.Lock()
+        self._discovery_sequence = 0
+        self._discovery_generation_sequence = 0
+        self._discovery_generation = None
+        self._discovery_definitions = {}
         self.server = Server("bazarlyk", version="2.0.0")
         self.manager = StreamableHTTPSessionManager(self.server, json_response=True,
             security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
@@ -263,21 +270,7 @@ class MCPTransport:
         async def list_tools():
             try:
                 actor = self._request_actor()
-                inventory = await anyio.to_thread.run_sync(lambda: self.caller.inventory(actor))
-                instructions = await anyio.to_thread.run_sync(
-                    lambda: self.runtime.resolver.require_agentic_view().tool_instructions())
-                tools = []
-                for row in inventory:
-                    if not row["available"]:
-                        continue
-                    descriptor = self.runtime.registry.get(row["canonical_operation"])
-                    for name in (row["canonical_operation"], *row["exposed_aliases"]):
-                        tools.append(types.Tool(name=name,
-                            description=instructions.description((descriptor.description or name.replace("_", " "))
-                                + mcp_presentation.description(descriptor.name)),
-                            inputSchema=instructions.metadata(tool_schema(self.runtime.registry, name)),
-                            annotations=tool_annotations(descriptor)))
-                return tools
+                return await anyio.to_thread.run_sync(lambda: self._discover_tools(actor))
             except DomainError as exc:
                 raise McpError(types.ErrorData(code=-32000, message=exc.message, data=exc.to_dict())) from exc
 
@@ -306,6 +299,52 @@ class MCPTransport:
             wire = mcp_presentation.finalize(value)
             return types.CallToolResult(content=self._content_blocks(wire),
                 isError=value["status"] == "error")
+
+    def _discover_tools(self, actor):
+        # Sequence requests before taking the snapshot so an older reader cannot
+        # replace a generation published by a newer concurrent reader.
+        with self._discovery_lock:
+            self._discovery_sequence += 1
+            sequence = self._discovery_sequence
+        view = self.runtime.resolver.require_agentic_view()
+        with view.read_snapshot():
+            inventory = self.caller.inventory(actor)
+            instructions = view.tool_instructions()
+            registry = self.runtime.registry
+            digest = hashlib.sha256(json.dumps(instructions.messages, sort_keys=True,
+                separators=(",", ":"), ensure_ascii=False).encode("utf-8")).digest()
+            generation = (registry, digest)
+            frozen = registry.frozen
+            def current_generation():
+                return (self._discovery_generation is not None
+                    and self._discovery_generation[0] is registry
+                    and self._discovery_generation[1] == digest)
+            with self._discovery_lock:
+                if sequence >= self._discovery_generation_sequence:
+                    self._discovery_generation_sequence = sequence
+                    if not frozen or not current_generation():
+                        self._discovery_generation = generation if frozen else None
+                        self._discovery_definitions.clear()
+            tools = []
+            for row in inventory:
+                if not row["available"]:
+                    continue
+                descriptor = registry.get(row["canonical_operation"])
+                for name in (row["canonical_operation"], *row["exposed_aliases"]):
+                    with self._discovery_lock:
+                        definition = (self._discovery_definitions.get(name)
+                            if frozen and current_generation() else None)
+                    if definition is None:
+                        definition = types.Tool(name=name,
+                            description=instructions.description((descriptor.description or name.replace("_", " "))
+                                + mcp_presentation.description(descriptor.name)),
+                            inputSchema=instructions.metadata(tool_schema(registry, name)),
+                            annotations=tool_annotations(descriptor))
+                        with self._discovery_lock:
+                            if frozen and current_generation():
+                                definition = self._discovery_definitions.setdefault(name, definition)
+                    tools.append(definition.model_copy(deep=True))
+            return tools
 
     @staticmethod
     def _content_blocks(wire):
