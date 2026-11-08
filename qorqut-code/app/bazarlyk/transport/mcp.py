@@ -3,6 +3,8 @@
 import hashlib
 import logging
 import threading
+import time
+from contextlib import contextmanager
 from dataclasses import replace
 import json
 from uuid import UUID
@@ -28,6 +30,32 @@ from .results import failure
 from . import batches, mcp_presentation, mcp_reads
 
 logger = logging.getLogger(__name__)
+
+SLOW_TOOL_MS = 250
+
+
+@contextmanager
+def _phase(timing, key):
+    """Record one phase's elapsed milliseconds in this call's own timing dict, including when it fails."""
+    started = time.perf_counter()
+    try:
+        yield
+    finally:
+        timing[key] = (time.perf_counter() - started) * 1000
+
+
+def _log_slow_tool(timing, request_id, started):
+    # Best effort and fixed fields only: never arguments, responses, headers, principals or exception text. These
+    # clocks cover _single_result, not HTTP authentication or the SDK's final wire serialization. The total also
+    # includes worker queue wait and presentation, so configuration + execution need not equal it.
+    try:
+        total = (time.perf_counter() - started) * 1000
+        if total >= SLOW_TOOL_MS:
+            logger.warning("MCP tool slow: operation=%s request_id=%s configuration_ms=%.1f execution_ms=%.1f total_tool_ms=%.1f",
+                timing["operation"], request_id, timing["configuration_ms"], timing["execution_ms"], total)
+    except Exception:
+        pass
+
 
 OVERSEER_SESSION_OPERATIONS = frozenset({
     'overseer_evidence_list', 'overseer_episode_get', 'overseer_input_request', 'overseer_input_reconcile',
@@ -402,6 +430,14 @@ class MCPTransport:
 
     async def _single_result(self, name, arguments, actor=None):
         request_id = new_id()
+        timing = {"operation": "unknown", "configuration_ms": 0.0, "execution_ms": 0.0}
+        started = time.perf_counter()
+        try:
+            return await self._single_result_timed(name, arguments, actor, request_id, timing)
+        finally:
+            _log_slow_tool(timing, request_id, started)
+
+    async def _single_result_timed(self, name, arguments, actor, request_id, timing):
         detail = "full"
         canonical_name = name
         known_operation = None
@@ -409,6 +445,7 @@ class MCPTransport:
         try:
             actor = actor or self._request_actor()
             descriptor = self.runtime.registry.get(name)
+            timing["operation"] = descriptor.name
             if not self.caller.exposes(descriptor):
                 raise DomainError("forbidden", "This operation is not exposed to agent MCP")
             from bazarlyk.overseer.operations import WRITE as OVERSEER_WRITES
@@ -439,48 +476,50 @@ class MCPTransport:
                 options = replace(options, omit_work_briefing=True)
             def invoke():
                 nonlocal context
-                binding = (self.caller.attention_binding(actor, request_context.request.headers, request_context.meta)
-                           if requires_binding else None)
-                if binding is not None:
-                    context = self.caller.invocation_context(actor, canonical_name=canonical_name, options=options,
-                                                             native_binding=binding)
-                else:
-                    context = self.caller.invocation_context(actor, canonical_name=canonical_name, options=options)
+                with _phase(timing, "configuration_ms"):
+                    binding = (self.caller.attention_binding(actor, request_context.request.headers, request_context.meta)
+                               if requires_binding else None)
+                    if binding is not None:
+                        context = self.caller.invocation_context(actor, canonical_name=canonical_name, options=options,
+                                                                 native_binding=binding)
+                    else:
+                        context = self.caller.invocation_context(actor, canonical_name=canonical_name, options=options)
                 # Bind application observation to this transport call's
                 # correlation ID after trusted context resolution.
                 context = replace(context, request_id=request_id)
-                if bridge_operation:
-                    from qorqut_agentic.errors import AgenticError
-                    self.runtime.registry.bind_arguments(canonical_name, args)
-                    with self.runtime.database.read() as uow:
-                        current = self.runtime.application.current_context(context, uow)
-                        self.runtime.application.authorize(current, descriptor, (), uow, namespace='global')
-                    try:
-                        value = self.runtime.overseer.mutate(canonical_name, context, args)
-                    except AgenticError as error:
-                        raise DomainError(error.code, str(error), details=error.details) from error
-                    return OperationResult.ok(value, request_id=request_id)
-                if canonical_name == AGENT_BROWSER_MANAGE:
-                    self.runtime.registry.bind_arguments(canonical_name, args)
-                    namespace = self.runtime.application.namespace(context, descriptor, args)
-                    with self.runtime.database.read() as uow:
-                        self.runtime.application.authorize(context, descriptor, (), uow, namespace=namespace, arguments=args)
-                    # The manager decides the exact worker target and rechecks it under the agent's lock; host effects run
-                    # here, outside every database transaction, under the instance's writer admission.
-                    value = self.runtime.browser_manager.manage(actor.principal.id, args, options.idempotency_key)
-                    return OperationResult.ok(value, request_id=request_id)
-                if canonical_name == BROWSER_OPERATION:
-                    self.runtime.registry.bind_arguments(canonical_name, args)
-                    namespace = self.runtime.application.namespace(context, descriptor, args)
-                    with self.runtime.database.read() as uow:
-                        self.runtime.application.authorize(context, descriptor, (), uow,
-                            namespace=namespace, arguments=args)
-                    # Projects have no browsers: a call's project context never selects one.
-                    body = dict(args)
-                    body["idempotency_key"] = options.idempotency_key
-                    value = self.runtime.browser_access.tool(actor, body["action"], body)
-                    return OperationResult.ok(value, request_id=request_id)
-                return self.runtime.application.invoke(context, name, args, options)
+                with _phase(timing, "execution_ms"):
+                    if bridge_operation:
+                        from qorqut_agentic.errors import AgenticError
+                        self.runtime.registry.bind_arguments(canonical_name, args)
+                        with self.runtime.database.read() as uow:
+                            current = self.runtime.application.current_context(context, uow)
+                            self.runtime.application.authorize(current, descriptor, (), uow, namespace='global')
+                        try:
+                            value = self.runtime.overseer.mutate(canonical_name, context, args)
+                        except AgenticError as error:
+                            raise DomainError(error.code, str(error), details=error.details) from error
+                        return OperationResult.ok(value, request_id=request_id)
+                    if canonical_name == AGENT_BROWSER_MANAGE:
+                        self.runtime.registry.bind_arguments(canonical_name, args)
+                        namespace = self.runtime.application.namespace(context, descriptor, args)
+                        with self.runtime.database.read() as uow:
+                            self.runtime.application.authorize(context, descriptor, (), uow, namespace=namespace, arguments=args)
+                        # The manager decides the exact worker target and rechecks it under the agent's lock; host effects run
+                        # here, outside every database transaction, under the instance's writer admission.
+                        value = self.runtime.browser_manager.manage(actor.principal.id, args, options.idempotency_key)
+                        return OperationResult.ok(value, request_id=request_id)
+                    if canonical_name == BROWSER_OPERATION:
+                        self.runtime.registry.bind_arguments(canonical_name, args)
+                        namespace = self.runtime.application.namespace(context, descriptor, args)
+                        with self.runtime.database.read() as uow:
+                            self.runtime.application.authorize(context, descriptor, (), uow,
+                                namespace=namespace, arguments=args)
+                        # Projects have no browsers: a call's project context never selects one.
+                        body = dict(args)
+                        body["idempotency_key"] = options.idempotency_key
+                        value = self.runtime.browser_access.tool(actor, body["action"], body)
+                        return OperationResult.ok(value, request_id=request_id)
+                    return self.runtime.application.invoke(context, name, args, options)
             result = await anyio.to_thread.run_sync(invoke)
             presented = mcp_presentation.present(canonical_name, result.to_dict(), detail,
                 tool_names=tool_names, sections=sections, arguments=args)
