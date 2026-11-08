@@ -16,9 +16,13 @@ class StartupInventory:
     def __init__(self, memory, ctx, identity, uow):
         self.memory, self.app, self.uow = memory, memory.app, uow
         self.identity = identity
-        actor = Principal(identity, 'agent')
-        self.ctx = self.app.current_context(memory.resolver.invocation_context(actor,
-            business_id=ctx.business_id), uow)
+        if ctx.principal_kind == 'agent' and ctx.principal_id == identity:
+            # The authenticated caller is the inventory owner: refresh its own context (policy, scope, provenance)
+            # in this transaction instead of resolving the same agent's configuration again.
+            actor_ctx = ctx
+        else:
+            actor_ctx = memory.resolver.invocation_context(Principal(identity, 'agent'), business_id=ctx.business_id)
+        self.ctx = self.app.current_context(actor_ctx, uow)
         self.scopes = [ctx.business_id]
         if ctx.business_id is None:
             self.scopes += sorted(self.ctx.allowed_business_ids)
