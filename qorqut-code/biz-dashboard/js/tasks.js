@@ -40,6 +40,7 @@ state.tasks = [];
 state.tasksBiz = null; state.tasksError = null;   // which business state.tasks belongs to, or failed to load
 state.myTasks = [];
 let tPersonalLoaded = false, tPersonalError = null, tFetch = 0;
+let tPrincipal = null;              // principal_id of the last applied /me/tasks response; personal membership is only patched when known
 
 // ---------------------------------------------------------------- view (tabs)
 // Retired drawer views are no longer offered by shared task headers.
@@ -131,6 +132,7 @@ async function tLoadTasks(localNeeded) {
     if (!current()) return;
     if (!Array.isArray(data?.tasks)) throw new Error('Invalid task feed');
     state.myTasks = data.tasks;
+    tPrincipal = typeof data.principal_id === 'string' && data.principal_id ? data.principal_id : null;
     tPersonalLoaded = true; tPersonalError = null;
     state.myTasks.forEach(t => Object.assign(t, taskStateObserve(tSlug(t), t)));
   }).catch(() => {
@@ -164,24 +166,59 @@ function tRelease() {
   if (a && a.closest && a.closest("#taskspanel") && a.id !== "taddin" && a.id !== "tsearch") try { a.blur(); } catch (e) {}
 }
 
+// Reload the lists without holding the caller: a committed save must never wait on, or fail because of, a read.
+function tRefreshInBackground() {
+  try { Promise.resolve(refreshTasks()).catch(() => {}); } catch (_) { /* the load reports its own error state */ }
+}
+
+// Reflect the server's canonical task in the lists it belongs to, before the background reload lands.
+// `business` is the identity captured when the write started; nothing here reads state.biz for a destination.
+function tAcceptCanonical(task, business, {id = null, created = false} = {}) {
+  tGen++;   // a full-list read that began before this acknowledgement is stale and must not overwrite it
+  try {
+    const slug = business?.slug;
+    if (!slug || !task || typeof task !== 'object' || task.id == null || (id != null && String(task.id) !== String(id))) return false;
+    if (!Number.isInteger(Number(task.revision)) || Number(task.revision) < 1) return false;
+    if (task.business_id != null && business.id != null && task.business_id !== business.id) return false;
+    const merged = taskStateObserve(slug, task);   // an older response resolves to the newest acknowledged revision
+    const same = row => row.id === merged.id && tSlug(row) === slug;
+    const next = row => ({...row, ...merged, business: row.business || business});
+    if (state.tasksBiz === slug && state.biz === slug && Array.isArray(state.tasks)) {
+      if (state.tasks.some(same)) state.tasks = state.tasks.map(row => same(row) ? next(row) : row);
+      else if (created) state.tasks = [...state.tasks, {...merged, business}];
+    }
+    if (tPersonalLoaded && Array.isArray(state.myTasks)) {
+      const known = tPrincipal && Array.isArray(merged.assignee_ids);
+      const mine = known && merged.assignee_ids.includes(tPrincipal);
+      if (state.myTasks.some(same)) state.myTasks = known && !mine ? state.myTasks.filter(row => !same(row)) : state.myTasks.map(row => same(row) ? next(row) : row);
+      else if (mine && business.id != null) state.myTasks = [...state.myTasks, {...merged, business}];
+    }
+    if (tVisSig() !== tPaintSig) paintTasks();
+    if (typeof businessTasksPaint === 'function') businessTasksPaint();
+    return true;
+  } catch (_) { return false; }   // the save is committed; the background reload repairs the lists
+}
+
 async function twrite(identity, body, onError) {
   const task = taskById(identity); if (!task) return null;
+  const business = tBusiness(task), slug = business.slug;
   tGen++;
   try {
-    const r = await post(`/biz/${encodeURIComponent(tSlug(task))}/task/${encodeURIComponent(task.id)}`, {expected_revision: task.revision, ...body});
+    const r = await post(`/biz/${encodeURIComponent(slug)}/task/${encodeURIComponent(task.id)}`, {expected_revision: task.revision, ...body});
     if (r?.error) throw Object.assign(new Error(typeof r.error === 'string' ? r.error : r.error.message), {code: r.error?.code, httpStatus: r.httpStatus});
-    if (r?.status === 'signoff_required') { toast('Submitted for project approval.'); await refreshTasks(); return null; }
-    tRelease(); await refreshTasks();
-    if (typeof refreshSideSoon === 'function' && state.biz === tSlug(task)) refreshSideSoon();
+    if (r?.status === 'signoff_required') { toast('Submitted for project approval.'); tRefreshInBackground(); return null; }
+    tRelease(); tAcceptCanonical(r?.task, business, {id: task.id}); tRefreshInBackground();
+    if (typeof refreshSideSoon === 'function' && state.biz === slug) refreshSideSoon();
     return r;
-  } catch (error) { toast(uiFailure(error)); onError?.(uiFailure(error)); await refreshTasks(); return null; }
+  } catch (error) { toast(uiFailure(error)); onError?.(uiFailure(error)); tRefreshInBackground(); return null; }
 }
 
 async function tadd(fields) {
+  const slug = state.biz, business = tBiz(slug);
   tGen++;
-  const r = await post(`/biz/${state.biz}/task`, {owner: tHuman(), ...fields});
+  const r = await post(`/biz/${slug}/task`, {owner: tHuman(), ...fields});
   if (r && r.error) { toast("Couldn't save. Try again"); return null; }
-  await refreshTasks();
+  tAcceptCanonical(r?.task, business, {created: true}); tRefreshInBackground();
   if (typeof refreshSideSoon === "function") refreshSideSoon();
   return r;
 }
