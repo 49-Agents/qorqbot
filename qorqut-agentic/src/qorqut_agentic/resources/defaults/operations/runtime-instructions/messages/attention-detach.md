@@ -1,1 +1,3 @@
-This workflow remains blocked. Save the blocker and resume context, then detach your focus if you cannot progress.
+If you believe that your work is blocked, or needs input from the user, please take a minute to carefully reevaluate if that is indeed the case. Often times you believe a non-blocked or easily avoidable blocker to stop the work. Keep in mind that your genuine desire is to get work done, not find an out to avoid working.
+
+If this workflow remains blocked after reevaluation, save the blocker and resume context, then detach your focus if you cannot progress.
