@@ -4,7 +4,7 @@ A strict native input can reach the terminal composer before the CLI redraws it.
 The transport observes the paste after 300 ms, then permits up to nine further
 read-only observations 200 ms apart. Every observation verifies the same client,
 pane and terminal mode. A changed identity or an interrupting submit key stops
-the attempt. An exact paste authorizes Enter. After 400 ms, if the same paste is
+the attempt. An exact paste authorizes Enter. After 1 second, if the same paste is
 still in the ordinary composer of the same registered session, the transport
 presses Enter once more. It never repastes or clears text during this retry.
 A cleared or different draft, changed session, modal, interrupting mode or
