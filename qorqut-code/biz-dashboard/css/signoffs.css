@@ -263,6 +263,8 @@
 .sg-focus .sg-content-value .sg-val-list, .sg-focus .sg-content-value ul { margin: 0; }
 
 /* Draft review uses the existing message editor, six-line preview and action row. */
+.sg-draft-review .sg-draft-field.sg-content-row { grid-template-columns: fit-content(72px) minmax(0, 1fr); column-gap: 8px; }
+.sg-draft-review .sg-draft-field.sg-content-row textarea.sg-message-editor { padding-left: 6px; }
 .sg-draft-field:not(.sg-content-row) { display: block; margin: 6px 0; }
 .sg-draft-review .sg-draft-status:empty { display: none; }
 .sg-email-collapsed .sg-draft-field[data-draft-multiline] > .sg-draft-editor,
@@ -270,3 +272,6 @@
 .sg .sg-draft-feedback .sg-feedback { min-height: 0; resize: none; overflow: hidden; padding: 6px 12px; }
 .sg-draft-version-field { margin: 8px 0; }
 .sg-draft-version-field pre { margin: 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 520px) {
+  .sg-draft-review .sg-draft-field.sg-content-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
