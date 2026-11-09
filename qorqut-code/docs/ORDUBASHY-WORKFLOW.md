@@ -20,14 +20,14 @@ a board containing only blocked, waiting or needs-input tasks is reassessed ever
 A focused agent receives a progress reminder through its next eligible hook every
 five minutes. If no hook delivers it, the existing chat fallback becomes eligible
 three minutes after that deadline, including when the connected agent is idle.
-It does not start a stopped client or resume a paused session. The 30-minute buffer
+It does not start a stopped client or resume a paused session. The 15-minute buffer
 after an owner message still applies to chat delivery, not the focused hook.
 Existing persisted deadlines are retained until their normal clock transition or
 delivery; installing a new interval does not replay missed reminders.
 
 ### Daily Todo adjustment
 
-The existing inactivity polling pass invites the configured Ordubashy to run a careful Todo list adjustment at most once per elapsed 24 hours. The first eligible pass sends the invitation; it is not a calendar-day schedule and missed days do not accumulate. Eligibility requires a live, idle native session, at least 15 minutes since session observation and agent activity, and at least 30 minutes since the last owner message. Paused or stopped sessions, pending native input and revoked session authority prevent delivery. A stale Focus does not prevent housekeeping when the session is actually idle. Done-only lists qualify; empty lists do not.
+The existing inactivity polling pass invites the configured Ordubashy to run a careful Todo list adjustment at most once per elapsed 24 hours. The first eligible pass sends the invitation; it is not a calendar-day schedule and missed days do not accumulate. Eligibility requires a live, idle native session, at least 15 minutes since session observation and agent activity, and at least 15 minutes since the last owner message. Paused or stopped sessions, pending native input and revoked session authority prevent delivery. A stale Focus does not prevent housekeeping when the session is actually idle. Done-only lists qualify; empty lists do not.
 
 The authored `todo-adjustment` instruction asks Ordubashy to read every page, remove Done memberships while retaining the underlying records and history, reconcile states, Workers and stale focus, and update the appropriate threads with meaningful progress. The owner's standing daily-cleanup request supplies the explicit owner authorization required for Done removal. Unfinished commitments, unanswered questions and private messages retain their existing protections. The invitation itself never changes Tasks or Todo memberships.
 

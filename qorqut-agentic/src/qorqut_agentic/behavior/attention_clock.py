@@ -25,17 +25,17 @@ deadline is still reported so the runtime can schedule it.
 
 Timing rules:
 
-- Unfocused ``normal``: entry and mode switches arm ``max(now + 3m, last_owner + 30m)``. Genuine agent
+- Unfocused ``normal``: entry and mode switches arm ``max(now + 3m, last_owner + 15m)``. Genuine agent
   activity in the same mode extends to ``max(D, activity + 3m)``; an owner message extends to
-  ``max(D, message + 30m)``. A delivered board reminder rearms from the delivery time (3m) subject to
+  ``max(D, message + 15m)``. A delivered board reminder rearms from the delivery time (3m) subject to
   the owner buffer.
-- Unfocused ``reassess``: entry and mode switches arm ``max(now + 30m, last_owner + 30m)``; activity does
-  not move it, an owner message still extends it to ``max(D, message + 30m)``, and a delivery rearms 30
+- Unfocused ``reassess``: entry and mode switches arm ``max(now + 30m, last_owner + 15m)``; activity does
+  not move it, an owner message still extends it to ``max(D, message + 15m)``, and a delivery rearms 30
   minutes later subject to the same buffer. ``empty`` arms nothing, so Done/Cancelled work cannot keep a
   reminder running.
 - Focused: a new generation arms ``focus_started_at + 5m`` and each delivered focus reminder rearms
   ``delivery + 5m``. Activity and owner messages never postpone the hook; chat becomes eligible at
-  ``max(due + 3m, last_owner + 30m)``.
+  ``max(due + 3m, last_owner + 15m)``.
 - Focused with a blocked workflow episode only exposes the detachment occurrence at
   ``blocked_since + 30m``; ordinary focus and board delivery is suspended, an owner message neither
   resets nor postpones that clock, and a delivered detachment is remembered for that episode only. The
@@ -58,7 +58,7 @@ BOARD_INTERVAL = {'normal': timedelta(minutes=3), 'reassess': timedelta(minutes=
 BOARD_KIND = {'normal': 'board_normal', 'reassess': 'board_reassess'}
 BOARD_KINDS = frozenset(BOARD_KIND.values())
 OCCURRENCE_KINDS = BOARD_KINDS | {'focus', 'workflow_detach'}
-OWNER_MESSAGE_BUFFER = timedelta(minutes=30)
+OWNER_MESSAGE_BUFFER = timedelta(minutes=15)
 FOCUS_INTERVAL = timedelta(minutes=5)
 FOCUS_CHAT_GRACE = timedelta(minutes=3)
 WORKFLOW_DETACH_GRACE = timedelta(minutes=30)

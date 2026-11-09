@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 INTERVAL = timedelta(hours=24)
 IDLE = timedelta(minutes=15)
-OWNER_BUFFER = timedelta(minutes=30)
+OWNER_BUFFER = timedelta(minutes=15)
 
 
 def instant(value):
