@@ -9,6 +9,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import tempfile
 import time
@@ -16,6 +17,7 @@ import uuid
 from urllib.error import HTTPError
 
 PROC_ROOT = Path('/proc')
+CONNECTOR_TIMEOUT = 20
 PHASES = {'SessionStart':'idle','UserPromptSubmit':'running','PreToolUse':'running',
     'PostToolUse':'running','PostToolUseFailure':'running','PermissionRequest':'idle',
     'Stop':'idle','Interrupt':'idle','SessionEnd':'offline'}
@@ -259,7 +261,7 @@ def checkpoint_post(registration, body, *, route='/api/agent/checkpoint', timeou
     token = path.read_text().strip()
     if not 32 <= len(token) <= 512 or any(c.isspace() for c in token):
         raise ValueError('invalid credential')
-    if route not in {'/api/agent/checkpoint', '/api/agent/attention-hook'}:
+    if route not in {'/api/agent/checkpoint', '/api/agent/attention-hook', '/api/agent/connector-gate'}:
         raise ValueError('invalid hook endpoint')
     request = Request(f'{endpoint.scheme}://{endpoint.netloc}{route}',
         data=json.dumps(body).encode(),
@@ -552,11 +554,61 @@ def record(hook, registration_path, runtime, *, now=None):
         os.close(fd)
 
 
+CONNECTOR_PREFIX = 'mcp__claude_ai_'
+CONNECTOR_READS = frozenset('get list search read find fetch query lookup view describe check count'.split())
+CONNECTOR_CHANGES = frozenset(('create send update delete remove write reply forward add set edit modify move archive '
+    'cancel invite share upload publish insert apply approve reject run execute').split())
+CONNECTOR_UNCHECKED = "Qorqbot couldn't confirm the owner's approval, so this connector action was blocked. Try again in a moment."
+
+
+def connector_is_read(tool_name):
+    """Only a name that plainly reads passes without approval, so a new or unusual tool is gated by default."""
+    name = re.sub(r'(?<=[a-z0-9])(?=[A-Z])', '_', tool_name.rsplit('__', 1)[-1]).lower()
+    words = [word for word in re.split(r'[^a-z0-9]+', name) if word]
+    return bool(words) and words[0] in CONNECTOR_READS and not CONNECTOR_CHANGES.intersection(words)
+
+
+def connector_denial(reason):
+    return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
+                                   'permissionDecisionReason': reason}}
+
+
+def connector_gate(hook, registration_path, post=checkpoint_post):
+    """None lets the call continue; anything uncertain refuses it. Must answer before the hook's own timeout, which would allow it."""
+    tool = hook.get('tool_name')
+    if not isinstance(tool, str) or not tool.startswith(CONNECTOR_PREFIX) or connector_is_read(tool):
+        return None
+    try:
+        registration = json.loads(Path(registration_path).read_text())
+        result = post(registration, {'registration_id': registration['registration_id'], 'session_id': hook['session_id'],
+                                     'tool_name': tool, 'tool_input': hook['tool_input']},
+                      route='/api/agent/connector-gate', timeout=CONNECTOR_TIMEOUT)
+    except Exception:
+        return connector_denial(CONNECTOR_UNCHECKED)
+    if result.get('decision') == 'allow':
+        return None
+    reason = result.get('reason')
+    return connector_denial(reason if isinstance(reason, str) and reason else CONNECTOR_UNCHECKED)
+
+
+def connector_main(registration_path):
+    try:
+        output = connector_gate(json.loads(sys.stdin.read(4 * 1024 * 1024)), registration_path)
+    except Exception:
+        output = connector_denial(CONNECTOR_UNCHECKED)
+    if output:
+        sys.stdout.write(json.dumps(output, separators=(',', ':')) + '\n')
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--registration',type=Path,required=True)
     parser.add_argument('--runtime',choices=('claude-code','codex'),required=True)
+    parser.add_argument('--connector-gate',action='store_true')
     args=parser.parse_args()
+    if args.connector_gate:
+        connector_main(args.registration)
+        return
     output={}
     hook={}
     try:

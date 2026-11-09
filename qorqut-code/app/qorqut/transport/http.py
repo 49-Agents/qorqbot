@@ -251,7 +251,7 @@ class HTTPAPI:
         parts = request.path_params.get("path", "").strip("/").split("/")
         if parts[:1] == ["agent"]:
             return "agent." + parts[1] if len(parts) > 1 and parts[1] in {
-                "readiness", "bootstrap", "browser", "focus", "inbox", "checkpoint", "technical-observation"} else "agent"
+                "readiness", "bootstrap", "browser", "focus", "inbox", "checkpoint", "connector-gate", "technical-observation"} else "agent"
         if parts[:2] == ["root", "operations"]:
             return "root.operation"
         if parts[:1] == ["biz"]:
@@ -445,7 +445,7 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
-            if parts == ["root", "browser-setup"] and request.method in {"GET", "POST"}:
+            if parts in (["root", "browser-setup"], ["root", "browser-accounts"]) and request.method in {"GET", "POST"}:
                 if request.headers.get("authorization") is not None:
                     raise DomainError("forbidden", "Browser setup is for the owner's dashboard")
                 context, _ = self.context(actor)
@@ -454,6 +454,19 @@ class HTTPAPI:
                 if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
                     raise DomainError("forbidden", "Only the installation owner can set up agent browsers")
                 from qorqut.browser import setup as browser_setup
+                if parts[1] == "browser-accounts":
+                    from qorqut.browser import sign_in
+                    reader = partial(sign_in.accounts, self.runtime)
+                    if request.method == "POST":
+                        body = await read_json(request, limit=2048)
+                        checked_fields(body, {"action", "agent_id", "site"}, {"action", "agent_id", "site"})
+                        if body["action"] != "sign_out":
+                            raise DomainError("validation_error", "Settings can only sign out. Ask Ordubashy to connect a website.")
+                        reader = partial(sign_in.sign_out, self.runtime, body["agent_id"], body["site"])
+                    data = await anyio.to_thread.run_sync(reader)
+                    result = response(OperationResult.ok(data, request_id=request_id))
+                    result.headers["Cache-Control"] = "private, no-store"
+                    return result
                 if request.method == "POST":
                     body = await read_json(request, limit=1024)
                     if body != {"action": "retry"}:
@@ -1291,6 +1304,20 @@ class HTTPAPI:
             context = await anyio.to_thread.run_sync(partial(self.runtime.agent_context, actor.principal, diagnostic=True))
             value = await anyio.to_thread.run_sync(partial(self.runtime.observed_agent_call, context,
                 'agent.checkpoint', 'inspect', partial(self.runtime.checkpoints.check, context, **body)))
+            return response(OperationResult.ok(value, request_id=new_id()))
+        if request.method == "POST" and parts == ["agent", "connector-gate"]:
+            await anyio.to_thread.run_sync(self.runtime.require_authority)
+            actor = await anyio.to_thread.run_sync(lambda: self.authentication.agent(request.headers.get("authorization")))
+            request.scope["qorqut.auth"] = actor
+            body = await read_json(request, limit=65536)
+            checked_fields(body, {"registration_id", "session_id", "tool_name", "tool_input"},
+                           {"registration_id", "session_id", "tool_name", "tool_input"})
+            if body["registration_id"] != actor.registration_id:
+                raise DomainError("forbidden", "Connector approval is not bound to this credential")
+            from qorqut import connector_gate
+            context = await anyio.to_thread.run_sync(partial(self.runtime.agent_context, actor.principal))
+            value = await anyio.to_thread.run_sync(partial(connector_gate.check, self.runtime, context,
+                                                           body["tool_name"], body["tool_input"]))
             return response(OperationResult.ok(value, request_id=new_id()))
         if request.method != "POST" or parts not in (["agent", "bootstrap"], ["agent", "bootstrap", "receipt"]):
             raise DomainError("not_found", "Agent endpoint is not registered")

@@ -78,7 +78,11 @@ def view(runtime):
         tool = True
     except (browser.BrowserError, OSError, ValueError):
         tool = False
+    from . import sign_in
     for agent in agents:
+        if sign_in.active(agent["agent_id"]):
+            agent.update({"state": "signing_in", "diagnostic": "", "explanation": "Paused while you sign in. It comes back when you close the Chrome window."})
+            continue
         try:
             result = runtime.browser_manager.manage(owner, {"agent_id": agent["agent_id"], "action": "status"},
                                                     owner_control=True)
@@ -92,7 +96,7 @@ def view(runtime):
             agent.update({"state": "unavailable", "diagnostic": "This browser's status could not be read.",
                           "explanation": explanation("unavailable")})
     return {"kind": "built_in", "tool_installed": tool, "chrome_installed": chrome,
-            "ready": tool and bool(agents) and all(agent["state"] == "healthy" for agent in agents), "agents": agents}
+            "ready": tool and bool(agents) and all(agent["state"] in {"healthy", "signing_in"} for agent in agents), "agents": agents}
 
 
 def ensure_all(runtime, backoff=None, clock=time.monotonic):
@@ -101,9 +105,12 @@ def ensure_all(runtime, backoff=None, clock=time.monotonic):
     With ``backoff`` (the background loop's per-agent failure record) this is automatic setup: it respects a deliberate
     stop and waits longer after each failure. Without it this is the owner's explicit retry, which does neither.
     """
+    from . import sign_in
     owner, agents = targets(runtime)
     for agent in agents:
         agent_id = agent["agent_id"]
+        if sign_in.active(agent_id):
+            continue
         failure = backoff.get(agent_id) if backoff is not None else None
         if failure is not None and clock() < failure["next_attempt"]:
             continue

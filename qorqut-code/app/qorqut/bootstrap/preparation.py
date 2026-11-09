@@ -435,6 +435,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         # when starting outside the prepared terminal.
         local["permissions"]["allow"] += ["Bash", "Edit", "Write", "Agent"]
         local["permissions"]["deny"] = []
+    local["permissions"]["deny"] = [*local["permissions"]["deny"], *connector_gate_guard(workspace)]
     if capture_transcripts:
         snapshot_command = shlex.join(helper('qorqut.bootstrap.transcript_snapshot', '--registration', str(registration_path)))
         for event in ("Stop", "SessionEnd"):
@@ -468,6 +469,10 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         if runtime == 'codex':
             activity_command = codex_entry + ' activity'
         add_activity_hooks(hooks, activity_command, runtime)
+        if runtime == 'claude-code':
+            # Longer than the gate's own request timeout: Claude Code lets a call continue when a hook times out.
+            hooks['PreToolUse'].append({'matcher': 'mcp__claude_ai_.*', 'hooks': [
+                {'type': 'command', 'command': activity_command + ' --connector-gate', 'timeout': 30}]})
     skills_script = str(workspace / '.qorqut/always-skills.py')
     # The main hook composes skills and runtime rules before contextual data.
     profile = {key: data[key] for key in ("schema_version", "agent_id", "profile_revision", "name", "display_name", "status", "runtime", "role", "scope", "assignment_brief", "plugins", "tool_policy", "presentation", "created_at")}
@@ -631,6 +636,12 @@ def inspect_projection(workspace: Path, projection: dict, *, runtime="claude-cod
         if any(settings.get("enabledPlugins", {}).get(plugin) for plugin in LEGACY_PLUGINS):
             drift.append("legacy_role_plugin_enabled")
     return sorted(set(drift))
+
+
+def connector_gate_guard(workspace: Path) -> list[str]:
+    """Keep an agent from editing away its own approval hook. Every terminal open also rewrites these files."""
+    files = (workspace / ".claude/settings.json", workspace / ".claude/settings.local.json", workspace / ".qorqut/activity-hook.py")
+    return [*(f"Edit({_absolute_rule(path)})" for path in files), "Bash(*.claude/settings*)", "Bash(*.qorqut/activity-hook*)"]
 
 
 def _write_file(path: Path, data: bytes, *, private=False, executable=False) -> None:

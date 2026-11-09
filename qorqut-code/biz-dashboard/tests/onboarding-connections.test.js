@@ -15,7 +15,7 @@ const step = id => {
 test('the overview comes right before the Settings steps and is a saved step', () => {
   assert.ok(tour.indexOf("{id: 'privacy'") < tour.indexOf("{id: 'connect-overview'"));
   assert.ok(tour.indexOf("{id: 'connect-overview'") < tour.indexOf("{id: 'browser-setup'"));
-  const saved = read('../app/bazarlyk/onboarding_preferences.py');
+  const saved = read('../app/qorqut/onboarding_preferences.py');
   assert.ok(saved.indexOf('"connect-overview"') >= 0 && saved.indexOf('"connect-overview"') < saved.indexOf('"browser-setup"'));
 });
 
@@ -27,11 +27,16 @@ test('the overview covers who each path works for and the same-account rule', ()
   assert.match(text, /same Claude account/);
 });
 
-test('Connect is explained before it is pressed', () => {
-  const text = step('connectors');
-  assert.match(text, /opens your connectors on claude\.ai/);
-  assert.match(text, /Google’s own page/);
-  assert.match(text, /checks again by itself/);
+test('the tour ends at the browser and points to the hidden connectors', () => {
+  for (const removed of ["{id: 'connectors'", "{id: 'connect-more'"]) assert.ok(!tour.includes(removed), removed);
+  assert.match(step('connect-overview'), /Settings under Claude connectors/);
+});
+
+test('Claude connectors are collapsed by default and Connect is explained inside', () => {
+  const panel = read('js/connectors.js');
+  assert.match(panel, /<details class="cx-direct" data-cx-direct>/);
+  assert.match(panel, /Connect opens claude\.ai/);
+  assert.ok(panel.indexOf('data-cx-browser ') < panel.indexOf('data-cx-direct>'));
 });
 
 test('Chat tells the owner to start the agent in Terminal and offers no Start button', () => {

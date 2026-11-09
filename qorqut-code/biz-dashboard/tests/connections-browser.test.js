@@ -39,7 +39,8 @@ test('Connections renders browser readiness and keeps external services optional
     assert.equal(await page.locator('[data-cx-browser] [data-cx-action]').count(), 0);
     await page.locator('[data-cx-browser-retry]').click();
     await page.locator('[data-cx-browser-status]').getByText('Ready').waitFor();
-    assert.match(await page.locator('[data-cx-progress]').innerText(), /0 of 1/);
+    assert.equal(await page.locator('[data-cx-direct]').evaluate(element => element.open), false);
+    assert.match(await page.locator('[data-cx-progress]').textContent(), /0 of 1/);
     assert.equal(await page.locator('[data-cx-browser]').evaluate(element => element.scrollWidth <= element.clientWidth), true);
     if (process.env.CONNECTIONS_SCREENSHOT_DIR)
       await page.screenshot({path: path.join(process.env.CONNECTIONS_SCREENSHOT_DIR, 'connections-desktop.png'), fullPage: true});
@@ -47,5 +48,41 @@ test('Connections renders browser readiness and keeps external services optional
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     if (process.env.CONNECTIONS_SCREENSHOT_DIR)
       await page.screenshot({path: path.join(process.env.CONNECTIONS_SCREENSHOT_DIR, 'connections-mobile.png'), fullPage: true});
+  } finally { await browser.close(); }
+});
+
+test('website sign-ins are led by Ordubashy and Settings only lists and signs out', {skip: !available && 'Playwright Chromium unavailable'}, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await browser.newPage({viewport: {width: 1120, height: 900}});
+    await page.setContent('<main id="panel"></main>');
+    await page.addStyleTag({path: path.join(__dirname, '../css/connectors.css')});
+    await page.evaluate(() => {
+      window.esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+      window.coreData = value => value;
+      window.sent = [];
+      window.accounts = {agents: [{agent_id: 'a', name: 'Ordubashy', signing_in: 'github.com', sites: [{site: 'slack.com', session_saved: true}, {site: 'notion.so', session_saved: false}]}]};
+      window.api = async url => url === '/root/browser-accounts' ? window.accounts : url === '/root/browser-setup'
+        ? {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: true, agents: [{name: 'Ordubashy', state: 'healthy'}]}
+        : {checking: false, claude_account: {signed_in: true, method: 'claude.ai'}, connectors: [{id: 'gmail', kind: 'claude', tier: 'recommended', status: 'not_added'}]};
+      window.post = async (url, body) => {
+        window.sent.push(body);
+        window.accounts = {agents: [{...window.accounts.agents[0], signing_in: null, sites: window.accounts.agents[0].sites.filter(item => item.site !== body.site)}]};
+        return window.accounts;
+      };
+    });
+    await page.addScriptTag({path: path.join(__dirname, '../js/connectors.js')});
+    await page.evaluate(() => connectorsPanel.mount(document.querySelector('#panel'), {rows: true}));
+    await page.locator('[data-cx-site="slack.com"]').getByText('Session saved', {exact: true}).waitFor();
+    assert.match(await page.locator('[data-cx-signin-note]').textContent(), /close that window/);
+    assert.equal(await page.locator('[data-cx-accounts] input, [data-cx-accounts] form').count(), 0, 'Settings cannot start a sign-in');
+    assert.match(await page.locator('[data-cx-accounts]').textContent(), /ask Ordubashy in Chat/);
+    assert.match(await page.locator('[data-cx-accounts]').textContent(), /can’t block those actions in code/);
+    assert.equal(await page.locator('[data-cx-site="notion.so"] [data-cx-site-action]').textContent(), 'Remove');
+    await page.evaluate(() => { window.accounts = {agents: [{...window.accounts.agents[0], signing_in: null}]}; });
+    await page.locator('[data-cx-signin-note]').waitFor({state: 'hidden'});
+    await page.locator('[data-cx-site="slack.com"] [data-cx-site-action]').click();
+    await page.locator('[data-cx-site="slack.com"]').waitFor({state: 'detached'});
+    assert.deepEqual(await page.evaluate(() => window.sent[0]), {action: 'sign_out', agent_id: 'a', site: 'slack.com'});
   } finally { await browser.close(); }
 });

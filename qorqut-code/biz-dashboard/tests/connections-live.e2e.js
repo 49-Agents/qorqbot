@@ -37,6 +37,8 @@ test('live app serves browser setup and Connections at desktop and mobile widths
     await page.locator('[data-global-settings]').first().click();
     await page.locator('[data-cx-browser-status]').waitFor();
     await page.locator('[data-cx-browser-status]').getByText('Ready').waitFor();
+    assert.equal(await page.locator('[data-cx-tier="recommended"]').isVisible(), false);
+    await page.locator('[data-cx-direct] > summary').click();
     await page.locator('[data-cx-tier="recommended"] [data-cx-card="gmail"]').waitFor();
     assert.equal(await page.locator('[data-cx-browser] [data-cx-action]').count(), 0);
     if (process.env.CONNECTIONS_SCREENSHOT_DIR)

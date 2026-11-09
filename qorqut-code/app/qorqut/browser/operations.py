@@ -7,6 +7,7 @@ from qorqut_operations.application import OperationDescriptor
 
 BROWSER_OPERATION = "browser_turn"
 AGENT_BROWSER_MANAGE = "agent_browser_manage"
+WEBSITE_SIGN_IN = "website_sign_in"
 
 
 _UUID = {"type": ["string", "null"], "format": "uuid"}
@@ -74,5 +75,25 @@ def register_agent_browser_management(runtime):
     }, version=1, effect_kind="records", supports_signoff=False, scope_kinds=frozenset({"global"}),
         exposure=frozenset({"mcp"}), global_capability="read_global_context", resolve_namespace=resolve_namespace,
         description=instruction_text('operations-set-up-diagnose-repair-restart-or-stop-an'),
+        prepare=unavailable, apply=unavailable))
+    runtime.registry.register(OperationDescriptor(WEBSITE_SIGN_IN, {
+        "type": "object", "additionalProperties": False,
+        "properties": {
+            "action": {"enum": ["open", "status", "sign_out"]},
+            "site": {"type": "string", "maxLength": 300, "description": "A website such as slack.com, or its https sign-in address. Required for open and sign_out."},
+            "agent_id": {"type": "string", "format": "uuid", "description": "A permanent worker who needs the sign-in. Leave out for your own browser."},
+        },
+        "required": ["action"],
+    }, version=1, effect_kind="records", supports_signoff=False, scope_kinds=frozenset({"global"}),
+        exposure=frozenset({"mcp"}), global_capability="read_global_context", resolve_namespace=resolve_namespace,
+        description="Connect the owner's account on a website through the agent browser (Ordubashy only). Use this when the owner "
+                    "asks to connect a site such as Slack, or when work needs their account there. Use this instead of browser_turn or any "
+                    "other browser tool, which cannot sign the owner in. First say in Chat exactly which "
+                    "website you are opening, then call open: a Chrome window appears on the owner's screen at that site. Tell them "
+                    "to check the address bar, sign in themselves and close the window when finished. Never ask for or type a "
+                    "password. The target browser is paused until the window closes. status lists connected sites; session_saved "
+                    "only means the site left cookies, and many sites do that before login, so open the site in your browser to "
+                    "confirm the owner is really signed in. sign_out removes one. Before sending or changing anything on "
+                    "a signed-in site, get the owner's approval in a Signoff. Nothing else enforces that.",
         prepare=unavailable, apply=unavailable))
     return runtime

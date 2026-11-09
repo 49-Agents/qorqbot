@@ -54,10 +54,37 @@ def load_meta(state: Path) -> dict:
 def chrome_command(meta: dict) -> list[str]:
     """The only Chrome argv this supervisor ever runs: normal sandbox, loopback CDP, a profile private to the agent."""
     managed = meta["managed"]
-    return [managed["chrome"], "--headless=new", "--no-first-run", "--no-default-browser-check", "--password-store=basic",
+    return [managed["chrome"], "--headless=new", *profile_flags(managed),
             "--remote-debugging-address=127.0.0.1", f"--remote-debugging-port={managed['port']}",
-            f"--user-data-dir={managed['profile']}", "--disable-background-networking", "--disable-sync",
-            "--disable-extensions", "about:blank"]
+            "--disable-background-networking", "about:blank"]
+
+
+def profile_flags(managed: dict) -> list[str]:
+    """The headless browser and the owner's sign-in window must read the same saved cookies, so they share these exactly."""
+    keychain = ["--use-mock-keychain"] if sys.platform == "darwin" else []
+    return ["--no-first-run", "--no-default-browser-check", "--password-store=basic", *keychain,
+            f"--user-data-dir={managed['profile']}", "--disable-sync", "--disable-extensions"]
+
+
+def visible_chrome_command(meta: dict, url: str, debug_port: int) -> list[str]:
+    """A normal window on the agent's profile, with a loopback debugging port used only to notice the window closing."""
+    managed = meta["managed"]
+    return [managed["chrome"], *profile_flags(managed), "--remote-debugging-address=127.0.0.1",
+            f"--remote-debugging-port={debug_port}", url]
+
+
+def chrome_environment(state: Path) -> dict:
+    """Chrome's environment for this agent's private state directory."""
+    from qorqut import native_paths
+    folder, native = native_paths.folder_root(), native_paths.root()
+    search_path = os.environ.get('PATH', os.defpath) if folder is not None else "/usr/bin:/bin"
+    env = native_paths.environment({"PATH": search_path, "HOME": str(state), "LANG": "C.UTF-8"})
+    for key, name in (("TMPDIR", "tmp"), ("XDG_CACHE_HOME", "cache"), ("XDG_CONFIG_HOME", "config"), ("XDG_RUNTIME_DIR", "run")):
+        installation = folder or (native.parent.parent if native is not None else None)
+        directory = installation / ".run/c" if key == "TMPDIR" and installation is not None else state / name
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        env[key] = str(directory)
+    return env
 
 
 def port_free(port: int) -> bool:
@@ -127,16 +154,7 @@ def serve(state: Path, stop: threading.Event) -> int:
             raise RuntimeError("profile_not_owned")
         if not port_free(managed["port"]):
             raise RuntimeError("port_in_use")
-        from qorqut import native_paths
-        folder, native = native_paths.folder_root(), native_paths.root()
-        search_path = os.environ.get('PATH', os.defpath) if folder is not None else "/usr/bin:/bin"
-        env = native_paths.environment({"PATH": search_path, "HOME": str(state), "LANG": "C.UTF-8"})
-        for key, name in (("TMPDIR", "tmp"), ("XDG_CACHE_HOME", "cache"), ("XDG_CONFIG_HOME", "config"), ("XDG_RUNTIME_DIR", "run")):
-            installation = folder or (native.parent.parent if native is not None else None)
-            directory = installation / ".run/c" if key == "TMPDIR" and installation is not None else state / name
-            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-            env[key] = str(directory)
-        child = subprocess.Popen(chrome_command(meta), cwd=state, env=env, stdin=subprocess.DEVNULL,
+        child = subprocess.Popen(chrome_command(meta), cwd=state, env=chrome_environment(state), stdin=subprocess.DEVNULL,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         publish(chrome_pid=child.pid, chrome_identity=process_identity(child.pid))
         deadline = time.monotonic() + START_TIMEOUT

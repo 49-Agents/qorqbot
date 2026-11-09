@@ -74,7 +74,7 @@ async function renderSettings(c) {
       <div class="st-privacy" data-search="privacy data collect tracking passwords private local">
         <h3>Private by design. Qorqbot collects nothing.</h3>
         <p>No Qorqbot account, no tracking and no Qorqbot servers. Qorqbot runs on this computer and everything it keeps stays here.</p>
-        <ul><li>Your sign-ins stay with Google and Claude. Qorqbot never sees or stores your passwords.</li>
+        <ul><li>You sign in on each service’s own page. Qorqbot never sees or stores your passwords, and website sessions stay in your agents’ private browsers on this computer.</li>
           <li>Every connection is optional, and you can turn it off at any time.</li>
           <li>What you ask your agents goes to Claude or Codex under your own account, the same as when you use them directly.</li></ul></div>`,
   };
