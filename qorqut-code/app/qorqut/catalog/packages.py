@@ -193,7 +193,9 @@ def load_package(source: Path, manifest_path: str, kind: str, registry: Any) -> 
         name = f"qorqut-{kind}-{entry['id']}"
         if not isinstance(metadata, dict) or set(metadata) - {"name", "description", "user-invocable", "disable-model-invocation"}:
             _error(f"Procedure-only skill has unsupported frontmatter: {path}")
-        if metadata.get("name") != name or not isinstance(metadata.get("description"), str) or not 1 <= len(metadata["description"]) <= 600:
+        # Published artifacts are immutable; a host rename does not rewrite their bytes or pins.
+        accepted_names = {name, f"bazarlyk-{kind}-{entry['id']}"}
+        if metadata.get("name") not in accepted_names or not isinstance(metadata.get("description"), str) or not 1 <= len(metadata["description"]) <= 600:
             _error(f"Skill metadata must name {name} and contain a bounded description")
         for option in ("user-invocable", "disable-model-invocation"):
             if option in metadata and not isinstance(metadata[option], bool):
