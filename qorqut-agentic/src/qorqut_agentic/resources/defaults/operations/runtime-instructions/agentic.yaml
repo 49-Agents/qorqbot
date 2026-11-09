@@ -495,6 +495,13 @@
       "when_to_use": "always skills; conditional; selected by the registered runtime policy."
     },
     {
+      "id": "response-style-reminder",
+      "path": "messages/response-style-reminder.md",
+      "kind": "instruction",
+      "description": "Brief, clear replies by default",
+      "when_to_use": "Every successful user prompt, respecting explicit preferences and requested detail."
+    },
+    {
       "id": "startup-denied",
       "kind": "instruction",
       "path": "messages/startup-denied.md",

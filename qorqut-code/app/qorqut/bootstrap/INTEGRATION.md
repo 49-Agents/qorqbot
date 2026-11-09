@@ -267,6 +267,14 @@ saved in receipt metadata without recomputing potentially changed work. It grant
 no authority and never acknowledges context reviews. Requests must reject unknown/actor/cwd
 fields and bind each registration to the authenticated principal.
 
+Every successful UserPromptSubmit emits the managed one-line response-style
+reminder from the prepared Agentic runtime instructions, including when the
+configuration is unchanged, for both supported CLIs. Cached delivery preserves
+any operational skills and does not create a configuration delivery receipt.
+Full deliveries reserve the reminder's space before optional briefing and
+environment text; the mandatory configuration hash remains unchanged. Explicit
+owner preferences and requests for detail override the brevity default.
+
 SessionStart always emits the bounded full bundle; failure emits a visible
 preparation error. The primary composer emits core and topic instructions before
 identity, assignment and contextual data. It incorporates the always-loaded skills

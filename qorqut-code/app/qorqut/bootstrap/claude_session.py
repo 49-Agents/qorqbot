@@ -116,13 +116,20 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
         setup = note
     if response.get('activity_available'):
         setup += instructions.render("startup-session", SESSION_ID=session_id)
+    reminder = instructions.render("response-style-reminder").strip() if event == "UserPromptSubmit" else ""
+    if len(reminder) > 1000:
+        raise DomainError("invalid_bootstrap", "Response style reminder exceeds its character budget")
+    reminder_size = len(reminder) + 2 if reminder else 0
     skills = ''
     if registration.get('operational_intake_enabled'):
         from .always_skills import handle as skills_hook
         skills = skills_hook(hook, registration_path, runtime).get('hookSpecificOutput', {}).get('additionalContext', '')
     if (event == "UserPromptSubmit" and last_id == config_id and not response.get("refresh_required")
             and not recovery.read(registration,session_id)):
-        return ({"hookSpecificOutput": {"hookEventName": event, "additionalContext": skills}} if skills else {}), None, client
+        prompt_context = '\n\n'.join(filter(None, (skills, reminder)))
+        if len(prompt_context) > BOOTSTRAP_BUDGET:
+            raise DomainError("invalid_bootstrap", "Combined bootstrap exceeds its character budget")
+        return ({"hookSpecificOutput": {"hookEventName": event, "additionalContext": prompt_context}} if prompt_context else {}), None, client
     context = response.get("mandatory_context")
     rules = facts = None
     if isinstance(context, dict):
@@ -139,18 +146,20 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     if not isinstance(briefing, str):
         raise DomainError("invalid_bootstrap", "Work briefing must be text")
     if (response.get('work_briefing', {}).get('compact')
-            and len(context) + len(briefing) + 2 > BOOTSTRAP_BUDGET):
+            and len(context) + len(briefing) + reminder_size + 2 > BOOTSTRAP_BUDGET):
         # Preserve mandatory rules and runtime consumer binding in full. Memory
         # is an optional projection and remains available through its scoped tool.
         briefing = instructions.render("startup-inventory")
-        if len(context) + len(briefing) + 2 > BOOTSTRAP_BUDGET:
+        if len(context) + len(briefing) + reminder_size + 2 > BOOTSTRAP_BUDGET:
             briefing = ''
     if briefing:
         context += "\n\n" + briefing
     inventory = bootstrap_environment_context(response.get("environment"), instructions=instructions,
-        max_chars=min(2400, BOOTSTRAP_BUDGET - len(context) - 2))
+        max_chars=min(2400, BOOTSTRAP_BUDGET - len(context) - reminder_size - 2))
     if inventory:
         context += "\n\n" + inventory
+    if reminder:
+        context += "\n\n" + reminder
     if len(context) > BOOTSTRAP_BUDGET:
         raise DomainError("invalid_bootstrap", "Combined bootstrap exceeds its character budget")
     output = {"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}}

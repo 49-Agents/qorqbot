@@ -157,6 +157,10 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
         derived("Core Working Rules", agentic_view.runtime_instructions().render('ordubashy-core'),
                 "agentic:ordubashy-core", "Canonical operational intake and delegation workflow")
     add("Universal Foundation", required("foundation"), "Common rules for every registered agent")
+    response_style = render(agentic_view, "host", "app/qorqut/agentic/assets/response-style.md")
+    add("Response Style", ContextSource("core:response-style", response_style, 1,
+        content_hash(response_style.encode()), "qorqut-core:response-style", "core"),
+        "Default concise, clear replies for every agent")
     add("User Preferences", required("user-preferences/preferences"), "Canonical preferences for every agent")
     add("Scope Operating Brief", required(role.manifest["scope_brief"]), "Selected scope has no implicit exceptions")
     brief = agentic_view.role_brief(role)

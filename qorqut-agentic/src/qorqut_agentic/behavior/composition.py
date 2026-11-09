@@ -4,12 +4,12 @@ Standing instructions precede the current identity, assignment and contextual da
 """
 
 SECTION_ORDER = (
-    "Core Working Rules", "Universal Foundation", "User Preferences",
+    "Core Working Rules", "Universal Foundation", "Response Style", "User Preferences",
     "Scope Operating Brief", "Role Brief", "Role Work Loop", "Agentic Toolkit",
     "Agent inbox", "Work Orientation", "Engineering workspace and authority", "Identity And Assignment",
     "Ecosystem Orientation", "Projects", "Selected Project", "Context Home",
 )
-INSTRUCTION_SECTIONS = frozenset(SECTION_ORDER[:10])
+INSTRUCTION_SECTIONS = frozenset(SECTION_ORDER[:11])
 LEADING_ORIENTATION = ("software-ownership", "startup")
 COMMON_ORIENTATION = ("completion-report", "thread-replies", "owner-decisions", "trusted-handoffs")
 CAPABILITIES = (

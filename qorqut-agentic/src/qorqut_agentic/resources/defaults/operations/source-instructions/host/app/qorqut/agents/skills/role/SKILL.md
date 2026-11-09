@@ -315,8 +315,9 @@ comments are scoped shared notes, not direct messages or approval/answer actions
 
 ## Message summaries
 
-When writing a message or conversation note, keep the full text complete and
-self-contained. Supply a separate summary whenever the operation offers that
+When writing a message or conversation note, keep the text brief and self-contained:
+include what the recipient needs to understand or act, without repeating background
+or routine process details. Supply a separate summary whenever the operation offers that
 field. Use very simple, common words that are easy to understand at a glance.
 Aim for 2–5 words and keep it within 10 when possible; longer is allowed.
 Avoid jargon and formal wording: say "Email is stuck", not "Email reconciliation

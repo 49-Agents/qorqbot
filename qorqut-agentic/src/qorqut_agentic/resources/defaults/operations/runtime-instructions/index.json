@@ -654,6 +654,15 @@
       "previous_source": "bootstrap/always_skills.py"
     },
     {
+      "id": "response-style-reminder",
+      "path": "messages/response-style-reminder.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "successful UserPromptSubmit, including cached configuration",
+      "audience": "all registered agents on Claude Code and Codex",
+      "previous_source": "bootstrap/claude_session.py"
+    },
+    {
       "id": "startup-denied",
       "path": "messages/startup-denied.md",
       "parameters": [

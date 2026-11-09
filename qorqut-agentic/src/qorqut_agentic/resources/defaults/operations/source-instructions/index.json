@@ -143,6 +143,10 @@
     },
     {
       "source": "host",
+      "path": "app/qorqut/agentic/assets/response-style.md"
+    },
+    {
+      "source": "host",
       "path": "app/qorqut/agentic/assets/role-workflow.md"
     },
     {

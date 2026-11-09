@@ -50,6 +50,12 @@
       "source_site": "app/qorqut/agents/context.py:compose_context"
     },
     {
+      "id": "response-style",
+      "path": "app/qorqut/agentic/assets/response-style.md",
+      "parameters": [],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
       "id": "completion-report",
       "path": "app/qorqut/agentic/assets/completion-report.md",
       "parameters": [],
