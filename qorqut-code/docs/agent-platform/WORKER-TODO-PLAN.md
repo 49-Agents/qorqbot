@@ -108,9 +108,9 @@ Generalize `agents/attention_delivery.py` reconciliation and eligibility to each
 eligible board. The existing native nudge pass already visits agent profiles;
 reuse it and the current hook/chat claim and receipt handling.
 
-Use the unchanged pure timer policy in Agentic's `behavior/attention_clock.py`:
-10-minute focused checks, 15-minute unfocused checks for open/working tasks,
-four-hour reassessment for blocked/waiting/input-only boards, and the existing
+Use the shared pure timer policy in Agentic's `behavior/attention_clock.py`:
+5-minute focused checks, 3-minute unfocused checks for open/working tasks,
+30-minute reassessment for blocked/waiting/input-only boards, and the existing
 30-minute owner-message buffer. Preserve the current hook-to-chat fallback.
 Workflows and their detachment timing remain Ordubashy's existing behavior.
 
