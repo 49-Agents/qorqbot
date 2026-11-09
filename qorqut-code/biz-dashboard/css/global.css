@@ -50,7 +50,7 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 .global-agents .listcol .global-primary { flex: 0 1 auto; min-height: 64px; overflow-y: auto; }
 .global-agents .global-roster { display: flex; flex-direction: column; }
 .global-agents .global-workspace-terminals { flex: none; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line); }
-.global-agents .global-workspace-terminal svg, .global-agents .global-workspace-settings svg, .global-agents .global-workspace-guide svg { width: 20px; height: 20px; flex: none; }
+.global-agents .global-workspace-projects svg, .global-agents .global-workspace-terminal svg, .global-agents .global-workspace-settings svg, .global-agents .global-workspace-guide svg { width: 20px; height: 20px; flex: none; }
 .agsplit.nav-off > .listcol .global-nav-body { display: none; }
 .global-agent-session { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .global-agent-session .chat.termmode { flex: 1; min-height: 180px; padding: 24px; }

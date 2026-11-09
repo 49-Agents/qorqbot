@@ -59,14 +59,21 @@ const onboarding = (() => {
     // No target: the whole screen dims and the promise stands on its own.
     {id: 'privacy', chapter: 'connect', title: 'your data stays yours', wide: true, standalone: true,
       body: '<b class="onboarding-promise">Qorqbot collects nothing.</b> No Qorqbot account, no tracking, no Qorqbot servers. It runs on this computer, and everything it keeps stays here.',
-      instructions: ['When you connect Gmail or Google, you sign in on Google’s own page. Qorqbot never sees or stores your passwords.',
-        'Every connector is optional. Turn any of them off at any time in Settings.',
-        'What you ask your agents goes to Claude or Codex under your own account, the same as when you use them directly.'],
+      instructions: ['What you ask your agents goes to Claude or Codex under your own account, the same as when you use them directly.'],
       target: () => null},
-    {id: 'connectors', chapter: 'connect', tab: 'settings', title: 'the essentials',
-      body: 'This makes your agents useful on day one. Press Connect on Gmail to sign in with Google through Claude.',
-      instructions: ['Open “What it can see” on any connection for the details.'],
-      hint: 'All optional, but strongly recommended. You can do this later in Settings.',
+    {id: 'connect-overview', chapter: 'connect', title: 'two ways to reach your tools', wide: true, standalone: true,
+      body: 'Both are optional.',
+      instructions: ['<b>Agent browser:</b> built into Qorqbot, for websites that don’t need your login. Works with both Claude Code and Codex.',
+        '<b>Connections:</b> for your accounts, such as Gmail and Calendar. Only agents running in Claude Code can use them, through the same Claude account your agents use.'],
+      target: () => null},
+    {id: 'browser-setup', chapter: 'connect', tab: 'settings', title: 'agent browser',
+      body: 'It sets itself up. This card shows when it’s ready, or how to fix it if not.',
+      target: () => document.querySelector('[data-cx-browser]')},
+    {id: 'connectors', chapter: 'connect', tab: 'settings', title: 'email, if you want it',
+      body: 'Connect Gmail so agents can work with your email.',
+      instructions: ['Press Connect. It opens your connectors on claude.ai.', 'Find Gmail, press Connect there, and allow access on Google’s own page.',
+        'Come back here. Qorqbot checks again by itself.'],
+      hint: 'Claude Code only. Codex agents can’t use this.',
       target: () => document.querySelector('[data-cx-tier="recommended"]')},
     {id: 'connect-more', chapter: 'connect', tab: 'settings', title: 'also useful',
       body: 'Calendar, Drive, Notion, Slack and WhatsApp. Connect the ones you use; skip the rest.',
@@ -174,24 +181,25 @@ const onboarding = (() => {
     waiting: 'Waiting for you to type claude or codex…',
     connecting: 'He started. Connecting to Chat…',
     online: 'Online',
+    unreachable: 'Can’t reach Qorqbot to check on Ordubashy. Make sure Qorqbot is still running. Still trying…',
   };
-  let launchSession = null, launchTimer = 0, trustView = null;
+  let launchSession = null, launchTimer = 0, trustView = null, launchUnreachable = false;
   // The launch step follows Ordubashy's Chat session from the API, because Chat itself is not mounted while Terminal shows.
   function watchLaunch(token) {
     clearTimeout(launchTimer);
     const assistant = findAgent('ordubashy');
     if (!assistant || !isCurrent(token)) return;
     api(`${globalChatBase(assistant.agent_id)}?limit=1`, {signal: AbortSignal.timeout(4000)})
-      .then(data => { if (isCurrent(token)) { launchSession = coreData(data).session || {state: 'offline'}; paintLaunch(); } })
-      .catch(() => {})
+      .then(data => { if (isCurrent(token)) { launchUnreachable = false; launchSession = coreData(data).session || {state: 'offline'}; paintLaunch(); } })
+      .catch(() => { if (isCurrent(token)) { launchUnreachable = true; paintLaunch(); } })
       .finally(() => { if (isCurrent(token)) launchTimer = setTimeout(() => watchLaunch(token), 2000); });
   }
   function paintLaunch() {
     const panel = card?.querySelector('[data-launch]'); if (!panel) return;
     const phase = onboardingPlan.launchPhase(launchSession);
+    panel.querySelector('[data-launch-text]').textContent = launchUnreachable ? LAUNCH_TEXT.unreachable : LAUNCH_TEXT[phase];
     if (panel.dataset.phase !== phase) {
       panel.dataset.phase = phase;
-      panel.querySelector('[data-launch-text]').textContent = LAUNCH_TEXT[phase];
       if (phase === 'online') {
         card.querySelector('#onboarding-description').textContent = steps[index].online;
         card.querySelector('.onboarding-instructions')?.remove();
@@ -208,7 +216,7 @@ const onboarding = (() => {
     const panel = card?.querySelector('[data-consent]'); if (!panel) return;
     const granted = !!trustView?.granted;
     panel.dataset.phase = trustView ? (granted ? 'online' : 'waiting') : 'checking';
-    panel.querySelector('[data-launch-text]').textContent = !trustView ? 'Checking…' : granted ? 'Allowed for Qorqbot’s agent folders. A CLI may still ask about a larger folder.' : 'Not allowed yet.';
+    panel.querySelector('[data-launch-text]').textContent = !trustView ? 'Checking…' : granted ? 'Allowed for Qorqbot’s agent folders. A CLI may still ask about a larger folder.' : trustView.unreadable ? 'Qorqbot couldn’t check this setting. You can allow it now, or change it later in Settings.' : 'Not allowed yet.';
     panel.querySelector('[data-consent-allow]').hidden = granted || !trustView;
     const next = card.querySelector('[data-tour-next]');
     if (next && !busy) next.disabled = !granted;
@@ -297,7 +305,7 @@ const onboarding = (() => {
       return;
     }
     if (step.consent) {
-      try { trustView = await agentStart.read(null); } catch (_) { trustView = {granted: false}; }
+      try { trustView = await agentStart.read(); } catch (_) { trustView = {granted: false, unreadable: true}; }
       if (isCurrent(token)) paintConsent();
       return;
     }
@@ -351,7 +359,7 @@ const onboarding = (() => {
     const skipChapter = card.querySelector('[data-tour-chapter]'); if (skipChapter) skipChapter.onclick = () => showStep(following);
     card.querySelector('[data-tour-next]').onclick = () => index===steps.length-1 ? exit('completed') : showStep(index+1);
     card.querySelector('[data-consent-allow]')?.addEventListener('click', async () => {
-      const view = await agentStart.consent(null, 'Ordubashy');
+      const view = await agentStart.consent();
       if (!isCurrent(token)) return;
       if (view) { trustView = view; skippedConsent = false; }
       paintConsent(); schedule();

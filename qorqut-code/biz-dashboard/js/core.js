@@ -231,22 +231,31 @@ const api = async (p, opt = {}) => {
   const generation = apiReadGeneration;
   const requestOptions = cached ? { ...opt, headers: { ...(opt.headers || {}), "If-None-Match": cached.etag } } : opt;
   let r;
-  if (method === 'GET' && !Object.keys(opt).length) {
-    let flight = apiReadFlights.get(url);
-    if (!flight) {
-      flight = fetch(url, requestOptions);
-      apiReadFlights.set(url, flight);
-      const clear = () => { if (apiReadFlights.get(url) === flight) apiReadFlights.delete(url); };
-      flight.then(clear, clear);
-    }
-    r = (await flight).clone();
-  } else r = await fetch(url, requestOptions);
+  try {
+    if (method === 'GET' && !Object.keys(opt).length) {
+      let flight = apiReadFlights.get(url);
+      if (!flight) {
+        flight = fetch(url, requestOptions);
+        apiReadFlights.set(url, flight);
+        const clear = () => { if (apiReadFlights.get(url) === flight) apiReadFlights.delete(url); };
+        flight.then(clear, clear);
+      }
+      r = (await flight).clone();
+    } else r = await fetch(url, requestOptions);
+  } catch (error) {
+    if (error?.name !== 'TypeError') throw error;   // A caller's own abort or timeout keeps its meaning.
+    throw failureError('network_unavailable');
+  }
   let body;
   if (cached && r.status === 304) {
     if (generation === apiReadGeneration) etagCacheTouch(url, cached);
     body = cloneJson(cached.body);
   } else {
-    body = await r.json();
+    try { body = await r.json(); }
+    catch (error) {
+      if (error?.name !== 'SyntaxError') throw error;
+      throw failureError('invalid_response', r.status);
+    }
     const etag = method === "GET" && r.ok && r.headers.get("etag");
     if (etag && generation === apiReadGeneration) etagCacheTouch(url, { etag, body });
   }
@@ -255,12 +264,46 @@ const api = async (p, opt = {}) => {
     Object.defineProperty(body, "httpStatus", { value: r.status, enumerable: false });
     if (body.status === "error" && body.error && typeof body.error === "object") {
       Object.defineProperty(body, "coreError", { value: body.error, enumerable: false });
-      body.error = body.error.message || "The request failed.";
+      body.error = explainFailure(body.error.code, body.error.message, r.status);
     }
   }
   return body;
 };
 const post = (p, body, options = {}) => api(p, {...options, method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+// ---- failure wording: what happened and what to do next, in the owner's language
+const FAILURE_RESTART = "If it keeps happening, restart Qorqbot.";
+const FAILURE_EXPLANATIONS = {
+  network_unavailable: "Qorqbot isn't responding. Make sure it's still running on this computer, then try again.",
+  invalid_response: `Qorqbot sent a reply this page couldn't read, so the result is unknown. Refresh the page and check before trying again. ${FAILURE_RESTART}`,
+  unauthenticated: "This dashboard session has ended. Refresh the page to continue.",
+  forbidden: "You don't have permission to do this. Only the owner of this Qorqbot, or an agent given access, can.",
+  policy_denied: "You don't have permission to do this. Only the owner of this Qorqbot, or an agent given access, can.",
+  not_found: "This no longer exists. It may have been moved or deleted. Refresh to see the latest.",
+  busy: "Qorqbot is finishing another change. Wait a few seconds, then try again.",
+  maintenance: "Qorqbot is paused for maintenance. Try again in a minute.",
+  operation_unavailable: "This isn't available in this version of Qorqbot or on this computer.",
+  payload_too_large: "This is too large for Qorqbot to handle. Try a smaller file or less text.",
+  result_too_large: "This is too large for Qorqbot to show. Try narrowing what you asked for.",
+};
+const FAILURE_CHANGED = "This changed after you opened it, possibly because an agent updated it. Refresh to see the latest version, then try again.";
+const FAILURE_INTERNAL = `Something went wrong inside Qorqbot, so this may not have finished. Refresh to check, then try again. ${FAILURE_RESTART}`;
+const FAILURE_UNKNOWN = `Qorqbot couldn't finish this. Refresh the page and try again. ${FAILURE_RESTART}`;
+// Server messages are written for many readers. Only those free of internal vocabulary reach the owner unchanged.
+const FAILURE_TECHNICAL = /\b[a-z]+_[a-z_]+\b|[a-z]+=|[\/\\][\w.-]+[\/\\]|traceback|exception|endpoint|principal|idempotency|schema|operator|operational|runtime|payload|failed to fetch/i;
+function explainFailure(code, message, httpStatus) {
+  const text = typeof message === "string" ? message.trim() : "";
+  if (code === "signoff_required") return text;
+  if (code === "network_unavailable" || code === "invalid_response") return FAILURE_EXPLANATIONS[code];
+  if (/conflict|stale|revision|precondition|state_changed/i.test(code || "")) return FAILURE_CHANGED;
+  if (httpStatus >= 500) return FAILURE_INTERNAL;
+  if (text && text.length <= 240 && !FAILURE_TECHNICAL.test(text)) return text;
+  return FAILURE_EXPLANATIONS[code] || FAILURE_UNKNOWN;
+}
+function failureError(code, httpStatus) {
+  const error = new Error(explainFailure(code, "", httpStatus));
+  error.code = code; error.details = {}; error.httpStatus = httpStatus;
+  return error;
+}
 function newRequestId() {
   if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
   // HTTP/Tailscale origins expose getRandomValues but not randomUUID.
@@ -273,8 +316,9 @@ function newRequestId() {
 function coreData(result) {
   if (!result || !["ok", "accepted"].includes(result.status) || result.error || !result.data) {
     const source = result && (result.coreError || result.error);
-    const error = new Error(typeof source === "string" ? source : (source && source.message) || "The server returned an invalid response.");
-    error.code = (source && source.code) || "invalid_response";
+    const code = (source && source.code) || (typeof source === "string" && source ? "" : "invalid_response");
+    const error = new Error(explainFailure(code, typeof source === "string" ? source : source && source.message, result && result.httpStatus));
+    error.code = code || "invalid_response";
     error.details = (source && source.details) || {};
     error.httpStatus = result && result.httpStatus;
     throw error;
@@ -286,14 +330,14 @@ function coreData(result) {
 // visible. Everything else (network, 5xx, malformed response) is transient and keeps the last successful content.
 const accessLost = error => [401, 403].includes(error?.httpStatus) || ['forbidden', 'policy_denied', 'invalid_principal'].includes(error?.code);
 const sourceGone = error => error?.httpStatus === 404 || error?.code === 'not_found';
-// Short, local feedback for a failed request. The backend's own wording (exceptions, codes, field names) stays in the
-// backend; the only words passed through are the app's own signoff notice. `load` picks the read wording.
+// Feedback for a failed request: what could not be done, why, and what to do next. `load` picks the read wording.
 function uiFailure(error, {load = false} = {}) {
   const code = String(error?.code || '');
   if (code === 'signoff_required') return error.message;
-  if (/conflict|stale|revision|precondition|state_changed/i.test(code)) return 'Changed since you opened it. Refresh';
-  if (!code || code === 'invalid_response' || error?.httpStatus >= 500) return load ? "Couldn't load. Retry" : "Couldn't confirm. Try again";
-  return load ? "Couldn't load. Retry" : "Couldn't save. Try again";
+  const reason = explainFailure(code, error?.message, error?.httpStatus);
+  if (reason === FAILURE_CHANGED) return reason;
+  const unconfirmed = !code || code === 'invalid_response' || code === 'network_unavailable' || error?.httpStatus >= 500;
+  return `${load ? "Couldn't load this." : unconfirmed ? "Couldn't confirm this." : "Couldn't save this."} ${reason}`;
 }
 // One shared owner-session read for every view that needs the caller's identity.
 // Until it lands, views assume the installation owner: the safe default, since

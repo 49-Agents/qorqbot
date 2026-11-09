@@ -307,7 +307,7 @@ async function paintAgentTrust(pane) {
     toggle.disabled = true;
     try {
       if (view.granted) coreData(await post('/root/agent-trust', {granted: false}));
-      else await agentStart.consent(null, 'Ordubashy');
+      else await agentStart.consent();
     } catch (error) { toast(error.message); }
     void paintAgentTrust(pane);
   };

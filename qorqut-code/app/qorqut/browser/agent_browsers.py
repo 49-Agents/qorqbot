@@ -50,6 +50,7 @@ DEPLOYMENT_DIRECTORIES = (Path("/etc/qorqut-browser-desktops"),)
 UNIT = re.compile(r"[A-Za-z0-9][A-Za-z0-9:_.@-]{0,150}\.service")
 KEY = re.compile(r"[\x21-\x7e]{1,200}")
 META_LIMIT, RECEIPT_LIMIT = 16384, 32
+STOP_REQUEST_FILE = "stop-requested.json"
 DIAGNOSTIC = 300
 
 
@@ -411,7 +412,7 @@ class AgentBrowserManager:
 
     # -- entry -------------------------------------------------------------------------------------------------------------
 
-    def manage(self, principal_id, arguments, idempotency_key=None):
+    def manage(self, principal_id, arguments, idempotency_key=None, *, owner_control=False):
         """One management action for ``arguments['agent_id']`` on behalf of the authenticated agent ``principal_id``."""
         action = arguments.get("action")
         try:
@@ -425,22 +426,34 @@ class AgentBrowserManager:
         admission = self.runtime.application.writer_admission
         with admission.writer() if admission is not None and action != "status" else nullcontext():
             self.runtime.require_authority()
-            workspace = self._authorize(principal_id, agent_id)
+            workspace = self._authorize(principal_id, agent_id, owner_control=owner_control)
             if action == "status":
                 return self._status(agent_id, workspace)
             with lifecycle_lock(self.paths, agent_id):
                 # Eligibility is decided again with the lock held, immediately before any effect.
-                workspace = self._authorize(principal_id, agent_id)
+                workspace = self._authorize(principal_id, agent_id, owner_control=owner_control)
                 return self._mutate(action, agent_id, workspace, idempotency_key)
 
-    def _authorize(self, principal_id, agent_id):
+    def _authorize(self, principal_id, agent_id, *, owner_control=False):
         from qorqut.agents.worker_access import require_worker_manager
+        from qorqut.agents.global_scope import active_global
+        from qorqut.agents.roles import ORDUBASHY_ROLE
+        from qorqut.management.identity import is_active_installation_owner
         from qorqut.browser.operations import AGENT_BROWSER_MANAGE
         application = self.runtime.application
         with self.runtime.database.read() as uow:
             context = application.policy.context_for(principal_id, business_id=None, review_business_id=None, uow=uow)
-            application.authorize(context, self.runtime.registry.get(AGENT_BROWSER_MANAGE), [], uow, namespace="global")
-            require_worker_manager(context, uow, agent_id)
+            if owner_control:
+                if not is_active_installation_owner(uow, context.principal_id, context.principal_kind):
+                    raise DomainError("forbidden", "Only the installation owner can set up agent browsers")
+            else:
+                application.authorize(context, self.runtime.registry.get(AGENT_BROWSER_MANAGE), [], uow, namespace="global")
+            profile_data = active_global(uow.connection, agent_id)
+            if profile_data is not None and profile_data["role"]["id"] == ORDUBASHY_ROLE:
+                if not is_active_installation_owner(uow, context.principal_id, context.principal_kind):
+                    raise DomainError("forbidden", "Only the installation owner can manage Ordubashy's browser")
+            else:
+                require_worker_manager(context, uow, agent_id)
             profile = uow.connection.execute(
                 "SELECT p.home_business_id,b.slug FROM agent_profiles p LEFT JOIN businesses b ON b.id=p.home_business_id "
                 "WHERE p.agent_id=?", (agent_id,)).fetchone()
@@ -568,6 +581,8 @@ class AgentBrowserManager:
             result["service_error"] = s.unit["error"]
         if replayed:
             result["replayed"] = True
+        if (s.directory / STOP_REQUEST_FILE).exists():
+            result["stop_requested"] = True
         return result
 
     # -- ownership metadata ------------------------------------------------------------------------------------------------
@@ -735,6 +750,7 @@ class AgentBrowserManager:
                     changed = self._restart_legacy(ctx, s)
                 if action == "restart" and s.target_state == "absent":
                     changed = self._restore(s) or changed
+                self._record_stop_request(s, action == "stop")
             return self._finish(action, s, changed, verify=action == "restart")
         # ensure / repair: converge to a running, published browser; repair also restarts an owned one that does not respond.
         # The restart's stop, start and target restore all happen while no browser command can begin or be running.
@@ -751,7 +767,17 @@ class AgentBrowserManager:
                 changed = self._legacy_control(ctx, s, "start")
             if s.target_state == "absent":
                 changed = self._restore(s) or changed
+            self._record_stop_request(s, False)
         return self._finish(action, s, changed, verify=True)
+
+    @staticmethod
+    def _record_stop_request(s, requested):
+        """Remember a deliberate stop across restarts, so automatic setup does not undo it. Any explicit start clears it."""
+        marker = s.directory / STOP_REQUEST_FILE
+        if requested:
+            write_json_private(marker, {"at": utc_now()})
+        else:
+            marker.unlink(missing_ok=True)
 
     def _restart_legacy(self, ctx, s):
         legacy = self._legacy_verify(s)

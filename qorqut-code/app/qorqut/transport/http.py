@@ -445,6 +445,24 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
+            if parts == ["root", "browser-setup"] and request.method in {"GET", "POST"}:
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "Browser setup is for the owner's dashboard")
+                context, _ = self.context(actor)
+                with self.runtime.database.read() as uow:
+                    owner = uow.repository("installation").get("service")
+                if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
+                    raise DomainError("forbidden", "Only the installation owner can set up agent browsers")
+                from qorqut.browser import setup as browser_setup
+                if request.method == "POST":
+                    body = await read_json(request, limit=1024)
+                    if body != {"action": "retry"}:
+                        raise DomainError("validation_error", "Only browser setup retry is supported")
+                reader = browser_setup.ensure_all if request.method == "POST" else browser_setup.view
+                data = await anyio.to_thread.run_sync(partial(reader, self.runtime))
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
             if parts == ["root", "agent-pins"] and request.method in {"GET", "POST"}:
                 if request.headers.get("authorization") is not None:
                     raise DomainError("forbidden", "Agent pins are for the owner's dashboard")
