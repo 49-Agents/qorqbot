@@ -105,3 +105,38 @@ class RenameCompatibilityTests(unittest.TestCase):
         with self.assertRaisesRegex(DomainError, 'Live host terminal'):
             writers.inventory_and_freeze(timeout=5)
         self.assertEqual([call.args[0][2] for call in run.call_args_list], ['qorqut', 'bazarlyk'])
+
+    def test_layout_receipts_preserve_pre_rename_retirement(self):
+        from qorqut.agentic.layout_inspection import retained_layout_inventory
+        for host in ('bazarlyk', 'qorqut'):
+            with self.subTest(host=host):
+                path = f'native/app/{host}/agentic/assets/learning-work.md'
+                full = 'packages/imported-host-builtins/' + path
+                ref = 'imported-host-builtins/learning-work'
+                inventory = {'packages': [{'id': 'imported-host-builtins',
+                    'entries': [{'id': 'learning-work', 'path': path}], 'files': {path: 'hash'}}],
+                    'assets': [{'destination': full}], 'bindings': [{'entry_refs': [ref],
+                    'skills': [{'canonical_entry': ref}]}], 'coverage': {'asset_count': 1}}
+                result = retained_layout_inventory(inventory, {'ref_map': {}, 'path_map': {}})
+                self.assertEqual(result['packages'][0]['entries'], [])
+                self.assertEqual(result['packages'][0]['files'], {})
+                self.assertEqual(result['assets'], [])
+                self.assertEqual(result['bindings'][0], {'entry_refs': [], 'skills': []})
+                self.assertEqual(inventory['coverage']['asset_count'], 1)
+                self.assertIs(retained_layout_inventory(inventory,
+                    {'ref_map': {}, 'path_map': {full: 'retained'}}), inventory)
+
+    def test_historical_inventory_reads_original_instruction_paths(self):
+        from qorqut.agentic.inventory import Inventory
+        for host in ('bazarlyk', 'qorqut'):
+            with self.subTest(host=host):
+                inv = Inventory(host_package=host)
+                source = SimpleNamespace(id='host')
+                supplier = object()
+                inv.sources['roles'] = supplier
+                path = f'app/{host}/agents/skills/role/SKILL.md'
+                self.assertEqual(inv.supplier(source, path),
+                    (supplier, 'operations/source-instructions/host/' + path))
+                self.assertIn(path, inv.alias_paths('host', f'app/{host}/agents/skills'))
+                physical = Inventory(relocated_instructions=False, host_package=host)
+                self.assertEqual(physical.supplier(source, path), (source, path))

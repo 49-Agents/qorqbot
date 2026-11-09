@@ -533,17 +533,20 @@ def retained_layout_inventory(inventory, mapping):
     """
     from copy import deepcopy
     ref = 'imported-host-builtins/learning-work'
-    relative_path = 'native/app/qorqut/agentic/assets/learning-work.md'
-    path = 'packages/imported-host-builtins/' + relative_path
-    if ref in mapping['ref_map'] or path in mapping['path_map']:
+    # Retained layout receipts keep their original paths across the host rename.
+    relative_paths = {f'native/app/{host}/agentic/assets/learning-work.md'
+                      for host in ('bazarlyk', 'qorqut')}
+    paths = {'packages/imported-host-builtins/' + path for path in relative_paths}
+    if ref in mapping['ref_map'] or paths.intersection(mapping['path_map']):
         return inventory
     result = deepcopy(inventory)
     for package in result.get('packages', []):
         if package['id'] == 'imported-host-builtins':
             package['entries'] = [entry for entry in package['entries']
-                                  if not (entry['id'] == 'learning-work' and entry['path'] == relative_path)]
-            package['files'].pop(relative_path, None)
-    result['assets'] = [asset for asset in result['assets'] if asset['destination'] != path]
+                                  if not (entry['id'] == 'learning-work' and entry['path'] in relative_paths)]
+            for path in relative_paths:
+                package['files'].pop(path, None)
+    result['assets'] = [asset for asset in result['assets'] if asset['destination'] not in paths]
     for binding in result['bindings']:
         binding['entry_refs'] = [value for value in binding['entry_refs'] if value != ref]
         if 'skills' in binding:
