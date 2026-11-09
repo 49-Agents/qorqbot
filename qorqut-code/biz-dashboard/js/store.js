@@ -26,21 +26,31 @@ const storePending = new Set();
 function storeMatches(sub, kind, scope) {
   return sub.kinds.has(kind) && (sub.scope == null || scope == null || sub.scope === scope);
 }
+const STORE_DEBOUNCE_MS = 250, STORE_MAX_WAIT_MS = 1000;
+function storeClearTiming(sub) { clearTimeout(sub.timer); sub.timer = null; sub.first = null; }
 function storeFire(sub) {
-  if (document.hidden) { storePending.add(sub); return; }
+  if (sub.disposed) return;
+  if (document.hidden) { storeClearTiming(sub); storePending.add(sub); return; }
   storePending.delete(sub);
+  const now = Date.now();
+  if (sub.first === null) sub.first = now;
   clearTimeout(sub.timer);
-  sub.timer = setTimeout(() => { sub.timer = null; sub.handler(); }, 250);
+  sub.timer = setTimeout(() => {
+    if (sub.disposed) return;
+    storeClearTiming(sub);
+    if (document.hidden) { storePending.add(sub); return; }
+    sub.handler();
+  }, Math.max(0, Math.min(now + STORE_DEBOUNCE_MS, sub.first + STORE_MAX_WAIT_MS) - now));
 }
 // Views subscribe with the kinds they render and their scope (a business id,
 // or null for every business); the store calls `handler` -- debounced 250ms
-// per subscription, queued instead while document.hidden and flushed once on
+// per subscription (and never later than 1000ms after the first unhandled event), queued instead while document.hidden and flushed once on
 // visibilitychange -- whenever a matching event arrives. Returns an
 // unsubscribe function; call it from the view's teardown.
 function onChange(kinds, scope, handler) {
-  const sub = { kinds: new Set(kinds), scope, handler, timer: null };
+  const sub = { kinds: new Set(kinds), scope, handler, timer: null, first: null, disposed: false };
   storeSubs.add(sub);
-  return () => { storeSubs.delete(sub); storePending.delete(sub); clearTimeout(sub.timer); };
+  return () => { sub.disposed = true; storeSubs.delete(sub); storePending.delete(sub); storeClearTiming(sub); };
 }
 // events.js's own ingestion API; a view calls onChange, never these directly.
 function storeNotify(kind, scope) {

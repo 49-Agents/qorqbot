@@ -400,6 +400,11 @@ async function agfocusRefresh(p) {
       // once, so a slow sibling never delays a completed parent's descendants. Every row is read at most once per refresh.
       const visited=new Set();
       const same=()=>agpadActive(p,true) && pageKey===agfocusPageKey(p) && (!focusMount || p.focusMount===focusMount);
+      // Paint the fresh board now; expanded branches keep their current contents and repaint as each one settles.
+      if(same() && agpadActive(p)){
+        agfocusPaint(p);
+        if(!same() || !agpadActive(p))return;
+      }
       const restore=async item=>{
         if(visited.has(item.id))return;
         visited.add(item.id);
