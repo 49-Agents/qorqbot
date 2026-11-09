@@ -64,6 +64,14 @@ The composer auto-sizes on input, `setDraft`, reveal and width changes: one line
 the existing actions below the input. Unchanged paints retain the caret and input
 scroll. Normal Send uses an accessible arrow button; retry labels stay explicit.
 
+## Native Chat/Terminal lifecycle
+
+`mountAgentView` lazily mounts Chat and Terminal into separate hosts for the current
+agent. Switching toggles `hidden`; it retains both viewers and their streams until
+agent/page navigation or disposal. There is no cache across agents. Hidden Chat
+must not acknowledge replies, and hidden Terminal must not resize the server PTY.
+Refresh still fetches Chat state or replaces the terminal viewer explicitly.
+
 ## Presentation model (fields accepted by render)
 
 ```
