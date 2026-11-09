@@ -688,6 +688,12 @@ window.focusExpansion = {
     const session = {
       host: content, isCurrent: current,
       setTitle(value) { if (current()) { const title = String(value ?? ''); shell.setAttribute('aria-label', title); $('.agfocus-surface-title', shell).textContent = title; } },
+      addHeaderAction(node) {
+        if (!current()) return;
+        node.classList.add('agfocus-surface-action');
+        $('.agfocus-surface-bar', shell).append(node);
+        session.onDispose(() => node.remove());
+      },
       setBeforeLeave(fn) { if (current()) surface.beforeLeave = typeof fn === 'function' ? fn : null; },
       onDispose(fn) { if (typeof fn !== 'function') return; if (surface.dead) { try { fn(); } catch (_) {} } else surface.cleanups.push(fn); },
       async close() { return current() ? agpadSurfaceClose(pane) : false; },

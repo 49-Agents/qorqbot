@@ -509,9 +509,8 @@ async function agentFilePreviewOpen(reference) {
   try {
     const session=await window.focusExpansion.open({title:reference.title || 'File',mount(host,session){
       const reader=document.createElement('section');reader.className='agent-file-preview';
-      const toolbar=document.createElement('div');toolbar.className='agent-file-preview-toolbar';
       const open=document.createElement('a');open.href=target.url.href;open.target='_blank';open.rel='noopener noreferrer';open.textContent='Open in new tab';
-      toolbar.append(open);reader.append(toolbar);
+      session.addHeaderAction(open);
       const content=document.createElement('div');content.className='agent-file-preview-content';reader.append(content);
       const media=document.createElement(target.image?'img':'iframe');media.referrerPolicy='no-referrer';
       if(target.image){

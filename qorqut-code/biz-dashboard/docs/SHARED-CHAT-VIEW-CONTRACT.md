@@ -148,6 +148,7 @@ references: a small type glyph, a wrapping filename and a muted file-type label.
 Rendering a reference fetches no file. Native Chat, record threads and Action
 discussions pass `onFilePreview({href,title})` to open the existing reader through
 the shared Focus expansion, with its normal Close and draft-preservation behavior.
+The file title, Close and Open in new tab link share the expansion's header row.
 Embedded screens forward only the canonical URL and title to the parent opener.
 Pending uploads retain their removable file cards in the composer.
 
