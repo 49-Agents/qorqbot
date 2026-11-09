@@ -137,7 +137,10 @@ state survives refresh and pagination; the view never writes a synthetic message
 
 Saved file and image links use the same flat rows and shared left rule as website
 references: a small type glyph, a wrapping filename and a muted file-type label.
-Rendering a reference fetches no file; clicking it opens the existing preview.
+Rendering a reference fetches no file. Native Chat, record threads and Action
+discussions pass `onFilePreview({href,title})` to open the existing reader through
+the shared Focus expansion, with its normal Close and draft-preservation behavior.
+Embedded screens forward only the canonical URL and title to the parent opener.
 Pending uploads retain their removable file cards in the composer.
 
 Group containers and rows use `.gchat-ref-group`, `.gchat-ref-rows`, `.gchat-ref-row` and `.gchat-reference-row`; action

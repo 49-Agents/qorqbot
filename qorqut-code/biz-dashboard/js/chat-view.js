@@ -665,6 +665,11 @@ function mountChatView(host, options = {}) {
   const openPreview = button => {
     const target = chatViewReferenceTarget(button.dataset.previewHref);
     if (!target) return;
+    if ((target.image || target.viewer && target.url.pathname === '/files/view') && options.onFilePreview) {
+      closePreview(false);
+      emit('onFilePreview', {href: target.url.href, title: button.dataset.previewTitle});
+      return;
+    }
     clearPreview(); previewTrigger = button;
     const title = button.dataset.previewTitle;
     $q('.gchat-preview-title').textContent = title;

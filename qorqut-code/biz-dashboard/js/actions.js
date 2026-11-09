@@ -60,6 +60,7 @@ function acDiscussionMount(host, action, options = {}) {
   const name = id => { const p = person(id); return p ? (p.display_name || p.name || "Unknown") : "Unknown"; };
   const chat = mountChatView(host.querySelector(".ac-chat"), {
     logLabel: "Action discussion", olderLabel: "Older messages",
+    onFilePreview: ref => agentFilePreviewOpen(ref),
     onOlder: () => load(true),
   });
   const paint = scroll => {
