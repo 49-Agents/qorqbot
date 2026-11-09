@@ -140,3 +140,26 @@ class RenameCompatibilityTests(unittest.TestCase):
                 self.assertIn(path, inv.alias_paths('host', f'app/{host}/agents/skills'))
                 physical = Inventory(relocated_instructions=False, host_package=host)
                 self.assertEqual(physical.supplier(source, path), (source, path))
+
+    def test_historical_instruction_alias_is_validated_exactly(self):
+        import base64
+        from qorqut.agentic.view import HostAgenticView
+        from qorqut.agentic.support import digest
+        for host in ('bazarlyk', 'qorqut'):
+            path = f'app/{host}/agents/skills/role/SKILL.md'
+            target = 'operations/source-instructions/host/' + path
+            sources = [{'id': 'host', 'enabled': True}, {'id': 'roles', 'enabled': True}]
+            inventory = {'schema_version': 2, 'coverage': {'complete': True},
+                'source_digest': digest(sources), 'sources': sources, 'diagnostics': [], 'bindings': [],
+                'packages': [{'id': 'imported-host-builtins', 'path': 'operations/imported-host-builtins',
+                    'native': {'enabled': True}, 'entries': [], 'files': {'native/' + path: {
+                    'sha256': digest(b'fixture'), 'content_base64': base64.b64encode(b'fixture').decode(),
+                    'provenance': {'source_id': 'roles'}}}}],
+                'assets': [{'source_id': 'roles', 'path': target, 'package_id': 'imported-host-builtins',
+                    'destination': 'operations/imported-host-builtins/native/' + path,
+                    'sha256': digest(b'fixture'), 'enabled': True, 'template': False,
+                    'native_source': {'source_id': 'host', 'path': path}}]}
+            HostAgenticView(None, inventory)
+            inventory['assets'][0]['native_source']['path'] = path.replace('role/', 'unknown/')
+            with self.assertRaisesRegex(DomainError, 'Invalid instruction source alias'):
+                HostAgenticView(None, inventory)
