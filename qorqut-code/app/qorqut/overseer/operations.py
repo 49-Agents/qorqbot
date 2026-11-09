@@ -3,6 +3,7 @@
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError
+from qorqut.errors import domain_error_from_agentic
 from qorqut_agentic.overseer.views import Views
 
 from .access import EvidenceAccess
@@ -146,7 +147,7 @@ class OverseerOperations:
         try:
             return self.read(name, context, args, uow)
         except AgenticError as error:
-            raise DomainError(error.code, str(error), details=error.details) from error
+            raise domain_error_from_agentic(error) from error
 
     def _provider(self, context, uow):
         ctx, _ = current_overseer(self.runtime, context, uow, capability='read_agent_experience')

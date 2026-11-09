@@ -91,8 +91,8 @@ const connectorsPanel = (() => {
       <div class="cx-privacy-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.2 2.2 4.3-4.6"/></svg></div>
       <div><h2 id="cx-privacy-title">Private by design. Qorqbot collects nothing.</h2>
       <p>No Qorqbot account, no tracking, no Qorqbot servers. Qorqbot runs on this computer and everything it keeps stays here.</p>
-      <ul><li>Your sign-ins stay with Google and Claude. Qorqbot never sees or stores your passwords.</li>
-      <li>Every connector is optional, and you can turn it off at any time.</li>
+      <ul><li>Browser sessions stay in each agent’s private local profile. External connection sign-ins happen on the provider’s page.</li>
+      <li>External connections are optional and managed in their own services.</li>
       <li>What you ask your agents goes to Claude or Codex under your own account, the same as when you use them directly.</li></ul></div>
     </section>`;
   function card(item) {
@@ -145,18 +145,106 @@ const connectorsPanel = (() => {
     const root = document.createElement('div');
     root.className = 'cx-panel' + (options.rows ? ' cx-panel-rows' : '');
     root.innerHTML = `${options.compact ? '' : PRIVACY}
-      <div class="cx-head"><div>${options.rows ? '' : '<h2>Connect your tools</h2>'}<p>Give your agents the tools they need. Gmail is strongly recommended; everything is optional.</p></div>
-        <div class="cx-progress" data-cx-progress aria-live="polite"></div></div>
+      <div class="cx-browser" data-cx-browser aria-live="polite"><div class="cx-browser-copy"><span class="cx-eyebrow">Included with Qorqbot</span>
+        <h3>Agent browser <span class="cx-status" data-cx-browser-status>Checking…</span></h3>
+        <p>Your agents use their own private browser to work on websites for you. It sets itself up.</p>
+        <p class="cx-browser-detail" data-cx-browser-detail>Checking browser readiness…</p></div>
+        <button type="button" class="quiet" data-cx-browser-retry hidden>Retry setup</button></div>
+      <section class="cx-accounts" data-cx-accounts hidden>
+        <h3>Websites your agents can use as you</h3>
+        <p>To connect a website, ask Ordubashy in Chat, for example “connect my Slack”. It opens Chrome on this computer and you sign in yourself. Your password goes only to that website. Qorqbot never sees or stores it, and your agent keeps just the signed-in session.</p>
+        <p class="cx-signin-note" data-cx-signin-note role="status" hidden></p>
+        <p class="cx-accounts-empty" data-cx-accounts-empty hidden>No websites connected yet.</p>
+        <p class="cx-error" data-cx-accounts-error role="alert" hidden></p>
+        <div class="cx-rows" data-cx-accounts-list hidden></div>
+        <p class="cx-accounts-limit">A signed-in agent can act on that website as you, including sending messages. Only its instructions tell it to ask you first, and Qorqbot can’t block those actions in code. Claude connectors below do require your approval.</p>
+      </section>
       <p class="cx-error" data-cx-error role="alert" hidden></p>
+      <details class="cx-direct" data-cx-direct><summary>Claude connectors <span class="cx-direct-count" data-cx-direct-count></span></summary>
+      <div class="cx-head"><div>${options.rows ? '' : '<h2>Optional connections</h2>'}<p>Direct connections for agents running in Claude Code. Connect opens claude.ai, where you allow access on the service’s own page.</p></div>
+        <div class="cx-progress" data-cx-progress aria-live="polite"></div></div>
       <p class="cx-account" data-cx-account hidden></p>
-      <h3 class="cx-group">Strongly recommended</h3><div class="${options.rows ? 'cx-rows' : 'cx-grid'}" data-cx-tier="recommended"><p class="muted small">Loading connectors…</p></div>
+      <h3 class="cx-group">Recommended for email</h3><div class="${options.rows ? 'cx-rows' : 'cx-grid'}" data-cx-tier="recommended"><p class="muted small">Loading connections…</p></div>
       <h3 class="cx-group">Also useful</h3><div class="${options.rows ? 'cx-rows' : 'cx-grid'}" data-cx-tier="suggested"></div>
       ${CLAUDE_STEPS}
-      <p class="cx-foot muted small"><button type="button" class="cx-link" data-cx-refresh>Check again</button></p>`;
+      <p class="cx-foot muted small"><button type="button" class="cx-link" data-cx-refresh>Check again</button></p></details>`;
     container.appendChild(root);
-    let view = null, timer = 0, awaitingClaude = false;
+    let view = null, browserView = null, timer = 0, browserTimer = 0, browserChecks = 0, awaitingClaude = false;
+    let accountsView = null, accountsTimer = 0;
+    const SIGN_IN_STATUS = {true: ['Session saved', 'ok'], false: ['No session', 'warn'], null: ['Status unavailable while the browser is off', '']};
+    function paintAccounts() {
+      const section = root.querySelector('[data-cx-accounts]'), agents = accountsView?.agents;
+      section.hidden = !agents?.length;
+      if (section.hidden) return;
+      const busy = agents.find(agent => agent.signing_in), note = root.querySelector('[data-cx-signin-note]');
+      note.hidden = !busy;
+      if (busy) note.textContent = `Finish signing in to ${busy.signing_in} in the Chrome window, then close that window. ${busy.name}’s browser is paused until you do.`;
+      const rows = agents.flatMap(agent => agent.sites.map(item => ({agent, item})));
+      const list = root.querySelector('[data-cx-accounts-list]');
+      list.hidden = !rows.length;
+      root.querySelector('[data-cx-accounts-empty]').hidden = !!rows.length || !!busy;
+      list.innerHTML = rows.map(({agent, item}) => {
+        const [label, tone] = SIGN_IN_STATUS[item.session_saved ?? null];
+        return `<div class="cx-row cx-account-row" data-cx-site="${esc(item.site)}"><div class="cx-row-main"><div class="cx-row-title"><h3>${esc(item.site)}</h3><span class="cx-status" data-tone="${tone}">${label}</span></div>${agents.length > 1 ? `<p class="cx-row-does">${esc(agent.name)}</p>` : ''}</div>
+          <div class="cx-row-action"><button type="button" class="quiet" data-cx-site-action="sign_out" data-cx-agent="${esc(agent.agent_id)}" data-cx-site-name="${esc(item.site)}"${busy ? ' disabled' : ''}>${item.session_saved === false ? 'Remove' : 'Sign out'}</button></div></div>`;
+      }).join('');
+      clearTimeout(accountsTimer);
+      // Ordubashy starts sign-ins from Chat, so this list has to notice them on its own.
+      if (live()) accountsTimer = setTimeout(() => { loadAccounts(); if (busy) loadBrowser(); }, busy ? 2500 : 5000);
+      root.dispatchEvent(new CustomEvent('connectors-painted', {bubbles: true}));
+    }
+    const accountsError = text => { const el = root.querySelector('[data-cx-accounts-error]'); el.textContent = text || ''; el.hidden = !text; };
+    async function loadAccounts(change) {
+      try {
+        const next = coreData(change ? await post('/root/browser-accounts', change) : await api('/root/browser-accounts'));
+        if (!live()) return true;
+        const wasBusy = accountsView?.agents?.some(agent => agent.signing_in);
+        accountsView = next; accountsError(''); paintAccounts();
+        // The session list only settles once the agent's browser is back after the window closes.
+        if (wasBusy && !next.agents?.some(agent => agent.signing_in)) { clearTimeout(accountsTimer); accountsTimer = setTimeout(() => { loadAccounts(); loadBrowser(); }, 1500); }
+        return true;
+      } catch (failure) {
+        if (live()) accountsError(failure.message || 'Website sign-ins could not be loaded.');
+        return false;
+      }
+    }
     const live = () => root.isConnected;
     const error = text => { const el = root.querySelector('[data-cx-error]'); el.textContent = text || ''; el.hidden = !text; };
+    function paintBrowser() {
+      const status = root.querySelector('[data-cx-browser-status]');
+      const detail = root.querySelector('[data-cx-browser-detail]');
+      const retry = root.querySelector('[data-cx-browser-retry]');
+      if (!browserView) return;
+      const ready = browserView.ready;
+      status.textContent = ready ? 'Ready' : !browserView.tool_installed ? 'Tool missing' :
+        !browserView.chrome_installed ? 'Chrome needed' : 'Setup needed';
+      status.dataset.tone = ready ? 'ok' : 'warn';
+      const agents = browserView.agents || [];
+      const problems = agents.filter(agent => agent.state !== 'healthy')
+        .map(agent => agents.length > 1 ? `${agent.name}: ${agent.explanation}` : agent.explanation);
+      detail.textContent = ready ? `Ready for ${agents.map(agent => agent.name).join(', ')}.` :
+        !browserView.tool_installed ? 'The tool agents use to control their browser isn’t installed. Quit and reopen Qorqbot to install it again.' :
+        !browserView.chrome_installed ? 'Agents need Google Chrome to browse, and it isn’t installed on this computer. Install it from google.com/chrome, then press Retry setup.' :
+        problems.join(' ') || 'Preparing agent browsers…';
+      retry.hidden = ready || !browserView.tool_installed;
+      retry.disabled = !browserView.chrome_installed;
+      root.dispatchEvent(new CustomEvent('browser-setup-painted', {bubbles: true}));
+    }
+    async function loadBrowser(retry = false) {
+      const button = root.querySelector('[data-cx-browser-retry]');
+      button.disabled = true;
+      try {
+        browserView = coreData(retry ? await post('/root/browser-setup', {action: 'retry'}) : await api('/root/browser-setup'));
+        if (live()) paintBrowser();
+      } catch (failure) {
+        if (live()) root.querySelector('[data-cx-browser-detail]').textContent = failure.message || 'Could not check browser setup.';
+      } finally {
+        if (live()) button.disabled = false;
+        clearTimeout(browserTimer);
+        if (live() && !browserView?.ready && browserChecks++ < 12)
+          browserTimer = setTimeout(() => loadBrowser(), 5000);
+      }
+    }
     function paint() {
       if (!view) return;
       for (const tier of ['recommended', 'suggested'])
@@ -164,6 +252,8 @@ const connectorsPanel = (() => {
       const progress = connectorsModel.summary(view.connectors);
       root.querySelector('[data-cx-progress]').innerHTML = `<span class="cx-progress-text">${progress.done} of ${progress.total} recommended connected</span>
         <span class="cx-progress-bar" aria-hidden="true"><i style="width:${Math.round(progress.done / progress.total * 100)}%"></i></span>`;
+      const connected = view.connectors.filter(item => item.status === 'connected').length;
+      root.querySelector('[data-cx-direct-count]').textContent = connected ? `${connected} connected` : '';
       root.querySelector('[data-cx-claude-steps]').hidden = !awaitingClaude;
       const signIn = connectorsModel.account(view), line = root.querySelector('[data-cx-account]');
       line.hidden = !signIn; if (signIn) { line.textContent = signIn.text; line.dataset.tone = signIn.tone; }
@@ -186,6 +276,13 @@ const connectorsPanel = (() => {
       schedule();
     }
     root.addEventListener('click', async event => {
+      const siteAction = event.target.closest('[data-cx-site-action]');
+      if (siteAction) {
+        siteAction.disabled = true;
+        if (!await loadAccounts({action: siteAction.dataset.cxSiteAction, agent_id: siteAction.dataset.cxAgent, site: siteAction.dataset.cxSiteName})) siteAction.disabled = false;
+        return;
+      }
+      if (event.target.closest('[data-cx-browser-retry]')) { await loadBrowser(true); return; }
       if (event.target.closest('[data-cx-refresh]')) { await load({refresh: true}); return; }
       const button = event.target.closest('[data-cx-action]');
       if (!button) return;
@@ -202,11 +299,11 @@ const connectorsPanel = (() => {
     document.addEventListener('visibilitychange', focus);
     const watch = new MutationObserver(() => {
       if (live()) return;
-      clearTimeout(timer); watch.disconnect();
+      clearTimeout(timer); clearTimeout(browserTimer); clearTimeout(accountsTimer); watch.disconnect();
       window.removeEventListener('focus', focus); document.removeEventListener('visibilitychange', focus);
     });
     watch.observe(container.ownerDocument.body, {childList: true, subtree: true});
-    load();
+    load(); loadBrowser(); loadAccounts();
     return {root, reload: () => load({refresh: true}), get view() { return view; }};
   }
   return {mount, PRIVACY};

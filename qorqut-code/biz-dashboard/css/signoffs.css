@@ -6,6 +6,8 @@
 .sg p { line-height: 1.6; overflow-wrap: anywhere; }
 .sg .sg-row { padding: 14px 16px 12px; border-radius: var(--r); }
 .sg-row:focus-within { border-color: var(--line-2); }
+/* The dashboard's general button style must not draw a box inside the card. */
+.sg .sg-rows .sg-row > button.sg-rowhead, .sg .sg-rows .sg-row > button.sg-rowhead:hover { border: 0; border-radius: 0; background: none; box-shadow: none; padding: 0; }
 .sg .sg-rowhead { width: 100%; height: auto; border: 0; border-radius: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 18px; align-items: baseline; text-align: left; background: none; color: var(--fg); box-shadow: none; font-weight: 400; white-space: normal; }
 .sg .sg-rowhead:hover, .sg .sg-rowhead:active { background: none; transform: none; }
 .sg-rowtitle { font-size: 15px; font-weight: 500; line-height: 1.45; overflow-wrap: anywhere; }
@@ -52,7 +54,7 @@
 .sg .sg-choice:hover { background:var(--wash); transform:none; }
 .sg .sg-choice[aria-checked="true"] { border-color:var(--line-2); background:var(--wash); }
 .sg-choice-name { font-size:14px; font-weight:600; line-height:20px; overflow-wrap:anywhere; }
-.sg-choice-explanation { font-weight:400; font-size:12px; line-height:20px; height:40px; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; color:var(--fg-2); overflow-wrap:anywhere; }
+.sg-choice-explanation { font-weight:400; font-size:12px; line-height:20px; max-height:40px; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; color:var(--fg-2); overflow-wrap:anywhere; }
 .sg-choice-marker { width:18px; height:18px; display:inline-flex; align-items:center; justify-content:center; }
 .sg-choice-letter { font-size:12px; border:1px solid var(--line-2); border-radius:4px; }
 .sg-choice-ball { width:12px; height:12px; margin:3px; border:1px solid white; border-radius:50%; }

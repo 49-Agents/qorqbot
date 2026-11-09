@@ -92,6 +92,7 @@ BUILTIN_CATALOG = (
     CatalogEntry("environment_set", True, "compound", frozenset({"mcp", "dashboard"})),
     CatalogEntry("browser_turn", False, "records", frozenset({"mcp"})),  # Descriptor installed by the MCP bridge.
     CatalogEntry("agent_browser_manage", False, "records", frozenset({"mcp"})),  # Descriptor installed by the MCP bridge.
+    CatalogEntry("website_sign_in", False, "records", frozenset({"mcp"})),  # Descriptor installed by the MCP bridge.
     # Ordubashy's presentation of existing records in Chat; a read that returns at once and changes nothing.
     CatalogEntry("request_user_input", False, "read", frozenset({"mcp"})),
     *(CatalogEntry(name, False, "records") for name in ("management_route", "management_message_send", "management_resolve")),

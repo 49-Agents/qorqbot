@@ -25,7 +25,8 @@ from qorqut.agents.diagnostics import DIAGNOSTIC_OPERATIONS
 # Repair-ticket removal, phase 1: the resolver owns the one list of retained internal readers. Discovery and
 # dispatch refuse them here too, including operations_batch entries and tool names a client cached before removal.
 from qorqut.agents.resolver import INTERNAL_ONLY_OPERATIONS
-from qorqut.browser.operations import AGENT_BROWSER_MANAGE, BROWSER_OPERATION
+from qorqut.browser.operations import AGENT_BROWSER_MANAGE, BROWSER_OPERATION, WEBSITE_SIGN_IN
+from qorqut.errors import domain_error_from_agentic
 from .results import failure
 from . import batches, mcp_presentation, mcp_reads
 
@@ -501,8 +502,15 @@ class MCPTransport:
                         try:
                             value = self.runtime.overseer.mutate(canonical_name, context, args)
                         except AgenticError as error:
-                            raise DomainError(error.code, str(error), details=error.details) from error
+                            raise domain_error_from_agentic(error) from error
                         return OperationResult.ok(value, request_id=request_id)
+                    if canonical_name == WEBSITE_SIGN_IN:
+                        self.runtime.registry.bind_arguments(canonical_name, args)
+                        namespace = self.runtime.application.namespace(context, descriptor, args)
+                        with self.runtime.database.read() as uow:
+                            self.runtime.application.authorize(context, descriptor, (), uow, namespace=namespace, arguments=args)
+                        from qorqut.browser import sign_in
+                        return OperationResult.ok(sign_in.agent_call(self.runtime, actor.principal.id, args), request_id=request_id)
                     if canonical_name == AGENT_BROWSER_MANAGE:
                         self.runtime.registry.bind_arguments(canonical_name, args)
                         namespace = self.runtime.application.namespace(context, descriptor, args)

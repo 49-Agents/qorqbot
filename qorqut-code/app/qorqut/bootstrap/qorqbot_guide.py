@@ -108,7 +108,11 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
 ## Settings (the gear)
 
 - **Connect your tools**: what the agents can use.
-  - Strongly recommended: **Gmail**.
+  - **Agent browser** is included with Qorqbot. It is prepared automatically for Ordubashy and permanent workers when Chrome and the browser tool are available. Settings shows readiness and offers Retry setup.
+  - It is the default way agents use websites. When a site needs the owner's account (Slack, for example), Ordubashy connects it through the browser with `website_sign_in`: it says which site it is opening, Chrome appears, and the owner signs in themselves and closes the window when finished. Other agents ask Ordubashy to do this. Never ask for a password. The agent's browser is paused until that window closes.
+  - Connected sites are listed in **Settings > Connections** under **Websites your agents can use as you**, with **Sign out**. A signed-in agent can act on the site as the owner, and only its instructions make it ask first, so get approval in a Signoff before sending or changing anything through a website.
+  - **Claude connectors** are optional direct connections, tucked away in Settings under that name. Any connector action that changes something is blocked by Qorqbot until the owner approves that exact content in a Signoff. If one is blocked, tell the owner in Chat, then repeat the identical call after approval.
+  - **Gmail** is the recommended email connection for Claude Code agents.
   - Also useful: Google Calendar, Google Drive, Notion, Slack and WhatsApp (not on Mac yet).
   - Gmail, Calendar, Drive, Notion and Slack are claude.ai connectors: **Connect** opens claude.ai's connector
     settings; sign in there with the same Claude account the agents use (the panel names it). They work in Claude Code,

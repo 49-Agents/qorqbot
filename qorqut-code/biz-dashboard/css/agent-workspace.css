@@ -166,6 +166,6 @@
   .agent-workspace-app .split.global-agents.agsplit.pad-off > .agpad { display:none; }
 }
 
-.agent-workspace-app .global-agents .global-workspace-terminal svg, .agent-workspace-app .global-agents .global-workspace-settings svg, .agent-workspace-app .global-agents .global-workspace-guide svg { width:24px; height:24px; }
+.agent-workspace-app .global-agents .global-workspace-projects svg, .agent-workspace-app .global-agents .global-workspace-terminal svg, .agent-workspace-app .global-agents .global-workspace-settings svg, .agent-workspace-app .global-agents .global-workspace-guide svg { width:24px; height:24px; }
 
 .agent-workspace-app .agfocus[data-attention-board]{--agfocus-lead:56px}

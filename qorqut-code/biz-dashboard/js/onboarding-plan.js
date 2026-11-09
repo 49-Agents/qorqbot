@@ -31,6 +31,8 @@ const onboardingPlan = (() => {
     if (index < 0 && saved.step === 'activity') index = find('calendar');
     // The Learning Applier steps are retired while it is unavailable; their chapter continues at Settings.
     if (index < 0 && ['learning', 'context'].includes(saved.step)) index = find('settings');
+    // The retired connector steps resume at the browser step, now the end of the tour.
+    if (index < 0 && ['connectors', 'connect-more'].includes(saved.step)) index = find('browser-setup');
     return index < 0 ? 0 : index;
   }
   // The launch step's reading of Ordubashy's Chat session (GET .../chat?limit=1): `session` is that response's session,

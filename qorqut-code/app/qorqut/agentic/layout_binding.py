@@ -7,6 +7,7 @@ import json
 import hashlib
 import re
 
+from qorqut import file_identity
 from qorqut.private_files import read_private_file
 from qorqut_agentic.changes import normalize_attribution
 from . import layout_git, layout_intent
@@ -92,7 +93,7 @@ def derive_record(prior, prior_raw, plan, intent, git=None):
         oid = hashlib.sha1(b'commit ' + str(len(body)).encode() + b'\0' + body).hexdigest()
         if (oid != git['commit'] or git['identity'] != identity
                 or git['message'] != 'Agentic layout migration\n\nAgentic-layout-plan: ' + plan['plan_digest'] + '\n'
-                or {k: git['root'][k] for k in ('device', 'inode')} != plan['identity']['root']):
+                or not file_identity.records_match({k: git['root'][k] for k in ('device', 'inode')}, plan['identity']['root'])):
             raise ValueError('Completed Git commit identity mismatch')
     authored = {p: base64.b64decode(v['content_base64'], validate=True) for p, v in intent['authored'].items()}
     metadata = {**plan['legacy_authored_files'], **plan['existing_authored_files']}

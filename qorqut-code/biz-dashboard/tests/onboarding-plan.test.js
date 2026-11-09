@@ -51,6 +51,12 @@ test('resumeIndex maps the retired activity step to calendar unless activity exi
   assert.equal(plan.resumeIndex(steps, {status: 'completed', step: 'activity'}), 0);
 });
 
+test('resumeIndex maps the retired connector steps to the browser step', () => {
+  const withBrowser = [...steps, {id: 'browser-setup', chapter: 'connect'}];
+  for (const step of ['connectors', 'connect-more'])
+    assert.equal(plan.resumeIndex(withBrowser, {status: 'in_progress', step}), withBrowser.length - 1);
+});
+
 test('saveId uses the shared progress id when present', () => {
   assert.equal(plan.saveId(steps[2]), 'terminal');
   assert.equal(plan.saveId(steps[4]), 'focus');

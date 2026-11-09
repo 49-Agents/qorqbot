@@ -330,7 +330,7 @@
       "source_path": "skills/managed-browser-control/SKILL.md",
       "defaults_path": "operations/imported-role-skills/native/skills/managed-browser-control/SKILL.md",
       "source_sha256": "52b37afcd706aaf34b0d0ad3a9c9c7395286c8d718ecb752cc381f50e11cf81c",
-      "defaults_sha256": "52b37afcd706aaf34b0d0ad3a9c9c7395286c8d718ecb752cc381f50e11cf81c",
+      "defaults_sha256": "1d266e22f7e1f5195986b70b13a7f72a9cb47d0b6010fea18248975202823130",
       "old_ref": "imported-roles/asset-99280e17c59527767821",
       "new_ref": "imported-role-skills/asset-99280e17c59527767821"
     },
@@ -351,7 +351,7 @@
       "source_path": "skills/ordubashy-browser-control/SKILL.md",
       "defaults_path": "operations/imported-role-skills/native/skills/ordubashy-browser-control/SKILL.md",
       "source_sha256": "eb2999bc54ee135b3f7e1c621c62dc1378f87b4d1a399a4012d9067ab9739c2a",
-      "defaults_sha256": "eb2999bc54ee135b3f7e1c621c62dc1378f87b4d1a399a4012d9067ab9739c2a",
+      "defaults_sha256": "76985aa633b4c581656c5f5123991555288d730525d28a0b7198de652022e9a5",
       "old_ref": "imported-roles/asset-dc836f9e4e79b90ca724",
       "new_ref": "imported-role-skills/asset-dc836f9e4e79b90ca724"
     },

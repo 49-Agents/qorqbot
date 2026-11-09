@@ -125,6 +125,7 @@
   .st-search input { width: 100%; }
   .st-layout { grid-template-columns: minmax(0, 1fr); gap: 18px; }
   .st-nav { position: static; display: flex; overflow-x: auto; gap: 4px; }
+  .st-nav button { flex: none; width: auto; white-space: nowrap; }
   .st-nav button small { display: none; }
   .st-row { flex-direction: column; align-items: flex-start; }
   .st-chapters { justify-content: flex-start; }

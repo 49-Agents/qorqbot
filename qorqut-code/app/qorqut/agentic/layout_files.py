@@ -14,6 +14,7 @@ import stat
 from qorqut_agentic.changes import normalize_attribution
 from qorqut_agentic.store import Store
 from qorqut_operations.contracts import DomainError
+from qorqut import file_identity
 from qorqut.private_files import fsync_directory, read_private_file, require_private_directory
 from .layout_inspection import inspect_git, inspect_runtime, read_legacy_tree, validate_catalog
 from .layout_intent import _conflict, _read_index, _safe_ancestors, incomplete_intents
@@ -28,6 +29,13 @@ def _identity(info):
     return {'device': info.st_dev, 'inode': info.st_ino, 'mode': stat.S_IMODE(info.st_mode)}
 
 
+def _root_matches(rootfd, root, saved):
+    """The open root and the root's name are both still the saved directory (see qorqut.file_identity)."""
+    volume = file_identity.fd_parent_volume(rootfd)
+    return (file_identity.matches(saved, _identity(os.fstat(rootfd)), volume)
+            and file_identity.matches(saved, _identity(os.stat(root, follow_symlinks=False)), volume))
+
+
 def _open_root(root):
     _safe_ancestors(root)
     return os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
@@ -39,10 +47,11 @@ def _open_dir(rootfd, path, dirs):
         current = ''
         for part in path.split('/') if path else ():
             current = current + '/' + part if current else part
+            volume = os.fstat(fd).st_dev
             child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
             os.close(fd)
             fd = child
-            if current not in dirs or _identity(os.fstat(fd)) != dirs[current]:
+            if current not in dirs or not file_identity.matches(dirs[current], _identity(os.fstat(fd)), volume):
                 raise _conflict('Authored directory identity changed: ' + current)
         return fd
     except BaseException:
@@ -169,14 +178,15 @@ def _head_identity(rootfd):
 def _environment_facts(paths, plan, journal, rootfd):
     _safe_ancestors(paths.agentic_runtime)
     runtime_info = os.stat(paths.agentic_runtime, follow_symlinks=False)
-    if {'device': runtime_info.st_dev, 'inode': runtime_info.st_ino} != plan['identity']['state']:
+    if not file_identity.matches(plan['identity']['state'], {'device': runtime_info.st_dev, 'inode': runtime_info.st_ino},
+                                 file_identity.parent_volume(paths.agentic_runtime)):
         raise _conflict('Runtime directory identity changed')
-    if {'device': journal['root']['device'], 'inode': journal['root']['inode']} != plan['identity']['root']:
+    if not file_identity.records_match({'device': journal['root']['device'], 'inode': journal['root']['inode']}, plan['identity']['root']):
         raise _conflict('Root differs from prepared identity')
-    if _identity(os.fstat(rootfd)) != journal['root'] or _identity(os.stat(paths.agentic_root, follow_symlinks=False)) != journal['root']:
+    if not _root_matches(rootfd, paths.agentic_root, journal['root']):
         raise _conflict('Root directory identity changed')
     gitdir, head = _head_identity(rootfd)
-    if gitdir != journal['gitdir']:
+    if not file_identity.matches(journal['gitdir'], gitdir, os.fstat(rootfd).st_dev):
         raise _conflict('Git directory identity changed')
     if digest(read_binding_bytes(paths)) != plan['binding']['record_sha256']:
         raise _conflict('Binding changed')
@@ -241,7 +251,7 @@ def _derive(plan, intent, initial_dirs):
 
 def _verify_tree(paths, rootfd, journal, originals, targets):
     _safe_ancestors(paths.agentic_root)
-    if _identity(os.fstat(rootfd)) != journal['root'] or _identity(os.stat(paths.agentic_root, follow_symlinks=False)) != journal['root']:
+    if not _root_matches(rootfd, paths.agentic_root, journal['root']):
         raise _conflict('Root directory identity changed')
     index = journal['next_effect']
     effects = journal['effects']
@@ -252,7 +262,7 @@ def _verify_tree(paths, rootfd, journal, originals, targets):
         path = effects[index]['path']
         if path in actual_dirs and path not in dirs:
             raise _conflict('Ambiguous directory creation without recorded identity: ' + path)
-    if actual_dirs != dirs:
+    if not file_identity.tree_matches(dirs, actual_dirs, os.fstat(rootfd).st_dev):
         raise _conflict('Authored directory set or identity changed')
     expected = dict(originals)
     for effect in effects[:index]:

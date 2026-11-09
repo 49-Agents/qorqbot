@@ -123,9 +123,9 @@ async function renderGlobalAgents(c) {
           <div class="global-roster" id="global-agent-list"></div>
         </div>
         <div class="crows global-workspace-terminals">
-          <button class="item agent global-workspace-guide" type="button" data-global-guide title="Walkthrough" aria-label="Walkthrough"><span class="nm">${GLOBAL_GUIDE_ICON}</span></button>
-          <button class="item agent global-workspace-terminal" type="button" data-global-agent="${GLOBAL_WORKSPACE_TERMINAL}" aria-pressed="false" aria-label="Terminal"><span class="nm">${GLOBAL_TERMINAL_ICON}</span></button>
-          <button class="item agent global-workspace-settings" type="button" data-global-settings title="Settings" aria-label="Settings"><span class="nm">${GLOBAL_ICONS.settings}</span></button>
+          <button class="item agent global-workspace-guide" type="button" data-global-guide data-tip="Walkthrough" aria-label="Walkthrough"><span class="nm">${GLOBAL_GUIDE_ICON}</span></button>
+          <button class="item agent global-workspace-terminal" type="button" data-global-agent="${GLOBAL_WORKSPACE_TERMINAL}" aria-pressed="false" data-tip="Terminal" aria-label="Terminal"><span class="nm">${GLOBAL_TERMINAL_ICON}</span></button>
+          <button class="item agent global-workspace-settings" type="button" data-global-settings data-tip="Settings" aria-label="Settings"><span class="nm">${GLOBAL_ICONS.settings}</span></button>
         </div>
       </div></div>
     <section class="overseer-coming-soon" id="overseer-coming-soon" aria-label="Overseer" aria-live="polite" hidden>

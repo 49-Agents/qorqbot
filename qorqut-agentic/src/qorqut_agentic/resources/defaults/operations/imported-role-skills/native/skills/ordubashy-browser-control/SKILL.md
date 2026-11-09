@@ -1,7 +1,11 @@
 ---
 name: qorqut-role-browser-control
-description: Operate the configured Chrome browser when the owner explicitly asks to use Chrome or a browser, or when work assigned to you needs a browser. Ordinary research, a one-off web request, or a URL supplied as context does not activate this skill.
+description: Operate the configured Chrome browser when the owner explicitly asks to use Chrome or a browser, or when work assigned to you needs a browser. Ordinary research, a one-off web request, or a URL supplied as context does not activate this skill. Not for connecting the owner's account on a website: Ordubashy uses website_sign_in for that.
 ---
+
+Connecting the owner's account on a website is not browser control. Do not attach to a
+browser or use this skill's steps for it. Ordubashy calls `website_sign_in` directly with
+action `open`; workers ask Ordubashy.
 
 Use browser control for the current owner's explicit Chrome or browser request, or
 when work assigned to you needs a browser: the assignment is the request for your
@@ -44,6 +48,12 @@ Your own browser keeps one persistent profile and may have a visible desktop the
 watches and uses. Do not sign in, register, purchase, post, message or change account
 settings there unless the owner asked for that exact step, and leave tabs you did not
 open alone.
+
+When a website needs the owner's account, it is connected through the browser. Ordubashy
+says which site it is opening and calls `website_sign_in`; a Chrome window appears and the
+owner signs in themselves, then closes it. Workers ask Ordubashy to do this for them. The
+browser is paused until the window closes. Never ask for or type a password. Before
+sending or changing anything on a signed-in site, get the owner's approval in a Signoff.
 
 If your browser is unavailable, report that blocker; do not
 install tooling, choose another port, launch Chrome or repair owner tabs.
