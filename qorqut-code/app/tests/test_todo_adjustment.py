@@ -109,7 +109,7 @@ class AdjustmentTests(unittest.TestCase):
 
     def submit(self, profile, session, text, *, steer, echo, checkpoint, **_):
         self.assertFalse(steer)  # Daily cleanup must never interrupt or steer a running turn.
-        self.assertTrue(echo)
+        self.assertFalse(echo)  # Nudges share Telegram's clipped-paste submission option.
         self.before_checkpoint()
         checkpoint()
         self.after_checkpoint()

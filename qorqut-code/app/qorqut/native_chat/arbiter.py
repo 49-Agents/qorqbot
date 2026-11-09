@@ -237,12 +237,12 @@ class InputArbiter:
         if adapter is None:
             return OwnerInputOutcome("deferred", "unsupported_transport"), "none"
         try:
-            # Owner Chat and Telegram can both contain long free-form text that the client collapses.
-            # Chat may replace the draft and must verify the exact paste. Telegram retains
-            # the empty-composer requirement. Both verify the session and mode before Enter.
-            # System notices and other producers retain whole-text echo verification.
+            # Chat, Telegram and inbox/inactivity nudges can contain text the client clips or collapses.
+            # Nudges use Telegram's submission option and still require an empty composer.
+            # The terminal adapter forces exact-paste verification when Chat replaces a draft.
+            # Other producers retain whole-text echo verification.
             return adapter.submit(profile, session, text, steer=steer,
-                                  echo=input_type not in {TYPE_CHAT, TYPE_TELEGRAM}, checkpoint=checkpoint,
+                                  echo=input_type not in {TYPE_CHAT, TYPE_TELEGRAM, TYPE_NUDGE}, checkpoint=checkpoint,
                                   **({"replace_composer": True} if input_type == TYPE_CHAT else {})), adapter.name
         except StaleSession:
             return OwnerInputOutcome("deferred", "stale_session"), adapter.name
@@ -329,8 +329,9 @@ class InputArbiter:
         user turn a system turn.
 
         A nudge is submitted at once even while a turn is running, through the same adapter path and checks as every other
-        input: a verified empty composer, the whole text echoed, one normal submit, and processing never confirmed unless the
-        transport evidences it. When that is not safe (an owner's text in the composer, a modal, an unreadable or changing
+        input: a verified empty composer, a successful paste without requiring whole-text echo, and normal submit.
+        Processing is never confirmed unless the transport evidences it. When that is not safe (an owner's text in the
+        composer, a modal, an unreadable or changing
         screen, no verified session) nothing is typed: ``wait=False`` returns ``deferred`` and the caller asks again, ``wait=True``
         keeps it ``waiting`` for this very session.
 

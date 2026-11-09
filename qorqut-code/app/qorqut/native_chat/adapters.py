@@ -56,7 +56,7 @@ class TerminalAdapter:
                                                            "runtime": PROVIDER_RUNTIMES[session["provider"]]})}
         # ``steer`` lets the text coexist with a running turn (the client queues or steers it as if the owner typed it); the
         # composer must be verified editable. Only owner Chat replaces drafts with editing keys; ``echo`` demands the whole pasted
-        # text visible in the composer before it is submitted; Chat and Telegram free-form text may be collapsed by the client
+        # text visible in the composer before it is submitted; Chat, Telegram and nudge text may be collapsed by the client
         # and may do without the whole-text echo unless replacing a draft. Replacement always verifies
         # the paste. A producer without ``steer`` also keeps the idle-only default.
         # A bare slash command is typed with one trailing space, which closes the CLI's completion menu (commands.py).
