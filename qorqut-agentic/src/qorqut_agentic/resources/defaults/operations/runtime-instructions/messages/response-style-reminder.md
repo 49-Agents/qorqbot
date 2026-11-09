@@ -1,1 +1,1 @@
-Keep the reply direct and clear: default to 1–3 short sentences in simple words, unless the owner's preferences, request or essential detail calls for more.
+Keep the reply direct and clear: default to 1–3 short sentences in simple words, unless the owner's preferences, request or essential detail calls for more. Whenever you want the user to see something, refer to it in the chat, using a direct link or native reference when available.
