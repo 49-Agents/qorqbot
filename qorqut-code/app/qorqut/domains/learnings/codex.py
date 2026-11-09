@@ -2,6 +2,7 @@
 
 import re
 
+from qorqut.transcript_provenance import is_compaction
 
 _AUTOMATIC = (
     'Inbox watcher ', 'Your inbox has pending updates.',
@@ -14,12 +15,17 @@ _TOKEN = re.compile(r'\b(?:fmu\d-|sk-)[A-Za-z0-9_-]{16,}')
 def messages(records):
     # User-role response items also contain injected instructions and replayed
     # history. Only explicit user events are evidence of an owner contribution.
-    modern = any(row.get('type') == 'event_msg'
+    modern = any(not is_compaction(row) and row.get('type') == 'event_msg'
                  and (row.get('payload') or {}).get('type') == 'item_completed'
                  and ((row.get('payload') or {}).get('item') or {}).get('type') == 'UserMessage'
                  for row in records)
     seen = set()
     for index, row in enumerate(records):
+        if is_compaction(row):
+            # Keep a boundary even when there is no summary text. Otherwise a
+            # continuation can be attached to the preceding owner's instruction.
+            yield {'type': 'summary', 'timestamp': row.get('timestamp')}
+            continue
         payload = row.get('payload')
         if not isinstance(payload, dict):
             continue

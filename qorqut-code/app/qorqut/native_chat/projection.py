@@ -40,6 +40,8 @@ import json
 import re
 from typing import Any, Callable, Iterable, Iterator
 
+from qorqut.transcript_provenance import is_compaction
+
 from . import references as user_input
 
 SPEAKER_USER = "user"
@@ -83,6 +85,7 @@ COMPLETING_STOPS = frozenset({"end_turn", "stop_sequence"})
 CODEX_TURN_END = frozenset({"task_complete", "turn_complete"})
 CODEX_TURN_START = frozenset({"task_started", "turn_started"})
 CODEX_TURN_ABORT = frozenset({"turn_aborted"})
+PROVENANCE_VERSION = 1
 
 
 def marker_text(marker: str, input_type: str, body: str) -> str:
@@ -306,7 +309,7 @@ class ProjectorState:
 
     def dump(self) -> dict:
         return {"turn_open": self.turn_open, "turn_done": self.turn_done, "candidate": self.candidate, "origin": self.origin,
-                "work": self.work, "bound": self.bound}
+                "work": self.work, "bound": self.bound, "provenance_version": PROVENANCE_VERSION}
 
     def end_turn(self) -> tuple[str, bool]:
         """The origin and work of the turn that just ended, with both reset for the next one."""
@@ -374,6 +377,12 @@ class Projector:
         value = record.value if record.kind == "json" else None
         if not isinstance(value, dict):
             return Result()
+        if is_compaction(value):
+            # Shared by Chat, delivery reconciliation, reply/activity counters
+            # and Overseer evidence. A summary is never owner input, including
+            # when reading an old archive or starting a window at the summary.
+            # Preserve genuine work already in progress across compaction.
+            return Result(hidden=True)
         return self._claude(value, record) if self.provider == "claude" else self._codex(value, record)
 
     def feed_all(self, records: Iterable) -> Iterator[Result]:

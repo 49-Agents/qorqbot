@@ -29,7 +29,7 @@ from qorqut_operations.contracts import utc_now
 from qorqut.native_archive import CaptureBinding, CaptureError, FinalCaptureEvidence, TranscriptArchive
 
 from . import store
-from .projection import Lineage, Projector, ProjectorState
+from .projection import Lineage, Projector, ProjectorState, PROVENANCE_VERSION
 from .reader import proven_type
 from .delivery_reconciliation import DeliveryReconciler
 
@@ -185,8 +185,14 @@ class Indexer:
 
     def _index(self, archive, capture, session, receipt, final, result):
         start = capture["indexed_offset"]
+        saved = json.loads(capture["index_state_json"])
+        if start and saved.get("provenance_version") != PROVENANCE_VERSION:
+            # An old cursor may already call a compaction summary user work.
+            # Repair the in-flight state before admitting any new completion.
+            self._refresh_provenance(archive, capture, session, receipt, saved, result)
+            return
         projector = Projector(session["provider"], session["conversation_id"],
-                              ProjectorState.load(json.loads(capture["index_state_json"])), self._resolver(session))
+                              ProjectorState.load(saved), self._resolver(session))
         completions, consumed, count = [], start, 0
         if start < receipt.record_boundary:
             with archive.iter_records(receipt, offset=start) as records:
@@ -250,6 +256,38 @@ class Indexer:
             if grew and (changes or result.completions):
                 store.bump(conn, session["agent_id"])
             result.finalized = finalized
+
+    def _refresh_provenance(self, archive, capture, session, receipt, saved, result):
+        """Bounded, resumable replay of an old cursor's state, without replaying effects.
+
+        The archive and immutable reply ledger stay intact. Replayed completions never
+        send notifications, increment counters or record fresh owner activity.
+        """
+        replay = saved.get("compaction_replay") or {}
+        start = replay.get("offset", 0)
+        target = capture["indexed_offset"]
+        projector = Projector(session["provider"], session["conversation_id"],
+                              ProjectorState.load(replay.get("state")), self._resolver(session))
+        consumed = start
+        with archive.iter_records(receipt, offset=start) as records:
+            for count, record in enumerate(records, 1):
+                if record.kind == "partial" or record.end > min(target, receipt.record_boundary):
+                    break
+                projector.feed(record)
+                consumed = record.end
+                if count >= BATCH_RECORDS or consumed - start >= BATCH_BYTES or consumed == target:
+                    break
+        state = projector.state.dump()
+        if consumed != target:
+            state = {**saved, "compaction_replay": {"offset": consumed, "state": state}}
+        with self.database.transaction(operation="native_chat.compaction_provenance") as uow:
+            self.runtime.application.ensure_writes_open(uow)
+            fresh = store.get_capture(uow.connection, session["agent_id"], session["provider"], session["conversation_id"])
+            if fresh["indexed_offset"] == target and fresh["index_state_json"] == capture["index_state_json"]:
+                changes = store.capture_changes(fresh, index_state_json=json.dumps(state, separators=(",", ":")))
+                if changes:
+                    store.update_capture(uow.connection, fresh, **changes)
+        result.more = True
 
     @staticmethod
     def _proposal(row, session, receipt, consumed, state, finalized) -> dict:

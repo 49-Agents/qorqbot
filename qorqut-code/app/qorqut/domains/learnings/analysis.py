@@ -9,6 +9,7 @@ import os
 import re
 from datetime import datetime, timezone
 from qorqut_operations.contracts import new_id
+from qorqut.transcript_provenance import is_compaction
 
 class LearnError(Exception):
     pass
@@ -289,15 +290,20 @@ def build_core(transcript, biz=None, agent=None, kind=None, subagents=()):
         ts = e.get("timestamp")
         if ts:
             stamps.append(ts)
-        if t in DROP_TYPES:
-            drop(t)
-            continue
         if e.get("isSidechain"):
             drop("sidechain")
             continue
-        if t == "summary" and e.get("summary"):
-            doc.append({"kind": "compaction", "text": e["summary"]})
+        if is_compaction(e):
+            text = e.get("summary")
+            if not isinstance(text, str):
+                text = "\n".join(b.get("text") or "" for b in _blocks((e.get("message") or {}).get("content"))
+                                 if b.get("type") == "text")
+            if text:
+                doc.append({"kind": "compaction", "text": strip_reminders(text)})
             turn = None
+            continue
+        if t in DROP_TYPES:
+            drop(t)
             continue
         msg = e.get("message") or {}
         if t == "user":
@@ -310,10 +316,6 @@ def build_core(transcript, biz=None, agent=None, kind=None, subagents=()):
             if tool_results and not texts:
                 continue                                  # digested with its tool_use
             text = strip_reminders("\n".join(texts))
-            if e.get("isCompactSummary"):
-                doc.append({"kind": "compaction", "text": text})
-                turn = None
-                continue
             if e.get("isMeta"):
                 drop("meta")
                 continue
