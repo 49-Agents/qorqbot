@@ -874,13 +874,13 @@ function mountChatView(host, options = {}) {
   }
   function referenceButtons(entry, refs, linkedRefs = [], node = null) {
     refs.className = 'gchat-references';
-    const typedKeys = new Set((entry.typedReferences || []).filter(ref => ref?.type === 'table').map(chatViewReferenceKey));
+    const typedKeys = new Set((entry.typedReferences || []).filter(ref => ref?.type === 'table' || (entry.referenceOnly && ref?.type === 'task')).map(chatViewReferenceKey));
     const seen = new Set();
     const ordinary = [...(entry.references || []), ...linkedRefs].filter(ref => {
       const value = ref?.value;
       if (!value || !['table','task'].includes(value.type)) return true;
       const key = chatViewReferenceKey(value);
-      if (seen.has(key) || (value.type === 'table' && typedKeys.has(key))) return false;
+      if (seen.has(key) || typedKeys.has(key)) return false;
       seen.add(key); return true;
     });
     if (node) node._referenceByKey = new Map(ordinary.map(ref => [ref.key,ref]));
@@ -959,7 +959,7 @@ function mountChatView(host, options = {}) {
         return {node, isNew};
       }
       paintTyped(node, entry);
-      const buttons = referenceButtons(entry, document.createElement('div'));
+      const buttons = referenceButtons(entry, document.createElement('div'), [], node);
       if (buttons.childElementCount) node.append(buttons);
       return {node, isNew};
     }
