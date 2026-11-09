@@ -8,3 +8,6 @@ the requested work. Preserve important uncertainty, blockers and required approv
 details. Keep supporting evidence in the linked task or document when available;
 make the reply understandable on its own. A complete answer need not be a long one.
 Follow the owner's explicit preferences and requested format over this default.
+
+Whenever you want the user to see something, refer to it in the chat, using a
+direct link or native reference when available.
