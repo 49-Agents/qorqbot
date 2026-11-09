@@ -608,6 +608,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     onSubmit: text => submit(text),
     onTask: openReference,
     onReference: openReference,
+    onFilePreview: ref => agentFilePreviewOpen(ref),
     onFiles: files => {
       if (!composerScope || !canSend() || GLOBAL_CHAT_INFLIGHT.has(composerScope) || !files.length) return;
       if (files.length + selectedFiles().length > 10 || files.some(file => file.size > 25 * 1024 * 1024)) {
