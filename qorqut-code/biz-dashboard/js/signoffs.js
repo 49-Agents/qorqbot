@@ -20,7 +20,7 @@ function sgPlatformStatus(s) {
 }
 // Account-email Signoffs keep the approval state; the send result is a separate outcome object. Outcome kind, never operation_name, marks them.
 const sgEmailStages = { awaiting_approval: "Awaiting approval", approved: "Approved", queued: "Approved · Queued", running: "Approved · Sending",
-  reconciling: "Approved · Checking send", submitted: "Approved · Submitted", failed: "Approved · Send failed", unconfirmed: "Approved · Send unconfirmed", cancelled: "Approved · Cancelled" };
+  reconciling: "Approved · Checking send", submitted: "Approved", failed: "Approved · Send failed", unconfirmed: "Approved · Send unconfirmed", cancelled: "Approved · Cancelled" };
 function sgOutcomeText(value, max = 120) { return typeof value === "string" ? value.slice(0, max) : ""; }
 function sgEmailStatus(s) {
   const outcome = s && s.outcome;
@@ -31,10 +31,9 @@ function sgEmailStatus(s) {
 }
 function sgEmailOutcomeHtml(s) {
   const status = sgEmailStatus(s);
-  if (status == null) return "";
+  if (status == null || s.outcome.stage === "submitted") return "";
   const outcome = s.outcome, label = sgOutcomeText(outcome.label), stage = outcome.stage;
-  const note = stage === "submitted" ? "Accepted by the mail provider; delivery is not confirmed."
-    : stage === "reconciling" ? "The send result is being checked. It is not confirmed yet."
+  const note = stage === "reconciling" ? "The send result is being checked. It is not confirmed yet."
     : stage === "unconfirmed" ? "The send result could not be confirmed. The message may or may not have been sent." : "";
   const codes = [], err = outcome.error && typeof outcome.error === "object" ? outcome.error : null;
   if (err && err.code) codes.push(`Error: ${sgOutcomeText(err.code, 80)}${err.retryable === true ? " (retryable)" : ""}`);
