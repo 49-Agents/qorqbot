@@ -139,8 +139,14 @@ class HostAgenticView:
             if "native_source" in asset:
                 from qorqut_agentic.behavior.sources import location
                 alias = asset["native_source"]
+                alias_path = alias.get("path", "")
+                expected = location(alias.get("source_id"), alias_path)
+                if alias.get("source_id") == "host" and alias_path.startswith("app/bazarlyk/"):
+                    expected = location("host", alias_path.replace("app/bazarlyk/", "app/qorqut/", 1))
+                    if expected is not None:
+                        expected = expected.replace("app/qorqut/", "app/bazarlyk/", 1)
                 if (set(alias) != {"source_id", "path"} or alias["source_id"] not in self._sources
-                        or source_id != "roles" or location(alias["source_id"], alias["path"]) != path):
+                        or source_id != "roles" or expected != path):
                     _invalid("Invalid instruction source alias")
                 self._assets.setdefault((alias["source_id"], alias["path"]), []).append(asset)
         self._bindings = {}
