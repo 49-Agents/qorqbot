@@ -68,7 +68,7 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
     return { w: (c && c.width) || CELL_W, h: (c && c.height) || CELL_H };
   };
   const fit = () => {
-    if (session.term !== term || !host.isConnected) return; // a queued fit can outlive a tab/agent switch
+    if (session.term !== term || !host.isConnected || !host.clientWidth || !host.clientHeight) return; // hidden viewers must not resize the shared PTY
     const { w, h } = cell();
     // `.termhost` includes its own padding in clientWidth/clientHeight. Measure its
     // content box, including the native xterm scrollbar gutter, so the PTY never
@@ -84,10 +84,11 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
     const cols = Math.max(20, Math.floor(width / w));
     const rows = Math.max(6, Math.floor(height / h));
     if (cols !== term.cols || rows !== term.rows) {
+      const atBottom = term.buffer.active.viewportY >= term.buffer.active.baseY;
       term.resize(cols, rows);
       post(`${terminalBase}/resize`, { cols, rows });
+      if (atBottom) term.scrollToBottom();
     }
-    term.scrollToBottom();
   };
   requestAnimationFrame(fit); // let the font metrics settle, then fit to real cell size
   let rt;
@@ -110,7 +111,7 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
     const es = new EventSource(evUrl(`${terminalBase}/stream`));
     session.es = es;
     // The first layout pass can precede server-side preparation; size again once attached.
-    es.onopen = () => { if (session.term === term) post(`${terminalBase}/resize`, { cols: term.cols, rows: term.rows }); };
+    es.onopen = () => { if (session.term === term && host.clientWidth && host.clientHeight) post(`${terminalBase}/resize`, { cols: term.cols, rows: term.rows }); };
     es.addEventListener('replay', () => { nextReplay = true; });
     es.onmessage = ev => {
       const replay = nextReplay; nextReplay = false;
