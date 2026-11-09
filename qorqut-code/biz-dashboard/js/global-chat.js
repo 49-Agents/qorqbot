@@ -13,7 +13,8 @@ const GLOBAL_CHAT_STARTS = new Map();           // agent id -> {startedAt, error
 // scope -> {records, consumed}: owner messages accepted by the backend whose transcript entry has not been seen yet. Browser-only and
 // presentation-only: a record keeps the sent text visible until its exact native user entry arrives, and never touches receipts.
 const GLOBAL_CHAT_ACCEPTED = new Map();
-const globalChatText = text => String(text ?? '').replace(/\r\n/g, '\n');
+// Comparison only: native clients may trim the pasted message's trailing whitespace.
+const globalChatText = text => String(text ?? '').replace(/\r\n/g, '\n').trimEnd();
 async function globalChatOpenFocusReference(ref, context = {}) {
   const pane = Object.hasOwn(context, 'pane') ? context.pane : (typeof _agpad !== 'undefined' ? _agpad : null);
   const agentId = String(context.agentId ?? pane?.agentId ?? '');
