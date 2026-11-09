@@ -21,7 +21,9 @@ from qorqut_operations.storage.executor import application_claim
 from qorqut_operations.storage.locks import LockPaths
 from qorqut_operations.storage.receipts import ApplyReceipts, IdempotencyReceipts
 from qorqut_operations.storage.repositories import decode_row
+from qorqut_operations.storage.specs import TableSpec
 from .inputs import InputRequests, validate_response
+from .drafts import SCHEMA as DRAFT_SCHEMA, DraftReviews, is_draft, validate_values
 from .notes import SignoffNotes, eligible
 from .notifications import SignoffNotifications
 from .ports import ABSENT, SignoffPorts, checked_narrowing
@@ -56,8 +58,9 @@ SIGNOFF_REQUIRED_TABLES = frozenset({"inbox_changes"})
 def storage_contribution() -> StorageContribution:
     """The Signoff machinery's storage requirements, for the host's assembly: the engine owns the Signoff tables
     (``signoffs``, ``signoff_notes``, ``signoff_attention``, ``signoff_notifications``, ...) in its core schema and
-    needs these host-created tables to exist in the composed target."""
-    return StorageContribution("signoffs", required_tables=SIGNOFF_REQUIRED_TABLES)
+    contributes immutable draft versions here. These host-created tables must also exist in the composed target."""
+    return StorageContribution("signoffs", {"signoff_draft_revisions": TableSpec(("signoff_id", "revision"), mutable=False, revision_column=None)},
+                               schema=DRAFT_SCHEMA, required_tables=SIGNOFF_REQUIRED_TABLES)
 
 
 class SignoffService:
@@ -90,6 +93,7 @@ class SignoffService:
         self.notifications = SignoffNotifications(self)
         self.notes = SignoffNotes(self)
         self.inputs = InputRequests(self)
+        self.drafts = DraftReviews(self)
         self.rejection = Rejection(self)
         self._next_notification_tick = 0
         self._next_file_recovery_tick = 0
@@ -117,7 +121,8 @@ class SignoffService:
                       resolve_namespace=lambda ctx, args: "global" if args.get("scope") == "global" else "business:" + (ctx.business_id or ""))
         return (
             OperationDescriptor("signoffs_get", {"type": "object",
-                "required": ["signoff_id"], "properties": {**common, "signoff_id": {"type": "string", "minLength": 1, "maxLength": 200}}},
+                "required": ["signoff_id"], "properties": {**common, "signoff_id": {"type": "string", "minLength": 1, "maxLength": 200},
+                    "draft_history_before": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807}}},
                 **scopes, effect_kind="read", supports_signoff=False, read=self._get_operation,
                 description=instruction_text('service-read-a-proposal-and-owner-feedback-in-the')),
             OperationDescriptor("signoffs_list", {"type": "object", "properties": {
@@ -201,7 +206,7 @@ class SignoffService:
             raise DomainError("not_found", "Proposal does not exist in this review scope")
         return row
 
-    def _dto(self, row, uow, *, detail=True):
+    def _dto(self, row, uow, *, detail=True, draft_history_before=None):
         names = {item["id"]: item["display_name"] for item in uow.connection.execute(
             "SELECT id, display_name FROM principals WHERE id IN (?, ?)",
             (row["proposer_principal_id"], row["initiated_by_principal_id"]))}
@@ -257,6 +262,9 @@ class SignoffService:
         if detail:
             value.update(preview=row["preview_json"], expected_targets=row["expected_targets_json"],
                          applied_at=row["applied_at"], apply_result=row["apply_result_json"], error=row["error_json"])
+            if is_draft(row):
+                value['draft_review'] = self.drafts.current(row, uow)
+                value['draft_history'] = self.drafts.history(row, uow, before=draft_history_before)
         # Optional host read model of the asynchronous work this approval started: the bounded summary in a list row, the
         # full model in a detail read. Built only for a row the caller's scope and visibility already admitted, from
         # records the host links to it; it never decides anything.
@@ -271,7 +279,8 @@ class SignoffService:
             context = replace(context, business_id=None, review_business_id=None)
         context = self._context(context, uow)
         self._review_selector(context, arguments)
-        return {"signoff": self._dto(self._row(context, arguments["signoff_id"], uow), uow)}
+        return {"signoff": self._dto(self._row(context, arguments["signoff_id"], uow), uow,
+                                     draft_history_before=arguments.get('draft_history_before'))}
 
     @staticmethod
     def _review_selector(context, arguments):
@@ -373,8 +382,8 @@ class SignoffService:
                                       [*params, limit]).fetchall()
         return {"count": count, "items": [self._dto(decode_row(row), uow, detail=False) for row in rows]}
 
-    def get(self, context, signoff_id):
-        return self.app.invoke(context, "signoffs_get", {"signoff_id": signoff_id, **({"scope": "global"} if context.business_id is None else {})})
+    def get(self, context, signoff_id, **arguments):
+        return self.app.invoke(context, "signoffs_get", {**arguments, "signoff_id": signoff_id, **({"scope": "global"} if context.business_id is None else {})})
 
     def list(self, context, **arguments):
         return self.app.invoke(context, "signoffs_list", {**({"scope": "global"} if context.business_id is None else {}), **arguments})
@@ -642,8 +651,36 @@ class SignoffService:
         except DomainError as exc:
             return OperationResult.failure(exc, request_id=context.request_id)
 
+    def save_draft(self, context, signoff_id, *, values, proposal_revision, payload_hash,
+                   expected_status_revision, idempotency_key):
+        """Save an owner version without answering, approving or applying anything."""
+        try:
+            InvocationOptions(expected_revision=expected_status_revision, idempotency_key=idempotency_key)
+            if not idempotency_key or type(proposal_revision) is not int or proposal_revision < 1:
+                raise DomainError('validation_error', 'Saving requires the current binding and an idempotency key')
+            with self.database.transaction() as uow:
+                context = self._context(context, uow, owner=True)
+                self.app.ensure_writes_open(uow)
+                row = self._row(context, signoff_id, uow)
+                values = validate_values(row, values)
+                input_hash = self.drafts.input_hash(signoff_id, values, proposal_revision, payload_hash, expected_status_revision)
+                namespace = 'business:' + context.business_id if context.business_id else 'global'
+                receipts = IdempotencyReceipts(uow)
+                if receipts.lookup(context.principal_id, namespace, 'signoffs_draft_save', idempotency_key, input_hash):
+                    return self._decision_result(context, row, uow, replayed=True)
+                self.drafts.validate_binding(context, row, uow, proposal_revision, payload_hash, expected_status_revision)
+                before = self.drafts.current(row, uow)['revision']
+                saved = self.drafts.save(context, row, values, uow)
+                if saved['revision'] != before:
+                    row = self._update(row, {}, uow)
+                result = self._decision_result(context, row, uow)
+                receipts.save(context.principal_id, namespace, 'signoffs_draft_save', idempotency_key, input_hash, result)
+                return result
+        except DomainError as exc:
+            return OperationResult.failure(exc, request_id=context.request_id)
+
     def respond(self, context, signoff_id, *, proposal_revision, payload_hash,
-                expected_status_revision, idempotency_key, notes="", selected_choices=None):
+                expected_status_revision, idempotency_key, notes="", selected_choices=None, draft_values=None):
         try:
             InvocationOptions(expected_revision=expected_status_revision, idempotency_key=idempotency_key)
             if not idempotency_key or type(proposal_revision) is not int or proposal_revision < 1:
@@ -656,8 +693,15 @@ class SignoffService:
                 if row['category'] != 'input_request':
                     raise DomainError('invalid_transition', 'Use approve or reject for a prepared action')
                 notes, selected = validate_response(row['preview_json']['input'], notes, selected_choices)
+                if is_draft(row):
+                    if draft_values is None:
+                        raise DomainError('validation_error', 'Returning a draft requires its complete edited fields')
+                    draft_values = validate_values(row, draft_values, final=True)
+                elif draft_values is not None:
+                    raise DomainError('validation_error', 'Draft values are only accepted for draft reviews')
                 input_hash = canonical_hash({'id': signoff_id, 'proposal_revision': proposal_revision,
-                    'payload_hash': payload_hash, 'revision': expected_status_revision, 'notes': notes, 'selected': selected})
+                    'payload_hash': payload_hash, 'revision': expected_status_revision, 'notes': notes, 'selected': selected,
+                    **({'draft_values': draft_values} if draft_values is not None else {})})
                 receipts = IdempotencyReceipts(uow)
                 namespace = 'business:' + context.business_id if context.business_id else 'global'
                 replay = receipts.lookup(context.principal_id, namespace, 'signoffs_respond', idempotency_key, input_hash)
@@ -667,8 +711,13 @@ class SignoffService:
                         or row['status_revision'] != expected_status_revision or row['state'] != 'pending' or row['superseded_by_id']):
                     raise self._stale(context, row, uow, 'This input request has changed or already received a response')
                 message_id = self.notes.decision_message(context, row, notes, uow)
+                draft_decision = {}
+                if is_draft(row):
+                    saved = self.drafts.save(context, row, draft_values, uow)
+                    draft_decision = {'draft_values': draft_values, 'draft_revision': saved['revision']}
                 row = self._update(row, {'state': 'answered', 'decision_json': {'kind': 'respond',
-                    'by': context.principal_id, 'at': self.clock(), 'message_id': message_id, 'selected_choices': selected}}, uow)
+                    'by': context.principal_id, 'at': self.clock(), 'message_id': message_id, 'selected_choices': selected,
+                    **draft_decision}}, uow)
                 result = self._decision_result(context, row, uow)
                 receipts.save(context.principal_id, namespace, 'signoffs_respond', idempotency_key, input_hash, result)
                 return result

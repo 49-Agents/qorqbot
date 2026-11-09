@@ -35,13 +35,42 @@ or choices materially change, withdraw the old input with
 `signoffs_input_cancel`, then submit its replacement. Avoid duplicate requests
 for each retry of a blocked operation.
 
-The `form` contains `title`, `explanation`, `kind` (`question` or `request`), and
+The `form` contains `title`, `explanation`, `kind` (`question`, `request`, or `draft_review`), and
 `selection_mode` (`none`, `single`, or `multiple`). For choices provide at least
 two entries with unique stable `id`, a one/two-word `label`, and `explanation`.
 Use `selection_required` and `notes_required` only when that information is
 necessary to proceed. Notes are always available; the owner submits notes and
 selections together. Put your recommendation and the consequences of waiting
 in the explanation.
+
+## Editable draft review
+
+Use `form.kind: draft_review` when the owner should edit proposed content, such
+as email copy, a document, a brief or a script. Supply `draft_fields`: 1–12 fields
+with unique stable `id`, a readable `label`, and the initial text in `value`.
+Use `multiline: false` for a subject or other single line (the default is
+multiline); use `required: true` only for fields that must be nonblank when
+returned. Each value permits 16000 characters and the combined values permit
+32000 characters. Preserve literal placeholders such as `{{name}}`.
+
+Draft reviews are always `owner_only`. The owner edits the fields, can save
+versions without submitting, and uses **Return draft** to submit content and
+optional feedback. Choices and required notes work as they do for other input
+requests. A saved version is unfinished work: consume the content only once
+the request is `answered`, from `decision.draft_values`; `decision.draft_revision`
+identifies the returned version. The original and all saved versions remain
+available in `signoffs_get` (`draft_review` and paginated `draft_history`).
+
+Keep one pending request per review, using its stable request key. Do not
+withdraw it merely because the owner saved an edit. For a further review round
+after an answer, use the returned values as the new initial values and include
+`form.previous_review_id` with the answered review's ID. That prior review must
+belong to you in the same scope. Keep the existing Task/thread association and
+present the review there using its typed Signoff reference.
+
+Returning a draft gives you content and feedback. It does not authorize sending
+the email, publishing, activating a campaign or setting its schedule. Obtain
+the appropriate separate action approval when needed.
 
 Set `attention.notify: true` when the item should notify the owner. Delivery
 uses the available notification connector; do not promise a fixed daily summary.

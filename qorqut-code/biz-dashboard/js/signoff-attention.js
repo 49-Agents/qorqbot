@@ -25,7 +25,7 @@ window.sgFocusOpen = (title, options, afterClose) => window.focusExpansion.open(
   session.setBeforeLeave(async()=>{
     if (confirmation) { notice.textContent='Finish or cancel the confirmation first.'; notice.hidden=false; return false; }
     if (view.hasPendingWrite()) { notice.textContent='Finish or check the pending signoff operation before leaving.'; notice.hidden=false; return false; }
-    if (view.hasUnsaved()) { notice.textContent='Save or discard the message edit before leaving.'; notice.hidden=false; return false; }
+    if (view.hasUnsaved()) { notice.textContent='Save or discard your edits before leaving.'; notice.hidden=false; return false; }
     return true;
   });
   view.paint();

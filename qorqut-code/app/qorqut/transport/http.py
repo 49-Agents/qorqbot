@@ -919,7 +919,18 @@ class HTTPAPI:
                     return response(result)
                 return await revalidated_async(request, self.runtime.changes, {"signoffs"}, context.business_id, produce)
             if len(tail) == 2:
-                return response(await anyio.to_thread.run_sync(lambda: self.runtime.signoffs.get(context, tail[1])))
+                arguments = {}
+                if 'draft_history_before' in request.query_params:
+                    raw = request.query_params['draft_history_before']
+                    if not re.fullmatch(r'[1-9][0-9]{0,17}', raw):
+                        raise DomainError('validation_error', 'draft_history_before must be a positive integer')
+                    arguments['draft_history_before'] = int(raw)
+                return response(await anyio.to_thread.run_sync(lambda: self.runtime.signoffs.get(context, tail[1], **arguments)))
+        if request.method == "POST" and len(tail) == 3 and tail[2] == "draft":
+            body = await read_json(request, limit=256 * 1024)
+            required = {"values", "proposal_revision", "payload_hash", "expected_status_revision", "idempotency_key"}
+            checked_fields(body, required, required)
+            return response(await anyio.to_thread.run_sync(partial(self.runtime.signoffs.save_draft, context, tail[1], **body)))
         if request.method == "POST" and len(tail) == 3 and tail[2] == "amend":
             body = await read_json(request)
             required = {"changes", "proposal_revision", "payload_hash", "expected_status_revision", "idempotency_key"}
@@ -928,7 +939,7 @@ class HTTPAPI:
         if request.method == "POST" and len(tail) == 3 and tail[2] == "respond":
             body = await read_json(request)
             required = {"proposal_revision", "payload_hash", "expected_status_revision", "idempotency_key"}
-            checked_fields(body, required | {"notes", "selected_choices"}, required)
+            checked_fields(body, required | {"notes", "selected_choices", "draft_values"}, required)
             return response(await anyio.to_thread.run_sync(partial(self.runtime.signoffs.respond, context, tail[1], **body)))
         if request.method == "POST" and len(tail) == 3 and tail[2] in {"approve", "reject", "retry"}:
             body = await read_json(request)
