@@ -163,3 +163,26 @@ class RenameCompatibilityTests(unittest.TestCase):
             inventory['assets'][0]['native_source']['path'] = path.replace('role/', 'unknown/')
             with self.assertRaisesRegex(DomainError, 'Invalid instruction source alias'):
                 HostAgenticView(None, inventory)
+
+    def test_published_skill_bytes_survive_host_rename(self):
+        from qorqut.catalog.packages import load_package, files_digest
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = {'schema_version': 1, 'id': 'fixture', 'version': '1.0.0',
+                'scope_kinds': ['ecosystem'], 'scope_brief': 'ecosystem-agent',
+                'brief': 'BRIEF.md', 'default_tool_policy': {},
+                'skills': [{'id': 'fixture', 'path': 'skill/SKILL.md'}]}
+            (root / 'role.yaml').write_text(json.dumps(manifest))
+            (root / 'BRIEF.md').write_text('Fixture')
+            (root / 'skill').mkdir()
+            for prefix in ('bazarlyk', 'qorqut'):
+                skill = root / 'skill/SKILL.md'
+                skill.write_text(f'---\nname: {prefix}-role-fixture\ndescription: Fixture\n---\nRead this.')
+                before = skill.read_bytes()
+                package = load_package(root, 'role.yaml', 'role', None)
+                self.assertEqual(package.files['skill/SKILL.md'], before)
+                self.assertEqual(package.digest, files_digest(package.files))
+                self.assertEqual(package.skills[0]['name'], 'qorqut-role-fixture')
+            skill.write_text('---\nname: unrelated-role-fixture\ndescription: Fixture\n---\nRead this.')
+            with self.assertRaises(DomainError):
+                load_package(root, 'role.yaml', 'role', None)
