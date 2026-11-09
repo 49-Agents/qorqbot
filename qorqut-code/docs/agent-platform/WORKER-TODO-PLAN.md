@@ -110,8 +110,8 @@ reuse it and the current hook/chat claim and receipt handling.
 
 Use the shared pure timer policy in Agentic's `behavior/attention_clock.py`:
 5-minute focused checks, 3-minute unfocused checks for open/working tasks,
-30-minute reassessment for blocked/waiting/input-only boards, and the existing
-30-minute owner-message buffer. Preserve the current hook-to-chat fallback.
+30-minute reassessment for blocked/waiting/input-only boards, and a
+15-minute owner-message buffer. Preserve the current hook-to-chat fallback.
 Workflows and their detachment timing remain Ordubashy's existing behavior.
 
 Update the coordinator-specific activity gates in `agents/activity.py`,
