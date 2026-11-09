@@ -218,6 +218,7 @@ async function tadd(fields) {
   tGen++;
   const r = await post(`/biz/${slug}/task`, {owner: tHuman(), ...fields});
   if (r && r.error) { toast("Couldn't save. Try again"); return null; }
+  if (r?.status === 'signoff_required') { toast('Submitted for project approval.'); tRefreshInBackground(); return null; }
   tAcceptCanonical(r?.task, business, {created: true}); tRefreshInBackground();
   if (typeof refreshSideSoon === "function") refreshSideSoon();
   return r;

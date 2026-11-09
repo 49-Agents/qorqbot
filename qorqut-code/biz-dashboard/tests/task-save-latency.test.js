@@ -42,6 +42,8 @@ test('twrite resolves on the mutation response while full-list reads are held; c
  let result;const write=h.ctx.twrite(h.state.tasks[0],{title:'new t1'},()=>assert.fail('no error')).then(r=>{result=r;});
  await flush();assert.equal(result,undefined,'not reported before the server acknowledges');
  assert.equal(h.state.tasks[0].title,'old t1');
+ h.ctx.refreshTasks();const during=h.gets.splice(0); // a second read begins while the mutation is in flight
+ assert.equal(during.length,2);
  h.posts[0].resolve({task:canon('t1',{assignee_ids:['p1']})});
  await write;
  assert.equal(result.task.title,'new t1');
@@ -50,6 +52,7 @@ test('twrite resolves on the mutation response while full-list reads are held; c
  assert.ok(h.ctx.paintCount>0&&h.ctx.businessPaints>0);
  assert.equal(h.gets.length,2,'background refresh started, still pending');
  early[0].resolve({tasks:[row('t1')],principal_id:'p1'});early[1].resolve([row('t1')]);await flush();
+ during[0].resolve({tasks:[],principal_id:'p1'});during[1].resolve([]);await flush();
  assert.deepEqual(titles(h.state.tasks),['new t1'],'a read that began before the acknowledgement is discarded');
  h.gets[0].resolve({tasks:[canon('t1',{revision:3,title:'server t1'})],principal_id:'p1'});h.gets[1].resolve([canon('t1',{revision:3,title:'server t1'})]);await flush();
  assert.deepEqual(titles(h.state.tasks),['server t1']);
@@ -98,6 +101,15 @@ test('a created task joins the selected business list when it belongs to the ini
  const h=setup({tasks:[row('a1')]});
  const add=h.ctx.tadd({title:'created'});h.posts[0].resolve({task:canon('c1',{title:'created'})});await add;
  assert.deepEqual(ids(h.state.tasks),['a1','c1']);assert.equal(h.state.tasks[1].business.slug,'a');
+});
+
+test('task creation awaiting approval never appears as committed',async()=>{
+ const h=setup({tasks:[row('a1')]});
+ const add=h.ctx.tadd({title:'requires approval'});
+ h.posts[0].resolve({status:'signoff_required',task:canon('pending',{assignee_ids:['p1']})});
+ assert.equal(await add,null);
+ assert.deepEqual(ids(h.state.tasks),['a1']);assert.deepEqual(ids(h.state.myTasks),[]);
+ assert.deepEqual(h.toasts,['Submitted for project approval.']);assert.equal(h.gets.length,2);
 });
 
 test('responses for one task arriving in reverse revision order keep the newest',async()=>{

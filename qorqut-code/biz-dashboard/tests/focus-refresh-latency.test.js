@@ -20,7 +20,7 @@ function harness() {
     agfocusRestorable: (q, item) => !!q.focusWork.get(item.id)?.expanded,
     // Mirrors the real guard: a hidden pane never starts a new branch read.
     agfocusExpandWork: (q, item) => h.hidden ? Promise.resolve() : new Promise(res => h.expands.push({item, res})),
-    agfocusPaint: q => h.paints.push({items: q.focus?.items.map(i => i.id), done: !q.focusPending}),
+    agfocusPaint: q => { h.paints.push({items: q.focus?.items.map(i => i.id), done: !q.focusPending}); h.onPaint?.(); },
   };
   vm.createContext(context);
   vm.runInContext(code + ';this.agfocusRefresh=agfocusRefresh;', context);
@@ -54,13 +54,16 @@ test('navigation away during the read does not paint the wrong pane', async () =
   // The obsolete response is discarded and one fresh read is requested for the current pane.
   assert.equal(h.reads.length, 2); assert.equal(h.p.focus, undefined); assert.equal(h.expands.length, 0);
   assert.equal(h.paints.filter(x => !x.done).length, 0);
+  h.active = false; h.reads[1].res(h.data()); await run;
 });
 
 test('a pane closed by the early paint starts no branch reads', async () => {
-  const h = harness();   const run = h.refresh();
-  h.reads[0].res(h.data()); await tick();
-  assert.equal(h.expands.length, 1);
-  h.active = false; h.expands[0].res(); await run;
+  const h = harness();
+  h.onPaint = () => { h.active = false; };
+  const run = h.refresh();
+  h.reads[0].res(h.data()); await run;
+  assert.equal(h.paints.length, 1);
+  assert.equal(h.expands.length, 0);
   assert.equal(h.p.focusPending, false);
 });
 
