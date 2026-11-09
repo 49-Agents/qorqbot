@@ -86,6 +86,8 @@ class ReminderService:
         self.runtime, self.app = runtime, runtime.application
         self.clock = getattr(runtime.inbox, "clock", None) or utc_clock
         self.delivery = None
+        from .defaults import BrowserCleanupDefaults
+        self.defaults = BrowserCleanupDefaults(self)
 
     # ----- registration ------------------------------------------------------------------------------------------
 
@@ -599,12 +601,15 @@ class ReminderService:
 
     def reconcile(self, uow):
         """Turn due boundaries into occurrences and publish pending ones, within the caller's write unit and a small budget.
-        Idle cost is two indexed probes. A failing row is isolated by a savepoint and deferred; it never aborts the pass."""
+        Due delivery runs first; default enrollment has its own bounded pass afterwards.
+        A failing row is isolated by a savepoint and deferred; it never aborts the pass."""
         stamp = timestamp(self.clock)
         started = time.monotonic()
         now = timing.parse_stamp(stamp)
         fired = self.fire_due(uow, now, stamp, started)
-        return {"fired": fired, "published": self.publish_pending(uow, stamp, started) if self.delivery is not None else 0}
+        published = self.publish_pending(uow, stamp, started) if self.delivery is not None else 0
+        self.defaults.reconcile(uow)
+        return {"fired": fired, "published": published}
 
     def fire_due(self, uow, now, stamp, started):
         rows = uow.connection.execute(
