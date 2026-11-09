@@ -10,6 +10,21 @@ Todo is the existing persistent Attention list under its current name. `todo_get
 
 The same list shows work for the owner and agents, with Everyone, You and Agents filters based on the current Worker set. Delegation does not remove the coordinator's commitment. Done and blocked records retain the existing removal protections. Focus keeps its existing curated-priorities purpose and tools; presenting a reference does not automatically add a Focus card.
 
+### Shared Todo and focus reminders
+
+Ordubashy and enrolled permanent workers use the same reminder clock. An unfocused
+agent with actionable board tasks is nudged after three minutes without activity;
+a board containing only blocked, waiting or needs-input tasks is reassessed every
+30 minutes. Empty and Done/Cancelled-only boards schedule no ordinary board nudge.
+
+A focused agent receives a progress reminder through its next eligible hook every
+five minutes. If no hook delivers it, the existing chat fallback becomes eligible
+three minutes after that deadline, including when the connected agent is idle.
+It does not start a stopped client or resume a paused session. The 30-minute buffer
+after an owner message still applies to chat delivery, not the focused hook.
+Existing persisted deadlines are retained until their normal clock transition or
+delivery; installing a new interval does not replay missed reminders.
+
 ### Daily Todo adjustment
 
 The existing inactivity polling pass invites the configured Ordubashy to run a careful Todo list adjustment at most once per elapsed 24 hours. The first eligible pass sends the invitation; it is not a calendar-day schedule and missed days do not accumulate. Eligibility requires a live, idle native session, at least 15 minutes since session observation and agent activity, and at least 30 minutes since the last owner message. Paused or stopped sessions, pending native input and revoked session authority prevent delivery. A stale Focus does not prevent housekeeping when the session is actually idle. Done-only lists qualify; empty lists do not.
