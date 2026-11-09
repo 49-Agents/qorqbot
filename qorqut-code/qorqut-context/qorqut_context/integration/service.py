@@ -141,7 +141,8 @@ def compose_context(application, locations: ContextLocations, settings: ContextS
     queue = ContextQueueOperations(outcomes=outcomes, clock=settings.clock, executions=executions,
                                    max_content_bytes=config.source_bytes)
     filing = FilingPorts(queue, source_bytes=config.source_bytes)
-    graph_edits = GraphEdits(application, GraphEditPorts(context, source_bytes=config.source_bytes, supervised_pipeline=pipeline), roles=instruct_roles)
+    graph_edits = GraphEdits(application, GraphEditPorts(context, source_bytes=config.source_bytes, supervised_pipeline=pipeline),
+                            roles=instruct_roles, coordinator=coordinator)
     questions = QuestionStore(locations.questions)
     return ContextComposition(context, pipeline, outcomes, executions, queue, filing, graph_edits, settings,
                               admit_action_revision, coordinator, locations, questions)

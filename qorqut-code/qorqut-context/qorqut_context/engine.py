@@ -18,7 +18,7 @@ from .schema import (Conflict, ContextError, RECORD_KINDS, change_details, diges
                      identifier, metadata as normalize_metadata, note_record, object_record,
                      record_path, source_path, text, value_key)
 from .search import SQLiteIndex, changes_between, project
-from . import controlled, graph_edits, input_modes as modes, questions, supervised_edits
+from . import controlled, graph_edits, input_modes as modes, personal, questions, supervised_edits
 
 
 def atomic_write(path: Path, content: bytes):
@@ -89,11 +89,14 @@ class Context:
         self.job_path = self.runtime / "pending.json"
 
     @classmethod
-    def initialize(cls, root, runtime=None, *, basic_entity_types=None, index_factory=SQLiteIndex):
+    def initialize(cls, root, runtime=None, *, basic_entity_types=None, index_factory=SQLiteIndex,
+                   personal_context=True):
         context = cls(root, runtime, index_factory=index_factory)
         seeds = basic_entity_types if basic_entity_types is not None else []
         if not isinstance(seeds, list) or any(not isinstance(v, str) or not v.strip() for v in seeds):
             raise ContextError("Initial categories must be nonempty strings")
+        if type(personal_context) is not bool:
+            raise ContextError("personal_context must be a boolean")
         context.root.mkdir(parents=True, exist_ok=True)
         if any(context.root.iterdir()):
             raise Conflict("Initialization requires an empty directory")
@@ -109,6 +112,8 @@ class Context:
             context.git.publish(commit, None)
             context.git.checkout(None, commit)
             context._ensure_index(context.snapshot())
+        if personal_context:
+            personal.initialize(context)
         return context
 
     @contextmanager
@@ -298,7 +303,8 @@ class Context:
         self._check_edit(snapshot, edit, event_id, None, source_bytes)
         job = {"input_mode": modes.GENERAL, "operation": "add", "source": {"id": None},
                "source_bytes": source_bytes, "draft": supervised_edits.draft(edit.plan)}
-        changes = {(change["kind"], change["id"]): change for change in self._graph_files(snapshot, job)[1]}
+        changes = {(change["kind"], change["id"]): change
+                   for change in self._graph_files(snapshot, job, controlled_edit=True)[1]}
         operations, counts = [], {kind: {"add": 0, "edit": 0, "remove": 0} for kind in RECORD_KINDS}
         for operation in edit.plan["operations"]:
             kind, target = supervised_edits.kind(operation["op"]), supervised_edits.object_id(operation)
@@ -564,6 +570,8 @@ class Context:
             record["id"] = object_id
             record = (note_record(record, job["source_bytes"]) if kind == "note"
                       else object_record(kind, record))
+            personal.validate_change(snapshot, kind, object_id, snapshot.records(kind).get(object_id), record,
+                                     controlled_edit=controlled.binding(job))
             key = f"{kind}:{object_id}"
             if object_id not in snapshot.records(kind) and key not in job["draft"]:
                 if object_id in snapshot.used_ids or object_id in job["reserved_ids"]:
@@ -597,6 +605,8 @@ class Context:
                 raise ContextError("A note cannot record developments")
             snapshot = self.snapshot(job["base_revision"])
             key = f"{kind}:{object_id}"
+            personal.validate_change(snapshot, kind, object_id, snapshot.records(kind).get(object_id), None,
+                                     controlled_edit=controlled.binding(job))
             if object_id not in snapshot.records(kind) and key not in job["draft"]:
                 raise ContextError(f"No draft/current {kind} with this ID")
             if object_id not in snapshot.records(kind):
@@ -618,7 +628,7 @@ class Context:
 
     def _prepare_publication(self, snapshot, job):
         plan = self._bound_plan(job)
-        files, changes, objects = self._graph_files(snapshot, job)
+        files, changes, objects = self._graph_files(snapshot, job, controlled_edit=plan is not None)
         if plan is not None:
             self._require_exact_edit(job, plan)
             self._require_effective(job, changes, controlled.module_for(plan))
@@ -633,7 +643,10 @@ class Context:
         self._validate_questions(snapshot, job, {kind: set(found) for kind, found in objects.items()})
         files[job["source"]["path"]] = content
         if snapshot.format_version != FORMAT_VERSION:
-            files[CONFIG_PATH] = encode(CURRENT_CONFIG)
+            config = dict(CURRENT_CONFIG)
+            if snapshot.personal_context_node:
+                config["personal_context_node"] = snapshot.personal_context_node
+            files[CONFIG_PATH] = encode(config)
         event = {k: job[k] for k in ("format_version", "id", "base_revision", "submission_digest",
                                     "operation", "submitted_by", "source", "input_mode",
                                     "input_digest", "previous_source_event")}
@@ -681,7 +694,7 @@ class Context:
                 raise Conflict("Object ID is already reserved or has been published before")
         job = {"input_mode": modes.GENERAL, "operation": "add", "source": {"id": source_id},
                "source_bytes": source_bytes, "draft": module.draft(plan)}
-        self._require_effective(job, self._graph_files(snapshot, job)[1], module)
+        self._require_effective(job, self._graph_files(snapshot, job, controlled_edit=True)[1], module)
 
     def pending_edit(self, event_id):
         """The validated plan of the pending controlled edit ``event_id`` (graph or supervised); ``None`` for ordinary input."""
@@ -689,7 +702,7 @@ class Context:
         with self._lock():
             return self._bound_plan(self._editable_job(event_id))
 
-    def _graph_files(self, snapshot, job):
+    def _graph_files(self, snapshot, job, *, controlled_edit=False):
         objects = {"node": dict(snapshot.nodes), "edge": dict(snapshot.edges), "note": dict(snapshot.notes)}
         support = dict(snapshot.support)
         catalogs = json.loads(json.dumps(snapshot.catalogs))
@@ -705,6 +718,7 @@ class Context:
             if (not record_changed and support.get((kind, object_id), []) == draft["support_after"]
                     and not draft["developments"]):
                 continue
+            personal.validate_change(snapshot, kind, object_id, old, record, controlled_edit=controlled_edit)
             operation = "remove" if record is None else ("add" if old is None else "edit")
             details = {k: v for k, v in draft.items() if k != "record"}
             changes.append({**details, "operation": operation})

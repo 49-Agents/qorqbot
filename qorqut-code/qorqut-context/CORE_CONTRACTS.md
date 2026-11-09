@@ -30,6 +30,11 @@ API still accepts controlled graph operations without running a model.
   names and categorical string/boolean values, including setup seeds. Numbers
   are not enumerated or summarized by ranges.
 - `graph/config.json` identifies format version 3 and the publication branch.
+  New installations also record an optional `personal_context_node`: a five-character
+  ID of the canonical published person node. Absence means no configured profile;
+  readers never infer one from names or aliases. Current engines accept historical
+  configurations without this key. Older engines that require the earlier exact
+  configuration shape will reject a graph with the key.
   Initialization creates config/catalogs in a distinct commit without a source
   change. An initially empty vocabulary still requires categories on nodes.
 
@@ -270,6 +275,17 @@ jobs, source input, drafts, and indexes remain in the separate runtime directory
 Initialization prepares the empty Git repository, then takes the same locks and
 rechecks for existing context or unrelated files before claiming runtime state
 or publishing setup. A conflicting initialization preserves existing files.
+
+Fresh initialization also seeds the canonical owner person through an ordinary
+deterministic graph-edit event with Global scope, then publishes its configuration
+pointer before returning. The seed supplies only the person type and a generic
+summary; its source records setup, not invented personal facts. Initialization
+must finish before the host exposes the new installation. The pointer remains
+unchanged during ordinary filing and edits. Profile deletion and removal of its
+person type are rejected. Ordinary propagation cannot mutate the profile or its
+incident relationships; controlled edit entry points rely on the host's configured
+Ordubashy authorization. Source evidence, edit timestamps and superseded values
+use the existing event/Git machinery.
 
 ## Controlled deterministic graph edits
 

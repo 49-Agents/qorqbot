@@ -76,12 +76,21 @@ def render_home(dto, *, characters=MAX_CHARACTERS) -> str:
     if dto["empty"]:
         return (f"{head}\n{summary}\nInitialized and empty: no nodes or relationships are published yet. "
                 "The same published graph is shared by every registered agent.")
-    shown = dto["nodes"][:NODES]
+    personal = dto.get("personal_context")
+    personal_ref = personal["ref"] if personal else None
+    shown = [node for node in dto["nodes"][:NODES] if node["ref"] != personal_ref]
     lines = [head, summary,
              "One published graph shared by every registered agent; drafts are never shown. "
              f"Showing {len(shown)} of {totals['nodes']} nodes, most connected first."]
+    if personal_ref:
+        lines.insert(1, f"Personal context: {personal_ref}. This is the one canonical store of information about the user. "
+                     f"Read context_object(ref='{personal_ref}') on demand. Ordubashy maintains it; other agents read it "
+                     "and pass new personal facts to Ordubashy through the existing inbox, with the source and date.")
     for node in shown:
-        lines.extend(_node_lines(node))
+        # Startup is an index, not an implicit profile read (including incident relationship summaries).
+        visible = [edge for edge in node["relationships"]
+                   if personal_ref not in (edge["from"]["ref"], edge["to"]["ref"])]
+        lines.extend(_node_lines({**node, "relationships": visible}))
     lines.append(READS)
     text = "\n".join(lines)
     return text if len(text) <= characters else text[:characters - len(TRUNCATED)].rstrip() + TRUNCATED

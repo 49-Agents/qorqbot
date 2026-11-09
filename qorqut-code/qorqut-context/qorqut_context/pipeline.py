@@ -360,6 +360,8 @@ class Pipeline:
             save()
             existing = self.context.inspect_draft(event_id)["draft"]
             payload = {"input_mode": draft["input_mode"], "source_change": source_change, "bootstrap": sample,
+                       "personal_context_ref": ("node:" + tools.base.personal_context_node
+                                                if tools.base.personal_context_node else None),
                        "existing_mode_output": {key: draft[key] for key in ("handoff_note", "action_associations") if key in draft},
                        "required_reassessment": tools.required_reassessment,
                        "existing_draft": [{"kind": value["kind"], "id": value["id"],

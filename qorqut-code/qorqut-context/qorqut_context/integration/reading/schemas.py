@@ -179,6 +179,7 @@ _CONTENT = {"oneOf": [{"type": "null"}, object_schema({
     "total_characters": {"type": "integer", "minimum": 0}, "has_more": {"type": "boolean"}, "next_cursor": _NULLABLE})]}
 
 HOME_OUTPUT = _output({"empty": {"type": "boolean"}, "totals": _TOTALS,
+                       "personal_context": {"oneOf": [{"type": "null"}, object_schema({"ref": _REF("node")})]},
                        "nodes": {"type": "array", "items": _ref("home_node")}, "page": _ref("page")})
 FIND_OUTPUT = _output({"query": _STRING, "items": {"type": "array", "items": {
     "oneOf": [_ref("node"), _ref("relationship"), _ref("note"), _ref("source")]}}, "page": _ref("page")})

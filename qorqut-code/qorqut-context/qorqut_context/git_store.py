@@ -298,7 +298,10 @@ def config_version(content) -> int:
     if type(version) is not int or version not in READABLE_VERSIONS:
         raise ContextError(f"Unsupported context format version {version!r}; "
                            f"this engine reads formats {LEGACY_VERSION} and {FORMAT_VERSION} only")
-    if config != {"format_version": version, "published_ref": PUBLIC_REF}:
+    expected = {"format_version": version, "published_ref": PUBLIC_REF}
+    if "personal_context_node" in config:
+        expected["personal_context_node"] = identifier(config["personal_context_node"])
+    if config != expected:
         raise ContextError(f"Context repository configuration is not the supported format {version} configuration")
     return version
 
@@ -316,6 +319,7 @@ class Snapshot:
         if CONFIG_PATH not in self.files:
             raise ContextError(f"Missing or invalid record: {CONFIG_PATH}")
         self.format_version = config_version(self.files[CONFIG_PATH])
+        self.personal_context_node = self._json(CONFIG_PATH).get("personal_context_node")
         self.nodes, self.edges, self.notes = {}, {}, {}
         for path, content in self.files.items():
             for prefix, target in (("graph/nodes/", self.nodes), ("graph/edges/", self.edges),
@@ -375,6 +379,11 @@ class Snapshot:
                 self.support[key] = self.resolve_refs(change["support_after"], commit)
         if self.format_version < floor:
             raise ContextError("The context format decreased along the published history")
+        if self.personal_context_node is not None:
+            person = self.nodes.get(self.personal_context_node)
+            if (person is None or ("node", self.personal_context_node) not in self.known_objects
+                    or "person" not in person.get("attributes", {}).get("basic_entity_type", [])):
+                raise ContextError("The canonical personal context node must be a published person")
         for note in self.notes.values():
             for link in note["objects"]:
                 if (link["kind"], link["id"]) not in self.known_objects:

@@ -18,6 +18,29 @@ original foundation files, current graph objects, immutable events and shared
 vocabulary catalogs across businesses and global activity. This source-code
 repository holds the engine; working data belongs outside it.
 
+Fresh initialization creates one blank canonical person node for the installation
+owner, with a generated ID recorded as `personal_context_node` in
+`graph/config.json`. It uses ordinary flexible attributes and relationships:
+names, aliases, contacts, links, birthdate, background, goals and current work need
+no additional profile schema. The seed and later edits have normal source evidence
+and Git history. Existing graphs are not migrated or backfilled.
+
+`context_home` returns `personal_context: {ref: "node:ID"}` independently of its
+node page, or `null` for an older graph without a profile. Agent startup includes
+the pointer, not the profile contents; agents use `context_object` on demand.
+The host permits only its currently configured Ordubashy to edit the profile or
+its incident relationships through `context_edit`, rechecking queued edits before
+publication. Other agents relay facts through the existing inbox. The ordinary
+propagator can read the node and link notes to it, but hands profile changes to
+Ordubashy. Its per-input operational-intake reminder includes automatic personal
+fact capture, sources and dates, explicit corrections and unresolved contradictions.
+Capture remains an agent responsibility; the hook does not verify factual accuracy
+or prove that a fact was saved. No onboarding interview or profile UI is included.
+
+Standalone library callers that need a graph without an installation owner can
+explicitly pass `personal_context=False` to `Context.initialize`. Reads and normal
+service startup never initialize a missing store.
+
 The engine exposes ordinary Python operations and a local source-to-graph
 pipeline: lexical/bootstrap model selection, event-bound graph tools, an
 ephemeral Codex app-server propagator, validated atomic Git publication,
