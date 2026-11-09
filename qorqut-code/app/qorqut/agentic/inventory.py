@@ -36,7 +36,10 @@ def package_path(package_id):
 
 
 class Inventory:
-    def __init__(self, *, relocated_instructions=True):
+    def __init__(self, *, relocated_instructions=True, host_package="qorqut"):
+        if host_package not in {"bazarlyk", "qorqut"}:
+            raise ValueError("Unknown host package")
+        self.host_package = host_package
         self.sources, self.packages, self.bindings, self.diagnostics, self.assets = {}, {}, [], [], []
         self.native_ids = {}
         self.declarations, self.composition = {}, {}
@@ -45,7 +48,10 @@ class Inventory:
     def supplier(self, source, path):
         if not self.relocated_instructions:
             return source, path
-        target = instruction_sources.location(source.id, path)
+        lookup = path.replace("app/bazarlyk/", "app/qorqut/", 1) if source.id == "host" else path
+        target = instruction_sources.location(source.id, lookup)
+        if target is not None and source.id == "host" and self.host_package == "bazarlyk":
+            target = target.replace("app/qorqut/", "app/bazarlyk/", 1)
         if target is None:
             return source, path
         if "roles" not in self.sources:
@@ -62,12 +68,18 @@ class Inventory:
         if not self.relocated_instructions:
             return source.exists(path)
         supplier, target = self.supplier(source, path)
-        return bool(instruction_sources.paths(source.id, path)) or supplier.exists(target)
+        return bool(self.alias_paths(source.id, path)) or supplier.exists(target)
+
+    def alias_paths(self, source_id, root):
+        if source_id == "host" and self.host_package == "bazarlyk":
+            return tuple(path.replace("app/qorqut/", "app/bazarlyk/", 1) for path in
+                         instruction_sources.paths(source_id, root.replace("app/bazarlyk/", "app/qorqut/", 1)))
+        return instruction_sources.paths(source_id, root)
 
     def source_paths(self, source, root, **options):
         if not self.relocated_instructions:
             return source.tree(root, **options)
-        relocated = instruction_sources.paths(source.id, root)
+        relocated = self.alias_paths(source.id, root)
         physical = source.tree(root, **options) if not root or source.exists(root) else ()
         if not physical and not relocated:
             return source.tree(root, **options)
@@ -303,8 +315,8 @@ class Inventory:
 
     def builtin_skill_composition(self, source, package, path, tree):
         skill_path = {
-            "app/qorqut/agents/role_workflow.py": "app/qorqut/agents/skills/role/SKILL.md",
-            "app/qorqut/agents/cleanup_workflow.py": "app/qorqut/agents/skills/cleanup/SKILL.md",
+            f"app/{self.host_package}/agents/role_workflow.py": f"app/{self.host_package}/agents/skills/role/SKILL.md",
+            f"app/{self.host_package}/agents/cleanup_workflow.py": f"app/{self.host_package}/agents/skills/cleanup/SKILL.md",
         }.get(path)
         functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
         if skill_path is None or "skill_files" not in functions:
@@ -698,15 +710,16 @@ def _compose_inventory(inv, selected, custom_sources, email_guidance_root):
     if "host" in inv.sources:
         source = inv.sources["host"]
         package = inv.package("imported-host-builtins", source.owner, True)
-        inv.attempt(source, inv.tree, source, package, "app/qorqut/agents/skills")
-        inv.attempt(source, inv.tree, source, package, "app/qorqut/bootstrap/instructions", advertise=False, template=True)
+        host_root = f"app/{inv.host_package}/"
+        inv.attempt(source, inv.tree, source, package, host_root + "agents/skills")
+        inv.attempt(source, inv.tree, source, package, host_root + "bootstrap/instructions", advertise=False, template=True)
         for path in sorted(package["files"]):
             if "/bootstrap/instructions/" in path and path.endswith(".md"):
                 inv.entry(source, package, path.removeprefix("native/"), "instruction", template=True)
-        inv.attempt(source, inv.declared, source, package, "app/qorqut/agentic/assets/index.json",
-                    {"app/qorqut/" + path for path in HOST_PYTHON})
+        inv.attempt(source, inv.declared, source, package, host_root + "agentic/assets/index.json",
+                    {host_root + path for path in HOST_PYTHON})
         for path in HOST_PYTHON:
-            inv.attempt(source, inv.embedded, source, package, "app/qorqut/" + path)
+            inv.attempt(source, inv.embedded, source, package, host_root + path)
         inv.binding(source, "host", package, [f"{package['id']}/{e['id']}" for e in package["entries"]], kind="builtin")
         terminal = inv.package("imported-terminal-control", "agent-terminal-control", "agent-terminal-control" in selected)
         # This native manifest deliberately uses app-relative paths.
@@ -814,7 +827,7 @@ def _compose_inventory(inv, selected, custom_sources, email_guidance_root):
                 source.issue("missing_resource", "Custom skill root has no SKILL.md", path="SKILL.md")
     # Detect extra skill/manifests in supplied native asset areas. Source code, docs and tests are not asset roots.
     for source_id, source in inv.sources.items():
-        roots = {"host": ("app/qorqut/agents/skills", "app/plugins", "app/templates/plugins"),
+        roots = {"host": (f"app/{inv.host_package}/agents/skills", "app/plugins", "app/templates/plugins"),
                  "roles": ("roles/imported-roles/native/roles", "operations/imported-role-skills/native/skills", "overseer/overseer-role-skills/native/skills"), "content": ("skills", "templates"),
                  "email": ("skills",), "content-library": ("skills",)}.get(source_id, ())
         if source_id.startswith("custom-"):

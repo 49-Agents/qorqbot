@@ -125,3 +125,18 @@ class RenameCompatibilityTests(unittest.TestCase):
                 self.assertEqual(inventory['coverage']['asset_count'], 1)
                 self.assertIs(retained_layout_inventory(inventory,
                     {'ref_map': {}, 'path_map': {full: 'retained'}}), inventory)
+
+    def test_historical_inventory_reads_original_instruction_paths(self):
+        from qorqut.agentic.inventory import Inventory
+        for host in ('bazarlyk', 'qorqut'):
+            with self.subTest(host=host):
+                inv = Inventory(host_package=host)
+                source = SimpleNamespace(id='host')
+                supplier = object()
+                inv.sources['roles'] = supplier
+                path = f'app/{host}/agents/skills/role/SKILL.md'
+                self.assertEqual(inv.supplier(source, path),
+                    (supplier, 'operations/source-instructions/host/' + path))
+                self.assertIn(path, inv.alias_paths('host', f'app/{host}/agents/skills'))
+                physical = Inventory(relocated_instructions=False, host_package=host)
+                self.assertEqual(physical.supplier(source, path), (source, path))

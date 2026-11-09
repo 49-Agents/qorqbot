@@ -281,8 +281,12 @@ def validate(root, manifest_raw, standard, seeds, witnesses, selected):
     # Reproduce that inventory from its verified bytes, without resolving those
     # paths through today's Agentic aliases. The exact comparison below still
     # validates the complete inventory; new imports always use the current layout.
+    legacy_host = any(source['id'] == 'host' and
+                      'app/bazarlyk/agentic/assets/index.json' in source['files']
+                      for source in standard['sources'])
     inv = Inventory(relocated_instructions=any(
-        package['id'] == 'runtime-instructions' for package in standard['packages']))
+        package['id'] == 'runtime-instructions' for package in standard['packages']),
+        host_package='bazarlyk' if legacy_host else 'qorqut')
     for source in standard['sources']:
         sid = source['id']
         name, prefix = _location(source)
