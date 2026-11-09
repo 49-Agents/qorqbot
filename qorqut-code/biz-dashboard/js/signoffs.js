@@ -349,7 +349,7 @@ function sgCreateView(options) {
     }
   };
   if (compactEmail) document.addEventListener('pointerdown', outsidePointer, true);
-  const resizeMessages=()=>{if(!active())return;sg.mount?.querySelectorAll('.sg-message-editor').forEach(fitMessage);if(options.inline)sg.mount?.querySelectorAll('.sg-feedback').forEach(fitFeedback);};
+  const resizeMessages=()=>{if(!active())return;sg.mount?.querySelectorAll('.sg-message-editor').forEach(fitMessage);if(options.inline)sg.mount?.querySelectorAll('.sg-feedback').forEach(fitFeedback);else sg.mount?.querySelectorAll('.sg-draft-feedback .sg-feedback').forEach(fitFeedback);};
   window.addEventListener('resize',resizeMessages);
   const canEditMessage = s => expected(s) && completePreview(s) && sgMessageValues(s) && Object.keys(sgMessageValues(s)).some(key=>s.editable_fields?.includes(key))
     && s.state === 'pending' && !s.superseded_by_id && owner() && !sg.error && !sg.detailErrors.has(s.id)
@@ -361,8 +361,8 @@ function sgCreateView(options) {
     let host = detail.querySelector('.sg-draft-review');
     if (!sgIsDraftReview(s)) { host?.remove(); return; }
     if (!host) {
-      host = document.createElement('div'); host.className = 'sg-draft-review';
-      host.innerHTML = '<p class="sg-notice">Draft review</p><div class="sg-draft-fields"></div><p class="sg-draft-status sg-notice" role="status"></p><div class="sg-draft-controls sg-actions"></div><details class="sg-draft-history"><summary>Version history</summary><div class="sg-draft-versions"></div></details>';
+      host = document.createElement('div'); host.className = 'sg-draft-review sg-content sg-email';
+      host.innerHTML = '<div class="sg-draft-fields"></div><p class="sg-draft-status sg-notice" role="status"></p><details class="sg-draft-history sg-edit-history"><summary>Version history</summary><div class="sg-draft-versions"></div></details>';
       detail.querySelector('.sg-preview').after(host);
     }
     const edit = reviewEdits.get(s.id), stale = edit && edit.revision !== s.status_revision;
@@ -372,22 +372,31 @@ function sgCreateView(options) {
     for (const spec of s.input.draft_fields) {
       let field = [...fields.querySelectorAll('[data-sg-draft-field]')].find(f => f.dataset.sgDraftField === spec.id);
       if (!field) {
-        const group = document.createElement('label'); group.className = 'sg-draft-field';
-        const caption = document.createElement('span'); caption.className = 'sg-label'; caption.textContent = spec.label + (spec.required ? ' (required)' : '');
-        field = document.createElement('textarea'); field.rows = spec.multiline === false ? 1 : 4;
-        field.className = 'sg-feedback sg-draft-editor'; field.dataset.sgDraftField = spec.id;
+        const group = document.createElement('div'); group.className = 'sg-draft-field' + (spec.multiline === false ? ' sg-content-row' : '');
+        if (spec.multiline !== false) group.dataset.draftMultiline = 'true';
+        const caption = document.createElement('label'); caption.className = 'sg-content-label'; caption.textContent = spec.label;
+        field = document.createElement('textarea'); field.rows = 1;
+        field.className = 'sg-text sg-message-editor sg-draft-editor'; field.dataset.sgDraftField = spec.id;
+        field.id = `sg-draft-${prefix}${s.id}-${spec.id}`; caption.htmlFor = field.id;
         field.maxLength = 16000; field.spellcheck = true;
         field.setAttribute('aria-label', spec.label); group.append(caption, field); fields.append(group);
+        if (spec.multiline !== false) {
+          const peek = document.createElement('button'); peek.type = 'button'; peek.className = 'sg-email-peek';
+          peek.dataset.sgEmailPeek = ''; peek.dataset.sgDraftPeek = spec.id;
+          peek.setAttribute('aria-label', `${spec.label} preview. Open the full draft to edit`);
+          group.append(peek);
+        }
       }
       if (field.value !== values[spec.id]) field.value = values[spec.id];
       field.readOnly = !canReview || s.state !== 'pending' || !!busy || !!edit?.saving || !!edit?.receipt;
       field.setAttribute('aria-required', String(!!spec.required));
+      const peek = field.parentElement.querySelector('[data-sg-draft-peek]');
+      if (peek) { peek.textContent = values[spec.id]; peek.setAttribute('aria-expanded', String(emailExpanded.has(s.id))); }
+      if (field.offsetParent) fitMessage(field);
     }
     const status = host.querySelector('.sg-draft-status');
-    status.textContent = edit?.error || (stale ? 'A newer version is available. Compare it in Version history before keeping your edits.'
-      : edit ? 'Unsaved edits' : s.state === 'answered' ? 'Returned to the proposer' : s.draft_review?.revision ? `Saved version ${s.draft_review.revision}` : 'Original draft');
-    const locked = !!busy || !!edit?.saving;
-    html(host.querySelector('.sg-draft-controls'), edit ? `<button type="button" class="sg-command" data-sg="save-draft"${locked || (stale && !edit.receipt) || !canReview ? ' disabled' : ''}>${edit.saving ? 'Saving…' : edit.receipt ? 'Retry save' : 'Save draft'}</button><button type="button" class="sg-command" data-sg="discard-draft"${locked || edit.receipt ? ' disabled' : ''}>Use saved version</button>${stale && canReview && s.state === 'pending' && !edit.receipt ? '<button type="button" class="sg-command" data-sg="rebase-draft">Keep my edits</button>' : ''}` : '');
+    status.textContent = edit?.error || (stale ? 'A newer version is available. Compare it in Version history before keeping your edits.' : '');
+    host.querySelector('.sg-draft-history').hidden = !s.draft_review?.revision && !s.input.previous_review_id;
     let history = reviewHistory.get(s.id);
     if (!history || history.revision !== s.draft_review?.revision) {
       history = {revision: s.draft_review?.revision, items: s.draft_history?.items || [], next: s.draft_history?.next_before, loading: false, error: ''};
@@ -405,6 +414,12 @@ function sgCreateView(options) {
           global: !source.biz, item: () => ({id: source.id, businessId: s.review_business_id}), execution: true, waitingOnly: false});
       };
     }
+  }
+  function reviewEditControls(s, canReview, busy) {
+    const edit = reviewEdits.get(s.id);
+    if (!edit) return '';
+    const stale = edit.revision !== s.status_revision, locked = !!busy || edit.saving;
+    return `<div class="sg-actions"><button type="button" class="sg-approve" data-sg="save-draft"${locked || (stale && !edit.receipt) || !canReview || s.state !== 'pending' ? ' disabled' : ''}>${edit.saving ? 'Saving…' : edit.receipt ? 'Retry save' : 'Save'}</button><button type="button" class="sg-reject" data-sg="discard-draft"${locked || edit.receipt ? ' disabled' : ''}>Discard</button>${stale && canReview && s.state === 'pending' && !edit.receipt ? '<button type="button" class="sg-reject" data-sg="rebase-draft">Keep my edits</button>' : ''}</div>`;
   }
   async function draftHistory(s) {
     const history = reviewHistory.get(s.id), c = capture();
@@ -646,11 +661,11 @@ function sgCreateView(options) {
       html(detail.querySelector('.sg-focus-details'), facts ? `<details><summary>Details</summary>${facts}</details>` : '');
     }
     if(!messageEdits.has(s.id) || !detail.querySelector(".sg-message-editor"))html(detail.querySelector(".sg-preview"), sgEmailOutcomeHtml(s) + previewHtml(s));
-    if (completePreview(s)) paintDraftReview(detail, s, canReview, busy);
     // The collapsed class must settle first so an expanding editor is measured while visible.
-    const collapsible = compactEmail && sgIsEmail(s);
+    const collapsible = compactEmail && (sgIsEmail(s) || sgIsDraftReview(s));
     row.classList.toggle('sg-email-collapsed', collapsible && !emailExpanded.has(s.id));
     paintMessageEditor(detail,s);
+    if (completePreview(s)) paintDraftReview(detail, s, canReview, busy);
     const peek = detail.querySelector('[data-sg-email-peek]'), bodyField = detail.querySelector('[data-sg-edit-field="body"]');
     if (peek && bodyField) { const text = bodyField.tagName === 'TEXTAREA' ? bodyField.value : bodyField.textContent; if (peek.textContent !== text) peek.textContent = text; }
     let history=detail.querySelector('.sg-edit-history');
@@ -679,20 +694,21 @@ function sgCreateView(options) {
       }).join("")}</div>` : "");
     html(detail.querySelector(".sg-savedresponse"), s.decision ? `<p class="sg-response-notes">${esc(s.decision.message_id && !sgIsDraftReview(s) ? "" : (s.decision.notes ?? s.decision.feedback ?? ""))}</p>${options.focusLayout ? "" : `<p class="sg-meta">Submitted ${esc(stamp(s.decision.at))}</p>`}` : "");
     const feedback = detail.querySelector(".sg-feedbackwrap");
+    feedback.classList.toggle('sg-draft-feedback', sgIsDraftReview(s));
     const retainedFeedback = sgIsDraftReview(s) && reviewEdits.has(s.id) && s.state !== 'pending';
     if ((s.state === "pending" || retainedFeedback) && completePreview(s) && owner() && !s.superseded_by_id && (!options.inline || s.input || rejectionNeedsMessage(s))) {
       const requirement = s.input ? (s.input.notes_required ? "(required)" : "(optional)") : rejectionNeedsMessage(s) ? "(required to reject)" : "(optional)";
       if (!feedback.querySelector("textarea")) {
         const fieldId = `sg-feedback-${prefix}${esc(s.id)}`;
         // Inline action cards drop the visible label: the one-line field is named by aria-label and placeholder. Questions keep "Answer".
-        const unlabeled = options.inline && !s.input;
-        const placeholder = rejectionNeedsMessage(s) ? "Add a reason to reject…" : "Add a note…";
-        feedback.innerHTML = `${unlabeled ? "" : `<label class="sg-label" for="${fieldId}">${sgIsDraftReview(s) ? "Feedback" : s.input ? "Answer" : "Message to send with decision"} ${requirement}</label>`}<textarea id="${fieldId}" class="sg-feedback" rows="${options.inline ? 1 : 3}" spellcheck="true"${unlabeled ? ` aria-label="Message to send with decision ${requirement}" placeholder="${placeholder}"` : ""}></textarea>`;
+        const unlabeled = (options.inline && !s.input) || sgIsDraftReview(s);
+        const placeholder = sgIsDraftReview(s) ? "Add feedback…" : rejectionNeedsMessage(s) ? "Add a reason to reject…" : "Add a note…";
+        feedback.innerHTML = `${unlabeled ? "" : `<label class="sg-label" for="${fieldId}">${sgIsDraftReview(s) ? "Feedback" : s.input ? "Answer" : "Message to send with decision"} ${requirement}</label>`}<textarea id="${fieldId}" class="sg-feedback" rows="${options.inline || sgIsDraftReview(s) ? 1 : 3}" spellcheck="true"${unlabeled ? ` aria-label="${sgIsDraftReview(s) ? "Feedback" : "Message to send with decision"} ${requirement}" placeholder="${placeholder}"` : ""}></textarea>`;
         feedback.querySelector("textarea").value = draft(s);
       }
       feedback.querySelector("textarea").disabled = !retainedFeedback && (!!busy || !canReview);
       feedback.querySelector("textarea").readOnly = retainedFeedback;
-      if (options.inline) fitFeedback(feedback.querySelector("textarea"));
+      if (options.inline || sgIsDraftReview(s)) fitFeedback(feedback.querySelector("textarea"));
     } else feedback.innerHTML = "";
     const disabled = !canReview || !!busy ? " disabled" : "";
     let controls = "";
@@ -719,7 +735,7 @@ function sgCreateView(options) {
       if (execution.result?.url && /^https?:\/\//.test(execution.result.url)) controls += `<p><a href="${esc(execution.result.url)}" target="_blank" rel="noopener">View result</a></p>`;
       if (pending) controls += `<p class="sg-notice">${pending.unknown ? "Response lost. Check the saved execution request." : "Saving execution request…"}</p>${pending.unknown ? '<button type="button" class="sg-command" data-sg="check-execution">Check execution</button>' : ""}`;
     }
-    html(detail.querySelector(".sg-actionarea"), messageEdits.has(s.id) ? messageEditControls(s) : controls);
+    html(detail.querySelector(".sg-actionarea"), messageEdits.has(s.id) ? messageEditControls(s) : reviewEdits.has(s.id) ? reviewEditControls(s, canReview, busy) : controls);
   }
   function render() {
     if (!active() || !sg.mount || !sg.mount.isConnected) return;
@@ -1112,9 +1128,11 @@ function sgCreateView(options) {
       if(event.target.matches('.sg-message-editor'))return;
       const peek = event.target.closest('[data-sg-email-peek]');
       if (peek && compactEmail) {
-        const id = peek.closest('.sg-row').dataset.id;
+        const id = peek.closest('.sg-row').dataset.id, draftField = peek.dataset.sgDraftPeek;
         emailExpanded.add(id); render();
-        [...body.querySelectorAll('.sg-row')].find(node => node.dataset.id === id)?.querySelector('textarea[data-sg-edit-field="body"]')?.focus({preventScroll:true});
+        const row = [...body.querySelectorAll('.sg-row')].find(node => node.dataset.id === id);
+        const field = draftField ? [...(row?.querySelectorAll('[data-sg-draft-field]') || [])].find(f => f.dataset.sgDraftField === draftField) : row?.querySelector('textarea[data-sg-edit-field="body"]');
+        field?.focus({preventScroll:true});
         return;
       }
       const toggle = event.target.closest('.sg-inline-toggle');
@@ -1208,7 +1226,7 @@ function sgCreateView(options) {
         if(edit && !edit.saving && !edit.receipt){edit.values[event.target.dataset.sgEditField]=event.target.value;edit.error='';fitMessage(event.target);}
         return;
       }
-      if (event.target.matches(".sg-feedback")) { const s = sg.items.get(sg.selected); if (s) { saveDraft(draftKey(s), event.target.value); if (options.inline) fitFeedback(event.target); render(); } } };
+      if (event.target.matches(".sg-feedback")) { const s = sg.items.get(sg.selected); if (s) { saveDraft(draftKey(s), event.target.value); if (options.inline || sgIsDraftReview(s)) fitFeedback(event.target); render(); } } };
     render(); refresh();
   }
   function businessChanged() {
@@ -1250,7 +1268,7 @@ function sgCreateView(options) {
       const selected = sg.items.get(sg.selected);
       const row = sg.mount && [...sg.mount.querySelectorAll(".sg-row")].find(row => row.dataset.id === sg.selected);
       const textarea = row && row.querySelector(".sg-feedbackwrap .sg-feedback");
-      if (selected && draftKey(selected) === key && textarea && textarea.value !== value) { textarea.value = value; if (options.inline) fitFeedback(textarea); }
+      if (selected && draftKey(selected) === key && textarea && textarea.value !== value) { textarea.value = value; if (options.inline || sgIsDraftReview(selected)) fitFeedback(textarea); }
     },
     suspend() { sg.generation++; sg.mount = null; sg.loading = false; sg.detailLoading = null; },
     dispose() { this.suspend(); window.removeEventListener('resize',resizeMessages); sgViews.delete(view); document.removeEventListener('click', outsideClick); document.removeEventListener('pointerdown', outsidePointer, true); },

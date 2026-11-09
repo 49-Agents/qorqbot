@@ -43,11 +43,14 @@ repeat request reuses the pending review without replacing the owner's edits.
 
 ## Saving and returning
 
-The dashboard shows the content as directly editable fields in both record and
-inline Signoff views. **Save draft** durably stores a version without answering.
-**Use saved version** discards only local unsaved edits. **Return draft** saves
-any final changes and submits the edited content, accompanying choices and
-feedback in one transaction. A returned draft is read-only.
+Draft reviews reuse the existing in-chat Signoff card, message editors and
+action row. Inline multiline content starts as the same six-line preview; click
+the preview to expand and edit it. Fields grow with the text. While editing,
+the action row shows **Save** and **Discard**. Save durably stores a version
+without answering; Discard restores the saved content. Once saved, **Return
+draft** submits the edited content, accompanying choices and feedback together.
+Feedback uses the existing one-line input, and version history stays collapsed.
+A returned draft is read-only.
 
 Owner HTTP routes use the review's own business or Global namespace:
 
