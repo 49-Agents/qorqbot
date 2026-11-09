@@ -135,6 +135,11 @@ styling as Inbox nudge. Other entries end the run, preserving message boundaries
 reveals compact rows with the original text and authorized reference controls. Disclosure
 state survives refresh and pagination; the view never writes a synthetic message or unread state.
 
+Saved file and image links use the same flat rows and shared left rule as website
+references: a small type glyph, a wrapping filename and a muted file-type label.
+Rendering a reference fetches no file; clicking it opens the existing preview.
+Pending uploads retain their removable file cards in the composer.
+
 Group containers and rows use `.gchat-ref-group`, `.gchat-ref-rows`, `.gchat-ref-row` and `.gchat-reference-row`; action
 counts add `.gchat-action-group`. A native message's Task rows use `.gchat-attachment`; message-attached record-thread
 rows use `.gchat-ref-group-inline`. Entries stay the same keyed nodes inside their group. The controller mounts the shared

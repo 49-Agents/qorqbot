@@ -72,7 +72,7 @@ broadcasts, terminal-control direct messages and the future inbox nudge.
   never confirmed unless the transport evidences it). When that is not safe — an owner's draft in the composer, a modal, an
   unreadable or changing screen, no verified session — nothing is typed: `wait=False` returns `deferred` (never success) and
   `wait=True` keeps it `waiting` for that very session. Chat and Telegram free-form text may go without the whole-text echo when the client collapses a paste; exact-session, empty-composer and post-paste mode checks still precede Enter.
-  After 400 ms, Enter is retried once only if the exact pending paste is still visible in the same verified composer.
+  After 1 second, Enter is retried once only if the exact pending paste is still visible in the same verified composer.
   No text is repasted; changed sessions, different drafts, dialogs and interrupting modes prevent that retry.
 
 ### Behavior implemented

@@ -76,7 +76,7 @@ class OwnerInputDeferred(Exception):
 
 
 class AgentTerminalBackend:
-    def __init__(self, terminals, *, timeout=30, sleep=time.sleep, screen_settle=.15, paste_settle=.3, submit_settle=.4):
+    def __init__(self, terminals, *, timeout=30, sleep=time.sleep, screen_settle=.15, paste_settle=.3, submit_settle=1.0):
         self.terminals, self.runtime = terminals, terminals.runtime
         self.timeout, self.sleep = timeout, sleep
         self.screen_settle, self.paste_settle, self.submit_settle = screen_settle, paste_settle, submit_settle
@@ -521,7 +521,7 @@ class AgentTerminalBackend:
         either fails nothing is typed. ``allow_busy`` (default off) accepts a verified empty composer while the native
         turn is still running. Replacement uses editing keys only, after the durable claim,
         then requires exact paste verification before submit. If the same paste remains in the same composer after
-        ``submit_settle`` (400 ms), retry Enter once without repasting or clearing anything.
+        ``submit_settle`` (1 second), retry Enter once without repasting or clearing anything.
         ``workdir`` is a private (0700) directory for the short-lived paste file, which never carries the text in argv.
         """
         self.validate_owner_text(text)
