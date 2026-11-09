@@ -1,6 +1,6 @@
 # Operations store transition: the additive agentic/Overseer schema
 
-`bazarlyk.bootstrap.agentic_migration` is the one explicit, offline transition `v1.3-agentic-overseer-1` for an
+`qorqut.bootstrap.agentic_migration` is the one explicit, offline transition `v1.3-agentic-overseer-1` for an
 existing Operations store. It adds exactly the two storage contributions the agentic inbox bridge and the Overseer
 bridge own (`agentic-inbox`: 1 table and 2 triggers; `overseer`: 16 tables and 9 indexes), so a store created before
 those contributions existed becomes openable by this revision's host. Nothing calls it automatically: ordinary
@@ -32,13 +32,13 @@ Run with the prepared/installed host environment that will serve the instance, w
 are explicit; the instance root is the only location input (the database is `<instance>/operations/.runtime/operations.sqlite3`).
 
 ```sh
-python -m bazarlyk.bootstrap.agentic_migration inspect --instance-root /abs/instance \
+python -m qorqut.bootstrap.agentic_migration inspect --instance-root /abs/instance \
   [--extensions-config /abs/instance/config/extensions.json]
 
-python -m bazarlyk.bootstrap.agentic_migration prepare --instance-root /abs/instance \
+python -m qorqut.bootstrap.agentic_migration prepare --instance-root /abs/instance \
   [--extensions-config /abs/instance/config/extensions.json] --save /abs/private/plan.json
 
-python -m bazarlyk.bootstrap.agentic_migration apply --instance-root /abs/instance \
+python -m qorqut.bootstrap.agentic_migration apply --instance-root /abs/instance \
   [--extensions-config /abs/instance/config/extensions.json] \
   --plan /abs/private/plan.json --backup /abs/backups/predecessor.sqlite3
 ```
@@ -71,9 +71,9 @@ python -m bazarlyk.bootstrap.agentic_migration apply --instance-root /abs/instan
 ## API
 
 ```python
-from bazarlyk.extensions import NO_EXTENSIONS
-from bazarlyk.instance_paths import InstancePaths
-from bazarlyk.bootstrap.agentic_migration import inspect_migration, prepare_migration, apply_migration
+from qorqut.extensions import NO_EXTENSIONS
+from qorqut.instance_paths import InstancePaths
+from qorqut.bootstrap.agentic_migration import inspect_migration, prepare_migration, apply_migration
 
 paths = InstancePaths(instance_root, {})
 inspect_migration(paths, extensions=NO_EXTENSIONS)          # read-only report

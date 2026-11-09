@@ -24,7 +24,7 @@ measurement of CPU usage or proof of successful progress.
 
 Claude process detection supports native `claude` and npm's `claude.exe` builds,
 including processes retained after an executable update. Existing agents need
-their prepared `.bazarlyk/activity-hook.py` refreshed through preparation after
+their prepared `.qorqut/activity-hook.py` refreshed through preparation after
 deploying a hook fix; a service restart alone does not replace those local copies.
 
 `agent_work_update` replaces only the calling agent's selected session list, up to

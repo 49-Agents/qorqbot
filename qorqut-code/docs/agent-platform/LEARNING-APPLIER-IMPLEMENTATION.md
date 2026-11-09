@@ -4,7 +4,7 @@
 > are removed in v1.3. Role/profile adoption for the offline learning-removal transition is a reviewed preparation step
 > with authoritative persisted `roles_publish`/`agents_update` evidence; it is not performed by the setup commands
 > described here. A v1.3 target must not contain or call the retired seven engine tables or `learnings.engine_extract`;
-> use `bazarlyk.bootstrap.learning_removal` instead. This file remains for predecessor context only.
+> use `qorqut.bootstrap.learning_removal` instead. This file remains for predecessor context only.
 
 This guide describes the implementation and installation of the Learning Applier and
 the context library.
@@ -211,7 +211,7 @@ After review and deployment of compatible core/dashboard sources:
    shared_instructions_update operation with its current revision/hash.
 3. Obtain the installation owner's current invocation context in an authorized
    review business and the published role ref. Call
-   `bazarlyk.bootstrap.learning_applier.prepare_learning_applier(runtime,
+   `qorqut.bootstrap.learning_applier.prepare_learning_applier(runtime,
    owner_context, role_ref=..., allowed_business_ids=[...], endpoint=...,
    claude_version=...)`. This uses existing profile creation and preparation.
    It creates one root profile, or prepares an exactly matching existing profile;

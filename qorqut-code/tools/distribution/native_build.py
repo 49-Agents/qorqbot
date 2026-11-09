@@ -190,8 +190,8 @@ exec "$python" -I -B "$root/runtime/launch.py" "$@"
             if not path.resolve().is_relative_to(runtime):
                 raise ValueError('Runtime symlink escapes package: ' + str(path))
             files[str(path.relative_to(runtime))] = sha(path)
-    schema_code = ('import json;from bazarlyk.composition.assembly import host_assembly;'
-                   'from bazarlyk.service.changes import ChangeFeed;'
+    schema_code = ('import json;from qorqut.composition.assembly import host_assembly;'
+                   'from qorqut.service.changes import ChangeFeed;'
                    't=host_assembly(ChangeFeed()).target;print(json.dumps([t.name,t.version,t.digest]))')
     schema_target = json.loads(subprocess.check_output([python, '-I', '-c', schema_code], text=True))
     (runtime / 'PAYLOAD.json').write_text(json.dumps({'format': 1, 'version': args.version,

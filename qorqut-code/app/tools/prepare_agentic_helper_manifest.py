@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import subprocess
 
-MODULE = "bazarlyk.agentic.client"
+MODULE = "qorqut.agentic.client"
 
 
 def prepare(source: Path, destination: Path) -> Path:

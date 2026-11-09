@@ -2,7 +2,7 @@ import unittest
 from dataclasses import replace
 from types import SimpleNamespace
 
-from bazarlyk.domains.startup_inventory import StartupInventory
+from qorqut.domains.startup_inventory import StartupInventory
 from qorqut_operations.contracts import DomainError, InvocationContext, Principal, canonical_hash
 
 AGENT = '11111111-1111-4111-8111-111111111111'

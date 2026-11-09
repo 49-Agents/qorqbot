@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from qorqut_operations.contracts import DomainError, OperationResult
-from bazarlyk.transport import mcp
+from qorqut.transport import mcp
 
 ACTOR = SimpleNamespace(principal=SimpleNamespace(id='agent', kind='agent'))
 FIELDS = {'operation', 'request_id', 'configuration_ms', 'execution_ms', 'total_tool_ms'}

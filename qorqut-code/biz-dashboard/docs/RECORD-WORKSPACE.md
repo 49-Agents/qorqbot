@@ -126,6 +126,13 @@ sends nothing. A Project record's Chat is its real private Project thread (canon
   separate details and state writes. Story and Task editors expose their own dirty
   checks, and Save is offered only when the controller has an explicit save operation.
 
+Task references from native Chat and standalone task links open the existing Todo
+record thread over the agent Chat, with the task's own Chat, dashboard and Activity
+tabs. They do not select a paired Focus dashboard or add a Todo membership.
+The thread overlay covers the full agent Chat at every Appearance text size.
+Todo shows assigned workers as read-only avatars; it offers no assignment picker
+or empty plus button.
+
 Task-to-task children and linked work open by pushing a new workspace entry. Those
 related records are fresh selections and therefore open on Chat, with Back returning to
 the originating dashboard.

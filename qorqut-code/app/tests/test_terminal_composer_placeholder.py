@@ -1,6 +1,6 @@
 import unittest
 
-from bazarlyk.transport import terminal_composer as tc
+from qorqut.transport import terminal_composer as tc
 
 RULE = "\x1b[38;5;245m" + "─" * 66 + "\x1b[39m"
 FOOTER = "  \x1b[38;5;137m⏵⏵ bypass permissions on\x1b[38;5;241m (shift+tab to cycle)\x1b[39m"

@@ -4,7 +4,7 @@ An agent with pending, authorized inbox events and a running native session gets
 session by the application backend. Nothing runs inside the agent's session: no poller, no lease, no agent-side watcher.
 
 The engine is `qorqut_operations.inbox_nudges` (Operations `docs/INBOX_NUDGES.md`): the durable need, the immutable attempts and
-the event coverage. This host side (`app/bazarlyk/native_chat/nudges.py`) supplies the authorization port, the verified native
+the event coverage. This host side (`app/qorqut/native_chat/nudges.py`) supplies the authorization port, the verified native
 binding, the one input arbiter, and the lifetime. Chat inputs, replies and the native work/user counters are not inputs to the
 decision.
 
@@ -192,7 +192,7 @@ status) a fresh conversation `pending` before its first notice and an agent offl
 marker-recognizing hook.
 
 Legacy test files that exercised the poller were deleted or converted (`tests/inbox_support.py`: `pending`, `pending_count`,
-`owner`, `claim`). Most of the legacy `app/tests` tree does not collect in this checkout (`bazarlyk.contracts` is gone); those
+`owner`, `claim`). Most of the legacy `app/tests` tree does not collect in this checkout (`qorqut.contracts` is gone); those
 edits were checked with pyflakes and import/target audits only and are not executed.
 
 ## Integration notes

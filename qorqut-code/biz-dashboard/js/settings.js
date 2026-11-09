@@ -288,7 +288,7 @@ async function paintAbout(pane) {
   }));
 }
 
-// The owner's consent that Qorqbot's own agent folders are trusted (bazarlyk.agent_trust): claude and codex then skip their
+// The owner's consent that Qorqbot's own agent folders are trusted (qorqut.agent_trust): claude and codex then skip their
 // folder-trust and Codex hook-review prompts for those folders. A CLI can still ask about an enclosing repository, which the
 // owner answers in the terminal. Turning it off restores Codex's own hook review for new launches.
 async function paintAgentTrust(pane) {

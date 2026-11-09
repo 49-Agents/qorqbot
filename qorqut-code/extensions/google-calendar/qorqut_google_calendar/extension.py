@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from qorqut_operations.contracts import DomainError
 
-from bazarlyk.extensions import CalendarProvider, Extension
+from qorqut.extensions import CalendarProvider, Extension
 
 from .calendar import GoogleCalendar
 

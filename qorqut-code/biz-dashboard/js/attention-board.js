@@ -1,12 +1,16 @@
 // Shared Worker presentation and editor. Task writes use the existing scoped Tasks operation.
-function taskWorkerMount(host, scope, task, agentId) {
+function taskWorkerMount(host, scope, task, agentId, {editable=true}={}) {
   let button = host.querySelector('[data-task-workers]');
-  if (!button) { button = document.createElement('button'); button.type = 'button'; button.className = 'quiet task-workers'; button.dataset.taskWorkers = ''; host.prepend(button); }
+  const tag=editable?'BUTTON':'SPAN';
+  if(button && button.tagName!==tag){button.remove();button=null;}
+  if (!button) { button = document.createElement(tag.toLowerCase()); if(editable)button.type = 'button'; button.className = 'quiet task-workers'; button.dataset.taskWorkers = ''; host.prepend(button); }
   const current = taskStateObserve(scope, task);
   const workers = [...(current.workers || [])].sort((a,b) => (a.is_owner ? 2 : a.id === agentId ? 1 : 0) - (b.is_owner ? 2 : b.id === agentId ? 1 : 0));
-  button.innerHTML = (workers.map(w => identityAvatar(w.kind === 'human' ? 'person' : 'agent', w.display_name, globalAgentProfile(w.id) || w, w.display_name, true)).join('') || '<span class="muted">+</span>') + (current.user_needed ? '<span class="task-user-needed">User needed</span>' : '');
+  button.innerHTML = (workers.map(w => identityAvatar(w.kind === 'human' ? 'person' : 'agent', w.display_name, globalAgentProfile(w.id) || w, w.display_name, true)).join('') || (editable?'<span class="muted">+</span>':'')) + (current.user_needed ? '<span class="task-user-needed">User needed</span>' : '');
   button.setAttribute('aria-label', 'Workers' + (workers.length ? ': ' + workers.map(w=>w.display_name).join(', ') : ': none') + (current.user_needed ? ' · User needed' : ''));
   button.title = current.user_needed ? 'Workers · User needed' : 'Workers';
+  button.hidden=!editable && !workers.length;
+  if(!editable){button.setAttribute('role','img');return;}
   button.onpointerdown = event => event.stopPropagation();
   button.onclick = async event => {
     event.stopPropagation();
@@ -167,15 +171,15 @@ function attentionBoardForget(p, membershipId) {
 }
 async function attentionBoardOpen(p, source) {
   const b=p.attentionBoard, record=rwRecordFromItem({source});
-  if (!record) return;
-  if (record.scopeMissing) { toast('This project is unavailable.'); return; }
+  if (!record) return false;
+  if (record.scopeMissing) { toast('This project is unavailable.'); return false; }
   if(!b.workspace.alive?.())b.workspace=b.mountWorkspace();
   const dock=b.board.querySelector('[data-attention-record]');
   dock.hidden=false;
   b.board.querySelector('.agfocus-layout').classList.add('agfocus-thread-open');
   agfocusOverlayOpen(p,b.board,dock,()=>{void p.attentionBoard?.workspace.close();});
-  try { await b.workspace.open(record,{root:true,tab:record.can_thread?'chat':'dashboard'}); }
-  catch(error) {toast(error.message);}
+  try { return await b.workspace.open(record,{root:true,tab:record.can_thread?'chat':'dashboard'}); }
+  catch(error) {toast(error.message);return false;}
 }
 // One marker for the focused row and every membership: the existing Focus state ball for an ordinary Task, the
 // existing type marker for a special Task or another source, and a normal inert ball until a canonical Task is known.
@@ -218,7 +222,7 @@ function attentionReferenceRow(p, source, task = null) {
   leading.removeAttribute('aria-hidden');
   // Show the Task's shared assignees; board membership does not assign a worker.
   if (task && !(source.business_id != null && !scope)) {
-    taskWorkerMount(leading,scope,task,p.agentId);
+    taskWorkerMount(leading,scope,task,p.agentId,{editable:false});
     leading.append(leading.querySelector('[data-task-workers]'));
   }
   const open=()=>{p.attentionBoard.selected=row.dataset.attentionMember;void attentionBoardOpen(p,source);};

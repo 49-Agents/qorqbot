@@ -76,7 +76,7 @@ are not a second set of behavioral rules.
 
 Fresh imports require the protected runtime and tool instruction packages.
 Active delivery reads their current managed content without a packaged fallback.
-Trusted preparation also writes `.bazarlyk/runtime-instructions.json` and copies
+Trusted preparation also writes `.qorqut/runtime-instructions.json` and copies
 its standard-library renderer beside isolated hooks. These are generated copies
 for startup and service outages, not separately authored sources.
 

@@ -20,7 +20,7 @@ from scripts.measure_mcp_tool_read_efficiency import tokens
 READS = frozenset({"focus_get", "agents_activity_list", "agent_config_get", "tasks_get",
                   "tasks_list", "tasks_overview", "tasks_notes_list", "inbox_list",
                   "agents_messages_list", "signoffs_list", "signoffs_get"})
-PREFIX = "mcp__bazarlyk__"
+PREFIX = "mcp__qorqut__"
 MAX_BYTES = 8 * 1024 * 1024
 
 
@@ -91,7 +91,7 @@ def audit(path):
                     names = [name[len(PREFIX):]]
                 else:
                     source = payload.get("input", payload.get("arguments", ""))
-                    names = re.findall(r"tools\.mcp__bazarlyk__([a-zA-Z0-9_]+)\s*\(", source) if isinstance(source, str) else []
+                    names = re.findall(r"tools\.mcp__qorqut__([a-zA-Z0-9_]+)\s*\(", source) if isinstance(source, str) else []
                     # Loops/dynamic dispatch cannot establish one executed call.
                     if isinstance(source, str) and re.search(r"\b(?:for|while)\s*\(|\.map\s*\(", source):
                         names = []

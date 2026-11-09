@@ -7,7 +7,7 @@ routine behaviour, and no queue execution change. The accepted completion contra
 
 ## One current-source filing presentation
 
-`ContextFiling.document_filing(uow, ctx, row)` (`app/bazarlyk/domains/documents/filing.py`) is the only place a document's filing
+`ContextFiling.document_filing(uow, ctx, row)` (`app/qorqut/domains/documents/filing.py`) is the only place a document's filing
 is interpreted. It returns `(filing, status)` from the Operations completion read model (`completion.applicable`/`describe`)
 over the document's *current* source digest. Every reader takes it from there:
 
@@ -72,7 +72,7 @@ prepare/apply still decides and rechecks every request.
 
 ## Namespace-limited queue status
 
-`app/bazarlyk/domains/documents/queue_status.py::context_queue_summary(connection, business_id)` reads the Operations queue's own
+`app/qorqut/domains/documents/queue_status.py::context_queue_summary(connection, business_id)` reads the Operations queue's own
 rows and returns `{queued, processing, blocked, discard_requested, publication_pending_completion, completion_conflict,
 queue_blocked, blocked_input_id}`:
 
@@ -120,7 +120,7 @@ a body change, another document or another scope still invalidates it.
 ## Global source operations (root dispatcher)
 
 `HTTPAPI` already dispatches `POST /api/root/operations/{name}` for an allowlist of owner operations. Exactly eight names are added to
-it (`app/bazarlyk/transport/http.py`): `context_list`, `context_get`, `context_search` (raw Global sources, `scope: shared`),
+it (`app/qorqut/transport/http.py`): `context_list`, `context_get`, `context_search` (raw Global sources, `scope: shared`),
 `context_retry`, `context_retract` and `context_queue_get`, `context_queue_retry`, `context_queue_discard` (the exact-input commands).
 Nothing else changes in the dispatcher:
 
@@ -181,5 +181,5 @@ provider, native session or operational data), fixture provenance and not instal
 compose the queue/filing tables or driver (see `CONTEXT_FILING.md`), and this branch needs the Operations and Context commits above
 while the host's recorded dependency pins are unchanged. Mapping-level change-feed evidence for producer families this fixture does not
 run (`actions_*`, Signoff apply, routines) is by operation name only. `tests/test_change_feed.py` and several older service tests cannot
-be collected at the host base (they import the removed `bazarlyk.contracts`); its one `jobs_get` event expectation was updated for the
+be collected at the host base (they import the removed `qorqut.contracts`); its one `jobs_get` event expectation was updated for the
 additive kind but not run.

@@ -1,6 +1,6 @@
 # Shared reminders
 
-One transport-independent reminder service in the host (`app/bazarlyk/reminders/`) serves the installation owner, the
+One transport-independent reminder service in the host (`app/qorqut/reminders/`) serves the installation owner, the
 configured Ordubashy and other registered agents. It replaces the Telegram-backed `owner_reminder` store. The service owns the
 schema, permissions, recurrence, snooze, dismissal and the bounded due pass; it never sends anything itself. Delivery is the
 separate `ReminderDelivery` adapter (`reminders/delivery.py`), which writes the existing agent inbox event or the owner's
@@ -103,7 +103,7 @@ that was imported is cancelled at admission; one that was never imported keeps t
 ## Offline upgrade
 
 The new tables change the composed target schema, so an existing store must be upgraded offline (normal startup never does
-DDL). `python -m bazarlyk.reminders.upgrade inspect|apply --instance-root ROOT` recognises the exact predecessor schema, creates
+DDL). `python -m qorqut.reminders.upgrade inspect|apply --instance-root ROOT` recognises the exact predecessor schema, creates
 the two tables, advances the stored target identity and imports only still-queued legacy owner reminders (same id, revision,
 text, time, scope and creator, who is also the initial authorizing principal; the owner is the recipient), cancelling each
 imported outbox row in the same transaction. Sent, failed and cancelled history is left alone and nothing is replayed.

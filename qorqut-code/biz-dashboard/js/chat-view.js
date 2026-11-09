@@ -133,7 +133,7 @@ function chatViewReferenceTarget(href) {
   return {url, viewer, image, kind, path};
 }
 
-// A selected upload and a reference to the saved file use exactly the same face.
+// Pending uploads and saved file references share their file-type classification and glyphs.
 // Classification is presentation only; the existing viewer still decides how to open it.
 function chatViewFileKind(name) {
   const ext = /\.([a-z0-9]+)$/i.exec(name)?.[1].toLowerCase() || '';
@@ -160,24 +160,34 @@ function chatViewFileFace(name, kind) {
   return `<span class="gchat-file-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${CHAT_VIEW_FILE_ICONS[kind[0]] || CHAT_VIEW_FILE_ICONS.file}</svg></span><span class="gchat-file-label"><span class="gchat-file-name">${esc(name)}</span><small>${kind[1]}</small></span>`;
 }
 
-// A rendered website is the same flat attachment row as a Task/Action reference: one globe glyph, the full
-// link label, and the site's own hostname as subdued right-aligned metadata, with no chip border and no visible
-// type word. Consecutive website rows share one list; every other reference keeps its card or chip and ends the
-// run. A row never requests anything: only its click opens the existing preview.
-function chatViewWebsiteRow(target, label) {
+// Rendered files and websites use the same flat rows as Task/Action references.
+// A row never requests anything: only its click opens the existing preview.
+function chatViewLinkRow(target, label, glyph, metadata) {
   const row = document.createElement('button');
   row.type = 'button'; row.className = 'gchat-ref-row';
   row.dataset.previewHref = target.url.href; row.dataset.previewTitle = label;
   row.setAttribute('aria-label', `Preview ${label}`);
-  if (typeof AGVB_ICON !== 'undefined') {
+  if (glyph) {
     const icon = document.createElement('span'); icon.className = 'gchat-ref-row-icon';
-    icon.setAttribute('aria-hidden', 'true'); icon.innerHTML = AGVB_ICON.web;
+    icon.setAttribute('aria-hidden', 'true'); icon.innerHTML = glyph;
     row.append(icon);
   }
   const title = document.createElement('span'); title.className = 'gchat-ref-row-title'; title.textContent = label;
   row.append(title);
-  const host = document.createElement('span'); host.className = 'gchat-ref-row-meta gchat-ref-row-host';
-  host.textContent = target.url.hostname; row.append(host);
+  const meta = document.createElement('span'); meta.className = 'gchat-ref-row-meta';
+  meta.textContent = metadata; row.append(meta);
+  return row;
+}
+function chatViewWebsiteRow(target, label) {
+  const row = chatViewLinkRow(target, label, typeof AGVB_ICON !== 'undefined' ? AGVB_ICON.web : '', target.url.hostname);
+  row.lastElementChild.classList.add('gchat-ref-row-host');
+  return row;
+}
+function chatViewFileRow(target, label) {
+  const kind = chatViewFileKind(target.path);
+  const glyph = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${CHAT_VIEW_FILE_ICONS[kind[0]] || CHAT_VIEW_FILE_ICONS.file}</svg>`;
+  const row = chatViewLinkRow(target, label, glyph, kind[1]);
+  row.classList.add('gchat-file-reference'); row.dataset.fileKind = kind[0];
   return row;
 }
 // Chips represent rendered links, never code samples. No document/image request happens until a chip is opened.
@@ -190,15 +200,16 @@ function chatViewReferenceChips(body) {
     if (!target || seen.has(target.url.href)) continue;
     seen.add(target.url.href);
     const website = !target.viewer && !target.image;
-    if (website) {
+    const file = target.image || target.viewer && target.url.pathname === '/files/view';
+    if (website || file) {
       if (!run) {
         run = document.createElement('div');
         run.className = 'gchat-ref-group gchat-ref-group-inline';
-        run.setAttribute('role', 'group'); run.setAttribute('aria-label', 'Website references');
+        run.setAttribute('role', 'group'); run.setAttribute('aria-label', 'File and website references');
         const rows = document.createElement('div'); rows.className = 'gchat-ref-rows';
         run.append(rows); chips.append(run);
       }
-      run.firstElementChild.append(chatViewWebsiteRow(target, link.textContent));
+      run.firstElementChild.append(file ? chatViewFileRow(target, link.textContent) : chatViewWebsiteRow(target, link.textContent));
       continue;
     }
     run = null;
@@ -206,16 +217,10 @@ function chatViewReferenceChips(body) {
     chip.type = 'button'; chip.className = 'gchat-reference';
     chip.dataset.previewHref = target.url.href; chip.dataset.previewTitle = link.textContent;
     chip.setAttribute('aria-label', `Preview ${link.textContent}`);
-    if ((target.viewer && target.url.pathname === '/files/view') || target.image) {
-      const kind = chatViewFileKind(target.path);
-      chip.classList.add('gchat-file-card'); chip.dataset.fileKind = kind[0];
-      chip.innerHTML = chatViewFileFace(link.textContent, kind);
-    } else {
-      if (typeof AGVB_ICON !== 'undefined') chip.innerHTML = AGVB_ICON[target.kind === 'Table' ? 'table' : 'web'];
-      const label = document.createElement('span'); label.textContent = link.textContent;
-      const kind = document.createElement('small'); kind.textContent = target.kind;
-      chip.append(label, kind);
-    }
+    if (typeof AGVB_ICON !== 'undefined') chip.innerHTML = AGVB_ICON[target.kind === 'Table' ? 'table' : 'web'];
+    const label = document.createElement('span'); label.textContent = link.textContent;
+    const kind = document.createElement('small'); kind.textContent = target.kind;
+    chip.append(label, kind);
     chips.append(chip);
   }
   return chips.childElementCount ? chips : null;
@@ -660,6 +665,11 @@ function mountChatView(host, options = {}) {
   const openPreview = button => {
     const target = chatViewReferenceTarget(button.dataset.previewHref);
     if (!target) return;
+    if ((target.image || target.viewer && target.url.pathname === '/files/view') && options.onFilePreview) {
+      closePreview(false);
+      emit('onFilePreview', {href: target.url.href, title: button.dataset.previewTitle});
+      return;
+    }
     clearPreview(); previewTrigger = button;
     const title = button.dataset.previewTitle;
     $q('.gchat-preview-title').textContent = title;

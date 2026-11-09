@@ -3,7 +3,7 @@
 Optional Fastmail provider for a Qorqbot host. The host core has no Fastmail code, tables, configuration or worker; everything
 Fastmail-specific lives here and is switched on only by selecting the extension in the trusted installation configuration.
 
-- `qorqut_fastmail.extension:create` is the factory selected through the host's `bazarlyk.extensions` mechanism.
+- `qorqut_fastmail.extension:create` is the factory selected through the host's `qorqut.extensions` mechanism.
 - Public operations use the `fastmail_*` prefix and always name the Fastmail account (and, for composing, the sending identity).
   See [docs/OPERATIONS.md](docs/OPERATIONS.md) for the operation, grant and configuration contract.
 - The extension supplies the `fastmail` CalDAV connection type to the host's generic `calendar_*` operations. Google Calendar

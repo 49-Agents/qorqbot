@@ -1074,6 +1074,7 @@ function agfocusPairedSource(record,parentTable) {
   return window.agentWorkspacePairedRecord?.(window,{type:source.type,id:source.id,business_id:source.business_id ?? null},parent) ?? true;
 }
 async function agfocusOpenPairedReference(p,ref) {
+  if(ref?.type==='task')return agentOpenRecordReference(ref);
   if (p.surface) { await agpadSurfaceClose(p); if (p.surface || _agpad !== p) return false; }
   if(!ref?.type || !ref.id)return false;
   const target=rwRecordFromItem({source:{type:ref.type,id:ref.id,business_id:ref.business_id ?? null,
@@ -1485,7 +1486,10 @@ function agfocusOverlayOpen(p,board,dock,onClose=()=>{void p.focusWorkspace?.clo
   const fit=()=>{
     const rect=terminal.getBoundingClientRect(),left=Math.max(0,rect.left),top=Math.max(0,rect.top);
     const right=Math.min(window.innerWidth,rect.right),bottom=Math.min(window.innerHeight,rect.bottom);
-    Object.assign(dock.style,{left:left+'px',top:top+'px',width:Math.max(0,right-left)+'px',height:Math.max(0,bottom-top)+'px'});
+    // Client rectangles include Appearance's CSS zoom; fixed offsets use the dock's unscaled coordinates.
+    let zoom=1;
+    for(let node=dock;node;node=node.parentElement)zoom*=parseFloat(getComputedStyle(node).zoom) || 1;
+    Object.assign(dock.style,{left:left/zoom+'px',top:top/zoom+'px',width:Math.max(0,right-left)/zoom+'px',height:Math.max(0,bottom-top)/zoom+'px'});
   };
   dock.classList.add('agfocus-chat-overlay');layout.classList.add('agfocus-overlay-open');
   dock.setAttribute('role','dialog');dock.setAttribute('aria-label','Record workspace');

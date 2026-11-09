@@ -14,8 +14,8 @@ import json
 import logging
 
 from qorqut_operations.contracts import DomainError
-from bazarlyk.agents.global_scope import active_global
-from bazarlyk.native_chat.contracts import (InputRequest, NativeChatError, RESULT_DEFERRED, STATE_FAILED, STATE_SUBMITTED,
+from qorqut.agents.global_scope import active_global
+from qorqut.native_chat.contracts import (InputRequest, NativeChatError, RESULT_DEFERRED, STATE_FAILED, STATE_SUBMITTED,
                                             STATE_UNCERTAIN, TYPE_TELEGRAM)
 from . import store
 from .bridge import MISMATCH_CODES
@@ -161,7 +161,7 @@ class OwnerInputs:
     @staticmethod
     def _outcome(result):
         """The arbiter's result in this worker's vocabulary: submitted | uncertain | failed | deferred."""
-        from bazarlyk.transport.agent_terminal_control import OwnerInputOutcome
+        from qorqut.transport.agent_terminal_control import OwnerInputOutcome
         receipt = dict(result.evidence) or None
         if result.state == STATE_SUBMITTED:
             return OwnerInputOutcome("submitted", result.reason, receipt)

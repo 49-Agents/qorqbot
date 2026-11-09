@@ -10,5 +10,5 @@ The authored tree is one Git repository: each internal `agentic.yaml` is a packa
 manifest, not a plugin repository or submodule. Runtime state is separate. The
 API editing boundary is not an OS sandbox. See [host integration](../AGENTIC-HOST-INTEGRATION.md)
 for management, next-prompt refresh and authority. Existing installations use the
-explicit [offline layout upgrade](../../app/bazarlyk/agentic/LAYOUT-UPGRADE.md);
+explicit [offline layout upgrade](../../app/qorqut/agentic/LAYOUT-UPGRADE.md);
 merging or installing source alone does not perform that transition.

@@ -3,7 +3,7 @@
 The native release checks fresh assembled stores and the supported same-schema
 update path. It does not promise automatic conversion of every former monolithic
 database version. The tests below predate the Operations/host separation and
-still import the retired `bazarlyk.storage.Database`, `TABLES` or database module.
+still import the retired `qorqut.storage.Database`, `TABLES` or database module.
 They cannot run unchanged against the current composed engine. Their presence is
 source history and migration intent, not a passing release gate.
 

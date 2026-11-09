@@ -501,14 +501,41 @@ async function agentJournalOpen(id) {
   if(_agpad?.journalMount===mount && mount.root.isConnected)await mount.select(id);
 }
 
+// File readers use the same Focus expansion as the other owner-facing screens.
+async function agentFilePreviewOpen(reference) {
+  if(embeddedAgentPane)return parent.agentFilePreviewOpen(reference);
+  const target=chatViewReferenceTarget(reference?.href);
+  if(!target || !(target.image || target.viewer && target.url.pathname==='/files/view'))return false;
+  try {
+    const session=await window.focusExpansion.open({title:reference.title || 'File',mount(host,session){
+      const reader=document.createElement('section');reader.className='agent-file-preview';
+      const toolbar=document.createElement('div');toolbar.className='agent-file-preview-toolbar';
+      const open=document.createElement('a');open.href=target.url.href;open.target='_blank';open.rel='noopener noreferrer';open.textContent='Open in new tab';
+      toolbar.append(open);reader.append(toolbar);
+      const content=document.createElement('div');content.className='agent-file-preview-content';reader.append(content);
+      const media=document.createElement(target.image?'img':'iframe');media.referrerPolicy='no-referrer';
+      if(target.image){
+        media.alt=reference.title || 'Image';media.decoding='async';
+        media.src=target.viewer?`/api/root/files/image${target.url.search}`:target.url.href;
+        media.onerror=()=>{if(session.isCurrent())content.textContent='This image could not be displayed.';};
+      }else{media.setAttribute('aria-label',(reference.title || 'File')+' preview');media.src=target.url.href;}
+      content.append(media);host.append(reader);
+      return ()=>{media.onerror=null;if(media.tagName==='IFRAME')media.src='about:blank';media.remove();reader.remove();};
+    }});
+    return !!session;
+  }catch(_){toast('Could not open the file preview.');return false;}
+}
+
 // Exact record links remain usable after removing the drawer's management screens.
 async function agentOpenRecordReference(ref) {
   if(embeddedAgentPane)return parent.agentOpenRecordReference(ref);
   const agent=(await loadGlobalAgentProfiles()).find(a=>globalRosterAgent(a) && a.role?.id==='ordubashy');
   if(!agent){toast('Ordubashy is unavailable.');return false;}
   if(state.scope!=='global' || state.globalTab!=='agents')await selectGlobal('agents');
-  if(!await globalAgentsNavigate(agent.agent_id,{view:'focus'}))return false;
+  const view=ref?.type==='task'?'attentionBoard':'focus';
+  if(!await globalAgentsNavigate(agent.agent_id,{view}))return false;
   const pane=_agpad;
-  if(pane?.agentId!==agent.agent_id || pane.view!=='focus')return false;
+  if(pane?.agentId!==agent.agent_id || pane.view!==view)return false;
+  if(ref?.type==='task')return attentionBoardOpen(pane,ref);
   return agfocusOpenPairedReference(pane,ref);
 }

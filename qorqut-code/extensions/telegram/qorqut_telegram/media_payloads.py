@@ -52,7 +52,7 @@ import stat
 import time
 import unicodedata
 
-from bazarlyk.private_files import fsync_directory, require_private_directory
+from qorqut.private_files import fsync_directory, require_private_directory
 from qorqut_operations.contracts import DomainError, canonical_bytes, plain
 from . import store
 from .media_schema import MAX_BYTES, OPERATION_NAME, TABLE

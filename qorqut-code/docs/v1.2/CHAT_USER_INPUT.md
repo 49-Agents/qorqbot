@@ -159,7 +159,7 @@ references show a small unavailable state. Keep layout usable at narrow widths.
 ### The tool
 
 `request_user_input(message, references=[])` is one operation in the host's existing registry
-(`bazarlyk/native_chat/user_input.py`, registered after Focus in `service/runtime.py`; catalog line in
+(`qorqut/native_chat/user_input.py`, registered after Focus in `service/runtime.py`; catalog line in
 `composition/catalog.py`). It is an ordinary Global read: `effect_kind="read"`, `read_global_context`, `exposure={"mcp"}`, no
 Signoff support, no domain handler that writes. Policy: the host rule `_user_input` (`composition/policy.py`) denies every role
 but Ordubashy before overrides, so an explicit grant to a worker or peer is still refused; Ordubashy's role default (`1.63.0`)
@@ -189,7 +189,7 @@ label, state, endpoint, credential, approval or answer, and the call writes noth
 
 The successful tool result in the agent's own transcript is the only source (`native_chat/projection.py`):
 
-- Claude: a `user` record's `tool_result` blocks that are not errors; Codex: a completed `McpToolCall` item of server `bazarlyk`,
+- Claude: a `user` record's `tool_result` blocks that are not errors; Codex: a completed `McpToolCall` item of server `qorqut`,
   tool `request_user_input`, with no error. The text must itself be the JSON success envelope (`status` ok, `data` exactly
   `{user_input}`) and must re-validate to its own normalized form. Assistant prose, user text, quoted or embedded JSON, failed
   results, other tools and any other shape do not project.
@@ -211,7 +211,7 @@ The successful tool result in the agent's own transcript is the only source (`na
 
 ### Browser list and exact selection
 
-`browser_turn` gains `action: "list"` and `browser_id` (`bazarlyk/browser/access.py`, `targets.py`, `handles.py`,
+`browser_turn` gains `action: "list"` and `browser_id` (`qorqut/browser/access.py`, `targets.py`, `handles.py`,
 `coordinator.py`, `operations.py`). `list` returns `{"browsers": [{id, label, business_id}]}`: the managed Global desktops the
 registry configures (`ordubashy-browser`, `example-browser`, `outlook-browser`), then every reachable business's one browser
 (the sandbox business uses its synthetic id with its `business_id`). It takes no turn, lease or handle.

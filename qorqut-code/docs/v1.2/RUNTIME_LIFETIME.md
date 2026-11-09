@@ -1,6 +1,6 @@
 # Runtime lifetime, write admission and the recovery barrier (lane A, branch `v1.2/runtime-composition`)
 
-Current contract of `bazarlyk/service/{ownership,lifetime,stopping,runtime}.py` over the Operations `storage/{admission,quiescence}.py`.
+Current contract of `qorqut/service/{ownership,lifetime,stopping,runtime}.py` over the Operations `storage/{admission,quiescence}.py`.
 Evidence for it comes from source-import checks over disposable instances with inert recorders for the services; nothing here
 was run as an installed combined application.
 

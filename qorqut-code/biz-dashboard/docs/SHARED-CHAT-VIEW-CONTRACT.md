@@ -64,6 +64,14 @@ The composer auto-sizes on input, `setDraft`, reveal and width changes: one line
 the existing actions below the input. Unchanged paints retain the caret and input
 scroll. Normal Send uses an accessible arrow button; retry labels stay explicit.
 
+## Native Chat/Terminal lifecycle
+
+`mountAgentView` lazily mounts Chat and Terminal into separate hosts for the current
+agent. Switching toggles `hidden`; it retains both viewers and their streams until
+agent/page navigation or disposal. There is no cache across agents. Hidden Chat
+must not acknowledge replies, and hidden Terminal must not resize the server PTY.
+Refresh still fetches Chat state or replaces the terminal viewer explicitly.
+
 ## Presentation model (fields accepted by render)
 
 ```
@@ -134,6 +142,14 @@ canonical `activity` entries form a collapsed **n actions** disclosure, using th
 styling as Inbox nudge. Other entries end the run, preserving message boundaries. Expanding
 reveals compact rows with the original text and authorized reference controls. Disclosure
 state survives refresh and pagination; the view never writes a synthetic message or unread state.
+
+Saved file and image links use the same flat rows and shared left rule as website
+references: a small type glyph, a wrapping filename and a muted file-type label.
+Rendering a reference fetches no file. Native Chat, record threads and Action
+discussions pass `onFilePreview({href,title})` to open the existing reader through
+the shared Focus expansion, with its normal Close and draft-preservation behavior.
+Embedded screens forward only the canonical URL and title to the parent opener.
+Pending uploads retain their removable file cards in the composer.
 
 Group containers and rows use `.gchat-ref-group`, `.gchat-ref-rows`, `.gchat-ref-row` and `.gchat-reference-row`; action
 counts add `.gchat-action-group`. A native message's Task rows use `.gchat-attachment`; message-attached record-thread

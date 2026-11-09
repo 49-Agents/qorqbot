@@ -43,7 +43,7 @@ Private coordinator: `installation.management_coordinator_id`, whose
 `kind='agent'`, and whose `profile_json.role.id == 'ordubashy'` — with **no
 runtime check**.
 
-`bazarlyk/management/identity.py` holds this once: `installation_owner(uow)`,
+`qorqut/management/identity.py` holds this once: `installation_owner(uow)`,
 `ordubashy_profile(uow, identity)`, and `configured_ordubashy(uow)`
 (`private_participants(uow)` uses it). `ManagementService._coordinator` and
 `require_coordinator` ask the same question: the coordinator is the registered
@@ -95,13 +95,13 @@ autoincrement `sequence`; `BEFORE UPDATE`/`BEFORE DELETE` triggers
 `owner_conversation_reads` (one durable `last_read_sequence` cursor per
 `(conversation_id, principal_id)`). Sending never bumps a task/story/signoff/
 email/Focus revision. Whole-database backups
-([RECOVERY.md](../app/bazarlyk/storage/RECOVERY.md)) retain these tables by
+([RECOVERY.md](../app/qorqut/storage/RECOVERY.md)) retain these tables by
 design; exports and history publication never include them.
 
 ## Operations
 
 Registered by `PrivateConversations` in
-`bazarlyk/inbox/private_conversations.py`. Common argument `scope:
+`qorqut/inbox/private_conversations.py`. Common argument `scope:
 'business'|'global'`, same semantics as `signoffs_comment`. Routes are
 `/api/biz/<slug>/operations/<name>` when the business is known, or
 `/api/root/operations/<name>` with `scope:'global'` and `source.business_id`
@@ -203,7 +203,7 @@ every binding; agents' `focus_reply` is unchanged.
 
 ## Owner team-write guard
 
-`bazarlyk/domains/team_channel.py`'s `reject_owner_team_write(ctx, uow,
+`qorqut/domains/team_channel.py`'s `reject_owner_team_write(ctx, uow,
 operation)` raises `channel_required` (details:
 `{'channel':'owner_ordubashy','operation':'owner_conversation_send',
 'refused_operation': <the team write>}`; `operation` is always the private

@@ -1,8 +1,8 @@
 """Optional WhatsApp selection; no provider access or service starts during composition."""
 from pathlib import Path
 
-from bazarlyk.extensions import Assets, Extension, NativeConnection, ServiceDeclaration
-from bazarlyk.agentic.text import render
+from qorqut.extensions import Assets, Extension, NativeConnection, ServiceDeclaration
+from qorqut.agentic.text import render
 from qorqut_operations.application.catalog import CatalogContribution
 from qorqut_operations.application.registry import CatalogEntry
 from qorqut_operations.application.plans import schema

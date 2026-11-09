@@ -4,7 +4,7 @@ Package P06 of the v1.2 responsiveness work. Two background workers opened a wri
 holding the single SQLite writer lock for no effect. The host's terminal controller is fixed here; the Signoff owner-attention
 tick is the Operations half (Operations `docs/SIGNOFF_IDLE_TICK.md`).
 
-## Terminal control (`app/bazarlyk/agents/terminal_control.py`)
+## Terminal control (`app/qorqut/agents/terminal_control.py`)
 
 `TerminalControl._loop` calls `tick()` once a second. It used to enter `database.transaction()` each time just to find the queue
 empty. Now `tick()` keeps its admission and authority boundary (`writer_admission.writer()`, then `runtime.require_authority()`),

@@ -20,7 +20,7 @@ Use the existing MCP `inbox_list`, `inbox_acknowledge`, `inbox_subscribe`, `inbo
 
 Subscriptions follow currently supported source types and existing scoped policy. Tasks, including parent Tasks, replace Story subscriptions and grouping; there is no current Story tool or source type. An event never grants permission to read its source. Owner inspection of an agent inbox does not act as that agent or acknowledge its events.
 
-Implementation: [host delivery](../app/bazarlyk/native_chat/nudges.py), [inbox tools](../app/bazarlyk/inbox/service.py), [mandatory instructions](../app/bazarlyk/inbox/defaults.py). Focused synthetic evidence lives in `app/tests/test_inbox_nudges.py`; original live acceptance receipts below remain dated historical evidence.
+Implementation: [host delivery](../app/qorqut/native_chat/nudges.py), [inbox tools](../app/qorqut/inbox/service.py), [mandatory instructions](../app/qorqut/inbox/defaults.py). Focused synthetic evidence lives in `app/tests/test_inbox_nudges.py`; original live acceptance receipts below remain dated historical evidence.
 
 ## Historical v1 implementation and acceptance record
 

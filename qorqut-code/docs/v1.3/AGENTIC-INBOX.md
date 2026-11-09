@@ -5,7 +5,7 @@ After a later installation/startup integration supplies an initialized or opened
 `AgenticLayer`, it calls:
 
 ```python
-from bazarlyk.agentic.inbox import attach_agentic_inbox
+from qorqut.agentic.inbox import attach_agentic_inbox
 
 bridge = attach_agentic_inbox(runtime, layer, runtime.inbox)
 ```

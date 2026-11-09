@@ -21,8 +21,8 @@ Contracts that apply to the retained product are collected in [docs/v1.2](docs/v
 
 ```text
 qorqut-code/
-  app/                        host application (distribution bazarlyk-core)
-    bazarlyk/                 host package and retained domain integrations (package resources included)
+  app/                        host application (distribution qorqut-core)
+    qorqut/                 host package and retained domain integrations (package resources included)
     tests/  scripts/  tools/  templates/  plugins/  pyproject.toml  service-constraints.txt  package-sources.json
   tools/                      committed export, environment preparation and native distribution tools
   qorqut-operations/          Operations engine component
@@ -36,12 +36,12 @@ qorqut-code/
 - Role definitions and shared guidance are shipped by the separate `qorqut-agentic` component under `src/qorqut_agentic/resources/defaults/`; no separate roles checkout is needed for fresh builds. See [agentic integration](docs/AGENTIC-HOST-INTEGRATION.md).
 - Instance records live under a separate `operations/` root resolved explicitly by the host, never inside
   this repository.
-- Source paths in the documents (`bazarlyk/`, `tests/`, `tools/`, `scripts/`, `plugins/`, `templates/`,
+- Source paths in the documents (`qorqut/`, `tests/`, `tools/`, `scripts/`, `plugins/`, `templates/`,
   `package-sources.json`) are relative to `app/`. `app/tools/`, `app/templates/`, `app/plugins/` and
   `app/scripts/` are source-component resources reached through the explicit `app` component, not wheel
   contents.
 - There is no business-template component. The three initial shared instructions are package resources of
-  the host (`app/bazarlyk/bootstrap/instructions/`), and a new project is an empty `hq/` and `code/` folder
+  the host (`app/qorqut/bootstrap/instructions/`), and a new project is an empty `hq/` and `code/` folder
   created only by the configured Ordubashy ([Project creation](docs/BUSINESS-CREATION.md)).
 - Owned startup validates the database and enables WAL before admitting work or starting background
   services. Assembling or inspecting an instance never changes its journal mode.
@@ -175,7 +175,7 @@ Operations and Context tests own their smaller engine fixtures. Existing
 current gates. Keep meaningful historical preservation assertions: a new migration
 must identify the exact old schema, retained rows/files and recovery behavior.
 Do not turn failed old-schema coverage into silent skips or assume ordinary startup
-will migrate it. See [Backup and recovery](app/bazarlyk/storage/RECOVERY.md).
+will migrate it. See [Backup and recovery](app/qorqut/storage/RECOVERY.md).
 
 Use synthetic temporary installations and injected providers for ordinary checks.
 Real accounts, model-provider calls and native-agent actions need separately
@@ -196,7 +196,7 @@ commits are preserved.
 - [v1.3 module map](docs/v1.3/MODULE-MAP.md): Operations, Context, Context integration and host ownership, required host adapters, build entry points
 - [Architecture and decisions](docs/agent-platform/README.md)
 - [Contract index and operating guide](docs/v1.2/README.md)
-- [Background programs](app/bazarlyk/background/README.md)
+- [Background programs](app/qorqut/background/README.md)
 - [MCP batching](docs/MCP-BATCHING.md)
 - [Plugin authoring](docs/plugin-authoring/README.md)
 - [Agent bug reports: Dev tickets](docs/DEV-TICKETS.md)

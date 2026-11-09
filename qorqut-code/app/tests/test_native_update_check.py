@@ -7,7 +7,7 @@ from unittest import mock
 
 import yaml
 
-from bazarlyk.bootstrap import native_update_check as module
+from qorqut.bootstrap import native_update_check as module
 
 CATALOG = {
     "id": "imported-terminal-control", "schema_version": 1,
@@ -16,7 +16,7 @@ CATALOG = {
         "id": "host", "commit": "766d0449ee3c17684fb666c7237281a2a95f2df5", "tree": "6d08bec6",
         "root": "/Users/x/Qorqbot/qorqbot/runtime/src/qorqut-code", "snapshot_digest": "c8f0",
         "snapshot_sha256": "b9aa", "source_manifest_sha256": "afab",
-        "files": {"app/bazarlyk/agentic/assets/backlog.md": "c795"}}]},
+        "files": {"app/qorqut/agentic/assets/backlog.md": "c795"}}]},
 }
 
 
@@ -44,7 +44,7 @@ class ProvenanceOnlyTests(unittest.TestCase):
         self.assertTrue(module.provenance_only(change, self.root))
 
     def test_changed_file_digest_is_content(self):
-        change = edit(self.path, refreshed(commit="6895969d", files={"app/bazarlyk/agentic/assets/backlog.md": "ffff"}))
+        change = edit(self.path, refreshed(commit="6895969d", files={"app/qorqut/agentic/assets/backlog.md": "ffff"}))
         self.assertFalse(module.provenance_only(change, self.root))
         self.assertFalse(module.provenance_only(edit(self.path, refreshed(snapshot_digest="dddd")), self.root))
 
@@ -70,7 +70,7 @@ class CheckTests(unittest.TestCase):
         with mock.patch.object(module, "load_prepared", return_value=(None, None, {})), \
                 mock.patch.object(module, "InstancePaths", return_value=paths), \
                 mock.patch.object(module, "prepare_upgrade", return_value=plan), \
-                mock.patch("bazarlyk.agentic.managed_update.apply", side_effect=AssertionError("Admission must not write")):
+                mock.patch("qorqut.agentic.managed_update.apply", side_effect=AssertionError("Admission must not write")):
             result = module.check(Path("/prepared"), Path("/instance"))
         return result, applied
 

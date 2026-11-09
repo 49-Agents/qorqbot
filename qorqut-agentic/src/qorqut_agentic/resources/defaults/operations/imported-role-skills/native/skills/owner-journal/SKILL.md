@@ -1,5 +1,5 @@
 ---
-name: bazarlyk-role-owner-journal
+name: qorqut-role-owner-journal
 description: Maintain useful visible owner journal context and reconcile it with operational records, with attribution and revision checks.
 ---
 

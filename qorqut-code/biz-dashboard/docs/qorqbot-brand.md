@@ -10,4 +10,4 @@ The geometry (body silhouette, eye and mustache paths and transforms) is copied 
 
 ## Serving
 
-Assets live under `css/brand/` because the host mounts `/css` as static files (`qorqut-code/app/bazarlyk/service/web.py`); `index.html` links `/css/brand/favicon.svg` and `/css/brand/favicon-32.png`.
+Assets live under `css/brand/` because the host mounts `/css` as static files (`qorqut-code/app/qorqut/service/web.py`); `index.html` links `/css/brand/favicon.svg` and `/css/brand/favicon-32.png`.

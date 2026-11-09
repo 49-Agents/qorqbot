@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import httpx
 
-from bazarlyk.bootstrap import mcp_reconnect as bridge_module
+from qorqut.bootstrap import mcp_reconnect as bridge_module
 
 
 def call(i, name='read'):
@@ -18,7 +18,7 @@ class BridgeConcurrencyTests(unittest.TestCase):
     def setUp(self):
         self.patches = [patch.object(bridge_module, 'load_registration', return_value={'service_url': 'http://test'}),
                         patch.object(bridge_module, 'auth_headers', return_value={}),
-                        patch('bazarlyk.bootstrap.bridge_binding.BridgeBinding')]
+                        patch('qorqut.bootstrap.bridge_binding.BridgeBinding')]
         mocks = [p.start() for p in self.patches]
         mocks[-1].return_value.headers.return_value = {}
         self.addCleanup(lambda: [p.stop() for p in reversed(self.patches)])

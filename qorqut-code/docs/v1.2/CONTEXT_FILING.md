@@ -28,7 +28,7 @@ it and releases the serial executor, so unrelated registered programs run meanwh
 ## Source envelope (`qorqut-source-v1`)
 
 One canonical UTF-8 JSON document: the exact body plus an explicit, allowlisted `metadata` object. The allowlist is closed and
-is documented where it is enforced, in the module docstring of `app/bazarlyk/domains/documents/filing.py`. Bookkeeping fields
+is documented where it is enforced, in the module docstring of `app/qorqut/domains/documents/filing.py`. Bookkeeping fields
 (status, attempts, filed_by, results, receipts, row revisions, timestamps) are excluded, so a bookkeeping-only change never
 creates a new source version. A title or participant change does. A source over the Context library's source-byte limit is
 refused before admission with an error that names the limit.
@@ -74,7 +74,7 @@ distinct GENERAL removal input (not a rewrite) and is only available through `co
 ## What was removed
 
 `context_summarize`, `context_map_generate` and every old Context filing/summarize/map program and mutation handler
-(`bazarlyk/background/context.py`, `contextbase.py`). `context_upload_map` and `context_filings` are owner-only projections.
+(`qorqut/background/context.py`, `contextbase.py`). `context_upload_map` and `context_filings` are owner-only projections.
 New filing no longer runs Story-background synthesis. The compatibility transport keeps
 only the `retry` action. The Context process view is `{context_queue: {...}}`, a read of the Operations queue's own rows
 (see [CONTEXT_SOURCE_STATUS_HOST.md](CONTEXT_SOURCE_STATUS_HOST.md)); there is no `summarizing`, `filing` or mapping object.

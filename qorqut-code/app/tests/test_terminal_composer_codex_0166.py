@@ -1,6 +1,6 @@
 import unittest
 
-from bazarlyk.transport import terminal_composer
+from qorqut.transport import terminal_composer
 
 # The bottom of a real Codex 0.166 screen with "hello there friend" pasted into the composer: a status line, then a
 # warnings row that replaces "? for shortcuts" while the composer holds text.

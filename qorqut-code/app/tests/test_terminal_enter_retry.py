@@ -4,7 +4,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
 
-from bazarlyk.transport.agent_terminal_control import AgentTerminalBackend
+from qorqut.transport.agent_terminal_control import AgentTerminalBackend
 
 
 class Terminal:
@@ -90,7 +90,7 @@ class TerminalEnterRetryTest(unittest.TestCase):
         self.assertNotIn(text, repr(outcome.receipt))
         return outcome
 
-    def test_missed_enter_retries_once_after_400ms_without_repasting(self):
+    def test_missed_enter_retries_once_after_one_second_without_repasting(self):
         for client in ("codex", "claude"):
             with self.subTest(client=client):
                 terminal = Terminal(client, ["missed", "delivered"])
@@ -98,7 +98,7 @@ class TerminalEnterRetryTest(unittest.TestCase):
                 self.assertEqual(outcome.status, "submitted")
                 self.assertEqual(outcome.receipt["submit_attempts"], 2)
                 self.assertEqual(len(terminal.enters), 2)
-                self.assertAlmostEqual(terminal.enters[1] - terminal.enters[0], .4)
+                self.assertAlmostEqual(terminal.enters[1] - terminal.enters[0], 1.0)
                 self.assertEqual(terminal.clears, 0)
 
     def test_successful_submit_is_not_repeated_even_with_message_in_history(self):
@@ -118,7 +118,7 @@ class TerminalEnterRetryTest(unittest.TestCase):
                     outcome = self.deliver(terminal, text=text, replace=True)
                     self.assertEqual(outcome.status, 'submitted')
                     self.assertEqual(outcome.receipt['submit_attempts'], 2)
-                    self.assertAlmostEqual(terminal.enters[1] - terminal.enters[0], .4)
+                    self.assertAlmostEqual(terminal.enters[1] - terminal.enters[0], 1.0)
 
     def test_two_missed_enters_leave_uncertain_delivery_without_a_third_attempt(self):
         terminal = Terminal("codex", ["missed", "missed"])

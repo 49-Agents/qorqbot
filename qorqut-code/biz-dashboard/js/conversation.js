@@ -501,6 +501,7 @@ function conversationMount(host,source,adapter={}) {
     // Record threads present contiguous related Task/Action records as compact rows; the source's own resolved title
     // is presentation supplied by the owner of the record, never another read or a scraped label.
     recordReferences:true,
+    onFilePreview: ref => agentFilePreviewOpen(ref),
     sourceTitle:adapter.sourceTitle,
     sourceKey:key,
     // A collapsed inline composer keeps the same shared banner beside its form so a failed send stays visible.

@@ -129,9 +129,9 @@ all diagnostics and unresolved source paths, without copying source bodies.
 
 The three unresolved mappings are preserved:
 
-- Host `app/bazarlyk/agents/context.py`: runtime identity, scope, available
+- Host `app/qorqut/agents/context.py`: runtime identity, scope, available
   operations and configuration are needed for composition.
-- Host `app/bazarlyk/bootstrap/email_guidance.py`: the email-management instance
+- Host `app/qorqut/bootstrap/email_guidance.py`: the email-management instance
   path must be composed by the future host adapter.
 - Paper `qorqut_paper/native.py`: orientation depends on connection preparation
   and caller role. Static guidance is separately retained.

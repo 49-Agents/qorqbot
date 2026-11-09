@@ -7,8 +7,8 @@ from unittest import mock
 
 from qorqut_operations.contracts import DomainError
 
-from bazarlyk.management import identity as identity_module
-from bazarlyk.management.service import ManagementService
+from qorqut.management import identity as identity_module
+from qorqut.management.service import ManagementService
 
 COORDINATOR = "agent-ordubashy"
 NOW = datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc)

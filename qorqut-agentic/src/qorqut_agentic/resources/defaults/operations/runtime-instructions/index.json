@@ -35,7 +35,7 @@
       "status": "conditional",
       "trigger": "agents/attention.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/attention.py:13"
+      "previous_source": "qorqut-code/app/qorqut/agents/attention.py:13"
     },
     {
       "id": "attention-candidates",
@@ -100,7 +100,7 @@
       "status": "conditional",
       "trigger": "agents/attention.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/attention.py:446"
+      "previous_source": "qorqut-code/app/qorqut/agents/attention.py:446"
     },
     {
       "id": "attention-more",
@@ -118,7 +118,7 @@
       "status": "conditional",
       "trigger": "agents/attention.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/attention.py:455"
+      "previous_source": "qorqut-code/app/qorqut/agents/attention.py:455"
     },
     {
       "id": "attention-unavailable",
@@ -145,7 +145,7 @@
       "status": "conditional",
       "trigger": "agents/briefing.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:217"
+      "previous_source": "qorqut-code/app/qorqut/agents/briefing.py:217"
     },
     {
       "id": "briefing-evidence",
@@ -163,7 +163,7 @@
       "status": "conditional",
       "trigger": "agents/briefing.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:218"
+      "previous_source": "qorqut-code/app/qorqut/agents/briefing.py:218"
     },
     {
       "id": "briefing-excerpt",
@@ -172,7 +172,7 @@
       "status": "conditional",
       "trigger": "agents/briefing.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:96"
+      "previous_source": "qorqut-code/app/qorqut/agents/briefing.py:96"
     },
     {
       "id": "briefing-grants",
@@ -181,7 +181,7 @@
       "status": "conditional",
       "trigger": "agents/briefing.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:219"
+      "previous_source": "qorqut-code/app/qorqut/agents/briefing.py:219"
     },
     {
       "id": "briefing-neighborhood-limit",
@@ -190,7 +190,7 @@
       "status": "conditional",
       "trigger": "agents/briefing.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:201"
+      "previous_source": "qorqut-code/app/qorqut/agents/briefing.py:201"
     },
     {
       "id": "briefing-omitted",
@@ -211,7 +211,7 @@
       "status": "conditional",
       "trigger": "agents/briefing.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:90"
+      "previous_source": "qorqut-code/app/qorqut/agents/briefing.py:90"
     },
     {
       "id": "briefing-project-selection",
@@ -220,7 +220,7 @@
       "status": "conditional",
       "trigger": "agents/briefing.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:203"
+      "previous_source": "qorqut-code/app/qorqut/agents/briefing.py:203"
     },
     {
       "id": "briefing-read-before-write",
@@ -229,7 +229,7 @@
       "status": "conditional",
       "trigger": "agents/briefing.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:215"
+      "previous_source": "qorqut-code/app/qorqut/agents/briefing.py:215"
     },
     {
       "id": "briefing-refresh",
@@ -238,7 +238,7 @@
       "status": "conditional",
       "trigger": "agents/briefing.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:214"
+      "previous_source": "qorqut-code/app/qorqut/agents/briefing.py:214"
     },
     {
       "id": "briefing-relationships",
@@ -247,7 +247,7 @@
       "status": "conditional",
       "trigger": "agents/briefing.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:216"
+      "previous_source": "qorqut-code/app/qorqut/agents/briefing.py:216"
     },
     {
       "id": "briefing-runtime-unavailable",
@@ -256,7 +256,7 @@
       "status": "conditional",
       "trigger": "agents/resolver.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/resolver.py:646"
+      "previous_source": "qorqut-code/app/qorqut/agents/resolver.py:646"
     },
     {
       "id": "briefing-skill-discovery",
@@ -267,7 +267,7 @@
       "status": "conditional",
       "trigger": "agents/briefing.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:227"
+      "previous_source": "qorqut-code/app/qorqut/agents/briefing.py:227"
     },
     {
       "id": "briefing-source-unavailable",
@@ -279,7 +279,7 @@
       "status": "conditional",
       "trigger": "agents/briefing.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/briefing.py:79"
+      "previous_source": "qorqut-code/app/qorqut/agents/briefing.py:79"
     },
     {
       "id": "briefing-tools",
@@ -306,7 +306,7 @@
       "status": "conditional",
       "trigger": "browser/access.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/browser/access.py:473"
+      "previous_source": "qorqut-code/app/qorqut/browser/access.py:473"
     },
     {
       "id": "browser-worker-unconfigured",
@@ -315,7 +315,7 @@
       "status": "conditional",
       "trigger": "browser/access.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/browser/access.py:469"
+      "previous_source": "qorqut-code/app/qorqut/browser/access.py:469"
     },
     {
       "id": "completion-finished-work",
@@ -416,7 +416,7 @@
       "status": "conditional",
       "trigger": "bootstrap/mcp_reconnect.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/bootstrap/mcp_reconnect.py:214"
+      "previous_source": "qorqut-code/app/qorqut/bootstrap/mcp_reconnect.py:214"
     },
     {
       "id": "delegated-worker-continue",
@@ -425,7 +425,7 @@
       "status": "conditional",
       "trigger": "bootstrap/delegated_runtime.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/bootstrap/delegated_runtime.py:251"
+      "previous_source": "qorqut-code/app/qorqut/bootstrap/delegated_runtime.py:251"
     },
     {
       "id": "delegated-worker-rules",
@@ -434,7 +434,7 @@
       "status": "conditional",
       "trigger": "bootstrap/delegated_runtime.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/bootstrap/delegated_runtime.py:254"
+      "previous_source": "qorqut-code/app/qorqut/bootstrap/delegated_runtime.py:254"
     },
     {
       "id": "delegated-worker-start",
@@ -443,7 +443,7 @@
       "status": "conditional",
       "trigger": "bootstrap/delegated_runtime.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/bootstrap/delegated_runtime.py:252"
+      "previous_source": "qorqut-code/app/qorqut/bootstrap/delegated_runtime.py:252"
     },
     {
       "id": "environment-guidance",
@@ -515,7 +515,7 @@
       "status": "conditional",
       "trigger": "bootstrap/initialize.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/bootstrap/initialize.py:61"
+      "previous_source": "qorqut-code/app/qorqut/bootstrap/initialize.py:61"
     },
     {
       "id": "initial-ordubashy-assignment",
@@ -524,7 +524,7 @@
       "status": "conditional",
       "trigger": "bootstrap/initialize.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/bootstrap/initialize.py:60"
+      "previous_source": "qorqut-code/app/qorqut/bootstrap/initialize.py:60"
     },
     {
       "id": "learning-applier-assignment",
@@ -533,7 +533,7 @@
       "status": "conditional",
       "trigger": "bootstrap/learning_applier.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/bootstrap/learning_applier.py:15"
+      "previous_source": "qorqut-code/app/qorqut/bootstrap/learning_applier.py:15"
     },
     {
       "id": "memory-legacy-plan",
@@ -569,7 +569,7 @@
       "status": "conditional",
       "trigger": "overseer/due.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/overseer/due.py:329"
+      "previous_source": "qorqut-code/app/qorqut/overseer/due.py:329"
     },
     {
       "id": "plugin-discovery",
@@ -578,7 +578,7 @@
       "status": "conditional",
       "trigger": "agents/preferences.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/preferences.py:35"
+      "previous_source": "qorqut-code/app/qorqut/agents/preferences.py:35"
     },
     {
       "id": "project-briefing-evidence",
@@ -587,7 +587,7 @@
       "status": "conditional",
       "trigger": "domains/business_briefing.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/domains/business_briefing.py:118"
+      "previous_source": "qorqut-code/app/qorqut/domains/business_briefing.py:118"
     },
     {
       "id": "retirement-inbox-history",
@@ -599,7 +599,7 @@
       "status": "conditional",
       "trigger": "inbox/retirement_contract.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/inbox/retirement_contract.py:77"
+      "previous_source": "qorqut-code/app/qorqut/inbox/retirement_contract.py:77"
     },
     {
       "id": "retirement-inbox-reading",
@@ -608,7 +608,7 @@
       "status": "conditional",
       "trigger": "inbox/retirement_contract.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/inbox/retirement_contract.py:81"
+      "previous_source": "qorqut-code/app/qorqut/inbox/retirement_contract.py:81"
     },
     {
       "id": "retirement-review-history",
@@ -621,7 +621,7 @@
       "status": "conditional",
       "trigger": "inbox/retirement_contract.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/inbox/retirement_contract.py:87"
+      "previous_source": "qorqut-code/app/qorqut/inbox/retirement_contract.py:87"
     },
     {
       "id": "runtime-diagnostic-guidance",
@@ -630,7 +630,7 @@
       "status": "conditional",
       "trigger": "agents/diagnostics.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/agents/diagnostics.py:128"
+      "previous_source": "qorqut-code/app/qorqut/agents/diagnostics.py:128"
     },
     {
       "id": "skills-header",
@@ -744,7 +744,7 @@
       "status": "conditional",
       "trigger": "transport/mcp.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/bazarlyk/transport/mcp.py:83"
+      "previous_source": "qorqut-code/app/qorqut/transport/mcp.py:83"
     },
     {
       "id": "workspace-claude",

@@ -20,8 +20,8 @@ import httpx
 
 from qorqut_operations.application.catalog import CatalogContribution
 
-from bazarlyk.extensions import Assets, CalendarProvider, Extension, OwnerRoute
-from bazarlyk.agentic.text import render
+from qorqut.extensions import Assets, CalendarProvider, Extension, OwnerRoute
+from qorqut.agentic.text import render
 from qorqut_operations.contracts import DomainError, PolicyDecision
 
 from .outcome import email_outcome
@@ -110,7 +110,7 @@ def owner_read_route(name):
     """Exactly the optional conversation reader's Global reads, behind the host's owner/origin checks."""
     async def handle(api, request, actor, request_id):
         import anyio
-        from bazarlyk.transport.http import read_json, response, split_options
+        from qorqut.transport.http import read_json, response, split_options
         context, _ = api.context(actor)
         args, options = split_options(await read_json(request))
         if (options.business_id is not None or options.review_business_id is not None

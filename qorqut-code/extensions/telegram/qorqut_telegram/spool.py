@@ -15,7 +15,7 @@ import re
 import secrets
 import time
 
-from bazarlyk.private_files import read_private_file, require_private_directory, write_private_file
+from qorqut.private_files import read_private_file, require_private_directory, write_private_file
 from qorqut_operations.contracts import DomainError
 from .store import parse
 

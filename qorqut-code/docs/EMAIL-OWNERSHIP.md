@@ -28,7 +28,7 @@ the retired per-Project mailbox model (still readable in Git history).
 ## Where mail went
 
 The optional `qorqut-fastmail` package (`qorqut_fastmail.extension:create`, selected through the existing
-`bazarlyk.extensions` mechanism) provides the `fastmail_*` account operations, the Fastmail CalDAV adapter and a narrow route
+`qorqut.extensions` mechanism) provides the `fastmail_*` account operations, the Fastmail CalDAV adapter and a narrow route
 client for Paper. Its contract is in that repository's `docs/OPERATIONS.md`; configuration is `engine_url`, `admin_token_file`
 and an optional `account_id`, with no business mailbox, folder or alias ownership. The separate email engine's account API
 (`services/email-engine`) is what it talks to. A standard source export, preparation and installed-host check need neither;

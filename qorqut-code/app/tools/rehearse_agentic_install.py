@@ -21,18 +21,18 @@ from unittest.mock import patch
 
 from starlette.testclient import TestClient
 from qorqut_operations.contracts import Principal, InvocationOptions, new_id
-from bazarlyk.agentic import client as native
-from bazarlyk.agentic.installation import open_installation
-from bazarlyk.agentic.support import digest
-from bazarlyk.bootstrap import preparation, skill_refresh
-from bazarlyk.bootstrap.initialize import initialize, load_prepared, owner_context
-from bazarlyk.bootstrap.mcp_reconnect import ReconnectBridge
-from bazarlyk.bootstrap.bridge_binding import BridgeBinding as ProcessBinding
-from bazarlyk.extensions import installed_selection
-from bazarlyk.instance_paths import InstancePaths
-from bazarlyk.service.runtime import build_runtime
-from bazarlyk.service.web import create_app
-from bazarlyk.transport.auth import Authentication
+from qorqut.agentic import client as native
+from qorqut.agentic.installation import open_installation
+from qorqut.agentic.support import digest
+from qorqut.bootstrap import preparation, skill_refresh
+from qorqut.bootstrap.initialize import initialize, load_prepared, owner_context
+from qorqut.bootstrap.mcp_reconnect import ReconnectBridge
+from qorqut.bootstrap.bridge_binding import BridgeBinding as ProcessBinding
+from qorqut.extensions import installed_selection
+from qorqut.instance_paths import InstancePaths
+from qorqut.service.runtime import build_runtime
+from qorqut.service.web import create_app
+from qorqut.transport.auth import Authentication
 
 VERSIONS = {"claude-code": "2.1.263 (Claude Code)", "codex": "codex-cli 0.153.4"}
 
@@ -96,9 +96,9 @@ def run(prepared, scratch):
     check(all(s.get("provenance_kind") == "committed_export" and s["clean"] is None for s in inventory["sources"]), "Export provenance lost")
     evidence["inventory"] = inventory["coverage"]
     evidence["module_runtime_registry"] = "No host execution adapter registered; native client owns LocalProcessRuntime"
-    with runtime.owned_preparation(), patch.dict(os.environ, {"SYNTHETIC_SECRET": "not inherited by tools"}), patch("bazarlyk.installation.helper_launcher", return_value=None), \
+    with runtime.owned_preparation(), patch.dict(os.environ, {"SYNTHETIC_SECRET": "not inherited by tools"}), patch("qorqut.installation.helper_launcher", return_value=None), \
             patch.object(preparation, "checkpoint_protocols", return_value={"claude-code": 0, "codex": 0}), \
-            patch("bazarlyk.bootstrap.bridge_binding.BridgeBinding", side_effect=lambda registration: ProcessBinding(registration, ancestor=lambda runtime: None)):
+            patch("qorqut.bootstrap.bridge_binding.BridgeBinding", side_effect=lambda registration: ProcessBinding(registration, ancestor=lambda runtime: None)):
         from qorqut_agentic import util as agentic_util
         evidence["yaml_loader"] = agentic_util._StrictLoader.__mro__[1].__name__
         resolution_started = time.perf_counter()
@@ -112,7 +112,7 @@ def run(prepared, scratch):
         check(max(first_resolution, subsequent_resolution) < 15, "Context resolution exceeds the existing native request budget")
         check(before["mandatory_context"]["rendered"].count("## Agentic Toolkit") == 1, "Duplicate toolkit context")
         # Both a directly modified procedural skill and a new package are immediately visible.
-        skill_path = "packages/imported-host-builtins/native/app/bazarlyk/agents/skills/role/SKILL.md"
+        skill_path = "packages/imported-host-builtins/native/app/qorqut/agents/skills/role/SKILL.md"
         edited(layer, skill_path, (layer.root / skill_path).read_text() + "\nSynthetic new direct rule.\n", manager.id)
         fresh = runtime.resolver.resolve_agent_config(manager).to_dict()
         check(fresh["effective_config_id"] != before["effective_config_id"], "Saved skill not reflected in next resolution")
@@ -124,8 +124,8 @@ def run(prepared, scratch):
         prepared_manager = preparation.prepare_agent(runtime.resolver, manager, endpoint="http://testserver", versions=VERSIONS,
             interpreter=sys.executable, interpreter_validator=lambda p: Path(p).is_file())
         workspace = Path(prepared_manager["workspace"])
-        registration = workspace / ".bazarlyk/registration.json"
-        from bazarlyk.bootstrap.email_guidance import home as email_home
+        registration = workspace / ".qorqut/registration.json"
+        from qorqut.bootstrap.email_guidance import home as email_home
         guide = email_home(paths, agentic_view=runtime.agentic_view)
         check(guide == paths.agentic_root / "packages/imported-email-management/guidance/email", "Incorrect canonical email pointer")
         # Safe skill refresh and explicit orientation re-preparation use real peer components.
@@ -133,11 +133,11 @@ def run(prepared, scratch):
         changed = runtime.resolver.resolve_agent_config(manager)
         check(skill_refresh.refresh(runtime.resolver, manager, changed, prepared_manager["registration_id"], "codex"), "Skill refresh did not run")
         check(b"Synthetic refresh rule." in (workspace / ".agents/skills/role/SKILL.md").read_bytes(), "Skill refresh lost current body")
-        note_path = "packages/imported-host-builtins/native/app/bazarlyk/agentic/assets/inbox-session-note.md"
+        note_path = "packages/imported-host-builtins/native/app/qorqut/agentic/assets/inbox-session-note.md"
         edited(layer, note_path, "Current synthetic session note.", manager.id)
         note = runtime.resolver.bootstrap(manager, registration_id=prepared_manager["registration_id"], session_id="synthetic-session", event="prompt", runtime="codex")
         check(note.get("inbox_session_note") == "Current synthetic session note.", "Stale bootstrap session note")
-        orientation = "packages/imported-host-builtins/native/app/bazarlyk/agentic/assets/software-ownership.md"
+        orientation = "packages/imported-host-builtins/native/app/qorqut/agentic/assets/software-ownership.md"
         edited(layer, orientation, "Current synthetic software ownership rule.", manager.id)
         drift = runtime.resolver.resolve_agent_config(manager)
         check("native_guidance_changed" in drift.data["preparation"]["projection_drift"], "No explicit orientation drift")
@@ -155,7 +155,7 @@ def run(prepared, scratch):
         synthetic_token.chmod(0o600)
         ready_worker = preparation.prepare_agent(runtime.resolver, worker, endpoint="http://testserver", versions=VERSIONS,
             interpreter=sys.executable, interpreter_validator=lambda p: Path(p).is_file())
-        worker_registration = Path(ready_worker["workspace"]) / ".bazarlyk/registration.json"
+        worker_registration = Path(ready_worker["workspace"]) / ".qorqut/registration.json"
         runtime.freeze_registry()
         web = create_app(runtime, origins=["http://testserver"], manage_lifecycle=False,
             authentication=Authentication(runtime.database, paths, bootstrap_token="synthetic" + "x" * 40, signing_key=b"z" * 48))
@@ -200,7 +200,7 @@ def run(prepared, scratch):
             fixture_runner = scratch / "fixture-client.py"
             fixture_runner.write_text("""import json,sys
 from pathlib import Path
-from bazarlyk.agentic import client
+from qorqut.agentic import client
 access=json.loads(Path(sys.argv[1]).read_text())
 class Bridge:
  def handle(self,message):
@@ -219,12 +219,12 @@ raise SystemExit(client.main(sys.argv[3:]))
             fixture_helper = scratch / "fixture-agent-helper"
             fixture_helper.write_text('#!/bin/sh\nexec ' + shlex.join([sys.executable, '-I', '-B', str(fixture_runner), str(access_path)]) + ' "$@"\n')
             fixture_helper.chmod(0o700)
-            with patch("bazarlyk.installation.helper_launcher", return_value=str(fixture_helper)):
+            with patch("qorqut.installation.helper_launcher", return_value=str(fixture_helper)):
                 projection = preparation.build_projection(runtime.resolver, runtime.resolver.resolve_agent_config(worker),
                     registration_id=ready_worker["registration_id"], endpoint="http://testserver", interpreter=sys.executable,
                     interpreter_validator=lambda p: Path(p).is_file())
             fixture_launcher = scratch / "fixture-agentic"
-            fixture_launcher.write_bytes(projection.files['.bazarlyk/agentic'])
+            fixture_launcher.write_bytes(projection.files['.qorqut/agentic'])
             fixture_launcher.chmod(0o700)
             child = subprocess.run([str(fixture_launcher)], input=json.dumps({"operation":"tools.invoke", "arguments":{
                 "ref":"synthetic-tools/echo","arguments":{"launcher":True},"invocation_id":"launcher-echo"}}),
@@ -250,7 +250,7 @@ raise SystemExit(client.main(sys.argv[3:]))
                 "saved_run": run_id, "reopened_after_revocation": True, "revoked_execution_denied": True}
         # The real generated default launcher is tested as an isolated subprocess.
         # A malformed override fails before transport, so it contacts no HTTP server.
-        launcher = subprocess.run([str(workspace / ".bazarlyk/agentic")], input=json.dumps({"operation": "catalog.list", "arguments": {"root": "/forged"}}),
+        launcher = subprocess.run([str(workspace / ".qorqut/agentic")], input=json.dumps({"operation": "catalog.list", "arguments": {"root": "/forged"}}),
             text=True, capture_output=True, timeout=20, env={"PATH": os.defpath, "TMPDIR": str(scratch), "PYTHONDONTWRITEBYTECODE": "1"}, cwd=scratch)
         check(launcher.returncode == 1 and json.loads(launcher.stdout)["error"]["code"] == "invalid_request", launcher.stdout + launcher.stderr)
         evidence["launcher"] = {"default_installed_python": True, "override_refused_before_transport": True, "http_roundtrip": False}
@@ -270,7 +270,7 @@ raise SystemExit(client.main(sys.argv[3:]))
         check(layer.changes.list()["changes"][-1]["attribution"]["actor_id"] == "external/unknown", "Invented external attribution")
         evidence["notices"] = {"known": 1, "external": 1, "repeat_duplicates": 0}
         check(open_installation(paths, selection.ids)[0].instance_id == layer.instance_id, "Legitimate edits refused")
-        from bazarlyk.operations_history.catalog import catalog as history_catalog
+        from qorqut.operations_history.catalog import catalog as history_catalog
         from qorqut_operations.history_exports import TECHNICAL_EXCLUDED
         history = history_catalog(selection.history())
         check(history.classifications["agentic_inbox_cursor"][1].kind == TECHNICAL_EXCLUDED, "Technical cursor leaked into public history")

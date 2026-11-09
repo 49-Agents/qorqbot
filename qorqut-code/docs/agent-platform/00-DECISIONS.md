@@ -41,10 +41,10 @@ warrants it; do not create new user approval prompts for routine implementation
 details already within the authorized work.
 
 1. Use a single Python backend package, initially named `biz-core` with import
-   package `bazarlyk`. Host MCP, the dashboard's existing HTTP/static adapters,
+   package `qorqut`. Host MCP, the dashboard's existing HTTP/static adapters,
    and background-job integration in one supervised application. Preserve
    current URLs and terminal behavior as adapters change.
-2. Use one local SQLite database in the instance's `.bazarlyk` storage directory
+2. Use one local SQLite database in the instance's `.qorqut` storage directory
    for operational records. Agents and remote dashboards access it through the
    application; never share the database file over Tailscale or a network mount.
 3. Keep authored context, role/plugin procedures, code, and media as files.

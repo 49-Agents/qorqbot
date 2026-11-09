@@ -114,7 +114,7 @@ def call_grouping(records):
                     continue
                 if message.get("id"):
                     claude[message["id"]][identity] = name
-                elif name.startswith("mcp__bazarlyk__"):
+                elif name.startswith("mcp__qorqut__"):
                     ungrouped.add(identity)
         payload = record.get("payload", {})
         if record.get("type") != "response_item" or not isinstance(payload, dict):
@@ -123,15 +123,15 @@ def call_grouping(records):
             continue
         name = payload.get("name", "")
         source = payload.get("input", payload.get("arguments", ""))
-        if name.startswith("mcp__bazarlyk__"):
+        if name.startswith("mcp__qorqut__"):
             codex[payload["call_id"]] = ([name], False, False)
         elif name in {"exec", "functions.exec"} and isinstance(source, str):
-            names = re.findall(r"tools\.(mcp__bazarlyk__[a-zA-Z0-9_]+)\s*\(", source)
+            names = re.findall(r"tools\.(mcp__qorqut__[a-zA-Z0-9_]+)\s*\(", source)
             if names:
                 codex[payload["call_id"]] = (names, "Promise.all" in source,
                     bool(re.search(r"\bfor\s*\(|\.map\s*\(", source)))
-    groups = [[name.removeprefix("mcp__bazarlyk__") for name in group.values()
-               if name.startswith("mcp__bazarlyk__")] for group in claude.values()]
+    groups = [[name.removeprefix("mcp__qorqut__") for name in group.values()
+               if name.startswith("mcp__qorqut__")] for group in claude.values()]
     groups = [group for group in groups if group]
     widths = Counter(len(group) for group in groups)
     examples = Counter(tuple(group) for group in groups if len(group) > 1)
@@ -160,11 +160,11 @@ def analyze(path):
     first, last = None, None
 
     def result(identity, names, body, runtime):
-        if identity in seen or not any("mcp__bazarlyk__" in name for name in names):
+        if identity in seen or not any("mcp__qorqut__" in name for name in names):
             return
         seen.add(identity)
         text = text_content(body)
-        operation = names[0].split("mcp__bazarlyk__")[-1] if len(names) == 1 else "<exec-batch>"
+        operation = names[0].split("mcp__qorqut__")[-1] if len(names) == 1 else "<exec-batch>"
         sizes[operation].append(len(text))
         counts[runtime + "_result_messages"] += 1
         for value in json_objects(text):
@@ -202,7 +202,7 @@ def analyze(path):
             identity = payload.get("call_id")
             if kind in {"function_call", "custom_tool_call"}:
                 name = payload.get("name", "")
-                calls[identity] = ([name] if "mcp__bazarlyk__" in name else
+                calls[identity] = ([name] if "mcp__qorqut__" in name else
                     re.findall(r"tools\.([a-zA-Z0-9_]+)", payload.get("input", payload.get("arguments", ""))))
             elif kind in {"function_call_output", "custom_tool_call_output"}:
                 result(identity, calls.get(identity, []), payload.get("output"), "codex")

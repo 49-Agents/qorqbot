@@ -265,7 +265,7 @@ def inspect_resources(path, extension_id):
 CHECK_AGENTIC_SOURCES = r'''
 import json,sys
 from qorqut_agentic.behavior.sources import seed_bytes
-from bazarlyk.agentic.text import render_text
+from qorqut.agentic.text import render_text
 entries=json.load(sys.stdin)
 for entry in entries:
     body=seed_bytes(sys.argv[1],entry['path'])
@@ -465,7 +465,7 @@ def install(root, archive, expected, *, config=None, resume=False):
             # The app lock remains held; the additive installer owns the instance
             # lock and its schema/Agentic transaction, backups and resume journal.
             instance_lock.close(); instance_lock = None
-            command = [python, '-I', '-B', '-m', 'bazarlyk.bootstrap.extension_install', '--prepared-root', runtime,
+            command = [python, '-I', '-B', '-m', 'qorqut.bootstrap.extension_install', '--prepared-root', runtime,
                        '--instance-root', instance, '--factory', value['factory'], '--bundle-sha256', expected, '--config', config_path]
             if resume and adoption_journal.exists() and read_json(adoption_journal).get('request', {}).get('bundle_sha256') == expected:
                 command.append('--resume')

@@ -1,6 +1,6 @@
 // Connectors: the services the owner connects so agents can use them (Gmail, Calendar and more).
 // `connectorsModel` is pure (unit tested with `node --test biz-dashboard/tests/*.test.js`); `connectorsPanel` renders the
-// panel shown in Settings and in the walkthrough. Status comes from /root/connectors (bazarlyk.connectors).
+// panel shown in Settings and in the walkthrough. Status comes from /root/connectors (qorqut.connectors).
 const connectorsModel = (() => {
   const CLAUDE_CONNECTORS_URL = 'https://claude.ai/settings/connectors';
   const icon = path => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;

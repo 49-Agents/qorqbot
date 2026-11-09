@@ -1,6 +1,6 @@
 import unittest
 
-from bazarlyk.transport.terminal_composer import read
+from qorqut.transport.terminal_composer import read
 
 
 class TrailingLinesTest(unittest.TestCase):

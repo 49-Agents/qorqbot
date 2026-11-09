@@ -2,14 +2,14 @@
 
 The host collects Context usage receipts into the Operations usage ledger (`qorqut_operations.context_usage`) and
 exposes owner-only costs. It reads the Context library's read-only `Pipeline.usage_receipts`. Importing
-`bazarlyk.context_usage` (and so the host's domain registration) needs an Operations release that carries the usage
+`qorqut.context_usage` (and so the host's domain registration) needs an Operations release that carries the usage
 ledger; the gitlinks and the retired private foundation receipt name the foundation pins, and the receipt cases of
 `test_host_foundation_engine` do not pass until the pins are advanced together.
 
 Backend only. The dashboard's Global cost view and the Context cost reader, the Context driver loop and the graph-edit
 driver are separate owners.
 
-## Package `app/bazarlyk/context_usage/`
+## Package `app/qorqut/context_usage/`
 
 | Module | Purpose |
 | --- | --- |
@@ -85,7 +85,7 @@ until the loop reports `stopped`; the collector closes nothing. Reads never call
 
 ## `context_filing_costs` (the one owner-only read)
 
-Registered by `ContextUsageOperations` (`bazarlyk.domains.register_business_domains`); the old descriptor, its read branch and
+Registered by `ContextUsageOperations` (`qorqut.domains.register_business_domains`); the old descriptor, its read branch and
 `ContextBaseService.filing_costs` (and the Luna/Jev/per-upload columns) are removed. Name, Global namespace, effect `read`,
 `supports_signoff=False`, exposure `{dashboard, worker}` and the root allowlist entry are unchanged. It is `owner_only`: the
 retained Application refuses agents and every other principal ("requires the owning human"; a Global graph-read grant adds

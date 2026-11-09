@@ -108,9 +108,9 @@ The local helper wraps these same API operations; it does not access SQLite or
 another agent's credentials. Run with the installed core interpreter:
 
 ```sh
-/absolute/path/to/venv/bin/python -I -m bazarlyk.inbox.client --business '<project UUID>' recipients
-/absolute/path/to/venv/bin/python -I -m bazarlyk.inbox.client --business '<project UUID>' send --to '<agent UUID>' --message-file /tmp/message.txt --idempotency-key '<stable send UUID>'
-/absolute/path/to/venv/bin/python -I -m bazarlyk.inbox.client --business '<project UUID>' history --thread-id '<returned thread UUID>'
+/absolute/path/to/venv/bin/python -I -m qorqut.inbox.client --business '<project UUID>' recipients
+/absolute/path/to/venv/bin/python -I -m qorqut.inbox.client --business '<project UUID>' send --to '<agent UUID>' --message-file /tmp/message.txt --idempotency-key '<stable send UUID>'
+/absolute/path/to/venv/bin/python -I -m qorqut.inbox.client --business '<project UUID>' history --thread-id '<returned thread UUID>'
 ```
 
 `--message-file -` reads stdin; `--global` replaces `--business`. `--url` selects

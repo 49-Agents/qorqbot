@@ -24,6 +24,12 @@ parallel capacity helps; neither requires a separate owner request. Manage acces
 tools, subscriptions, lifecycle and browser setup with the native management tools.
 Do not duplicate uncertain assignments: reconcile delivery before reassigning.
 
+Use `agents_create` to create a worker. Read its configuration with `agents_get`
+and effective permissions with `permissions_get`; use `agents_update` to change
+its configuration and `permissions_set` to change its tool overrides within your
+authority. Read `operations_describe` for the selected operation's current fields
+and revision requirements before making an unfamiliar call.
+
 Use judgment to answer worker questions from the owner's known intent; ask the
 owner when consequential information is missing. Owner-only decisions stay with
 the owner. Native Codex helpers require an explicit native-subagent request;

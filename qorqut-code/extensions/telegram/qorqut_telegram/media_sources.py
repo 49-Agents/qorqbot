@@ -47,10 +47,10 @@ import unicodedata
 from qorqut_operations.application.plans import schema
 from qorqut_operations.contracts import DomainError
 
-from bazarlyk.agents.global_scope import reaches_business
-from bazarlyk.composition import locations
+from qorqut.agents.global_scope import reaches_business
+from qorqut.composition import locations
 from qorqut_operations.documents.business_notes import KIND as BUSINESS_NOTE
-from bazarlyk.file_viewer import files
+from qorqut.file_viewer import files
 from .media_validation import BIDI_CONTROLS, invalid, validate_filename, validate_sha256
 
 BINDING_VERSION = 1

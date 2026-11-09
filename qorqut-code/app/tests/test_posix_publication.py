@@ -11,7 +11,7 @@ from unittest import mock
 
 from qorqut_operations.contracts import DomainError
 
-from bazarlyk import posix_files
+from qorqut import posix_files
 
 
 @unittest.skipUnless(posix_files.publication_supported(), "exclusive publication needs Linux O_TMPFILE or macOS")

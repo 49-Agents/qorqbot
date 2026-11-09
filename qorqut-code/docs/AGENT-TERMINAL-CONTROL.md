@@ -40,7 +40,7 @@ starts an agent by itself: every start is the owner's, from that button or by
 typing `claude` or `codex` in the agent's own terminal. The queued action is
 dispatched like any other: same rechecks, same idle-shell preflight. Before
 typing the launcher, the dispatcher records folder trust for the target's
-workspace folder when the owner has consented (`bazarlyk/agent_trust.py`), so the
+workspace folder when the owner has consented (`qorqut/agent_trust.py`), so the
 readiness wait reaches the composer instead of stopping at that folder's trust
 prompt. A CLI can still ask about an enclosing git repository, which is never
 trusted on the owner's behalf; the readiness wait never types into that prompt, so

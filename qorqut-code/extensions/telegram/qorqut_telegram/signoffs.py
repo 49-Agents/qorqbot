@@ -16,8 +16,8 @@ import json
 import logging
 
 from qorqut_operations.contracts import DomainError, new_id
-from bazarlyk.agents.global_scope import active_global
-from bazarlyk.signoffs.execution import execution_sql
+from qorqut.agents.global_scope import active_global
+from qorqut.signoffs.execution import execution_sql
 from qorqut_operations.signoffs.inputs import validate_response
 from qorqut_operations.signoffs.notes import eligible as has_owner_note
 from qorqut_operations.storage.repositories import decode_row
@@ -75,6 +75,8 @@ def form_of(row):
     if row["category"] != "input_request":
         return "action"
     form = (row["preview_json"] or {}).get("input") or {}
+    if form.get('kind') == 'draft_review':
+        return 'input'  # Telegram can comment; edited fields must be returned in the dashboard.
     ids = sorted(choice["id"] for choice in form.get("choices", []))
     if form.get("selection_mode") == "single" and ids == ["no", "yes"] and not form.get("notes_required"):
         return "binary_input"
@@ -187,7 +189,8 @@ class SignoffBridge:
             body = self._input_lines(dto, budget) if dto["category"] == "input_request" else self._action_lines(dto, budget, attempt)
             body = self._fit(body, attempt, budget)
             attention = dto.get("attention") or {}
-            head = [f"{KINDS.get(dto['category'], 'Approval')}: {dto['title']}",
+            draft_review = (dto.get('input') or {}).get('kind') == 'draft_review'
+            head = [f"{'Draft review' if draft_review else KINDS.get(dto['category'], 'Approval')}: {dto['title']}",
                     f"{dto.get('business_name') or 'Global'} · requested by {dto.get('proposer_display_name') or 'an agent'}"]
             tail = []
             if attention.get("reason"):
@@ -195,7 +198,9 @@ class SignoffBridge:
             if attention.get("deadline"):
                 tail.append("Deadline: " + attention["deadline"])
             needs_choice = bool(((dto.get("preview") or {}).get("input") or {}).get("selection_required"))
-            tail += [CHOICE_HELP[form] if needs_choice and form in CHOICE_HELP else HELP[form], f"Open the Signoffs view: {url}"]
+            help_text = ('Edit and return the draft in the dashboard. Replies add comments; reactions do not return the draft.'
+                         if draft_review else CHOICE_HELP[form] if needs_choice and form in CHOICE_HELP else HELP[form])
+            tail += [help_text, f"Open the Signoffs view: {url}"]
             if budget.truncated:
                 tail.append(f"Truncated: the complete text is in the Signoffs view: {url}")
             text = "\n".join([*head, "", *body, "", *tail]).strip()
@@ -516,8 +521,10 @@ class SignoffBridge:
         if post["decision_json"] is not None:
             return ignored("decision_already_recorded")
         if post["input_form"] == "input":
-            self._notice(uow, item["update_id"], "form", "This request needs a written answer, so a reaction cannot answer it. "
-                         f"Reply to its post, or answer it in the Signoffs view of the dashboard: {self._record_link(uow, row)}")
+            draft_review = row['preview_json'].get('input', {}).get('kind') == 'draft_review'
+            text = ('Edit and return this draft in the dashboard; a reaction does not return it. '
+                    if draft_review else 'This request needs a written answer, so a reaction cannot answer it. Reply to its post, or answer it in the dashboard: ')
+            self._notice(uow, item["update_id"], "form", text + self._record_link(uow, row))
             return ignored("reaction_not_supported")
         up = thumbs[0] == UP
         if post["input_form"] == "action":
@@ -600,7 +607,7 @@ class SignoffBridge:
     def answers_alone(row, text):
         """Whether the written text alone is a valid response to this input request (never guessing a choice)."""
         form = row["preview_json"]["input"]
-        if form.get("selection_required"):
+        if form.get('kind') == 'draft_review' or form.get("selection_required"):
             return False
         try:
             validate_response(form, text, [])

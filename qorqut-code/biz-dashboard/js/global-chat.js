@@ -13,15 +13,17 @@ const GLOBAL_CHAT_STARTS = new Map();           // agent id -> {startedAt, error
 // scope -> {records, consumed}: owner messages accepted by the backend whose transcript entry has not been seen yet. Browser-only and
 // presentation-only: a record keeps the sent text visible until its exact native user entry arrives, and never touches receipts.
 const GLOBAL_CHAT_ACCEPTED = new Map();
-const globalChatText = text => String(text ?? '').replace(/\r\n/g, '\n');
+// Comparison only: native clients may trim the pasted message's trailing whitespace.
+const globalChatText = text => String(text ?? '').replace(/\r\n/g, '\n').trimEnd();
 async function globalChatOpenFocusReference(ref, context = {}) {
   const pane = Object.hasOwn(context, 'pane') ? context.pane : (typeof _agpad !== 'undefined' ? _agpad : null);
   const agentId = String(context.agentId ?? pane?.agentId ?? '');
   const current = () => context.isCurrent?.() !== false
     && (typeof _agpad === 'undefined' || _agpad === pane)
     && (!pane || (pane.open && (!agentId || String(pane.agentId ?? '') === agentId)));
-  const supported=new Set(['table','task','reference','signoff','project']);
+  const supported=new Set(['table','reference','signoff','project']);
   if (!current()) return false;
+  if(ref?.type==='task' && typeof ref.id==='string' && ref.id) return agentOpenRecordReference(ref);
   if(supported.has(ref?.type) && typeof ref.id==='string' && ref.id && pane) {
     if(pane?.open && pane.workspaceRole==='ordubashy' && pane.agentId && state.scope==='global' && state.globalTab==='agents') {
       if(pane.view!=='focus') {
@@ -112,53 +114,52 @@ function globalChatViewToggle(terminal = false) {
 
 // One Chat/Terminal lifecycle for any registered agent, on the Global page and in a business workspace.
 // `agent.agent_id` is the registered id the chat API needs; `terminal.key`/`terminal.base` name the exact existing terminal route.
-// Only one view is live at a time: mounting another, toggling, or dispose() releases the old stream and terminal.
+// Keep the current agent’s two views mounted across toggles; navigation/dispose releases both streams.
 // opts: {terminal: {key, base?}, isCurrent(): bool, onTerminalStatus(status), view: 'chat'|'terminal'}
 let globalAgentViewActive = null;
 function agentViewDispose() { globalAgentViewActive?.dispose(); }
 function mountAgentView(pane, agent, opts) {
   agentViewDispose();
-  let chat = null, closeTerminal = null, watcher = null, disposed = false;
-  const stop = () => {
-    clearInterval(watcher); watcher = null;
-    chat?.dispose(); chat = null;
-    if (closeTerminal) { closeTerminal(); closeTerminal = null; }
-  };
+  let chat = null, closeTerminal = null, disposed = false;
+  const chatHost = document.createElement('div'), terminalHost = document.createElement('div');
+  for (const host of [chatHost, terminalHost]) { host.className = 'gchat-view-host'; host.hidden = true; }
+  pane.replaceChildren(chatHost, terminalHost);
+  // Release a legacy viewer once on entry, not when returning to this agent's warm Chat.
+  if (typeof teardownTerm === 'function') teardownTerm();
+  const current = () => !disposed && (!opts.isCurrent || opts.isCurrent());
   const showChat = () => {
-    if (disposed) return;
-    stop();
-    // The shared main terminal may belong to a shell mounted outside this view (workspace Terminal, a legacy agent without an id):
-    // release its viewer (stream and resize observer only; the server process keeps running).
-    if (typeof teardownTerm === 'function') teardownTerm();
+    if (!current()) return;
+    terminalHost.hidden = true; chatHost.hidden = false;
+    if (chat) return;
     const originAgentId = String(agent.agent_id ?? '');
-    let mountedChat = null;
-    mountedChat = mountGlobalChat(pane, agent, {openTerminal: showTerminal, openReference: ref => globalChatOpenFocusReference(ref, {
+    chat = mountGlobalChat(chatHost, agent, {openTerminal: showTerminal, openReference: ref => globalChatOpenFocusReference(ref, {
       agentId: originAgentId,
-      isCurrent: () => !disposed && mountedChat != null && chat === mountedChat && (!opts.isCurrent || opts.isCurrent()),
+      isCurrent: () => current() && !chatHost.hidden,
     })});
-    chat = mountedChat;
-    // Navigation tears the pane down without an event: release the stream once it has left the page.
-    const mine = chat;
-    watcher = setInterval(() => { if (!pane.isConnected || chat !== mine) { clearInterval(watcher); if (chat === mine) stop(); } }, 2000);
   };
-  // One terminal view. Chat follows its current native conversation automatically.
-  const showTerminal = () => {
-    if (disposed) return;
-    stop();
+  // Refresh explicitly replaces the terminal viewer; ordinary toggles retain its renderer and stream.
+  const showTerminal = (refresh = false) => {
+    if (!current()) return;
+    chatHost.hidden = true; terminalHost.hidden = false;
+    if (closeTerminal && !refresh) return;
+    closeTerminal?.();
     const label = agent.display_name || agent.name;
-    pane.innerHTML = `<div class="gchat-terminal"><div class="gchat-top"><span class="gchat-name">${esc(label)}</span><span class="gchat-status">Terminal</span></div><div class="gchat-session-switch">${globalChatViewToggle(true)}</div><div class="gchat-terminal-host"></div></div>`;
-    const current = () => !opts.isCurrent || opts.isCurrent();
-    pane.querySelector('[data-chat-return]').onclick = () => { if (current()) showChat(); };
-    pane.querySelector('[data-agent-refresh]').onclick = () => { if (current()) showTerminal(); };
-    const shellStatus = pane.querySelector('.gchat-status');
-    closeTerminal = mountTerminal(opts.terminal.key, pane.querySelector('.gchat-terminal-host'), status => {
+    terminalHost.innerHTML = `<div class="gchat-terminal"><div class="gchat-top"><span class="gchat-name">${esc(label)}</span><span class="gchat-status">Terminal</span></div><div class="gchat-session-switch">${globalChatViewToggle(true)}</div><div class="gchat-terminal-host"></div></div>`;
+    terminalHost.querySelector('[data-chat-return]').onclick = () => showChat();
+    terminalHost.querySelector('[data-agent-refresh]').onclick = () => showTerminal(true);
+    const shellStatus = terminalHost.querySelector('.gchat-status');
+    closeTerminal = mountTerminal(opts.terminal.key, terminalHost.querySelector('.gchat-terminal-host'), status => {
       shellStatus.textContent = status === 'ended' ? 'Terminal exited' : status === 'disconnected' ? 'Terminal disconnected' : 'Terminal';
       opts.onTerminalStatus?.(status);
     }, opts.terminal.base);
   };
+  // Also clean up if navigation removes/replaces the hosts without explicitly disposing the view.
+  const watcher = setInterval(() => {
+    if (!chatHost.isConnected || !terminalHost.isConnected || !current()) view.dispose();
+  }, 2000);
   const view = {showChat, showTerminal,
     selectPairedSource(source, generation, onUnavailable, onReference) {
-      if (disposed || !chat || !opts.isCurrent?.()) return false;
+      if (disposed || !chat || chatHost.hidden || !opts.isCurrent?.()) return false;
       return chat.selectPairedSource?.(source, generation, onUnavailable, onReference) ?? false;
     },
     clearPairedSource(generation) {
@@ -167,7 +168,10 @@ function mountAgentView(pane, agent, opts) {
     },
     dispose() {
     if (disposed) return;
-    disposed = true; stop();
+    disposed = true; clearInterval(watcher);
+    chat?.dispose(); chat = null;
+    closeTerminal?.(); closeTerminal = null;
+    chatHost.remove(); terminalHost.remove();
     if (globalAgentViewActive === view) globalAgentViewActive = null;
   }};
   globalAgentViewActive = view;
@@ -606,6 +610,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     onSubmit: text => submit(text),
     onTask: openReference,
     onReference: openReference,
+    onFilePreview: ref => agentFilePreviewOpen(ref),
     onFiles: files => {
       if (!composerScope || !canSend() || GLOBAL_CHAT_INFLIGHT.has(composerScope) || !files.length) return;
       if (files.length + selectedFiles().length > 10 || files.some(file => file.size > 25 * 1024 * 1024)) {
@@ -749,7 +754,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       const privateSource = {type: source.type, id: source.id, ...(business == null ? {} : {business_id: business})};
       pairedConversation = conversationMount(pairedHost, {type: source.type, id: source.id, biz, revision: null}, {
         inlineComposer: true, related: true, dismissOnOutside: false, privateGlobal: true, privateSource,
-        isVisible: () => live() && pairedHost?.isConnected && !document.hidden,
+        isVisible: () => live() && pairedHost?.isConnected && !pane.closest('[hidden]') && !document.hidden,
         onUnavailable: () => onUnavailable?.(privateSource),
         openReference: ref => onReference?.(ref),
       });

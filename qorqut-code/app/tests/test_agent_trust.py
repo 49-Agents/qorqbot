@@ -15,7 +15,7 @@ from unittest import mock
 
 from qorqut_operations.contracts import DomainError
 
-from bazarlyk import agent_trust as trust
+from qorqut import agent_trust as trust
 
 
 class Base(unittest.TestCase):
@@ -194,8 +194,8 @@ class OwnerViewTests(Base):
         return SimpleNamespace(paths=SimpleNamespace(runtime=self.runtime), database=SimpleNamespace(read=read))
 
     def view(self, runtime, change=None, agent_id="lead"):
-        with mock.patch("bazarlyk.agents.global_scope.active_global", lambda connection, identity: {} if identity == "lead" else None), \
-                mock.patch("bazarlyk.composition.locations.agent_workspace", lambda paths, identity, business: self.root / "agents" / identity):
+        with mock.patch("qorqut.agents.global_scope.active_global", lambda connection, identity: {} if identity == "lead" else None), \
+                mock.patch("qorqut.composition.locations.agent_workspace", lambda paths, identity, business: self.root / "agents" / identity):
             return trust.owner_view(runtime, change, agent_id, self.environ)
 
     def test_view_without_consent(self):

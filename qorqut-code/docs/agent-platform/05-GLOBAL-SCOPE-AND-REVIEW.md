@@ -199,7 +199,7 @@ ownership, schedules and run history are independent of review routing.
 
 Recovery requires compatible application code and a verified database/file
 generation. Account for later writes before restoring a backup; do not install
-an older reader against a newer database. See [Recovery](../../app/bazarlyk/storage/RECOVERY.md).
+an older reader against a newer database. See [Recovery](../../app/qorqut/storage/RECOVERY.md).
 
 ## Acceptance checks
 
