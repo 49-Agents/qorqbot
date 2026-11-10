@@ -86,6 +86,22 @@ class InstructionReadTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, 'forbidden')
         reader.assert_called_once()
 
+    def test_a_conflict_the_reader_reports_is_its_answer_not_a_retry(self):
+        # Preparation compares freshly projected skills with an already resolved configuration and reports a
+        # mismatch itself; projecting again cannot change that, and the caller needs that message.
+        for error in (DomainError('agentic_revision_conflict', 'Managed skills changed after configuration resolution',
+                                  retryable=True),
+                      AgenticError('Authored catalogue changed', code='revision_conflict')):
+            reader = mock.Mock(side_effect=error)
+            with self.assertRaises(DomainError) as caught:
+                self.view().consistent(reader)
+            self.assertEqual(caught.exception.code, 'agentic_revision_conflict')
+            reader.assert_called_once()
+        with self.assertRaises(DomainError) as caught:
+            self.view().consistent(mock.Mock(side_effect=DomainError(
+                'agentic_revision_conflict', 'Managed skills changed after configuration resolution')))
+        self.assertEqual(caught.exception.message, 'Managed skills changed after configuration resolution')
+
     def test_inventory_matches_independent_walk_and_rejects_file_swap_to_symlink(self):
         tree = SafeTree(self.tree)
         nested = self.tree / 'roles/demo/deep/nested'

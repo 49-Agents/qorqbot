@@ -235,18 +235,22 @@ class HostAgenticView:
         cannot silently switch to a newer configuration halfway through a write.
         """
         for _ in range(CONSISTENCY_ATTEMPTS):
+            reading = False
             try:
-                # One outer snapshot hashes on entry and exit, reuses the
-                # verified parse, and gives every nested projection the same
-                # revision. Separate revision()/read_session() calls used to
-                # rescan and parse the tree again for each nested projection.
+                # One snapshot verifies the tree on entry and exit and gives every nested projection the same
+                # parsed catalogue and revision, instead of a separate scan for each revision check.
                 with self.read_snapshot():
                     if revision is not None and revision != self.catalog_revision:
                         break
+                    reading = True
                     result = reader()
+                    reading = False
                 return result
             except DomainError as exc:
-                if exc.code != "agentic_revision_conflict":
+                # Only the snapshot's own verification is retried: the tree changed under a projection that
+                # otherwise completed. Whatever the reader itself raises, a conflict it detected included, is
+                # its answer and reaches the caller unchanged, as it always has.
+                if reading or exc.code != "agentic_revision_conflict":
                     raise
         raise DomainError("agentic_revision_conflict", "Managed instructions changed during projection; retry with current configuration",
                           retryable=True)
