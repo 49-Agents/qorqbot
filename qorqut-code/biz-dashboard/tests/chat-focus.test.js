@@ -16,7 +16,7 @@ async function fixture(width=900) {
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
   await page.setContent('<main id="pane" style="display:flex;flex-direction:column;height:650px;width:100%;min-width:0;--ag-ctl:30px"></main>');
   await page.clock.install();
-  for(const file of ['app.css','css/tasks.css','css/agentpane.css','css/chat-view.css','css/workflow-panel.css','css/global-chat.css'])await page.addStyleTag({path:path.join(root,file)});
+  for(const file of ['app.css','css/tasks.css','css/agent-focus.css','css/agent-workspace.css','css/agentpane.css','css/chat-view.css','css/workflow-panel.css','css/global-chat.css'])await page.addStyleTag({path:path.join(root,file)});
   await page.evaluate(()=>{
     window.esc=value=>String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     window.$=(selector,host=document)=>host.querySelector(selector);

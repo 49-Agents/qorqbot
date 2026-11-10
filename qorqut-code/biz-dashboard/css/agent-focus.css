@@ -152,10 +152,10 @@
 .agfocus-reference-chip svg{width:13px;height:13px;flex:none}
 
 /* Shrink only the visible dot; preserve the full state-control hit area. */
-.agfocus .agfocus-marker .agfocus-task-state .core{transform:scale(.5);transition:transform 120ms ease}
+.agfocus .agfocus-marker .agfocus-task-state .core,.wfpanel .agfocus-task-state .core{transform:scale(.5);transition:transform 120ms ease}
 .agfocus .agfocus-marker:hover .agfocus-task-state .core,
 .agfocus .agfocus-task-state:focus-visible .core{transform:scale(1)}
-@media (prefers-reduced-motion:reduce){.agfocus .agfocus-marker .agfocus-task-state .core{transition:none}}
+@media (prefers-reduced-motion:reduce){.agfocus .agfocus-marker .agfocus-task-state .core,.wfpanel .agfocus-task-state .core{transition:none}}
 
 .agfocus .agfocus-scope[hidden]{display:none}
 

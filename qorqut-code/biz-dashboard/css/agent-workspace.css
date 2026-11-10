@@ -88,7 +88,7 @@
 .agent-workspace-app .agfocus .agfocus-global-chip svg { display:none; }
 .agent-workspace-app .agfocus .agfocus-global-chip::after { content:"Global"; }
 .agent-workspace-app .agfocus .agfocus-marker { width:20px; height:26px; }
-.agent-workspace-app .agfocus .agfocus-marker .agfocus-task-state .core{transform:scale(.55)}
+.agent-workspace-app .agfocus .agfocus-marker .agfocus-task-state .core,.agent-workspace-app .wfpanel .agfocus-task-state .core{transform:scale(.55)}
 .agent-workspace-app .agfocus .agfocus-marker:hover .agfocus-task-state .core,.agent-workspace-app .agfocus .agfocus-task-state:focus-visible .core{transform:scale(1.1)}
 .agent-workspace-app .agfocus .agfocus-dock{border:0}
 .agent-workspace-app .agfocus .agfocus-work-child { margin-left:calc(var(--focus-depth,1) * 23px); }
