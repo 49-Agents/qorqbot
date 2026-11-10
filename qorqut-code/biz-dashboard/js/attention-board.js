@@ -64,7 +64,7 @@ function attentionBoardTask(ref, task) {
 }
 function attentionBoardMount(p) {
   const body = $('#agpad-body', p.el);
-  body.innerHTML = '<section class="agfocus" data-attention-board><header><div class="agfocus-heading"><div class="global-eyebrow">Todo</div></div></header><div class="agfocus-layout"><div class="attention-content"><section data-attention-agents aria-label="Agents with todos"></section><div data-attention-focus></div><p class="agfocus-error" data-attention-error role="alert" hidden></p><div data-attention-list></div></div><aside class="agfocus-dock" data-attention-record hidden><div class="agfocus-dock-content"></div></aside></div></section>';
+  body.innerHTML = '<section class="agfocus" data-attention-board><header><div class="agfocus-heading"><div class="global-eyebrow">Todo</div></div></header><div class="agfocus-layout"><div class="attention-content"><section data-attention-agents aria-label="Agents with todos"></section><p class="agfocus-error" data-attention-error role="alert" hidden></p><div data-attention-list></div></div><aside class="agfocus-dock" data-attention-record hidden><div class="agfocus-dock-content"></div></aside></div></section>';
   const board = body.firstElementChild, dock = board.querySelector('[data-attention-record]');
   const mountWorkspace = () => recordWorkspaceMount(dock.firstElementChild, {entry:'focus', paired:false, visible:()=>agpadActive(p) && p.view === 'attentionBoard', onClose:()=>{
     dock.hidden=true;
@@ -130,7 +130,7 @@ async function attentionBoardSelectAgent(p, agentId) {
     previous.scroll=layout.scrollTop;
     p.attentionAgentId=agentId;
     const cache=attentionBoardCache(p);
-    board.data=cache.data; board.selected=null; board.focusRead=null;
+    board.data=cache.data; board.selected=null;
     board.watchFocus?.();
     attentionBoardPaint(p);
     layout.scrollTop=cache.scroll;
@@ -263,66 +263,15 @@ function attentionReferenceRow(p, source, task = null) {
   row.onkeydown=event=>{if(event.target===row && ['Enter',' '].includes(event.key)){event.preventDefault();open();}};
   return row;
 }
-// The focused Task is not necessarily on the current membership page: read its exact scoped record once per
-// focus identity. A business reference whose project is unavailable is never read as Global.
-function attentionFocusTask(p, ref, key) {
-  const board=p.attentionBoard;
-  if (!board || ref?.type !== 'task') return null;
-  const scope=attentionBoardRefScope(ref);
-  if (ref.business_id != null && !scope) return null;
-  if (board.focusRead?.key === key) return board.focusRead;
-  const read={key,scope,task:null,error:null};
-  board.focusRead=read;
-  read.promise=uiReads.read('focus-task:'+JSON.stringify([scope,key]),()=>workCall(scope,'tasks_get',{task_id:ref.id})).then(data=>{
-    const task=data?.task;
-    if (!task || String(task.id) !== String(ref.id)) throw new Error('The focused task is unavailable.');
-    read.task=task; return task;
-  }).catch(error=>{read.error=error;return null;}).then(()=>{
-    if (p.attentionBoard === board && board.focusRead === read) attentionBoardPaint(p);
-  });
-  return read;
-}
-function attentionFocusKey(data, ref) {
-  return JSON.stringify([ref?.type, ref?.id, ref?.business_id ?? null,
-    data?.attention?.focus_generation ?? data?.revision ?? ref?.revision ?? null]);
-}
 function attentionBoardPaint(p) {
-  const b=p.attentionBoard, focus=uiReads.peek(agentFocusKey(p.attentionAgentId || p.agentId));
-  const data=focus ? {...(b.data || focus),attention:focus.attention,items:b.data?.items || []} : b.data, board=b.board, header=board.querySelector('[data-attention-focus]'), list=board.querySelector('[data-attention-list]');
+  const b=p.attentionBoard, data=b.data, board=b.board, list=board.querySelector('[data-attention-list]');
   attentionAgentsPaint(p);
   board.querySelector('[data-attention-error]').hidden=true;
-  header.replaceChildren();
   if (!data) {
     list.innerHTML='<p class="attention-empty">Loading Todo…</p>';
     if (p.attentionCache?.error) { list.replaceChildren(); attentionBoardShowError(p, p.attentionCache.error); }
     return;
   }
-  const attention=data.attention;
-  const current=document.createElement('section');header.append(current);
-  if (attention.state !== 'focused' || !attention.focus) current.remove();
-  else if (attention.focus.unavailable) {const text=document.createElement('p');text.textContent='Focus unavailable';current.append(text);}
-  else {
-    const focus=attention.focus;
-    const workFor=ref=>data.items.find(item=>item.task_ref.id===ref.id && item.task_ref.business_id===ref.business_id);
-    const reference=ref=>{
-      const work=workFor(ref);
-      let scope=attentionBoardRefScope(ref), task=null;
-      if (work) { task=attentionBoardTask(work.task_ref,work.task); scope=attentionBoardScope(work.task_ref,work.task); }
-      else if (ref.type === 'task') {
-        const read=attentionFocusTask(p,ref,attentionFocusKey(data,ref));
-        if (read?.task) { task=attentionBoardTask(ref,read.task); scope=read.scope; }
-      }
-      const rows=document.createElement('div');rows.className='agfocus-items';
-      rows.append(attentionReferenceRow(p,{...ref,business_slug:scope,label:ref.label || task?.title || 'Task',task_type:task?.task_type || ref.task_type,revision:task?.revision},task));
-      current.append(rows);
-    };
-    if (focus.type === 'workflow') {
-      const text=document.createElement('p');text.textContent=focus.label || focus.id;current.append(text);
-      if(attention.task)reference(attention.task);
-    } else reference(focus);
-    if(attention.intent){const intent=document.createElement('p');intent.className='attention-intent';intent.textContent=attention.intent;current.append(intent);}
-  }
-  if(!b.data){list.innerHTML='<p class="attention-empty">Loading Todo…</p>';if(p.attentionCache?.error)attentionBoardShowError(p,p.attentionCache.error);return;}
   list.replaceChildren();
   const toolbar=document.createElement('div');toolbar.className='attention-list-heading';list.append(toolbar);
   const name=document.createElement('h2');

@@ -10,7 +10,6 @@
 .agfocus-framing p{font-size:11px;margin:0}
 .agfocus-framing:not(:has(section:not([hidden]))){display:none}
 /* Attention: the focused record is an ordinary header block separated by one quiet divider, not a left-bordered framing list. */
-.agpad .agfocus [data-attention-focus] > section{display:grid;gap:8px;margin:9px 0;padding-bottom:9px;border-bottom:1px solid var(--line-2)}
 .agfocus-related{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .agfocus .agfocus-related button{display:inline-flex;margin:0;max-width:100%;white-space:normal;text-align:left}
 .agfocus .agfocus-project-toggle{color:var(--fg-2)}

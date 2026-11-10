@@ -17,7 +17,6 @@
 .gchat-session[data-state="starting"] .gchat-session-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--fg-2); }
 .gchat-session-text { min-width: 0; }
 .gchat-session-text:empty { display:none; }
-.gchat-header { display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-rows:minmax(0,1fr); align-items:start; gap:12px; flex:none; min-height:var(--ag-ctl,30px); max-height:min(32%,180px); padding:4px 0 10px 12px; border-bottom:1px solid var(--line); box-sizing:border-box; }
 .gchat-context { min-width:0; min-height:0; align-self:stretch; padding:3px 0 0; overflow-y:auto; overflow-wrap:anywhere; scrollbar-width:thin; font-size:12px; line-height:1.5; }
 .gchat-context[hidden] { display:none; }
 .gchat-context dl { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:4px 8px; margin:0; }
@@ -25,7 +24,6 @@
 .gchat-context dd { margin:0; min-width:0; color:var(--fg-2); white-space:pre-wrap; }
 .gchat-context .gchat-focus-label { color:var(--fg); font-weight:500; }
 .gchat-context:focus-visible { outline:1px solid var(--fg-2); outline-offset:3px; }
-.gchat:has(> .gchat-header) { --chat-top-inset:10px; }
 .gchat-working-tag[hidden], .gchat-session-working > .gchat-session-dot { display:none; }
 .gchat-session.gchat-session-working { padding:4px 0; }
 .gchat-working-tag { display:inline-flex; align-items:center; padding:0; border:0; border-radius:0; background:none; }
@@ -46,7 +44,6 @@
 
 /* Session controls stay over their own surface, outside chat scroll and terminal output. */
 .gchat-session-switch { display:flex; align-items:center; gap:4px; position:absolute; top:0; right:0; z-index:3; max-width:calc(100% - 8px); overflow-x:auto; scrollbar-width:thin; border-radius:12px; background:color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter:blur(8px); }
-.gchat-header .gchat-session-switch { position:static; grid-column:2; max-width:none; background:none; backdrop-filter:none; }
 .gchat-terminal > .gchat-top { max-width:calc(100% - 3 * var(--ag-ctl, 30px) - 24px); }
 .gchat-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .gchat-paired-record{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;height:100%;box-sizing:border-box}

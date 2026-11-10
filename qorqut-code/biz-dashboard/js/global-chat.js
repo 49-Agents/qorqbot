@@ -104,64 +104,6 @@ const globalChatNoticeLabel = system => !system ? 'System notice'
   : 'Unverified notice';
 const globalChatBase = id => `/root/agents/${encodeURIComponent(id)}/chat`;
 const globalChatHasContext = agent => ['ordubashy','global-worker'].includes(agent.role?.id || agent.role_id);
-// Recorded focus belongs to the chat's agent, independently of the selected Todo board.
-// Only the native session controls the working dots.
-function globalChatContextMount(host, agent, {visible, onChange}) {
-  const agentId=agent.agent_id;
-  let disposed=false, pending=null, last=0, attention=null, focusError=false, loaded=false;
-  host.innerHTML='<dl><dt>Focus</dt><dd class="gchat-focus-label">Loading…</dd><dt>Intent</dt><dd class="gchat-focus-intent">Loading…</dd></dl>';
-  host.tabIndex=0;
-  const show=()=>{
-    // The parent Chat owns visibility; returning from Terminal must not wait for the next poll.
-    host.hidden=false;
-    return !host.hidden;
-  };
-  const paint=()=>{
-    const focus=attention?.focus, focused=attention?.state === 'focused' && focus && !focus.unavailable;
-    host.querySelector('.gchat-focus-label').textContent=!loaded ? 'Loading…' : focusError || focus?.unavailable ? 'Focus unavailable'
-      : focused ? focus.label || attention.task?.label || 'Focused' : 'No focus set';
-    host.querySelector('.gchat-focus-intent').textContent=!loaded ? 'Loading…' : focusError || focus?.unavailable ? 'Intent unavailable'
-      : focused && attention.intent ? attention.intent : 'No intent recorded';
-    show();
-    onChange();
-  };
-  const refresh=(force=false)=>{
-    if (disposed || document.hidden || !visible() || !force && Date.now()-last < 12000) return Promise.resolve();
-    if (pending) return pending;
-    last=Date.now();
-    pending=(async()=>{
-      try {
-        const data=await agentFocusRead(agentId, {force});
-        if (disposed) return;
-        if (data?.agent_id !== agentId || !data.attention) throw Error('Focus unavailable');
-        attention=data.attention;focusError=false;
-      } catch (_) {
-        if (disposed) return;
-        attention=null;focusError=true;
-      } finally {
-        pending=null;
-      }
-      loaded=true;paint();
-    })();
-    return pending;
-  };
-  const receive=data=>{
-    if(disposed)return;
-    attention=data?.attention || null;loaded=true;focusError=!data;paint();
-  };
-  const unsubscribe=uiReads.subscribe(agentFocusKey(agentId),receive);
-  const cached=uiReads.peek(agentFocusKey(agentId));
-  if(cached)receive(cached);
-  queueMicrotask(()=>{void refresh();});
-  const timer=setInterval(()=>{void refresh();},12000);
-  const onVisible=()=>{if (!document.hidden) void refresh();};
-  document.addEventListener('visibilitychange',onVisible);
-  show();
-  return {
-    refresh,show,
-    dispose() {disposed=true;unsubscribe();clearInterval(timer);document.removeEventListener('visibilitychange',onVisible);host.replaceChildren();host.hidden=true;},
-  };
-}
 // ---- the mount
 function globalChatViewToggle(terminal = false) {
   return `<div class="gchat-view-toggle" role="group" aria-label="Agent view">
@@ -256,7 +198,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   const hasContext=globalChatHasContext(agent);
   const controls=options.openTerminal ? `<div class="gchat-session-switch">${globalChatViewToggle()}</div>` : '';
   pane.innerHTML = `<div class="gchat" data-global-chat="${esc(agentId)}">
-    ${hasContext ? `<header class="gchat-header"><section class="gchat-context" aria-label="Agent focus and intent" hidden></section>${controls}</header>` : controls}
+    ${controls}
   </div>`;
   const root = pane.firstElementChild;
   const $q = selector => root.querySelector(selector);
@@ -665,11 +607,9 @@ function mountGlobalChat(pane, agent, options = {}) {
     slashMenu = slashCommands.attach({input: view.elements.input, form: view.elements.composer, commands: commandCatalog});
     cleanups.push(() => slashMenu.dispose());
   }
-  // Ordubashy's current workflow Focus appears above the composer; it refreshes with this chat's own loads (no extra timer).
-  const workflowPanel = (agent.role?.id || agent.role_id) === 'ordubashy' && view.elements?.composer ? workflowPanelMount(view.elements.composer, agentId) : null;
-  if (workflowPanel) cleanups.push(() => workflowPanel.dispose());
-  if (hasContext) {
-    contextStatus=globalChatContextMount($q('.gchat-context'),agent,{visible:contextVisible,onChange:paintSession});
+  // Recorded focus and upcoming work belong to this chat's agent, independently of the selected Todo board.
+  if (hasContext && view.elements?.composer) {
+    contextStatus=chatFocusPanelMount(view.elements.composer,agentId,{visible:contextVisible,onChange:paintSession});
     cleanups.push(()=>contextStatus.dispose());
   }
 
@@ -696,7 +636,6 @@ function mountGlobalChat(pane, agent, options = {}) {
       bindComposer();
       if (fresh) showBanner('');
       paintEntries(fresh ? 'bottom' : 'auto');
-      void workflowPanel?.refresh(fresh);
       void contextStatus?.refresh();
       if (!stream) connect();
     } catch (problem) {
