@@ -1,14 +1,17 @@
 """Git is the publication boundary; working files are never read as a snapshot."""
 from __future__ import annotations
 
+from collections import OrderedDict
 from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 import subprocess
 import tempfile
+import threading
 
 from . import controlled
 from .input_modes import ACTION, GENERAL
@@ -22,6 +25,64 @@ READABLE_VERSIONS = (LEGACY_VERSION, FORMAT_VERSION)
 CONFIG_PATH = "graph/config.json"
 CURRENT_CONFIG = {"format_version": FORMAT_VERSION, "published_ref": PUBLIC_REF}
 INPUT_MODES = (GENERAL, ACTION)
+OBJECT_ID = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
+KEPT_BYTES = 64 * 1024 * 1024
+
+
+class _Kept:
+    """What full Git object IDs name, kept in memory so that Git is not started again to read the same thing.
+
+    A full commit ID names one tree and one history, and a full blob ID names one content, in any repository and at
+    any time. So the files of a commit, the bytes a path holds in a commit and the commits that introduced its events
+    are read from Git once and then answered from here; nothing that depends on a ref, on the working tree or on an
+    abbreviated or symbolic revision is ever kept. Building a published view asks Git for the same commits again on
+    every use (one Git process per event), which is what this removes; the view that is built is the same.
+
+    The values are immutable (bytes, tuples). The least recently used are dropped beyond ``limit`` bytes, and a value
+    larger than the limit is simply not kept. One instance serves every repository of the process: the keys are IDs.
+    """
+
+    def __init__(self, limit: int = KEPT_BYTES):
+        self.limit = limit
+        self._items: OrderedDict = OrderedDict()
+        self._size = 0
+        self._guard = threading.Lock()
+
+    def get(self, key, missing=None):
+        with self._guard:
+            try:
+                value, _ = self._items[key]
+            except KeyError:
+                return missing
+            self._items.move_to_end(key)
+            return value
+
+    def put(self, key, value, size: int) -> None:
+        size += 64
+        with self._guard:
+            previous = self._items.pop(key, None)
+            if previous is not None:
+                self._size -= previous[1]
+            if size > self.limit:
+                return
+            self._items[key] = (value, size)
+            self._size += size
+            while self._size > self.limit:
+                _, (_, dropped) = self._items.popitem(last=False)
+                self._size -= dropped
+
+    def clear(self) -> None:
+        with self._guard:
+            self._items.clear()
+            self._size = 0
+
+
+KEPT = _Kept()
+_ABSENT = object()
+
+
+def full_id(revision) -> bool:
+    return isinstance(revision, str) and OBJECT_ID.fullmatch(revision) is not None
 
 
 class Git:
@@ -72,34 +133,73 @@ class Git:
         return commit
 
     def files(self, revision: str) -> dict[str, bytes]:
-        return self._blobs(self._entries(self.run("ls-tree", "-r", "-z", revision)))
+        return self._blobs(self._listing(revision))
+
+    def _listing(self, revision: str) -> list[tuple[str, bytes]]:
+        """Every ``(path, blob ID)`` of ``revision``; kept when ``revision`` is a full commit ID."""
+        key = ("files", revision) if full_id(revision) else None
+        kept = KEPT.get(key) if key else None
+        if kept is None:
+            kept = tuple(self._entries(self.run("ls-tree", "-r", "-z", revision)))
+            if key:
+                KEPT.put(key, kept, sum(len(path) + len(oid) + 120 for path, oid in kept))
+        return list(kept)
 
     def read(self, revision: str, paths) -> dict[str, bytes | None]:
         """The exact bytes each named path holds at ``revision``, ``None`` where it is absent."""
         wanted = sorted(set(paths))
         if not wanted:
             return {}
-        listed = self._entries(self.run("ls-tree", "-r", "-z", revision, "--", *wanted))
-        found = self._blobs([(path, oid) for path, oid in listed if path in wanted])
+        keep, located, asked = full_id(revision), {}, []
+        for path in wanted:
+            kept = KEPT.get(("path", revision, path), _ABSENT) if keep else _ABSENT
+            if kept is _ABSENT:
+                asked.append(path)
+            else:
+                located[path] = kept
+        if asked:
+            listed = dict(self._entries(self.run("ls-tree", "-r", "-z", revision, "--", *asked)))
+            for path in asked:
+                located[path] = listed.get(path)
+                if keep:
+                    KEPT.put(("path", revision, path), located[path], len(path) + 160)
+        found = self._blobs([(path, oid) for path, oid in located.items() if oid is not None])
         return {path: found.get(path) for path in wanted}
 
     def blobs_at(self, commits, path: str) -> dict[str, bytes | None]:
         """The exact bytes ``path`` holds in each commit, ``None`` where absent, in one Git call."""
-        commits = sorted(set(commits))
-        if not commits:
-            return {}
-        batch = self.run("cat-file", "--batch", data=b"".join(f"{commit}:{path}\n".encode() for commit in commits))
-        offset, result = 0, {}
-        for commit in commits:
-            end = batch.index(b"\n", offset)
-            header = batch[offset:end].split()
-            if header[-1] == b"missing":
-                result[commit], offset = None, end + 1
-                continue
-            start, length = end + 1, int(header[2])
-            result[commit] = batch[start:start + length]
-            offset = start + length + 1
-        return result
+        return {commit: content for (commit, _), content in self.at([(commit, path) for commit in set(commits)]).items()}
+
+    def at(self, pairs) -> dict[tuple[str, str], bytes | None]:
+        """The exact bytes of each ``(commit, path)``, ``None`` where the commit has nothing at that path, in one Git
+        call for all that are not kept. A pair is kept when its commit is a full ID."""
+        pairs = sorted(set(pairs))
+        result, asked = {}, []
+        for pair in pairs:
+            kept = KEPT.get(("at", *pair), _ABSENT) if full_id(pair[0]) else _ABSENT
+            if kept is _ABSENT:
+                asked.append(pair)
+            else:
+                result[pair] = kept
+        if asked:
+            for commit, path in asked:
+                if "\n" in commit or "\n" in path:
+                    raise ContextError("A Git revision or path cannot contain a line break")
+            batch = self.run("cat-file", "--batch", data=b"".join(f"{commit}:{path}\n".encode() for commit, path in asked))
+            offset = 0
+            for pair in asked:
+                end = batch.index(b"\n", offset)
+                header = batch[offset:end].split()
+                if header[-1] == b"missing":
+                    content, offset = None, end + 1
+                else:
+                    start, length = end + 1, int(header[2])
+                    content, offset = batch[start:start + length], start + length + 1
+                result[pair] = content
+                # Nothing at that name may also mean the commit itself is not here (yet), so only content is kept.
+                if content is not None and full_id(pair[0]):
+                    KEPT.put(("at", *pair), content, len(pair[1]) + len(content) + 120)
+        return {pair: result[pair] for pair in pairs}
 
     @staticmethod
     def _entries(output: bytes) -> list[tuple[str, bytes]]:
@@ -115,21 +215,42 @@ class Git:
         return objects
 
     def _blobs(self, objects: list[tuple[str, bytes]]) -> dict[str, bytes]:
+        """The content of each listed blob by its path; a blob is read from Git once and then kept by its ID."""
         if not objects:
             return {}
-        batch = self.run("cat-file", "--batch", data=b"".join(oid + b"\n" for _, oid in objects))
-        offset, result = 0, {}
-        for path, _ in objects:
-            end = batch.index(b"\n", offset)
-            _, kind, size = batch[offset:end].split()
-            if kind != b"blob":
-                raise ContextError("Expected a Git blob")
-            start, length = end + 1, int(size)
-            result[path] = batch[start:start + length]
-            offset = start + length + 1
-        return result
+        contents, asked = {}, []
+        for _, oid in objects:
+            if oid in contents:
+                continue
+            kept = KEPT.get(("blob", oid))
+            if kept is None:
+                asked.append(oid)
+            contents[oid] = kept
+        if asked:
+            batch = self.run("cat-file", "--batch", data=b"".join(oid + b"\n" for oid in asked))
+            offset = 0
+            for oid in asked:
+                end = batch.index(b"\n", offset)
+                _, kind, size = batch[offset:end].split()
+                if kind != b"blob":
+                    raise ContextError("Expected a Git blob")
+                start, length = end + 1, int(size)
+                contents[oid] = batch[start:start + length]
+                offset = start + length + 1
+                KEPT.put(("blob", oid), contents[oid], length + 120)
+        return {path: contents[oid] for path, oid in objects}
 
     def event_commits(self, revision: str) -> dict[str, str]:
+        """``{event ID: the commit that added it}`` in publication order; kept when ``revision`` is a full commit ID."""
+        key = ("events", revision) if full_id(revision) else None
+        kept = KEPT.get(key) if key else None
+        if kept is None:
+            kept = tuple(self._event_commits(revision).items())
+            if key:
+                KEPT.put(key, kept, sum(len(event) + len(commit) + 160 for event, commit in kept))
+        return dict(kept)
+
+    def _event_commits(self, revision: str) -> dict[str, str]:
         output = self.run("log", "--reverse", "--format=COMMIT:%H", "--name-only",
                           "--diff-filter=A", revision, "--", "graph/events/").decode()
         current, result = None, {}
@@ -337,6 +458,8 @@ class Snapshot:
             raise ContextError(f"A format {LEGACY_VERSION} context cannot hold notes")
         self.event_commits = git.event_commits(revision)
         configs = git.blobs_at(self.event_commits.values(), CONFIG_PATH)
+        # Each event as the commit that published it holds it: one Git call for all of them, not one per event.
+        originals = git.at([(commit, f"graph/events/{event_id}.json") for event_id, commit in self.event_commits.items()])
         floor = LEGACY_VERSION
         self.events, self.by_commit = {}, {}
         self.sources, self.support, self.used_ids = {}, {}, set()
@@ -356,7 +479,9 @@ class Snapshot:
             floor = version
             if event.get("input_mode") not in INPUT_MODES:
                 raise ContextError("A published event has no supported input mode")
-            original = git.run("cat-file", "blob", f"{commit}:{path}")
+            original = originals[(commit, path)]
+            if original is None:
+                raise ContextError("A published event is not in the commit that published it")
             if original != self.files[path]:
                 raise ContextError("An immutable event was modified")
             if version == LEGACY_VERSION and controlled.is_supervised(event):
