@@ -24,6 +24,7 @@ async function fixture(width) {
     window.tNext = s => s; window.workerMounts = 0; window.globalAgentProfile = () => null;
   });
   await page.addScriptTag({path:path.join(__dirname,'../js/attention-board.js')});
+  await page.addScriptTag({path:path.join(__dirname,'../js/attention-agents.js')});
   await page.evaluate(() => {
     window.agfocusRowHtml = () => '<div class="trow agfocus-row"><span class="agfocus-notification"></span><span class="agfocus-marker"></span><span class="agfocus-scope"></span><div class="task-headline"><p class="ttl"></p><span class="agfocus-flag" hidden></span></div><div class="agfocus-actions"></div></div>';
     window.attentionStateMarker = () => {};
