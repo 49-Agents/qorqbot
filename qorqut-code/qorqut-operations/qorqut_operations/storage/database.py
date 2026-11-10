@@ -37,6 +37,21 @@ REQUEST_TIMING = ContextVar('request_timing', default=None)
 # The catalog of the unit running on this thread/task, so catalog-dependent helpers that keep their v1
 # signatures (``ref``, ``record_key``, ``PlanBuilder``) resolve the same table specs as the repositories.
 ACTIVE_ASSEMBLY = ContextVar('storage_assembly', default=None)
+# What the innermost unit of work open on this thread/task has already worked out (see ``unit_memo``).
+UNIT_MEMO = ContextVar('storage_unit_memo', default=None)
+
+
+def unit_memo():
+    """A dictionary that exists exactly as long as the innermost open unit of work, or ``None`` outside one.
+
+    One operation asks the same question many times inside its unit: which workspace an identity owns, whether a
+    published package is still the bytes that were validated. Each answer costs file system calls, and inside a
+    write unit that is time every other writer waits. The answer may be kept here for the rest of the unit and no
+    longer: the next unit starts empty and asks again, so nothing is trusted for longer than the one operation
+    that established it. Keys name their owner (``(owner, kind, ...)``) so unrelated callers cannot collide.
+
+    Only for facts the unit itself cannot change. A value read from this unit's own tables is not one of them."""
+    return UNIT_MEMO.get()
 
 # Throttle for the `storage_transaction` slow-unit warning below: at most one
 # line per operation name per this many seconds, so a poll burst hitting the
@@ -593,6 +608,7 @@ class Database:
                 self._writers.leave()
             raise
         catalog_token = ACTIVE_ASSEMBLY.set(self.assembly)
+        memo_token = UNIT_MEMO.set({})
         handle = None
         try:
             # A pooled connection may have last been used by a unit that set
@@ -657,6 +673,7 @@ class Database:
             raise
         finally:
             ACTIVE_ASSEMBLY.reset(catalog_token)
+            UNIT_MEMO.reset(memo_token)
             if handle is not None and optimistic and not attempt.refused:
                 try:
                     handle.settle()  # a write whose rows were read back last is only counted by now

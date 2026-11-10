@@ -18,7 +18,9 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 from qorqut.catalog.packages import Catalog, content_hash, declared_plugin_tools, files_digest, relative_path, visible_plugin_tools
 from qorqut_operations.contracts import ArtifactRef, DomainError, InvocationContext, Principal, canonical_hash, new_id, plain, utc_now
+from qorqut_operations.business_lifecycle import active_business_ids
 from qorqut_operations.policy import AgentPolicyBasis
+from qorqut_operations.storage.database import unit_memo
 from qorqut_operations.storage.structured import parse_yaml
 from qorqut.composition.files import lock_paths
 from qorqut.composition.locations import agent_workspace, business_hq
@@ -181,6 +183,7 @@ class AgentConfigResolver:
         self._cache: OrderedDict[str, EffectiveAgentConfig] = OrderedDict()
         self._lock = RLock()
         self._profiles: OrderedDict[tuple[str, str], AgentProfile] = OrderedDict()
+        self._effective: OrderedDict[tuple, tuple[AgentProfile, AgentProfile]] = OrderedDict()
         self._profiles_registry: Any = None
         self._profiles_lock = RLock()
         self._fingerprints: OrderedDict[tuple, tuple[str, str]] = OrderedDict()
@@ -237,6 +240,44 @@ class AgentConfigResolver:
                     self._profiles.popitem(last=False)
         return profile
 
+    def _effective_profile(self, principal_id: str, profile_json: str, profile: AgentProfile, connection) -> AgentProfile:
+        """``with_effective_scope``, reusing the result for the same parsed profile and the same active businesses.
+
+        The projection copies and refreezes the whole profile to replace one list. It is a pure function of the
+        parsed profile and the businesses active in this transaction, which are read here on every call; only the
+        copy is reused, and only for the very object ``_parsed_profile`` returned, so an entry never outlives the
+        parse it was built from."""
+        businesses = tuple(sorted(active_business_ids(connection)))
+        key = (principal_id, profile_json, businesses)
+        with self._profiles_lock:
+            cached = self._effective.get(key)
+            if cached is not None and cached[0] is profile:
+                self._effective.move_to_end(key)
+                return cached[1]
+        effective = with_effective_scope(profile, connection)
+        if tuple(effective.data["scope"]["allowed_business_ids"]) == businesses:
+            with self._profiles_lock:
+                self._effective[key] = (profile, effective)
+                self._effective.move_to_end(key)
+                while len(self._effective) > PROFILE_CACHE_LIMIT:
+                    self._effective.popitem(last=False)
+        return effective
+
+    def _workspace(self, agent_id: str, business) -> Path:
+        """The identity's workspace, selected and checked against symlinks once per unit of work.
+
+        Selecting it resolves the path on disk and reads the fixed workspace mapping. One operation asks for the
+        same identity a dozen times inside its unit; the first answer stands for the rest of that unit only (see
+        ``unit_memo``), and a refusal is never kept."""
+        memo = unit_memo()
+        if memo is None:
+            return agent_workspace(self.paths, agent_id, business)
+        key = (self, "workspace", agent_id, None if business is None else business["slug"])
+        found = memo.get(key)
+        if found is None:
+            found = memo[key] = agent_workspace(self.paths, agent_id, business)
+        return found
+
     def profile(self, principal: Principal, *, connection=None) -> tuple[AgentProfile, dict]:
         if not isinstance(principal, Principal) or principal.kind != "agent":
             raise DomainError("invalid_principal", "An authenticated agent principal is required")
@@ -263,10 +304,10 @@ class AgentConfigResolver:
         business = (None if row["home_business_id"] is None else
                     connection.execute("SELECT slug FROM businesses WHERE id=?", (row["home_business_id"],)).fetchone())
         # The registered identity and home scope select the workspace; the stored column must agree, never choose.
-        if Path(row["workspace"]) != agent_workspace(self.paths, row["agent_id"], business):
+        if Path(row["workspace"]) != self._workspace(row["agent_id"], business):
             raise DomainError("registration_conflict", "Agent workspace is not the registered identity's workspace")
         # Effective access is every active business in this transaction, not the saved list.
-        return with_effective_scope(profile, connection), dict(row)
+        return self._effective_profile(principal.id, row["profile_json"], profile, connection), dict(row)
 
     # -- AgentAuthority: what the Operations policy resolver asks of the agent registry -------------------------
 

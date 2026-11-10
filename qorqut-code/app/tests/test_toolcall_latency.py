@@ -275,6 +275,150 @@ class ResolverReuseTests(unittest.TestCase):
             first.data['preparation']['ready'] = True
 
 
+class UnitReuseTests(unittest.TestCase):
+    """One operation asks the same file system questions many times inside its unit of work; each is answered once
+    per unit, and the next unit asks again."""
+
+    def unit(self):
+        """A unit of work as far as the memo is concerned (the storage tests cover its real lifetime)."""
+        from qorqut_operations.storage.database import UNIT_MEMO
+        token = UNIT_MEMO.set({})
+        self.addCleanup(lambda: UNIT_MEMO.set(None))
+        return lambda: UNIT_MEMO.reset(token)
+
+    def resolver(self):
+        resolver = AgentConfigResolver.__new__(AgentConfigResolver)
+        resolver.paths = object()
+        resolver._profiles_lock, resolver._effective = threading.RLock(), OrderedDict()
+        return resolver
+
+    def test_a_workspace_is_selected_once_per_unit(self):
+        resolver = self.resolver()
+        business = {"slug": "shop"}
+        with mock.patch.object(resolver_module, "agent_workspace",
+                               side_effect=lambda paths, agent, business: Path("/instance") / agent) as selected:
+            resolver._workspace("a", None)
+            resolver._workspace("a", None)
+            self.assertEqual(selected.call_count, 2)                 # outside a unit nothing is kept
+            close = self.unit()
+            self.assertEqual([resolver._workspace("a", None) for _ in range(5)], [Path("/instance/a")] * 5)
+            self.assertEqual(selected.call_count, 3)
+            resolver._workspace("b", None)                           # another identity, another home scope
+            resolver._workspace("a", business)
+            self.assertEqual(selected.call_count, 5)
+            self.assertEqual(selected.call_args.args, (resolver.paths, "a", business))
+            other = self.resolver()                                  # another instance's resolver shares nothing
+            other._workspace("a", None)
+            self.assertEqual(selected.call_count, 6)
+            close()
+            self.unit()
+            resolver._workspace("a", None)                           # the next unit asks the file system again
+            self.assertEqual(selected.call_count, 7)
+
+    def test_a_refused_workspace_is_asked_again(self):
+        from qorqut_operations.contracts import DomainError
+        resolver = self.resolver()
+        self.unit()
+        answers = [DomainError("invalid_configuration", "symlink"), Path("/instance/a"), AssertionError("asked again")]
+        def select(paths, agent, business):
+            answer = answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        with mock.patch.object(resolver_module, "agent_workspace", side_effect=select):
+            with self.assertRaises(DomainError):
+                resolver._workspace("a", None)
+            self.assertEqual(resolver._workspace("a", None), Path("/instance/a"))
+            self.assertEqual(resolver._workspace("a", None), Path("/instance/a"))
+
+    def test_the_scope_projection_is_reused_for_the_same_profile_and_businesses(self):
+        resolver = self.resolver()
+        active = ["b1", "b2"]
+        parsed = NS(name="parsed")
+        def project(profile, connection):
+            return NS(source=profile, data={"scope": {"allowed_business_ids": tuple(sorted(active))}})
+        with mock.patch.object(resolver_module, "with_effective_scope", side_effect=project) as projected, \
+                mock.patch.object(resolver_module, "active_business_ids", side_effect=lambda connection: frozenset(active)) as read:
+            first = resolver._effective_profile("a", "{json}", parsed, None)
+            self.assertIs(resolver._effective_profile("a", "{json}", parsed, None), first)
+            self.assertEqual(projected.call_count, 1)
+            self.assertEqual(read.call_count, 2)                     # the active businesses are read every time
+            active.append("b3")                                      # a business appears: a new projection
+            changed = resolver._effective_profile("a", "{json}", parsed, None)
+            self.assertEqual(changed.data["scope"]["allowed_business_ids"], ("b1", "b2", "b3"))
+            self.assertEqual(projected.call_count, 2)
+            active.pop()                                             # and the earlier one is still exact
+            self.assertIs(resolver._effective_profile("a", "{json}", parsed, None), first)
+            reparsed = NS(name="reparsed")                           # same stored text, parsed again elsewhere
+            again = resolver._effective_profile("a", "{json}", reparsed, None)
+            self.assertIs(again.source, reparsed)
+            self.assertEqual(projected.call_count, 3)
+            self.assertIsNot(resolver._effective_profile("other", "{json}", reparsed, None), again)
+            with mock.patch.object(resolver_module, "PROFILE_CACHE_LIMIT", 1):
+                resolver._effective_profile("x", "{json}", parsed, None)
+            self.assertEqual(len(resolver._effective), 1)
+
+    def catalog(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        runtime = Path(directory.name).resolve()
+        store = runtime / "artifacts" / "roles" / "worker" / "1.0.0" / "abc"
+        store.mkdir(parents=True)
+        (store / "role.yaml").write_text("id: worker")
+        ref = {"id": "worker", "version": "1.0.0", "digest": DIGEST}
+        row = {"stored_path": str(store), "metadata_json": '{"manifest_path": "role.yaml"}'}
+        connection = NS(execute=lambda *_: NS(fetchone=lambda: row))
+        catalog = Catalog(None, runtime, None)
+        loads = []
+        def load(root, manifest_path, kind, registry):
+            loads.append(root)
+            return NS(digest=DIGEST, files={"role.yaml": b"id: worker"}, kind=kind)
+        patcher = mock.patch("qorqut.catalog.packages.load_package", side_effect=load)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return catalog, connection, ref, store, loads
+
+    def test_a_published_package_is_inventoried_once_per_unit(self):
+        catalog, connection, ref, store, loads = self.catalog()
+        package = catalog.get("role", ref, connection=connection)    # the first read validates and remembers
+        with mock.patch.object(Catalog, "_signature", side_effect=Catalog._signature) as inventory:
+            self.assertIs(catalog.get("role", ref, connection=connection), package)
+            self.assertIs(catalog.get("role", ref, connection=connection), package)
+            self.assertEqual(inventory.call_count, 2)                # outside a unit: every time, as before
+            close = self.unit()
+            for _ in range(4):
+                self.assertIs(catalog.get("role", ref, connection=connection), package)
+            self.assertEqual(inventory.call_count, 3)
+            close()
+            self.unit()
+            self.assertIs(catalog.get("role", ref, connection=connection), package)
+            self.assertEqual(inventory.call_count, 4)                # the next unit takes the inventory again
+        self.assertEqual(len(loads), 1)
+
+    def test_changed_published_bytes_are_noticed_by_the_next_unit(self):
+        catalog, connection, ref, store, loads = self.catalog()
+        package = catalog.get("role", ref, connection=connection)
+        close = self.unit()
+        self.assertIs(catalog.get("role", ref, connection=connection), package)
+        (store / "role.yaml").write_text("id: worker  # edited in place")
+        close()
+        self.unit()
+        with mock.patch.object(Catalog, "_unchanged", return_value=False) as rehash:
+            reloaded = catalog.get("role", ref, connection=connection)
+        rehash.assert_called_once()
+        self.assertIsNot(reloaded, package)                          # validated again from the bytes on disk
+        self.assertEqual(len(loads), 2)
+
+    def test_a_package_first_loaded_in_a_unit_is_still_inventoried_on_its_next_read(self):
+        catalog, connection, ref, store, loads = self.catalog()
+        self.unit()
+        package = catalog.get("role", ref, connection=connection)
+        with mock.patch.object(Catalog, "_signature", side_effect=Catalog._signature) as inventory:
+            self.assertIs(catalog.get("role", ref, connection=connection), package)
+            self.assertIs(catalog.get("role", ref, connection=connection), package)
+        self.assertEqual(inventory.call_count, 1)                    # confirmed once against the store, then kept
+
+
 class ClockWriteTests(unittest.TestCase):
     def setUp(self):
         self.conn = sqlite3.connect(':memory:')

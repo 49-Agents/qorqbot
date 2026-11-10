@@ -432,6 +432,69 @@ class WriterQueueTests(StoreCase):
             holder.join(WAIT)
 
 
+class UnitMemoTests(StoreCase):
+    """What a unit has worked out is kept for that unit and no longer."""
+
+    def test_there_is_a_memo_only_inside_a_unit_and_each_unit_starts_empty(self):
+        self.assertIsNone(storage.unit_memo())
+        with self.db.read():
+            first = storage.unit_memo()
+            self.assertEqual(first, {})
+            first["answer"] = 1
+            self.assertIs(storage.unit_memo(), first)
+        self.assertIsNone(storage.unit_memo())
+        with self.db.transaction():
+            self.assertEqual(storage.unit_memo(), {})
+        self.assertIsNone(storage.unit_memo())
+
+    def test_a_unit_opened_inside_another_has_its_own_memo(self):
+        with self.db.read():
+            outer = storage.unit_memo()
+            outer["answer"] = 1
+            with self.db.read():
+                self.assertEqual(storage.unit_memo(), {})
+                storage.unit_memo()["answer"] = 2
+            self.assertIs(storage.unit_memo(), outer)
+            self.assertEqual(outer, {"answer": 1})
+
+    def test_a_unit_that_failed_takes_its_memo_with_it(self):
+        with self.assertRaises(RuntimeError):
+            with self.db.transaction():
+                storage.unit_memo()["answer"] = 1
+                raise RuntimeError("no")
+        self.assertIsNone(storage.unit_memo())
+
+    def test_a_repeated_unit_does_not_inherit_what_the_abandoned_attempt_worked_out(self):
+        holder = self.other()
+        holder.execute("BEGIN IMMEDIATE")
+        seen = []
+
+        def body(uow):
+            seen.append(dict(storage.unit_memo()))
+            storage.unit_memo()["answer"] = len(seen)
+            self.read(uow)   # the unit has read, so its write below is refused at once rather than made to wait
+            if len(seen) == 1:
+                threading.Timer(0.05, lambda: holder.execute("ROLLBACK")).start()
+            return self.bump(uow)
+
+        self.assertEqual(self.db.write_if_needed(body, operation="test.memo"), 1)
+        self.assertEqual(seen, [{}, {}])
+
+    def test_units_on_other_threads_do_not_share_a_memo(self):
+        found = []
+        with self.db.read():
+            storage.unit_memo()["answer"] = 1
+
+            def elsewhere():
+                found.append(storage.unit_memo())
+                with self.db.read():
+                    found.append(dict(storage.unit_memo()))
+            thread = threading.Thread(target=elsewhere)
+            thread.start()
+            thread.join(WAIT)
+        self.assertEqual(found, [None, {}])
+
+
 class QueueUnitTests(unittest.TestCase):
     def test_a_turn_handed_over_at_the_moment_of_giving_up_is_used_not_lost(self):
         queue = WriterQueue()
