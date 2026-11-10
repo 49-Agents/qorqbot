@@ -141,16 +141,7 @@ async function tLoadTasks(localNeeded) {
     if (!current()) return;
     if (tVisSig() !== tPaintSig) paintTasks();
   });
-  const local = localNeeded && biz ? api(`/biz/${encodeURIComponent(biz)}/tasks?all=1`).then(data => {
-    if (!current() || biz !== state.biz) return;
-    if (!Array.isArray(data)) throw new Error('Invalid task list');
-    state.tasks = data; state.tasksBiz = biz; state.tasksError = null;
-    state.tasks.forEach(t => Object.assign(t, taskStateObserve(tSlug(t), t)));
-  }).catch(() => {
-    if (current() && biz === state.biz && state.tasksBiz !== biz) state.tasksError = biz;
-  }).then(() => {
-    if (current() && typeof businessTasksPaint === 'function') businessTasksPaint();
-  }) : Promise.resolve();
+  const local = localNeeded && biz ? businessTasksLoad(false, current) : Promise.resolve();
   await Promise.allSettled([personal, local]);
 }
 async function tFetchTask(biz, id) {
@@ -174,6 +165,7 @@ function tRefreshInBackground() {
 // Reflect the server's canonical task in the lists it belongs to, before the background reload lands.
 // `business` is the identity captured when the write started; nothing here reads state.biz for a destination.
 function tAcceptCanonical(task, business, {id = null, created = false} = {}) {
+  uiReads.invalidate('business-tasks:');
   tGen++;   // a full-list read that began before this acknowledgement is stale and must not overwrite it
   try {
     const slug = business?.slug;

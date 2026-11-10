@@ -1,5 +1,5 @@
 // A lightweight agent overview, independent of the selected Todo board.
-// Other boards need only their first summary row; selecting one uses the normal paginated Todo reader.
+// Ordubashy's overview reads focus only; other agent views need one membership summary row.
 function attentionAgentsCache(p) {
   return p.attentionAgents ||= {agents:[], entries:new Map(), at:0, retryAt:0, run:null, error:null};
 }
@@ -8,12 +8,15 @@ function attentionAgentsName(p, agentId) {
   return agent?.display_name || agent?.name || (agentId === p.agentId ? p.agent : null) || 'Agent';
 }
 function attentionAgentsObserve(p, cache) {
-  attentionAgentsCache(p).entries.set(cache.agentId, {data:cache.data, error:cache.error, at:Date.now()});
+  const focus=uiReads.peek(agentFocusKey(cache.agentId));
+  const data=cache.data && focus ? {...cache.data,attention:focus.attention} : cache.data;
+  attentionAgentsCache(p).entries.set(cache.agentId, {data, error:cache.error, at:Date.now()});
 }
 function attentionAgentsLive(p, cache) {
   return p.attentionAgents === cache && !!p.attentionBoard && p.view === 'attentionBoard' && agpadActive(p);
 }
 function attentionAgentsUnavailable(p, agentId, error) {
+  uiReads.invalidate(agentFocusKey(agentId),{drop:true});
   const cache=attentionBoardCacheFor(p, agentId);
   cache.run=null; cache.version++; cache.data=null; cache.partial=false; cache.at=0;
   cache.error=error; cache.retryAt=Date.now()+ATTENTION_POLL_MS;
@@ -33,7 +36,7 @@ function attentionAgentsRefresh(p) {
   const run={}; cache.run=run;
   run.promise=(async()=>{
     try {
-      const {agents}=coreData(await api('/root/agents'));
+      const agents=await loadGlobalAgentProfiles();
       if (!Array.isArray(agents)) throw Error('Agent list unavailable.');
       if (!attentionAgentsLive(p, cache)) return;
       cache.agents=agents.filter(agent=>globalRosterAgent(agent) && ['ordubashy','global-worker'].includes(agentRole(agent)))
@@ -46,24 +49,31 @@ function attentionAgentsRefresh(p) {
         cache.entries.delete(agentId);
       }
       cache.error=null;
+      const focusOnly=(p.workspaceRole || agentRole(globalAgentProfile(p.agentId))) === 'ordubashy';
+      for(const agent of cache.agents) {
+        const data=uiReads.peek(agentFocusKey(agent.agent_id));
+        if(focusOnly && data) cache.entries.set(agent.agent_id,{data,error:null,at:Date.now()});
+      }
+      attentionAgentsPaint(p);
       // Bound concurrent reads even when the installation has many permanent workers. Stop at a batch boundary on leave.
       for (let offset=0; offset<cache.agents.length; offset+=3) {
         if (!attentionAgentsLive(p, cache)) return;
         const results=await Promise.allSettled(cache.agents.slice(offset,offset+3).map(async agent=>{
           const agentId=agent.agent_id, boardCache=attentionBoardCacheFor(p, agentId), version=boardCache.version;
-          if (boardCache.run) await boardCache.run.promise;
+          // Focus is independent of the selected board and its pagination.
           if (!attentionAgentsLive(p, cache) || boardCache.version !== version) return;
-          if (boardCache.data && !boardCache.partial && Date.now()-boardCache.at < ATTENTION_POLL_MS) {
+          if (!focusOnly && boardCache.data && !boardCache.partial && Date.now()-boardCache.at < ATTENTION_POLL_MS) {
             attentionAgentsObserve(p, boardCache); return;
           }
           const previous=cache.entries.get(agentId);
           try {
-            const data=coreData(await post('/root/operations/todo_get', {scope:'global',agent_id:agentId,projection:'summary',limit:1}));
+            const data=focusOnly ? await agentFocusRead(agentId) : coreData(await post('/root/operations/todo_get', {scope:'global',agent_id:agentId,projection:'summary',limit:1}));
             if (data.agent_id !== agentId || !Array.isArray(data.items)) throw Error('Agent Todo unavailable.');
             if (boardCache.version !== version || !attentionAgentsLive(p, cache)) return;
             // A full-board read or removal that completed after this request is the newer observation.
             if (cache.entries.get(agentId) !== previous) return;
             cache.entries.set(agentId, {data,error:null,at:Date.now()});
+            attentionAgentsPaint(p);
           } catch (error) {
             if (boardCache.version !== version || !attentionAgentsLive(p, cache)) return;
             if (cache.entries.get(agentId) !== previous) return;
@@ -93,7 +103,10 @@ function attentionAgentsPaint(p) {
   if (!host) return;
   const cache=attentionAgentsCache(p), selected=p.attentionAgentId || p.agentId;
   const ordubashyView=(p.workspaceRole || agentRole(globalAgentProfile(p.agentId))) === 'ordubashy';
-  const entries=cache.agents.map(agent=>({agent,...cache.entries.get(agent.agent_id)}));
+  const entries=cache.agents.map(agent=>{
+    const entry=cache.entries.get(agent.agent_id);
+    return {agent,...entry,data:ordubashyView ? uiReads.peek(agentFocusKey(agent.agent_id)) || entry?.data : entry?.data};
+  });
   const visible=entries.filter(({agent,data})=>ordubashyView
     ? agentRole(agent) === 'ordubashy' || data?.attention?.state === 'focused' && data.attention.focus && !data.attention.focus.unavailable
     : data?.items.length);

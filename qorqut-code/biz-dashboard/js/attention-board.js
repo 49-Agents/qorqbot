@@ -80,6 +80,15 @@ function attentionBoardMount(p) {
     }
   });
   const boardState=p.attentionBoard;
+  const focusUnsubscribes=new Map();
+  const watchFocus=()=>{
+    const id=p.attentionAgentId || p.agentId;
+    if(!focusUnsubscribes.has(id))focusUnsubscribes.set(id,uiReads.subscribe(agentFocusKey(id),()=>{
+      if(p.attentionBoard===boardState)attentionBoardPaint(p);
+    }));
+    void agentFocusRead(id).catch(()=>{});
+  };
+  boardState.watchFocus=watchFocus;watchFocus();
   const repliesChanged=()=>board.querySelectorAll('[data-attention-reference]').forEach(row=>{
     agfocusUnread(p,row,row._attentionReference);
   });
@@ -88,6 +97,7 @@ function attentionBoardMount(p) {
     const layout=board.querySelector('.agfocus-layout');
     if (layout) attentionBoardCache(p).scroll=layout.scrollTop;
     document.removeEventListener('reply-notifications-changed',repliesChanged);
+    for(const stop of focusUnsubscribes.values())stop();
     unsubscribe(); agfocusOverlayClose(p); clearTimeout(boardState.repaint); boardState.workspace.dispose(); p.attentionBoard = null;
   };
   // Paint the cached snapshot synchronously and restore the scroll position, then refresh only if it is stale.
@@ -121,6 +131,7 @@ async function attentionBoardSelectAgent(p, agentId) {
     p.attentionAgentId=agentId;
     const cache=attentionBoardCache(p);
     board.data=cache.data; board.selected=null; board.focusRead=null;
+    board.watchFocus?.();
     attentionBoardPaint(p);
     layout.scrollTop=cache.scroll;
     if (cache.run || cache.partial || Date.now()-cache.at >= ATTENTION_POLL_MS) void attentionBoardRefresh(p);
@@ -140,31 +151,35 @@ function attentionBoardTick(p) {
   if (!cache.partial && Date.now() - cache.at < ATTENTION_POLL_MS) return;
   void attentionBoardRefresh(p);
 }
-// Rapid switches share one request. The first load paints each page as it arrives; a refresh keeps the complete old list
-// until the full replacement is ready. Leaving the view stops at the next page boundary and leaves the snapshot stale.
-function attentionBoardRefresh(p) {
+// Rapid switches share one request. Initial load reads one page; Load more extends it.
+// Refresh only the depth already requested, preserving the old rows until ready.
+function attentionBoardRefresh(p, more=false) {
   const cache = attentionBoardCache(p);
   if (cache.run) return cache.run.promise;
   if (!attentionBoardLive(p, cache)) return Promise.resolve();
   const run = {};
   cache.run = run;
   const progressive = !cache.data;
+  const pages=more?1:Math.max(1,cache.pages || 1);
   const show = () => { if (cache.run === run && attentionBoardLive(p, cache)) { attentionAgentsObserve(p, cache); p.attentionBoard.data = cache.data; attentionBoardPaint(p); } };
   run.promise = (async () => {
     try {
-      let cursor = null, data, items = [], seen = new Set();
+      let cursor = more?cache.data?.next_cursor:null, data=more?cache.data:null, items = more?[...cache.data.items]:[], seen = new Set(), loaded=0;
+      if(more && !cursor)return;
+      if(cursor)seen.add(cursor);
       do {
-        const page = coreData(await post('/root/operations/todo_get', {scope:'global', agent_id:cache.agentId, projection:'summary', limit:100, ...(cursor ? {cursor} : {})}));
+        const page = coreData(await post('/root/operations/todo_get', {scope:'global', agent_id:cache.agentId, projection:'summary', limit:50, ...(cursor ? {cursor} : {})}));
         if (cache.run !== run || p.attentionCache !== cache) return;
         if (page.agent_id !== cache.agentId || !Array.isArray(page.items)) throw Error('The selected agent’s Todo is unavailable.');
         if (!data) data = page;
-        items.push(...page.items); cursor = page.next_cursor;
+        items.push(...page.items); cursor = page.next_cursor; loaded++;
         if (cursor && seen.has(cursor)) throw Error('Todo pagination did not advance.');
         if (cursor) seen.add(cursor);
         if (cursor && progressive) { cache.data = {...data, items:[...items]}; cache.partial = true; show(); }
         if (cursor && !attentionBoardLive(p, cache)) { cache.at = 0; return; }
-      } while (cursor);
-      cache.data = {...data, items}; cache.partial = false; cache.error = null; cache.at = Date.now(); cache.retryAt = Date.now() + ATTENTION_POLL_MS;
+      } while (cursor && loaded<pages);
+      cache.pages=more?(cache.pages || 1)+loaded:loaded;
+      cache.data = {...data, items:[...new Map(items.map(item=>[item.membership_id,item])).values()],next_cursor:cursor}; cache.partial = false; cache.error = null; cache.at = Date.now(); cache.retryAt = Date.now() + ATTENTION_POLL_MS;
       show();
     } catch (error) {
       if (cache.run !== run || p.attentionCache !== cache) return;
@@ -258,12 +273,12 @@ function attentionFocusTask(p, ref, key) {
   if (board.focusRead?.key === key) return board.focusRead;
   const read={key,scope,task:null,error:null};
   board.focusRead=read;
-  read.promise=workCall(scope,'tasks_get',{task_id:ref.id}).then(data=>{
+  read.promise=uiReads.read('focus-task:'+JSON.stringify([scope,key]),()=>workCall(scope,'tasks_get',{task_id:ref.id})).then(data=>{
     const task=data?.task;
     if (!task || String(task.id) !== String(ref.id)) throw new Error('The focused task is unavailable.');
     read.task=task; return task;
   }).catch(error=>{read.error=error;return null;}).then(()=>{
-    if (p.attentionBoard === board && board.focusRead === read && board.data) attentionBoardPaint(p);
+    if (p.attentionBoard === board && board.focusRead === read) attentionBoardPaint(p);
   });
   return read;
 }
@@ -272,7 +287,8 @@ function attentionFocusKey(data, ref) {
     data?.attention?.focus_generation ?? data?.revision ?? ref?.revision ?? null]);
 }
 function attentionBoardPaint(p) {
-  const b=p.attentionBoard, data=b.data, board=b.board, header=board.querySelector('[data-attention-focus]'), list=board.querySelector('[data-attention-list]');
+  const b=p.attentionBoard, focus=uiReads.peek(agentFocusKey(p.attentionAgentId || p.agentId));
+  const data=focus ? {...(b.data || focus),attention:focus.attention,items:b.data?.items || []} : b.data, board=b.board, header=board.querySelector('[data-attention-focus]'), list=board.querySelector('[data-attention-list]');
   attentionAgentsPaint(p);
   board.querySelector('[data-attention-error]').hidden=true;
   header.replaceChildren();
@@ -306,6 +322,7 @@ function attentionBoardPaint(p) {
     } else reference(focus);
     if(attention.intent){const intent=document.createElement('p');intent.className='attention-intent';intent.textContent=attention.intent;current.append(intent);}
   }
+  if(!b.data){list.innerHTML='<p class="attention-empty">Loading Todo…</p>';if(p.attentionCache?.error)attentionBoardShowError(p,p.attentionCache.error);return;}
   list.replaceChildren();
   const toolbar=document.createElement('div');toolbar.className='attention-list-heading';list.append(toolbar);
   const name=document.createElement('h2');
@@ -333,6 +350,10 @@ function attentionBoardPaint(p) {
     }
   }
   if (visible.length) list.append(rows);
-  else {const empty=document.createElement('p');empty.className='attention-empty';empty.textContent=data.items.length?'No tasks for this filter.':'No tasks on Todo.';list.append(empty);}
+  else {const empty=document.createElement('p');empty.className='attention-empty';empty.textContent=data.next_cursor?'No matching tasks on this page. Load more to continue.':data.items.length?'No tasks for this filter.':'No tasks on Todo.';list.append(empty);}
+  if(data.next_cursor){
+    const more=document.createElement('button');more.type='button';more.className='quiet';more.textContent='Load more';more.dataset.attentionMore='';
+    more.onclick=async()=>{more.disabled=true;await attentionBoardRefresh(p,true);if(more.isConnected)more.disabled=false;};list.append(more);
+  }
   if (p.attentionCache?.error) attentionBoardShowError(p, p.attentionCache.error);
 }

@@ -37,6 +37,37 @@ def integer_parameter(value, name, minimum, maximum):
     return result
 
 
+def business_task_page(tasks, query, business_id):
+    """Keep the dashboard's title/tag/note search and due-date ordering across pages.
+
+    The compatibility reader still gathers the authorized list. This bounds browser
+    payload/rendering without changing domain query semantics or legacy callers.
+    """
+    from qorqut_operations.application.plans import page
+    search = query.get("search", "").strip().lower()
+    visibility = query.get("visibility", "active")
+    if visibility not in {"active", "snoozed", "all"}:
+        raise DomainError("validation_error", "Unknown task visibility")
+    args = {"search": search, "visibility": visibility,
+            "limit": integer_parameter(query.get("limit", "50"), "limit", 1, 100)}
+    if query.get("cursor"):
+        args["cursor"] = query["cursor"]
+    now = datetime.now(timezone.utc)
+    def closed(task):
+        return task.get("status") in {"done", "cancelled"}
+    def snoozed(task):
+        return bool(task.get("snoozed_until") and datetime.fromisoformat(task["snoozed_until"].replace("Z", "+00:00")) > now)
+    def matches(task):
+        return not search or search in task["title"].lower() or any(
+            search in str(tag).lower() for tag in task.get("tags", [])) or any(
+            search in str(note.get("text", "")).lower() for note in task.get("notes", []))
+    filtered = [task for task in tasks if matches(task) and (visibility == "all" or
+                not closed(task) and snoozed(task) == (visibility == "snoozed"))]
+    selected, cursor = page(filtered, args, business_id, "dashboard_tasks", reverse=False,
+                            key=lambda task: (int(closed(task)), task.get("due") or "9999", task["title"], task["id"]))
+    return {"tasks": selected, "next_cursor": cursor}
+
+
 class DashboardCompatibility:
     def __init__(self, runtime, *, terminals=None, background=None, local_files=None):
         self.runtime, self.terminals, self.background = runtime, terminals, background
@@ -316,10 +347,16 @@ class DashboardCompatibility:
                     "snooze_filter": request.query_params.get("snooze_filter", "all" if closed else "active")}, key="tasks")
                 tasks = [task for task in tasks if not request.query_params.get("closed") or task["closed"]]
                 members = {row["id"]: row for row in self.assignees(context)} if tasks else {}
-                return JSONResponse([self.task_view(context, task, members=members) for task in tasks])
+                views = [self.task_view(context, task, members=members) for task in tasks]
+                if request.query_params.get("paged") == "1":
+                    return JSONResponse(business_task_page(views, request.query_params, context.business_id), headers={"Cache-Control": "no-store"})
+                return JSONResponse(views)
             # assignees_list (agents kind) only actually runs when tasks is
             # non-empty, but the declared kind set must cover every request
             # this branch could make, not just this one's.
+            # Snooze expiry changes page membership with time, even without a write event.
+            if request.query_params.get("paged") == "1":
+                return produce()
             return revalidated(request, self.runtime.changes, {"tasks", "agents"}, context.business_id, produce)
         if tail == ["log"]:
             try:

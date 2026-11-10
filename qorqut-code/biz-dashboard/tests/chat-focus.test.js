@@ -22,6 +22,7 @@ async function fixture(width=700) {
     window.$=(selector,host=document)=>host.querySelector(selector);
     window.identityAvatar=()=>'<span class="identity-avatar">A</span>';
     window.state={bizs:[]};window.coreData=value=>value;window.evUrl=value=>value;
+    window.onChange=()=>()=>{};window.accessLost=e=>['forbidden','invalid_principal'].includes(e?.code);
     window._agpad={agentId:'ord',attentionAgentId:'another-todo-agent'};
     window.EventSource=class extends EventTarget {
       static CLOSED=2;
@@ -47,7 +48,7 @@ async function fixture(width=700) {
     };
     window.workflowPanelMount=()=>({refresh(){},dispose(){}});
   });
-  for(const file of ['safe-links','san-juan-time','chat-view','slash-commands','global-chat'])await page.addScriptTag({path:path.join(root,'js',file+'.js')});
+  for(const file of ['read-cache','safe-links','san-juan-time','chat-view','slash-commands','global-chat'])await page.addScriptTag({path:path.join(root,'js',file+'.js')});
   await page.evaluate(()=>{
     window.mount=(id='ord',role='ordubashy')=>{
       window.controller?.dispose();
@@ -125,13 +126,13 @@ browserTest('hidden chats stop context polling and switching agents discards lat
     await page.evaluate(()=>{document.querySelector('#pane').hidden=false;});
     assert.equal(await page.locator('.gchat-context').isVisible(),true);
     await page.evaluate(()=>{
-      override=(args,options)=>new Promise(resolve=>{window.oldSignal=options.signal;window.finishOld=()=>resolve({agent_id:args.agent_id,attention:{state:'focused',focus:{label:'Old focus'},intent:'Old intent'}});});
+      override=(args,options)=>new Promise(resolve=>{window.finishOld=()=>resolve({agent_id:args.agent_id,attention:{state:'focused',focus:{label:'Old focus'},intent:'Old intent'}});});
     });
     await page.clock.runFor(12000);
     await page.waitForFunction(()=>typeof finishOld==='function');
     await page.evaluate(()=>{override=null;mount('atlas','global-worker');});
     await page.waitForFunction(()=>document.querySelector('.gchat-focus-label')?.textContent==='Verify sources');
-    assert.equal(await page.evaluate(()=>oldSignal.aborted),true);
+    // The shared read may finish for other consumers; the disposed chat must ignore it.
     await page.evaluate(()=>finishOld());
     assert.equal(await page.locator('.gchat-focus-intent').textContent(),'Compare the original documents.');
     assert.deepEqual(await page.evaluate(()=>actionReads),[]);
@@ -157,6 +158,21 @@ browserTest('long focus text stays readable on a narrow chat and is rendered onl
     assert.ok(box.height<=180);
     await page.locator('.gchat-context').focus();await page.keyboard.press('End');
     assert.ok(await page.locator('.gchat-context').evaluate(el=>el.scrollHeight>el.clientHeight));
+    assert.deepEqual(errors,[]);
+  } finally {await browser.close();}
+});
+
+browserTest('focus paints while chat history is pending and remounts immediately from the shared snapshot',async()=>{
+  const {browser,page,errors}=await fixture();
+  try {
+    await page.evaluate(()=>{
+      controller.dispose();uiReads.invalidate('agent-focus:',{drop:true});
+      api=()=>new Promise(()=>{});focusReads=[];mount();
+    });
+    await page.waitForFunction(()=>document.querySelector('.gchat-focus-label')?.textContent==='Coordinate launch');
+    assert.equal(await page.evaluate(()=>focusReads.length),1);
+    assert.equal(await page.evaluate(()=>{mount();return document.querySelector('.gchat-focus-label').textContent;}),'Coordinate launch');
+    assert.equal(await page.evaluate(()=>focusReads.length),1);
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });

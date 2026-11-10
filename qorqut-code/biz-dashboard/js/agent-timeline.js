@@ -129,9 +129,10 @@ function agentTimelineMount(p) {
     <div class="agent-timeline-error" hidden><p role="alert"></p><button type="button" class="quiet" data-retry>Retry</button></div>
     <div class="agent-timeline-empty" hidden><button type="button" class="quiet" data-latest>Latest recorded day ${AGENT_TIMELINE_CHEVRON}</button></div>
     <ol class="agent-timeline-list" aria-label="Recorded actions, newest first"></ol>
+    <button type="button" class="quiet" data-more hidden>Load more</button>
   </section>`;
   const root = body.firstElementChild;
-  const timeline = p.timeline = {root, date: p.timelineDate || '', ready: false, loading: false, seq: 0, next: 0, rows: null, signature: '', error: ''};
+  const timeline = p.timeline = {root, date: p.timelineDate || '', ready: false, loading: false, seq: 0, next: 0, rows: null, cursor:null, cursors:new Set(), moreFailed:false, signature: '', error: ''};
   root.addEventListener('click', event => {
     const button = event.target.closest('[data-evidence-key]');
     if (button && !button.disabled) void agentTimelineOpenEvidence(p, button);
@@ -140,7 +141,7 @@ function agentTimelineMount(p) {
   const choose = date => {
     if (!date || date > sjToday()) { input.value = timeline.date; return; }
     p.timelineDate = timeline.date = date;
-    timeline.rows = null; timeline.signature = ''; timeline.error = '';
+    timeline.rows = null; timeline.cursor=null; timeline.cursors.clear(); timeline.signature = ''; timeline.error = '';
     timeline.seq++; timeline.loading = false;
     root.querySelector('ol').innerHTML = '';
     void agentTimelineRefresh(p);
@@ -170,7 +171,7 @@ function agentTimelineMount(p) {
     const seq = ++timeline.seq;
     timeline.error = ''; timeline.loading = true; agentTimelinePaint(p);
     try {
-      const config = await acOp('actions_config_get', {});
+      const config = await uiReads.read('actions-config',()=>acOp('actions_config_get', {}));
       if (!agentTimelineCurrent(p, timeline) || seq !== timeline.seq) return;
       sjConfigure(config);
       timeline.ready = true;
@@ -183,7 +184,8 @@ function agentTimelineMount(p) {
       timeline.loading = false; timeline.error = uiFailure(error, {load: true}); agentTimelinePaint(p);
     }
   };
-  root.querySelector('[data-retry]').onclick = () => timeline.ready ? agentTimelineRefresh(p) : initialize();
+  root.querySelector('[data-more]').onclick = () => agentTimelineRefresh(p,true);
+  root.querySelector('[data-retry]').onclick = () => timeline.ready ? agentTimelineRefresh(p,timeline.moreFailed) : initialize();
   void initialize();
 }
 
@@ -210,6 +212,7 @@ function agentTimelinePaint(p) {
   t.root.querySelector('.agent-timeline-error').hidden = !t.error;
   t.root.querySelector('[role="alert"]').textContent = t.error;
   t.root.querySelector('[data-retry]').disabled = t.loading;
+  const more=t.root.querySelector('[data-more]');more.hidden=!t.cursor;more.disabled=t.loading;more.textContent=t.loading?'Loading…':'Load more';
   if (t.rows !== null) {
     const signature = JSON.stringify(t.rows);
     if (signature !== t.signature) {
@@ -222,29 +225,39 @@ function agentTimelinePaint(p) {
   }
 }
 
-async function agentTimelineRefresh(p) {
-  const t = p.timeline;
-  if (!t?.ready || t.loading || !agentTimelineCurrent(p, t) || !agpadActive(p)) return;
-  const seq = ++t.seq, date = t.date;
-  t.loading = true; t.error = ''; agentTimelinePaint(p);
+async function agentTimelineRefresh(p, more=false) {
+  const t=p.timeline;
+  if(!t?.ready || t.loading || !agentTimelineCurrent(p,t) || !agpadActive(p) || more && !t.cursor)return;
+  const seq=++t.seq,date=t.date,cursor=more?t.cursor:null;
+  const key='timeline:'+JSON.stringify([p.agentId,date]);
+  const cached=uiReads.peek(key);
+  if(!more && t.rows===null && cached){t.rows=cached.actions;t.cursor=cached.next_cursor;}
+  t.loading=true;t.error='';t.moreFailed=more;agentTimelinePaint(p);
   try {
-    const rows = [], seen = new Set();
-    let cursor = null;
-    do {
-      const data = await acOp('actions_list', {performer: p.agentId, since: date, until: date, limit: 100, ...(cursor ? {cursor} : {})});
-      if (!agentTimelineCurrent(p, t) || seq !== t.seq) return;
-      rows.push(...data.actions); cursor = data.next_cursor;
-      if (cursor && seen.has(cursor)) throw Error('Action pagination did not advance.');
-      if (cursor) seen.add(cursor);
-    } while (cursor);
-    t.rows = rows;
-  } catch (error) {
-    if (!agentTimelineCurrent(p, t) || seq !== t.seq) return;
-    t.error = uiFailure(error, {load: true});
-  } finally {
-    if (agentTimelineCurrent(p, t) && seq === t.seq) {
-      t.loading = false; t.next = Date.now() + AGPAD_POLL_MS; agentTimelinePaint(p);
+    const read=()=>acOp('actions_list',{performer:p.agentId,since:date,until:date,limit:50,...(cursor?{cursor}:{})});
+    const first=more?await read():await uiReads.read(key,read);
+    const data={...first,actions:[...first.actions]}, visited=new Set(cursor?[cursor]:[]);
+    const depth=more?1:Math.max(1,t.cursors.size+1);
+    let loaded=1;
+    while(!more && data.next_cursor && loaded<depth){
+      if(!agentTimelineCurrent(p,t)||seq!==t.seq)return;
+      if(visited.has(data.next_cursor))throw Error('Action pagination did not advance.');
+      visited.add(data.next_cursor);
+      const page=await acOp('actions_list',{performer:p.agentId,since:date,until:date,limit:50,cursor:data.next_cursor});
+      data.actions.push(...page.actions);data.next_cursor=page.next_cursor;loaded++;
     }
+    if(!agentTimelineCurrent(p,t)||seq!==t.seq)return;
+    if(!Array.isArray(data.actions))throw Error('Actions unavailable.');
+    if(data.next_cursor && (data.next_cursor===cursor || visited.has(data.next_cursor) || more && t.cursors.has(data.next_cursor)))throw Error('Action pagination did not advance.');
+    if(!more)t.cursors=visited;
+    if(cursor)t.cursors.add(cursor);
+    const rows=more?[...t.rows,...data.actions]:data.actions;
+    t.rows=[...new Map(rows.map(row=>[row.action_id,row])).values()];t.cursor=data.next_cursor;
+  } catch(error) {
+    if(!agentTimelineCurrent(p,t)||seq!==t.seq)return;
+    t.error=uiFailure(error,{load:true});
+  } finally {
+    if(agentTimelineCurrent(p,t)&&seq===t.seq){t.loading=false;t.next=Date.now()+AGPAD_POLL_MS;agentTimelinePaint(p);}
   }
 }
 

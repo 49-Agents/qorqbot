@@ -19,13 +19,16 @@ function setup({principal='p1',personal=[],tasks=[]}={}){
  const state={biz:'a',scope:'biz',bizs:[bizA,bizB],tasks,tasksBiz:'a',tasksError:null,myTasks:personal};
  let sig=0;
  const ctx={state,embeddedTaskPane:false,document:{activeElement:null,querySelector:()=>null},globalAgentProfiles:[],
-  loadGlobalAgentProfiles:()=>Promise.resolve(),
-  api:path=>{const d=deferred();gets.push({path,...d});return d.promise;},
+  loadGlobalAgentProfiles:()=>Promise.resolve(),URLSearchParams,
+  uiReads:{peek:()=>null,read:(_key,load)=>load(),invalidate(){}},accessLost:()=>false,
+  api:path=>{const d=deferred();gets.push({path,...d});return path.includes('paged=1')?d.promise.then(tasks=>({tasks,next_cursor:null})):d.promise;},
   post:(path,body)=>{const d=deferred();posts.push({path,body,...d});return d.promise;},
   toast:m=>toasts.push(m),uiFailure:e=>e.message,tPaintSig:null,tVisSig:()=>String(++sig),paintCount:0,businessPaints:0,
   paintTasks(){ctx.paintCount++;},businessTasksPaint(){ctx.businessPaints++;},
   coreData:x=>x,newRequestId:()=>'k',setTimeout,clearTimeout,Promise};
  vm.createContext(ctx);
+ const business=fs.readFileSync(require.resolve('../js/business-tasks.js'),'utf8');
+ vm.runInContext("let btSearch='',btVisibility='active',btLoad=null,btQuery=null,btCursor=null,btCursors=new Set(),btError=null,btMoreFailed=false;"+business.slice(business.indexOf('function businessTasksKey'),business.indexOf("onChange(['tasks'")),ctx);
  vm.runInContext(stateSource,ctx);vm.runInContext(slices,ctx);
  vm.runInContext(`tPersonalLoaded=true;tPrincipal=${JSON.stringify(principal)};`,ctx);
  return {ctx,state,gets,posts,toasts,run:code=>vm.runInContext(code,ctx),
