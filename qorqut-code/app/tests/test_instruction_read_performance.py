@@ -181,3 +181,11 @@ class RuntimeInstructionTests(unittest.TestCase):
             with self.assertRaises(DomainError) as caught:
                 self.view.runtime_instructions()
         self.assertEqual(caught.exception.code, 'agentic_unavailable')
+
+    def test_nested_read_is_still_subject_to_outer_snapshot_verification(self):
+        with self.assertRaises(DomainError) as caught:
+            with self.view.read_snapshot():
+                self.view.runtime_instructions()
+                self.path.write_text('Changed before the outer snapshot exits.\n')
+        self.assertEqual(caught.exception.code, 'agentic_revision_conflict')
+        self.assertEqual(self.view.runtime_instructions().render(self.key), self.path.read_text())

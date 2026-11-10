@@ -116,4 +116,3 @@ class CheckpointTests(unittest.TestCase):
         with self.assertRaises(DomainError):
             self.check()
         self.assertEqual(self.units, [])
-

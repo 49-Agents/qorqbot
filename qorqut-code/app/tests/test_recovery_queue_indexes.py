@@ -197,4 +197,3 @@ class QueueMigrationTests(unittest.TestCase):
             ownership.assert_not_called()
         self.assertEqual(self.rows(), before)
         self.assertTrue(OBJECTS.isdisjoint(read_objects(self.connection)))
-

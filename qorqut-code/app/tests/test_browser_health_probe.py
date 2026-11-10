@@ -72,4 +72,3 @@ class HealthProbeTests(unittest.TestCase):
             self.assertFalse(cdp_healthy('http://[::1]:9222', timeout=.2))
         create.assert_called_once_with('::1', 9222, timeout=.2)
         connection.close.assert_called_once()
-

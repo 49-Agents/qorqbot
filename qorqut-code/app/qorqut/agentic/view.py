@@ -287,9 +287,10 @@ class HostAgenticView:
             return revision, instructions, instructions.bytes()
 
         revision, instructions, document = self.consistent(read)
-        # Publish only after the outer snapshot's fresh-byte/recovery checks.
-        # One immutable tuple is safe to replace concurrently; a stale revision
-        # can at worst cause a cache miss, never serve another revision's prose.
+        # Every result remains subject to its enclosing snapshot's fresh-byte
+        # and recovery checks, including nested reads. One immutable tuple is
+        # safe to replace concurrently; an older revision can at worst cause a
+        # cache miss, never serve another revision's prose.
         self._runtime_instruction_bytes = (revision, document)
         return instructions
 

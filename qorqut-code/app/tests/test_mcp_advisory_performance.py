@@ -68,4 +68,3 @@ class AdvisoryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(result['data'], {'revision': 2})
                 self.assertNotIn('agent_hint', result)
                 selected.side_effect = advisory
-
