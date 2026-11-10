@@ -210,7 +210,7 @@ shrinking in Focus. Preserve channel strip/button styling separately.
 Wrappers set container dimensions and optional `--chat-top-inset` (default 0; native
 floating header uses its existing reserved space). Jump/preview layout must depend
 on the shared view/composer geometry, not native-only hardcoded offsets. Preserve
-current main Chat appearance including its boxed composer, gap22px, padded 24px-radius message bubbles, line-height1.65
+current main Chat appearance including its boxed composer, gap22px, padded 24px-radius user bubbles and unframed agent prose with no fill or border, line-height1.65
 message text, 13.25px message type, 15.75px composer type and 36px Send button. Parent container may constrain width
 and height; text wraps, feed scrolls, composer stays reachable. Do not enlarge or
 redesign the outer Focus pane/dock to mask overflow.
