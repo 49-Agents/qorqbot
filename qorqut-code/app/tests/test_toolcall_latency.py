@@ -556,9 +556,41 @@ class ImportCostTests(unittest.TestCase):
             'import sys\n'
             'import qorqut.bootstrap.activity_hook, qorqut.bootstrap.activity_context, qorqut.bootstrap.client\n'
             'heavy = ("qorqut_agentic", "jsonschema", "yaml", "sqlite3", "urllib.request", "http.client",\n'
-            '         "qorqut_operations.storage.database", "qorqut_operations.storage.assembly")\n'
+            '         "qorqut_operations.storage.database", "qorqut_operations.storage.assembly",\n'
+            '         "qorqut_operations.contracts", "dataclasses")\n'
             'print(*[name for name in heavy if name in sys.modules])\n')
         self.assertEqual(loaded, [])
+
+    def test_the_error_class_alone_does_not_load_the_contracts_until_it_carries_values(self):
+        loaded = self.run_python(
+            'import sys\n'
+            'from qorqut_operations.errors import DomainError\n'
+            'import qorqut_operations.storage.safe_io, qorqut.installation, qorqut.bootstrap.handoff\n'
+            'error = DomainError("busy", "later", retryable=True, current_revision=4)\n'
+            'assert (error.code, error.message, error.retryable, error.details) == ("busy", "later", True, None)\n'
+            'print("qorqut_operations.contracts" in sys.modules)\n'
+            'assert error.to_dict() == {"code": "busy", "message": "later", "retryable": True, "current_revision": 4}\n'
+            'detailed = DomainError("invalid", "no", details={"at": [1, {"b": 2}]}, field_errors={"name": "required"})\n'
+            'print("qorqut_operations.contracts" in sys.modules)\n'
+            'from qorqut_operations import contracts\n'
+            'assert contracts.DomainError is DomainError\n'
+            'assert isinstance(detailed, contracts.DomainError) and str(detailed) == "no"\n'
+            'assert detailed.to_dict() == {"code": "invalid", "message": "no", "retryable": False,\n'
+            '    "field_errors": {"name": "required"}, "details": {"at": [1, {"b": 2}]}}\n'
+            'assert detailed.details["at"] == (1, {"b": 2})\n'
+            'try:\n'
+            '    detailed.details["at"] = 1\n'
+            'except TypeError:\n'
+            '    pass\n'
+            'else:\n'
+            '    raise SystemExit("details are not frozen")\n'
+            'try:\n'
+            '    DomainError("invalid", "no", details={1: "key"})\n'
+            'except ValueError:\n'
+            '    pass\n'
+            'else:\n'
+            '    raise SystemExit("invalid details accepted")\n')
+        self.assertEqual(loaded, ['False', 'True'])
 
     def test_storage_exports_resolve_on_first_use(self):
         missing = self.run_python(

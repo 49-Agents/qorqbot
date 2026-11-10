@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 
-from qorqut_operations.contracts import DomainError
+from qorqut_operations.errors import DomainError
 from qorqut_operations.storage.safe_io import read_bytes
 
 

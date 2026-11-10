@@ -13,6 +13,9 @@ from types import MappingProxyType
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
+# Defined on its own so that a module needing only the error can import it without this vocabulary.
+from .errors import DomainError
+
 Mode = Literal["allow", "signoff", "deny"]
 PrincipalKind = Literal["human", "agent", "system", "integration"]
 Source = Literal["mcp", "dashboard", "worker"]
@@ -79,25 +82,6 @@ def _uuid(value: str | None, name: str) -> None:
             raise ValueError
     except (ValueError, AttributeError, TypeError) as exc:
         raise ValueError(f"{name} must be a canonical UUID") from exc
-
-
-class DomainError(Exception):
-    def __init__(self, code: str, message: str, *, retryable: bool = False,
-                 field_errors: Mapping[str, Any] | None = None,
-                 current_revision: int | None = None, details: Mapping[str, Any] | None = None):
-        super().__init__(message)
-        self.code, self.message, self.retryable = code, message, retryable
-        self.field_errors = freeze(field_errors) if field_errors is not None else None
-        self.current_revision = current_revision
-        self.details = freeze(details) if details is not None else None
-
-    def to_dict(self) -> dict[str, Any]:
-        result = {"code": self.code, "message": self.message, "retryable": self.retryable}
-        for key in ("field_errors", "current_revision", "details"):
-            value = getattr(self, key)
-            if value is not None:
-                result[key] = plain(value)
-        return result
 
 
 @dataclass(frozen=True)

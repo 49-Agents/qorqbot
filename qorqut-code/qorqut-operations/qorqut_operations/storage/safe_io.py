@@ -14,7 +14,7 @@ from pathlib import Path
 import secrets
 import stat
 
-from qorqut_operations.contracts import DomainError
+from qorqut_operations.errors import DomainError
 
 _ANY = object()
 # New atomic replacements use Qorqut names. Recovery must also exclude interrupted
