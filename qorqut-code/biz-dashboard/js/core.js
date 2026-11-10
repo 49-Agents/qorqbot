@@ -150,12 +150,12 @@ const agentGlyph = (m, size) => {
 let globalAgentProfiles = [];
 let globalAgentProfilesRequest;
 function loadGlobalAgentProfiles() {
-  if (!globalAgentProfilesRequest) globalAgentProfilesRequest = api('/root/agents').then(response => {
+  if (!globalAgentProfilesRequest) globalAgentProfilesRequest = uiReads.read('agent-roster', () => api('/root/agents')).then(response => {
     const agents = coreData(response).agents;
     if (!Array.isArray(agents)) throw new Error('Global agent profiles unavailable');
     globalAgentProfiles = agents;
     return agents;
-  }).catch(error => { globalAgentProfilesRequest = null; throw error; });
+  }).finally(() => { globalAgentProfilesRequest = null; });
   return globalAgentProfilesRequest;
 }
 function globalAgentProfile(id) {

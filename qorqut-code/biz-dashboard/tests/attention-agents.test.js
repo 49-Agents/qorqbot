@@ -16,6 +16,7 @@ async function fixture(width=720) {
   for (const file of ['app.css','css/tasks.css','css/agent-focus.css']) await page.addStyleTag({path:path.join(__dirname,'..',file)});
   await page.evaluate(()=>{
     window.$=(selector,host=document)=>host.querySelector(selector);
+    window.onChange=()=>()=>{};window.accessLost=e=>['forbidden','invalid_principal'].includes(e?.code);
     window.state={bizs:[{id:'project-id',slug:'project'}]};
     window.esc=s=>String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     window.agentRole=a=>a?.role?.id || a?.role_id;
@@ -64,6 +65,8 @@ async function fixture(width=720) {
     };
     window.workCall=async(scope,_operation,{task_id})=>({task:boards[scope?'atlas':'ord'].items.find(item=>item.task.id===task_id)?.task});
   });
+  await page.addScriptTag({path:path.join(__dirname,'../js/read-cache.js')});
+  await page.evaluate(()=>{window.loadGlobalAgentProfiles=async()=>coreData(await api('/root/agents')).agents;});
   for (const file of ['attention-board','attention-agents']) await page.addScriptTag({path:path.join(__dirname,'../js',file+'.js')});
   await page.evaluate(async()=>{attentionBoardMount(p);await p.attentionCache.run?.promise;await p.attentionAgents.run?.promise;});
   return {browser,page,errors};
@@ -75,7 +78,7 @@ async function select(page,id) {
   await page.waitForFunction(id=>p.attentionAgentId===id && !p.attentionCache.run,id);
 }
 async function refresh(page) {
-  await page.evaluate(async()=>{p.attentionAgents.retryAt=0;await attentionAgentsRefresh(p);});
+  await page.evaluate(async()=>{p.attentionAgents.retryAt=0;uiReads.invalidate('agent-focus:');await attentionAgentsRefresh(p);});
 }
 
 browserTest('Ordubashy stays first while only focused workers appear, including focus without Todo memberships',async()=>{
@@ -143,21 +146,24 @@ browserTest('full board pagination cannot replace a different selected agent wit
   try {
     await page.evaluate(()=>{
       readOverride=args=>{
-        if(args.agent_id!=='atlas' || args.limit===1)return;
+        if(args.agent_id!=='atlas' || args.projection==='focus' || args.limit===1)return;
         if(!args.cursor)return {...structuredClone(boards.atlas),items:[boards.atlas.items[0]],next_cursor:'page-2'};
         return new Promise(resolve=>{finishPage=()=>resolve({...structuredClone(boards.atlas),items:[boards.atlas.items[1]],next_cursor:null});});
       };
     });
     await page.locator('[data-attention-agent=atlas]').click();
+    await page.locator('[data-attention-more]').click();
     await page.waitForFunction(()=>typeof finishPage==='function');
     assert.deepEqual(await titles(page),['Project task']);
     await select(page,'ord');
     await page.evaluate(()=>finishPage());
     await page.waitForFunction(()=>!p.attentionCaches.get('atlas').run);
     assert.deepEqual(await titles(page),['Global task']);
-    await page.evaluate(()=>{readOverride=args=>args.agent_id==='atlas' && args.limit!==1
+    await page.evaluate(()=>{readOverride=args=>args.agent_id==='atlas' && args.projection!=='focus' && args.limit!==1
       ? {...structuredClone(boards.atlas),items:[boards.atlas.items[args.cursor?1:0]],next_cursor:args.cursor?null:'page-2'} : undefined;});
     await select(page,'atlas');
+    await page.locator('[data-attention-more]').click();
+    await page.waitForFunction(()=>!p.attentionCache.run);
     assert.deepEqual(await titles(page),['Project task','Another task']);
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
@@ -206,12 +212,30 @@ browserTest('leaving Todo stops overview batches and ignores an in-flight respon
   try {
     await page.evaluate(()=>{
       calls=[];readOverride=args=>args.agent_id==='atlas' ? new Promise(resolve=>{finishOverview=()=>resolve(structuredClone(boards.atlas));}) : undefined;
-      p.attentionAgents.retryAt=0;window.refreshing=attentionAgentsRefresh(p);
+      p.attentionAgents.retryAt=0;uiReads.invalidate('agent-focus:');window.refreshing=attentionAgentsRefresh(p);
     });
     await page.waitForFunction(()=>typeof finishOverview==='function');
     await page.evaluate(async()=>{p.workspaceDispose();p.view='focus';finishOverview();await refreshing;});
     assert.equal(await page.evaluate(()=>calls.some(call=>call.args.agent_id==='lens')),false);
     assert.equal(await page.evaluate(()=>p.attentionBoard),null);
+    assert.deepEqual(errors,[]);
+  } finally {await browser.close();}
+});
+
+browserTest('focus paints independently of a held Todo board and a slower worker in its batch',async()=>{
+  const {browser,page,errors}=await fixture();
+  try {
+    await page.evaluate(()=>{
+      calls=[];uiReads.invalidate('agent-focus:');
+      boards.ord.attention.intent='Fresh focus before the board finishes';
+      p.attentionCache.run={promise:new Promise(()=>{})};
+      readOverride=args=>args.agent_id==='atlas'?new Promise(resolve=>{releaseWorker=()=>resolve(structuredClone(boards.atlas));}):undefined;
+      p.attentionAgents.retryAt=0;window.refreshing=attentionAgentsRefresh(p);
+    });
+    await page.waitForFunction(()=>document.querySelector('[data-attention-agent="ord"] .attention-agent-intent')?.textContent==='Fresh focus before the board finishes');
+    assert.equal(await page.evaluate(()=>!!p.attentionAgents.run),true);
+    assert.equal(await page.evaluate(()=>calls.every(call=>call.args.projection==='focus')),true);
+    await page.evaluate(async()=>{releaseWorker();await refreshing;p.attentionCache.run=null;});
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });

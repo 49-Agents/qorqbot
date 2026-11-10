@@ -17,12 +17,14 @@ async function fixture(width) {
   await page.addStyleTag({path:path.join(__dirname,'../css/agent-focus.css')});
   await page.evaluate(() => {
     window.state = {bizs:[]};
+    window.onChange=()=>()=>{};window.accessLost=e=>['forbidden','invalid_principal'].includes(e?.code);
     window.identityAvatar = (kind, name) => `<span class="identity-avatar identity-${kind}" role="img" aria-label="${name}"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/></svg></span>`;
     window.SVG_X = '<svg></svg>'; window.post = async () => ({}); window.coreData = x => x; window.newRequestId = () => 'k';
     window.toast = () => {}; window.taskStateObserve = (_s, t) => t; window.taskStateBind = () => {}; window.taskStateSet = () => {};
     window.customerStateText = () => ''; window.agfocusContext = () => {}; window.agfocusUnread = () => {};
     window.tNext = s => s; window.workerMounts = 0; window.globalAgentProfile = () => null;
   });
+  await page.addScriptTag({path:path.join(__dirname,'../js/read-cache.js')});
   await page.addScriptTag({path:path.join(__dirname,'../js/attention-board.js')});
   await page.addScriptTag({path:path.join(__dirname,'../js/attention-agents.js')});
   await page.evaluate(() => {

@@ -107,7 +107,7 @@ const globalChatHasContext = agent => ['ordubashy','global-worker'].includes(age
 // Recorded focus belongs to the chat's agent, independently of the selected Todo board.
 // Only the native session controls the working dots.
 function globalChatContextMount(host, agent, {visible, onChange}) {
-  const agentId=agent.agent_id, reads=new AbortController();
+  const agentId=agent.agent_id;
   let disposed=false, pending=null, last=0, attention=null, focusError=false, loaded=false;
   host.innerHTML='<dl><dt>Focus</dt><dd class="gchat-focus-label">Loading…</dd><dt>Intent</dt><dd class="gchat-focus-intent">Loading…</dd></dl>';
   host.tabIndex=0;
@@ -131,7 +131,7 @@ function globalChatContextMount(host, agent, {visible, onChange}) {
     last=Date.now();
     pending=(async()=>{
       try {
-        const data=coreData(await post('/root/operations/todo_get',{scope:'global',agent_id:agentId,projection:'focus'},{signal:reads.signal}));
+        const data=await agentFocusRead(agentId, {force});
         if (disposed) return;
         if (data?.agent_id !== agentId || !data.attention) throw Error('Focus unavailable');
         attention=data.attention;focusError=false;
@@ -145,13 +145,21 @@ function globalChatContextMount(host, agent, {visible, onChange}) {
     })();
     return pending;
   };
+  const receive=data=>{
+    if(disposed)return;
+    attention=data?.attention || null;loaded=true;focusError=!data;paint();
+  };
+  const unsubscribe=uiReads.subscribe(agentFocusKey(agentId),receive);
+  const cached=uiReads.peek(agentFocusKey(agentId));
+  if(cached)receive(cached);
+  queueMicrotask(()=>{void refresh();});
   const timer=setInterval(()=>{void refresh();},12000);
   const onVisible=()=>{if (!document.hidden) void refresh();};
   document.addEventListener('visibilitychange',onVisible);
   show();
   return {
     refresh,show,
-    dispose() {disposed=true;reads.abort();clearInterval(timer);document.removeEventListener('visibilitychange',onVisible);host.replaceChildren();host.hidden=true;},
+    dispose() {disposed=true;unsubscribe();clearInterval(timer);document.removeEventListener('visibilitychange',onVisible);host.replaceChildren();host.hidden=true;},
   };
 }
 // ---- the mount
@@ -689,7 +697,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (fresh) showBanner('');
       paintEntries(fresh ? 'bottom' : 'auto');
       void workflowPanel?.refresh(fresh);
-      void contextStatus?.refresh(fresh);
+      void contextStatus?.refresh();
       if (!stream) connect();
     } catch (problem) {
       if (live() && mine === generation) { paintSession(); showBanner("Couldn't load. Retry"); retry(() => load()); }
