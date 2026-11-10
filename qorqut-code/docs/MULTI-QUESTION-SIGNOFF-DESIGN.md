@@ -1,7 +1,9 @@
 # Multi-question Signoff design
 
-Status: proposed design, November 10, 2026. No runtime implementation or live
-record changes. Source baseline: remote `main`, commit `306bb5b`.
+Status: narrowed design candidate after checking live usage, November 10, 2026.
+No runtime implementation or live record changes. Original source baseline:
+remote `main`, commit `306bb5b`; overlap rechecked against `64570d9` and the
+running release `main-a1845b1-compat-79d1235`.
 
 An input Signoff can contain several independently answerable questions. The
 owner edits the answers freely, then clicks one **Done** button to submit the
@@ -13,6 +15,46 @@ submission, persisted partial completion and incremental answer notifications
 are outside this design. Any progress shown before Done describes a local
 draft, not a recorded response.
 
+## Existing usage and the actual gap
+
+The basic multiple-text-fields, one-final-submission workflow already exists
+and Ordubashy is using it. A read-only owner API check found an Ordubashy-created
+questionnaire with 12 prefilled text sections using `kind: draft_review`.
+Several sections contain groups of questions. Other current Ordubashy requests
+also use draft reviews. The production renderer supplies one **Return draft**
+submission, with optional saved versions beforehand. Creating several editable
+text areas and requiring one final click would therefore duplicate existing
+functionality.
+
+The current owner-input instructions already describe 1–12 editable fields,
+required-field checks, saved versions and consuming `decision.draft_values`
+only after the Signoff is answered. Ordubashy needs no new instruction to start
+using that basic workflow. The live record establishes actual use, rather than
+merely availability in packaged instructions. Private record titles, identifiers
+and questionnaire contents are intentionally not included in this public design.
+
+The remaining gap is independent typed questions: a different single-select or
+multi-select choice group for each question, its written alternative, and
+validation that belongs to that question. Existing `draft_fields` are all text;
+the one form-level `choices` array cannot provide several independent choice
+groups. A required prefilled text section also only proves that the section
+is nonblank, not that every embedded prompt has been answered.
+
+Use the existing draft-review flow for ordinary text questionnaires. Treat the
+version-2 contract below as a candidate only for the mixed text/choice case,
+not as a prerequisite for asking several questions or submitting them together.
+Reuse and extract the existing field rendering, draft interaction and response
+transaction where suitable. Preserve the string-valued draft-review contract
+and its saved versions; do not silently reinterpret existing draft content.
+The new work should add the missing question controls and validation, with
+one existing Signoff lifecycle, rather than a second questionnaire workflow.
+
+Remote `main` at `64570d9` also now implements source-linked owner-input
+requests and updates the owner-input guidance. Reuse those bindings and the
+Needs your input projection instead of reimplementing the earlier companion
+plan. A merged source feature is not proof of deployment or active instruction
+adoption.
+
 ## What the code already provides
 
 | Surface | Current behavior | Design consequence |
@@ -20,18 +62,19 @@ draft, not a recorded response.
 | [Input forms](../qorqut-operations/qorqut_operations/signoffs/inputs.py), `FORM`, `validate_form`, `validate_response` | One title/explanation, one choice group and one notes field. Unknown form properties are rejected. Questions default to management-allowed responses. | Add an explicitly versioned form variant; keep the legacy shape and its defaults unchanged. |
 | [Response service](../qorqut-operations/qorqut_operations/signoffs/service.py), `respond` | Validates the exact proposal, owner, current status revision and idempotency key; writes the response and changes state atomically. | Extend this path to validate and save a complete answer set. |
 | [Core schema](../qorqut-operations/qorqut_operations/storage/core_schema.py) | Proposal bytes and submitted `decision_json` are immutable. Both preview and decision are general JSON. | Keep questions in the frozen form and the complete answer snapshot in the final decision. No new response table is needed for this design. |
-| [Draft reviews](../qorqut-operations/qorqut_operations/signoffs/drafts.py) | Multiple editable text fields, immutable draft revisions, separate save and return actions. | Preserve this existing product. Its fields are draft content, not independent questions with choices. Do not reinterpret them. |
+| [Draft reviews](../qorqut-operations/qorqut_operations/signoffs/drafts.py) | Multiple editable text fields, immutable draft revisions, separate save and return actions; already used for text questionnaires. | Reuse this workflow for text questions and its shared UI machinery for new controls. Preserve existing content and string-valued responses. |
 | [Signoff notes](../qorqut-operations/qorqut_operations/signoffs/notes.py) | Immutable conversation notes, with a 20,000-character limit. | Generate bounded human-readable answer notes only inside the final submission transaction. |
 | [Inbox events](../qorqut-operations/qorqut_operations/inbox/events.py), `EventFinalizer` | A final decision emits `response_submitted`; notes on that Signoff in the transaction are coalesced with it. | Reuse one completion event. Verify coalescing when several question notes are written together. |
 | [Dashboard](../biz-dashboard/js/signoffs.js), `sgCreateView` | One shared renderer serves drawer, Focus, Chat and record references. Drafts/choices live in shared in-memory maps; retry state belongs to the whole Signoff. | Add a question-form renderer and a structured draft map to that shared implementation. Keep one submission receipt. |
 | [Owner HTTP route](../app/qorqut/transport/http.py), `signoff_route` | `/respond` accepts one notes/choices response or draft-review values. | Accept `answers` for the new form variant and reject mixed response shapes. |
 | [MCP presentation](../app/qorqut/transport/mcp_presentation.py) | `signoffs_get` retains decision evidence; compact lists and write receipts select fixed fields. | Keep exact question/answer content on detail reads; add bounded question counts to compact indexes if needed. |
 
-The older checkout used for the first investigation was `1f1ae90`. Current
-`main` also contains draft reviews, the host package rename from `bazarlyk` to
-`qorqut`, and the [Signoff-backed owner-input plan](SIGNOFF-BACKED-INPUT-PLAN.md).
-Implementation should start from current `main`, preserve those additions, and
-coordinate with that plan's task/thread bindings.
+The older checkout used for the first investigation was `1f1ae90`. The
+`306bb5b` baseline already contains draft reviews, the host package rename
+from `bazarlyk` to `qorqut`, and the
+[Signoff-backed owner-input plan](SIGNOFF-BACKED-INPUT-PLAN.md). Its source
+bindings subsequently landed in `64570d9`. Any implementation should start
+from current `main` and preserve those additions.
 
 ## Owner experience
 
@@ -222,7 +265,7 @@ verify this with multiple notes, including rollback and retries.
 | Overseer workflows | Their bindings currently map one choice set to actions and use one response. Keep those forms version 1; reject unsupported grouped forms at their creation/gateway boundary. Never flatten questionnaire responses into an action choice. |
 | Telegram | Display the group title, question count and dashboard link. Replies remain comments; reactions cannot answer a grouped form. Extend the existing draft-review guard so `answers_alone` cannot treat a free-text reply as a completed questionnaire. |
 | Focus, reminders and counts | One parent Signoff remains pending until Done succeeds. Typing changes no server attention, snooze, count or reminder. Existing completion behavior runs once. |
-| Task/thread input bindings | The companion owner-input plan binds tasks to the parent Signoff. Draft activity cannot resolve that dependency. One final completion triggers reassessment; it does not mark the task's work done. |
+| Task/thread input bindings | Reuse the parent Signoff source bindings now implemented on `main`. Draft activity cannot resolve that dependency. One final completion triggers reassessment; it does not mark the task's work done. |
 | Cancellation or replacement | Preserve the existing request lifecycle. A stale form cannot submit. Keep local text available for review/copy, but never copy answers automatically into a different proposal. |
 | Old browser assets | An old renderer assumes `input.choices` and `selection_mode`; a version-2 form can break it. Deploy a supported-version guard before enabling grouped creation, or ship host/UI together with a verified refresh requirement. Unsupported forms must show a reload/read-only state and offer no decision controls. |
 
@@ -235,8 +278,10 @@ additive JSON support alone is insufficient for an older renderer or gateway.
 ## Dashboard implementation shape
 
 Extract a small pure form adapter and validator from `signoffs.js`, plus a
-question-form renderer used by all existing Signoff surfaces. Keep action
-approval and draft-review components on their current paths.
+shared field-rendering component based on `paintDraftReview` for all existing
+Signoff surfaces. Add question choice groups and their errors to that shared
+machinery instead of building a parallel form system. Keep existing draft-review
+save/history semantics and action approvals on their current paths.
 Make `completePreview` version-aware as well: it currently requires one
 top-level `input.choices` array and cannot admit the proposed nested form.
 
@@ -304,8 +349,12 @@ in-memory database. These verify current constraints, not the future feature.
 
 ## Remaining implementation choices
 
-The one-Done submission rule is settled. The numeric bounds, helper/module
+The one-Done submission rule is settled and already available for text fields
+through Return draft. Establish the need for independently typed choice
+questions before implementing the candidate version-2 contract. The numeric bounds, helper/module
 names and whether to expose a compact question count remain implementation
 choices. Durable draft recovery, conditional questions, attachments,
 per-question permissions and grouped action approvals are separate features.
-They are not needed to deliver the requested form.
+Existing draft reviews already have durable saved versions; the earlier
+durable-recovery exclusion concerns only the proposed new question variant,
+not removal of that existing capability.
