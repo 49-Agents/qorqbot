@@ -84,6 +84,19 @@ rollback contract is in the host's [`docs/INSTALLATION.md`](../docs/INSTALLATION
 
 ## Shell and navigation
 
+- **Todo.** The pane shows compact focus and intent rows for active Ordubashy and
+  permanent workers with nonempty Todo boards. Completed items still on a board
+  count as membership; a focus alone does not. Selecting an agent loads its full
+  Todo without changing the chat. Other agents use one summary row per refresh,
+  with at most three concurrent reads; the selected list retains pagination,
+  scoped task navigation and the owner filter. Empty boards disappear on refresh,
+  while failed reads are labelled. Check: `node --test tests/attention-agents.test.js`
+  (requires Playwright Chromium).
+- **Chat focus.** Above the input, the chat agent's recorded focus and intent appear
+  beside its working dots. Todo selection does not change this identity. Idle agents
+  retain the focus text without an animation; unavailable and unset focus are labelled.
+  The read-only focus projection refreshes while the chat is visible and is disposed
+  with it. Check: `node --test tests/chat-focus.test.js` (requires Playwright Chromium).
 - **No main menu.** The Agents navigation (roster, Terminal, Settings below it)
   is the only navigation. A non-Agent top-level page such as Settings offers one
   **Back to agents** action. First visits open Global → Agents with the registered

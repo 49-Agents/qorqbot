@@ -103,6 +103,51 @@ const globalChatNoticeLabel = system => !system ? 'System notice'
   : system.verified ? GLOBAL_CHAT_INPUT_LABEL[system.input_type] || 'System notice'
   : 'Unverified notice';
 const globalChatBase = id => `/root/agents/${encodeURIComponent(id)}/chat`;
+// Recorded focus belongs to this chat's registered agent, never the independently selected Todo board.
+// Read only the existing focus projection; the native session remains authoritative for the working animation.
+function globalChatFocusMount(host, agent, {visible, onChange}) {
+  if (!['ordubashy','global-worker'].includes(agent.role?.id || agent.role_id)) return null;
+  const agentId=agent.agent_id, reads=new AbortController();
+  let disposed=false, pending=null, last=0, attention=null, error=false;
+  host.innerHTML='<span class="gchat-focus-label"></span><span class="gchat-focus-intent"></span>';
+  host.setAttribute('aria-label','Recorded focus and intent');
+  host.tabIndex=0;
+  const paint=()=>{
+    const focus=attention?.focus, focused=attention?.state === 'focused' && focus && !focus.unavailable;
+    host.querySelector('.gchat-focus-label').textContent=error || focus?.unavailable ? 'Focus unavailable'
+      : focused ? focus.label || attention.task?.label || 'Focused' : 'No focus set';
+    const intent=host.querySelector('.gchat-focus-intent');
+    intent.textContent=focused ? attention.intent || 'No intent recorded' : '';
+    intent.hidden=!focused;
+    onChange();
+  };
+  const refresh=(force=false)=>{
+    if (disposed || document.hidden || !visible() || !force && Date.now()-last < 12000) return Promise.resolve();
+    if (pending) return pending;
+    last=Date.now();
+    pending=(async()=>{
+      try {
+        const data=coreData(await post('/root/operations/todo_get',{scope:'global',agent_id:agentId,projection:'focus'},{signal:reads.signal}));
+        if (disposed) return;
+        if (data?.agent_id !== agentId || !data.attention) throw Error('Focus unavailable');
+        attention=data.attention; error=false;
+      } catch (_) {
+        if (disposed) return;
+        attention=null; error=true;
+      } finally {pending=null;}
+      if (!disposed) paint();
+    })();
+    return pending;
+  };
+  const timer=setInterval(()=>{void refresh();},12000);
+  const onVisible=()=>{if (!document.hidden) void refresh();};
+  document.addEventListener('visibilitychange',onVisible);
+  return {
+    refresh,
+    show(show) {host.hidden=!show || !attention && !error;return !host.hidden;},
+    dispose() {disposed=true;reads.abort();clearInterval(timer);document.removeEventListener('visibilitychange',onVisible);host.replaceChildren();host.hidden=true;},
+  };
+}
 // ---- the mount
 function globalChatViewToggle(terminal = false) {
   return `<div class="gchat-view-toggle" role="group" aria-label="Agent view">
@@ -188,6 +233,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   let stream = null, retryTimer = null, retryDelay = 1000, readTimer = null, streamDown = false;
   let disposed = false, loading = false, again = false, generation = 0, finished = false, reading = 0;
   let bannerText = '', reconnecting = false, olderBusy = false, view = null;
+  let focusStatus = null;
   let pairedHost = null, pairedConversation = null, pairedGeneration = 0;
   const cleanups = [];
   const reads = new AbortController();
@@ -200,11 +246,13 @@ function mountGlobalChat(pane, agent, options = {}) {
   const $q = selector => root.querySelector(selector);
   const sessionLine = document.createElement('div');
   sessionLine.className = 'gchat-session'; sessionLine.setAttribute('role', 'status'); sessionLine.setAttribute('aria-live', 'polite'); sessionLine.dataset.state = 'loading';
-  sessionLine.innerHTML = `<span class="gchat-working-tag" role="img" aria-label="${esc(label)} is working" hidden><span aria-hidden="true">${identityAvatar('agent', label, {...agent, ...agent.presentation})}</span><span class="gchat-working-dots" aria-hidden="true"><i></i><i></i><i></i></span></span><span class="gchat-session-dot" aria-hidden="true"></span><span class="gchat-session-text">Loading…</span>`;
+  sessionLine.innerHTML = `<span class="gchat-working-tag" role="img" aria-label="${esc(label)} is working" hidden><span aria-hidden="true">${identityAvatar('agent', label, {...agent, ...agent.presentation})}</span><span class="gchat-working-dots" aria-hidden="true"><i></i><i></i><i></i></span></span><span class="gchat-session-dot" aria-hidden="true"></span><span class="gchat-session-text">Loading…</span><span class="gchat-focus" hidden></span>`;
   const sessionText = sessionLine.querySelector('.gchat-session-text');
   const workingTag = sessionLine.querySelector('.gchat-working-tag');
 
   const live = () => !disposed && (root.isConnected || !!pairedHost?.isConnected);
+  const focusVisible = () => live() && root.isConnected && !root.closest('[hidden]') && !finished
+    && viewingLive() && ['live','working'].includes(sessionSummary().key);
   const originPane = typeof _agpad !== 'undefined' ? _agpad : null;
   const openReference = typeof options.openReference === 'function' ? options.openReference
     : ref => globalChatOpenFocusReference(ref, {pane: originPane, agentId, isCurrent: live});
@@ -414,7 +462,8 @@ function mountGlobalChat(pane, agent, options = {}) {
     // An empty conversation already shows the same direction, with its button, in the middle of the pane.
     sessionText.textContent = finished ? 'This chat is no longer available.' : emptyState().action ? '' : summary.line;
     workingTag.hidden = !working;
-    sessionLine.hidden = !working && !sessionText.textContent;
+    const hasFocus=focusStatus?.show(focusVisible()) || false;
+    sessionLine.hidden = !working && !sessionText.textContent && !hasFocus;
     const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope);
     const pending = presentInputs();
     view.render({
@@ -604,6 +653,8 @@ function mountGlobalChat(pane, agent, options = {}) {
   // Ordubashy's current workflow Focus appears above the composer; it refreshes with this chat's own loads (no extra timer).
   const workflowPanel = (agent.role?.id || agent.role_id) === 'ordubashy' && view.elements?.composer ? workflowPanelMount(view.elements.composer, agentId) : null;
   if (workflowPanel) cleanups.push(() => workflowPanel.dispose());
+  focusStatus=globalChatFocusMount(sessionLine.querySelector('.gchat-focus'),agent,{visible:focusVisible,onChange:paintSession});
+  if (focusStatus) cleanups.push(()=>focusStatus.dispose());
 
   // ---- loading: a state fetch is idempotent, so every "changed" event just reads it again (coalesced)
   // Terminal owns conversation selection; Chat always follows the backend's current conversation.
@@ -629,6 +680,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (fresh) showBanner('');
       paintEntries(fresh ? 'bottom' : 'auto');
       void workflowPanel?.refresh(fresh);
+      void focusStatus?.refresh(fresh);
       if (!stream) connect();
     } catch (problem) {
       if (live() && mine === generation) { paintSession(); showBanner("Couldn't load. Retry"); retry(() => load()); }
