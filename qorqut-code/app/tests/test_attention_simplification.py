@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from qorqut.agents.attention import Attention
-from qorqut.agents.attention_delivery import AttentionRuntime, HookClaims
+from qorqut.agents.attention_delivery import AttentionRuntime, HookClaims, clock_advice
 from qorqut.composition.attention import SCHEMA
 from qorqut_operations.contracts import DomainError
 
@@ -190,6 +190,26 @@ class AttentionTests(unittest.TestCase):
             self.assertTrue(claims.settle(uow, receipt, '2026-11-09T12:04:00Z'))
         delivered.assert_called_once()
 
+    def test_clock_poll_does_not_write_unchanged_values_but_records_real_events(self):
+        self.agent('first')
+        uow = NS(connection=self.conn)
+        first = clock_advice(uow, 'first', self.attention, NOW)
+        before = self.conn.total_changes
+        again = clock_advice(uow, 'first', self.attention, NOW)
+        self.assertEqual(again, first)
+        self.assertEqual(self.conn.total_changes, before)
+        event = clock_advice(uow, 'first', self.attention, NOW, event='agent_activity', event_at=NOW)
+        self.assertGreater(self.conn.total_changes, before)
+        self.assertEqual(self.attention.state(uow, 'first')['last_agent_activity_at'], NOW)
+        before = self.conn.total_changes
+        self.assertEqual(clock_advice(uow, 'first', self.attention, NOW,
+                                     event='agent_activity', event_at=NOW), event)
+        self.assertEqual(self.conn.total_changes, before)
+        delivered = clock_advice(uow, 'first', self.attention, NOW,
+                                 event='delivered', delivered_kind='focus')
+        self.assertEqual(delivered['reminder_sequence'], first['reminder_sequence'] + 1)
+        self.assertEqual(self.attention.state(uow, 'first')['focus_due_at'], delivered['focus_due_at'])
+
 
 class TodoReceiptTests(unittest.TestCase):
     def setUp(self):
@@ -197,7 +217,7 @@ class TodoReceiptTests(unittest.TestCase):
         self.addCleanup(self.database.connection.close)
         self.uow = NS(connection=self.database.connection)
         self.ctx = NS(principal_id='owner', principal_kind='owner')
-        self.runtime = NS(application=NS(), focus=NS(inbox=NS()))
+        self.runtime = NS(application=NS(), focus=NS(inbox=NS()), database=self.database)
         self.attention = Attention(self.runtime)
         self.attention.clock = lambda: datetime(2026, 11, 9, 12, tzinfo=timezone.utc)
         self.attention.context = lambda ctx, args, uow: (ctx, 'board')
@@ -243,9 +263,20 @@ class TodoReceiptTests(unittest.TestCase):
         instructions = NS(render=Mock(side_effect=lambda name: name + '\n'))
         self.runtime.resolver = NS(require_agentic_view=lambda: NS(runtime_instructions=lambda: instructions))
         result = self.apply()
-        self.assertIn('attention-board-transition', result['agent_hint'])
-        self.assertIn('attention-next-actor', result['agent_hint'])
+        self.assertNotIn('agent_hint', result)
+        instructions.render.assert_not_called()
+        hint = self.attention.mutation_hint(self.ctx, {'task': self.ref}, 'todo_add')
+        self.assertIn('attention-board-transition', hint)
+        self.assertIn('attention-next-actor', hint)
         self.attention.read.assert_not_called()
+
+    def test_advisory_reads_current_authorized_task_and_skips_owner_calls(self):
+        self.assertIsNone(self.attention.mutation_hint(self.ctx, {}, 'todo_add'))
+        self.ctx = NS(principal_kind='agent', principal_id='board')
+        self.attention.board_task.side_effect = DomainError('forbidden', 'Task no longer available')
+        with self.assertRaises(DomainError):
+            self.attention.mutation_hint(self.ctx, {'task': self.ref}, 'todo_add')
+        # No resolver exists in this fixture: denied task reads precede rendering.
 
 
 if __name__ == '__main__':

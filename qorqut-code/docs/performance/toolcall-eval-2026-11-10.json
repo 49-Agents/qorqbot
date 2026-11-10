@@ -1,0 +1,303 @@
+{
+  "baseline_commit": "b8ff8b7",
+  "date": "2026-11-10",
+  "implementation_commit": "bd2e49b3c33738e585efd39f192bb473183440b7",
+  "method": "Two 11-round runs per revision, ordered baseline/current/current/baseline; warmup excluded. Identical script and synthetic inputs. No production records.",
+  "python": "3.12.3",
+  "recovery_queue": {
+    "after": {
+      "max_wall_ms": 0.044,
+      "median_cpu_ms": 0.03,
+      "median_wall_ms": 0.032,
+      "query_plan": [
+        "SEARCH apply_receipts USING INDEX apply_receipts_recovery (state=? AND signoff_id=?)",
+        "CORRELATED SCALAR SUBQUERY 1",
+        "SEARCH resource_claims USING COVERING INDEX resource_claims_application (apply_id=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ],
+      "result_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "rounds": 11,
+      "work_per_call": {
+        "sqlite_vm_steps": 49
+      }
+    },
+    "before": {
+      "max_wall_ms": 67.159,
+      "median_cpu_ms": 46.564,
+      "median_wall_ms": 51.934,
+      "query_plan": [
+        "SEARCH apply_receipts USING INDEX sqlite_autoindex_apply_receipts_2 (signoff_id=?)",
+        "CORRELATED SCALAR SUBQUERY 1",
+        "SCAN resource_claims",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ],
+      "result_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "rounds": 11,
+      "work_per_call": {
+        "sqlite_vm_steps": 40018
+      }
+    },
+    "fixture": "synthetic settled receipts, empty pending queue; warm OS cache",
+    "plan_bytes": 16384,
+    "receipts": 5000
+  },
+  "rounds_per_case_per_run": 11,
+  "toolcall_runs": [
+    {
+      "result": {
+        "cases": {
+          "browser_health": {
+            "max_wall_ms": 77.416,
+            "median_cpu_ms": 47.369,
+            "median_wall_ms": 56.742,
+            "result_sha256": "3cbc87c7681f34db4617feaa2c8801931bc5e42d8d0f560e756dd4cd92885f18",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 0,
+              "catalog_parses": 0
+            }
+          },
+          "cached_config": {
+            "max_wall_ms": 14.316,
+            "median_cpu_ms": 9.401,
+            "median_wall_ms": 10.996,
+            "result_sha256": "b3cc0475bb78a5026098858e9889acf666d31062d513d303314eca31d36e72f2",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 0,
+              "catalog_parses": 0
+            }
+          },
+          "catalog_snapshot": {
+            "max_wall_ms": 81.89,
+            "median_cpu_ms": 49.309,
+            "median_wall_ms": 60.574,
+            "result_sha256": "3fbba394d2ec0b09b5a87655361b6ca96aa3756e46f26509e173530f329494ac",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 12,
+              "catalog_parses": 0
+            }
+          },
+          "inventory": {
+            "max_wall_ms": 27.075,
+            "median_cpu_ms": 19.282,
+            "median_wall_ms": 22.807,
+            "result_sha256": "06019a67325669288763f30165a19beb2ee49de020d23db85d6b657680d94401",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 6,
+              "catalog_parses": 0
+            }
+          },
+          "runtime_instruction": {
+            "max_wall_ms": 354.285,
+            "median_cpu_ms": 241.763,
+            "median_wall_ms": 279.749,
+            "result_sha256": "765098a55f73c0b30413eb1b4129cc2a0b9e1bb45548216742a0c0637e2972b1",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 18,
+              "catalog_parses": 1
+            }
+          }
+        },
+        "fixture": "bundled instructions; synthetic 400-tool config; no live data",
+        "instruction_files": 228
+      },
+      "revision": "baseline"
+    },
+    {
+      "result": {
+        "cases": {
+          "browser_health": {
+            "max_wall_ms": 4.506,
+            "median_cpu_ms": 1.078,
+            "median_wall_ms": 1.944,
+            "result_sha256": "3cbc87c7681f34db4617feaa2c8801931bc5e42d8d0f560e756dd4cd92885f18",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 0,
+              "catalog_parses": 0
+            }
+          },
+          "cached_config": {
+            "max_wall_ms": 0.012,
+            "median_cpu_ms": 0.003,
+            "median_wall_ms": 0.004,
+            "result_sha256": "b3cc0475bb78a5026098858e9889acf666d31062d513d303314eca31d36e72f2",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 0,
+              "catalog_parses": 0
+            }
+          },
+          "catalog_snapshot": {
+            "max_wall_ms": 59.978,
+            "median_cpu_ms": 36.155,
+            "median_wall_ms": 42.89,
+            "result_sha256": "3fbba394d2ec0b09b5a87655361b6ca96aa3756e46f26509e173530f329494ac",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 12,
+              "catalog_parses": 0
+            }
+          },
+          "inventory": {
+            "max_wall_ms": 24.071,
+            "median_cpu_ms": 13.108,
+            "median_wall_ms": 15.702,
+            "result_sha256": "06019a67325669288763f30165a19beb2ee49de020d23db85d6b657680d94401",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 6,
+              "catalog_parses": 0
+            }
+          },
+          "runtime_instruction": {
+            "max_wall_ms": 66.229,
+            "median_cpu_ms": 33.359,
+            "median_wall_ms": 41.02,
+            "result_sha256": "765098a55f73c0b30413eb1b4129cc2a0b9e1bb45548216742a0c0637e2972b1",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 12,
+              "catalog_parses": 0
+            }
+          }
+        },
+        "fixture": "bundled instructions; synthetic 400-tool config; no live data",
+        "instruction_files": 228
+      },
+      "revision": "current"
+    },
+    {
+      "result": {
+        "cases": {
+          "browser_health": {
+            "max_wall_ms": 6.365,
+            "median_cpu_ms": 0.974,
+            "median_wall_ms": 1.102,
+            "result_sha256": "3cbc87c7681f34db4617feaa2c8801931bc5e42d8d0f560e756dd4cd92885f18",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 0,
+              "catalog_parses": 0
+            }
+          },
+          "cached_config": {
+            "max_wall_ms": 0.011,
+            "median_cpu_ms": 0.003,
+            "median_wall_ms": 0.004,
+            "result_sha256": "b3cc0475bb78a5026098858e9889acf666d31062d513d303314eca31d36e72f2",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 0,
+              "catalog_parses": 0
+            }
+          },
+          "catalog_snapshot": {
+            "max_wall_ms": 49.172,
+            "median_cpu_ms": 34.57,
+            "median_wall_ms": 39.349,
+            "result_sha256": "3fbba394d2ec0b09b5a87655361b6ca96aa3756e46f26509e173530f329494ac",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 12,
+              "catalog_parses": 0
+            }
+          },
+          "inventory": {
+            "max_wall_ms": 21.641,
+            "median_cpu_ms": 14.55,
+            "median_wall_ms": 15.892,
+            "result_sha256": "06019a67325669288763f30165a19beb2ee49de020d23db85d6b657680d94401",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 6,
+              "catalog_parses": 0
+            }
+          },
+          "runtime_instruction": {
+            "max_wall_ms": 55.211,
+            "median_cpu_ms": 33.786,
+            "median_wall_ms": 40.001,
+            "result_sha256": "765098a55f73c0b30413eb1b4129cc2a0b9e1bb45548216742a0c0637e2972b1",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 12,
+              "catalog_parses": 0
+            }
+          }
+        },
+        "fixture": "bundled instructions; synthetic 400-tool config; no live data",
+        "instruction_files": 228
+      },
+      "revision": "current"
+    },
+    {
+      "result": {
+        "cases": {
+          "browser_health": {
+            "max_wall_ms": 100.361,
+            "median_cpu_ms": 45.695,
+            "median_wall_ms": 63.044,
+            "result_sha256": "3cbc87c7681f34db4617feaa2c8801931bc5e42d8d0f560e756dd4cd92885f18",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 0,
+              "catalog_parses": 0
+            }
+          },
+          "cached_config": {
+            "max_wall_ms": 19.451,
+            "median_cpu_ms": 8.489,
+            "median_wall_ms": 9.349,
+            "result_sha256": "b3cc0475bb78a5026098858e9889acf666d31062d513d303314eca31d36e72f2",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 0,
+              "catalog_parses": 0
+            }
+          },
+          "catalog_snapshot": {
+            "max_wall_ms": 105.635,
+            "median_cpu_ms": 49.67,
+            "median_wall_ms": 64.923,
+            "result_sha256": "3fbba394d2ec0b09b5a87655361b6ca96aa3756e46f26509e173530f329494ac",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 12,
+              "catalog_parses": 0
+            }
+          },
+          "inventory": {
+            "max_wall_ms": 38.999,
+            "median_cpu_ms": 19.392,
+            "median_wall_ms": 22.109,
+            "result_sha256": "06019a67325669288763f30165a19beb2ee49de020d23db85d6b657680d94401",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 6,
+              "catalog_parses": 0
+            }
+          },
+          "runtime_instruction": {
+            "max_wall_ms": 349.248,
+            "median_cpu_ms": 241.244,
+            "median_wall_ms": 299.839,
+            "result_sha256": "765098a55f73c0b30413eb1b4129cc2a0b9e1bb45548216742a0c0637e2972b1",
+            "rounds": 11,
+            "work_per_call": {
+              "area_inventories": 18,
+              "catalog_parses": 1
+            }
+          }
+        },
+        "fixture": "bundled instructions; synthetic 400-tool config; no live data",
+        "instruction_files": 228
+      },
+      "revision": "baseline"
+    }
+  ]
+}

@@ -198,6 +198,7 @@ commits are preserved.
 - [Contract index and operating guide](docs/v1.2/README.md)
 - [Background programs](app/qorqut/background/README.md)
 - [MCP batching](docs/MCP-BATCHING.md)
+- [Tool-call latency investigation and evaluation](docs/performance/TOOLCALL-LATENCY-2026-11-10.md)
 - [Plugin authoring](docs/plugin-authoring/README.md)
 - [Agent bug reports: Dev tickets](docs/DEV-TICKETS.md)
 

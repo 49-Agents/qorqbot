@@ -69,6 +69,7 @@ def clock_advice(uow, agent_id, attention, now, *, event=None, event_at=None, de
     """Advance only the shared clock columns; never replace focus or intent."""
     from qorqut.agents.attention_clock import advance
     state = dict(attention.state(uow, agent_id))
+    stored = {key: state.get(key) for key in _CLOCK_FIELDS}
     focus = _focus(state.get('focus_json'))
     episode = _blocked_episode(uow, agent_id, state)
     blocked = episode[1] if episode else None
@@ -84,7 +85,8 @@ def clock_advice(uow, agent_id, attention, now, *, event=None, event_at=None, de
     result = advance(state, now=now, mode=attention.board_mode(uow, agent_id), focused=bool(focus),
         focus_generation=state['focus_generation'], focus_started_at=state.get('focus_started_at'),
         blocked_since=blocked, event=event, event_at=event_at)
-    attention.update_clock(uow, agent_id, {key: result[key] for key in _CLOCK_FIELDS if key in result})
+    attention.update_clock(uow, agent_id, {key: result[key] for key in _CLOCK_FIELDS
+                                         if key in result and result[key] != stored[key]})
     return result
 
 

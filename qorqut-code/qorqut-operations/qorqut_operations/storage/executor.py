@@ -11,6 +11,7 @@ from uuid import UUID, uuid5
 from qorqut_operations.contracts import ChangeSet, DomainError, InvocationOptions, OperationResult, canonical_hash, plain
 from .locks import LockPaths
 from .receipts import ApplyReceipts, IdempotencyReceipts
+from .queue_indexes import RECOVER_PENDING
 
 APPLICATION_NAMESPACE = UUID("6a4d4a51-8fcb-4e49-82f1-e82d788db632")
 
@@ -126,10 +127,7 @@ class PreparedFileExecutor:
             raise ValueError("Recovery batch must contain 1-100 applications")
         with self.database.read() as uow:
             ids = [row[0] for row in uow.connection.execute(
-                "SELECT id FROM apply_receipts WHERE signoff_id IS NULL AND (state IN ('prepared', 'applying') "
-                "OR (state = 'failed' AND json_extract(error_json, '$.retryable') = 1 "
-                "AND EXISTS (SELECT 1 FROM resource_claims WHERE apply_id = apply_receipts.id))) "
-                "ORDER BY created_at, id LIMIT ?", (limit,))]
+                RECOVER_PENDING, (limit,))]
         results = []
         for receipt_id in ids:
             try:

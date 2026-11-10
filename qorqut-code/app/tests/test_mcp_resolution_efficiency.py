@@ -59,6 +59,20 @@ class PreparationTest(unittest.TestCase):
         self.assertEqual(public.to_dict()['preparation'], {'ready': True, 'status': 'prepared'})
         self.assertEqual(resolver.calls, [{'id': 'reg-1'}])
 
+    def test_ordinary_resolution_reuses_immutable_value_without_diagnostic_state(self):
+        resolver = self.resolver()
+        first = resolver._resolve_agent_config(object(), include_preparation=False)
+        resolver._resolve_agent_config(object())  # diagnostics cannot contaminate the cache
+        second = resolver._resolve_agent_config(object(), include_preparation=False)
+        self.assertIs(first, second)
+        self.assertEqual(second.data['preparation'], {})
+        self.assertIsNone(second.data['delivery'])
+        with self.assertRaises(TypeError):
+            second.data['scope']['business_id'] = OUTSIDE
+        exported = second.to_dict()
+        exported['scope']['allowed_business_ids'].clear()
+        self.assertEqual(second.data['scope']['allowed_business_ids'], (BUSINESS, REVIEW))
+
     def test_the_outer_resolution_passes_the_keyword_through(self):
         resolver = self.resolver()
         entered = []
