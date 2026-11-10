@@ -22,11 +22,13 @@
 @media (prefers-reduced-motion: reduce) { .chat-view .gchat-copy { transition: none; } }
 .gchat-user { align-self: flex-end; align-items: flex-end; }
 .gchat-agent { align-self: flex-start; }
+.gchat-msg.gchat-agent { max-width: min(760px, 100%); }
 .gchat-notice { align-self: center; align-items: center; max-width: 80%; font-size: 12px; color: var(--fg-2); }
 .gchat-body { font-size: 13.25px; padding: 12px 18px; border: 1px solid var(--line-2); border-radius: 24px; overflow-wrap: anywhere; line-height: 1.5; }
 .gchat-user .gchat-body { background: #126bd4; color: #fff; white-space: pre-wrap; line-height: 1.65; }
 .gchat-user .gchat-body, .gchat-agent .gchat-body { border: 0; }
-.gchat-agent .gchat-body { background: color-mix(in srgb, var(--fg, #f7f7f7) 7%, var(--bg, #090909)); text-align: left; line-height: 1.65; }
+/* Agent prose sits directly on the page; user bubbles and embedded reference cards keep their own surfaces. */
+.gchat-agent > .gchat-body, .gchat-agent > .gchat-bubble-row > .gchat-body { padding: 4px 0; border: 0; border-radius: 0; background: none; text-align: left; line-height: 1.65; }
 .gchat-recorded-by-agent .gchat-body { background: color-mix(in srgb, var(--fg, #f7f7f7) 7%, var(--bg, #090909)); color: inherit; text-align: left; white-space: normal; }
 .gchat-notice .gchat-body { padding: 2px 10px; border: 0; border-radius: 0; background: none; font-size: 12px; line-height: 1.45; text-align: center; white-space: pre-wrap; }
 /* Optional sender label and title: the same primitives for every conversation, never a second message style. */
