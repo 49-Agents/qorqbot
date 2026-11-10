@@ -24,6 +24,9 @@ from .usage import Usage, TOKEN_FIELDS, count_ok
 USAGE_METHOD = "thread/tokenUsage/updated"
 
 
+SERVICE_TIERS = ("default", "priority", "ultrafast")
+
+
 class RunnerError(ContextError):
     pass
 
@@ -45,8 +48,8 @@ class RunnerConfig:
     stderr_bytes: int = 64 * 1024
 
     def __post_init__(self):
-        if self.service_tier != "default":
-            raise ContextError("Propagation uses the default service tier; fast/priority is disabled")
+        if self.service_tier not in SERVICE_TIERS:
+            raise ContextError("Invalid explicit runner service tier")
         if (not isinstance(self.model, str) or not self.model or
                 not isinstance(self.executable, str) or not self.executable or
                 self.effort not in ("none", "minimal", "low", "medium", "high", "xhigh", "max")):
@@ -421,7 +424,7 @@ class AppServerRunner:
             thread_id = response["thread"]["id"]
             identity(thread_id=thread_id, cli_version=response["thread"]["cliVersion"],
                      model_provider=response["modelProvider"], observed_model=response.get("model"),
-                     requested_service_tier="default", observed_service_tier=response.get("serviceTier"))
+                     requested_service_tier=config.service_tier, observed_service_tier=response.get("serviceTier"))
             log.write({"type": "thread_settings", **{key: response.get(key) for key in (
                 "model", "modelProvider", "reasoningEffort", "serviceTier", "approvalPolicy", "sandbox")},
                 "instruction_sources": response.get("instructionSources", []),
@@ -435,7 +438,8 @@ class AppServerRunner:
                     raise RunnerError("App-server loaded instructions outside its global configuration home")
                 instruction_sources.append({"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
             if (response.get("model") != config.model or response.get("reasoningEffort") != config.effort or
-                    response.get("serviceTier") not in (None, "default") or
+                    response.get("serviceTier") not in ((None, "default") if config.service_tier == "default"
+                                                       else (config.service_tier,)) or
                     response.get("approvalPolicy") != "never" or response.get("sandbox", {}).get("type") != "readOnly" or
                     response.get("sandbox", {}).get("networkAccess", False) or
                     not response["thread"].get("ephemeral")):
@@ -475,12 +479,12 @@ class AppServerRunner:
                 raise RunnerError("Unrelated MCP capabilities remain available in the model thread")
             identity(thread_id=thread_id, cli_version=response["thread"]["cliVersion"],
                      model_provider=response["modelProvider"], instruction_sources=instruction_sources,
-                     requested_service_tier="default", observed_service_tier=response.get("serviceTier"),
+                     requested_service_tier=config.service_tier, observed_service_tier=response.get("serviceTier"),
                      verified_feature_state={name: feature_state[name]["enabled"] for name in expected},
                      mcp_inventory_count=len(mcp_state), mcp_tool_count=0)
             response = request("turn/start", {"threadId": thread_id, "model": config.model,
                 "effort": config.effort, "serviceTier": config.service_tier,
-                "serviceTierForTurn": "default", "environments": [],
+                "serviceTierForTurn": config.service_tier, "environments": [],
                 "input": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False), "text_elements": []}],
                 **({"outputSchema": output_schema} if output_schema is not None else {})})
             turn_id = response["turn"]["id"]

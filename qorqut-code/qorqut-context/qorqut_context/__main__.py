@@ -10,7 +10,7 @@ import sys
 from .engine import Context
 from .input_modes import collection_page
 from .pipeline import Pipeline, PropagationError
-from .runner import RunnerConfig
+from .runner import RunnerConfig, SERVICE_TIERS
 from .schema import ContextError
 from .tools import page, text_page
 
@@ -63,6 +63,7 @@ def parser():
     for command in (submit, action_submit, retry):
         command.add_argument("--model", default="gpt-6-astra")
         command.add_argument("--effort", default="max", choices=("none", "minimal", "low", "medium", "high", "xhigh", "max"))
+        command.add_argument("--service-tier", default="default", choices=SERVICE_TIERS)
         command.add_argument("--codex", default="codex", help="Installed Codex executable")
         for field in fields(RunnerConfig):
             if field.name not in ("executable", "model", "effort", "service_tier"):
@@ -140,7 +141,7 @@ def execute(args):
         return {"status": "initialized", "revision": context.git.head(), "repository": str(context.root), "runtime": str(context.runtime)}
     context = Context(args.repo, args.runtime)
     if args.command in ("submit", "submit-action", "retry"):
-        config = RunnerConfig(executable=args.codex, model=args.model, effort=args.effort,
+        config = RunnerConfig(executable=args.codex, model=args.model, effort=args.effort, service_tier=args.service_tier,
             **{field.name: getattr(args, field.name) for field in fields(RunnerConfig)
                if field.name not in ("executable", "model", "effort", "service_tier")})
         pipeline = Pipeline(context, config=config,
