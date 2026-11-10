@@ -78,19 +78,27 @@ async function refresh(page) {
   await page.evaluate(async()=>{p.attentionAgents.retryAt=0;await attentionAgentsRefresh(p);});
 }
 
-browserTest('only nonempty active agent boards appear, with recorded focus and intent',async()=>{
+browserTest('Ordubashy stays first while only focused workers appear, including focus without Todo memberships',async()=>{
   const {browser,page,errors}=await fixture();
   try {
-    assert.deepEqual(await agentIds(page),['ord','atlas','lens']);
+    assert.deepEqual(await agentIds(page),['ord','atlas','cedar']);
     assert.equal(await page.locator('[data-attention-agent=atlas] .attention-agent-intent').textContent(),'Verify the sources <img src=x onerror=alert(1)>.');
     assert.equal(await page.locator('[data-attention-agent] img').count(),0);
-    assert.equal(await page.locator('[data-attention-agent=lens] .attention-agent-focus').textContent(),'No focus set');
+    assert.equal(await page.locator('[data-attention-agent=lens]').count(),0);
     assert.equal(await page.locator('.attention-queue').count(),0);
     assert.equal(await page.evaluate(()=>calls.some(call=>['learning','retired'].includes(call.args.agent_id))),false);
     assert.equal(await page.evaluate(()=>calls.some(call=>!call.url.endsWith('/todo_get'))),false);
-    await page.evaluate(()=>{boards.cedar.items=[item('new','New task')];boards.lens.items=[];});
+    await page.evaluate(()=>{
+      boards.ord.items=[];boards.ord.attention={state:'unfocused'};p.attentionCaches.get('ord').at=0;
+      boards.atlas.attention={state:'unfocused'};
+      boards.lens.attention={state:'focused',focus:{label:'Review queued work'},intent:'Check the next task.'};
+    });
     await refresh(page);
-    assert.deepEqual(await agentIds(page),['ord','atlas','cedar']);
+    assert.deepEqual(await agentIds(page),['ord','cedar','lens']);
+    assert.equal(await page.locator('[data-attention-agent=ord] .attention-agent-focus').textContent(),'No focus set');
+    await page.evaluate(()=>{boards.cedar.attention={state:'focused',focus:{unavailable:true}};boards.lens.attention={state:'unfocused'};});
+    await refresh(page);
+    assert.deepEqual(await agentIds(page),['ord']);
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });
@@ -160,7 +168,7 @@ browserTest('refresh failures stay distinct from empty boards; access loss clear
   try {
     await page.evaluate(()=>{readOverride=args=>{if(args.agent_id==='atlas')throw Error('Offline');};});
     await refresh(page);
-    assert.deepEqual(await agentIds(page),['ord','atlas','lens']);
+    assert.deepEqual(await agentIds(page),['ord','atlas','cedar']);
     assert.equal(await page.locator('[data-attention-agent=atlas] .attention-agent-stale').textContent(),'Couldn’t refresh');
     await page.evaluate(()=>{readOverride=null;});
     await select(page,'atlas');
@@ -188,7 +196,7 @@ browserTest('narrow panes support keyboard selection, the owner filter and full 
     await page.locator('.attention-owner-toggle').click();
     assert.deepEqual(await titles(page),[]);
     assert.match(await page.locator('[data-attention-list]').textContent(),/No tasks for this filter/);
-    assert.deepEqual(await agentIds(page),['ord','atlas','lens']);
+    assert.deepEqual(await agentIds(page),['ord','atlas','cedar']);
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });
