@@ -14,6 +14,12 @@ from qorqut.instance_paths import SEGMENT, InstancePathError, InstancePaths
 
 from .catalog import catalog
 
+# The least time between two automatic snapshots, and the periodic scan for file changes. Every committed write is a
+# hint, and the service commits bookkeeping every second, so this is in practice how often a snapshot runs. A snapshot
+# reads every exported row; one a minute was a steady share of the service's processor time for a history whose
+# intermediate edits are allowed to coalesce.
+SNAPSHOT_SECONDS = 300.0
+
 
 def registered_areas(uow):
     areas = [GlobalFiles()]
@@ -82,7 +88,7 @@ def history_for(database, paths, extensions=()):
 
 def bind(runtime):
     runtime.history = history_for(runtime.database, runtime.paths, runtime.selection.history())
-    runtime.history_observer = HistoryObserver(runtime.history.snapshot)
+    runtime.history_observer = HistoryObserver(runtime.history.snapshot, interval=SNAPSHOT_SECONDS)
     runtime.changes.add_commit_listener(runtime.history_observer.notify_commit)
 
 

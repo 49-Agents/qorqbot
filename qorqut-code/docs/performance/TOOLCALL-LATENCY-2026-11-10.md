@@ -245,6 +245,24 @@ Omit `--extensions-config` only for an instance with no selected extensions.
 The recognized predecessor is the base composition plus those extensions;
 earlier schema transitions must already be complete.
 
+That last condition blocks a store that is more than one transform behind: a
+store that also lacks the Signoff source links matches neither this command's
+predecessor nor that of `qorqut.migration.signoff_sources`, so neither runs.
+`qorqut.migration.upgrade` applies every pending additive transform in release
+order, in one transaction, and is the command to use for an existing instance:
+
+```sh
+python -m qorqut.migration.upgrade inspect --instance-root /path/to/instance --extensions-config /path/to/selected-extensions.json
+python -m qorqut.migration.upgrade apply --instance-root /path/to/instance --extensions-config /path/to/selected-extensions.json
+python -m qorqut.migration.upgrade revert --to base --instance-root /path/to/instance --extensions-config /path/to/selected-extensions.json
+```
+
+`inspect` reports the state the store is at (`base`, `signoff_sources` or
+`queue_indexes`), what is applied and what is pending. `revert --to STATE`
+walks back to that state. It refuses to remove the Signoff source links table
+while it holds rows unless `--discard-rows` is given, because those rows exist
+nowhere else. A store that matches no state of the chain is refused unchanged.
+
 The gate works in both directions: this release refuses a store without the
 indexes, and an earlier release refuses a store that has them. `revert`, with
 the same arguments and ownership requirement as `apply`, drops the three

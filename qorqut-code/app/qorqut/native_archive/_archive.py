@@ -26,6 +26,7 @@ from typing import Callable
 from qorqut import file_identity
 
 from . import _files, _format as fmt, _providers, _relocation
+from ._proven import PROOFS
 from ._types import (
     CaptureBinding, CaptureError, CaptureReceipt, FinalCaptureEvidence, IndexEntry, MAX_ENCODED_CONVERSATION,
     RawRange, RawRecord, REASON_PARTIAL_TAIL, REASON_UNSTABLE, absolute_path, encode_component,
@@ -489,26 +490,56 @@ class TranscriptArchive:
             except FileNotFoundError:
                 raise _fail("archive_integrity", "The archive payload is missing") from None
             stack.callback(os.close, fd)
-            self._stream(fd, receipt.length, [(receipt.length, receipt.prefix_sha256)])
+            self._stream(fd, receipt.length, [(receipt.length, receipt.prefix_sha256)], lineage=lineage.archive_id)
         return fd
 
     # --------------------------------------------------------------- streaming verification
 
-    def _stream(self, fd: int, total: int, checkpoints, source: int | None = None):
+    def _stream(self, fd: int, total: int, checkpoints, source: int | None = None, *, lineage: str | None = None,
+                fresh: bool = False):
         """Hash ``fd[0:total]`` in bounded chunks, checking each ``(length, digest)`` checkpoint on the way.
 
         With ``source`` the bytes are also compared with the source's; the second result is the
         length of the common prefix (``total`` when they agree throughout). The hash state is
         returned so a caller can continue it; after a divergence only the checkpoints are still
         hashed, so the state is then not usable beyond them.
+
+        ``lineage`` names the payload this is, which lets the pass continue from what this process
+        already proved about that file (see ``_proven``) instead of hashing it from byte zero: the
+        proven bytes are then read only when there is a source to compare them with. ``fresh``
+        verifies from byte zero regardless and renews the proof. A pass that only confirms a prefix
+        shorter than the proven one has no state to hand on and returns ``None`` in its place.
         """
         expected: dict[int, str] = {}
         for length, digest in checkpoints:
             if expected.setdefault(length, digest) != digest:
                 raise _fail("archive_integrity", "Receipts disagree about the digest of one prefix length")
-        hasher = hashlib.sha256()
-        position, diverged = 0, None
+        key = proof = identity = None
+        if lineage is not None and fd != NO_FILE:
+            info = os.fstat(fd)
+            key, identity = (self._root, lineage), (info.st_dev, info.st_ino)
+            if not fresh:
+                proof = PROOFS.resume(key, identity, info.st_size)
+            if proof is not None and (
+                    (proof.length > total and source is not None)
+                    or any(proof.marks.get(length) != digest for length, digest in expected.items() if length <= proof.length)):
+                # A digest this process never computed at that length, or one that disagrees with it:
+                # only a pass from byte zero can decide.
+                proof = None
+        try:
+            return self._stream_from(fd, total, expected, source, key, identity, proof)
+        except CaptureError:
+            if key is not None:
+                PROOFS.forget(key)
+            raise
+
+    @staticmethod
+    def _stream_from(fd: int, total: int, expected: dict, source: int | None, key, identity, proof):
+        proven = proof.length if proof is not None else 0
+        hasher = proof.hasher if proof is not None else hashlib.sha256()
+        position, diverged = (0 if source is not None else min(proven, total)), None
         last_checkpoint = max(expected, default=0)
+        marks: dict[int, str] = {}
         for stop in sorted({*expected, total}):
             if stop > total:
                 raise _fail("archive_integrity", "A receipt extends beyond the stored bytes")
@@ -516,17 +547,26 @@ class TranscriptArchive:
                 if diverged is not None and position >= last_checkpoint:
                     return hasher, diverged
                 size = min(CHUNK, stop - position)
+                if position < proven:
+                    size = min(size, proven - position)      # the proven bytes end exactly where hashing resumes
                 data = _files.pread_full(fd, size, position)
                 if len(data) != size:
                     raise _fail("archive_integrity", "The stored bytes are shorter than their receipts")
-                hasher.update(data)
+                if position >= proven:
+                    hasher.update(data)
                 if source is not None and diverged is None:
                     other = _files.pread_full(source, size, position)
                     if other != data:
                         diverged = position + _common_prefix(data, other)
                 position += size
-            if stop in expected and hasher.hexdigest() != expected[stop]:
-                raise _fail("archive_integrity", f"The stored bytes do not match the receipt digest at {stop}")
+            if stop > proven or proof is None:
+                marks[stop] = hasher.hexdigest()
+                if stop in expected and marks[stop] != expected[stop]:
+                    raise _fail("archive_integrity", f"The stored bytes do not match the receipt digest at {stop}")
+        if total < proven:
+            return None, total
+        if key is not None:
+            PROOFS.record(key, identity, total, hasher, marks, continued=proof)
         return hasher, total if diverged is None else diverged
 
     # ------------------------------------------------------------------- state and recovery
@@ -685,7 +725,10 @@ class TranscriptArchive:
             # Stream-verify the committed prefix (and any uncommitted tail) against its digests and
             # against the exact source prefix, in one bounded-memory pass.
             checkpoints = [(r.length, r.prefix_sha256) for r in (state.chain or ([state.pointer] if state.pointer else []))]
-            hasher, agreed = self._stream(payload, payload_size, checkpoints, source.fd)
+            # The digests of bytes this process has already proven are not computed again; the comparison
+            # with the source still covers every byte, and a final capture verifies from byte zero.
+            hasher, agreed = self._stream(payload, payload_size, checkpoints, source.fd, lineage=lineage.archive_id,
+                                          fresh=final is not None)
             if agreed < committed:
                 if first.st_size < committed:
                     raise _fail("source_shrunk", "The transcript source is shorter than the archived prefix")

@@ -10,6 +10,12 @@
    projector and closed schema, and rows are sorted by their stable key.
 
 The result is deterministic: no timestamp, path or process-dependent value enters the manifest or any row.
+
+Checking, freezing and later serializing every row is most of what an export costs, and between two exports most
+tables have not changed. Each table therefore carries a ``fingerprint``: a digest of its selected rows exactly as they
+were read. A caller that still holds the result of an earlier export passes those fingerprints to ``export``; a table
+whose rows have the same fingerprint is reported in ``unchanged`` with its row count and is not checked again. The rows
+are still read, in the same unit, so the decision is made from the data itself and never from a hint.
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 import hashlib
+import marshal
 import sqlite3
 from types import MappingProxyType
 from typing import Any
@@ -30,6 +37,7 @@ from .fields import FieldValueError
 
 FORMAT = "qorqut-operations-history-export"
 VERSION = 1
+FINGERPRINT_ROWS = 2000
 
 
 @dataclass(frozen=True)
@@ -56,14 +64,29 @@ class ExportedTable:
     key: tuple[str, ...]
     shard_hex: int
     rows: tuple[Mapping[str, Any], ...]
+    fingerprint: str | None = None
 
     def shard_of(self, row: Mapping[str, Any]) -> str | None:
         return shard_id(tuple(row[name] for name in self.key), self.shard_hex)
 
 
 @dataclass(frozen=True)
+class UnchangedTable:
+    """A table whose selected rows are exactly those of the earlier export the caller named. It was read and
+    fingerprinted in this export's unit but not checked again; its rows are the ones the caller already holds."""
+
+    table: str
+    owner: str
+    rows: int
+    fingerprint: str
+
+
+@dataclass(frozen=True)
 class HistoryExport:
-    """One consistent export: sorted tables, the coverage manifest and whether every actual table is classified."""
+    """One consistent export: sorted tables, the coverage manifest and whether every actual table is classified.
+
+    ``tables`` holds every table that was checked in this export. ``unchanged`` holds the ones the caller already has
+    (see ``ExportCatalog.export``); it is empty unless the caller named earlier fingerprints."""
 
     format: str
     version: int
@@ -72,9 +95,12 @@ class HistoryExport:
     manifest: Mapping[str, Any]
     missing: tuple[str, ...]
     coverage_complete: bool
+    unchanged: Mapping[str, UnchangedTable] = field(default_factory=lambda: MappingProxyType({}))
 
     def counts(self) -> dict[str, int]:
-        return {name: len(table.rows) for name, table in self.tables.items()}
+        counts = {name: len(table.rows) for name, table in self.tables.items()}
+        counts.update({name: table.rows for name, table in self.unchanged.items()})
+        return dict(sorted(counts.items()))
 
     def manifest_bytes(self) -> bytes:
         return canonical_bytes(self.manifest)
@@ -122,8 +148,12 @@ class ExportCatalog:
 
     # -- export ----------------------------------------------------------------------------------------------
 
-    def export(self, uow: Any) -> HistoryExport:
-        """Export every declared table from the one read-only ``uow`` and report coverage. Does no filesystem work."""
+    def export(self, uow: Any, held: Mapping[str, str] | None = None) -> HistoryExport:
+        """Export every declared table from the one read-only ``uow`` and report coverage. Does no filesystem work.
+
+        ``held`` maps a table to the fingerprint of an earlier export of it, made by this catalog, whose result the
+        caller still has. Such a table is read like any other; when its rows have that fingerprint it is returned in
+        ``unchanged`` instead of ``tables``."""
         if getattr(uow, "writable", None) is not False or not hasattr(uow, "connection"):
             raise HistoryExportError("history_export_read_only", "History export requires an existing read-only unit")
         target = _identity(uow)
@@ -141,11 +171,17 @@ class ExportCatalog:
                     f"Export of {table} names columns the schema lacks: {', '.join(absent[:8])}")
         missing = tuple(name for name in actual if name not in self.exports and name not in self.classifications)
 
-        tables = {table: self._table(uow, owner, export) for table, (owner, export) in self.exports.items()}
-        manifest = self._manifest(target, tables, columns, missing)
-        return HistoryExport(FORMAT, VERSION, target, MappingProxyType(tables), manifest, missing, not missing)
+        tables, unchanged = {}, {}
+        for table, (owner, export) in self.exports.items():
+            result = self._table(uow, owner, export, (held or {}).get(table))
+            (unchanged if isinstance(result, UnchangedTable) else tables)[table] = result
+        counts = {name: len(table.rows) for name, table in tables.items()}
+        counts.update({name: table.rows for name, table in unchanged.items()})
+        manifest = self._manifest(target, counts, columns, missing)
+        return HistoryExport(FORMAT, VERSION, target, MappingProxyType(tables), manifest, missing, not missing,
+                             MappingProxyType(unchanged))
 
-    def _table(self, uow: Any, owner: str, export: TableExport) -> ExportedTable:
+    def _table(self, uow: Any, owner: str, export: TableExport, held: str | None = None) -> ExportedTable | UnchangedTable:
         name = export.table
         request = RowRequest(name, export.source_columns)
         try:
@@ -161,6 +197,9 @@ class ExportCatalog:
         except Exception as error:
             raise HistoryExportError("history_export_failed", f"Reading the rows failed ({type(error).__name__})",
                                      table=name) from error
+        fingerprint = _fingerprint(source)
+        if fingerprint is not None and fingerprint == held:
+            return UnchangedTable(name, owner, len(source), fingerprint)
         rows = [self._row(export, row) for row in source]
         # A nullable owning business is the distinct Global scope. Keep that
         # value, and order it before real business IDs without comparing None
@@ -170,7 +209,7 @@ class ExportCatalog:
         if len(set(keys)) != len(keys):
             raise HistoryExportError("history_export_invalid", "The declared stable key is not unique", table=name)
         return ExportedTable(name, owner, tuple(sorted((*export.columns, *export.structured))), export.key,
-                             export.shard_hex, tuple(freeze(row) for row in rows))
+                             export.shard_hex, tuple(freeze(row) for row in rows), fingerprint)
 
     @staticmethod
     def _row(export: TableExport, source: Any) -> dict[str, Any]:
@@ -206,14 +245,14 @@ class ExportCatalog:
                                          table=name, field=column) from None
         return row
 
-    def _manifest(self, target: SchemaIdentity, tables: Mapping[str, ExportedTable],
+    def _manifest(self, target: SchemaIdentity, counts: Mapping[str, int],
                   columns: Mapping[str, tuple[str, ...]], missing: tuple[str, ...]) -> Mapping[str, Any]:
         exported = {}
         for name, (owner, export) in self.exports.items():
             exported[name] = {
                 "classification": EXPORTED,
                 "owner": owner,
-                "rows": len(tables[name].rows),
+                "rows": counts[name],
                 "columns": {column: kind.describe() for column, kind in sorted(export.columns.items())},
                 "structured": {column: projection.schema.describe()
                                for column, projection in sorted(export.structured.items())},
@@ -236,6 +275,22 @@ class ExportCatalog:
             "tables": exported,
             "exclusions": excluded,
         }))
+
+
+def _fingerprint(source: list) -> str | None:
+    """A digest of the selected rows exactly as read: every value with its type, the column order and the row order.
+
+    Two selections with the same fingerprint are the same input to the checks and projections, which are pure, so
+    they export the same rows. Anything else only costs a fresh export: a different row order gives a different
+    fingerprint, and rows holding a value this cannot encode have none (``None``) and are never treated as unchanged.
+    The encoding is ``marshal`` version 2, which writes each value by its type and content alone."""
+    digest = hashlib.sha256(b"rows:%d\n" % len(source))
+    try:
+        for start in range(0, len(source), FINGERPRINT_ROWS):
+            digest.update(marshal.dumps(source[start:start + FINGERPRINT_ROWS], 2))
+    except ValueError:
+        return None
+    return digest.hexdigest()
 
 
 def _identity(uow: Any) -> SchemaIdentity:
