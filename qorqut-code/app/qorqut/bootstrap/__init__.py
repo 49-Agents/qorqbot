@@ -1,5 +1,5 @@
-"""Project preparation and small Claude hook/header adapters, never a runner."""
+"""Project preparation and native hooks.
 
-from .preparation import prepare_agent, prepare_claude_agent, compatibility_report
-
-__all__ = ["prepare_agent", "prepare_claude_agent", "compatibility_report"]
+Keep package imports light: activity hooks run for every native tool call.
+Preparation consumers import :mod:`qorqut.bootstrap.preparation` explicitly.
+"""

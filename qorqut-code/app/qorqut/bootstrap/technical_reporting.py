@@ -1,8 +1,8 @@
 """Durable, bounded reporting from prepared agent hooks.
 
 This module intentionally has no service or application imports.  Hooks can
-record a small observation when the service is down and replay it later using
-the same scoped credential.  Reporting failures are always swallowed by the
+record a small observation when the service is down. The host supervisor replays
+it later using the same scoped credential. Reporting failures are swallowed by the
 caller and never recurse into another observation.
 
 ``python technical_reporting.py --registration .qorqut/registration.json``
@@ -599,7 +599,7 @@ def replay(client, registration: dict, *, limit=MAX_REPLAY) -> int:
                 break
         except Exception as exc:
             # Includes malformed service responses and network failures.  The
-            # original record stays durable for the next prepared hook.
+            # original record stays durable for the next background pass.
             reason = _permanent_rejection(exc)
             if reason is None:
                 broke = True
@@ -637,7 +637,7 @@ def replay(client, registration: dict, *, limit=MAX_REPLAY) -> int:
 
 
 def replay_http(registration: dict, *, limit=MAX_REPLAY) -> int:
-    """Stdlib-only replay port for the standalone activity hook."""
+    """Stdlib-only replay port used by the host supervisor."""
     try:
         from urllib.request import HTTPRedirectHandler, Request, build_opener
         from urllib.parse import urlsplit

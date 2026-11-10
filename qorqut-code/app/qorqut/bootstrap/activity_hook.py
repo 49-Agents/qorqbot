@@ -1,10 +1,11 @@
 """Standalone observation hook. Record locally; never invoke a model.
 
-Preparation executes this file by path, avoiding the heavyweight package bootstrap.
+The installed helper runs this module without importing project preparation.
 Linux uses the standard library; macOS uses the installed process helper and psutil.
 The shared service samples these small files once per minute.
 """
 import argparse
+from contextlib import contextmanager
 import fcntl
 import json
 import os
@@ -18,6 +19,10 @@ from urllib.error import HTTPError
 
 PROC_ROOT = Path('/proc')
 CONNECTOR_TIMEOUT = 20
+# Leave room within the native three-second timeout for process startup, local
+# recording, output, and a durable receipt. All attention requests share this.
+ATTENTION_SECONDS = 2.0
+OUTPUT_RESERVE = .1
 PHASES = {'SessionStart':'idle','UserPromptSubmit':'running','PreToolUse':'running',
     'PostToolUse':'running','PostToolUseFailure':'running','PermissionRequest':'idle',
     'Stop':'idle','Interrupt':'idle','SessionEnd':'offline'}
@@ -286,6 +291,23 @@ def checkpoint_post(registration, body, *, route='/api/agent/checkpoint', timeou
     return result
 
 
+@contextmanager
+def activity_lock(path):
+    lock = path.with_suffix('.lock')
+    if not safe_path(lock):
+        raise ValueError('unsafe activity lock')
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def read_activity(path):
+    return json.loads(path.read_text()) if safe_path(path) and path.is_file() and path.stat().st_size <= 8192 else {}
+
+
 def checkpoint_stop(hook, registration, path, value, *, post=checkpoint_post, focus_only=False):
     state = value.get('checkpoint', {})
     if (state.get('protocol') != 1 or state.get('turn_id') != hook.get('turn_id')
@@ -295,20 +317,23 @@ def checkpoint_stop(hook, registration, path, value, *, post=checkpoint_post, fo
         # Separate from the frequently replaced observation. Later action hooks
         # must never replace a durable spent receipt with a non-durable file.
         receipt_path = path.with_suffix('.checkpoint.json')
-        receipt = checkpoint_receipt(receipt_path)
-        spent = receipt.get('root_turn_id') == state['root_turn_id']
-        allow = not (spent or state.get('spent') or hook['stop_hook_active'])
-        state['spent'] = True
-        state['checked_at'] = time.time()
-        receipt = {'registration_id':registration['registration_id'],
-                   'session_id':hook['session_id'], 'root_turn_id':state['root_turn_id'],
-                   'turn_id':hook['turn_id'], 'claim_id':receipt.get('claim_id') if spent else str(uuid.uuid4()),
-                   'continuation':receipt.get('continuation') if spent else None,
-                   'continuation_sha256':receipt.get('continuation_sha256') if spent else None}
-        # Spend locally before the shared atomic episode claim; fail quiet if
-        # either durability step is unavailable.
-        write_state(receipt_path,receipt,durable=True)
-        write_state(path,value)
+        with activity_lock(path):
+            if read_activity(path).get('sequence') != value['sequence']:
+                return {}  # A later hook has already continued the session.
+            receipt = checkpoint_receipt(receipt_path)
+            spent = receipt.get('root_turn_id') == state['root_turn_id']
+            allow = not (spent or state.get('spent') or hook['stop_hook_active'])
+            state['spent'] = True
+            state['checked_at'] = time.time()
+            receipt = {'registration_id':registration['registration_id'],
+                       'session_id':hook['session_id'], 'root_turn_id':state['root_turn_id'],
+                       'turn_id':hook['turn_id'], 'claim_id':receipt.get('claim_id') if spent else str(uuid.uuid4()),
+                       'continuation':receipt.get('continuation') if spent else None,
+                       'continuation_sha256':receipt.get('continuation_sha256') if spent else None}
+            # Spend locally before the shared atomic episode claim; no network
+            # wait holds this lock or prevents a later activity observation.
+            write_state(receipt_path,receipt,durable=True)
+            write_state(path,value)
         binding_fields = {}
         try:
             binding = json.loads(Path(registration['workspace']).joinpath('.qorqut/session-binding.json').read_text())
@@ -323,14 +348,13 @@ def checkpoint_stop(hook, registration, path, value, *, post=checkpoint_post, fo
             **({'focus_only':True} if focus_only else {})})
         try:
             try:
-                from qorqut.bootstrap.technical_reporting import active, record, replay_http
+                from qorqut.bootstrap.technical_reporting import active, record
             except ImportError:
                 sys.path.insert(0, str(Path(__file__).resolve().parent))
-                from technical_reporting import active, record, replay_http
+                from technical_reporting import active, record
             if active(registration, 'activity_hook', 'checkpoint', hook['session_id']):
                 record(registration, hook['session_id'], 'activity_hook', 'checkpoint', 'success',
                       call_site='activity_hook.checkpoint', recovered=True)
-            replay_http(registration)
         except Exception:
             pass
         state['state'] = result.get('state','checked')
@@ -357,23 +381,29 @@ def checkpoint_stop(hook, registration, path, value, *, post=checkpoint_post, fo
                 receipt['continuation_sha256']=state['continuation_sha256']
             else:
                 state['continuation']=receipt['continuation']=reason
-            write_state(receipt_path,receipt,durable=True)
+            with activity_lock(path):
+                if read_activity(path).get('sequence') != value['sequence']:
+                    return {}  # Do not publish a stale correction or overwrite new activity.
+                write_state(receipt_path,receipt,durable=True)
+                write_state(path,value)
             return {'decision':'block','reason':reason}
     except (OSError,ValueError,TypeError,KeyError) as error:
         state['state'] = 'unavailable'
         try:
             try:
-                from qorqut.bootstrap.technical_reporting import record, replay_http
+                from qorqut.bootstrap.technical_reporting import record
             except ImportError:
                 sys.path.insert(0, str(Path(__file__).resolve().parent))
-                from technical_reporting import record, replay_http
+                from technical_reporting import record
             code = getattr(error, 'code', 'checkpoint_unavailable')
             record(registration, hook.get('session_id'), 'activity_hook', 'checkpoint',
                    code, call_site='activity_hook.checkpoint',
                    retryable=code not in _EXPECTED_CHECKPOINT, terminal=True)
-            replay_http(registration)
         except Exception:
             pass
+    with activity_lock(path):
+        if read_activity(path).get('sequence') == value['sequence']:
+            write_state(path,value)
     return {}
 
 
@@ -390,7 +420,7 @@ def checkpoint_receipt(path):
     return receipt
 
 
-def emit_attention(hook, registration_path, runtime, output, stream):
+def emit_attention(hook, registration_path, runtime, output, stream, *, deadline=None):
     """Compose a reminder with the complete existing hook response, best effort."""
     def plain():
         stream.write(json.dumps(output, separators=(',', ':')) + '\n')
@@ -399,6 +429,8 @@ def emit_attention(hook, registration_path, runtime, output, stream):
     if (hook.get('hook_event_name') not in {'PostToolUse', 'PostToolUseFailure'}
             or hook.get('agent_id') or hook.get('parent_session_id')):
         return plain()
+    if deadline is None:
+        deadline = time.monotonic() + ATTENTION_SECONDS
     try:
         registration = json.loads(registration_path.read_text())
         session = str(uuid.UUID(hook['session_id']))
@@ -406,10 +438,14 @@ def emit_attention(hook, registration_path, runtime, output, stream):
             return plain()
         base = {'registration_id': registration['registration_id'], 'session_id': session}
         def post(action, claim=None):
+            remaining = deadline - time.monotonic() - OUTPUT_RESERVE
+            if remaining <= 0:
+                raise TimeoutError('attention hook budget exhausted')
             body = {**base, 'action': action}
             if claim is not None:
                 body['claim'] = claim
-            return checkpoint_post(registration, body, route='/api/agent/attention-hook', timeout=1)['result']
+            return checkpoint_post(registration, body, route='/api/agent/attention-hook',
+                                   timeout=min(1, remaining))['result']
         claim = post('claim')
         if not isinstance(claim, dict) or not isinstance(claim.get('text'), str):
             return plain()
@@ -476,11 +512,8 @@ def record(hook, registration_path, runtime, *, now=None):
     if not safe_path(directory): raise ValueError('unsafe directory')
     directory.mkdir(mode=0o700,parents=True,exist_ok=True)
     path=directory/(session_id+'.json')
-    lock=directory/(session_id+'.lock')
-    fd=os.open(lock,os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW,0o600)
-    try:
-        fcntl.flock(fd,fcntl.LOCK_EX)
-        previous=json.loads(path.read_text()) if safe_path(path) and path.is_file() and path.stat().st_size<=8192 else {}
+    with activity_lock(path):
+        previous=read_activity(path)
         owner=session_owner(runtime,session_id)
         if sys.platform == 'darwin':
             from qorqut import process_info
@@ -532,26 +565,22 @@ def record(hook, registration_path, runtime, *, now=None):
             value['reminder_at']=now
             output={'hookSpecificOutput':{'hookEventName':event,'additionalContext':policy.from_prepared(registration_path).render('activity-reminder')}}
         write_state(path,value)
-        if checkpoint_enabled and owner and event == 'Stop':
-            native = hook if runtime == 'codex' else {**hook, 'turn_id':value['checkpoint'].get('turn_id')}
-            output = checkpoint_stop(native, registration, path, value,focus_only=protocols.get(runtime)==2)
-            write_state(path,value)
-        if event != 'SessionEnd':
+    if checkpoint_enabled and owner and event == 'Stop':
+        native = hook if runtime == 'codex' else {**hook, 'turn_id':value['checkpoint'].get('turn_id')}
+        output = checkpoint_stop(native, registration, path, value,focus_only=protocols.get(runtime)==2)
+    if event != 'SessionEnd':
+        try:
             try:
-                try:
-                    from qorqut.bootstrap.technical_reporting import active, record as record_technical, replay_http
-                except ImportError:
-                    sys.path.insert(0, str(Path(__file__).resolve().parent))
-                    from technical_reporting import active, record as record_technical, replay_http
-                if active(registration, 'activity_hook', 'record', session_id):
-                    record_technical(registration, session_id, 'activity_hook', 'record', 'success',
-                        call_site='activity_hook.record', recovered=True)
-                replay_http(registration)
-            except Exception:
-                pass
-        return output
-    finally:
-        os.close(fd)
+                from qorqut.bootstrap.technical_reporting import active, record as record_technical
+            except ImportError:
+                sys.path.insert(0, str(Path(__file__).resolve().parent))
+                from technical_reporting import active, record as record_technical
+            if active(registration, 'activity_hook', 'record', session_id):
+                record_technical(registration, session_id, 'activity_hook', 'record', 'success',
+                    call_site='activity_hook.record', recovered=True)
+        except Exception:
+            pass
+    return output
 
 
 CONNECTOR_PREFIX = 'mcp__claude_ai_'
@@ -601,6 +630,7 @@ def connector_main(registration_path):
 
 
 def main():
+    deadline = time.monotonic() + ATTENTION_SECONDS
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--registration',type=Path,required=True)
     parser.add_argument('--runtime',choices=('claude-code','codex'),required=True)
@@ -622,7 +652,8 @@ def main():
             pass  # Historical standalone installs still record activity.
         else:
             if emit(hook, args.registration, args.runtime, output, sys.stdout,
-                    deliver=lambda value, stream: emit_attention(hook, args.registration, args.runtime, value, stream)):
+                    deliver=lambda value, stream: emit_attention(hook, args.registration, args.runtime, value, stream,
+                                                                 deadline=deadline)):
                 return
     except (OSError,ValueError,KeyError,TypeError,AttributeError):
         # Hook bookkeeping remains best-effort for the user's work, but a
@@ -630,17 +661,16 @@ def main():
         try:
             if isinstance(hook, dict) and hook.get('hook_event_name') != 'SessionEnd':
                 try:
-                    from qorqut.bootstrap.technical_reporting import record as record_technical, replay_http
+                    from qorqut.bootstrap.technical_reporting import record as record_technical
                 except ImportError:
                     sys.path.insert(0, str(Path(__file__).resolve().parent))
-                    from technical_reporting import record as record_technical, replay_http
+                    from technical_reporting import record as record_technical
                 registration = json.loads(Path(args.registration).read_text())
                 record_technical(registration, hook.get('session_id'), 'activity_hook', 'record',
                     'activity_hook_unavailable', call_site='activity_hook.record', terminal=True)
-                replay_http(registration)
         except Exception:
             pass
-    emit_attention(hook, args.registration, args.runtime, output, sys.stdout)
+    emit_attention(hook, args.registration, args.runtime, output, sys.stdout, deadline=deadline)
 
 
 if __name__=='__main__':

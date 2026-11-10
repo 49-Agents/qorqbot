@@ -67,7 +67,7 @@ the application's current authorization and domain grant checks.
 ## Local Preparation
 
 The dashboard's existing preparation boundary delegates to
-qorqut.bootstrap.prepare_agent(resolver, authenticated_agent_principal,
+qorqut.bootstrap.preparation.prepare_agent(resolver, authenticated_agent_principal,
 endpoint=shared_service_url, versions={"claude-code": observed_claude_version, "codex": observed_codex_version},
 interpreter=installed_python). This trusted backend function prepares an already
 approved profile; it is not an agent mutation endpoint. The temporary existing
