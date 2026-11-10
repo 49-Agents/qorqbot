@@ -5,7 +5,7 @@ from pathlib import Path
 import time
 from uuid import uuid4
 
-from .lifetime import atomic_json, reference_lock
+from .lifetime import atomic_json, reference_lock, retire_process_pin
 
 
 def configured_adapters(config):
@@ -58,7 +58,7 @@ def validate_response(request, response):
     return entries
 
 
-def reconcile(config, *, adapters=None):
+def reconcile(config, *, adapters=None, retire_exited=False):
     """Bounded fresh maintenance; only the invoked configured transport attests."""
     from qorqut.bootstrap.runtime_references import resolve_slots
     root = Path(config['root']); adapters = configured_adapters(config) if adapters is None else adapters
@@ -67,6 +67,10 @@ def reconcile(config, *, adapters=None):
         for path in sorted(root.joinpath('state',directory).glob('*.json')):
             try:
                 value = json.loads(path.read_text())
+                if not isinstance(value, dict):
+                    continue
+                if retire_exited and directory == 'process-pins' and value.get('cached_client', False) is False:
+                    retire_process_pin(root, path)
                 if value.get('target','local') != 'local': records.append((path,value))
             except (OSError,ValueError): continue
     outcomes = {}

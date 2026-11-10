@@ -267,7 +267,7 @@ class Supervisor:
         # Reference probes run automatically and cannot stall session supervision.
         if (self.reference_future is None or self.reference_future.done()) and time.monotonic() >= self.reference_check_at:
             from qorqut.release_worker.reference_targets import reconcile
-            self.reference_future = self.pool.submit(reconcile, self.config)
+            self.reference_future = self.pool.submit(reconcile, self.config, retire_exited=True)
             self.reference_check_at = time.monotonic() + 30
         # One background pass; slow/offline services never block supervision or a hook.
         if (self.report_future is None or self.report_future.done()) and time.monotonic() >= self.report_check_at:

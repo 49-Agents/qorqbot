@@ -32,11 +32,12 @@ def atomic_json(path, value):
 
 
 @contextmanager
-def exclusion(root, *, shared=False):
+def exclusion(root, *, shared=False, blocking=True):
     path = Path(root) / "state/deployment.lock"
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as stream:
-        fcntl.flock(stream, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+        mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
+        fcntl.flock(stream, mode if blocking else mode | fcntl.LOCK_NB)
         yield
 
 
@@ -105,6 +106,38 @@ def process_state(value):
     if observed is not None or exited_process(value['pid']):
         return 'exited', 'verified_process_exit_or_pid_reuse'
     return 'unknown', 'unreadable_process_identity'
+
+
+def retire_process_pin(root, path):
+    """Retire one proven-exited ordinary pin during background maintenance.
+
+    Never wait behind a launch/release, follow a symlink, or retire a cached
+    client's references. Read and classify again under both writer exclusions.
+    The caller scans the directory without holding either lock.
+    """
+    root, path = Path(root), Path(path)
+    directory = root / 'state/process-pins'
+    if path.parent != directory or path.suffix != '.json':
+        return False
+    try:
+        with exclusion(root, blocking=False), reference_lock(root):
+            if any(parent.is_symlink() for parent in (path, *path.parents)) or path.stat().st_size > 1024 * 1024:
+                return False
+            value = json.loads(path.read_text())
+            # Stable launchers predate the optional cached_client flag. Their
+            # ordinary pins still carry full target/lifetime identity.
+            if (not isinstance(value, dict) or value.get('cached_client', False) is not False
+                    or type(value.get('pid')) is not int or value['pid'] <= 0
+                    or not isinstance(value.get('started'), str) or not value['started']
+                    or not isinstance(value.get('references'), list)
+                    or not all(isinstance(ref, str) for ref in value['references'])):
+                return False
+            if process_state(value)[0] != 'exited':
+                return False
+            path.unlink()
+            return True
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
 
 
 def pin(root, references, *, pid=None, cached=False):
