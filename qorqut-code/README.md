@@ -183,7 +183,9 @@ identified acceptance; they are not implied by a source test command.
 
 ## Operational history packing
 
-The history observer checks for changes at a 60-second minimum interval and commits only when the exported tree changes.
+The history observer checks for changes at a five-minute minimum interval (`SNAPSHOT_SECONDS` in
+`app/qorqut/operations_history/composition.py`) and commits only when the exported tree changes. A table whose rows are
+the same as in the last completed snapshot is read and fingerprinted but not checked and serialized again.
 The history writer packs Git objects when loose storage reaches 256 MiB, under the same history lock used for snapshots,
 with two threads and a bounded delta window; it preserves all commits and refs and does not expire history. A packing
 failure is logged without misreporting the already-committed snapshot as lost; a later pass retries. Operational Git

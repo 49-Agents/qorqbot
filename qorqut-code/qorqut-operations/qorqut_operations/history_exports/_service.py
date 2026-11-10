@@ -12,6 +12,10 @@ Adapted from the pinned v2.2 donor (``qorqut_app.history``). Differences that ma
   use, so the host's own path validation (and its translation of a refused path into a ``DomainError``) runs each time.
 * ``complete`` requires both complete file capture and complete table coverage, and ``status()`` distinguishes the
   latest attempt from the latest known complete commit and reports the live ref against what was last recorded.
+* A table whose rows have not changed since the last completed snapshot of this object is read and fingerprinted but
+  not checked and serialized again: its files are the ones the current history commit already holds. The memory of
+  those files is used only for a table whose every remembered file is in that commit with the same content, and it is
+  dropped by any pass that does not complete.
 
 Nothing runs on construction. A history failure never rolls back, repeats or approves Operations work: history reads.
 """
@@ -33,7 +37,7 @@ from . import _areas, _state
 from ._capture import Capture
 from ._fs import DIRECTORY, names_directory, open_directory
 from ._git import REF, REGULAR, Git, git_date
-from ._tree import blob_id, export_files
+from ._tree import MANIFEST, blob_id, manifest_file, table_files
 from .catalog import ExportCatalog
 from .errors import HistoryCompositionError
 
@@ -108,6 +112,8 @@ class History:
         self._locate, self._resolve, self._safe_segment = locations, resolve_areas, safe_segment
         self._areas, self._clock = areas, clock
         self._runner, self._timeout = git_runner, git_timeout
+        # {table: (fingerprint, {tree path: blob id})} of the last completed snapshot; read and replaced under the lock.
+        self._tables: dict = {}
 
     # -- locations -------------------------------------------------------------------------------------------
 
@@ -329,10 +335,10 @@ class History:
                 "consecutive_failures": 0, "last_snapshot": summary, "error": None})
             return {**summary, "status_recorded": recorded}
 
-    def _read_database(self):
+    def _read_database(self, held=None):
         """One consistent read: exported rows and area selections together; the unit is closed on return."""
         with self._database.read() as uow:
-            exported = self._catalog.export(uow)
+            exported = self._catalog.export(uow, held)
             returned = self._areas(uow)
             try:
                 iterator = iter(returned)
@@ -344,10 +350,15 @@ class History:
     def _snapshot(self, locations, guard, started):
         git = self._git(locations, guard)
         git.validate()
-        exported, selection = self._read_database()
-        areas = _areas.check_resolved(selection, self._resolve(selection))
         base = git.head()
         known = git.entries(base)
+        # What the last completed snapshot remembers is forgotten here and kept again only if this pass completes. A
+        # table is offered as held only while the commit this pass builds on has each of its files with that content.
+        remembered, self._tables = self._tables, {}
+        held = {name: fingerprint for name, (fingerprint, paths) in remembered.items()
+                if all(known.get(path) == (REGULAR, oid) for path, oid in paths.items())}
+        exported, selection = self._read_database(held)
+        areas = _areas.check_resolved(selection, self._resolve(selection))
         saved = self._cache(locations.runtime)
         capture = Capture(git, known, saved.get("files", {}) if saved.get("version") == CACHE_VERSION else {},
                           excluded=frozenset(path for item in areas for path in item.excluded))
@@ -357,12 +368,23 @@ class History:
             else:
                 capture.scan_area(locations.root, item.parts)
 
-        entries = {}
-        for path, data in export_files(exported).items():
+        entries, tables = {}, {}
+
+        def store(path, data):
             oid = blob_id(data)
             if known.get(path) != (REGULAR, oid):
                 git.write_blob(data=data)
             entries[path] = (REGULAR, oid)
+            return oid
+
+        for name, table in exported.tables.items():
+            paths = {path: store(path, data) for path, data in table_files(table).items()}
+            if table.fingerprint is not None:
+                tables[name] = (table.fingerprint, paths)
+        for name, table in exported.unchanged.items():
+            tables[name] = remembered[name]
+            entries.update({path: (REGULAR, oid) for path, oid in remembered[name][1].items()})
+        store(MANIFEST, manifest_file(exported))
         entries.update(capture.finish())
 
         guard()
@@ -393,6 +415,7 @@ class History:
             _state.write_json(locations.runtime, CACHE, {"version": CACHE_VERSION, "files": capture.fresh})
         except OSError:
             _LOGGER.error("History file cache could not be saved; the next snapshot rereads files")
+        self._tables = tables
         files_complete = not capture.incomplete
         return {
             "changed": changed, "commit": commit, "previous_commit": base, "tree": tree,
