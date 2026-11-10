@@ -14,9 +14,9 @@ async function fixture(width=700) {
   const browser=await chromium.launch({headless:true,executablePath:executable});
   const page=await browser.newPage({viewport:{width,height:700}});
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
-  await page.setContent('<main id="pane" style="display:flex;flex-direction:column;height:650px;width:100%;min-width:0"></main>');
+  await page.setContent('<main id="pane" style="display:flex;flex-direction:column;height:650px;width:100%;min-width:0;--ag-ctl:30px"></main>');
   await page.clock.install();
-  for(const file of ['app.css','css/chat-view.css','css/global-chat.css'])await page.addStyleTag({path:path.join(root,file)});
+  for(const file of ['app.css','css/agentpane.css','css/chat-view.css','css/global-chat.css'])await page.addStyleTag({path:path.join(root,file)});
   await page.evaluate(()=>{
     window.esc=value=>String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     window.$=(selector,host=document)=>host.querySelector(selector);
@@ -29,21 +29,16 @@ async function fixture(width=700) {
       close(){}
     };
     window.binding={provider:'codex',conversation_id:'conversation',binding_id:'binding'};
-    window.working=true;window.focusReads=[];window.actionReads=[];window.override=null;window.actionOverride=null;
+    window.working=true;window.focusReads=[];window.actionReads=[];window.override=null;
     window.attentions={
       ord:{state:'focused',focus:{type:'task',id:'launch',label:'Coordinate launch'},intent:'Check the remaining tasks.'},
       atlas:{state:'focused',focus:{type:'task',id:'research',label:'Verify sources'},intent:'Compare the original documents.'}
-    };
-    window.actions={
-      ord:[{text:'Prepared the launch draft.',performed_by:{id:'ord'},attribution:'performed',occurred:{precision:'instant',instant:'2026-11-10T15:30:00Z',time_zone:'UTC'}}],
-      atlas:[{text:'Checked the original source.',performed_by:{id:'atlas'},attribution:'performed',occurred:{precision:'hour',date:'2026-11-10',hour:14,time_zone:'UTC'}}]
     };
     window.api=async url=>url.includes('/commands')?{commands:[]}:{session:{state:'live',can_send:true,working,binding},conversation:binding,entries:[],inputs:[],cursor:0};
     window.post=async(url,args,options)=>{
       if(url.endsWith('/actions_list')){
         actionReads.push(structuredClone(args));
-        if(actionOverride)return actionOverride(args,options);
-        return {actions:structuredClone(actions[args.performer] || [])};
+        return {actions:[]};
       }
       if(!url.endsWith('/todo_get'))return {};
       focusReads.push(structuredClone(args));
@@ -56,7 +51,7 @@ async function fixture(width=700) {
   await page.evaluate(()=>{
     window.mount=(id='ord',role='ordubashy')=>{
       window.controller?.dispose();
-      window.controller=mountGlobalChat(document.querySelector('#pane'),{agent_id:id,name:id,role:{id:role}});
+      window.controller=mountGlobalChat(document.querySelector('#pane'),{agent_id:id,name:id,role:{id:role}},{openTerminal:()=>{}});
     };
     mount();
   });
@@ -72,13 +67,16 @@ browserTest('header context follows the chat agent; the composer keeps only the 
     const focus=await page.locator('.gchat-context').boundingBox();
     const feed=await page.locator('.gchat-scroll').boundingBox();
     const composer=await page.locator('.gchat-composer').boundingBox();
+    const controls=await page.locator('.gchat-session-switch').boundingBox();
+    assert.ok(Math.abs(focus.y-controls.y)<5);
+    assert.ok(focus.x+focus.width<=controls.x);
     assert.ok(focus.y+focus.height<=feed.y);
     assert.ok(dots.y+ dots.height<=composer.y);
     assert.equal(await page.locator('.gchat-working-tag .identity-avatar').count(),0);
     assert.equal(await page.locator('.gchat-working-dots i').count(),3);
-    assert.equal(await page.locator('.gchat-action-text').textContent(),'Prepared the launch draft.');
+    assert.equal(await page.locator('.gchat-action-text,[data-chat-context]').count(),0);
     assert.deepEqual(await page.evaluate(()=>focusReads.map(read=>[read.agent_id,read.projection])),[['ord','focus']]);
-    assert.deepEqual(await page.evaluate(()=>actionReads),[{performer:'ord',limit:1}]);
+    assert.deepEqual(await page.evaluate(()=>actionReads),[]);
     await page.evaluate(()=>{_agpad.attentionAgentId='atlas';});
     await page.clock.runFor(12000);
     assert.equal(await page.locator('.gchat-focus-label').textContent(),'Coordinate launch');
@@ -91,7 +89,7 @@ browserTest('header context follows the chat agent; the composer keeps only the 
     await page.evaluate(()=>mount('atlas','global-worker'));
     await page.waitForFunction(()=>document.querySelector('.gchat-focus-label')?.textContent==='Verify sources');
     assert.equal(await page.locator('.gchat-focus-intent').textContent(),'Compare the original documents.');
-    assert.equal(await page.locator('.gchat-action-text').textContent(),'Checked the original source.');
+    assert.deepEqual(await page.evaluate(()=>actionReads),[]);
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });
@@ -110,7 +108,7 @@ browserTest('missing or unavailable focus is explicit and an error never retains
     await page.evaluate(()=>{override=async()=>{throw Object.assign(Error('Denied'),{code:'forbidden'});};});
     await page.clock.runFor(12000);
     assert.equal(await page.locator('.gchat-focus-intent').textContent(),'Intent unavailable');
-    assert.equal(await page.locator('.gchat-action-text').textContent(),'Prepared the launch draft.');
+    assert.equal(await page.locator('.gchat-action-text,[data-chat-context]').count(),0);
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });
@@ -125,16 +123,15 @@ browserTest('hidden chats stop context polling and switching agents discards lat
     await page.evaluate(()=>{
       document.querySelector('#pane').hidden=false;
       override=(args,options)=>new Promise(resolve=>{window.oldSignal=options.signal;window.finishOld=()=>resolve({agent_id:args.agent_id,attention:{state:'focused',focus:{label:'Old focus'},intent:'Old intent'}});});
-      actionOverride=()=>new Promise(resolve=>{window.finishOldAction=()=>resolve({actions:actions.ord});});
     });
     await page.clock.runFor(12000);
     await page.waitForFunction(()=>typeof finishOld==='function');
-    await page.evaluate(()=>{override=null;actionOverride=null;mount('atlas','global-worker');});
+    await page.evaluate(()=>{override=null;mount('atlas','global-worker');});
     await page.waitForFunction(()=>document.querySelector('.gchat-focus-label')?.textContent==='Verify sources');
     assert.equal(await page.evaluate(()=>oldSignal.aborted),true);
-    await page.evaluate(()=>{finishOld();finishOldAction();});
+    await page.evaluate(()=>finishOld());
     assert.equal(await page.locator('.gchat-focus-intent').textContent(),'Compare the original documents.');
-    assert.equal(await page.locator('.gchat-action-text').textContent(),'Checked the original source.');
+    assert.deepEqual(await page.evaluate(()=>actionReads),[]);
     await page.evaluate(()=>mount('learning','learning-applier'));
     const after=await page.evaluate(()=>focusReads.length+actionReads.length);
     await page.clock.runFor(24000);
@@ -157,51 +154,6 @@ browserTest('long focus text stays readable on a narrow chat and is rendered onl
     assert.ok(box.height<=180);
     await page.locator('.gchat-context').focus();await page.keyboard.press('End');
     assert.ok(await page.locator('.gchat-context').evaluate(el=>el.scrollHeight>el.clientHeight));
-    assert.deepEqual(errors,[]);
-  } finally {await browser.close();}
-});
-
-browserTest('context toggle preserves the draft, stops polling, and remembers the setting across agents',async()=>{
-  const {browser,page,errors}=await fixture();
-  try {
-    await page.locator('.gchat-composer textarea').fill('Keep my unsent draft');
-    await page.getByRole('button',{name:'Hide agent context',exact:true}).focus();
-    await page.keyboard.press('Space');
-    assert.equal(await page.locator('.gchat-context').isVisible(),false);
-    assert.equal(await page.locator('.gchat-working-dots').isVisible(),true);
-    assert.equal(await page.locator('.gchat-composer textarea').inputValue(),'Keep my unsent draft');
-    const count=await page.evaluate(()=>focusReads.length+actionReads.length);
-    await page.clock.runFor(24000);
-    assert.equal(await page.evaluate(()=>focusReads.length+actionReads.length),count);
-    await page.evaluate(()=>mount('atlas','global-worker'));
-    assert.equal(await page.locator('.gchat-context').isVisible(),false);
-    assert.equal(await page.getByRole('button',{name:'Show agent context',exact:true}).getAttribute('aria-pressed'),'false');
-    await page.getByRole('button',{name:'Show agent context',exact:true}).click();
-    await page.waitForFunction(()=>document.querySelector('.gchat-focus-label').textContent==='Verify sources');
-    assert.equal(await page.locator('.gchat-action-text').textContent(),'Checked the original source.');
-    assert.deepEqual(errors,[]);
-  } finally {await browser.close();}
-});
-
-browserTest('last action preserves coarse time and attribution, clears errors, and rejects another agent’s result',async()=>{
-  const {browser,page,errors}=await fixture();
-  try {
-    await page.evaluate(()=>{actions.ord=[{text:'Reported a completed result.',recorded_by:{id:'ord'},attribution:'recorded',occurred:{precision:'day',date:'2026-11-09',time_zone:'UTC'}}];});
-    await page.clock.runFor(12000);
-    await page.waitForFunction(()=>document.querySelector('.gchat-action-text').textContent==='Reported a completed result.');
-    const meta=await page.locator('.gchat-action-meta').textContent();
-    assert.match(meta,/time not recorded/);assert.match(meta,/Performer not recorded/);assert.doesNotMatch(meta,/00:00/);
-    await page.evaluate(()=>{actionOverride=async()=>{throw Error('Denied');};});
-    await page.clock.runFor(12000);
-    await page.waitForFunction(()=>document.querySelector('.gchat-action-text').textContent==='Actions unavailable');
-    assert.equal(await page.locator('.gchat-action-meta').textContent(),'');
-    assert.equal(await page.locator('.gchat-focus-label').textContent(),'Coordinate launch');
-    await page.evaluate(()=>{actionOverride=null;actions.ord=actions.atlas;});
-    await page.clock.runFor(12000);
-    assert.equal(await page.locator('.gchat-action-text').textContent(),'Actions unavailable');
-    await page.evaluate(()=>{actions.ord=[];});
-    await page.clock.runFor(12000);
-    await page.waitForFunction(()=>document.querySelector('.gchat-action-text').textContent==='No actions recorded');
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });

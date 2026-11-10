@@ -17,16 +17,15 @@
 .gchat-session[data-state="starting"] .gchat-session-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--fg-2); }
 .gchat-session-text { min-width: 0; }
 .gchat-session-text:empty { display:none; }
-.gchat-context { flex:none; min-width:0; max-height:min(32%,180px); margin:calc(var(--ag-ctl,30px) + 10px) 12px 0; padding:0 0 12px; border-bottom:1px solid var(--line); overflow-y:auto; overflow-wrap:anywhere; scrollbar-width:thin; font-size:12px; line-height:1.5; }
+.gchat-header { display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-rows:minmax(0,1fr); align-items:start; gap:12px; flex:none; min-height:var(--ag-ctl,30px); max-height:min(32%,180px); padding:4px 0 10px 12px; border-bottom:1px solid var(--line); box-sizing:border-box; }
+.gchat-context { min-width:0; min-height:0; align-self:stretch; padding:3px 0 0; overflow-y:auto; overflow-wrap:anywhere; scrollbar-width:thin; font-size:12px; line-height:1.5; }
 .gchat-context[hidden] { display:none; }
-.gchat-context dl { display:grid; grid-template-columns:clamp(72px,23%,112px) minmax(0,1fr); gap:6px 10px; margin:0; }
+.gchat-context dl { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:4px 8px; margin:0; }
 .gchat-context dt { color:var(--fg-3); font-size:11px; font-weight:400; }
 .gchat-context dd { margin:0; min-width:0; color:var(--fg-2); white-space:pre-wrap; }
 .gchat-context .gchat-focus-label { color:var(--fg); font-weight:500; }
-.gchat-action-meta { display:block; margin-top:3px; color:var(--fg-3); font-size:11px; }
-.gchat-action-meta:empty { display:none; }
 .gchat-context:focus-visible { outline:1px solid var(--fg-2); outline-offset:3px; }
-.gchat:has(> .gchat-context:not([hidden])) { --chat-top-inset:10px; }
+.gchat:has(> .gchat-header) { --chat-top-inset:10px; }
 .gchat-working-tag[hidden], .gchat-session-working > .gchat-session-dot { display:none; }
 .gchat-session.gchat-session-working { padding:4px 0; }
 .gchat-working-tag { display:inline-flex; align-items:center; padding:0; border:0; border-radius:0; background:none; }
@@ -44,10 +43,10 @@
 .gchat-view-toggle { display: inline-flex; flex: none; gap: 4px; }
 /* Chat/Terminal/Refresh are ordinary .ttab controls; the selected view takes the tab indicator's fill. */
 .gchat-view-toggle .ttab[aria-pressed="true"] { color: var(--fg); background: rgba(255,255,255,.05); opacity: 1; cursor: default; }
-.gchat-context-toggle[aria-pressed="true"] { color:var(--fg); background:var(--hover); opacity:1; }
 
 /* Session controls stay over their own surface, outside chat scroll and terminal output. */
 .gchat-session-switch { display:flex; align-items:center; gap:4px; position:absolute; top:0; right:0; z-index:3; max-width:calc(100% - 8px); overflow-x:auto; scrollbar-width:thin; border-radius:12px; background:color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter:blur(8px); }
+.gchat-header .gchat-session-switch { position:static; grid-column:2; max-width:none; background:none; backdrop-filter:none; }
 .gchat-terminal > .gchat-top { max-width:calc(100% - 3 * var(--ag-ctl, 30px) - 24px); }
 .gchat-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .gchat-paired-record{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;height:100%;box-sizing:border-box}
