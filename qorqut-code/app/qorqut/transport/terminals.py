@@ -12,7 +12,7 @@ import time
 import anyio
 from starlette.responses import JSONResponse, StreamingResponse
 
-from qorqut.bootstrap import prepare_agent
+from qorqut.bootstrap.preparation import prepare_agent
 from qorqut.bootstrap.preparation import installed_versions
 from qorqut.composition.locations import agent_workspace, business_hq
 from qorqut_operations.contracts import DomainError, Principal

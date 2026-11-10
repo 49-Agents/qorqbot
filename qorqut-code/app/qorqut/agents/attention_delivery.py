@@ -198,7 +198,8 @@ class AttentionRuntime:
                 if not binding or not registered or binding['consumer_id'] != consumer_id:
                     return None
                 now = self._now()
-                self.reconcile(uow)
+                self.hooks.recover_expired(uow, now, agent_id=agent_id)
+                self.reconcile_board(uow, agent_id, now)
                 advice = clock_advice(uow, agent_id, self.attention, now)
                 state = self.attention.state(uow, agent_id)
                 rows = uow.connection.execute("SELECT * FROM attention_reminders WHERE agent_id=? AND state='pending' "
@@ -519,18 +520,20 @@ class HookClaims:
             (now, now, claim['id'], claim['revision'], claim['claim_token']))
         return changed.rowcount == 1
 
-    def recover_expired(self, uow, now):
+    def recover_expired(self, uow, now, *, agent_id=None):
         # A begun emission has crossed the uncertainty boundary. In particular,
         # a lost begin response cannot be treated as an unstarted emission.
         now = _stamp(_time(now))
         conn = uow.connection
+        scope = ' AND agent_id=?' if agent_id is not None else ''
+        parameters = (now, now, agent_id) if agent_id is not None else (now, now)
         uncertain = conn.execute("UPDATE attention_reminders SET state='uncertain',updated_at=?,revision=revision+1 "
-            "WHERE state='claimed' AND route='hook' AND emission_started_at IS NOT NULL AND claim_expires_at<=?",
-            (now, now)).rowcount
+            "WHERE state='claimed' AND route='hook' AND emission_started_at IS NOT NULL AND claim_expires_at<=?" + scope,
+            parameters).rowcount
         pending = conn.execute("UPDATE attention_reminders SET state='pending',route=NULL,claim_token=NULL,"
             'claim_consumer_id=NULL,claim_binding_generation=NULL,claim_expires_at=NULL,updated_at=?,revision=revision+1 '
-            "WHERE state='claimed' AND route='hook' AND emission_started_at IS NULL AND claim_expires_at<=?",
-            (now, now)).rowcount
+            "WHERE state='claimed' AND route='hook' AND emission_started_at IS NULL AND claim_expires_at<=?" + scope,
+            parameters).rowcount
         return pending, uncertain
 
     def settle(self, uow, receipt, now):

@@ -95,6 +95,8 @@ class Supervisor:
         self.pool = ThreadPoolExecutor(max_workers=4)
         self.reference_future = None
         self.reference_check_at = 0
+        self.report_future = None
+        self.report_check_at = 0
 
     def recover(self,item):
         registration = load_registration(Path(item['registration_path']))
@@ -237,6 +239,27 @@ class Supervisor:
                     'runtime':native['runtime'],'event':'prompt'})
             except (OSError,ValueError,KeyError,DomainError):continue
 
+    def replay_reports(self):
+        """Drain existing outboxes even after a native session goes idle or exits."""
+        from .technical_reporting import replay_http
+        seen = set()
+        for directory in ('agent-supervisor', 'agent-recovery', 'agent-recovery-denied'):
+            for path in self.root.joinpath('state', directory).glob('*.json'):
+                try:
+                    item = json.loads(path.read_text())
+                    if not isinstance(item, dict) or item.get('host', socket.gethostname()) != socket.gethostname():
+                        continue
+                    registration_path = item['registration_path']
+                    if registration_path in seen:
+                        continue
+                    seen.add(registration_path)
+                    registration = load_registration(Path(registration_path))
+                    pending = Path(registration['workspace']) / '.qorqut/technical-reports/pending.jsonl'
+                    if pending.is_file() and pending.stat().st_size:
+                        replay_http(registration)
+                except (OSError, ValueError, TypeError, KeyError, DomainError):
+                    continue
+
     def tick(self):
         if time.monotonic() >= self.context_check_at:
             self.seed_context_recovery()
@@ -244,8 +267,12 @@ class Supervisor:
         # Reference probes run automatically and cannot stall session supervision.
         if (self.reference_future is None or self.reference_future.done()) and time.monotonic() >= self.reference_check_at:
             from qorqut.release_worker.reference_targets import reconcile
-            self.reference_future = self.pool.submit(reconcile, self.config)
+            self.reference_future = self.pool.submit(reconcile, self.config, retire_exited=True)
             self.reference_check_at = time.monotonic() + 30
+        # One background pass; slow/offline services never block supervision or a hook.
+        if (self.report_future is None or self.report_future.done()) and time.monotonic() >= self.report_check_at:
+            self.report_future = self.pool.submit(self.replay_reports)
+            self.report_check_at = time.monotonic() + 5
         for path,future in list(self.recoveries.items()):
             if not path.exists() and future.done():
                 del self.recoveries[path];self.retry_at.pop(path,None)
@@ -255,6 +282,12 @@ class Supervisor:
                 item = json.loads(path.read_text())
                 if item.get('host',socket.gethostname())!=socket.gethostname():continue
                 if not self.alive(item['owner']):
+                    registration = load_registration(Path(item['registration_path']))
+                    pending = Path(registration['workspace']) / '.qorqut/technical-reports/pending.jsonl'
+                    if pending.is_file() and pending.stat().st_size:
+                        # A failed first bootstrap may have no supervisor binding.
+                        # Keep its discovery pointer until background replay drains it.
+                        continue
                     discard_pending(path,item); continue
                 if not item.get('request_id'):
                     from . import handoff
