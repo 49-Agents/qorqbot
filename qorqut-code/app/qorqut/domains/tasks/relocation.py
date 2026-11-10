@@ -53,6 +53,7 @@ TASK_COLUMNS = {
 }
 # Typed item columns (``item_type``/``source_type`` plus an id): the stores that hold a Task through a type column.
 TYPED_REFERENCES = {
+    "signoff_source_links": "followed",
     "thread_messages": "followed", "thread_follows": "followed", "item_tags": "followed", "relationships": "followed",
     "project_item_links": "followed", "inbox_subscriptions": "followed", "owner_conversations": "followed",
     "focus_cards": "followed", "focus_notes": "historical", "inbox_events": "historical", "inbox_deliveries": "historical",
@@ -163,6 +164,14 @@ class HostRelocation:
         conversations, cards = self.conversations(connection, tables, relocation), self.cards(connection, tables, relocation)
         material["conversations"] = digest([[row["id"], row["revision"], row["source_key"], row["latest_sequence"]] for row in conversations])
         material["cards"] = digest([[row["id"], row["revision"], row["source_key"]] for row in cards])
+        links = self.input_links(connection, tables, relocation)
+        material['input_links'] = digest([list(row) for row in links])
+        counts['input_links'] = len(links)
+        for link in links:
+            if connection.execute('SELECT 1 FROM signoff_source_links WHERE signoff_id=? AND source_type=\'task\' '
+                    'AND source_id=? AND source_business_id IS ?',
+                    (link['signoff_id'], link['source_id'], relocation.destination)).fetchone():
+                blockers.append(blocker('input_link_exists', 'The destination already has this input dependency', link['source_id']))
         for row in conversations:
             counts["private_messages"] += connection.execute(
                 "SELECT COUNT(*) FROM owner_conversation_messages WHERE conversation_id=?", (row["id"],)).fetchone()[0]
@@ -338,10 +347,22 @@ class HostRelocation:
 
     # -- application -----------------------------------------------------------------------------------------------
 
+    @staticmethod
+    def input_links(connection, tables, relocation):
+        if 'signoff_source_links' not in tables:
+            return []
+        return connection.execute("SELECT * FROM signoff_source_links WHERE source_type='task' AND source_business_id IS ? AND source_id IN "
+            + marks(relocation.ids) + ' ORDER BY id', (relocation.source, *relocation.ids)).fetchall()
+
     def apply(self, uow, relocation: Relocation, at: str):
         connection, tables = uow.connection, existing_tables(uow)
         ids, source, destination = set(relocation.ids), relocation.source, relocation.destination
         counts = {"private_messages": 0, "focus_cards": 0}
+        links = self.input_links(connection, tables, relocation)
+        for link in links:
+            connection.execute('UPDATE signoff_source_links SET source_business_id=?,source_namespace=?,revision=revision+1 WHERE id=?',
+                (destination, 'business:' + destination if destination else 'global', link['id']))
+        counts['input_links'] = len(links)
         for row in self.conversations(connection, tables, relocation):
             updated = connection.execute(
                 "UPDATE owner_conversations SET business_id=?, source_key=?, revision=revision+1, updated_at=? WHERE id=? AND revision=?",

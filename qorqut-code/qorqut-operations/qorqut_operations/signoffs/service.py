@@ -28,6 +28,7 @@ from .notes import SignoffNotes, eligible
 from .notifications import SignoffNotifications
 from .ports import ABSENT, SignoffPorts, checked_narrowing
 from .rejection import Rejection
+from .sources import SignoffSources
 
 CATEGORIES = ("internal_change", "platform_action", "input_request")
 
@@ -47,7 +48,7 @@ SIGNOFF_ENTRIES = (
     *(CatalogEntry(name, False, "read") for name in ("signoffs_list", "signoffs_get", "signoffs_notes_list")),
     *(CatalogEntry(name, False, "records") for name in (
         "signoffs_comment", "signoffs_reject", "signoffs_input_create", "signoffs_input_cancel",
-        "signoffs_attention_set", "signoffs_input_answer_delegated")),
+        "signoffs_attention_set", "signoffs_input_answer_delegated", "signoffs_source_link", "signoffs_source_unlink")),
     *(CatalogEntry(name, False, "records", frozenset({"dashboard", "worker"}), True)
       for name in ("signoffs_review", "signoffs_retry_apply")),
 )
@@ -93,6 +94,7 @@ class SignoffService:
         self.notifications = SignoffNotifications(self)
         self.notes = SignoffNotes(self)
         self.inputs = InputRequests(self)
+        self.sources = SignoffSources(self)
         self.drafts = DraftReviews(self)
         self.rejection = Rejection(self)
         self._next_notification_tick = 0
@@ -135,7 +137,7 @@ class SignoffService:
                 "updated_after": {"oneOf": [{"const": 0}, {"type": "string", "maxLength": 4096}]} }},
                 **scopes, effect_kind="read", supports_signoff=False, read=self._list_operation,
                 description=instruction_text('service-list-visible-proposals-in-the-selected-project-or')),
-            *self.notes.descriptors(), *self.inputs.descriptors(), *self.rejection.descriptors())
+            *self.notes.descriptors(), *self.inputs.descriptors(), *self.sources.descriptors(), *self.rejection.descriptors())
 
     def contribution(self) -> CatalogContribution:
         """The engine's Signoff catalog contribution (authority metadata plus installed descriptors)."""

@@ -24,7 +24,9 @@ function _taskStateEntry(scope, id) {
 function _taskStateProjected(entry) {
   if (!entry.confirmed) return entry.task || null;
   const projected = {...entry.confirmed};
-  if (entry.desired !== undefined) projected.status = entry.desired;
+  const work = entry.desired ?? projected.work_status ?? projected.status;
+  if (projected.work_status !== undefined) projected.work_status = work;
+  projected.status = projected.input_needed ? 'needs_input' : work;
   return projected;
 }
 
@@ -43,19 +45,31 @@ function _taskStateEmit(entry) {
 function _taskStateInstall(entry, task) {
   if (!task || task.id == null) return false;
   const incomingRevision = _taskStateRevision(task), currentRevision = _taskStateRevision(entry.confirmed);
+  const inputFields = ['input_version', 'input_needed', 'input_requests', 'input_request_missing'];
+  const current = entry.confirmed;
+  const input = Number.isInteger(task.input_version) && (!Number.isInteger(current?.input_version) || task.input_version >= current.input_version)
+    ? task : current;
+  const mergeInput = incoming => {
+    if (input) for (const key of inputFields) if (key in input) incoming[key] = input[key];
+    if (incoming.work_status !== undefined) incoming.status = incoming.input_needed ? 'needs_input' : incoming.work_status;
+    return incoming;
+  };
   // Revision-less observations are useful for first paint, but must not replace
   // a versioned observation. A lower revision is always stale.
   if (currentRevision != null && (incomingRevision == null || incomingRevision < currentRevision)) {
     // A compact newer Focus projection may lack list fields. Fill only missing
     // metadata from this older full row; never downgrade known fields or state.
-    entry.confirmed = {...task, ...entry.confirmed};
-    return false;
+    entry.confirmed = mergeInput({...task, ...entry.confirmed});
+    return entry.confirmed.input_version !== current.input_version;
   }
   const incoming = entry.confirmed ? {...entry.confirmed, ...task} : {...task};
   // UI code often passes its already projected object back to Set. An equal
   // revision therefore cannot replace the confirmed status with local intent.
-  if (entry.confirmed && incomingRevision === currentRevision && (currentRevision != null || entry.desired !== undefined)) incoming.status = entry.confirmed.status;
-  entry.confirmed = incoming;
+  if (entry.confirmed && incomingRevision === currentRevision && (currentRevision != null || entry.desired !== undefined)) {
+    incoming.status = entry.confirmed.status;
+    if (entry.confirmed.work_status !== undefined) incoming.work_status = entry.confirmed.work_status;
+  }
+  entry.confirmed = mergeInput(incoming);
   entry.task = _taskStateProjected(entry);
   return true;
 }
@@ -70,7 +84,7 @@ function taskStateObserve(scope, task) {
   // the confirmed version or its status really changed; pending intent is
   // always projected on top of the new observation.
   if (installed && (!before || _taskStateRevision(before) !== _taskStateRevision(entry.confirmed) ||
-      before.status !== entry.confirmed.status)) {
+      before.status !== entry.confirmed.status || before.input_version !== entry.confirmed.input_version)) {
     if (_taskStateRevision(before) == null || _taskStateRevision(entry.confirmed) > _taskStateRevision(before)) entry.error = null;
     _taskStateEmit(entry);
   }
@@ -142,7 +156,7 @@ async function _taskStateDrain(entry) {
     _taskStateResolve(entry, _taskStateSnapshot(entry));
     return;
   }
-  if (entry.desired === undefined || entry.desired === entry.confirmed?.status) {
+  if (entry.desired === undefined || entry.desired === (entry.confirmed?.work_status ?? entry.confirmed?.status)) {
     entry.desired = undefined;
     entry.task = _taskStateProjected(entry);
     entry.inFlight = false;
@@ -182,7 +196,7 @@ async function _taskStateDrain(entry) {
     // once, then stop: queued clicks must never be blindly replayed.
     try {
       const current = await _taskStateRead(entry);
-      const matches = current && current.status === desired;
+      const matches = current && (current.work_status ?? current.status) === desired;
       const hadQueued = entry.desired !== desired;
       entry.desired = undefined;
       entry.error = matches && !hadQueued && error.code !== "signoff_required" ? null :

@@ -53,6 +53,7 @@ def task_context(service, ctx, source, uow):
     project = uow.repository('businesses').get(business) if business else None
     return {'title': task['title'], 'task_type': task['task_type'], 'status': task['status'], 'overview': task['overview'],
             'revision': task['revision'], 'business_slug': project['slug'] if project else None,
+            **{key: task[key] for key in ('input_requests', 'input_needed', 'input_version', 'input_request_missing', 'work_status')},
             'notes': task['notes'], 'notes_next_cursor': task['notes_next_cursor']}
 
 
@@ -86,13 +87,15 @@ def directory(service, ctx, args, uow):
 def related(service, ctx, args, uow):
     ctx = owner_context(service, ctx, uow)
     _, source = service.resolve(ctx, args, uow)
+    from qorqut_operations.signoffs.sources import source_key
+    inputs = service.app.signoffs.sources.pending(ctx, [source], uow)[source_key(source)]
     if source['type'] == 'project':
         # A Project's related records are its owned inventory plus its explicit links, deduplicated by the same
         # scoped identity and paged independently of older messages.
         projects = getattr(service.app, 'projects', None)
         if projects is None:
             raise DomainError('operation_unavailable', 'Project records are not installed')
-        return projects.related(ctx, source['id'], args, uow)
+        return {**projects.related(ctx, source['id'], args, uow), 'input_requests': inputs}
     kind, identity, business = source['type'], source['id'], source['business_id']
     # All candidates come from stored links, never guessed from matching titles/text. Each candidate is independently
     # authorized below. UNION/GROUP BY collapse records linked in several ways; the earliest stored link places the row.
@@ -100,6 +103,9 @@ def related(service, ctx, args, uow):
         WITH candidates(type,id,business_id,created_at) AS (
           SELECT to_type,to_id,business_id,created_at FROM relationships
             WHERE business_id IS :business AND from_type=:kind AND from_id=:id AND role='concerns'
+          UNION ALL SELECT 'signoff',s.id,s.review_business_id,l.created_at FROM signoff_source_links l
+            JOIN signoffs s ON s.id=l.signoff_id
+            WHERE l.source_type=:kind AND l.source_id=:id AND l.source_business_id IS :business
           UNION ALL SELECT from_type,from_id,business_id,created_at FROM relationships
             WHERE business_id IS :business AND to_type=:kind AND to_id=:id AND role='concerns'
           UNION ALL SELECT 'task',id,business_id,created_at FROM tasks
@@ -137,7 +143,8 @@ def related(service, ctx, args, uow):
                 continue
             raise
         items.append({**view, 'created_at': row['created_at']})
-    result = {'items': items, 'next_offset': args.get('offset', 0) + limit if len(rows) > limit else None}
+    result = {'items': items, 'next_offset': args.get('offset', 0) + limit if len(rows) > limit else None,
+              'input_requests': inputs}
     if kind == 'task' and not args.get('offset', 0):
         result['context'] = task_context(service, ctx, source, uow)
     return result

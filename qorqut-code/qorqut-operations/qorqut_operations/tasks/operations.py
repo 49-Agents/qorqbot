@@ -322,7 +322,11 @@ class TaskOperations:
             history = read_messages(uow, item, {"limit": limit, **cursor}, "tasks_get", ctx.principal_id,
                                     resolve_refs=self.message_refs(ctx, uow), kinds=("comment",))
             view["notes"], view["notes_next_cursor"] = history["messages"][::-1], history["next_cursor"]
-        return public_task(view)
+        return public_task(self.project_input(ctx, [view], uow)[0] if 'input_version' not in view else view)
+
+    def project_input(self, ctx, tasks, uow):
+        signoffs = getattr(self.application, 'signoffs', None)
+        return signoffs.sources.project_tasks(ctx, tasks, uow) if signoffs else tasks
 
     @staticmethod
     def worker_projection(uow, task):
@@ -407,8 +411,6 @@ class TaskOperations:
         states = [name for name in STATES if (not arguments.get("statuses") or name in arguments["statuses"])
                   and (arguments.get("include_closed", True) or name not in CLOSED_STATES)
                   and (arguments.get("include_paused", True) or name not in PAUSED_STATES)]
-        clauses.append("status IN (" + (",".join("?" for _ in states) or "NULL") + ")")
-        parameters.extend(states)
         if arguments.get("due_before"):
             clauses.append("due IS NOT NULL AND due<=?")
             parameters.append(arguments["due_before"])
@@ -423,6 +425,8 @@ class TaskOperations:
             tasks = [task for task in tasks if matches(labels.get(task["id"], ()), wanted)]
         if arguments.get("search"):
             tasks = [task for task in tasks if arguments["search"].casefold() in (task["title"] + " " + task["id"]).casefold()]
+        # Status is a projection of explicit pending Signoffs; filter before paging, in one batch.
+        tasks = [task for task in self.project_input(ctx, tasks, uow) if task['status'] in states]
         if "blocked" in arguments:
             detailed = [self.detail(ctx, task, uow, configuration["fields"], now, notes=False) for task in tasks]
             tasks = [task for task in detailed if bool(task["unresolved_blockers"]) == arguments["blocked"]]
@@ -457,6 +461,8 @@ class TaskOperations:
                 raise self.missing(ctx, uow, identity)
             require_revision(before, options.expected_revision)
         edits = {key: value for key, value in arguments.items() if key in TASK_FIELDS} if creating else plain(arguments.get("changes", {}))
+        if edits.get('status') == 'needs_input':
+            raise DomainError('validation_error', 'Needs input is derived from pending Signoffs. Use signoffs_input_create with source, or signoffs_source_link for an existing approval.')
         if operation == "tasks_assign":
             edits["assignee_ids"] = arguments["assignee_ids"]
         if operation == "tasks_complete":

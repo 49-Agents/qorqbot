@@ -174,9 +174,37 @@ class PrivateSignoffVisibility:
         return (' AND (s.operation_name NOT IN (' + ','.join('?' for _ in excluded) + '))', excluded) if excluded else ('', [])
 
 
+class HostInputSources:
+    @staticmethod
+    def check(application, context, source, uow):
+        from qorqut_operations.application.plans import ref
+        from qorqut_operations.contracts import DomainError
+        service = application.private_conversations
+        selected = service.select(context, source['business_id'], uow)
+        if source['type'] == 'reference' and source['business_id'] is not None:
+            raise DomainError('validation_error', 'Reference threads are Global')
+        service.source_check(selected, source['type'], source['id'], uow)
+        # A dependency is discussion/workflow metadata, not permission to edit or execute the source's contents.
+        # In particular an approval for tasks_update must remain linkable while that edit still requires approval.
+        operations = {'task': ('tasks_comment', 'tasks', 'task_id'),
+                      'table': ('tables_comment', 'data_tables', 'table_id'),
+                      'project': ('project_items_link', 'businesses', 'project_id'),
+                      'reference': ('focus_edit', 'focus_cards', 'item_id')}
+        operation, table, argument = operations[source['type']]
+        # Project and reference writes additionally belong to the owner/configured coordinator.
+        if source['type'] in {'project', 'reference'}:
+            service.role(selected, uow)
+        namespace = 'business:' + selected.business_id if selected.business_id else 'global'
+        decision = application.authorize(selected, application.registry.get(operation),
+            (ref(table, source['id'], selected.business_id),), uow, namespace=namespace,
+            arguments={argument: source['id']})
+        if decision.mode != 'allow':
+            raise DomainError('forbidden', 'Linking input requires direct write authority over its source')
+
+
 def signoff_ports(domains: SignoffDomains, private_signoffs=None, outcomes=None) -> SignoffPorts:
     """The one ``SignoffPorts`` of this host: every retained optional integration is enabled with its real domain."""
     return SignoffPorts(execution=HostExecution(outcomes), peers=HostPeers(), tasks=HostTasks(), references=HostReferences(),
                         platform=ABSENT, email=ABSENT,
                         management=HostManagement(domains), focus=HostFocus(domains),
-                        narrowing=PrivateSignoffVisibility(private_signoffs or {}))
+                        narrowing=PrivateSignoffVisibility(private_signoffs or {}), sources=HostInputSources())

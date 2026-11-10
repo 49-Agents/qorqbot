@@ -137,7 +137,7 @@ GLOBAL_ONLY_KINDS = frozenset({"jobs_routines", "learnings", CONTEXT_QUEUE_KIND}
 # scope and GLOBAL_SCOPE, or it can miss the global-only half of the kind's
 # writes and 304 on data that already changed. "action_logs": Global-stored
 # owner/ecosystem actions are shared into businesses through memberships.
-ALSO_GLOBAL_KINDS = frozenset({"signoffs", "agents", "action_logs"})
+ALSO_GLOBAL_KINDS = frozenset({"signoffs", "tasks", "agents", "action_logs"})
 
 
 def _json(value):
@@ -293,6 +293,9 @@ class ChangeFeed:
         kinds_by_scope: dict[str, set[str]] = {}
         for row in captured:
             kinds_by_scope.setdefault(row["scope"], set()).update(row["kinds"])
+            # A Signoff may have dependants in any project. Input state is independent of Task revisions.
+            if row['table'] in {'signoffs', 'signoff_source_links'}:
+                kinds_by_scope.setdefault(GLOBAL_SCOPE, set()).update({'tasks', 'signoffs'})
         # A coarse kind has no row to prove a write happened (handoff 4.2): the
         # routine scheduler and job admission tag every tick this way whether or
         # not there was anything due, so gate this on the unit actually changing

@@ -79,9 +79,13 @@ evidence/result note; use tasks_complete(note=...) or tasks_update(note=...) whe
 appropriate instead of duplicating a comment. Parent and child Task states are
 independent; update a parent only when its own outcome changes. Blocked means a dependency or
 technical obstacle prevents progress, Waiting means an external party owes the next action,
-and `needs_input` (Needs your input) means progress cannot continue without the owner's answer,
-decision or approval: record the concrete question in the existing Task thread and reassess
-when it is answered. Global peers with
+and `needs_input` (Needs your input) is derived from pending owner Signoffs explicitly linked
+to the Task. Collect every missing owner answer, clarification, decision or approval through a
+Signoff. Create an owner-only input with `signoffs_input_create(source={type: "task", id, business_id})`,
+or attach an existing prepared approval with `signoffs_source_link`; never duplicate its approval
+question or set `status: needs_input` manually. Standalone questions may omit source. The linked
+Signoff is visible in the source thread. Reassess the work when the response arrives; an answer
+clears only that input dependency and never completes the Task or approves a separate action. Global peers with
 Focus rights archive or reframe the relevant card for the remaining owner action,
 preserving unanswered owner questions and required review. Clear finished current
 work and obsolete blockers; save only meaningful working-memory changes. Read

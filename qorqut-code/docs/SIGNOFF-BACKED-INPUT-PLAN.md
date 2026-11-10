@@ -1,6 +1,55 @@
 # Signoff-backed requests for owner input
 
-Status: design and code investigation; no runtime implementation or data changes.
+Status: implemented in `codex/signoff-input-implementation`; deployment and live-data reconciliation are separate.
+
+## Implemented behavior
+
+Collect explicit owner questions, clarifications, missing information and access requests through an owner-only Signoff.
+`signoffs_input_create` accepts an optional `source: {type, id, business_id}` and creates the question and dependency
+atomically. The source may be a Task, Table, Project or standalone Focus Reference. Both endpoints keep their own
+scope: `business_id` is an explicit project UUID or `null` for Global. Omit `source` for a standalone request.
+Source-linked forms default to `owner_only` and reject `management_allowed`; internal delegated questions keep their
+existing behavior. An input answer never authorizes a separate action.
+
+Use `signoffs_source_link(source, signoff_id)` to attach an existing pending approval or owner-only question.
+Creation and linking are idempotent. Multiple sources can wait on the same Signoff and each source can await multiple
+Signoffs (at most 100 pending dependencies per source). Use `signoffs_source_unlink(source, signoff_id, link_id, expected_link_revision)`
+to remove an obsolete dependency using its returned `link_id` and `link_revision`. The Signoff and response history remain intact.
+Mutations check Signoff visibility and proposer/owner authority, plus the source's read and discussion/link-write
+authority. Linking an approval does not require permission to execute its prepared change.
+
+The new `signoff_source_links` table stores dependencies separately from Tasks and immutable Signoff proposals.
+Neither linking nor answering changes Task revisions or work status. Task reads return `work_status`, `input_needed`,
+`input_requests` and `input_version`; `status` projects `needs_input` while any linked Signoff is pending and not
+superseded. Answering, rejecting, cancelling or superseding the last pending request restores the work-status display.
+Agents must reassess what the response means for the work. Task list filters, Todo summaries, compact MCP reads and
+thread context use this projection. The independent Signoff clock prevents stale client reads from undoing a response.
+
+Pending Signoffs have their own visible section above the chat history, using the existing response cards. This section
+does not depend on message pagination, progress-note expansion or Focus membership. Each Signoff's own read policy still
+applies; an inaccessible request shows an unavailable dependency without exposing its title or review scope. Contextual
+`concerns` links never set the indicator. The worker-assignment badge now says “Owner assigned.”
+
+New manual `status: needs_input` writes are rejected with instructions to create/link a Signoff. Legacy saved values are
+retained unchanged: without a pending dependency they display as Open, with `input_request_missing: true` and a thread
+notice for explicit reconciliation. No question is guessed or retroactively invented. Source links follow audited Task
+moves with their own revision. Existing Signoff events notify the proposer and eligible linked Task workers/coordinator;
+private answer text is not copied into shared task notes.
+
+Existing installations require the explicit offline schema upgrade under the normal exclusive instance lock:
+
+```sh
+python -m qorqut.migration.signoff_sources inspect --instance-root INSTANCE_ROOT
+python -m qorqut.migration.signoff_sources apply --instance-root INSTANCE_ROOT
+```
+
+Pass the installation's component selections and `--extensions-config` where applicable. The command accepts only the
+exact predecessor or target composition, adds the binding table/index/triggers atomically, and is repeatable. Normal
+startup does not migrate or reconcile data. This implementation does not deploy or modify a running installation.
+
+Coverage includes atomic creation, retries, standalone/multiple questions, cancellation, exact unlinking, cross-scope
+identity, visibility/authorization failures, task-status filters, preserved approval bindings, schema recognition and
+independent frontend version handling. The remainder of this document records the investigation that preceded the work.
 
 Recorded November 10, 2026, from the owner's discussion. Investigation baseline:
 repository commit `1f1ae90`, on the dedicated `codex/signoff-input-design` branch.
@@ -55,7 +104,7 @@ implementation plan:
   documentation statement that agents are not alerted is stale. Extend the
   existing delivery path rather than inventing a polling worker.
 
-These are implementation findings, not changes already made to the product.
+These findings informed the implementation described above.
 
 ## Existing mechanisms to reuse
 

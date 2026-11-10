@@ -76,6 +76,8 @@ default_tool_policy:
   owner_conversation_send: allow
   signoffs_reject: allow
   signoffs_input_create: allow
+  signoffs_source_link: allow
+  signoffs_source_unlink: allow
   signoffs_input_cancel: allow
   signoffs_attention_set: allow
   signoffs_input_answer_delegated: allow

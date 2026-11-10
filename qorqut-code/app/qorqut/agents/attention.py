@@ -261,7 +261,7 @@ class Attention:
         try: ctx = self.app.policy.context_for(agent_id, business_id=None, review_business_id=None, uow=uow)
         except DomainError: return 'empty'
         scopes = {}
-        states = set()
+        tasks = []
         for row in uow.connection.execute('SELECT * FROM attention_memberships WHERE agent_id=?', (agent_id,)):
             business_id = row['task_business_id']
             try:
@@ -278,12 +278,11 @@ class Attention:
                     continue
                 task = repository.get(row['task_id'])
                 if task and not task.get('archived') and task.get('created_at') == row['task_created_at']:
-                    if task['status'] in {'open', 'working'}:
-                        return 'normal'
-                    states.add(task['status'])
+                    tasks.append(task)
             except DomainError as error:
                 if error.code not in UNREADABLE: raise
-        return 'reassess' if states & {'blocked','waiting','needs_input'} else 'empty'
+        states = {task['status'] for task in self.app.signoffs.sources.project_tasks(ctx, tasks, uow)}
+        return 'normal' if states & {'open', 'working'} else 'reassess' if states & {'blocked','waiting','needs_input'} else 'empty'
 
     def reminder_eligible(self, uow, agent_id, *, consumer_id, binding_generation, focus_generation, kind):
         """Recheck current identity, binding and source authority before delivery."""
@@ -402,6 +401,7 @@ class Attention:
         typed = attributes(task)
         return {**{key: task[key] for key in ('id', 'business_id', 'title', 'status', 'revision', 'created_at', 'parent_id')},
             'archived': bool(task.get('archived')),
+            **{key: task[key] for key in ('work_status', 'input_requests', 'input_needed', 'input_version', 'input_request_missing') if key in task},
             **{key: typed[key] for key in ('task_type', 'customer_kind', 'customer_state')},
             **project_workers(uow, task)}
 
@@ -423,6 +423,10 @@ class Attention:
                 if error.code not in UNREADABLE: raise
                 continue
             items.append({'membership_id':row['id'], 'membership_revision':row['revision'], 'task_ref':ref, 'task':task, 'added_at':row['created_at']})
+        if items:
+            projected = self.app.signoffs.sources.project_tasks(ctx, [item['task'] for item in items], uow)
+            for item, task in zip(items, projected):
+                item['task'] = task
         def ordering(item):
             task = item['task']
             status = task.get('status')
@@ -495,6 +499,7 @@ class Attention:
             ref = {'type':'task','id':row['task_id'],'business_id':row['task_business_id']}
             task = self.board_task(ctx, agent, ref, uow, lifecycle_only=True)
             if task['created_at'] != row['task_created_at']: raise DomainError('not_found', 'Task is unavailable')
+            task = self.app.signoffs.sources.project_tasks(ctx, [task], uow)[0]
             if ctx.principal_kind == 'agent' and task['status'] in ('blocked','needs_input','done') and (args.get('owner_requested') is not True or not args.get('rationale','').strip()):
                 raise DomainError('forbidden', {'blocked':'Blocked','needs_input':'Needs input','done':'Done'}[task['status']] + ' removal requires an owner instruction and rationale (owner_requested: true)')
         if op == 'attention_workflow_update':
@@ -514,7 +519,7 @@ class Attention:
         if status == 'waiting':
             return 'Waiting is for an external party. Otherwise, check state and Workers.'
         if status == 'needs_input':
-            return 'Needs your input: record the owner question in the Task thread and reassess when it is answered.'
+            return 'Create an owner_only Signoff with source pointing to the Task, or link the existing approval with signoffs_source_link. Needs input is derived; reassess the work after the response.'
         if status not in ('working', 'done'):
             return None
         with self.runtime.database.read() as uow:

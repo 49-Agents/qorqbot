@@ -164,6 +164,9 @@ def _declared_default(registry, name):
 
 
 def _fallback_defaults(name, defaults, overrides, registry, *, role_id, scope, resolve):
+    if name in {'signoffs_source_link', 'signoffs_source_unlink'}:
+        # Existing role installations inherit only their input-request authority; the handler checks both endpoints.
+        return resolve('signoffs_input_create')
     declared = _declared_default(registry, name)
     if declared is not None:
         # A selected provider package declared this standing mode on its own operation; the mode only applies once
