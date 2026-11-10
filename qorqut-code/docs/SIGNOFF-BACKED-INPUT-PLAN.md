@@ -47,6 +47,11 @@ Pass the installation's component selections and `--extensions-config` where app
 exact predecessor or target composition, adds the binding table/index/triggers atomically, and is repeatable. Normal
 startup does not migrate or reconcile data. This implementation does not deploy or modify a running installation.
 
+A release that carries later schema transforms as well (the application queue indexes, for one) composes a predecessor
+this command no longer matches on a store that lacks both. Use `python -m qorqut.migration.upgrade inspect|apply` with
+the same arguments there: it applies this transform and every later one in release order, in one transaction, and its
+`revert --to base` walks them back.
+
 Coverage includes atomic creation, retries, standalone/multiple questions, cancellation, exact unlinking, cross-scope
 identity, visibility/authorization failures, task-status filters, preserved approval bindings, schema recognition and
 independent frontend version handling. The remainder of this document records the investigation that preceded the work.

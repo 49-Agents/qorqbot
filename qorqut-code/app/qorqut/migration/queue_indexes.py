@@ -8,6 +8,10 @@ A release that declares these indexes refuses a store without them, and an
 earlier release refuses a store that has them. Revert is the exact inverse of
 apply, under the same ownership and checks, for returning to such a release:
 the indexes hold no data of their own, so dropping them loses nothing.
+
+This command recognises a store that lacks only these indexes. A store that is
+further behind is upgraded with ``python -m qorqut.migration.upgrade``, which
+applies the earlier transforms and this one in order.
 """
 from __future__ import annotations
 
@@ -30,14 +34,38 @@ from qorqut.service.changes import ChangeFeed
 from qorqut.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from qorqut.service.ownership import InstanceOwnership
 
+NAME = 'queue_indexes'
 TRANSFORM = 'v1.3-application-queue-indexes-1'
+
+
+def strip(contribution):
+    """``contribution`` as it stood before this transform; None when the transform introduced it."""
+    return None if contribution.owner == OWNER else contribution
+
+
+def forward(connection, objects):
+    """This transform's DDL, taken from a compiled composition that includes it. The caller owns the transaction."""
+    for key in sorted(OBJECTS):
+        connection.execute(objects[key][1])
+
+
+def backward(connection):
+    """The exact inverse of ``forward``. The caller owns the transaction."""
+    for _, name in sorted(OBJECTS):
+        connection.execute(f'DROP INDEX "{name}"')
+
+
+def held_rows(connection):
+    """How many rows ``backward`` would drop: indexes hold none of their own."""
+    return 0
 
 
 def compositions(extensions=NO_EXTENSIONS):
     target = host_assembly(ChangeFeed(), extensions)
     builder = HostComposition()
     for contribution in host_contributions(ChangeFeed(), extensions):
-        if contribution.owner != OWNER:
+        contribution = strip(contribution)
+        if contribution is not None:
             builder.add(contribution)
     predecessor = builder.freeze()
     old, new = compile_target(predecessor).objects, compile_target(target).objects
@@ -73,9 +101,7 @@ def apply(connection, extensions=NO_EXTENSIONS):
     try:
         state = recognise(connection, predecessor, target)
         if state == 'predecessor':
-            objects = compile_target(target).objects
-            for key in sorted(OBJECTS):
-                connection.execute(objects[key][1])
+            forward(connection, compile_target(target).objects)
             changed = connection.execute(f'UPDATE {IDENTITY_TABLE} SET digest=? WHERE id=?',
                                          (target.target.digest, 'target')).rowcount
             if changed != 1:
@@ -98,8 +124,7 @@ def revert(connection, extensions=NO_EXTENSIONS):
     try:
         state = recognise(connection, predecessor, target)
         if state == 'target':
-            for _, name in sorted(OBJECTS):
-                connection.execute(f'DROP INDEX "{name}"')
+            backward(connection)
             changed = connection.execute(f'UPDATE {IDENTITY_TABLE} SET digest=? WHERE id=?',
                                          (predecessor.target.digest, 'target')).rowcount
             if changed != 1:

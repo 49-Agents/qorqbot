@@ -188,6 +188,30 @@ def _records(component, all_components, value, directories):
     return paths
 
 
+class _WitnessInventory(Inventory):
+    """Replay aliases only when their supplier exists in the verified snapshot.
+
+    The installed Agentic library can add aliases after an intent was sealed.
+    Those later files must not enter the older intent's closed instruction tree.
+    Files actually present in its witness still undergo the full inventory checks.
+    """
+
+    def supplier(self, source, path):
+        supplier, target = super().supplier(source, path)
+        if supplier is not source and not supplier.exists(target):
+            return source, path
+        return supplier, target
+
+    def alias_paths(self, source_id, root):
+        source = self.sources[source_id]
+        result = []
+        for path in super().alias_paths(source_id, root):
+            supplier, target = super().supplier(source, path)
+            if supplier is not source and supplier.exists(target):
+                result.append(path)
+        return tuple(result)
+
+
 class _WitnessSource(Source):
     def __init__(self, source, component, records, directories, used, diagnostics, manifest_sha):
         self.id, self.owner, self.enabled = source['id'], source['owner'], source['enabled']
@@ -284,7 +308,7 @@ def validate(root, manifest_raw, standard, seeds, witnesses, selected):
     legacy_host = any(source['id'] == 'host' and
                       'app/bazarlyk/agentic/assets/index.json' in source['files']
                       for source in standard['sources'])
-    inv = Inventory(relocated_instructions=any(
+    inv = _WitnessInventory(relocated_instructions=any(
         package['id'] == 'runtime-instructions' for package in standard['packages']),
         host_package='bazarlyk' if legacy_host else 'qorqut')
     for source in standard['sources']:
