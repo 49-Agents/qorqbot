@@ -380,7 +380,7 @@ function sgCreateView(options) {
   const errorHtml = (error, action) => `<div class="sg-error" role="alert"><span>${esc(error.message || error)}</span>${action ? `<button type="button" class="sg-command" data-sg="${action}">Retry</button>` : ""}</div>`;
   // Message drafts belong to this mounted view and survive background refreshes.
   const messageEdits = new Map(), ownedWrites = new Set();
-  const reviewEdits = new Map(), reviewHistory = new Map();
+  const reviewEdits = new Map();
   // Inline Chat email cards start as a compact preview; expanded ids survive routine rerenders of this view.
   const emailExpanded = new Set();
   const collapseEmail = id => {
@@ -478,7 +478,7 @@ function sgCreateView(options) {
     if (!sgIsDraftReview(s)) { host?.remove(); return; }
     if (!host) {
       host = document.createElement('div'); host.className = 'sg-draft-review sg-content sg-email';
-      host.innerHTML = '<div class="sg-draft-fields"></div><p class="sg-draft-status sg-notice" role="status"></p><details class="sg-draft-history sg-edit-history"><summary>Version history</summary><div class="sg-draft-versions"></div></details>';
+      host.innerHTML = '<div class="sg-draft-fields"></div><p class="sg-draft-status sg-notice" role="status"></p>';
       detail.querySelector('.sg-preview').after(host);
     }
     const edit = reviewEdits.get(s.id), stale = edit && edit.revision !== s.status_revision;
@@ -508,43 +508,13 @@ function sgCreateView(options) {
       if (field.offsetParent) fitMessage(field);
     }
     const status = host.querySelector('.sg-draft-status');
-    status.textContent = edit?.error || (stale ? 'A newer version is available. Compare it in Version history before keeping your edits.' : '');
-    host.querySelector('.sg-draft-history').hidden = !s.draft_review?.revision && !s.input.previous_review_id;
-    let history = reviewHistory.get(s.id);
-    if (!history || history.revision !== s.draft_review?.revision) {
-      history = {revision: s.draft_review?.revision, items: s.draft_history?.items || [], next: s.draft_history?.next_before, loading: false, error: ''};
-      reviewHistory.set(s.id, history);
-    }
-    const versions = history.items.map(v => `<details><summary>${v.revision ? `Saved version ${v.revision}` : 'Original draft'} · ${esc(stamp(v.created_at))}</summary>${s.input.draft_fields.map(f => `<div class="sg-draft-version-field"><span class="sg-label">${esc(f.label)}</span><pre>${esc(v.values[f.id] ?? '')}</pre></div>`).join('')}</details>`).join('');
-    html(host.querySelector('.sg-draft-versions'), versions + (history.error ? `<p role="alert">${esc(history.error)}</p>` : '') + (history.next ? `<button type="button" class="sg-command" data-sg="draft-history"${history.loading ? ' disabled' : ''}>${history.loading ? 'Loading…' : 'Load older versions'}</button>` : ''));
-    if (s.input.previous_review_id && !host.querySelector('[data-draft-previous]')) {
-      const link = document.createElement('button'); link.type = 'button'; link.className = 'sg-command';
-      link.dataset.draftPrevious = s.input.previous_review_id; link.textContent = 'Previous review';
-      host.append(link); link.onclick = () => {
-        const source = conversationSource(s.input.previous_review_id, s.review_business_id);
-        if (s.review_business_id && !source.biz) return;
-        if (typeof sgFocusOpen === 'function') void sgFocusOpen('Previous draft review', {workspace: () => source.biz || 'scope:global',
-          global: !source.biz, item: () => ({id: source.id, businessId: s.review_business_id}), execution: true, waitingOnly: false});
-      };
-    }
+    status.textContent = edit?.error || (stale ? 'This draft changed elsewhere. Discard your edits to load the latest version, or choose Keep my edits.' : '');
   }
   function reviewEditControls(s, canReview, busy) {
     const edit = reviewEdits.get(s.id);
     if (!edit) return '';
     const stale = edit.revision !== s.status_revision, locked = !!busy || edit.saving;
     return `<div class="sg-actions"><button type="button" class="sg-approve" data-sg="save-draft"${locked || (stale && !edit.receipt) || !canReview || s.state !== 'pending' ? ' disabled' : ''}>${edit.saving ? 'Saving…' : edit.receipt ? 'Retry save' : 'Save'}</button><button type="button" class="sg-reject" data-sg="discard-draft"${locked || edit.receipt ? ' disabled' : ''}>Discard</button>${stale && canReview && s.state === 'pending' && !edit.receipt ? '<button type="button" class="sg-reject" data-sg="rebase-draft">Keep my edits</button>' : ''}</div>`;
-  }
-  async function draftHistory(s) {
-    const history = reviewHistory.get(s.id), c = capture();
-    if (!history?.next || history.loading) return;
-    history.loading = true; history.error = ''; render();
-    try {
-      const next = coreData(await api(path(c.slug, s.id) + '?draft_history_before=' + history.next)).signoff;
-      if (next.id !== s.id || next.review_business_id !== s.review_business_id || binding(next) !== binding(s)) throw new Error('History did not match this draft.');
-      const known = new Set(history.items.map(v => v.revision));
-      history.items.push(...next.draft_history.items.filter(v => !known.has(v.revision))); history.next = next.draft_history.next_before;
-    } catch (error) { history.error = error.message; }
-    finally { history.loading = false; if (current(c)) render(); }
   }
   async function saveReviewDraft(s) {
     const edit = reviewEdits.get(s.id);
@@ -1308,11 +1278,10 @@ function sgCreateView(options) {
       if (command && !command.disabled) {
         const commandRow = command.closest(".sg-row");
         const action = command.dataset.sg;
-        if (['save-draft', 'discard-draft', 'rebase-draft', 'draft-history'].includes(action)) {
+        if (['save-draft', 'discard-draft', 'rebase-draft'].includes(action)) {
           const s = sg.items.get(commandRow?.dataset.id), edit = s && reviewEdits.get(s.id);
           if (!s) return;
-          if (action === 'draft-history') void draftHistory(s);
-          else if (action === 'save-draft') void saveReviewDraft(s);
+          if (action === 'save-draft') void saveReviewDraft(s);
           else if (edit && !edit.saving && !edit.receipt) {
             if (action === 'discard-draft') reviewEdits.delete(s.id);
             else if (s.state === 'pending' && sg.verified.get(s.id) === s.status_revision) { edit.revision = s.status_revision; edit.error = ''; }

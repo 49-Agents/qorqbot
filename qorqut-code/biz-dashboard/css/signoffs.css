@@ -60,7 +60,7 @@
 .sg-choice-ball { width:12px; height:12px; margin:3px; border:1px solid white; border-radius:50%; }
 .sg-choice[aria-checked="true"] .sg-choice-ball { background:white; }
 .sg-choice[aria-checked="true"] .sg-choice-letter { background:white; color:#111; }
-.sg-response-notes { white-space:pre-wrap; }
+.sg .sg-response-notes { margin:8px 0; font:400 13px/1.6 var(--sans); white-space:pre-wrap; }
 @media(max-width:520px) { .sg .sg-choice { grid-template-columns:18px minmax(55px,85px) 8px minmax(0,1fr); gap:5px; } }
 .sg-attention-badge,.sg-signoff-count { display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 4px; border-radius:50%; background:var(--fg-3); color:var(--bg); font-size:10px; font-weight:700; flex:none; }
 .sg-attention-badge.urgent,.sg-signoff-count.urgent { background:#FF453A; color:white; }
@@ -272,8 +272,6 @@
 .sg-email-collapsed .sg-draft-field[data-draft-multiline] > .sg-draft-editor,
 .sg-email-collapsed .sg-draft-field[data-draft-multiline] > .sg-content-label { display: none; }
 .sg .sg-draft-feedback .sg-feedback { min-height: 0; resize: none; overflow: hidden; padding: 6px 12px; }
-.sg-draft-version-field { margin: 8px 0; }
-.sg-draft-version-field pre { margin: 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 .sg-question { min-width: 0; margin: 20px 0 0; padding: 0 0 20px; border: 0; border-bottom: 1px solid var(--line-2); }
 .sg-question legend { max-width: 100%; padding: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 .sg-question-explanation { color: var(--fg-2); white-space: pre-wrap; overflow-wrap: anywhere; }
