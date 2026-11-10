@@ -23,6 +23,7 @@ from qorqut_operations.storage.receipts import ApplyReceipts, IdempotencyReceipt
 from qorqut_operations.storage.repositories import decode_row
 from qorqut_operations.storage.specs import TableSpec
 from .inputs import InputRequests, validate_response
+from . import questions
 from .drafts import SCHEMA as DRAFT_SCHEMA, DraftReviews, is_draft, validate_values
 from .notes import SignoffNotes, eligible
 from .notifications import SignoffNotifications
@@ -40,6 +41,7 @@ CONFLICTS = frozenset({"revision_conflict", "forbidden", "policy_denied", "inact
 FILE_RECOVERY_INTERVAL = 5.0
 PLATFORM_UNAVAILABLE = "Platform action domain is not installed"
 UUID_SCHEMA = {"type": "string", "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"}
+_UNSET = object()
 
 
 # Authority metadata of the Operations-owned Signoff operations (deployed v1 catalog lines, unchanged). The
@@ -682,28 +684,45 @@ class SignoffService:
             return OperationResult.failure(exc, request_id=context.request_id)
 
     def respond(self, context, signoff_id, *, proposal_revision, payload_hash,
-                expected_status_revision, idempotency_key, notes="", selected_choices=None, draft_values=None):
+                expected_status_revision, idempotency_key, notes=_UNSET, selected_choices=_UNSET,
+                draft_values=_UNSET, answers=_UNSET):
         try:
             InvocationOptions(expected_revision=expected_status_revision, idempotency_key=idempotency_key)
             if not idempotency_key or type(proposal_revision) is not int or proposal_revision < 1:
                 raise DomainError("validation_error", "Response requires the current binding and an idempotency key")
-            selected_choices = [] if selected_choices is None else selected_choices
             with self.database.transaction() as uow:
                 context = self._context(context, uow, owner=True)
                 self.app.ensure_writes_open(uow)
                 row = self._row(context, signoff_id, uow)
                 if row['category'] != 'input_request':
                     raise DomainError('invalid_transition', 'Use approve or reject for a prepared action')
-                notes, selected = validate_response(row['preview_json']['input'], notes, selected_choices)
-                if is_draft(row):
-                    if draft_values is None:
-                        raise DomainError('validation_error', 'Returning a draft requires its complete edited fields')
-                    draft_values = validate_values(row, draft_values, final=True)
-                elif draft_values is not None:
-                    raise DomainError('validation_error', 'Draft values are only accepted for draft reviews')
+                form = row['preview_json']['input']
+                grouped = questions.is_questionnaire(form)
+                if grouped:
+                    if any(value is not _UNSET for value in (notes, selected_choices, draft_values)):
+                        raise DomainError('validation_error', 'Question answers cannot be mixed with single-question or draft-review fields')
+                    answers = questions.validate_answers(form, answers)
+                    messages = questions.answer_messages(form, answers)
+                    for message in messages:
+                        self.notes.validate(message)
+                    response_input = {'answers': answers}
+                else:
+                    if answers is not _UNSET:
+                        raise DomainError('validation_error', 'Answers require a version-2 question form')
+                    notes = '' if notes is _UNSET else notes
+                    selected_choices = [] if selected_choices is _UNSET or selected_choices is None else selected_choices
+                    draft_values = None if draft_values is _UNSET else draft_values
+                    notes, selected = validate_response(form, notes, selected_choices)
+                    if is_draft(row):
+                        if draft_values is None:
+                            raise DomainError('validation_error', 'Returning a draft requires its complete edited fields')
+                        draft_values = validate_values(row, draft_values, final=True)
+                    elif draft_values is not None:
+                        raise DomainError('validation_error', 'Draft values are only accepted for draft reviews')
+                    response_input = {'notes': notes, 'selected': selected,
+                        **({'draft_values': draft_values} if draft_values is not None else {})}
                 input_hash = canonical_hash({'id': signoff_id, 'proposal_revision': proposal_revision,
-                    'payload_hash': payload_hash, 'revision': expected_status_revision, 'notes': notes, 'selected': selected,
-                    **({'draft_values': draft_values} if draft_values is not None else {})})
+                    'payload_hash': payload_hash, 'revision': expected_status_revision, **response_input})
                 receipts = IdempotencyReceipts(uow)
                 namespace = 'business:' + context.business_id if context.business_id else 'global'
                 replay = receipts.lookup(context.principal_id, namespace, 'signoffs_respond', idempotency_key, input_hash)
@@ -712,14 +731,17 @@ class SignoffService:
                 if (not self._binding_matches(row, proposal_revision, payload_hash)
                         or row['status_revision'] != expected_status_revision or row['state'] != 'pending' or row['superseded_by_id']):
                     raise self._stale(context, row, uow, 'This input request has changed or already received a response')
-                message_id = self.notes.decision_message(context, row, notes, uow)
-                draft_decision = {}
-                if is_draft(row):
-                    saved = self.drafts.save(context, row, draft_values, uow)
-                    draft_decision = {'draft_values': draft_values, 'draft_revision': saved['revision']}
+                if grouped:
+                    submitted = [{**answer, 'message_id': self.notes.decision_message(context, row, message, uow)}
+                                 for answer, message in zip(answers, messages)]
+                    decision = {'schema_version': 2, 'answers': submitted}
+                else:
+                    decision = {'message_id': self.notes.decision_message(context, row, notes, uow), 'selected_choices': selected}
+                    if is_draft(row):
+                        saved = self.drafts.save(context, row, draft_values, uow)
+                        decision.update(draft_values=draft_values, draft_revision=saved['revision'])
                 row = self._update(row, {'state': 'answered', 'decision_json': {'kind': 'respond',
-                    'by': context.principal_id, 'at': self.clock(), 'message_id': message_id, 'selected_choices': selected,
-                    **draft_decision}}, uow)
+                    'by': context.principal_id, 'at': self.clock(), **decision}}, uow)
                 result = self._decision_result(context, row, uow)
                 receipts.save(context.principal_id, namespace, 'signoffs_respond', idempotency_key, input_hash, result)
                 return result

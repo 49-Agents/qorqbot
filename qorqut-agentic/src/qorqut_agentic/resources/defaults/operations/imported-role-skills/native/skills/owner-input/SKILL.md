@@ -58,7 +58,7 @@ or choices materially change, withdraw the old input with
 `signoffs_input_cancel`, then submit its replacement. Avoid duplicate requests
 for each retry of a blocked operation.
 
-The `form` contains `title`, `explanation`, `kind` (`question`, `request`, or `draft_review`), and
+The unversioned `form` contains `title`, `explanation`, `kind` (`question`, `request`, or `draft_review`), and
 `selection_mode` (`none`, `single`, or `multiple`). For choices provide at least
 two entries with unique stable `id`, a one/two-word `label`, and `explanation`.
 Use `selection_required` and `notes_required` only when that information is
@@ -66,10 +66,50 @@ necessary to proceed. Notes are always available; the owner submits notes and
 selections together. Put your recommendation and the consequences of waiting
 in the explanation.
 
+## Questions with separate choices
+
+Use a version-2 question form when each question needs its own single-select or
+multi-select choices. Keep content editing and text questionnaires that benefit
+from prefilled fields or saved versions on `draft_review`; do not replace an
+existing pending review just to use the new form.
+
+Set `form.schema_version: 2`, `kind: question`, `response_policy: owner_only`,
+`title`, `explanation`, and `questions` (1–10). Every question has a unique stable
+`id`, a `prompt`, and `selection_mode` (`none`, `single`, or `multiple`). Its
+`explanation` is optional. For choices, supply 2–26 entries with `id`, a one/two-word
+`label`, and `explanation`. Choice IDs need only be unique inside that question.
+Do not include the unversioned form's top-level `choices`, `selection_mode`,
+`selection_required`, `notes_required`, or `draft_fields` in a version-2 form.
+
+Questions default to `required: true`; use `required: false` when skipping is
+acceptable. A selection **or a written alternative** answers a required question.
+Use per-question `notes_required: true` only when a written answer is necessary;
+an optional question can still be skipped entirely. Each written answer allows
+8000 characters, with 32000 combined and a 64 KiB normalized answer limit. The
+normalized form also has a 64 KiB limit. Put only related questions in one request.
+
+The owner edits everything locally, then clicks one **Done** button. There is no
+saved partial response, no automatic submission, and no per-question notification.
+Local edits survive polling and switching dashboard surfaces, but not a full
+browser reload. Until the whole submission succeeds, the Signoff and its linked
+work remain pending. Telegram replies are comments; reactions cannot answer it.
+
+After `state: answered`, read the complete `signoffs_get` evidence:
+`decision.schema_version: 2` and `decision.answers` in the original question
+order. Each answer has `question_id`, `selected_choices`, verbatim `notes`,
+`status` (`answered` or `skipped`), and its conversation `message_id`. Read both
+selections and notes; a written alternative can differ from the suggested options.
+Only the final decision is the response record. One response event covers the
+whole form. It grants no authority to execute a prepared action.
+
+Discover the installed `signoffs_input_create` schema before using this variant.
+Older deployments may only support the unversioned form. Existing draft reviews
+and single-question Signoffs continue to work unchanged.
+
 ## Editable draft review
 
 Use `form.kind: draft_review` when the owner should edit proposed content, such
-as email copy, a document, a brief or a script. Supply `draft_fields`: 1–12 fields
+as email copy, a document, a brief, a script or a text questionnaire. Supply `draft_fields`: 1–12 fields
 with unique stable `id`, a readable `label`, and the initial text in `value`.
 Use `multiline: false` for a subject or other single line (the default is
 multiline); use `required: true` only for fields that must be nonblank when

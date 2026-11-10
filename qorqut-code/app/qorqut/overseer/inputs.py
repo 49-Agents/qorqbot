@@ -97,6 +97,8 @@ def create_input_request(runtime, context, binding, form, operation_id, *, direc
     if scope['kind'] != ('business' if business else 'global'):
         raise DomainError('validation_error', 'Invalid review scope')
     form = validate_form({**form, 'response_policy': 'owner_only'})
+    if 'schema_version' in form:
+        raise DomainError('validation_error', 'Overseer action bindings require a single question')
     if {choice['id'] for choice in form['choices']} != set(binding['choice_actions']):
         raise DomainError('validation_error', 'Every choice must match the saved binding')
     layer = runtime.agentic_layer

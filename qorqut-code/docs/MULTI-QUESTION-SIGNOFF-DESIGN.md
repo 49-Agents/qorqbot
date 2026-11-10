@@ -1,9 +1,14 @@
 # Multi-question Signoff design
 
-Status: narrowed design candidate after checking live usage, November 10, 2026.
-No runtime implementation or live record changes. Original source baseline:
-remote `main`, commit `306bb5b`; overlap rechecked against `64570d9` and the
-running release `main-a1845b1-compat-79d1235`.
+Status: implemented on `codex/multi-question-signoff-design`, November 10, 2026;
+not deployed. The implementation incorporates `main` through `64570d9`.
+Original investigation baseline: `306bb5b`; overlap was checked against
+`64570d9` and running release `main-a1845b1-compat-79d1235`.
+No live records or running agent instruction pins were changed.
+
+The shipped source contract is documented in
+[Owner input and Signoff notifications](SIGNOFF-INPUT-NOTIFICATIONS.md#several-questions-one-done).
+The sections below retain the design rationale and compatibility requirements.
 
 An input Signoff can contain several independently answerable questions. The
 owner edits the answers freely, then clicks one **Done** button to submit the
@@ -297,10 +302,10 @@ a field being edited or confusing the Signoff conversation composer with an
 answer. Group radio buttons and their keyboard movement within each question.
 Link errors to the corresponding prompt and field with accessible labels.
 
-Ctrl/Cmd+Enter can invoke the one Done action from an answer field when not
+Ctrl/Cmd+Enter invokes the one Done action from an answer field when not
 composing; plain Enter edits text. It must validate the entire form and obey
-the same busy guard. The demo uses a mouse/keyboard-accessible Done button;
-it is not evidence that these production keyboard integrations exist yet.
+the same busy guard. The implementation also keeps ordinary Enter available
+for editing and radio-arrow navigation within the corresponding question.
 
 Freeze all answers under one receipt when Done is clicked. Retry the same
 normalized payload with the same key after an uncertain network result.
@@ -347,14 +352,49 @@ owner-only policy; the real SQLite decision trigger rejects an incremental
 second response write. All five checks passed using source imports and an
 in-memory database. These verify current constraints, not the future feature.
 
-## Remaining implementation choices
+## Implementation and limits
 
-The one-Done submission rule is settled and already available for text fields
-through Return draft. Establish the need for independently typed choice
-questions before implementing the candidate version-2 contract. The numeric bounds, helper/module
-names and whether to expose a compact question count remain implementation
-choices. Durable draft recovery, conditional questions, attachments,
-per-question permissions and grouped action approvals are separate features.
-Existing draft reviews already have durable saved versions; the earlier
-durable-recovery exclusion concerns only the proposed new question variant,
-not removal of that existing capability.
+`signoffs/questions.py` owns the version-2 schema and pure validation. The
+existing response transaction, receipts, immutable decision trigger, note
+projection, source dependencies and inbox finalizer handle the submission.
+No storage schema or persisted state was added. The UI shares the draft-review
+text control scaffold and the existing Signoff renderer across surfaces.
+Question drafts and pending submissions use the owner, actual review scope and
+proposal binding so the project and Global views share one in-flight response.
+
+Focused checks cover schema limits and Unicode, written alternatives, optional
+skips, HTTP submission, atomic rollback, concurrent submissions, stale bindings,
+owner/scope checks, idempotency, immutable evidence, one proposer notification,
+MCP evidence and legacy draft history. Browser checks cover separate choice
+groups, validation, shared drafts, stable controls/caret, narrow layout, pending
+locks, identical-key retry, lost responses and preserved conflicting drafts.
+Telegram tests check comment-only replies and non-submitting reactions.
+
+Executable coverage lives in
+[host tests](../app/tests/test_signoff_questions.py),
+[browser tests](../biz-dashboard/tests/signoff-questions.test.js), and
+[Telegram tests](../extensions/telegram/tests/test_signoff_questions.py).
+The existing source-dependency and focused dashboard tests also remain applicable.
+
+Verification on the implementation branch: 16 question/response host tests,
+17 existing source-dependency tests, 2 Telegram tests and 15 focused dashboard
+tests passed. The Chrome suites run serially (`--test-concurrency=1`); the old
+chat fixture can exhaust its fixed virtual-time budget when Chrome instances
+compete. Syntax/JSON checks and `git diff --check` passed. The Signoff storage
+contribution is identical to the baseline; no schema migration is required.
+
+With the prepared Python environment and repository package paths available:
+
+```sh
+python -B -m unittest discover -s qorqut-code/app/tests -p 'test_signoff_*.py' -q
+python -B -m unittest discover -s qorqut-code/extensions/telegram/tests -p test_signoff_questions.py -q
+node --test --test-concurrency=1 qorqut-code/biz-dashboard/tests/signoff-questions.test.js qorqut-code/biz-dashboard/tests/signoff-chat-reference.test.js qorqut-code/biz-dashboard/tests/signoff-input-state.test.js qorqut-code/biz-dashboard/tests/work-signoff-link.test.js qorqut-code/biz-dashboard/tests/signoff-attention-pill.test.js
+```
+
+Compact indexes remain unchanged; read `signoffs_get` for the complete form
+and decision. Durable recovery across browser reloads, conditional questions,
+attachments, per-question permissions and grouped action approvals are outside
+this change. Existing draft reviews retain saved versions. Release the engine,
+host, dashboard and connector together, reload older browser tabs, and adopt
+updated agent guidance through the authorized release workflow before expecting
+Ordubashy to use the new schema. A branch push does not perform that adoption.
