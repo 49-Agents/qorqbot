@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -291,14 +292,18 @@ class Catalog:
     def _signature(root: Path):
         """Cheap inventory of everything under the store root, or None when unreadable."""
         try:
-            root = root.resolve(strict=True)
             entries = []
-            for directory, names, files in os.walk(root, followlinks=False):
-                for name in (*names, *files):
-                    path = Path(directory) / name
-                    info = path.lstat()
-                    entries.append((path.relative_to(root).as_posix(), path.is_symlink(),
-                                    info.st_size, info.st_mtime_ns, info.st_ino, info.st_mode))
+            pending = [(os.path.realpath(root, strict=True), "")]
+            while pending:
+                directory, prefix = pending.pop()
+                with os.scandir(directory) as found:
+                    for entry in found:
+                        info = entry.stat(follow_symlinks=False)
+                        relative = prefix + entry.name
+                        entries.append((relative, stat.S_ISLNK(info.st_mode),
+                                        info.st_size, info.st_mtime_ns, info.st_ino, info.st_mode))
+                        if stat.S_ISDIR(info.st_mode):
+                            pending.append((entry.path, relative + "/"))
         except OSError:
             return None
         return tuple(sorted(entries))

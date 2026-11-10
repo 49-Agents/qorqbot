@@ -178,6 +178,12 @@ class Attention:
         if set(changes) - CLOCK_FIELDS: raise ValueError('Unknown attention clock field')
         if not changes: return
         self.ensure(uow, agent_id)
+        # Timer passes and every hook claim recompute these clocks and usually arrive at the stored values. Writing
+        # them again changes nothing a reader can see, but it dirties a page, so an otherwise idle write unit pays a
+        # synchronous commit while holding the writer and is published as a change. Only a real difference is written.
+        stored = uow.connection.execute('SELECT '+','.join(changes)+' FROM agent_attention WHERE agent_id=?', (agent_id,)).fetchone()
+        if stored is not None and all(type(kept) is type(value) and kept == value for kept, value in zip(stored, changes.values())):
+            return
         uow.connection.execute('UPDATE agent_attention SET '+','.join(k+'=?' for k in changes)+' WHERE agent_id=?', [*changes.values(), agent_id])
 
     def membership_event(self, uow, agent, membership_id, ref, created_at, actor, kind, now, *, owner_requested=False, rationale=''):

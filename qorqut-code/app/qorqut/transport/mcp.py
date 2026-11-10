@@ -298,8 +298,11 @@ class MCPTransport:
         @self.server.list_tools()
         async def list_tools():
             try:
-                actor = self._request_actor()
-                return await anyio.to_thread.run_sync(lambda: self._discover_tools(actor))
+                actor = self._request_actor(authority=False)
+                def discover():
+                    self.runtime.require_authority()
+                    return self._discover_tools(actor)
+                return await anyio.to_thread.run_sync(discover)
             except DomainError as exc:
                 raise McpError(types.ErrorData(code=-32000, message=exc.message, data=exc.to_dict())) from exc
 
@@ -328,6 +331,15 @@ class MCPTransport:
             wire = mcp_presentation.finalize(value)
             return types.CallToolResult(content=self._content_blocks(wire),
                 isError=value["status"] == "error")
+
+        # The SDK resolves every called tool in one definition cache shared by all callers of this server and, on a
+        # miss, runs the whole tools/list handler inside the tools/call, then replaces the cache with that caller's
+        # inventory. Inventories differ per agent and aliases are not always listed, so ordinary calls kept
+        # re-running discovery for a definition that is only used for SDK input validation, which is disabled above:
+        # every operation validates its own arguments. Dispatch still refuses unexposed and unknown operations.
+        async def no_cached_definition(tool_name):
+            return None
+        self.server._get_cached_tool_definition = no_cached_definition
 
     def _discover_tools(self, actor):
         # Sequence requests before taking the snapshot so an older reader cannot
@@ -448,7 +460,10 @@ class MCPTransport:
         known_operation = None
         context = None
         try:
-            actor = actor or self._request_actor()
+            # A batch entry arrives with the actor its batch authorization already admitted; a single call binds
+            # the request's actor here and passes the per-use authority gate on its worker thread below.
+            gate_authority = not actor
+            actor = actor or self._request_actor(authority=False)
             descriptor = self.runtime.registry.get(name)
             timing["operation"] = descriptor.name
             if not self.caller.exposes(descriptor):
@@ -481,6 +496,10 @@ class MCPTransport:
                 options = replace(options, omit_work_briefing=True)
             def invoke():
                 nonlocal context
+                # The per-use authority gate reads the database; it runs here, on the worker thread that is about
+                # to use that authority, instead of blocking the event loop that serves every other request.
+                if gate_authority:
+                    self.runtime.require_authority()
                 with _phase(timing, "configuration_ms"):
                     binding = (self.caller.attention_binding(actor, request_context.request.headers, request_context.meta)
                                if requires_binding else None)
@@ -582,17 +601,21 @@ class MCPTransport:
             read_instructions=lambda: self.runtime.resolver.require_agentic_view().runtime_instructions())
 
     async def _authorize_batch(self):
-        bound = self._request_actor()
+        bound = self._request_actor(authority=False)
         authorization = self.server.request_context.request.headers.get("authorization")
         def authorize():
+            self.runtime.require_authority()
             actor = self.caller.authenticate(authorization)
             if self.caller.identity(actor) != self.caller.identity(bound):
                 raise DomainError("unauthenticated", "Batch authentication no longer matches the request")
             return self.caller.check_batch(actor)
         return await anyio.to_thread.run_sync(authorize)
 
-    def _request_actor(self):
-        self.runtime.require_authority()
+    def _request_actor(self, *, authority=True):
+        """The request's authenticated actor. ``authority=False`` is for a caller that performs the same per-use
+        authority check itself on the worker thread it is about to hand the actor to."""
+        if authority:
+            self.runtime.require_authority()
         request = self.server.request_context.request
         if request is None or "qorqut.auth" not in request.scope:
             raise DomainError("unauthenticated", "No authenticated transport request is bound")
@@ -609,8 +632,11 @@ class MCPTransport:
             self.origins.validate(request)
             if request.query_params:
                 raise DomainError("invalid_request", "MCP does not accept query credentials or identity selectors")
-            self.runtime.require_authority()
-            actor = await anyio.to_thread.run_sync(lambda: self.caller.authenticate(request.headers.get("authorization")))
+            authorization = request.headers.get("authorization")
+            def admit():
+                self.runtime.require_authority()
+                return self.caller.authenticate(authorization)
+            actor = await anyio.to_thread.run_sync(admit)
             scope["qorqut.auth"] = actor
             transport_identity = actor.delegation_binding_id or actor.credential_id
             scope["user"] = AuthenticatedUser(AccessToken(token=transport_identity, client_id=transport_identity,
