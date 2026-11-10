@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import argparse
 from collections import OrderedDict
+from contextlib import contextmanager
 import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import shutil
@@ -29,8 +31,33 @@ sys.path[:0] = [str(REPO / path) for path in (
 from qorqut.agentic.view import HostAgenticView
 from qorqut.agents.models import EffectiveAgentConfig
 from qorqut.agents.resolver import AgentConfigResolver
+from qorqut.browser.agent_browsers import cdp_healthy
 from qorqut_agentic import AgenticLayer, catalog_api
 from qorqut_agentic.files import DiskSource, SafeTree
+
+
+@contextmanager
+def local_cdp():
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def do_GET(self):
+            body = b'{"webSocketDebuggerUrl":"ws://127.0.0.1/devtools/browser/synthetic"}'
+            self.send_response(200)
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    server.daemon_threads = True
+    thread = threading.Thread(target=lambda: server.serve_forever(poll_interval=.02), daemon=True)
+    thread.start()
+    try:
+        yield f'http://127.0.0.1:{server.server_port}'
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(5)
 
 
 def measure(call, rounds):
@@ -94,7 +121,7 @@ def main():
     args = parser.parse_args()
     if not 3 <= args.rounds <= 100:
         parser.error("rounds must be between 3 and 100")
-    with tempfile.TemporaryDirectory(prefix="toolcall-latency-") as directory:
+    with tempfile.TemporaryDirectory(prefix="toolcall-latency-") as directory, local_cdp() as endpoint:
         root, layer, view = fixture(Path(directory))
 
         def inventory():
@@ -113,6 +140,7 @@ def main():
             ("inventory", inventory), ("catalog_snapshot", snapshot),
             ("runtime_instruction", lambda: view.runtime_instructions().render("attention-board-transition")),
             ("cached_config", lambda: resolver._resolve_agent_config(None, include_preparation=False).effective_config_id),
+            ("browser_health", lambda: cdp_healthy(endpoint)),
         ):
             result["cases"][name] = measure(call, args.rounds)
     text = json.dumps(result, indent=2, sort_keys=True) + "\n"
