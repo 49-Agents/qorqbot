@@ -1,4 +1,4 @@
-// A lightweight overview of actual Todo memberships, independent of the chat's selected agent.
+// A lightweight agent overview, independent of the selected Todo board.
 // Other boards need only their first summary row; selecting one uses the normal paginated Todo reader.
 function attentionAgentsCache(p) {
   return p.attentionAgents ||= {agents:[], entries:new Map(), at:0, retryAt:0, run:null, error:null};
@@ -92,24 +92,28 @@ function attentionAgentsPaint(p) {
   const host=p.attentionBoard?.board.querySelector('[data-attention-agents]');
   if (!host) return;
   const cache=attentionAgentsCache(p), selected=p.attentionAgentId || p.agentId;
+  const ordubashyView=(p.workspaceRole || agentRole(globalAgentProfile(p.agentId))) === 'ordubashy';
   const entries=cache.agents.map(agent=>({agent,...cache.entries.get(agent.agent_id)}));
-  const visible=entries.filter(entry=>entry.data?.items.length);
+  const visible=entries.filter(({agent,data})=>ordubashyView
+    ? agentRole(agent) === 'ordubashy' || data?.attention?.state === 'focused' && data.attention.focus && !data.attention.focus.unavailable
+    : data?.items.length);
   const failed=entries.filter(entry=>entry.error).map(entry=>entry.agent.display_name || entry.agent.name || 'Agent');
-  const signature=JSON.stringify([selected,visible.map(({agent,data,error})=>[agent.agent_id,agent.display_name,agent.name,agent.presentation,data.attention,!!error]),failed,cache.error?.message,!!cache.at,!!cache.run]);
+  const signature=JSON.stringify([ordubashyView,selected,visible.map(({agent,data,error})=>[agent.agent_id,agent.display_name,agent.name,agent.presentation,data?.attention,!!error]),failed,cache.error?.message,!!cache.at,!!cache.run]);
   if (host._attentionSignature === signature) return;
   host._attentionSignature=signature;
   const focused=host.contains(document.activeElement) ? document.activeElement.dataset.attentionAgent : null;
   host.replaceChildren();
-  const heading=document.createElement('h2'); heading.textContent='Agents with todos'; host.append(heading);
+  const heading=document.createElement('h2'); heading.textContent=ordubashyView ? 'Agent focus' : 'Agents with todos'; host.setAttribute('aria-label',heading.textContent); host.append(heading);
   for (const {agent,data,error} of visible) {
     const row=document.createElement('button');row.type='button';row.className='attention-agent';row.dataset.attentionAgent=agent.agent_id;
     row.setAttribute('aria-pressed',String(selected === agent.agent_id));
     const name=agent.display_name || agent.name || 'Agent';
     row.innerHTML=identityAvatar('agent',name,agent)+'<span class="attention-agent-copy"><span class="attention-agent-heading"><strong></strong><span class="attention-agent-focus"></span></span><span class="attention-agent-intent"></span></span>';
     row.querySelector('strong').textContent=name;
-    const attention=data.attention, focus=attention?.focus;
+    const attention=data?.attention, focus=attention?.focus;
     const focused=attention?.state === 'focused' && focus && !focus.unavailable;
-    row.querySelector('.attention-agent-focus').textContent=focus?.unavailable ? 'Focus unavailable' : focused ? (focus.label || attention.task?.label || 'Focused') : 'No focus set';
+    row.querySelector('.attention-agent-focus').textContent=!data ? (error ? 'Focus unavailable' : 'Loading focus…')
+      : focus?.unavailable ? 'Focus unavailable' : focused ? (focus.label || attention.task?.label || 'Focused') : 'No focus set';
     const intent=row.querySelector('.attention-agent-intent');
     intent.textContent=focused ? attention.intent || 'No intent recorded' : '';
     intent.hidden=!focused;
@@ -121,7 +125,7 @@ function attentionAgentsPaint(p) {
     const message=document.createElement('p');message.className='attention-empty';
     message.textContent=cache.error ? 'Could not refresh agents. ' + cache.error.message
       : failed.length ? 'Could not refresh Todo for ' + failed.join(', ') + '.'
-      : cache.run || !cache.at ? 'Loading agents…' : 'No agents have todos.';
+      : cache.run || !cache.at ? 'Loading agents…' : ordubashyView ? 'No focused agents.' : 'No agents have todos.';
     if (cache.error || failed.length) message.setAttribute('role','status');
     host.append(message);
   }
