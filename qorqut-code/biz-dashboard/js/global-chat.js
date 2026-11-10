@@ -103,31 +103,16 @@ const globalChatNoticeLabel = system => !system ? 'System notice'
   : system.verified ? GLOBAL_CHAT_INPUT_LABEL[system.input_type] || 'System notice'
   : 'Unverified notice';
 const globalChatBase = id => `/root/agents/${encodeURIComponent(id)}/chat`;
-const GLOBAL_CHAT_CONTEXT_KEY = 'qorqbot.chat-context-visible';
-let globalChatContextShown = true;
-try { globalChatContextShown = localStorage.getItem(GLOBAL_CHAT_CONTEXT_KEY) !== 'false'; } catch (_) { /* Session-only preference when storage is unavailable. */ }
 const globalChatHasContext = agent => ['ordubashy','global-worker'].includes(agent.role?.id || agent.role_id);
-function globalChatActionTime(action) {
-  const time = action.occurred || {}, zone = time.time_zone || SJ_ZONE;
-  if (time.precision === 'instant' && time.instant) return `${sjDateTime(time.instant, undefined, zone)} · ${zone}`;
-  const date = time.date ? sjDayLabel(time.date, {year:'numeric'}) : 'Undated';
-  if (time.precision === 'hour' && Number.isInteger(time.hour)) return `${date} · ${String(time.hour).padStart(2,'0')}h · ${zone}`;
-  return `${date} · time not recorded`;
-}
-// Both projections belong to the chat's registered agent, independently of the selected Todo board.
-// These are recorded plans/results; only the native session controls the working dots.
-function globalChatContextMount(host, toggle, agent, {visible, onChange}) {
+// Recorded focus belongs to the chat's agent, independently of the selected Todo board.
+// Only the native session controls the working dots.
+function globalChatContextMount(host, agent, {visible, onChange}) {
   const agentId=agent.agent_id, reads=new AbortController();
-  let disposed=false, pending=null, last=0, attention=null, action=null, focusError=false, actionError=false, loaded=false;
-  host.innerHTML='<dl><dt>Focus</dt><dd class="gchat-focus-label">Loading…</dd><dt>Intent</dt><dd class="gchat-focus-intent">Loading…</dd><dt>Last recorded action</dt><dd><span class="gchat-action-text">Loading…</span><span class="gchat-action-meta"></span></dd></dl>';
-  host.id=`gchat-context-${agentId}`;
+  let disposed=false, pending=null, last=0, attention=null, focusError=false, loaded=false;
+  host.innerHTML='<dl><dt>Focus</dt><dd class="gchat-focus-label">Loading…</dd><dt>Intent</dt><dd class="gchat-focus-intent">Loading…</dd></dl>';
   host.tabIndex=0;
-  toggle.setAttribute('aria-controls',host.id);
   const show=()=>{
-    host.hidden=!globalChatContextShown || !visible();
-    toggle.setAttribute('aria-pressed',String(globalChatContextShown));
-    toggle.setAttribute('aria-expanded',String(!host.hidden));
-    toggle.setAttribute('aria-label',globalChatContextShown ? 'Hide agent context' : 'Show agent context');
+    host.hidden=!visible();
     return !host.hidden;
   };
   const paint=()=>{
@@ -136,40 +121,28 @@ function globalChatContextMount(host, toggle, agent, {visible, onChange}) {
       : focused ? focus.label || attention.task?.label || 'Focused' : 'No focus set';
     host.querySelector('.gchat-focus-intent').textContent=!loaded ? 'Loading…' : focusError || focus?.unavailable ? 'Intent unavailable'
       : focused && attention.intent ? attention.intent : 'No intent recorded';
-    host.querySelector('.gchat-action-text').textContent=!loaded ? 'Loading…' : actionError ? 'Actions unavailable' : action?.text || 'No actions recorded';
-    host.querySelector('.gchat-action-meta').textContent=action ? globalChatActionTime(action) + (action.attribution === 'recorded' ? ' · Performer not recorded' : '') : '';
     show();
     onChange();
   };
   const refresh=(force=false)=>{
-    if (disposed || !globalChatContextShown || document.hidden || !visible() || !force && Date.now()-last < 12000) return Promise.resolve();
+    if (disposed || document.hidden || !visible() || !force && Date.now()-last < 12000) return Promise.resolve();
     if (pending) return pending;
     last=Date.now();
     pending=(async()=>{
-      const results=await Promise.allSettled([
-        post('/root/operations/todo_get',{scope:'global',agent_id:agentId,projection:'focus'},{signal:reads.signal}).then(coreData),
-        post('/root/operations/actions_list',{performer:agentId,limit:1},{signal:reads.signal}).then(coreData),
-      ]);
-      if (disposed) return;
-      const [focusResult,actionResult]=results;
-      const focusData=focusResult.status === 'fulfilled' ? focusResult.value : null;
-      focusError=focusData?.agent_id !== agentId || !focusData?.attention;
-      attention=focusError ? null : focusData.attention;
-      const actionData=actionResult.status === 'fulfilled' ? actionResult.value : null;
-      actionError=!Array.isArray(actionData?.actions);
-      action=actionError ? null : actionData.actions[0] || null;
-      if (action && (action.withdrawn || (action.performed_by?.id || action.recorded_by?.id) !== agentId || typeof action.text !== 'string')) {
-        action=null;actionError=true;
+      try {
+        const data=coreData(await post('/root/operations/todo_get',{scope:'global',agent_id:agentId,projection:'focus'},{signal:reads.signal}));
+        if (disposed) return;
+        if (data?.agent_id !== agentId || !data.attention) throw Error('Focus unavailable');
+        attention=data.attention;focusError=false;
+      } catch (_) {
+        if (disposed) return;
+        attention=null;focusError=true;
+      } finally {
+        pending=null;
       }
-      loaded=true;pending=null;paint();
+      loaded=true;paint();
     })();
     return pending;
-  };
-  toggle.onclick=()=>{
-    globalChatContextShown=!globalChatContextShown;
-    try { localStorage.setItem(GLOBAL_CHAT_CONTEXT_KEY,String(globalChatContextShown)); } catch (_) { /* Keep the in-memory preference. */ }
-    show();onChange();
-    if (globalChatContextShown) void refresh(true);
   };
   const timer=setInterval(()=>{void refresh();},12000);
   const onVisible=()=>{if (!document.hidden) void refresh();};
@@ -177,18 +150,15 @@ function globalChatContextMount(host, toggle, agent, {visible, onChange}) {
   show();
   return {
     refresh,show,
-    dispose() {disposed=true;reads.abort();clearInterval(timer);document.removeEventListener('visibilitychange',onVisible);toggle.onclick=null;host.replaceChildren();host.hidden=true;},
+    dispose() {disposed=true;reads.abort();clearInterval(timer);document.removeEventListener('visibilitychange',onVisible);host.replaceChildren();host.hidden=true;},
   };
 }
 // ---- the mount
-function globalChatContextToggle() {
-  return '<button type="button" class="ttab gchat-context-toggle" data-chat-context aria-label="Hide agent context" aria-pressed="true" title="Focus, intent and last recorded action"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M7 7h3"/></svg></button>';
-}
-function globalChatViewToggle(terminal = false, context = false) {
+function globalChatViewToggle(terminal = false) {
   return `<div class="gchat-view-toggle" role="group" aria-label="Agent view">
     <button type="button" class="ttab" data-chat-return aria-label="Chat" aria-pressed="${!terminal}" ${terminal ? '' : 'disabled'}><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
     <button type="button" class="ttab" data-terminal aria-label="Terminal" aria-pressed="${terminal}" ${terminal ? 'disabled' : ''}><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 17 6-6-6-6M12 19h8"/></svg></button>
-  </div>${context ? globalChatContextToggle() : ''}<button type="button" class="ttab gchat-refresh" data-agent-refresh aria-label="Refresh" title="Refresh"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 12l-3-4"/></svg></button>`;
+  </div><button type="button" class="ttab gchat-refresh" data-agent-refresh aria-label="Refresh" title="Refresh"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 12l-3-4"/></svg></button>`;
 }
 
 // One Chat/Terminal lifecycle for any registered agent, on the Global page and in a business workspace.
@@ -275,9 +245,9 @@ function mountGlobalChat(pane, agent, options = {}) {
 
   // Native shell: view switch and the session line stay here; every message, composer and preview is the shared view.
   const hasContext=globalChatHasContext(agent);
+  const controls=options.openTerminal ? `<div class="gchat-session-switch">${globalChatViewToggle()}</div>` : '';
   pane.innerHTML = `<div class="gchat" data-global-chat="${esc(agentId)}">
-    ${options.openTerminal || hasContext ? `<div class="gchat-session-switch">${options.openTerminal ? globalChatViewToggle(false,hasContext) : globalChatContextToggle()}</div>` : ''}
-    ${hasContext ? '<section class="gchat-context" aria-label="Agent focus, intent and last recorded action" hidden></section>' : ''}
+    ${hasContext ? `<header class="gchat-header"><section class="gchat-context" aria-label="Agent focus and intent" hidden></section>${controls}</header>` : controls}
   </div>`;
   const root = pane.firstElementChild;
   const $q = selector => root.querySelector(selector);
@@ -690,7 +660,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   const workflowPanel = (agent.role?.id || agent.role_id) === 'ordubashy' && view.elements?.composer ? workflowPanelMount(view.elements.composer, agentId) : null;
   if (workflowPanel) cleanups.push(() => workflowPanel.dispose());
   if (hasContext) {
-    contextStatus=globalChatContextMount($q('.gchat-context'),$q('[data-chat-context]'),agent,{visible:contextVisible,onChange:paintSession});
+    contextStatus=globalChatContextMount($q('.gchat-context'),agent,{visible:contextVisible,onChange:paintSession});
     cleanups.push(()=>contextStatus.dispose());
   }
 
