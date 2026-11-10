@@ -714,7 +714,7 @@ function mountChatView(host, options = {}) {
     const row = document.createElement('div'); row.className = 'gchat-bubble-row';
     body.before(row); row.append(body);
     const button = document.createElement('button');
-    button.type = 'button'; button.className = 'gchat-copy'; button.title = 'Copy message';
+    button.type = 'button'; button.className = 'gchat-copy';
     button.setAttribute('aria-label', 'Copy message');
     button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3"/></svg>';
     row.append(button);
@@ -1221,9 +1221,9 @@ function mountChatView(host, options = {}) {
       if (typeof text !== 'string') return;
       chatViewCopyText(text).then(() => {
         if (disposed || !copy.isConnected) return;
-        copy.title = 'Copied'; copy.setAttribute('aria-label', 'Copied'); copy.classList.add('copied');
+        copy.setAttribute('aria-label', 'Copied'); copy.classList.add('copied');
         const timer = setTimeout(() => {
-          copyTimers.delete(timer); copy.title = 'Copy message'; copy.setAttribute('aria-label', 'Copy message'); copy.classList.remove('copied');
+          copyTimers.delete(timer); copy.setAttribute('aria-label', 'Copy message'); copy.classList.remove('copied');
         }, 1400);
         copyTimers.add(timer);
       }).catch(() => { if (!disposed) toast('Couldn’t copy message.'); });
