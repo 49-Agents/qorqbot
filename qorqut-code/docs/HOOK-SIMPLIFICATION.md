@@ -97,7 +97,7 @@ the exact claim. Background passes still cover every enrolled board.
 ### C. Return small Todo add receipts
 
 Use one result shape for `todo_add` and `attention_add`: `agent_id`,
-`membership_id`, the affected `task` reference, and board `revision`, plus existing
+`membership_id`, `membership_revision`, the affected `task` reference, and board `revision`, plus existing
 agent guidance when applicable. Both newly added and already-present membership
 requests return that receipt. Saved idempotency receipts remain replayable as
 stored; no board-return compatibility mode is introduced. Callers needing the
@@ -138,4 +138,84 @@ explicitly separate from local implementation checks.
 
 ## Implementation log
 
-- Plan recorded before code changes. A–D are pending.
+- Plan recorded before code changes in `513dc02`.
+- **A implemented — `8ca814e`.** Preparation is now an explicit consumer import.
+  The existing supervisor runs one report replay pass at a time, at five-second
+  intervals when its previous pass has finished. It uses the existing scoped
+  HTTP ingestion and durable outbox. A failed first bootstrap retains its
+  recovery pointer while reports remain queued, even after its native process
+  exits. All activity-hook report replays are removed. Attention requests share
+  a two-second budget measured from hook `main`, including recording/context
+  work, with a small output reserve. Completion checks spend their receipt under
+  the activity lock, release it for HTTP, and only publish a result if the
+  activity sequence is still current.
+- **B implemented — `81be07c`.** Hook claims recover expired claims for their
+  own agent and reconcile that board. The background all-board pass remains.
+- **C implemented — `5114038`.** New and already-present memberships return the
+  same small receipt shape. Membership revision is included so a caller can
+  subsequently remove that exact membership. Existing agent guidance is retained,
+  with one instruction lookup. The dashboard consumer already ignores the board
+  payload. Existing idempotency storage and replay are unchanged.
+- **D implemented — `7a4bfbb`.** The existing background reference pass opts into
+  retirement; other callers do not. Each candidate is reread and classified
+  under deployment and reference-record exclusion. A busy deployment lock skips
+  that candidate without waiting. The directory scan holds no deployment lock.
+  The installed launcher's ordinary pins omit `cached_client`, so an absent
+  flag is accepted only with valid ordinary-pin fields and proven-exited lifetime;
+  explicit cached, malformed, foreign, and uncertain records remain. No release
+  artifact or cached-client record is removed. Initial backlog processing still
+  uses the existing full directory scan, now followed by a smaller retained set.
+
+### Local verification
+
+Python 3.12 checks ran with installed dependencies and these worktree source
+roots on `PYTHONPATH`: `qorqut-code/app`, `qorqut-code/qorqut-operations`,
+`qorqut-code/qorqut-context`, `qorqut-agentic/src`, and
+`dependencies/document-history`.
+
+- **153 selected Python tests: 141 passed, 12 skipped.** The skips are the Zsh
+  shell-scope cases because Zsh is unavailable on this host. The selection is
+  `test_hook_simplification`, `test_attention_simplification`,
+  `test_process_pin_retirement`, `test_connector_gate`,
+  `test_response_style_hook`, `test_agent_shell_scope`, `test_todo_adjustment`,
+  `test_delegated_claude_runtime`, `test_ordubashy_any_runtime`,
+  `test_mcp_bootstrap_query`, `test_compaction_provenance`, `test_qorqbot_guide`,
+  and `test_browser_cleanup_defaults`. Each can be rerun with
+  `python3 -m unittest discover -s qorqut-code/app/tests -p '<module>.py'`.
+- New behavioral coverage includes concurrent local activity; expired attention
+  budgets; lost begin responses and failed output flushes; completion replies
+  racing newer activity; report retry through a local HTTP server after the
+  session stops; failed-bootstrap report discovery; one requesting board plus
+  60 unrelated boards; exact expired-claim settlement; a 60-item Todo board;
+  and safe pin retirement while launches/reference updates compete. Retiring
+  1,001 synthetic exited pins restores the existing probe's complete coverage
+  while retaining a live process's reference.
+- **Core wheel build passed** using
+  `python3 -m pip wheel --no-deps --wheel-dir <temporary-output> ./qorqut-code/app`
+  with build isolation. The nine modified Python modules in the wheel match
+  their worktree source bytes. The installed runtime environment was not changed.
+- **Dashboard selection: 17 passed, 1 existing failure, 2 skipped.** Command:
+  `node --test qorqut-code/biz-dashboard/tests/focus-attention.test.js qorqut-code/biz-dashboard/tests/attention-board-owner-toggle.test.js`.
+  The `signoff pending-write check` case fails with `reviewEdits is not defined`.
+  The same failure was reproduced from a clean archive of baseline `4d88ab1`
+  using `--test-name-pattern='signoff pending-write check'`. No dashboard source
+  changed in this branch. The two browser cases require unavailable Playwright
+  Chromium. These are recorded limits, not claimed passing checks.
+- **Controlled no-op startup comparison:** five subprocesses per variant,
+  identical input and environment. Explicitly loading preparation before the
+  module entry (the old eager-import behavior) took
+  `[0.922, 0.795, 0.862, 0.931, 0.811]` seconds. The lightweight entry took
+  `[0.622, 0.591, 0.661, 0.606, 0.643]` seconds. Medians: 0.862 versus 0.622
+  seconds, about 28% lower in this sample. This measures startup work under
+  local contention, not production hook latency or total timeout recovery.
+- `git diff --check` passed. The changes use existing services and storage;
+  there is no schema migration, new daemon, or extra infrastructure dependency.
+
+### Rollout verification still required
+
+This branch is implemented and locally checked; it is not installed in the live
+service. After an authorized release, verify representative hook latency and
+timeouts, continued report draining during idle periods, falling ordinary-pin
+counts, and contention on the same workload. Keep live/uncertain pin coverage
+conservative. Reassess configuration cost and host contention from that evidence;
+the no-op benchmark alone is not a reason to expand the architecture.
