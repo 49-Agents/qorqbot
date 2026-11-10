@@ -67,10 +67,9 @@ class AgentCheckpoints:
             raise DomainError('inbox_session_superseded', 'A newer session owns this agent inbox')
         return ctx, row
 
-    def _findings(self, ctx, row, native, uow, *, focus_only=False):
+    def _findings(self, ctx, row, native, uow, *, instructions, focus_only=False):
         from qorqut.management.identity import configured_ordubashy
         coordinator = ctx.principal_id == configured_ordubashy(uow)
-        instructions = self.app.policy.agent_resolver.require_agentic_view().runtime_instructions()
         items = row['items_json']  # Repository rows already decode JSON columns.
         # One enrollment predicate selects the source here and in the activity read: an adopting worker's current
         # assignment is its Todo focus, so these checks never demand a second agent_work_update. The coordinator's
@@ -145,9 +144,13 @@ class AgentCheckpoints:
         native = native_checkpoint(self.runtime, ctx.principal_id, session_id, registration_id)
         if not native or native['turn_id'] != turn_id:
             return {'state': 'unobserved', 'issues': [], 'correction': None}
+        # Prose is a consistent snapshot for this check, not authority. Load it
+        # once before opening any record transaction; source state and session
+        # authority are still rechecked inside the claim transaction below.
+        instructions = self.app.policy.agent_resolver.require_agentic_view().runtime_instructions()
         with self.app.database.read() as uow:
             ctx, row = self._context(ctx, registration_id, session_id, uow)
-            issues, reviewed = self._findings(ctx, row, native, uow,focus_only=focus_only)
+            issues, reviewed = self._findings(ctx, row, native, uow, instructions=instructions, focus_only=focus_only)
             saved = {r['check_key']: dict(r) for r in uow.connection.execute(
                 "SELECT * FROM agent_checkpoint_findings WHERE agent_id=? AND state='open'",
                 (ctx.principal_id,))}
@@ -155,13 +158,13 @@ class AgentCheckpoints:
                 self._closes(k, issues, reviewed) for k in saved)
             candidate = any(k not in saved or not saved[k]['claimed_at'] for k in issues)
             if not changed and not (allow_correction and candidate):
-                return self._result(issues, saved, [], 'checked')
+                return self._result(issues, saved, [], 'checked', instructions=instructions)
         now = timestamp(self.clock)
         with self.runtime.activity.writer(), self.app.database.transaction() as uow:
             self.app.ensure_writes_open(uow)
             ctx, row = self._context(ctx, registration_id, session_id, uow)
             # Current source state is rechecked inside the single claim transaction.
-            issues, reviewed = self._findings(ctx, row, native, uow,focus_only=focus_only)
+            issues, reviewed = self._findings(ctx, row, native, uow, instructions=instructions, focus_only=focus_only)
             saved = {r['check_key']: dict(r) for r in uow.connection.execute(
                 'SELECT * FROM agent_checkpoint_findings WHERE agent_id=?', (ctx.principal_id,))}
             if len(set(issues) | {k for k,r in saved.items() if r['state']=='open'}) > 100:
@@ -204,15 +207,14 @@ class AgentCheckpoints:
                         claimed.append(issue['message'])
             current = {r['check_key']: dict(r) for r in uow.connection.execute(
                 "SELECT * FROM agent_checkpoint_findings WHERE agent_id=? AND state='open'", (ctx.principal_id,))}
-            result = self._result(issues, current, claimed, 'checked')
-            if self.app.policy.agent_resolver.require_agentic_view().runtime_instructions().render('completion-focus-retired') in claimed:
+            result = self._result(issues, current, claimed, 'checked', instructions=instructions)
+            if instructions.render('completion-focus-retired') in claimed:
                 result['focus_board'] = focus_board
             return result
 
     _closes = staticmethod(completion_policy.closes)
 
-    def _result(self, issues, saved, claimed, state):
-        instructions = self.app.policy.agent_resolver.require_agentic_view().runtime_instructions()
+    def _result(self, issues, saved, claimed, state, *, instructions):
         return completion_policy.result(instructions, issues, saved, claimed, state)
 
     def summary(self, ctx, agent_id, session, uow):

@@ -20,6 +20,7 @@ from __future__ import annotations
 from contextlib import contextmanager, nullcontext
 import fcntl
 import hashlib
+from http.client import HTTPConnection, HTTPException
 import json
 import os
 from pathlib import Path
@@ -31,7 +32,7 @@ import sys
 import time
 from types import SimpleNamespace
 import uuid
-from urllib.request import ProxyHandler, build_opener
+from urllib.parse import urlsplit
 
 from qorqut_operations.contracts import DomainError, utc_now
 from qorqut_operations.storage import safe_io
@@ -188,11 +189,28 @@ def _alive(pid, identity):
 
 
 def cdp_healthy(endpoint, timeout=3):
+    connection = None
     try:
-        with build_opener(ProxyHandler({})).open(endpoint + "/json/version", timeout=timeout) as response:
-            return bool(json.load(response).get("webSocketDebuggerUrl"))
-    except (OSError, ValueError, AttributeError):
+        target = urlsplit(endpoint)
+        if (target.scheme != 'http' or target.hostname not in {'127.0.0.1', '::1', 'localhost'}
+                or target.username or target.password or target.path not in {'', '/'}
+                or target.query or target.fragment or not target.port):
+            return False
+        # CDP is a local HTTP probe. Constructing urllib's default opener also
+        # built a new TLS context and loaded the CA store on every status poll.
+        # This connection uses no proxy, redirects or TLS setup.
+        connection = HTTPConnection(target.hostname, target.port, timeout=timeout)
+        connection.request('GET', '/json/version')
+        with connection.getresponse() as response:
+            if response.status != 200:
+                return False
+            body = response.read(65537)
+            return len(body) <= 65536 and bool(json.loads(body).get('webSocketDebuggerUrl'))
+    except (OSError, ValueError, AttributeError, HTTPException):
         return False
+    finally:
+        if connection is not None:
+            connection.close()
 
 
 def _content(endpoint, runtime_dir):

@@ -105,13 +105,19 @@ def split_options(arguments, *, domain_fields=()):
     return {key: value for key, value in arguments.items() if key not in options}, InvocationOptions.from_mapping(options)
 
 
-def validation_hint(value, operation, *, read_instructions):
+async def validation_hint(value, operation, *, read_instructions):
     """Point a rejected call of a known operation to its current schema; never replaces an existing hint."""
     error = value.get("error")
     if (operation is None or "agent_hint" in value or value.get("status") != "error"
             or not isinstance(error, dict) or error.get("code") != "validation_error"):
         return value
-    return {**value, "agent_hint": (read_instructions().render('tool-validation-recovery', VALUE0=f'{json.dumps([operation])}'))}
+    try:
+        instructions = await anyio.to_thread.run_sync(read_instructions)
+        return {**value, "agent_hint": instructions.render('tool-validation-recovery', VALUE0=json.dumps([operation]))}
+    except Exception:
+        # Optional guidance cannot replace the original validation error. Its
+        # filesystem work also must not block unrelated requests on the loop.
+        return value
 
 
 def tool_schema(registry, name):
@@ -535,11 +541,15 @@ class MCPTransport:
             result = await anyio.to_thread.run_sync(invoke)
             presented = mcp_presentation.present(canonical_name, result.to_dict(), detail,
                 tool_names=tool_names, sections=sections, arguments=args)
-            if canonical_name in {"tasks_update", "tasks_complete"} and result.status == "ok":
-                # A failed advisory read must not turn a committed task update into a tool error.
+            if canonical_name in {"tasks_update", "tasks_complete", "attention_add", "todo_add",
+                                  "attention_focus_set"} and result.status == "ok":
+                # Guidance is optional presentation after commit, outside the
+                # database writer. A failed read cannot undo a saved operation.
                 try:
-                    hint = await anyio.to_thread.run_sync(
-                        self.runtime.application.ordubashy_attention.task_update_hint, context, args, canonical_name)
+                    attention = self.runtime.application.ordubashy_attention
+                    advisory = (attention.task_update_hint if canonical_name in {"tasks_update", "tasks_complete"}
+                                else attention.mutation_hint)
+                    hint = await anyio.to_thread.run_sync(advisory, context, args, canonical_name)
                 except Exception:
                     hint = None
                 if hint:
@@ -564,7 +574,7 @@ class MCPTransport:
             if presented.get("status") == "ok":
                 self._report_transport_success(operation=canonical_name, request_id=request_id,
                     actor=actor, context=context)
-            return validation_hint(presented, known_operation,
+            return await validation_hint(presented, known_operation,
                 read_instructions=lambda: self.runtime.resolver.require_agentic_view().runtime_instructions())
         except DomainError as exc:
             result = OperationResult.failure(exc, request_id=request_id)
@@ -578,7 +588,7 @@ class MCPTransport:
                     actor=actor, context=context)
             logger.exception("MCP operation failed: %s", request_id)
             result = OperationResult.failure(DomainError("internal_error", "The operation failed; use its correlation ID for diagnosis"), request_id=request_id)
-        return validation_hint(result.to_dict(), known_operation,
+        return await validation_hint(result.to_dict(), known_operation,
             read_instructions=lambda: self.runtime.resolver.require_agentic_view().runtime_instructions())
 
     async def _authorize_batch(self):
