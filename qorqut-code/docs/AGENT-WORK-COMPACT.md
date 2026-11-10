@@ -72,3 +72,11 @@ writes unchanged. Completion checks read the same projected source with the same
 enrollment predicate, so a focused worker is not asked to repeat a maintenance
 write at every turn. A declared focus is presentation of intent, never proof that
 the session is executing.
+
+`todo_add` (also exposed as `attention_add`) returns a small membership receipt:
+`agent_id`, `membership_id`, `membership_revision`, the `task` reference, and the
+board `revision`. Agent callers also receive the existing `agent_hint`. Adding an
+already-present Task returns the same membership without another event or
+revision change. Use `todo_get` to read the board; the mutation no longer builds
+it inside the write transaction. Idempotent retries replay the originally saved
+response, including responses saved before this receipt format was introduced.

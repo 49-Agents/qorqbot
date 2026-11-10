@@ -529,13 +529,17 @@ class Attention:
                 return self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-focus-transition')
         return None
 
-    def add_result(self, ctx, agent, task, uow):
-        # The selected full board, without each Task's comment thread.
-        result = self.read(ctx, {'agent_id': agent}, uow, notes=False)
+    def add_result(self, ctx, agent, ref, task, uow):
+        # Confirm this membership without loading unrelated Tasks inside the write.
+        membership = self.task_membership(uow, agent, ref)
+        result = {'agent_id': agent, 'membership_id': membership['id'],
+                  'membership_revision': membership['revision'], 'task': ref,
+                  'revision': self.state(uow, agent)['revision']}
         if ctx.principal_kind == 'agent':
-            result['agent_hint'] = self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-board-transition')
+            instructions = self.runtime.resolver.require_agentic_view().runtime_instructions()
+            result['agent_hint'] = instructions.render('attention-board-transition')
             if not task.get('worker_ids'):
-                result['agent_hint'] += self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-next-actor')
+                result['agent_hint'] += instructions.render('attention-next-actor')
         return result
 
     def apply(self, ctx, plan, uow):
@@ -545,7 +549,7 @@ class Attention:
         now = timestamp(self.clock)
         if op == 'attention_add':
             task = self.board_task(ctx,agent,args['task'],uow,notes=False)
-            if self.task_membership(uow,agent,args['task']): return self.add_result(ctx,agent,task,uow)
+            if self.task_membership(uow,agent,args['task']): return self.add_result(ctx,agent,args['task'],task,uow)
             self.ensure(uow,agent)
             membership_id = new_id()
             uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_business_id,task_id,task_created_at,created_at) VALUES(?,?,?,?,?,?)', (membership_id,agent,args['task']['business_id'],args['task']['id'],task['created_at'],now))
@@ -579,7 +583,7 @@ class Attention:
                 self.ensure(uow,agent)
                 uow.connection.execute('UPDATE agent_attention SET revision=revision+1,updated_at=? WHERE agent_id=?',(now,agent))
         if op == 'attention_add':
-            return self.add_result(ctx,agent,task,uow)
+            return self.add_result(ctx,agent,args['task'],task,uow)
         if op == 'attention_remove':
             return {'agent_id': agent, 'membership_id': args['membership_id'],
                     'removed': True, 'revision': self.state(uow, agent)['revision']}

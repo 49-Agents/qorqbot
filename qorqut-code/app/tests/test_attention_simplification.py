@@ -128,5 +128,62 @@ class AttentionTests(unittest.TestCase):
         delivered.assert_called_once()
 
 
+class TodoReceiptTests(unittest.TestCase):
+    def setUp(self):
+        self.database = Database()
+        self.addCleanup(self.database.connection.close)
+        self.uow = NS(connection=self.database.connection)
+        self.ctx = NS(principal_id='owner', principal_kind='owner')
+        self.runtime = NS(application=NS(), focus=NS(inbox=NS()))
+        self.attention = Attention(self.runtime)
+        self.attention.clock = lambda: datetime(2026, 11, 9, 12, tzinfo=timezone.utc)
+        self.attention.context = lambda ctx, args, uow: (ctx, 'board')
+        self.attention.alias_authorize = Mock()
+        self.attention.read = Mock(side_effect=AssertionError('full board read inside mutation'))
+        self.task = {'created_at': EARLIER, 'revision': 3, 'worker_ids': [], 'archived': False}
+        self.attention.board_task = Mock(return_value=self.task)
+        self.ref = {'type': 'task', 'id': 'selected', 'business_id': None}
+        self.addCleanup(patch.stopall)
+        self.event = patch('qorqut.agents.attention.emit_event').start()
+
+    def apply(self, name='todo_add', **extra):
+        return self.attention.apply(self.ctx, NS(operation_name=name, arguments={'task': self.ref, **extra}), self.uow)
+
+    def test_large_board_add_and_duplicate_only_return_selected_membership(self):
+        for index in range(60):
+            self.uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_id,task_created_at,created_at) '
+                'VALUES(?,\'board\',?,?,?)', (str(index), f'unrelated-{index}', EARLIER, EARLIER))
+        result = self.apply()
+        self.assertEqual(set(result), {'agent_id', 'membership_id', 'membership_revision', 'task', 'revision'})
+        self.assertEqual(result['task'], self.ref)
+        self.assertEqual(result['revision'], 1)
+        self.assertEqual(result['membership_revision'], 1)
+        self.assertEqual(self.apply('attention_add'), result)
+        self.assertEqual(self.uow.connection.execute('SELECT count(*) FROM attention_membership_events').fetchone()[0], 1)
+        self.event.assert_called_once()
+        self.assertTrue(all(call.args[2] == self.ref for call in self.attention.board_task.call_args_list))
+        self.attention.read.assert_not_called()
+
+    def test_expected_revision_and_task_authorization_remain_enforced(self):
+        self.apply()
+        with self.assertRaises(DomainError) as raised:
+            self.apply(expected_revision=0)
+        self.assertEqual(raised.exception.code, 'revision_conflict')
+        self.attention.board_task.side_effect = DomainError('forbidden', 'Task is unavailable')
+        with self.assertRaises(DomainError) as raised:
+            self.apply()
+        self.assertEqual(raised.exception.code, 'forbidden')
+        self.event.assert_called_once()
+
+    def test_agent_guidance_is_preserved_without_loading_the_board(self):
+        self.ctx = NS(principal_kind='agent', principal_id='board')
+        instructions = NS(render=Mock(side_effect=lambda name: name + '\n'))
+        self.runtime.resolver = NS(require_agentic_view=lambda: NS(runtime_instructions=lambda: instructions))
+        result = self.apply()
+        self.assertIn('attention-board-transition', result['agent_hint'])
+        self.assertIn('attention-next-actor', result['agent_hint'])
+        self.attention.read.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()
