@@ -82,7 +82,7 @@ time while due, otherwise the next scheduled time. `occurrence_id`/`due_at` are 
 ## The due pass
 
 `ReminderService.reconcile(uow)` is called by the inbox reconcile hook (about every 3 seconds, in its write transaction, after
-the Task snoozes). Idle cost is two indexed probes (`reminders_due`, `reminder_occurrences_pending`). A pass is bounded to 20
+the Task snoozes). Due delivery uses two indexed probes (`reminders_due`, `reminder_occurrences_pending`). A pass is bounded to 20
 due boundaries, 5 publishes per recipient, 25 publishes and about 1.5 seconds. Each reminder and each publish runs in a
 savepoint, so one failing row is deferred (10 minutes for a due boundary, 30 seconds doubling to 15 minutes for delivery) and
 never aborts the others or the rest of the hook. Fair per-recipient batching keeps one unconfigured recipient from starving
@@ -91,6 +91,51 @@ configured); a receipt (`{kind:'inbox',event_id}` or `{kind:'telegram',outbox_id
 
 Known limit: the Routines slot search walks minute by minute, so a very sparse calendar (for example a yearly date) costs up
 to a second or two of CPU under the writer when it is created, edited or fires. Results are memoized per minute.
+
+## Default daily browser cleanup
+
+Browser cleanup reminders are **on by default** for all active registered Global agents: Ordubashy, workers and the Learning
+Applier, on either supported runtime. The owned inbox pass enrolls existing and newly registered agents automatically. It
+does not require Ordubashy to maintain the roster. Fresh reminders repeat every 24 hours in UTC, at a stable per-agent minute
+between 04:00 and 04:59. They are ordinary, nonurgent inbox reminders; they do not start stopped agents or interrupt browser
+work. An offline agent handles its pending reminder through normal session delivery when it resumes.
+
+The instruction is to close only the agent's completed-work tabs, preserve owner/pinned/active/unsaved/uncertain tabs, use
+authorized controls, skip stopped or busy browsers, save safe URLs and log results. Browser permissions remain unchanged.
+There is no blanket tab-age rule, browser restart, cookie clearing or deterministic tab-closing job.
+
+Edit, snooze or **cancel** the reminder through the existing reminder controls. Cancel is the persistent opt-out for that
+agent; dismissal clears only today's occurrence. To re-enable a cancelled series, use `reminders_update` with its current
+revision and a changed recurrence. An edited reminder is never silently restored to the default. If a series is intentionally
+repurposed or readdressed, enrollment still counts as
+handled, so a replacement is not forced on the original agent. Inactive agents receive nothing under the existing recipient
+gate; retiring and reactivating an agent does not erase its cancellation.
+
+Enrollment is stored once in `browser_cleanup_enrollments`, referencing the normal reminder. Creation and enrollment are
+atomic. A bounded pass examines at most ten un-enrolled registrations and stops between agents after 250 ms; a rolling cursor
+prevents malformed/denied registrations from starving later ones. It runs after due delivery, and a failed agent rolls back
+individually. Runtime construction, schema inspection and migration do not create reminders or launch agents.
+
+An existing owner-created reminder beginning `Daily browser cleanup:`, linked to an owner-created Global task titled
+`Daily browser tab cleanup for all agents`, is adopted without changing its ID, text, schedule, timezone, cancellation,
+snooze, link or provenance. This includes the manually configured cleanup series. Two matches are ambiguous: enrollment
+waits for the owner to resolve the duplicates rather than creating another. Once adopted, later text/link edits are retained.
+New agents also link to that standing task when it is uniquely identified, open and readable by both owner and recipient;
+otherwise the default reminder carries its own cleanup instructions without exposing an unreadable task.
+Ordubashy should honor cancelled cleanup reminders rather than recreating them during a coverage check.
+
+Existing installations need the explicit offline schema upgrade before running this release:
+
+```sh
+python -m qorqut.reminders.defaults_upgrade inspect --instance-root /path/to/instance
+python -m qorqut.reminders.defaults_upgrade apply --instance-root /path/to/instance
+```
+
+Use the installation's exact extension selection with `--extensions-config` when applicable. `inspect` is read-only; `apply`
+requires the exclusive instance lock and refuses an unexpected schema. It adds only the enrollment table and retention
+triggers, verifies the target and references, and advances the schema identity in one transaction. Repeating it is a no-op.
+It preserves all existing reminders. Fresh installations already include the table. Enrollment links, like reminders, are
+private operational state and excluded from general Git history.
 
 ## Legacy compatibility
 
