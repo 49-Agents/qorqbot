@@ -189,6 +189,12 @@ class FocusAttention(Protocol):
     def release_signoff(self, row: Mapping[str, Any], updated: Mapping[str, Any], uow) -> None: ...
 
 
+class SourceAuthority(Protocol):
+    """Authorize a dependency's source through the host's read and write gates."""
+
+    def check(self, application, context: InvocationContext, source: Mapping[str, Any], uow) -> None: ...
+
+
 # -- the assembled set --------------------------------------------------------------------------------------------
 
 def _check(value, label: str, methods: Sequence[str] = (), attributes: Sequence[str] = ()) -> None:
@@ -214,6 +220,7 @@ class SignoffPorts:
     management: ManagementQueries | Absent
     focus: FocusAttention | Absent
     narrowing: VisibilityNarrowing | Absent = ABSENT
+    sources: SourceAuthority | Absent = ABSENT
 
     def __post_init__(self):
         for name, value in (("execution", self.execution), ("peers", self.peers), ("tasks", self.tasks),
@@ -234,7 +241,8 @@ class SignoffPorts:
                 ("email", ("visibility", "email_context"), ()),
                 ("management", ("coordinator", "auto_route_input", "routing_for"), ("managed_input_sql",)),
                 ("focus", ("creation_access", "present_created", "release_signoff"), ("fields",)),
-                ("narrowing", ("narrow",), ())):
+                ("narrowing", ("narrow",), ()),
+                ("sources", ("check",), ())):
             value = getattr(self, name)
             if value is None:
                 raise AssemblyError(f"Optional Signoff domain {name} must be declared: pass a port or ABSENT")

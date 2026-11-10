@@ -105,17 +105,18 @@ do not supply raw HTML. Put internal source objects in typed `references` rather
 than inventing URLs. Use `focus_edit.changes` to update existing cards with the
 same fields and their current card revision.
 
-Substantive owner work uses `tasks_create(kind="owner_request", assignee_ids=[the
+Substantive owner work uses `tasks_create(kind="request_to_owner", assignee_ids=[the
 installation owner ID], ...)`, with normal task state, dependencies, snooze and
-notes. Questions use `signoffs_input_create` with `kind="question"`; explicit
+notes. Collect requested owner input through `signoffs_input_create` with `response_policy="owner_only"`
+and the waiting source identity, or link its existing approval with `signoffs_source_link`. Explicit
 answers are independent of comments. Both creators accept optional `focus`
 framing for atomic creation/presentation when you have both permissions. Existing
 legacy request signoffs remain fulfillable; do not duplicate them as new tasks.
 
 Small browser interventions are References, for example title “Log into Outlook”
 and `target={type:"desktop"}`. The service resolves Global DESKTOP_CONTROL_URL,
-including its path. If unconfigured, report that fact. No new task, signoff, Done
-button or pause workflow is needed. Existing pending legacy handoffs retain their
+including its path. If unconfigured, report that fact. When an owner response is needed, create an owner-only input Signoff linked to that Reference
+with its explicit Global source identity. Archiving the Reference does not answer the Signoff. Existing pending legacy handoffs retain their
 own guard and completion path until resolved; archival never releases that guard.
 
 Use object notes for substantive discussion, direct management messages for

@@ -11,6 +11,12 @@ skills:
 - id: owner-reminders
   path: operations/imported-role-skills/native/skills/owner-reminders/SKILL.md
 default_tool_policy:
+  signoffs_input_create: allow
+  signoffs_source_link: allow
+  signoffs_source_unlink: allow
+  signoffs_input_cancel: allow
+  signoffs_get: allow
+  signoffs_list: allow
   agent_config_get: allow
   context_list: allow
   context_search: allow

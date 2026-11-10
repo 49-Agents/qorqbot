@@ -92,10 +92,11 @@ class TaskOverview:
                                 None, "tasks_overview", reverse=False,
                                 key=lambda task: (int(task["snoozed"]), task["due"] or "9999-12-31", task["business_id"] or "", task["id"]))
         groups = {}
-        for task in selected:
+        for task in self.tasks.project_input(ctx, selected, uow):
             business_id = task["business_id"]
             group = groups.setdefault(business_id, {"business_id": business_id, "name": scopes[business_id], "active": [], "snoozed": []})
             brief = {key: task[key] for key in ("id", "revision", "title", "status", "due", "task_type")}
+            brief.update({key: task[key] for key in ('work_status', 'input_needed', 'input_requests', 'input_version', 'input_request_missing') if key in task})
             if len(brief["title"]) > 180:
                 brief.update(title=brief["title"][:179] + "…", title_truncated=True)
             brief["assignees"] = [name for name in ("owner", "self") if task[name + "_assigned"]]

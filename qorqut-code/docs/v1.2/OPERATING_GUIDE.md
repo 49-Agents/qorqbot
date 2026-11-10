@@ -36,7 +36,7 @@ steps each need their own approval.
   read the shared Context; that does not grant cross-project operational writes.
 - Tasks have fixed states `open`, `working`, `waiting`, `needs_input`, `done`, `cancelled`, parent
   Tasks, informational dependencies, one shared snooze timestamp, due dates, archiving,
-  custom fields and `owner_request`. Parent/child states are independent. A work group is
+  custom fields and `request_to_owner`. Parent/child states are independent. A work group is
   an ordinary parent Task; there is no separate Story record, API or destination.
 - Tasks and Actions retain one owning global/project scope. Shared tags are labels, not
   scope or grants. Signoffs and routines keep their policy and lifecycle semantics.

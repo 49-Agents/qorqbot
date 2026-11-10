@@ -15,6 +15,7 @@ from qorqut_operations.background import storage_contribution as background_stor
 from qorqut_operations.inbox_nudges import storage_contribution as inbox_nudges_storage
 from qorqut_operations.projects.links import storage_contribution as project_links_storage
 from qorqut_operations.signoffs.service import storage_contribution as signoff_storage
+from qorqut_operations.signoffs.sources import storage_contribution as signoff_sources_storage
 from qorqut_operations.storage.assembly import (Assembly, AssemblyBuilder, AssemblyError, CONTRIBUTION_TYPES,
                                                 FileEffectContribution, RecordEffectContribution,
                                                 TransactionContribution)
@@ -75,7 +76,7 @@ def host_contributions(change_feed, extensions=NO_EXTENSIONS):
     composed, initialised and validated. The inbox nudge engine owns its three tables and reads ``inbox_events`` and
     ``inbox_deliveries``. A worker's one current assignment (``agent_current_work``) is its own host table beside the
     generated ``agent_activity`` observations. Optional connector storage is contributed only by selected extensions."""
-    return (*storage_contributions(), signoff_storage(), project_links_storage(), background_storage(), native_chat_storage(),
+    return (signoff_sources_storage(), *storage_contributions(), signoff_storage(), project_links_storage(), background_storage(), native_chat_storage(),
             inbox_nudges_storage(), agent_work_storage(), attention_storage(), reminders_storage(), browser_cleanup_storage(), agentic_inbox_storage(), overseer_storage(),
             FileEffectContribution("documents", {DOCUMENTS: DocumentLifecycle()}, history.RECEIPTS),
             RecordEffectContribution("records", HostRecordEffects()),

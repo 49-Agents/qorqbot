@@ -470,7 +470,8 @@ class Application:
                      if descriptor.effect_kind != "read" and self.writer_admission is not None
                      else nullcontext())
         with admission:
-            return self._invoke_or_raise(context, operation_name, arguments, options)
+            result = self._invoke_or_raise(context, operation_name, arguments, options)
+            return descriptor.project_result(result) if descriptor.project_result else result
 
     def _invoke_or_raise(self, context, operation_name, arguments=None, options=None):
         if not isinstance(context, InvocationContext):

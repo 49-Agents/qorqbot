@@ -21,9 +21,32 @@ input request: it records the answer and executes nothing, so read the decision 
 then perform exactly that work yourself. Use the existing prepared approval for a
 service-managed protected action. Never replace a required decision with a chat reply.
 
+Collect every explicit request for owner input through a Signoff, including clarifications,
+access, missing information and review. Chat and progress notes can explain the request, but
+are not its response record. Use `form.response_policy: owner_only` for owner input;
+`management_allowed` remains for internal delegated questions.
+
 Use `signoffs_input_create` for an owner response that is not an approval to
 execute a prepared action. Keep platform and internal-change approvals on their
 existing tools. An answer to a question does not bypass those approvals.
+
+When work or a record thread is waiting, pass `source: {type, id, business_id}` at creation.
+Use the actual source identity (`task`, `table`, `project`, or standalone Focus `reference`),
+with an explicit project UUID or `null` for Global. A Project source names its own UUID in both
+fields. Source and Signoff keep their own scopes. Omit source for a standalone question.
+Link an existing pending approval with `signoffs_source_link` instead of creating another
+question. Call it again for each additional dependent source. Repeated links are idempotent.
+Only an explicit pending dependency produces Needs your input; contextual `concerns` links,
+owner worker assignment, discussion and old free-form task statuses do not. Never manually
+set `status: needs_input`. The original work status is preserved while the indicator is shown.
+
+After the last pending request is answered, cancelled, rejected or superseded, the indicator
+clears automatically. Read the exact Signoff decision and reassess the work; this does not
+mark the Task done. Replacement questions need their own explicit source link. Remove an
+obsolete dependency with `signoffs_source_unlink(source, signoff_id, link_id, expected_link_revision)` using
+`link_id` and `link_revision` from the source's `input_requests`; it does not cancel the Signoff. Preserve
+answers in Signoffs. Never infer a missing question from a legacy status: read the work,
+link an existing question, create the concrete missing one, or correct an obsolete work status.
 
 Choose the current project; use `scope: global` only for an ecosystem-wide
 question when your registered scope permits it. Do not relocate a project
@@ -100,9 +123,10 @@ instructions can enter Context through its existing authorized source input
 ## Work, questions, and discussion
 
 New substantive owner work is an explicitly owner-assigned task of
-`kind=owner_request`, with ordinary dependencies, snooze and completion. Keep
+`kind=request_to_owner`, with ordinary dependencies, snooze and completion. Keep
 existing request Signoffs operable; do not duplicate a live request. Small login
-help is raised to Ordubashy for a configured desktop Reference. Questions remain
+help uses a configured desktop Reference; collect its owner response through an owner-only
+Signoff linked to the Reference. Questions remain
 input Signoffs with explicit answers. Use `signoffs_comment` for ordinary scoped
 discussion before or after a decision. Comments neither answer nor approve.
 Keep the encompassing parent Task association when escalating coherent work.

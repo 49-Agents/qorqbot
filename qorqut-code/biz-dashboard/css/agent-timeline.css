@@ -39,7 +39,9 @@
 .agent-timeline-evidence dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; margin: 0; }
 .agent-timeline-evidence dt { text-transform: capitalize; }
 .agent-timeline-evidence dd { margin: 0; }
-.agent-timeline-evidence a { text-decoration: underline; text-underline-offset: 3px; }
+.agent-timeline-evidence a, .agent-timeline-reference { text-decoration: underline; text-underline-offset: 3px; }
+.agent-timeline .agent-timeline-reference { display: inline; min-height: 0; max-width: 100%; padding: 0; border: 0; border-radius: 0; background: none; color: inherit; font: inherit; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.agent-timeline .agent-timeline-reference:hover { color: var(--fg); transform: none; }
 .agent-timeline :is(button, input, summary, a):focus-visible { outline: 1px solid var(--fg-2); outline-offset: 3px; }
 @media (max-width: 600px) {
   .agent-timeline { padding: 12px 4px; }

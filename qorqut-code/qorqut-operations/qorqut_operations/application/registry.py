@@ -111,6 +111,10 @@ class OperationDescriptor:
     # Only a provider package that is selected for the installation declares this for its own operations; access
     # still requires every other gate (plugin grant, global capability, scope), so it never grants by itself.
     default_mode: str | None = None
+    # Compatibility aliases are normalized before hashing, authorization and plan binding.
+    normalize_arguments: Callable | None = None
+    # Public vocabulary only: called after execution/replay, never on durable receipts or plans.
+    project_result: Callable | None = None
 
     def __post_init__(self):
         CatalogEntry(self.name, self.supports_signoff, self.effect_kind, self.exposure, self.owner_only)
@@ -305,7 +309,8 @@ class OperationRegistry:
             if key in arguments and arguments[key] != plain(value):
                 raise DomainError("validation_error", "Alias has a fixed operation binding", field_errors={key: "fixed by alias"})
             arguments[key] = plain(value)
-        return descriptor.validate(arguments)
+        arguments = descriptor.validate(arguments)
+        return descriptor.normalize_arguments(arguments) if descriptor.normalize_arguments else arguments
 
     def schema_for(self, name: str):
         descriptor = self.get(name)

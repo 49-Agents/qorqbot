@@ -17,6 +17,78 @@ function agentTimelineTime(action) {
   return '—';
 }
 
+function agentTimelineEvidence(key, value) {
+  const href = safeLinkUrl(value);
+  if (href) return `<a class="safe-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(value)}</a>`;
+  const opens = ['task', 'signoff', 'document', 'upload'].includes(key);
+  return `<button type="button" class="agent-timeline-reference" data-evidence-key="${esc(key)}" aria-label="${opens ? 'Open' : 'Copy'} ${esc(key)} reference">${esc(value)}</button>`;
+}
+
+// Evidence predates scoped references. Resolve its exact ID in the action's named
+// projects and storage scope, rather than treating every recorded action as Global.
+async function agentTimelineResolve(action, key, id) {
+  const projects = action.businesses || [];
+  const scopes = new Map([[null, null]]);
+  for (const project of projects) {
+    const known = (state.bizs || []).find(b => (b.id || b.business_id) === project.id);
+    if (project.slug || known?.slug) scopes.set(project.id, project.slug || known.slug);
+  }
+  if (action.legacy?.business_id) {
+    const known = (state.bizs || []).find(b => (b.id || b.business_id) === action.legacy.business_id);
+    if (known?.slug) scopes.set(action.legacy.business_id, known.slug);
+  }
+  const matches = [];
+  for (const [businessId, slug] of scopes) {
+    try {
+      let record;
+      if (key === 'signoff') record = coreData(await api(`${slug ? `/biz/${encodeURIComponent(slug)}` : '/root'}/signoffs/${encodeURIComponent(id)}`)).signoff;
+      else if (key === 'task') record = (await workCall(slug, 'tasks_get', {task_id:id})).task;
+      else {
+        for (const operation of ['notes_get', 'context_get', 'assets_get']) {
+          try {
+            const data = await workCall(slug, operation, {[operation === 'assets_get' ? 'asset_id' : 'document_id']:id});
+            record = data.document || data.asset;
+            break;
+          } catch (error) {
+            if (!['not_found', 'validation_error'].includes(error.code)) throw error;
+          }
+        }
+      }
+      if (record?.id === id) matches.push({record, businessId, slug});
+    } catch (error) {
+      if (!['not_found', 'validation_error'].includes(error.code)) throw error;
+    }
+  }
+  if (matches.length !== 1) throw Error(matches.length ? 'This reference matches more than one project.' : 'This reference is no longer available.');
+  return matches[0];
+}
+
+async function agentTimelineOpenEvidence(p, button) {
+  const timeline = p.timeline, key = button.dataset.evidenceKey;
+  const action = timeline?.rows?.find(row => row.action_id === button.closest('[data-action-id]')?.dataset.actionId);
+  const value = action?.refs?.[key];
+  if (!value || !agentTimelineCurrent(p, timeline)) return;
+  const date = timeline.date;
+  const current = () => agentTimelineCurrent(p, timeline) && timeline.date === date
+    && timeline.rows?.some(row => row.action_id === action.action_id && row.refs?.[key] === value);
+  button.disabled = true;
+  try {
+    if (!['task', 'signoff', 'document', 'upload'].includes(key)) {
+      await navigator.clipboard.writeText(value); toast('Reference copied.'); return;
+    }
+    const {record, businessId, slug} = await agentTimelineResolve(action, key, value);
+    if (!current()) return;
+    if (key === 'task') await taskOpenReference({...record, business_id:businessId, business_slug:slug});
+    else if (key === 'signoff') await sgAttentionNavigate(slug, value);
+    else await workOpenLink({biz:slug, error:error=>toast(uiFailure(error, {load:true}))}, {
+      resource_type:'documents', resource_id:value,
+      current:{kind:record.kind, label:record.metadata?.title || record.title || 'Document'},
+    });
+  } catch (error) {
+    if (current()) toast(error.message || uiFailure(error, {load:true}));
+  } finally { button.disabled = false; }
+}
+
 function agentTimelineRow(action) {
   const refs = Object.entries(action.refs || {});
   const projects = (action.businesses || []).map(b => b.name || b.slug).filter(Boolean);
@@ -32,10 +104,10 @@ function agentTimelineRow(action) {
   return `<li class="agent-timeline-row" data-action-id="${esc(action.action_id || '')}">
     <time${instant ? ` datetime="${esc(instant)}"` : ''}${timeLabel ? ` title="${timeLabel}" aria-label="${esc(agentTimelineTime(action))} · ${timeLabel}"` : ''}>${esc(agentTimelineTime(action))}</time>
     ${refs.length || action.detail ? `<details class="agent-timeline-entry">
-      <summary title="Show evidence">${content}<span class="agent-timeline-expand">${AGENT_TIMELINE_CHEVRON}</span></summary>
+      <summary>${content}<span class="agent-timeline-expand">${AGENT_TIMELINE_CHEVRON}</span></summary>
       <div class="agent-timeline-evidence" aria-label="Evidence">
-        ${action.detail ? `<p>${esc(action.detail)}</p>` : ''}
-        ${refs.length ? `<dl>${refs.map(([key, value]) => `<dt>${esc(key)}</dt><dd>${/^https?:\/\//i.test(String(value)) ? `<a href="${esc(value)}" target="_blank" rel="noopener noreferrer">${esc(value)}</a>` : esc(value)}</dd>`).join('')}</dl>` : ''}
+        ${action.detail ? `<p>${renderSafeLinks(action.detail)}</p>` : ''}
+        ${refs.length ? `<dl>${refs.map(([key, value]) => `<dt>${esc(key)}</dt><dd>${agentTimelineEvidence(key, value)}</dd>`).join('')}</dl>` : ''}
       </div></details>` : content}
   </li>`;
 }
@@ -60,6 +132,10 @@ function agentTimelineMount(p) {
   </section>`;
   const root = body.firstElementChild;
   const timeline = p.timeline = {root, date: p.timelineDate || '', ready: false, loading: false, seq: 0, next: 0, rows: null, signature: '', error: ''};
+  root.addEventListener('click', event => {
+    const button = event.target.closest('[data-evidence-key]');
+    if (button && !button.disabled) void agentTimelineOpenEvidence(p, button);
+  });
   const input = root.querySelector('input');
   const choose = date => {
     if (!date || date > sjToday()) { input.value = timeline.date; return; }

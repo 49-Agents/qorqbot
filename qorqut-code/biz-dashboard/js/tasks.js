@@ -238,7 +238,7 @@ const tDotHtml = s => `<span class="sdot ${esc(s)}"></span>`;
 // two empty task lists (no business picked vs. a business with nothing in it) render different copy.
 function tVisSig() {
   return JSON.stringify([state.scope, state.biz, tSnoozeFilter, tPersonalLoaded, tPersonalError, tPersonalRows().filter(tMatch).map(t =>
-    [tKey(t), t.status, tAssignees(t).join(','), t.title, t.due || "", (t.tags || []).join(","), t.created_by, t.created_by_name, tSunk(t), t.snoozed_until, taskSnoozed(t)])]);
+    [tKey(t), t.status, t.input_version, tAssignees(t).join(','), t.title, t.due || "", (t.tags || []).join(","), t.created_by, t.created_by_name, tSunk(t), t.snoozed_until, taskSnoozed(t)])]);
 }
 
 // ---------------------------------------------------------------- assignee
@@ -355,7 +355,7 @@ function tWireRows(body, detailsOnly = false) {
     const ball = row.querySelector('.ball');
     taskStateBind(ball, tSlug(t), t);
     if (ball) {
-      ball.onclick = event => { event.stopPropagation(); tSetStatus(t, tNext(t.status)); };
+      ball.onclick = event => { event.stopPropagation(); tSetStatus(t, tNext(t.work_status ?? t.status)); };
     }
     row.querySelectorAll('[data-task-related]').forEach(button=>button.onclick=event=>{
       event.stopPropagation();const item=tRelatedItems(t)[Number(button.dataset.taskRelated)];
@@ -812,8 +812,8 @@ function tDetail(t,{host=null,onClose=null,recordPanelOpen=false,embedded=false,
       };
       const sb = el.querySelector("#td-status");
       taskStateBind(sb, biz, t);
-      if (sb) sb.onclick = () => dropdown(sb, T_STATES.map(s => ({ value: s, label: T_LABEL[s], html: `<span class="towner">${tDotHtml(s)}<span class="tn">${T_LABEL[s]}</span></span>` })),
-        v => { if (v !== t.status) taskStateSet(biz, t, v); }, t.status);
+      if (sb) sb.onclick = () => dropdown(sb, T_STATES.filter(s => s !== 'needs_input').map(s => ({ value: s, label: T_LABEL[s], html: `<span class="towner">${tDotHtml(s)}<span class="tn">${T_LABEL[s]}</span></span>` })),
+        v => { if (v !== (t.work_status ?? t.status)) taskStateSet(biz, t, v); }, t.work_status ?? t.status);
       const wb = el.querySelector("#td-who");
       wb.onclick = () => tChooseAssignees(t,owners=>again(t.id,{set:{owners}}),wb);
       el.querySelector("#td-due").onchange = e => again(t.id, { set: { due: e.target.value || "" } });

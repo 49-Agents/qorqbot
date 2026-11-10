@@ -28,6 +28,7 @@ from qorqut_operations.relationships import create_edge, related_rows
 from qorqut_operations.storage.assembly import AssemblyError
 from qorqut_operations.tags.catalog import LABELS_SCHEMA, distinct_labels, item_labels, labels_by_item, matches, plan_item_tags
 from qorqut_operations.tasks import customers, events, links
+from qorqut_operations.tasks.kinds import KIND_INPUT, normalize_arguments, project_result, public_task
 from qorqut_operations.tasks.associated import TaskAssociatedRecords
 from qorqut_operations.tasks.history import HistoricalReferences
 from qorqut_operations.tasks.models import (DEFAULT_CONFIG, DEFAULT_STATE, full_config, normalize_snooze, snooze_view, stored_fields,
@@ -36,7 +37,7 @@ from qorqut_operations.tasks.overview import TaskOverview
 from qorqut_operations.tasks.ports import TaskPorts
 from qorqut_operations.tasks.relocation import TaskRelocation, moved_location
 from qorqut_operations.tasks.scope import task_context, task_namespace
-from qorqut_operations.tasks.schema import CLOSED_STATES, KINDS, PAUSED_STATES, STATES
+from qorqut_operations.tasks.schema import CLOSED_STATES, PAUSED_STATES, STATES
 from qorqut_operations.tasks.snooze import reconcile_snoozes
 from qorqut_operations.tasks.types import (KIND_SCHEMA, PROFILE_SCHEMA, STATE_SCHEMA, TYPES, apply_attributes, attributes,
                                            custom_fields)
@@ -59,7 +60,7 @@ TASK_FIELDS = {
     "overview": {"type": "string", "maxLength": 20000, "description": instruction_text('operations-maintained-current-summary-and-next-steps-history-stays')},
     "email_conversation_id": {"anyOf": [IDENTITY, {"type": "null"}], "description": instruction_text('operations-historical-binding-of-an-email-task-kept-read')},
     "customer_kind": KIND_SCHEMA, "customer_state": STATE_SCHEMA, "customer_profile": PROFILE_SCHEMA,
-    "kind": {"enum": list(KINDS)}, "title": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "kind": KIND_INPUT, "title": {"type": "string", "minLength": 1, "maxLength": 1000},
     "status": {"enum": list(STATES)}, "assignee_ids": ASSIGNEES, "worker_ids": {**ASSIGNEES, "uniqueItems": True}, "archived": {"type": "boolean"}, "tags": LABELS_SCHEMA,
     "due": {"anyOf": [DATE, {"type": "null"}]}, "blocked_by": {"type": "array", "items": IDENTITY, "maxItems": 100, "uniqueItems": True},
     "fields": {"type": "object", "maxProperties": 100},
@@ -123,6 +124,7 @@ class TaskOperations:
     def descriptors(self):
         refs = self.note_references().schema
         common = dict(scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
+                      project_result=project_result,
                       resolve_namespace=task_namespace,
                       description=instruction_text('operations-manage-tasks-in-the-selected-project-or-use'))
         reads = {
@@ -162,6 +164,7 @@ class TaskOperations:
                            instruction_text('operations-tags-are-ordinary-labels-that-group-work-they')}
             descriptors.append(OperationDescriptor(
                 name, schema({**SCOPE, **properties, "rationale": TEXT}, required), **options,
+                normalize_arguments=normalize_arguments if name in {"tasks_create", "tasks_update"} else None,
                 prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, options, uow),
                 apply=self.apply, validate_targets=self.validate_prepared))
         descriptors.append(OperationDescriptor(
@@ -319,7 +322,11 @@ class TaskOperations:
             history = read_messages(uow, item, {"limit": limit, **cursor}, "tasks_get", ctx.principal_id,
                                     resolve_refs=self.message_refs(ctx, uow), kinds=("comment",))
             view["notes"], view["notes_next_cursor"] = history["messages"][::-1], history["next_cursor"]
-        return view
+        return public_task(self.project_input(ctx, [view], uow)[0] if 'input_version' not in view else view)
+
+    def project_input(self, ctx, tasks, uow):
+        signoffs = getattr(self.application, 'signoffs', None)
+        return signoffs.sources.project_tasks(ctx, tasks, uow) if signoffs else tasks
 
     @staticmethod
     def worker_projection(uow, task):
@@ -404,8 +411,6 @@ class TaskOperations:
         states = [name for name in STATES if (not arguments.get("statuses") or name in arguments["statuses"])
                   and (arguments.get("include_closed", True) or name not in CLOSED_STATES)
                   and (arguments.get("include_paused", True) or name not in PAUSED_STATES)]
-        clauses.append("status IN (" + (",".join("?" for _ in states) or "NULL") + ")")
-        parameters.extend(states)
         if arguments.get("due_before"):
             clauses.append("due IS NOT NULL AND due<=?")
             parameters.append(arguments["due_before"])
@@ -420,6 +425,8 @@ class TaskOperations:
             tasks = [task for task in tasks if matches(labels.get(task["id"], ()), wanted)]
         if arguments.get("search"):
             tasks = [task for task in tasks if arguments["search"].casefold() in (task["title"] + " " + task["id"]).casefold()]
+        # Status is a projection of explicit pending Signoffs; filter before paging, in one batch.
+        tasks = [task for task in self.project_input(ctx, tasks, uow) if task['status'] in states]
         if "blocked" in arguments:
             detailed = [self.detail(ctx, task, uow, configuration["fields"], now, notes=False) for task in tasks]
             tasks = [task for task in detailed if bool(task["unresolved_blockers"]) == arguments["blocked"]]
@@ -454,6 +461,8 @@ class TaskOperations:
                 raise self.missing(ctx, uow, identity)
             require_revision(before, options.expected_revision)
         edits = {key: value for key, value in arguments.items() if key in TASK_FIELDS} if creating else plain(arguments.get("changes", {}))
+        if edits.get('status') == 'needs_input':
+            raise DomainError('validation_error', 'Needs input is derived from pending Signoffs. Use signoffs_input_create with source, or signoffs_source_link for an existing approval.')
         if operation == "tasks_assign":
             edits["assignee_ids"] = arguments["assignee_ids"]
         if operation == "tasks_complete":
@@ -503,7 +512,7 @@ class TaskOperations:
         if creating and current["kind"] == "owner_request":
             installation = uow.repository("installation").get("service")
             if not installation or not assignees or installation["owner_principal_id"] not in assignees:
-                raise DomainError("validation_error", "Owner-request tasks must explicitly assign the installation owner")
+                raise DomainError("validation_error", "request_to_owner tasks must explicitly assign the installation owner")
         for assignee in assignees or ():
             self.assignee(ctx, assignee, uow, builder)
         label = customers.introduced(attributes(before or {})["customer_state"], attributes(current)["customer_state"])
