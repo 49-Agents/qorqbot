@@ -125,6 +125,7 @@ const AGPAD_RETIRED_PANE_VIEWS = new Set(["business", "campaign_review", "status
 // Desktop remains Ordubashy's alone (core also enforces this on the binding).
 // Viewbox is offered to registered agents except Learning Applier (the owner-only board is keyed by agent id).
 function agentPaneViewAllowed(roleId, view) {
+  if (view === "timeline") return roleId === "ordubashy" && typeof testingModeEnabled === "function" && testingModeEnabled();
   return view !== "threads" && !(view === "journal" && roleId !== "ordubashy") && !AGPAD_RETIRED_PANE_VIEWS.has(view)
     && !(view === "viewbox" && roleId === "learning-applier");
 }
@@ -136,6 +137,7 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer. A permanent worker gets
   // the same shared Todo board for its own commitments; its Focus stays the existing workspace view.
   if (roleId === "ordubashy" || roleId === "global-worker") leading.push("attentionBoard");
+  if (roleId === "ordubashy") leading.push("timeline");
   if (roleId === "learning-applier") leading.push("changes");
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
@@ -203,6 +205,7 @@ function agpadWorkspaceViewsSync(p) {
 function agpadWorkspaceMount(p, view) {
   if (!agentPaneViewAllowed(p.workspaceRole, view)) return;
   if (view === "attentionBoard" && (p.workspaceRole === "ordubashy" || p.workspaceRole === "global-worker")) { attentionBoardMount(p); return; }
+  if (view === "timeline" && p.workspaceRole === "ordubashy") { agentTimelineMount(p); return; }
   if (view === "changes" && p.workspaceRole === "learning-applier") { overseerMount(p); return; }
   if (typeof agentWorkspaceMount === 'function' && agentWorkspaceMount(p, view)) return;
   if (view === "desktop" && p.workspaceRole === "ordubashy") { agfocusDesktopMount(p); return; }
@@ -747,6 +750,7 @@ function agpadTick() {
   const p = _agpad;
   if (!agpadActive(p)) return;
   if (p.view === "attentionBoard") attentionBoardTick(p);
+  if (p.view === "timeline") agentTimelineTick(p);
   agpadWorkspaceTick(p);
   if (agpadWorkspaceView(p.view)) return;
   if (p.view === 'globalTasks') return;
