@@ -14,7 +14,7 @@ import socket
 import time
 import uuid
 
-from qorqut_operations.contracts import DomainError
+from qorqut_operations.errors import DomainError
 from qorqut.installation import installation_config
 from .client import path_has_symlink, write_json_private
 from .recovery import locked

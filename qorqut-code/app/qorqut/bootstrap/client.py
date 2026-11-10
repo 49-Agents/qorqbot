@@ -9,9 +9,8 @@ import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from qorqut_operations.contracts import DomainError
+from qorqut_operations.errors import DomainError
 from qorqut_operations.storage.safe_io import read_bytes
 
 
@@ -22,9 +21,16 @@ BOOTSTRAP_TIMEOUT = 15.0
 REQUEST_TIMEOUT = 5.0
 
 
-class NoRedirects(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
+def _request_tools():
+    """``urllib.request`` on first use: importing it loads the HTTP, TLS and e-mail parsing stack, which the
+    per-tool-call hooks that only read a registration through this module never need."""
+    from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+    class NoRedirects(HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+
+    return Request, lambda: build_opener(NoRedirects())
 
 
 def path_has_symlink(path: Path) -> bool:
@@ -110,13 +116,14 @@ class BootstrapClient:
             session=data.get('consumer_id',data.get('session_id'))
             if self.binding['session_id']==session:
                 data={**data,'binding_generation':self.binding['generation']}
+        Request, opener = _request_tools()
         request = Request(self.registration["service_url"] + route,
             data=json.dumps(data, separators=(",", ":")).encode(),
             headers={**auth_headers(self.registration), "Content-Type": "application/json"}, method="POST")
         response = None
         try:
             try:
-                response = build_opener(NoRedirects()).open(request, timeout=self.timeout)
+                response = opener().open(request, timeout=self.timeout)
             except HTTPError as exc:
                 response = exc  # The service's bounded JSON error preserves its domain code.
             with response:

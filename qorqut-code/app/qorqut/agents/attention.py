@@ -178,6 +178,12 @@ class Attention:
         if set(changes) - CLOCK_FIELDS: raise ValueError('Unknown attention clock field')
         if not changes: return
         self.ensure(uow, agent_id)
+        # Timer passes and every hook claim recompute these clocks and usually arrive at the stored values. Writing
+        # them again changes nothing a reader can see, but it dirties a page, so an otherwise idle write unit pays a
+        # synchronous commit while holding the writer and is published as a change. Only a real difference is written.
+        stored = uow.connection.execute('SELECT '+','.join(changes)+' FROM agent_attention WHERE agent_id=?', (agent_id,)).fetchone()
+        if stored is not None and all(type(kept) is type(value) and kept == value for kept, value in zip(stored, changes.values())):
+            return
         uow.connection.execute('UPDATE agent_attention SET '+','.join(k+'=?' for k in changes)+' WHERE agent_id=?', [*changes.values(), agent_id])
 
     def membership_event(self, uow, agent, membership_id, ref, created_at, actor, kind, now, *, owner_requested=False, rationale=''):
@@ -527,12 +533,29 @@ class Attention:
             if not enrolled_board(uow, agent):
                 return None
             if status == 'working':
-                return self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-board-transition')
-            state = self.state(uow, agent)
-            ref = {'type': 'task', 'id': args.get('task_id'), 'business_id': ctx.business_id}
-            if state['focus_json'] and ref in (state['focus_json'], state['work_task_json']):
-                return self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-focus-transition')
-        return None
+                key = 'attention-board-transition'
+            else:
+                state = self.state(uow, agent)
+                ref = {'type': 'task', 'id': args.get('task_id'), 'business_id': ctx.business_id}
+                key = ('attention-focus-transition' if state['focus_json']
+                       and ref in (state['focus_json'], state['work_task_json']) else None)
+        return self.runtime.resolver.require_agentic_view().runtime_instructions().render(key) if key else None
+
+    def mutation_hint(self, ctx, args, operation):
+        """Optional MCP guidance after commit; never part of a write or durable receipt."""
+        if ctx.principal_kind != 'agent':
+            return None
+        next_actor = False
+        if operation in ('attention_add', 'todo_add'):
+            with self.runtime.database.read() as uow:
+                current, agent = self.context(ctx, args, uow)
+                task = self.board_task(current, agent, args['task'], uow, notes=False)
+                next_actor = not task.get('worker_ids')
+        elif operation != 'attention_focus_set':
+            return None
+        instructions = self.runtime.resolver.require_agentic_view().runtime_instructions()
+        hint = instructions.render('attention-board-transition')
+        return hint + instructions.render('attention-next-actor') if next_actor else hint
 
     def add_result(self, ctx, agent, ref, task, uow):
         # Confirm this membership without loading unrelated Tasks inside the write.
@@ -540,11 +563,6 @@ class Attention:
         result = {'agent_id': agent, 'membership_id': membership['id'],
                   'membership_revision': membership['revision'], 'task': ref,
                   'revision': self.state(uow, agent)['revision']}
-        if ctx.principal_kind == 'agent':
-            instructions = self.runtime.resolver.require_agentic_view().runtime_instructions()
-            result['agent_hint'] = instructions.render('attention-board-transition')
-            if not task.get('worker_ids'):
-                result['agent_hint'] += instructions.render('attention-next-actor')
         return result
 
     def apply(self, ctx, plan, uow):
@@ -594,8 +612,6 @@ class Attention:
                     'removed': True, 'revision': self.state(uow, agent)['revision']}
         # A mutation receipt confirms focus and revision; it does not rebuild the board.
         result = self.read(ctx,{'agent_id':agent,'projection':'focus'},uow)
-        if op == 'attention_focus_set' and ctx.principal_kind == 'agent':
-            result['agent_hint'] = self.runtime.resolver.require_agentic_view().runtime_instructions().render('attention-board-transition')
         return result
 
 

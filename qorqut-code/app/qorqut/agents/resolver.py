@@ -7,8 +7,10 @@ from dataclasses import replace
 from datetime import datetime
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import stat as stat_module
 from threading import RLock
 from typing import Any, Mapping
 
@@ -16,7 +18,9 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 from qorqut.catalog.packages import Catalog, content_hash, declared_plugin_tools, files_digest, relative_path, visible_plugin_tools
 from qorqut_operations.contracts import ArtifactRef, DomainError, InvocationContext, Principal, canonical_hash, new_id, plain, utc_now
+from qorqut_operations.business_lifecycle import active_business_ids
 from qorqut_operations.policy import AgentPolicyBasis
+from qorqut_operations.storage.database import unit_memo
 from qorqut_operations.storage.structured import parse_yaml
 from qorqut.composition.files import lock_paths
 from qorqut.composition.locations import agent_workspace, business_hq
@@ -30,6 +34,7 @@ from .models import AgentProfile, EffectiveAgentConfig, RETIRED_ROLE_IDS
 from .roles import RETIRED_PLUGIN_IDS, SUPPORTED_GLOBAL_ROLES
 
 PROFILE_CACHE_LIMIT = 128
+FINGERPRINT_CACHE_LIMIT = 256
 # Only global agents run; these are the registered mandatory orientation sources, all in the Global namespace.
 BOOTSTRAP_KEYS = frozenset({"foundation", "ecosystem-agent", "ecosystem"})
 # Private account capabilities: an operation declaring one is available only to a profile holding it.
@@ -122,6 +127,44 @@ def _stat(path: Path) -> tuple:
     return (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, path.is_symlink())
 
 
+def _legacy_tree_signature(path: Path) -> tuple:
+    return tuple((item.relative_to(path).as_posix(), _stat(item)) for item in sorted(path.rglob("*")))
+
+
+def _tree_signature(path: Path) -> tuple:
+    """Every entry beneath a published artifact with its ``_stat`` identity, as one hashable value.
+
+    The same facts as walking ``path.rglob("*")`` and calling ``_stat`` on each entry, read with ``os.scandir``
+    and one ``lstat`` per entry instead of several ``pathlib`` objects and calls. A published store holds regular
+    files and directories only; a tree with a symlink, a special file or an unreadable directory keeps the
+    original walk, so nothing about how such a tree is followed or reported changes here.
+    """
+    entries = []
+
+    def visit(directory: str, prefix: str) -> bool:
+        with os.scandir(directory) as found:
+            children = sorted(found, key=lambda entry: entry.name)
+        for entry in children:
+            info = entry.stat(follow_symlinks=False)
+            relative = prefix + entry.name
+            if stat_module.S_ISDIR(info.st_mode):
+                entries.append((relative, (info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns, False)))
+                if not visit(entry.path, relative + "/"):
+                    return False
+            elif stat_module.S_ISREG(info.st_mode):
+                entries.append((relative, (info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns, False)))
+            else:
+                return False
+        return True
+
+    try:
+        if visit(os.fspath(path), ""):
+            return tuple(entries)
+    except OSError:
+        pass
+    return _legacy_tree_signature(path)
+
+
 class AgentConfigResolver:
     def __init__(self, database: Any, paths: InstancePaths, registry: Any, *, catalog: Catalog | None = None,
                  plugin_handlers: Mapping[str, Any] | None = None, native_connections: Mapping[str, Any] | None = None):
@@ -140,8 +183,32 @@ class AgentConfigResolver:
         self._cache: OrderedDict[str, EffectiveAgentConfig] = OrderedDict()
         self._lock = RLock()
         self._profiles: OrderedDict[tuple[str, str], AgentProfile] = OrderedDict()
+        self._effective: OrderedDict[tuple, tuple[AgentProfile, AgentProfile]] = OrderedDict()
         self._profiles_registry: Any = None
         self._profiles_lock = RLock()
+        self._fingerprints: OrderedDict[tuple, tuple[str, str]] = OrderedDict()
+        self._fingerprints_registry: Any = None
+
+    def _remembered_hashes(self, inputs: tuple | None, compute) -> tuple[str, str]:
+        """``compute()`` for these exact inputs, once per registry; ``inputs`` of ``None`` always computes."""
+        if inputs is None:
+            return compute()
+        with self._lock:
+            if self._fingerprints_registry is not self.registry:
+                self._fingerprints.clear()
+                self._fingerprints_registry = self.registry
+            known = self._fingerprints.get(inputs)
+            if known is not None:
+                self._fingerprints.move_to_end(inputs)
+                return known
+            registry = self.registry
+        known = compute()
+        with self._lock:
+            if self._fingerprints_registry is registry and self.registry is registry:
+                self._fingerprints[inputs] = known
+                while len(self._fingerprints) > FINGERPRINT_CACHE_LIMIT:
+                    self._fingerprints.popitem(last=False)
+        return known
 
     def _parsed_profile(self, principal_id: str, profile_json: str) -> AgentProfile:
         """Parse and schema/policy-validate one stored profile, reusing the result for identical bytes.
@@ -173,6 +240,44 @@ class AgentConfigResolver:
                     self._profiles.popitem(last=False)
         return profile
 
+    def _effective_profile(self, principal_id: str, profile_json: str, profile: AgentProfile, connection) -> AgentProfile:
+        """``with_effective_scope``, reusing the result for the same parsed profile and the same active businesses.
+
+        The projection copies and refreezes the whole profile to replace one list. It is a pure function of the
+        parsed profile and the businesses active in this transaction, which are read here on every call; only the
+        copy is reused, and only for the very object ``_parsed_profile`` returned, so an entry never outlives the
+        parse it was built from."""
+        businesses = tuple(sorted(active_business_ids(connection)))
+        key = (principal_id, profile_json, businesses)
+        with self._profiles_lock:
+            cached = self._effective.get(key)
+            if cached is not None and cached[0] is profile:
+                self._effective.move_to_end(key)
+                return cached[1]
+        effective = with_effective_scope(profile, connection)
+        if tuple(effective.data["scope"]["allowed_business_ids"]) == businesses:
+            with self._profiles_lock:
+                self._effective[key] = (profile, effective)
+                self._effective.move_to_end(key)
+                while len(self._effective) > PROFILE_CACHE_LIMIT:
+                    self._effective.popitem(last=False)
+        return effective
+
+    def _workspace(self, agent_id: str, business) -> Path:
+        """The identity's workspace, selected and checked against symlinks once per unit of work.
+
+        Selecting it resolves the path on disk and reads the fixed workspace mapping. One operation asks for the
+        same identity a dozen times inside its unit; the first answer stands for the rest of that unit only (see
+        ``unit_memo``), and a refusal is never kept."""
+        memo = unit_memo()
+        if memo is None:
+            return agent_workspace(self.paths, agent_id, business)
+        key = (self, "workspace", agent_id, None if business is None else business["slug"])
+        found = memo.get(key)
+        if found is None:
+            found = memo[key] = agent_workspace(self.paths, agent_id, business)
+        return found
+
     def profile(self, principal: Principal, *, connection=None) -> tuple[AgentProfile, dict]:
         if not isinstance(principal, Principal) or principal.kind != "agent":
             raise DomainError("invalid_principal", "An authenticated agent principal is required")
@@ -199,10 +304,10 @@ class AgentConfigResolver:
         business = (None if row["home_business_id"] is None else
                     connection.execute("SELECT slug FROM businesses WHERE id=?", (row["home_business_id"],)).fetchone())
         # The registered identity and home scope select the workspace; the stored column must agree, never choose.
-        if Path(row["workspace"]) != agent_workspace(self.paths, row["agent_id"], business):
+        if Path(row["workspace"]) != self._workspace(row["agent_id"], business):
             raise DomainError("registration_conflict", "Agent workspace is not the registered identity's workspace")
         # Effective access is every active business in this transaction, not the saved list.
-        return with_effective_scope(profile, connection), dict(row)
+        return self._effective_profile(principal.id, row["profile_json"], profile, connection), dict(row)
 
     # -- AgentAuthority: what the Operations policy resolver asks of the agent registry -------------------------
 
@@ -348,21 +453,39 @@ class AgentConfigResolver:
             selected_docs[key] = located(self.root if global_source else business_hq(self.paths, selected), doc, key)
         for artifact in artifacts:
             path = Path(artifact["stored_path"])
-            signatures.append((artifact["kind"], artifact["digest"], str(path),
-                [(item.relative_to(path).as_posix(), _stat(item)) for item in sorted(path.rglob("*"))]))
+            signatures.append((artifact["kind"], artifact["digest"], str(path), _tree_signature(path)))
         view = self.require_agentic_view()
         agentic_revision = view.catalog_revision
-        fingerprint = canonical_hash({"agentic_catalog_revision": agentic_revision, "profile": profile.data, "workspace": row["workspace"], "target": target,
-            "businesses": businesses, "owners": owner_names,
-            "sources": [(key, doc["id"], doc["revision"], doc["content_hash"], doc["availability"]) for key, doc in sorted(selected_docs.items())],
-            "artifacts": [(item["kind"], item["artifact_id"], item["version"], item["digest"]) for item in artifacts],
-            "operations": [(item.name, item.version, [(alias, self.registry.required_plugin_for(alias)) for alias in item.aliases],
-                            item.plugin_requirement) for item in self.registry.installed()]})
+
+        def hashes():
+            fingerprint = canonical_hash({"agentic_catalog_revision": agentic_revision, "profile": profile.data, "workspace": row["workspace"], "target": target,
+                "businesses": businesses, "owners": owner_names,
+                "sources": [(key, doc["id"], doc["revision"], doc["content_hash"], doc["availability"]) for key, doc in sorted(selected_docs.items())],
+                "artifacts": [(item["kind"], item["artifact_id"], item["version"], item["digest"]) for item in artifacts],
+                "operations": [(item.name, item.version, [(alias, self.registry.required_plugin_for(alias)) for alias in item.aliases],
+                                item.plugin_requirement) for item in self.registry.installed()]})
+            return fingerprint, canonical_hash({"fingerprint": fingerprint, "signatures": signatures})
+
+        # Both hashes are pure functions of the values below and of the frozen registry's operations. An unproposed
+        # profile is itself a pure function of its stored text, that registry and the active projects listed in its
+        # scope, so the same exact inputs reuse the same hashes instead of re-serialising the profile and every
+        # installed operation on each call. A proposed profile, an open registry or an unhashable value computes them.
+        inputs = None
+        if proposed is None and getattr(self.registry, "frozen", False) is True:
+            try:
+                inputs = (agentic_revision, principal.id, row["profile_json"], tuple(profile.data["scope"]["allowed_business_ids"]),
+                          row["workspace"], target, tuple(tuple(item.items()) for item in businesses), tuple(owner_names),
+                          tuple((item["kind"], item["artifact_id"], item["version"], item["digest"]) for item in artifacts),
+                          tuple(signatures))
+                hash(inputs)
+            except TypeError:
+                inputs = None
+        fingerprint, cache_key = self._remembered_hashes(inputs, hashes)
         return {"profile": profile, "row": row, "business": selected, "businesses": businesses,
                 "documents": selected_docs, "owner_name": ", ".join(owner_names) or "Owner",
                 "agentic_catalog_revision": agentic_revision,
                 "registration": dict(registration) if registration else None, "fingerprint": fingerprint,
-                "cache_key": canonical_hash({"fingerprint": fingerprint, "signatures": signatures})}
+                "cache_key": cache_key}
 
     def resolve_agent_config(self, principal: Principal, *, business_id: str | None = None,
                              session_registration: Mapping | str | None = None,
@@ -397,6 +520,12 @@ class AgentConfigResolver:
                 self._cache.move_to_end(key)
                 while len(self._cache) > 128:
                     self._cache.popitem(last=False)
+        if not include_preparation and not session_registration:
+            # Invocation and inventory resolution add nothing to the composed value: it already carries the empty
+            # preparation, no delivery and no refresh requirement. The composed configuration is recursively
+            # immutable, so every such caller shares it instead of copying and re-freezing it on each tool call.
+            self.check_agentic_revision(snapshot["agentic_catalog_revision"])
+            return config
         data = config.to_dict()
         self.check_agentic_revision(snapshot["agentic_catalog_revision"])
         # Only the diagnostic projection consults readiness; invocation and

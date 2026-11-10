@@ -64,23 +64,26 @@ class LayerContext:
         return load_catalog(DiskSource(self.tree))
 
     # -- recovery state -----------------------------------------------------------
+    _INCOMPLETE_PUBLICATIONS = ("SELECT change_id FROM overseer_publications "
+                                "WHERE stage NOT IN ('prepared','merged','complete','superseded') ORDER BY operation_id")
+
     def pending_change_ids(self) -> list[str]:
         with self.store.reader() as conn:
-            pending = [row["change_id"] for row in conn.execute("SELECT change_id FROM pending_changes ORDER BY created_at")]
-            pending.extend(row["change_id"] for row in conn.execute(
-                "SELECT change_id FROM overseer_publications WHERE stage NOT IN ('prepared','merged','complete','superseded') ORDER BY operation_id"))
-            return pending
+            return self._pending_change_ids(conn)
+
+    def _pending_change_ids(self, conn) -> list[str]:
+        pending = [row["change_id"] for row in conn.execute("SELECT change_id FROM pending_changes ORDER BY created_at")]
+        pending.extend(row["change_id"] for row in conn.execute(self._INCOMPLETE_PUBLICATIONS))
+        return pending
 
     def require_no_recovery(self, *, publications_only: bool = False) -> None:
+        # One connection answers both questions; this runs at the start and end of every read snapshot.
         with self.store.reader() as conn:
-            publications = [row["change_id"] for row in conn.execute(
-                "SELECT change_id FROM overseer_publications WHERE stage NOT IN ('prepared','merged','complete','superseded') ORDER BY operation_id")]
+            publications = [row["change_id"] for row in conn.execute(self._INCOMPLETE_PUBLICATIONS)]
+            pending = [] if publications or publications_only else self._pending_change_ids(conn)
         if publications:
             raise AgenticError("an interrupted publication requires recovery", code="publication_recovery_required",
                                details={"pending_change_ids": publications})
-        if publications_only:
-            return
-        pending = self.pending_change_ids()
         if pending:
             raise RecoveryRequiredError(
                 "an interrupted change must be recovered before further authoring changes",

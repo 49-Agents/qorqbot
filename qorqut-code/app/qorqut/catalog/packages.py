@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -16,6 +17,7 @@ from typing import Any, Mapping
 from jsonschema import Draft202012Validator
 
 from qorqut_operations.contracts import DomainError, freeze
+from qorqut_operations.storage.database import unit_memo
 from qorqut_operations.storage.structured import parse_yaml
 
 
@@ -266,9 +268,17 @@ class Catalog:
             cached = self._packages.get(key)
         if cached is not None:
             package, signature = cached
+            # One operation resolves the same pinned package several times inside its unit. Taking the store's
+            # inventory lists and stats every published file, so a package confirmed unchanged stands for the
+            # rest of that unit (see ``unit_memo``); the next unit takes the inventory again.
+            memo = unit_memo()
+            if memo is not None and memo.get((self, "package", key)) is package:
+                return package
             current = self._signature(root)
             if current is not None and (current == signature or self._unchanged(root, package)):
                 self._remember(key, package, current)
+                if memo is not None:
+                    memo[(self, "package", key)] = package
                 return package
         package = load_package(root, metadata["manifest_path"], kind, self.registry)
         if package.digest != ref["digest"]:
@@ -291,14 +301,18 @@ class Catalog:
     def _signature(root: Path):
         """Cheap inventory of everything under the store root, or None when unreadable."""
         try:
-            root = root.resolve(strict=True)
             entries = []
-            for directory, names, files in os.walk(root, followlinks=False):
-                for name in (*names, *files):
-                    path = Path(directory) / name
-                    info = path.lstat()
-                    entries.append((path.relative_to(root).as_posix(), path.is_symlink(),
-                                    info.st_size, info.st_mtime_ns, info.st_ino, info.st_mode))
+            pending = [(os.path.realpath(root, strict=True), "")]
+            while pending:
+                directory, prefix = pending.pop()
+                with os.scandir(directory) as found:
+                    for entry in found:
+                        info = entry.stat(follow_symlinks=False)
+                        relative = prefix + entry.name
+                        entries.append((relative, stat.S_ISLNK(info.st_mode),
+                                        info.st_size, info.st_mtime_ns, info.st_ino, info.st_mode))
+                        if stat.S_ISDIR(info.st_mode):
+                            pending.append((entry.path, relative + "/"))
         except OSError:
             return None
         return tuple(sorted(entries))

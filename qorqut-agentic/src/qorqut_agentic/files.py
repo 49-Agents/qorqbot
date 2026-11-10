@@ -10,6 +10,7 @@ from __future__ import annotations
 import errno
 import os
 import stat
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +23,17 @@ TMP_PREFIX = ".agentic-tmp-"
 MAX_PATH_LENGTH = 1024
 MAX_COMPONENT_LENGTH = 255
 _CHUNK = 1024 * 1024
+# A remembered digest is reused only for a file whose last change (mtime and ctime) was at least this long before
+# the bytes were hashed. A rewrite inside the filesystem's timestamp granularity can leave the size and both
+# timestamps unchanged, so a file that was still "fresh" when hashed is hashed again on every inventory until it
+# settles. Two seconds covers coarse kernel clocks and the coarsest common on-disk granularity.
+DIGEST_SETTLE_NS = 2_000_000_000
+DIGEST_CACHE_LIMIT = 20000
+
+
+def _identity(info: os.stat_result) -> tuple:
+    """Everything a content change must disturb: a write updates mtime and ctime; a replace changes the inode."""
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
 
 def split_path(rel: object, *, field: str = "path") -> tuple[str, ...]:
@@ -58,6 +70,8 @@ class SafeTree:
 
     def __init__(self, root: Path | str):
         self.root = os.fspath(root)
+        # rel -> (stat identity, FileEntry) of bytes this process hashed itself; see ``inventory``.
+        self._digests: dict[str, tuple[tuple, FileEntry]] = {}
 
     # -- directory descriptors -------------------------------------------------
     def _open_root(self) -> int:
@@ -345,17 +359,98 @@ class SafeTree:
 
     def inventory(self, prefix: str = "") -> tuple[dict[str, FileEntry], dict[str, str]]:
         """Hash every regular file; return ``(files, special)`` where special maps
-        symlink/other paths to their kind."""
+        symlink/other paths to their kind.
+
+        The tree is always walked and every entry is always ``lstat``-ed. Only the read-and-hash of a file is
+        skipped, and only when this process hashed those exact bytes before and the file's device, inode, mode,
+        size, mtime and ctime are all unchanged since (``_identity``), and the file had already settled when it was
+        hashed (``DIGEST_SETTLE_NS``). Any other file is opened without following links and hashed as before.
+        """
         files: dict[str, FileEntry] = {}
         special: dict[str, str] = {}
-        for rel, kind in self.walk(prefix):
-            if kind == "file":
-                entry = self.digest(rel)
-                if entry is not None:
-                    files[rel] = entry
-            else:
-                special[rel] = kind
+        parts = split_path(prefix) if prefix else ()
+        fd = self._open_dir(parts)
+        if fd is None:
+            return files, special
+        try:
+            self._inventory_fd(fd, parts, files, special)
+        finally:
+            os.close(fd)
+        if len(self._digests) > DIGEST_CACHE_LIMIT:
+            self._digests.clear()
         return files, special
+
+    def _inventory_fd(self, fd: int, parts: tuple[str, ...], files: dict, special: dict) -> None:
+        """``_walk_fd`` with the same order, skips and kinds, digesting each regular file through its directory."""
+        with os.scandir(fd) as it:
+            entries = sorted(it, key=lambda entry: entry.name)
+        for entry in entries:
+            name = entry.name
+            if name.lower() == ".git" or name.startswith(TMP_PREFIX):
+                continue
+            rel = "/".join((*parts, name))
+            if entry.is_symlink():
+                special[rel] = "symlink"
+            elif entry.is_dir(follow_symlinks=False):
+                try:
+                    child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+                except OSError:
+                    special[rel] = "other"
+                    continue
+                try:
+                    self._inventory_fd(child, (*parts, name), files, special)
+                finally:
+                    os.close(child)
+            elif entry.is_file(follow_symlinks=False):
+                digest = self._digest_at(fd, name, rel)
+                if digest is not None:
+                    files[rel] = digest
+            else:
+                special[rel] = "other"
+
+    def _digest_at(self, parent: int, name: str, rel: str) -> FileEntry | None:
+        """``digest`` for one entry of an already confined directory; ``None`` when the file is gone."""
+        try:
+            current = _identity(os.stat(name, dir_fd=parent, follow_symlinks=False))
+        except FileNotFoundError:
+            return None
+        known = self._digests.get(rel)
+        if known is not None and known[0] == current:
+            return known[1]  # this exact path was validated when its digest was remembered
+        split_path(rel)
+        try:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=parent)
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                raise UnsafePathError(f"path is a symlink: {rel}", details={"path": rel}) from exc
+            raise
+        try:
+            before = os.fstat(fd)
+            if not stat.S_ISREG(before.st_mode):
+                raise UnsafePathError(f"path is not a regular file: {rel}", details={"path": rel})
+            chunks = []
+            while True:
+                chunk = os.read(fd, _CHUNK)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            data = b"".join(chunks)
+            hashed_at = time.time_ns()
+            after = os.fstat(fd)
+        finally:
+            os.close(fd)
+        entry = FileEntry(sha256_hex(data), len(data))
+        identity = _identity(before)
+        # Remember only bytes that provably belong to one settled state of the file: unchanged while it was read,
+        # exactly as long as its recorded size, and last changed well before the hash was taken.
+        if (identity == _identity(after) and len(data) == before.st_size
+                and hashed_at - max(before.st_mtime_ns, before.st_ctime_ns) >= DIGEST_SETTLE_NS):
+            self._digests[rel] = (identity, entry)
+        else:
+            self._digests.pop(rel, None)
+        return entry
 
 
 def _legacy_content(tree: SafeTree) -> bool:

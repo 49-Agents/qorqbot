@@ -69,6 +69,7 @@ def clock_advice(uow, agent_id, attention, now, *, event=None, event_at=None, de
     """Advance only the shared clock columns; never replace focus or intent."""
     from qorqut.agents.attention_clock import advance
     state = dict(attention.state(uow, agent_id))
+    stored = {key: state.get(key) for key in _CLOCK_FIELDS}
     focus = _focus(state.get('focus_json'))
     episode = _blocked_episode(uow, agent_id, state)
     blocked = episode[1] if episode else None
@@ -81,10 +82,15 @@ def clock_advice(uow, agent_id, attention, now, *, event=None, event_at=None, de
             state['blocked_reminded_since'] = blocked
     if delivered_kind:
         state['delivered_kind'] = delivered_kind
-    result = advance(state, now=now, mode=attention.board_mode(uow, agent_id), focused=bool(focus),
+    # Deriving the board mode authorizes and reads every Task on the board. While Focused the clock takes nothing
+    # from it: the board deadline is paused, and leaving focus rebuilds it from that moment whatever mode was
+    # stored. So a Focused board keeps the mode it has, and only an Unfocused one has it derived.
+    mode = stored['board_mode'] if focus and stored['board_mode'] else attention.board_mode(uow, agent_id)
+    result = advance(state, now=now, mode=mode, focused=bool(focus),
         focus_generation=state['focus_generation'], focus_started_at=state.get('focus_started_at'),
         blocked_since=blocked, event=event, event_at=event_at)
-    attention.update_clock(uow, agent_id, {key: result[key] for key in _CLOCK_FIELDS if key in result})
+    attention.update_clock(uow, agent_id, {key: result[key] for key in _CLOCK_FIELDS
+                                         if key in result and result[key] != stored[key]})
     return result
 
 
@@ -189,37 +195,50 @@ class AttentionRuntime:
         with self.runtime.native_chat.arbiter.locks(agent_id), self.runtime.application.writer_admission.writer():
             if not self._verified_consumer(agent_id, consumer_id):
                 return None
-            with self.runtime.database.transaction(operation='attention.hook_claim') as uow:
-                self.runtime.application.ensure_writes_open(uow)
-                from qorqut.agents.attention import enrolled_board
-                if not enrolled_board(uow, agent_id):
-                    return None
-                binding = uow.connection.execute('SELECT * FROM native_session_owners WHERE agent_id=?', (agent_id,)).fetchone()
-                registered = uow.connection.execute('SELECT 1 FROM agent_activity WHERE agent_id=? AND session_id=? '
-                    'AND registration_id=?', (agent_id, consumer_id, registration_id)).fetchone()
-                if not binding or not registered or binding['consumer_id'] != consumer_id:
-                    return None
-                now = self._now()
-                self.hooks.recover_expired(uow, now, agent_id=agent_id)
-                self.reconcile_board(uow, agent_id, now)
-                advice = clock_advice(uow, agent_id, self.attention, now)
-                state = self.attention.state(uow, agent_id)
-                rows = uow.connection.execute("SELECT * FROM attention_reminders WHERE agent_id=? AND state='pending' "
-                    "AND kind IN ('focus','workflow_detach') AND kind=? AND focus_generation=? AND sequence=? AND due_at=? LIMIT 1",
-                    (agent_id, advice.get('kind'), state['focus_generation'], advice.get('reminder_sequence'),
-                     advice.get('due_at'))).fetchall()
-                for row in rows:
-                    claim = self.hooks.claim(uow, row['id'], consumer_id, binding['generation'], now)
-                    if claim:
-                        break
-                else:
-                    return None
+            # Every tool call asks, and a reminder is due once in minutes. The unit takes the writer only for
+            # what it has to write (a moved clock, a recovered or new occurrence, the claim itself).
+            claimed = self.runtime.database.write_if_needed(
+                lambda uow: self._claim_due(uow, agent_id, registration_id, consumer_id), operation='attention.hook_claim')
+            if claimed is None:
+                return None
+            claim, kind = claimed
             # Rendering loads managed instructions and reads the task board.
             # The claim is durable; hook_begin still checks its generation and
             # eligibility before anything can be emitted.
             with self.runtime.database.read() as uow:
-                text = self._text(uow, agent_id, row['kind'])
-            return {**claim, 'registration_id': registration_id, 'kind': row['kind'], 'text': text}
+                text = self._text(uow, agent_id, kind)
+            return {**claim, 'registration_id': registration_id, 'kind': kind, 'text': text}
+
+    def _claim_due(self, uow, agent_id, registration_id, consumer_id):
+        """The claim's one unit: bring this board's occurrence up to date, then claim it for the hook if it is due.
+        Returns the claim and its kind, or None. Database work only, so the unit can be repeated."""
+        from qorqut.agents.attention import enrolled_board
+        self.runtime.application.ensure_writes_open(uow)
+        if not enrolled_board(uow, agent_id):
+            return None
+        binding = uow.connection.execute('SELECT * FROM native_session_owners WHERE agent_id=?', (agent_id,)).fetchone()
+        registered = uow.connection.execute('SELECT 1 FROM agent_activity WHERE agent_id=? AND session_id=? '
+            'AND registration_id=?', (agent_id, consumer_id, registration_id)).fetchone()
+        if not binding or not registered or binding['consumer_id'] != consumer_id:
+            return None
+        now = self._now()
+        self.hooks.recover_expired(uow, now, agent_id=agent_id)
+        self.reconcile_board(uow, agent_id, now)
+        advice = clock_advice(uow, agent_id, self.attention, now)
+        if advice.get('hook_eligible') is not True:
+            # Not due yet, which is nearly every call. A claim requires this same advice to say otherwise, so
+            # there is nothing to look up and no authority to establish for an occurrence that cannot be claimed.
+            return None
+        state = self.attention.state(uow, agent_id)
+        rows = uow.connection.execute("SELECT * FROM attention_reminders WHERE agent_id=? AND state='pending' "
+            "AND kind IN ('focus','workflow_detach') AND kind=? AND focus_generation=? AND sequence=? AND due_at=? LIMIT 1",
+            (agent_id, advice.get('kind'), state['focus_generation'], advice.get('reminder_sequence'),
+             advice.get('due_at'))).fetchall()
+        for row in rows:
+            claim = self.hooks.claim(uow, row['id'], consumer_id, binding['generation'], now)
+            if claim:
+                return claim, row['kind']
+        return None
 
     def hook_begin(self, agent_id, registration_id, claim):
         with self.runtime.native_chat.arbiter.locks(agent_id), self.runtime.application.writer_admission.writer():
@@ -260,12 +279,18 @@ class AttentionRuntime:
                 return self.hooks.settle(uow, receipt, self._now())
 
     def _hook_eligible(self, uow, row, consumer_id, binding_generation, now):
-        if not self.attention.reminder_eligible(uow, row['agent_id'], consumer_id=consumer_id,
-                binding_generation=binding_generation, focus_generation=row['focus_generation'], kind=row['kind']):
+        from qorqut.agents.attention import enrolled_board
+        # Both halves must hold, so their order only decides the cost: the clock is a few reads, while the
+        # authority half resolves policy and reads the focused Task. The clock goes first, behind the one check
+        # that keeps it from being advanced for an agent whose board is gone.
+        if not enrolled_board(uow, row['agent_id']):
             return False
         advice = clock_advice(uow, row['agent_id'], self.attention, now)
-        return (advice.get('kind') == row['kind'] and advice.get('due_at') == row['due_at']
-                and advice.get('reminder_sequence') == row['sequence'] and advice.get('hook_eligible') is True)
+        if not (advice.get('kind') == row['kind'] and advice.get('due_at') == row['due_at']
+                and advice.get('reminder_sequence') == row['sequence'] and advice.get('hook_eligible') is True):
+            return False
+        return bool(self.attention.reminder_eligible(uow, row['agent_id'], consumer_id=consumer_id,
+            binding_generation=binding_generation, focus_generation=row['focus_generation'], kind=row['kind']))
 
     def _delivered(self, uow, row, at):
         state = self.attention.state(uow, row['agent_id'])
@@ -340,6 +365,16 @@ class AttentionRuntime:
         episode = _blocked_episode(uow, agent_id, state) if kind == 'workflow_detach' else None
         if kind == 'workflow_detach' and not episode:
             return
+        # The statement below changes nothing for an occurrence that is already recorded with these values, or
+        # that is no longer pending, yet running it would still take the writer. That is the usual case on every
+        # pass and every tool call, so it is decided by a read; the statement keeps its own conditions.
+        current = uow.connection.execute('SELECT state,due_at,not_before,workflow_run_id,blocked_since '
+            'FROM attention_reminders WHERE agent_id=? AND kind=? AND focus_generation=? AND sequence=?',
+            (agent_id, kind, state['focus_generation'], advice['reminder_sequence'])).fetchone()
+        if current is not None and (current['state'] != 'pending' or (
+                current['due_at'] == due and current['not_before'] == not_before
+                and (current['workflow_run_id'], current['blocked_since']) == (episode or (None, None)))):
+            return
         uow.connection.execute('INSERT INTO attention_reminders '
             '(id,agent_id,kind,focus_generation,sequence,due_at,not_before,workflow_run_id,blocked_since,state,created_at,updated_at,revision) '
             "VALUES(?,?,?,?,?,?,?,?,?,'pending',?,?,1) ON CONFLICT DO UPDATE SET due_at=excluded.due_at,"
@@ -382,6 +417,61 @@ class AttentionRuntime:
             uow.connection.execute("UPDATE attention_reminders SET state='uncertain',native_input_id=?,updated_at=?,"
                 "revision=revision+1 WHERE id=? AND state IN ('claimed','cancelled') AND route='chat'", (native['id'], now, row['id']))
 
+    def _claim_chat(self, uow, agent):
+        """The chat route's one unit: settle what earlier attempts left, then claim the due occurrence for chat.
+        Returns what the attempt needs, or None when nothing is to be typed. Database work only, so the unit can
+        be repeated."""
+        from qorqut.agents.attention import enrolled_board
+        from qorqut.native_chat import store
+        self.runtime.application.ensure_writes_open(uow)
+        if not enrolled_board(uow, agent):
+            return None
+        now = self._now()
+        # Search for definitive receipts in SQL before applying the
+        # bound, so old unresolved inputs cannot hide newer evidence.
+        known = uow.connection.execute("SELECT r.* FROM attention_reminders r WHERE r.agent_id=? "
+            "AND r.state='uncertain' AND r.route='chat' AND EXISTS (SELECT 1 FROM native_inputs n "
+            "WHERE n.agent_id=r.agent_id AND n.source_key='attention:'||r.id AND (n.state='submitted' "
+            "OR (n.state='uncertain' AND n.reason='transcript_confirmed' "
+            "AND json_extract(n.evidence_json,'$.native_input_observed')=1 "
+            "AND json_extract(n.evidence_json,'$.native_input_observed_at') IS NOT NULL)) "
+            "AND NOT EXISTS (SELECT 1 FROM native_inputs newer WHERE newer.agent_id=n.agent_id "
+            "AND newer.source_key=n.source_key AND newer.attempt>n.attempt)) ORDER BY r.updated_at,r.id LIMIT 10",
+            (agent,)).fetchall()
+        for uncertain in known:
+            self._settle_chat(uow, uncertain, store.input_by_key(uow.connection, agent, 'attention:' + uncertain['id']), now)
+        for claimed in uow.connection.execute("SELECT * FROM attention_reminders WHERE agent_id=? "
+                "AND state='claimed' AND route='chat' LIMIT 10", (agent,)).fetchall():
+            self._settle_chat(uow, claimed, store.input_by_key(uow.connection, agent, 'attention:' + claimed['id']), now)
+        owner = uow.connection.execute('SELECT * FROM native_session_owners WHERE agent_id=?', (agent,)).fetchone()
+        if not owner or owner['desired_state'] in ('paused', 'stopped') or store.waiting_inputs(uow.connection, agent):
+            return None
+        session = store.live_session(uow.connection, agent)
+        if not session or session['conversation_id'] != owner['consumer_id']:
+            return None
+        advice = clock_advice(uow, agent, self.attention, now)
+        current = self.attention.state(uow, agent)
+        if not advice.get('chat_eligible'):
+            return None
+        row = uow.connection.execute("SELECT * FROM attention_reminders WHERE agent_id=? AND state='pending' "
+            'AND kind=? AND due_at=? AND sequence=? AND focus_generation=? LIMIT 1',
+            (agent, advice.get('kind'), advice.get('due_at'), advice.get('reminder_sequence'),
+             current['focus_generation'])).fetchone()
+        if not row or not self.attention.reminder_eligible(uow, agent, consumer_id=owner['consumer_id'],
+                binding_generation=owner['generation'], focus_generation=row['focus_generation'], kind=row['kind']):
+            return None
+        token = str(uuid4())
+        expires = _stamp(_time(now) + timedelta(seconds=60))
+        changed = uow.connection.execute("UPDATE attention_reminders SET state='claimed',route='chat',claim_token=?,"
+            'claim_consumer_id=?,claim_binding_generation=?,claim_expires_at=?,updated_at=?,revision=revision+1 '
+            "WHERE id=? AND state='pending' AND revision=?", (token, owner['consumer_id'], owner['generation'], expires, now,
+            row['id'], row['revision']))
+        if not changed.rowcount:
+            return None
+        return {'occurrence_id': row['id'], 'generation': row['focus_generation'], 'kind': row['kind'],
+                'consumer': owner['consumer_id'], 'binding_generation': owner['generation'], 'token': token,
+                'session': session}
+
     def send_due(self, profile):
         """At most one chat attempt, under the arbiter's existing agent lock."""
         if self.todo_adjustment.send_due(profile):
@@ -402,54 +492,15 @@ class AttentionRuntime:
                 from qorqut.agents.attention import enrolled_board
                 if not enrolled_board(uow, agent):
                     return
-            with self.runtime.database.transaction(operation='attention.reconcile_chat') as uow:
-                self.runtime.application.ensure_writes_open(uow)
-                if not enrolled_board(uow, agent):
-                    return
-                now = self._now()
-                # Search for definitive receipts in SQL before applying the
-                # bound, so old unresolved inputs cannot hide newer evidence.
-                known = uow.connection.execute("SELECT r.* FROM attention_reminders r WHERE r.agent_id=? "
-                    "AND r.state='uncertain' AND r.route='chat' AND EXISTS (SELECT 1 FROM native_inputs n "
-                    "WHERE n.agent_id=r.agent_id AND n.source_key='attention:'||r.id AND (n.state='submitted' "
-                    "OR (n.state='uncertain' AND n.reason='transcript_confirmed' "
-                    "AND json_extract(n.evidence_json,'$.native_input_observed')=1 "
-                    "AND json_extract(n.evidence_json,'$.native_input_observed_at') IS NOT NULL)) "
-                    "AND NOT EXISTS (SELECT 1 FROM native_inputs newer WHERE newer.agent_id=n.agent_id "
-                    "AND newer.source_key=n.source_key AND newer.attempt>n.attempt)) ORDER BY r.updated_at,r.id LIMIT 10",
-                    (agent,)).fetchall()
-                for uncertain in known:
-                    self._settle_chat(uow, uncertain, store.input_by_key(uow.connection, agent, 'attention:' + uncertain['id']), now)
-                for claimed in uow.connection.execute("SELECT * FROM attention_reminders WHERE agent_id=? "
-                        "AND state='claimed' AND route='chat' LIMIT 10", (agent,)).fetchall():
-                    self._settle_chat(uow, claimed, store.input_by_key(uow.connection, agent, 'attention:' + claimed['id']), now)
-                owner = uow.connection.execute('SELECT * FROM native_session_owners WHERE agent_id=?', (agent,)).fetchone()
-                if not owner or owner['desired_state'] in ('paused', 'stopped') or store.waiting_inputs(uow.connection, agent):
-                    return
-                session = store.live_session(uow.connection, agent)
-                if not session or session['conversation_id'] != owner['consumer_id']:
-                    return
-                advice = clock_advice(uow, agent, self.attention, now)
-                current = self.attention.state(uow, agent)
-                if not advice.get('chat_eligible'):
-                    return
-                row = uow.connection.execute("SELECT * FROM attention_reminders WHERE agent_id=? AND state='pending' "
-                    'AND kind=? AND due_at=? AND sequence=? AND focus_generation=? LIMIT 1',
-                    (agent, advice.get('kind'), advice.get('due_at'), advice.get('reminder_sequence'),
-                     current['focus_generation'])).fetchone()
-                if not row or not self.attention.reminder_eligible(uow, agent, consumer_id=owner['consumer_id'],
-                        binding_generation=owner['generation'], focus_generation=row['focus_generation'], kind=row['kind']):
-                    return
-                token = str(uuid4())
-                expires = _stamp(_time(now) + timedelta(seconds=60))
-                changed = uow.connection.execute("UPDATE attention_reminders SET state='claimed',route='chat',claim_token=?,"
-                    'claim_consumer_id=?,claim_binding_generation=?,claim_expires_at=?,updated_at=?,revision=revision+1 '
-                    "WHERE id=? AND state='pending' AND revision=?", (token, owner['consumer_id'], owner['generation'], expires, now,
-                    row['id'], row['revision']))
-                if not changed.rowcount:
-                    return
-                occurrence_id, generation, kind = row['id'], row['focus_generation'], row['kind']
-                consumer, binding_generation = owner['consumer_id'], owner['generation']
+            # Runs for every agent on every pass and usually finds nothing to settle and nothing due, so the
+            # unit takes the writer only when it has a receipt to record or an occurrence to claim.
+            claimed = self.runtime.database.write_if_needed(lambda uow: self._claim_chat(uow, agent),
+                                                            operation='attention.reconcile_chat')
+            if claimed is None:
+                return
+            occurrence_id, generation, kind = claimed['occurrence_id'], claimed['generation'], claimed['kind']
+            consumer, binding_generation = claimed['consumer'], claimed['binding_generation']
+            token, session = claimed['token'], claimed['session']
             # Keep catalog loading and board projection out of SQLite's sole
             # writer. The existing checkpoint revalidates this exact claim
             # immediately before the native input is submitted.
@@ -539,6 +590,10 @@ class HookClaims:
         conn = uow.connection
         scope = ' AND agent_id=?' if agent_id is not None else ''
         parameters = (now, now, agent_id) if agent_id is not None else (now, now)
+        # Both updates below take the writer even when no claim has expired, which is the usual case.
+        if conn.execute("SELECT 1 FROM attention_reminders WHERE state='claimed' AND route='hook' AND claim_expires_at<=?"
+                        + scope + ' LIMIT 1', parameters[1:]).fetchone() is None:
+            return 0, 0
         uncertain = conn.execute("UPDATE attention_reminders SET state='uncertain',updated_at=?,revision=revision+1 "
             "WHERE state='claimed' AND route='hook' AND emission_started_at IS NOT NULL AND claim_expires_at<=?" + scope,
             parameters).rowcount

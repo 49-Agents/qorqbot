@@ -4,10 +4,17 @@ Confirm an unchanged configuration against its actual earlier delivery receipt.
 Changed instructions stay pending for the normal startup/prompt composer; a
 background response never pretends that new instructions reached the model.
 """
-from qorqut_agentic.behavior.instructions import from_prepared
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
+
+# This module is imported by the activity hook, a fresh process on every native tool call. The managed-instruction
+# package is needed only to render the rare recovered-background note, and importing it loads the whole authoring
+# layer, so it is imported where that note is rendered. A historical standalone install without the package must
+# still fail this import, as it always has, so the hook keeps recording activity without context delivery.
+if importlib.util.find_spec("qorqut_agentic") is None:
+    raise ImportError("qorqut_agentic is not installed")
 
 from qorqut.installation import installation_config
 from . import handoff, recovery
@@ -72,7 +79,10 @@ def emit(hook, registration_path, runtime, output, stream, *, deliver=None):
             return False
         if not already:
             return False
-        text = (from_prepared(registration_path).render("background-recovered")) if episode else ''
+        text = ''
+        if episode:
+            from qorqut_agentic.behavior.instructions import from_prepared
+            text = from_prepared(registration_path).render("background-recovered")
         if text:
             output = {'hookSpecificOutput': {'hookEventName': hook['hook_event_name'],
                                              'additionalContext': text}}

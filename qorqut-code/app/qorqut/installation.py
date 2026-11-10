@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import stat
 
-from qorqut_operations.contracts import DomainError
+from qorqut_operations.errors import DomainError
 from qorqut.instance_paths import InstancePaths
 
 
