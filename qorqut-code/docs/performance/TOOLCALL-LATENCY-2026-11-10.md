@@ -37,9 +37,11 @@ Raw profiles and operational records are not included in this repository.
 
 | Area | Change and retained contract |
 | --- | --- |
-| Instruction inventory | Read files through already-open confined parent descriptors. Every file is still opened with no symlink following and freshly hashed; size/path/type checks remain. |
-| Instruction projection | Share one verified outer snapshot across nested projections; reuse an exactly matching parsed catalog; cache runtime prose by its content revision and return private documents. Entry/exit inventories, recovery checks and bounded conflict retries remain. |
-| Configuration | Return the recursively frozen cached configuration for ordinary invocations. Diagnostic preparation and session-delivery projections still run when requested; current profile, scope and source checks remain. |
+| Instruction inventory | Walk through already-open confined directory descriptors and `lstat` every entry on every inventory. A file's digest is reused only when this process hashed those bytes itself, its device, inode, mode, size, mtime and ctime are all unchanged, and it had been unchanged for two seconds when it was hashed; otherwise it is opened with no symlink following and hashed as before. A file that changes while it is read is not remembered. |
+| Instruction projection | Share one verified outer snapshot across nested projections; reuse an exactly matching parsed catalog; cache runtime prose by its content revision and return private documents. Entry/exit inventories and recovery checks remain. Only the snapshot's own verification is retried; an error the projection itself raises, a conflict included, reaches the caller unchanged. |
+| Configuration | Return the recursively frozen cached configuration for ordinary invocations. Remember the configuration fingerprint and cache key per exact input (catalogue revision, stored profile text, effective scope, businesses, owners, artifact rows and on-disk signatures) for a frozen registry; the values are byte-identical. Sign artifact and catalogue stores with `scandir`. Diagnostic preparation and session-delivery projections still run when requested; current profile, scope and source checks remain. |
+| MCP dispatch | Bypass the SDK's process-wide tool-definition cache, which re-ran the whole `tools/list` handler inside `tools/call` on every miss and whose result was unused (SDK input validation is off). Run the per-use authority gate on the worker thread with the work it guards. |
+| Hook processes | The two per-tool-call hook processes no longer import the storage engine, the instruction authoring layer, `jsonschema`, `yaml` or urllib's HTTP stack. |
 | Transaction duration | Load checkpoint prose once before database units. Recheck session ownership and current source state inside the claim transaction. Render task/attention guidance after commit, outside the writer; skip unchanged clock updates. |
 | MCP responsiveness | Offload validation-guidance reads from the event loop. Advisory failures preserve committed results or the original validation error. |
 | Durable queues | Add partial pending-receipt and approved-Signoff indexes, plus `resource_claims(apply_id)`. Preserve recovery eligibility, ordering and limits. An explicit offline migration advances the schema identity atomically. |
@@ -51,6 +53,30 @@ receipts. Domain receipt data continues to identify the saved membership/focus
 and revision; advisory failure cannot turn that successful mutation into an error.
 
 ## Evaluation
+
+### Whole tool call
+
+`qorqut-code/tools/bench-toolcalls.py` seeds a throwaway instance and runs the two
+phases the transport times for every call, in-process, for five ordinary agent
+operations (150 calls, medians; 236 exposed tools, 228 instruction files).
+"Earlier branch" is the first four rows of the table above without the digest
+reuse, fingerprint memo, MCP dispatch and hook changes.
+
+| Revision | Configuration | Execution | 240 calls on 8 threads |
+| --- | ---: | ---: | ---: |
+| Base | 87–93 ms | 16–17 ms | 32.5 s |
+| Earlier branch | 58 ms | 16.6 ms | 23.3 s |
+| This branch | 16 ms | 6 ms | 7.1–7.8 s |
+
+Building one agent's `tools/list` fell from 128 ms to 56 ms and no longer runs
+inside `tools/call`. A hook process start fell from 0.42 s to 0.14 s wall
+(0.37 s to 0.12 s CPU); there are two per native tool call. These are costs
+inside one process on a loaded host, not production latency percentiles.
+
+### Isolated operations
+
+The figures below were recorded for the earlier branch and still describe
+freshly written instruction files, which are hashed on every inventory.
 
 The same benchmark script ran on base `b8ff8b7` and the candidate, in the order
 base/candidate/candidate/base, with 11 measured rounds per case per run after
@@ -83,8 +109,9 @@ not achieve this. The pending candidates still receive the original global sort.
 inputs and aggregate timings. Host scheduling varies, so these measurements
 establish reduced work, not a promised production latency percentile.
 
-148 distinct focused tests passed across the instruction, configuration, MCP,
-attention, checkpoints, browser and migration checks. Coverage includes
+The app suite passes (575 tests) apart from five that need a display or `psutil`
+and fail identically on base. Focused tests cover the instruction, configuration,
+MCP, attention, checkpoints, browser, hook-import and migration changes. Coverage includes
 same-size/same-mtime edits, concurrent snapshots, symlink swaps, recovery failures,
 nested snapshot conflicts, immutable cache isolation, an event-loop progress
 barrier, claim deduplication, session supersession, query-selection equivalence,
@@ -104,7 +131,8 @@ DISPLAY=:99 PYTHONPATH=qorqut-code/app:qorqut-code/app/tests:qorqut-code/qorqut-
   test_mcp_context_fastpath test_mcp_bootstrap_query test_mcp_discovery_cache \
   test_attention_simplification test_checkpoint_transaction_cost \
   test_mcp_advisory_performance test_mcp_phase_timing test_browser_health_probe \
-  test_browser_setup test_browser_sign_in test_browser_cleanup_defaults test_recovery_queue_indexes
+  test_browser_setup test_browser_sign_in test_browser_cleanup_defaults test_recovery_queue_indexes \
+  test_toolcall_latency
 ```
 
 The existing sign-in tests mock process launch but require a nonempty `DISPLAY`;
@@ -124,12 +152,21 @@ Using the target release environment, the command interface is:
 ```sh
 python -m qorqut.migration.queue_indexes inspect --instance-root /path/to/instance --extensions-config /path/to/selected-extensions.json
 python -m qorqut.migration.queue_indexes apply --instance-root /path/to/instance --extensions-config /path/to/selected-extensions.json
+python -m qorqut.migration.queue_indexes revert --instance-root /path/to/instance --extensions-config /path/to/selected-extensions.json
 ```
 
 Omit `--extensions-config` only for an instance with no selected extensions.
 The recognized predecessor is the base composition plus those extensions;
-earlier schema transitions must already be complete. A downgrade also requires
-schema reconciliation because the old application rejects the new fingerprint.
+earlier schema transitions must already be complete.
+
+The gate works in both directions: this release refuses a store without the
+indexes, and an earlier release refuses a store that has them. `revert`, with
+the same arguments and ownership requirement as `apply`, drops the three
+indexes and restores the predecessor identity in one transaction, so a rollback
+of the release does not need a database restore. All three commands were run
+against a seeded instance: the predecessor store was refused by this release,
+opened after `apply`, was refused by the earlier code, and opened there again
+after `revert`.
 No production migration, deployment, restart or process cleanup was performed.
 
 ## Next areas, in priority order
@@ -138,16 +175,20 @@ No production migration, deployment, restart or process cleanup was performed.
    development services must run concurrently; measure per-service CPU and cap or
    isolate background work from interactive requests. Reclaiming CPU headroom is
    likely necessary to turn these code savings into consistently low latency.
-2. **Remaining configuration work.** Profile the full `_snapshot` path after this
-   release. Precompute immutable registry metadata and pinned artifact manifests;
-   retain per-request authority and source-change checks. A future immutable
+2. **Remaining configuration work.** About half of the remaining 16 ms is the
+   instruction tree being walked and `lstat`-ed at snapshot entry and exit; the
+   rest is profile reads and policy resolution. A future immutable
    instruction-generation protocol could remove whole-tree inventories, but
    needs explicit invalidation, recovery and filesystem-change guarantees first.
-3. **Background fan-out and transcript history.** Paper selection repeatedly
+3. **Writer contention and hook processes.** Every native tool call still spawns
+   two hook processes, and the PostToolUse claim opens a write transaction. A
+   read-only precheck before the claim and a persistent hook endpoint would
+   remove both; neither is changed here.
+4. **Background fan-out and transcript history.** Paper selection repeatedly
    traverses agents/projects; batch shared selection work per pass. Evaluate
    incremental archive verification with correct append, replacement and
    truncation handling. These paths were observed but not changed here.
-4. **Production comparison.** Under comparable concurrency, compare per-operation
+5. **Production comparison.** Under comparable concurrency, compare per-operation
    configuration/execution/total latency, busy errors, writer duration, CPU
    pressure and event-loop delay. Separate worker-pool waiting and advisory time
    from domain execution in future timing instrumentation. Recheck both cold
