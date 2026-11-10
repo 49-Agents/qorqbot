@@ -105,7 +105,7 @@ do not supply raw HTML. Put internal source objects in typed `references` rather
 than inventing URLs. Use `focus_edit.changes` to update existing cards with the
 same fields and their current card revision.
 
-Substantive owner work uses `tasks_create(kind="owner_request", assignee_ids=[the
+Substantive owner work uses `tasks_create(kind="request_to_owner", assignee_ids=[the
 installation owner ID], ...)`, with normal task state, dependencies, snooze and
 notes. Questions use `signoffs_input_create` with `kind="question"`; explicit
 answers are independent of comments. Both creators accept optional `focus`

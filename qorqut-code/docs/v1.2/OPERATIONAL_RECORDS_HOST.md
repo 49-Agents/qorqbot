@@ -11,7 +11,7 @@ advances the pin to a commit that contains `24f1ea2`. Nothing here changes the r
 
 | Concern | Owner now | Host contribution |
 | --- | --- | --- |
-| Task states, fields, parents, informational dependencies, shared `snoozed_until`, assignees, protected `owner_request` | `qorqut_operations.tasks` | `domains/tasks/ports.py` answers the typed `TaskPorts` (assignee rules, setup guards, Focus presentation, incident links, note references, owner-work routing) |
+| Task states, fields, parents, informational dependencies, shared `snoozed_until`, assignees, protected `request_to_owner` | `qorqut_operations.tasks` | `domains/tasks/ports.py` answers the typed `TaskPorts` (assignee rules, setup guards, Focus presentation, incident links, note references, owner-work routing) |
 | Shared Task/Action tag catalog (`tags`, `item_tags`) | `qorqut_operations.tags` | none; a tag is a label and grants nothing |
 | Item threads, follows, the one event writer (`emit_event`), required vs optional deliveries | `qorqut_operations.discussion` | `inbox/service.py` routes `inbox_subscribe` of a Task or Action to the same follow state; `inbox/events.py` no longer writes Task or Action events |
 | Actions with immutable revisions (`action_logs`, `action_revisions`, `action_businesses`) | `qorqut_operations.actions` | `domains/activity` is now `ActionWriteback` (one-source-one-Action key) plus `linked_action` for item links |

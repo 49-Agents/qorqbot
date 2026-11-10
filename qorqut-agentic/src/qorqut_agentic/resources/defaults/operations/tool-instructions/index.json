@@ -1695,6 +1695,11 @@
       "id": "journal-list-next-step",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/journal.py",
       "line": 1
+    },
+    {
+      "id": "tasks-kind-normal-work-or-request-to-owner",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/kinds.py",
+      "line": 13
     }
   ]
 }

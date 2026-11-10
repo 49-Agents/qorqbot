@@ -137,8 +137,11 @@ The test composition (`tests/support.py`) is a tiny fake domain; it never reads 
 `tasks_create` and `tasks_update` accept `task_type: task | story | customer | email`,
 `overview` (up to 20,000 characters), and nullable `email_conversation_id`.
 All are existing Tasks with the same states, parents, permissions, revisions,
-Focus, discussion and related items. `kind: owner_request` remains an independent
-assignment contract. A Story holds an ongoing relationship or work group's current
+Focus, discussion and related items. `kind: request_to_owner` remains an independent
+assignment contract for work the human owner must perform. Ordinary agent work, including
+work requested by the owner, uses `ordinary`. The old `owner_request` input remains
+a compatibility alias; stored rows, historical plans and receipts retain that spelling.
+Public Task responses use `request_to_owner`. A Story holds an ongoing relationship or work group's current
 overview; parent/child links organize its next steps. There is no separate Story or
 Customer table.
 

@@ -335,6 +335,7 @@
     "journal-entry-create": "Ordubashy: record a useful owner journal entry with explicit_owner_statement or owner_intent attribution. Keep the actual recorder. File useful context and reconcile relevant operational items; journal text alone is not permission to execute.",
     "journal-entry-update": "Ordubashy: update a visible journal entry after reading its full body. Supply expected_revision and expected_content_hash, preserve unrelated content, and include owner attribution. Hidden entries and visibility changes remain unavailable.",
     "journal-entry-archive": "Ordubashy: archive a visible journal entry on the owner’s behalf with attribution, current revision and content hash. Preserve its contents and history.",
-    "journal-list-next-step": "Read relevant visible entries before reconciling context or operational records. Listing is not a filing marker; hidden entries remain private."
+    "journal-list-next-step": "Read relevant visible entries before reconciling context or operational records. Listing is not a filing marker; hidden entries remain private.",
+    "tasks-kind-normal-work-or-request-to-owner": "ordinary (default): normal work, including agent work requested by the owner. request_to_owner: work the human owner must perform; creation requires the owner in assignee_ids. owner_request is a deprecated alias for request_to_owner."
   }
 }

@@ -100,7 +100,7 @@ instructions can enter Context through its existing authorized source input
 ## Work, questions, and discussion
 
 New substantive owner work is an explicitly owner-assigned task of
-`kind=owner_request`, with ordinary dependencies, snooze and completion. Keep
+`kind=request_to_owner`, with ordinary dependencies, snooze and completion. Keep
 existing request Signoffs operable; do not duplicate a live request. Small login
 help is raised to Ordubashy for a configured desktop Reference. Questions remain
 input Signoffs with explicit answers. Use `signoffs_comment` for ordinary scoped
