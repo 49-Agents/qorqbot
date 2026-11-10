@@ -112,7 +112,8 @@ function globalChatContextMount(host, agent, {visible, onChange}) {
   host.innerHTML='<dl><dt>Focus</dt><dd class="gchat-focus-label">Loading…</dd><dt>Intent</dt><dd class="gchat-focus-intent">Loading…</dd></dl>';
   host.tabIndex=0;
   const show=()=>{
-    host.hidden=!visible();
+    // The parent Chat owns visibility; returning from Terminal must not wait for the next poll.
+    host.hidden=false;
     return !host.hidden;
   };
   const paint=()=>{
