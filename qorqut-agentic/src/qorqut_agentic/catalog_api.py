@@ -48,7 +48,11 @@ class CatalogReader:
         if catalog is not None:
             return catalog
         catalog = getattr(self._reads, "catalog", None)
-        return catalog if catalog is not None else load_catalog(DiskSource(self.ctx.tree))
+        if catalog is not None:
+            return catalog
+        source = DiskSource(self.ctx.tree)
+        parsed = self._parsed_catalog(source)
+        return self._with_source(parsed, source) if parsed is not None else load_catalog(source)
 
     @staticmethod
     def _revision(source):

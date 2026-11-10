@@ -397,6 +397,13 @@ class AgentConfigResolver:
                 self._cache.move_to_end(key)
                 while len(self._cache) > 128:
                     self._cache.popitem(last=False)
+        if not include_preparation and not session_registration:
+            # Ordinary invocations need only identity/revision fields. The
+            # cached value is recursively frozen and already has empty
+            # preparation/delivery state. Avoid thawing and refreezing the
+            # complete tool inventory and instruction bundle on every call.
+            self.check_agentic_revision(snapshot["agentic_catalog_revision"])
+            return config
         data = config.to_dict()
         self.check_agentic_revision(snapshot["agentic_catalog_revision"])
         # Only the diagnostic projection consults readiness; invocation and

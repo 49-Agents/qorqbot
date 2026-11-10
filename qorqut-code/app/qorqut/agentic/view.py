@@ -11,6 +11,7 @@ import base64
 from contextlib import contextmanager
 from copy import deepcopy
 import hashlib
+import json
 import posixpath
 
 from qorqut_agentic.errors import AgenticError
@@ -234,23 +235,19 @@ class HostAgenticView:
         cannot silently switch to a newer configuration halfway through a write.
         """
         for _ in range(CONSISTENCY_ATTEMPTS):
-            error = None
-            with self.layer.catalog.read_session():
-                before = self.catalog_revision
-                if revision is not None and revision != before:
-                    break
-                try:
+            try:
+                # One outer snapshot hashes on entry and exit, reuses the
+                # verified parse, and gives every nested projection the same
+                # revision. Separate revision()/read_session() calls used to
+                # rescan and parse the tree again for each nested projection.
+                with self.read_snapshot():
+                    if revision is not None and revision != self.catalog_revision:
+                        break
                     result = reader()
-                except AgenticError as exc:
-                    error = exc
-            if error is not None and error.code == "revision_conflict":
-                raise DomainError("agentic_revision_conflict", "Managed instructions changed during projection; retry", retryable=True) from error
-
-            if self.catalog_revision == before:
-                if error is not None:
-                    raise DomainError("agentic_unavailable", error.message,
-                                      details={"agentic_code": error.code}) from error
                 return result
+            except DomainError as exc:
+                if exc.code != "agentic_revision_conflict":
+                    raise
         raise DomainError("agentic_revision_conflict", "Managed instructions changed during projection; retry with current configuration",
                           retryable=True)
 
@@ -274,15 +271,27 @@ class HostAgenticView:
 
     def runtime_instructions(self):
         """Current protected runtime prose; never use bundled code strings as fallback."""
-        from qorqut_agentic.behavior.instructions import from_catalog
+        from qorqut_agentic.behavior.instructions import Instructions, from_catalog
 
         def read():
+            revision = self.catalog_revision
+            cached = getattr(self, "_runtime_instruction_bytes", None)
+            if cached is not None and cached[0] == revision:
+                # Return a private document: callers may inspect/mutate their
+                # Instructions without changing another request's snapshot.
+                return revision, Instructions(json.loads(cached[1])), cached[1]
             def resource(path):
                 value = self.resource("roles", "operations/runtime-instructions/" + path)
                 return _bytes(value).decode("utf-8")
-            return from_catalog(resource)
+            instructions = from_catalog(resource)
+            return revision, instructions, instructions.bytes()
 
-        return self.consistent(read)
+        revision, instructions, document = self.consistent(read)
+        # Publish only after the outer snapshot's fresh-byte/recovery checks.
+        # One immutable tuple is safe to replace concurrently; a stale revision
+        # can at worst cause a cache miss, never serve another revision's prose.
+        self._runtime_instruction_bytes = (revision, document)
+        return instructions
 
     def tool_instructions(self):
         """Current tool wording, independent of the registered tool's authority."""

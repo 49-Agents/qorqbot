@@ -141,40 +141,41 @@ class SafeTree:
         if parent is None:
             return None
         try:
-            try:
-                fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=parent)
-            except FileNotFoundError:
-                return None
-            except OSError as exc:
-                if exc.errno == errno.ELOOP:
-                    raise UnsafePathError(f"path is a symlink: {rel}", details={"path": rel}) from exc
-                raise
-            try:
-                info = os.fstat(fd)
-                if not stat.S_ISREG(info.st_mode):
-                    raise UnsafePathError(f"path is not a regular file: {rel}", details={"path": rel})
-                if max_bytes is not None and info.st_size > max_bytes:
-                    raise AgenticError(
-                        f"file is larger than {max_bytes} bytes: {rel}",
-                        code="limit_exceeded",
-                        details={"path": rel, "size": info.st_size, "limit": max_bytes},
-                    )
-                chunks = []
-                size = 0
-                while True:
-                    chunk = os.read(fd, _CHUNK)
-                    if not chunk:
-                        break
-                    size += len(chunk)
-                    if max_bytes is not None and size > max_bytes:
-                        raise AgenticError(f"file is larger than {max_bytes} bytes: {rel}", code="limit_exceeded",
-                                           details={"path": rel, "limit": max_bytes})
-                    chunks.append(chunk)
-                return b"".join(chunks)
-            finally:
-                os.close(fd)
+            return self._read_at(parent, parts[-1], rel, max_bytes=max_bytes)
         finally:
             os.close(parent)
+
+    @staticmethod
+    def _read_at(parent: int, name: str, rel: str, *, max_bytes: int | None = None) -> bytes | None:
+        """Read through an already confined parent; the file is still opened and verified afresh."""
+        try:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=parent)
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                raise UnsafePathError(f"path is a symlink: {rel}", details={"path": rel}) from exc
+            raise
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode):
+                raise UnsafePathError(f"path is not a regular file: {rel}", details={"path": rel})
+            if max_bytes is not None and info.st_size > max_bytes:
+                raise AgenticError(f"file is larger than {max_bytes} bytes: {rel}", code="limit_exceeded",
+                                   details={"path": rel, "size": info.st_size, "limit": max_bytes})
+            chunks, size = [], 0
+            while True:
+                chunk = os.read(fd, _CHUNK)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if max_bytes is not None and size > max_bytes:
+                    raise AgenticError(f"file is larger than {max_bytes} bytes: {rel}", code="limit_exceeded",
+                                       details={"path": rel, "limit": max_bytes})
+                chunks.append(chunk)
+            return b"".join(chunks)
+        finally:
+            os.close(fd)
 
     def digest(self, rel: str) -> FileEntry | None:
         data = self.read(rel)
@@ -314,11 +315,15 @@ class SafeTree:
         if fd is None:
             return
         try:
-            yield from self._walk_fd(fd, parts)
+            for rel, kind, _, _ in self._walk_fd(fd, parts):
+                yield rel, kind
         finally:
             os.close(fd)
 
-    def _walk_fd(self, fd: int, parts: tuple[str, ...]) -> Iterator[tuple[str, str]]:
+    def _walk_fd(self, fd: int, parts: tuple[str, ...]) -> Iterator[tuple[str, str, int, str]]:
+        # Parent descriptors remain open until the consumer resumes the walk.
+        # Inventory can read at that descriptor without reopening every ancestor
+        # for every file. Nothing is cached across reads or snapshots.
         with os.scandir(fd) as it:
             entries = sorted(it, key=lambda entry: entry.name)
         for entry in entries:
@@ -327,34 +332,42 @@ class SafeTree:
                 continue
             rel = "/".join((*parts, name))
             if entry.is_symlink():
-                yield rel, "symlink"
+                yield rel, "symlink", fd, name
             elif entry.is_dir(follow_symlinks=False):
                 try:
                     child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
                 except OSError:
-                    yield rel, "other"
+                    yield rel, "other", fd, name
                     continue
                 try:
                     yield from self._walk_fd(child, (*parts, name))
                 finally:
                     os.close(child)
             elif entry.is_file(follow_symlinks=False):
-                yield rel, "file"
+                yield rel, "file", fd, name
             else:
-                yield rel, "other"
+                yield rel, "other", fd, name
 
     def inventory(self, prefix: str = "") -> tuple[dict[str, FileEntry], dict[str, str]]:
         """Hash every regular file; return ``(files, special)`` where special maps
         symlink/other paths to their kind."""
         files: dict[str, FileEntry] = {}
         special: dict[str, str] = {}
-        for rel, kind in self.walk(prefix):
-            if kind == "file":
-                entry = self.digest(rel)
-                if entry is not None:
-                    files[rel] = entry
-            else:
-                special[rel] = kind
+        parts = split_path(prefix) if prefix else ()
+        fd = self._open_dir(parts)
+        if fd is None:
+            return files, special
+        try:
+            for rel, kind, parent, name in self._walk_fd(fd, parts):
+                if kind == "file":
+                    split_path(rel)
+                    data = self._read_at(parent, name, rel)
+                    if data is not None:
+                        files[rel] = FileEntry(sha256_hex(data), len(data))
+                else:
+                    special[rel] = kind
+        finally:
+            os.close(fd)
         return files, special
 
 
