@@ -5,6 +5,10 @@ with the target component selection and optional --extensions-config. Inspect is
 read-only. Apply requires exclusive instance ownership, recognises only the exact
 predecessor or target composition, and commits DDL and target identity together.
 Normal service startup never invokes this command or upgrades an existing store.
+
+This command recognises a store that lacks only this change. A store that is
+further behind is upgraded with ``python -m qorqut.migration.upgrade``, which
+applies this transform and the later ones in order and can also revert them.
 """
 from __future__ import annotations
 
@@ -27,6 +31,7 @@ from qorqut.service.changes import ChangeFeed
 from qorqut.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from qorqut.service.ownership import InstanceOwnership
 
+NAME = 'signoff_sources'
 TRANSFORM = 'v1.3-signoff-sources-1'
 TABLE = 'signoff_source_links'
 OBJECTS = {('table', TABLE), ('index', TABLE + '_source'), ('trigger', 'signoff_source_state'),
@@ -34,18 +39,46 @@ OBJECTS = {('table', TABLE), ('index', TABLE + '_source'), ('trigger', 'signoff_
     *(('trigger', 'inbox_capture_' + TABLE + '_' + event) for event in ('insert', 'update', 'delete'))}
 
 
+def strip(contribution):
+    """``contribution`` as it stood before this transform; None when the transform introduced it."""
+    if type(contribution) is not StorageContribution:
+        return contribution
+    if contribution.owner == 'signoff-sources':
+        return None
+    if contribution.owner == 'operational_feed':
+        return replace(contribution,
+            schema=tuple(sql for sql in contribution.schema if 'inbox_capture_' + TABLE + '_' not in sql),
+            required_tables=contribution.required_tables - {TABLE})
+    return contribution
+
+
+def forward(connection, objects):
+    """This transform's DDL, taken from a compiled composition that includes it. The caller owns the transaction."""
+    connection.execute(objects[('table', TABLE)][1])
+    for kind, name in sorted(OBJECTS - {('table', TABLE)}):
+        connection.execute(objects[(kind, name)][1])
+
+
+def backward(connection):
+    """The exact inverse of ``forward``, dropping whatever rows the table holds. The caller owns the transaction and
+    decides whether those rows may go. ``signoff_source_state`` sits on ``signoffs``, so it does not go with the table."""
+    for kind, name in sorted(OBJECTS - {('table', TABLE)}):
+        connection.execute(f'DROP {kind.upper()} "{name}"')
+    connection.execute(f'DROP TABLE "{TABLE}"')
+
+
+def held_rows(connection):
+    """How many rows ``backward`` would drop."""
+    return connection.execute(f'SELECT count(*) FROM "{TABLE}"').fetchone()[0]
+
+
 def compositions(extensions=NO_EXTENSIONS):
     target = host_assembly(ChangeFeed(), extensions)
     builder = HostComposition()
     for contribution in host_contributions(ChangeFeed(), extensions):
-        if type(contribution) is StorageContribution:
-            if contribution.owner == 'signoff-sources':
-                continue
-            if contribution.owner == 'operational_feed':
-                contribution = replace(contribution,
-                    schema=tuple(sql for sql in contribution.schema if 'inbox_capture_' + TABLE + '_' not in sql),
-                    required_tables=contribution.required_tables - {TABLE})
-        builder.add(contribution)
+        contribution = strip(contribution)
+        if contribution is not None:
+            builder.add(contribution)
     predecessor = builder.freeze()
     old, new = compile_target(predecessor).objects, compile_target(target).objects
     if set(new) - set(old) != OBJECTS or any(new.get(key) != value for key, value in old.items()):
@@ -80,10 +113,7 @@ def apply(connection, extensions=NO_EXTENSIONS):
     try:
         state = recognise(connection, predecessor, target)
         if state == 'predecessor':
-            objects = compile_target(target).objects
-            connection.execute(objects[('table', TABLE)][1])
-            for kind, name in sorted(OBJECTS - {('table', TABLE)}):
-                connection.execute(objects[(kind, name)][1])
+            forward(connection, compile_target(target).objects)
             updated = connection.execute(f'UPDATE {IDENTITY_TABLE} SET digest=? WHERE id=?', (target.target.digest, 'target')).rowcount
             if updated != 1:
                 raise DomainError('invalid_database', 'The target identity could not be advanced')
