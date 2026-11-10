@@ -67,10 +67,13 @@ class RequestTiming:
     * ``db_read_seconds`` / ``db_write_seconds``: the same hold time, split by
       read or write unit; the two always add up to ``db_seconds``.
     * ``db_wait_seconds``: time each unit spent opening its transaction (a
-      writer's lock wait under the busy timeout, plus the two statements that
-      open it). A unit whose transaction never opened records its whole wait,
-      with no hold time. Connection checkout from the pool is not timed.
+      writer's turn in this process's writer queue and its lock wait, both
+      under the busy timeout, plus connection checkout and the two statements
+      that open it). A unit whose transaction never opened records its whole
+      wait, with no hold time.
     * ``units`` = ``read_units`` + ``write_units``, including units that failed.
+      A unit run through ``Database.write_if_needed`` counts as a write unit
+      only when it changed a row; an attempt it had to repeat counts as a read.
 
     No SQL text, operation name, argument or row content is kept.
     """
@@ -101,6 +104,174 @@ class RequestTiming:
             else:
                 self.read_units += 1
                 self.db_read_seconds += held
+
+
+class WriterQueue:
+    """First come, first served admission to SQLite's one writer, for the write units of this process.
+
+    SQLite makes a writer that finds the lock taken sleep and try again, in steps that grow to a tenth of a second,
+    and whoever tries first after a release wins. A unit that has waited longest therefore tries least often, and
+    under steady write traffic it can lose every round until its busy timeout fails it. Writers of one process have
+    no need to poll each other: they queue here, in arrival order, and the next one is woken the moment the unit
+    ahead of it releases. SQLite's own wait still applies beneath this, to writers in other processes and to a unit
+    that took the writer without queueing (``Database.write_if_needed``).
+
+    Nothing here makes a unit wait longer than before: ``enter`` gives up after the same busy timeout, the caller
+    then fails exactly as it did when SQLite refused it, and a unit that did wait here spends only the rest of that
+    timeout on SQLite's lock. In particular a write unit opened inside another one on the same thread still fails
+    after the timeout rather than waiting for itself."""
+
+    REFUSED, AT_ONCE, AFTER_WAITING = 0, 1, 2
+    Turn = threading.Lock  # what one waiter blocks on until the unit ahead hands the turn over
+
+    def __init__(self):
+        self._mutex = threading.Lock()
+        self._held = False
+        self._waiting = deque()
+
+    def enter(self, timeout):
+        """Take this caller's turn, waiting up to ``timeout`` seconds for it. Returns ``AT_ONCE``, ``AFTER_WAITING``
+        or ``REFUSED`` (zero) when it gave up; only a caller that was not refused calls ``leave``."""
+        with self._mutex:
+            if not self._held:
+                self._held = True
+                return self.AT_ONCE
+            turn = self.Turn()
+            turn.acquire()
+            self._waiting.append(turn)
+        if turn.acquire(timeout=timeout):
+            return self.AFTER_WAITING
+        with self._mutex:
+            try:
+                self._waiting.remove(turn)
+            except ValueError:
+                # ``leave`` handed the turn over between the timeout and this check: it is ours, so use it.
+                return self.AFTER_WAITING
+        return self.REFUSED
+
+    def leave(self):
+        """Pass the turn to the unit that has waited longest, or free it. ``_held`` stays set across a hand-over,
+        so a caller arriving at that moment queues behind those already waiting instead of overtaking them."""
+        with self._mutex:
+            if self._waiting:
+                self._waiting.popleft().release()
+            else:
+                self._held = False
+
+
+class _WriterRequired(BaseException):
+    """A unit that had not taken the writer needed it and could not have it at once; it is run again holding it.
+
+    Deliberately not an ``Exception``: the code being run has handlers that log, defer or compensate when a step
+    fails, and none of that is true here. Nothing failed. The attempt is abandoned where it stands, its transaction
+    is rolled back, and ``Database.write_if_needed`` repeats the whole body inside an ordinary write unit."""
+
+
+class _Attempt:
+    """What one optimistic unit learned: whether its write was refused, and when it first changed a row."""
+    __slots__ = ("refused", "wrote_at")
+
+    def __init__(self):
+        self.refused = False
+        self.wrote_at = None
+
+
+def _refusal(exc):
+    return getattr(exc, "sqlite_errorcode", 0) & 0xFF in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+
+
+class _OptimisticCursor:
+    """A cursor of an optimistic unit: the same refusal handling for statements run through it."""
+    __slots__ = ("_owner", "_cursor")
+
+    def __init__(self, owner, cursor):
+        self._owner, self._cursor = owner, cursor
+
+    def execute(self, *arguments):
+        self._owner._run(self._cursor.execute, arguments)
+        return self
+
+    def executemany(self, *arguments):
+        self._owner._run(self._cursor.executemany, arguments)
+        return self
+
+    def executescript(self, *arguments):
+        self._owner._run(self._cursor.executescript, arguments)
+        return self
+
+    def __iter__(self):
+        return iter(self._cursor)
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+
+class _OptimisticConnection:
+    """The connection of a write unit that has not taken the writer.
+
+    The unit opened with a plain ``BEGIN``, so it reads from a snapshot like any read unit and SQLite takes the
+    writer for it with its first write statement. SQLite grants that only if nobody is writing and nobody has
+    committed since the snapshot was taken; it refuses at once otherwise, because waiting could not make the
+    snapshot current again. A refusal marks the attempt and abandons it (``_WriterRequired``), and from then on
+    every statement is refused the same way, so no handler in the code being run can carry on in a transaction
+    that is going to be discarded. Everything else is the underlying connection."""
+    __slots__ = ("_connection", "_attempt", "_changes", "_began")
+
+    def __init__(self, connection, attempt):
+        self._connection, self._attempt = connection, attempt
+        self._changes = connection.total_changes
+        self._began = time.monotonic()
+
+    def _run(self, call, arguments):
+        attempt = self._attempt
+        if attempt.refused:
+            raise _WriterRequired()
+        if attempt.wrote_at is None:
+            if self._connection.total_changes != self._changes:
+                # The statement before this one wrote; SQLite counted its rows only once they had been read back.
+                attempt.wrote_at = self._began
+            else:
+                self._began = time.monotonic()
+        try:
+            result = call(*arguments)
+        except sqlite3.OperationalError as exc:
+            if not _refusal(exc):
+                raise
+            attempt.refused = True
+            raise _WriterRequired() from exc
+        self.settle()
+        return result
+
+    def settle(self):
+        """Note when this unit first changed a row: it has held the writer since that statement began. A statement
+        that takes the writer without changing anything is not seen here, which only makes the unit look idle."""
+        if self._attempt.wrote_at is None and self._connection.total_changes != self._changes:
+            self._attempt.wrote_at = self._began
+
+    def execute(self, *arguments):
+        return self._run(self._connection.execute, arguments)
+
+    def executemany(self, *arguments):
+        return self._run(self._connection.executemany, arguments)
+
+    def executescript(self, *arguments):
+        return self._run(self._connection.executescript, arguments)
+
+    def cursor(self, *arguments, **options):
+        return _OptimisticCursor(self, self._connection.cursor(*arguments, **options))
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
+
+
+def _busy():
+    error = sqlite3.OperationalError("database is locked")
+    error.sqlite_errorcode, error.sqlite_errorname = sqlite3.SQLITE_BUSY, "SQLITE_BUSY"
+    return error
+
+
+# What SQLite raises when its busy timeout ends, for the writer queue to fail a unit the same way.
+_BUSY = _busy()
 
 
 def storage_error(exc: sqlite3.Error) -> DomainError:
@@ -200,6 +371,8 @@ class Database:
         self._pool: deque = deque()
         self._pool_lock = threading.Lock()
         self._closed = False
+        # Write units of this process take SQLite's writer in arrival order (see ``WriterQueue``).
+        self._writers = WriterQueue()
 
     def _connect(self):
         connection = sqlite3.connect(self.path, timeout=self.busy_timeout, isolation_level=None, check_same_thread=False)
@@ -394,18 +567,46 @@ class Database:
         return self
 
     @contextmanager
-    def _unit(self, *, writable, business_id=UNSET, operation=None):
+    def _unit(self, *, writable, business_id=UNSET, operation=None, attempt=None):
+        """One unit of work. ``attempt`` (see ``write_if_needed``) makes a write unit optimistic: it opens without
+        the writer and takes it with its first write, or is abandoned when that write cannot have it at once."""
         if not self._columns:
             raise DomainError("storage_uninitialized", "Initialize the database before use")
-        connection = self._acquire()
+        optimistic = attempt is not None
         started, acquired, outcome, healthy = time.monotonic(), None, 'ok', True
+        queued, remaining = WriterQueue.REFUSED, None
+        if writable and not optimistic:
+            # Wait for this process's other writers here, in order, instead of polling SQLite for the lock. The
+            # wait has the same bound, and giving up is the same failure, as SQLite refusing after its timeout.
+            queued = self._writers.enter(self.busy_timeout)
+            if not queued:
+                self._observe_unit(writable, operation, started, None, time.monotonic(), 'busy')
+                raise storage_error(_BUSY)
+            if queued == WriterQueue.AFTER_WAITING:
+                # What is left of the one busy timeout is all SQLite's own lock may still take (a writer in
+                # another process, or a unit of ``write_if_needed`` that is just committing).
+                remaining = max(self.busy_timeout - (time.monotonic() - started), .05)
+        try:
+            connection = self._acquire()
+        except BaseException:
+            if queued:
+                self._writers.leave()
+            raise
         catalog_token = ACTIVE_ASSEMBLY.set(self.assembly)
+        handle = None
         try:
             # A pooled connection may have last been used by a unit that set
             # this the other way; a fresh connection defaults to OFF, but that
             # must not be relied on now that connections outlive one unit.
             connection.execute("PRAGMA query_only = OFF" if writable else "PRAGMA query_only = ON")
-            connection.execute("BEGIN IMMEDIATE" if writable else "BEGIN")
+            if remaining is None:
+                connection.execute("BEGIN IMMEDIATE" if writable and not optimistic else "BEGIN")
+            else:
+                connection.execute(f"PRAGMA busy_timeout = {int(remaining * 1000)}")
+                try:
+                    connection.execute("BEGIN IMMEDIATE")
+                finally:
+                    connection.execute(f"PRAGMA busy_timeout = {int(self.busy_timeout * 1000)}")
             acquired = time.monotonic()
             # A coarse-tagged unit (the routine scheduler tick, job admission) opens
             # this on a fixed cadence whether or not there is anything to do; only a
@@ -414,16 +615,22 @@ class Database:
             # cumulative over the pooled connection's whole lifetime, so only the
             # delta across this one unit means anything.
             changes_before = connection.total_changes if writable else None
-            uow = UnitOfWork(self, connection, writable=writable, business_id=business_id)
+            # Everything an optimistic unit runs, the commit hooks below included, goes through the handle that
+            # notices a refused write; an ordinary unit uses the connection itself.
+            handle = _OptimisticConnection(connection, attempt) if optimistic else connection
+            uow = UnitOfWork(self, handle, writable=writable, business_id=business_id)
             yield uow
             publisher, captured = self.assembly.change_publisher, None
             if writable:
                 # Same-transaction half: the publisher's capture, then each contributed finalizer in registration
                 # order. A failure here propagates and rolls the whole unit back.
                 if publisher is not None:
-                    captured = publisher.capture(connection)
+                    captured = publisher.capture(handle)
                 for finalizer in self.assembly.finalizers:
                     finalizer(uow)
+            if optimistic and attempt.refused:
+                # Something in the body swallowed the refusal and carried on. Nothing of this attempt is kept.
+                raise _WriterRequired()
             connection.commit()
             if writable and publisher is not None:
                 # Post-commit half: the unit is durable, so a notification failure can neither undo nor fail it.
@@ -439,31 +646,61 @@ class Database:
             healthy = False
             connection.rollback()
             raise storage_error(exc) from exc
-        except BaseException:
-            outcome = 'rolled_back'
+        except BaseException as exc:
+            abandoned = optimistic and (attempt.refused or isinstance(exc, _WriterRequired))
+            outcome = 'writer_required' if abandoned else 'rolled_back'
             healthy = False
             connection.rollback()
+            # An abandoned attempt only read, and its one refused statement changed nothing: once rolled back the
+            # connection is as sound as after a commit. No other failure vouches for the state it leaves behind.
+            healthy = abandoned
             raise
         finally:
             ACTIVE_ASSEMBLY.reset(catalog_token)
+            if handle is not None and optimistic and not attempt.refused:
+                try:
+                    handle.settle()  # a write whose rows were read back last is only counted by now
+                except sqlite3.Error:
+                    pass
             self._release(connection, healthy=healthy)
+            if queued:
+                self._writers.leave()
             ended = time.monotonic()
-            wait = (ended if acquired is None else acquired) - started
-            held = ended - acquired if acquired is not None else 0
-            timing = REQUEST_TIMING.get()
-            if timing is not None:
-                timing.record(writable=writable, wait=wait, held=held)
-            if wait >= .25 or held >= .25 or outcome == 'busy':
-                name, request_id, job_id, receipt_id = OBSERVATION.get()
-                resolved_operation = operation or name
-                # Reuse `ended`, already sampled above, instead of a fresh
-                # `time.monotonic()` call, so the throttle adds no new clock
-                # read for callers (and test fake-clock iterators) to account for.
-                last_warned = _SLOW_UNIT_LAST_WARNED_AT.get(resolved_operation)
-                if last_warned is None or ended - last_warned >= _SLOW_UNIT_WARNING_WINDOW_SECONDS:
-                    _SLOW_UNIT_LAST_WARNED_AT[resolved_operation] = ended
-                    LOGGER.warning('storage_transaction operation=%s request_id=%s job_id=%s receipt_id=%s wait_ms=%.1f hold_ms=%.1f outcome=%s',
-                        resolved_operation, request_id, job_id, receipt_id, wait * 1000, held * 1000, outcome)
+            if optimistic:
+                # It held the writer only from its first write; one that never wrote was a read unit in effect.
+                wrote_at = attempt.wrote_at
+                self._observe_unit(wrote_at is not None, operation, started, acquired, ended, outcome,
+                                   blocking=0 if wrote_at is None else ended - wrote_at)
+            else:
+                self._observe_unit(writable, operation, started, acquired, ended, outcome)
+
+    def _observe_unit(self, writable, operation, started, acquired, ended, outcome, *, blocking=None):
+        """Request timing and the slow-unit warning for one finished unit.
+
+        ``wait`` is the time to open the transaction: for a writer, its place in this process's queue and then the
+        lock. ``blocking`` is how long the unit kept the writer from others when that is not its whole hold time
+        (an optimistic unit, from its first write); the warning reports that figure. An attempt abandoned for the
+        writer is timed but not warned about: the unit that repeats it is the one that waits and holds."""
+        wait = (ended if acquired is None else acquired) - started
+        held = ended - acquired if acquired is not None else 0
+        timing = REQUEST_TIMING.get()
+        if timing is not None:
+            timing.record(writable=writable, wait=wait, held=held)
+        if outcome == 'writer_required':
+            return
+        if blocking is None:
+            blocking = held
+        if wait >= .25 or blocking >= .25 or outcome == 'busy':
+            name, request_id, job_id, receipt_id = OBSERVATION.get()
+            resolved_operation = operation or name
+            # Reuse `ended`, already sampled above, instead of a fresh
+            # `time.monotonic()` call, so the throttle adds no new clock
+            # read for callers (and test fake-clock iterators) to account for.
+            last_warned = _SLOW_UNIT_LAST_WARNED_AT.get(resolved_operation)
+            if last_warned is None or ended - last_warned >= _SLOW_UNIT_WARNING_WINDOW_SECONDS:
+                _SLOW_UNIT_LAST_WARNED_AT[resolved_operation] = ended
+                LOGGER.warning('storage_transaction operation=%s request_id=%s job_id=%s receipt_id=%s wait_ms=%.1f hold_ms=%.1f outcome=%s',
+                    resolved_operation, request_id, job_id, receipt_id, wait * 1000, blocking * 1000, outcome)
 
     @contextmanager
     def observe(self, operation, request_id=None, *, job_id=None, receipt_id=None):
@@ -482,6 +719,38 @@ class Database:
 
     def transaction(self, *, business_id=UNSET, operation=None):
         return self._unit(writable=True, business_id=business_id, operation=operation)
+
+    def write_if_needed(self, body, *, business_id=UNSET, operation=None):
+        """Run ``body(uow)`` as one write unit and return its result, holding the writer only if it writes.
+
+        For work that runs often and usually finds nothing to change: a periodic reconcile, a claim that is rarely
+        due. Such a unit used to take the writer first and decide afterwards, so every other writer queued behind
+        its reads and its Python. Here it opens without the writer and SQLite takes it with the first write
+        statement. Until then the unit reads one snapshot, and SQLite grants the writer only if nothing has been
+        committed since that snapshot, so what was read is still exactly what a unit holding the writer from the
+        start would have read. A unit that never writes commits nothing and never holds the writer at all.
+
+        When the first write cannot have the writer at once (another unit is writing, or one committed in the
+        meantime), the attempt is rolled back and ``body`` runs again inside an ordinary write unit, which waits
+        its turn like every other. So ``body`` may run twice and must be safe to repeat: everything it does before
+        its first write has to be something a second run can simply do again. Its database work is, by the
+        rollback. A statement that changes no row still takes the writer, so a body that should stay out of other
+        writers' way checks first and writes only a real difference.
+
+        The unit is a write unit throughout: ``uow.writable`` is true, the commit hooks run, and the caller keeps
+        whatever write admission it holds around this call."""
+        attempt = _Attempt()
+        try:
+            with self._unit(writable=True, business_id=business_id, operation=operation, attempt=attempt) as uow:
+                return body(uow)
+        except _WriterRequired:
+            pass
+        except Exception:
+            # An error raised after a refused write describes the abandoned attempt, not the work.
+            if not attempt.refused:
+                raise
+        with self._unit(writable=True, business_id=business_id, operation=operation) as uow:
+            return body(uow)
 
     def validate_snapshot(self, path):
         """Check a copied store against this composition's target identity, integrity and references."""

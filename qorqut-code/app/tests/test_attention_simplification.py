@@ -35,6 +35,10 @@ class Database:
 
     read = transaction
 
+    def write_if_needed(self, body, **_):
+        with self.transaction() as uow:
+            return body(uow)
+
 
 class AttentionTests(unittest.TestCase):
     def setUp(self):
@@ -152,7 +156,7 @@ class AttentionTests(unittest.TestCase):
                                           "AND state='claimed'").fetchone()[0], 120)
         after = [dict(row) for row in self.conn.execute("SELECT * FROM agent_attention WHERE agent_id<>'requesting'")]
         self.assertEqual(before, after)
-        self.assertEqual({call.args[1] for call in self.attention.board_mode.call_args_list}, {'requesting'})
+        self.assertEqual({call.args[1] for call in self.attention.board_mode.call_args_list} - {'requesting'}, set())
 
     def test_background_pass_still_recovers_every_board(self):
         for agent in ('first', 'idle'):
@@ -175,6 +179,9 @@ class AttentionTests(unittest.TestCase):
         self.delivery._verified_consumer.return_value = False
         self.assertIsNone(self.delivery.hook_claim('first', 'reg-first', 'session-first'))
         self.attention.board_mode.assert_not_called()
+        # The clock was not advanced and no occurrence recorded for a caller that is not this board's session.
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM attention_reminders').fetchone()[0], 0)
+        self.assertIsNone(self.conn.execute("SELECT focus_due_at FROM agent_attention WHERE agent_id='first'").fetchone()[0])
 
     def test_begun_expired_claim_settles_exactly_once_from_durable_receipt(self):
         self.agent('first')
@@ -209,6 +216,42 @@ class AttentionTests(unittest.TestCase):
                                  event='delivered', delivered_kind='focus')
         self.assertEqual(delivered['reminder_sequence'], first['reminder_sequence'] + 1)
         self.assertEqual(self.attention.state(uow, 'first')['focus_due_at'], delivered['focus_due_at'])
+
+    def test_board_mode_is_derived_only_for_an_unfocused_board(self):
+        # Deriving the mode authorizes and reads every Task on the board. A Focused board's clock takes nothing from
+        # it, so it is not derived; the mode stored meanwhile may be out of date, and leaving focus must not trust it.
+        self.agent('first')
+        self.conn.execute("UPDATE agent_attention SET board_mode='reassess' WHERE agent_id='first'")
+        uow = NS(connection=self.conn)
+        focused = clock_advice(uow, 'first', self.attention, NOW)
+        self.assertEqual((focused['kind'], focused['board_due_at']), ('focus', None))
+        self.attention.board_mode.assert_not_called()
+        self.assertEqual(self.attention.state(uow, 'first')['board_mode'], 'reassess')
+        self.conn.execute("UPDATE agent_attention SET focus_json=NULL,focus_generation=2,focus_started_at=NULL "
+                          "WHERE agent_id='first'")
+        unfocused = clock_advice(uow, 'first', self.attention, NOW)
+        self.attention.board_mode.assert_called_once_with(uow, 'first')
+        self.assertEqual((unfocused['kind'], unfocused['board_mode']), ('board_normal', 'normal'))
+        self.assertEqual(unfocused['board_due_at'], '2026-11-09T12:03:00.000000Z')   # armed from now, in the real mode
+        self.assertEqual(self.attention.state(uow, 'first')['board_mode'], 'normal')
+
+    def test_claim_checks_the_deadline_before_establishing_authority(self):
+        # Both must hold for a claim. The deadline is a few reads; authority resolves policy and reads the Task.
+        self.agent('first')
+        self.attention.reminder_eligible = Mock(return_value=True)
+        uow = NS(connection=self.conn)
+        self.delivery.reconcile_board(uow, 'first', NOW)
+        row = self.conn.execute("SELECT * FROM attention_reminders WHERE agent_id='first'").fetchone()
+        self.assertFalse(self.delivery._hook_eligible(uow, row, 'session-first', 1, '2026-11-09T11:04:00.000000Z'))
+        self.attention.reminder_eligible.assert_not_called()
+        self.assertTrue(self.delivery._hook_eligible(uow, row, 'session-first', 1, NOW))
+        self.attention.reminder_eligible.assert_called_once()
+        self.attention.reminder_eligible.return_value = False
+        self.assertFalse(self.delivery._hook_eligible(uow, row, 'session-first', 1, NOW))
+        with patch('qorqut.agents.attention.enrolled_board', return_value=False):
+            before = self.conn.total_changes
+            self.assertFalse(self.delivery._hook_eligible(uow, row, 'session-first', 1, NOW))
+            self.assertEqual(self.conn.total_changes, before)       # a board that is gone has no clock to advance
 
 
 class TodoReceiptTests(unittest.TestCase):

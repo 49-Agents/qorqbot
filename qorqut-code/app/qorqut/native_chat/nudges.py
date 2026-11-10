@@ -247,16 +247,22 @@ class NudgeBackend:
             except Exception:
                 LOG.debug("Inbox nudge deferred for %s", profile["agent_id"], exc_info=True)
 
+    def _reconcile_unit(self, uow) -> None:
+        self.runtime.application.ensure_writes_open(uow)
+        self.reconcile(uow)
+
     def _run_hook(self) -> None:
         if self.reconcile is None:
             return
         try:
             # A snooze reconciliation writes events, so it is an admitted writer: the actual write admission first (a pass
             # begun before refusal settles, one begun after it writes nothing), the SQLite transaction inside it.
+            # The pass runs every few seconds and usually finds nothing due, so it takes SQLite's writer only from
+            # its first real change. Until then its checks, some of which read files, hold nobody up. A pass that
+            # is refused the writer at that point starts over, which is why the steps registered here must not
+            # reach outside the database before they write to it.
             with self.runtime.application.writer_admission.writer():
-                with self.database.transaction(operation="inbox_nudges.reconcile") as uow:
-                    self.runtime.application.ensure_writes_open(uow)
-                    self.reconcile(uow)
+                self.database.write_if_needed(self._reconcile_unit, operation="inbox_nudges.reconcile")
         except DomainError as error:
             if error.code in {"authority_invalid", "maintenance"}:
                 raise
