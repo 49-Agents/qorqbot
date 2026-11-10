@@ -181,6 +181,26 @@ Use synthetic temporary installations and injected providers for ordinary checks
 Real accounts, model-provider calls and native-agent actions need separately
 identified acceptance; they are not implied by a source test command.
 
+## Record retention
+
+Routine runs with their jobs, idempotency receipts and application receipts are written for every piece of background
+or tool work and are otherwise kept for ever. `qorqut.migration.record_retention` removes the settled ones older than a
+window (30 days unless `--days` says otherwise, never less than 7). Nothing runs it automatically, and `apply` removes
+nothing without a named `--rule`:
+
+```bash
+python -m qorqut.migration.record_retention inspect --instance-root <instance>
+python -m qorqut.migration.record_retention apply --instance-root <instance> \
+    --rule routine-runs --rule idempotency-receipts --rule apply-receipts [--vacuum]
+```
+
+`inspect` is read-only and can run beside the service. `apply` needs the service stopped (exclusive instance ownership).
+`routine-runs` removes succeeded runs together with the job each started and keeps failed runs; `apply-receipts` removes
+applied receipts that are not bound to a signoff; `idempotency-receipts` means a key is remembered for the window, so a
+repeat of an older key is a new call. A row that any other table references is never removed. Freed pages are reused;
+`--vacuum` rewrites the file to return them to the disk and needs free space of about the file's size. The exact rules
+are in `qorqut-operations/qorqut_operations/storage/retention.py`.
+
 ## Operational history packing
 
 The history observer checks for changes at a five-minute minimum interval (`SNAPSHOT_SECONDS` in
