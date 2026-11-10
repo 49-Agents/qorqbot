@@ -43,7 +43,7 @@ function chatFocusPanelMount(composer, agentId, {visible, onChange}) {
       const status = blocked ? 'Blocked' : step.current && workflow?.paused ? 'Paused' : WORKFLOW_PANEL_TEXT[step.status] || step.status;
       row.setAttribute('aria-label', step.label + ': ' + status);
       const ball = document.createElement('span');
-      ball.className = 'ball ' + (blocked ? 'blocked' : WORKFLOW_PANEL_STATE[step.status] || step.status || 'open');
+      ball.className = 'ball agfocus-task-state ' + (blocked ? 'blocked' : WORKFLOW_PANEL_STATE[step.status] || step.status || 'open');
       ball.setAttribute('aria-hidden', 'true'); ball.innerHTML = '<span class="core"></span>';
       const label = document.createElement('span'); label.className = 'wfpanel-label'; label.textContent = step.label;
       row.append(ball, label);
