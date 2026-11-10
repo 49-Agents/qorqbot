@@ -74,6 +74,8 @@ class WatchWindowTest(unittest.TestCase):
 
 class FlowTest(unittest.TestCase):
     def setUp(self):
+        # These flows mock the window process; no real display is required.
+        self.enterContext(mock.patch.dict(sign_in.os.environ, {"DISPLAY": ":synthetic-test"}))
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.root = Path(folder.name)

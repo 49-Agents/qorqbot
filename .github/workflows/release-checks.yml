@@ -1,11 +1,30 @@
-# Install at .github/workflows/release-checks.yml in the single publication repo.
+# Download qualification. Ordinary code checks live in checks.yml.
 name: Release checks
 on:
-  pull_request:
-  push:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        default: ''
+      connectors:
+        type: string
+        default: all
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Optional release version; builds and retains this exact candidate'
+        type: string
+        required: false
+      connectors:
+        description: 'Qualify optional bundles and WhatsApp corresponding source'
+        type: choice
+        options: [all, none, telegram, fastmail, whatsapp]
+        default: all
 permissions:
   contents: read
+concurrency:
+  group: release-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   linux:
     runs-on: ubuntu-24.04
@@ -13,66 +32,111 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          fetch-depth: 0
-      - name: Scan complete Git history for secrets
-        env:
-          GITLEAKS_VERSION: 8.30.1
-          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
-        run: |
-          set -euo pipefail
-          scanner_dir="$RUNNER_TEMP/gitleaks"
-          mkdir -p "$scanner_dir"
-          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          curl --fail --silent --show-error --location "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}" --output "$scanner_dir/$archive"
-          printf '%s  %s\n' "$GITLEAKS_SHA256" "$scanner_dir/$archive" | sha256sum --check --strict
-          tar -xzf "$scanner_dir/$archive" -C "$scanner_dir" gitleaks
-          "$scanner_dir/gitleaks" git "$GITHUB_WORKSPACE" --log-opts=--all --redact --no-banner
+          fetch-depth: 1
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            **/pyproject.toml
+            **/*constraints.txt
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/qorqbot/wheels
+          key: ${{ runner.os }}-${{ runner.arch }}-qorqbot-wheels-v1-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-qorqbot-wheels-v1-
       - name: Install build dependencies
         run: python -m pip install packaging
       - name: Export, build and check the exact commit
         env:
           RELEASE_WORK: ${{ runner.temp }}/qorqbot-release
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
+          set -euo pipefail
           mkdir -p "$RELEASE_WORK"
           # One version for this run; later steps read it from the environment to find the same archive.
-          CHECK_VERSION="$(python qorqut-code/tools/distribution/build_version.py 1.3.0 check --commit "$GITHUB_SHA")"
+          CHECK_VERSION="${RELEASE_VERSION:-$(python qorqut-code/tools/distribution/build_version.py 1.3.0 check --commit "$GITHUB_SHA")}"
           echo "CHECK_VERSION=$CHECK_VERSION" >> "$GITHUB_ENV"
           python qorqut-code/tools/export-unified.py --repository "$GITHUB_WORKSPACE" --commit "$GITHUB_SHA" --with-fastmail --output "$RELEASE_WORK/source"
           python qorqut-code/tools/distribution/runtime_source.py project --source "$RELEASE_WORK/source" --output "$RELEASE_WORK/runtime-source" --report "$RELEASE_WORK/projection.json"
           python qorqut-code/tools/prepare-local.py --source-root "$RELEASE_WORK/runtime-source" --output "$RELEASE_WORK/prepared" --with-google-calendar
-          python qorqut-code/tools/distribution/runtime_source.py audit --prepared "$RELEASE_WORK/prepared" --report "$RELEASE_WORK/contents.json"
           python qorqut-code/tools/distribution/native_build.py --prepared "$RELEASE_WORK/prepared" --output "$RELEASE_WORK/package" --report "$RELEASE_WORK/build.json" --version "$CHECK_VERSION"
           python qorqut-code/tools/distribution/check_native.py --archive "$RELEASE_WORK/package/qorqbot-${CHECK_VERSION}-ubuntu24-x86_64.tar.gz" --output "$RELEASE_WORK/acceptance"
       - name: Build and qualify optional connectors
+        if: inputs.connectors != 'none'
         env:
           RELEASE_WORK: ${{ runner.temp }}/qorqbot-release
+          CONNECTORS: ${{ inputs.connectors }}
         run: |
           set -euo pipefail
           optional="$RELEASE_WORK/optional"
           mkdir -p "$optional/wheels" "$optional/dependencies" "$optional/bundles"
-          python -m pip wheel --no-deps --wheel-dir "$optional/wheels" "$RELEASE_WORK/source/qorqut-code/extensions/telegram" "$RELEASE_WORK/source/extensions/qorqut-fastmail"
-          python -m pip download --no-deps --only-binary=:all: --dest "$optional/dependencies" Pillow==12.3.0 icalendar==7.3.0 python-dateutil==4.0.0 tzdata==2026.6
-          telegram_wheels=("$optional/wheels"/qorqut_telegram-*.whl "$optional/dependencies"/pillow-*.whl)
-          wheel_args=()
-          for wheel in "${telegram_wheels[@]}"; do wheel_args+=(--wheel "$wheel"); done
-          python qorqut-code/tools/distribution/extension_bundle.py --id telegram "${wheel_args[@]}" --output "$optional/bundles/telegram.tar.gz" > "$optional/telegram.json"
-          fastmail_wheels=("$optional/wheels"/qorqut_fastmail-*.whl "$optional/dependencies"/icalendar-*.whl "$optional/dependencies"/python_dateutil-*.whl "$optional/dependencies"/tzdata-*.whl)
-          wheel_args=()
-          for wheel in "${fastmail_wheels[@]}"; do wheel_args+=(--wheel "$wheel"); done
-          python qorqut-code/tools/distribution/extension_bundle.py --id fastmail "${wheel_args[@]}" --output "$optional/bundles/fastmail.tar.gz" > "$optional/fastmail.json"
-          python "$RELEASE_WORK/source/qorqut-code/extensions/whatsapp/tools/build.py" --work "$optional/whatsapp"
-          source_trees=("$optional/whatsapp"/qorqut-whatsapp-*-source)
-          source_image=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["build"]["go_image"])' "${source_trees[0]}/SOURCE-MANIFEST.json")
-          mkdir -p "$optional/whatsapp/source-rebuild"
-          docker run --rm --network none --user "$(id -u):$(id -g)" --mount "type=bind,src=${source_trees[0]},dst=/source,readonly" --mount "type=bind,src=$optional/whatsapp/source-rebuild,dst=/build" -w /source "$source_image" ./build.sh /build
-          cmp "$optional/whatsapp/native/whatsapp-personal" "$optional/whatsapp/source-rebuild/whatsapp-personal"
-          whatsapp_wheels=("$optional/whatsapp/dist"/qorqut_whatsapp-*.whl)
-          wheel_args=()
-          for wheel in "${whatsapp_wheels[@]}"; do wheel_args+=(--wheel "$wheel"); done
-          python qorqut-code/tools/distribution/extension_bundle.py --id whatsapp "${wheel_args[@]}" --output "$optional/bundles/whatsapp.tar.gz" > "$optional/whatsapp.json"
-          python qorqut-code/tools/distribution/check_optional_extensions.py --archive "$RELEASE_WORK/package/qorqbot-${CHECK_VERSION}-ubuntu24-x86_64.tar.gz" --bundle "whatsapp=$optional/bundles/whatsapp.tar.gz" --bundle "telegram=$optional/bundles/telegram.tar.gz" --bundle "fastmail=$optional/bundles/fastmail.tar.gz" --report-directory "$RELEASE_WORK/optional-acceptance"
-      # These jobs validate locally built candidates. They never publish a GitHub
-      # Release, modify repository settings, or deploy an installation.
+          case ",$CONNECTORS," in
+            *,all,*|*,telegram,*)
+              python -m pip wheel --no-deps --wheel-dir "$optional/wheels" "$RELEASE_WORK/source/qorqut-code/extensions/telegram"
+              python -m pip download --no-deps --only-binary=:all: --dest "$optional/dependencies" Pillow==12.3.0
+              wheels=("$optional/wheels"/qorqut_telegram-*.whl "$optional/dependencies"/pillow-*.whl)
+              wheel_args=()
+              for wheel in "${wheels[@]}"; do wheel_args+=(--wheel "$wheel"); done
+              python qorqut-code/tools/distribution/extension_bundle.py --id telegram "${wheel_args[@]}" --output "$optional/bundles/telegram.tar.gz" > "$optional/telegram.json"
+              ;;
+          esac
+          case ",$CONNECTORS," in
+            *,all,*|*,fastmail,*)
+              python -m pip wheel --no-deps --wheel-dir "$optional/wheels" "$RELEASE_WORK/source/extensions/qorqut-fastmail"
+              python -m pip download --no-deps --only-binary=:all: --dest "$optional/dependencies" icalendar==7.3.0 python-dateutil==4.0.0 tzdata==2026.6
+              wheels=("$optional/wheels"/qorqut_fastmail-*.whl "$optional/dependencies"/icalendar-*.whl "$optional/dependencies"/python_dateutil-*.whl "$optional/dependencies"/tzdata-*.whl)
+              wheel_args=()
+              for wheel in "${wheels[@]}"; do wheel_args+=(--wheel "$wheel"); done
+              python qorqut-code/tools/distribution/extension_bundle.py --id fastmail "${wheel_args[@]}" --output "$optional/bundles/fastmail.tar.gz" > "$optional/fastmail.json"
+              ;;
+          esac
+          case ",$CONNECTORS," in
+            *,all,*|*,whatsapp,*)
+              python "$RELEASE_WORK/source/qorqut-code/extensions/whatsapp/tools/build.py" --work "$optional/whatsapp"
+              source_trees=("$optional/whatsapp"/qorqut-whatsapp-*-source)
+              source_image=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["build"]["go_image"])' "${source_trees[0]}/SOURCE-MANIFEST.json")
+              mkdir -p "$optional/whatsapp/source-rebuild"
+              docker run --rm --network none --user "$(id -u):$(id -g)" --mount "type=bind,src=${source_trees[0]},dst=/source,readonly" --mount "type=bind,src=$optional/whatsapp/source-rebuild,dst=/build" -w /source "$source_image" ./build.sh /build
+              cmp "$optional/whatsapp/native/whatsapp-personal" "$optional/whatsapp/source-rebuild/whatsapp-personal"
+              wheels=("$optional/whatsapp/dist"/qorqut_whatsapp-*.whl)
+              wheel_args=()
+              for wheel in "${wheels[@]}"; do wheel_args+=(--wheel "$wheel"); done
+              python qorqut-code/tools/distribution/extension_bundle.py --id whatsapp "${wheel_args[@]}" --output "$optional/bundles/whatsapp.tar.gz" > "$optional/whatsapp.json"
+              ;;
+          esac
+          bundle_args=()
+          shopt -s nullglob
+          for bundle in "$optional/bundles/"*.tar.gz; do
+            name=$(basename "$bundle" .tar.gz)
+            bundle_args+=(--bundle "$name=$bundle")
+          done
+          test "${#bundle_args[@]}" -gt 0
+          python qorqut-code/tools/distribution/check_optional_extensions.py --archive "$RELEASE_WORK/package/qorqbot-${CHECK_VERSION}-ubuntu24-x86_64.tar.gz" "${bundle_args[@]}" --report-directory "$RELEASE_WORK/optional-acceptance"
+      - name: Save qualification evidence, including failure logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/qorqbot-release/*.json
+            ${{ runner.temp }}/qorqbot-release/prepared/PREPARATION-RECEIPT.json
+            ${{ runner.temp }}/qorqbot-release/prepared/logs/*.log
+            ${{ runner.temp }}/qorqbot-release/acceptance/*.json
+            ${{ runner.temp }}/qorqbot-release/acceptance/*.log
+            ${{ runner.temp }}/qorqbot-release/optional-acceptance/*.json
+            ${{ runner.temp }}/qorqbot-release/optional-acceptance/*.log
+      - name: Save the checked downloads for reuse
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-downloads-${{ github.sha }}
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/qorqbot-release/package/*.tar.gz
+            ${{ runner.temp }}/qorqbot-release/optional/bundles/*.tar.gz
+            ${{ runner.temp }}/qorqbot-release/optional/whatsapp/*source.tar.gz
+      # Qualification never deploys, publishes a Release or changes repository settings.

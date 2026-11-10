@@ -70,9 +70,11 @@ test('Focus signoff cancellation requires confirmation and revalidates its ident
 test('signoff pending-write check is scoped to content and includes uncertain receipts', () => {
   const source=fs.readFileSync(path.join(__dirname,'../js/signoffs.js'),'utf8');
   const start=source.indexOf('    hasPendingWrite: () => {'), end=source.indexOf('\n    async save()',start);
-  const factory=new Function('sg','messageEdits','options','ownedWrites','reviewEdits',`return {${source.slice(start,end)}}`);
-  const sg={slug:'a',selected:'one',items:new Map([['one',{}],['other',{}]]),busy:new Map(),executions:new Map()};
-  const edits=new Map(), reviews=new Map(), view=factory(sg,edits,{},new Set(),reviews);
+  const busyKeySource=source.match(/  const busyKey = (.*);/)[1];
+  const factory=new Function('sg','messageEdits','options','ownedWrites','reviewEdits','sgIsQuestionnaire','owner','binding',`const busyKey=${busyKeySource}; return {${source.slice(start,end)}}`);
+  const item=id=>({id,proposal_revision:2,payload_hash:'hash'});
+  const sg={slug:'a',selected:'one',items:new Map([['one',item('one')],['other',item('other')]]),busy:new Map(),executions:new Map()};
+  const edits=new Map(), reviews=new Map(), view=factory(sg,edits,{},new Set(),reviews,()=>false,()=> 'owner',s=>`${s.id}:${s.proposal_revision}:${s.payload_hash}`);
   sg.busy.set('b:one:2:hash',{unknown:true}); assert.equal(view.hasPendingWrite(),false);
   sg.busy.set('a:other:2:hash',{unknown:true}); assert.equal(view.hasPendingWrite(),false);
   sg.busy.set('a:one:2:hash',{unknown:true}); assert.equal(view.hasPendingWrite(),true);

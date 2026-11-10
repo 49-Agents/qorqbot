@@ -28,6 +28,10 @@ and then with `--output`. That gate checks every nested pin against its parent.
 Its input manifest contains local paths and belongs outside the publication tree.
 The transition tooling does not push source or change repository visibility.
 
+Ordinary PR checks and backend releases use the narrower triggers in
+[CI and release preparation](../CI-AND-RELEASES.md). The following gates apply to
+download qualification, not to every code change.
+
 ## Current gates
 
 1. **Source:** reviewed commits, source privacy review, dependency selection,
@@ -41,7 +45,7 @@ The transition tooling does not push source or change repository visibility.
    the Ubuntu 24.04 x86-64 archive. Docker is a construction and acceptance tool,
    not a customer requirement. System tools are user-installed dependencies; record the resolved Python library
    inputs and hashes. Do not claim bit-for-bit reproducibility.
-4. **Contents:** `runtime_source.py audit` plus inspection of the final archive,
+4. **Contents:** the prepared-source audit inside `native_build.py` plus inspection of the final archive,
    including native assets and third-party wheels. Preserve required attribution.
    Missing or unapproved application licensing blocks publication.
 5. **Archive acceptance:** `check_native.py --archive ARCHIVE --output NEW_EVIDENCE`
@@ -78,8 +82,8 @@ package installation and general schema migrations are not implied by that path.
 Future changes must keep core-without-optional-extensions acceptance, runtime
 content checks and relevant extension tests passing. Schema changes need an
 explicit migration and preservation/recovery tests before an update is supported.
-The preserved pre-foundation test inventory in [historical test scope](HISTORICAL-TEST-SCOPE.md)
-is not a passing qualification of old database formats.
+Current migration and preservation tests live in `app/tests`. Fresh-archive
+qualification alone does not establish compatibility with old database formats.
 
 ## Publication decisions
 

@@ -147,35 +147,23 @@ Keep the code checkout and interpreter as explicit absolute paths; do not reuse 
 
 ### Running tests
 
-Name the current test files or node IDs that cover a change. For a focused host
-check, run from `app/` with the prepared first-party dependencies installed:
+Current tests live in `app/tests` and `biz-dashboard/tests`. With the current
+first-party packages and service dependencies installed in a development venv,
+run from the repository root:
 
 ```sh
-.venv/bin/python -I -m pytest -q -p no:cacheprovider --durations=10 \
-  tests/test_host_foundation_schema.py tests/test_browser_surfaces.py
+python -I -B -m unittest discover -s qorqut-code/app/tests
+node --test --test-concurrency=2 qorqut-code/biz-dashboard/tests/*.test.js
 ```
 
-The [native release runbook](docs/distribution/RELEASE-RUNBOOK.md) declares the
-source, packaging and actual-archive gates. These are separate from a blanket
-`pytest tests` run: bare pytest discovers preserved historical tests too, including
-fixtures that use retired host APIs and currently fail collection. See the
-[historical test inventory](docs/distribution/HISTORICAL-TEST-SCOPE.md). Neither
-the example above nor a package gate claims that the entire historical suite passes.
+Backend tests also need `psutil` for mocked macOS process adapters on Linux.
+Browser-dependent Node checks report skips when their optional browser is absent.
+The migration, managed-witness and staging-preflight tests exercise upgrade
+boundaries. Startup does not implicitly migrate an old installation.
 
-| Current boundary | Focused checks |
-| --- | --- |
-| Fresh composed schema and independent engine | `tests/test_host_foundation_schema.py`, `tests/test_host_foundation_engine.py` |
-| Owner agent viewers and native desktops | `tests/test_browser_surfaces.py`, `tests/test_browser_desktop_session.py` |
-| Additive optional connector installation | `tests/test_extension_install.py` |
-| Native package contents and update/install wrappers | `tools/distribution/test_runtime_source.py`, `test_native.py`, `test_native_extension.py` (run from the host root) |
-
-Use `host_foundation_support.build_instance` for a disposable assembled host;
-Operations and Context tests own their smaller engine fixtures. Existing
-`schema_seed`/`ServiceFixture` tests require explicit porting before they become
-current gates. Keep meaningful historical preservation assertions: a new migration
-must identify the exact old schema, retained rows/files and recovery behavior.
-Do not turn failed old-schema coverage into silent skips or assume ordinary startup
-will migrate it. See [Backup and recovery](app/qorqut/storage/RECOVERY.md).
+[CI and release preparation](docs/CI-AND-RELEASES.md) describes the automatic
+change selection. The [download runbook](docs/distribution/RELEASE-RUNBOOK.md)
+qualifies actual downloadable archives separately from routine application changes.
 
 Use synthetic temporary installations and injected providers for ordinary checks.
 Real accounts, model-provider calls and native-agent actions need separately

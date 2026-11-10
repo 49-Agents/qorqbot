@@ -4,7 +4,7 @@ For installations predating the application package rename, see [Qorqut identifi
 
 For the downloadable Linux application, use the [native distribution guide](distribution/README.md).
 For a single publication repository, export the exact commit with `tools/export-unified.py`; its output uses the same
-source manifest and preparation contract below. The multi-repository export examples are retained for private development assembly.
+source manifest and preparation contract below.
 
 
 Existing installations retiring the procedural learning engine use the separately reviewed
@@ -16,7 +16,7 @@ configuration, and the fourth is one initialization command followed by a start 
 
 | Stage | What happens | Who does it |
 | --- | --- | --- |
-| 1. Source export | Exact commits of local Git repositories become one clean directory | `tools/export-source.py` |
+| 1. Source export | One exact Git commit becomes one clean directory | `tools/export-unified.py` |
 | 2. Environment preparation | Wheels are built from that export; environments are created | `tools/prepare-local.py` |
 | 3. Service configuration | Optional extension selection, credentials, optional services | Owner (below; this guide only points) |
 | 4. Initialization and startup | One fresh instance with its owner, then a manual service start | `python -m qorqut.bootstrap.initialize`; the owner starts the service |
@@ -31,8 +31,7 @@ from the normal package index.
 - Linux, `git`, and **Python 3.12 or newer**. Run both tools with that interpreter (for example `python3.12`) from the root of a
   `qorqut-code` checkout or of its export; they use only the standard library.
 - Network access to the Python package index for third-party dependencies and for `setuptools` (wheel builds).
-- Local Git repositories (work trees or bare) holding the components below. Their exact commits are chosen by
-  the export manifest; nothing is cloned or fetched.
+- A local clone of this repository containing the exact commit selected for the build; nothing is cloned or fetched.
 
 Needed only for the optional pieces you enable later (the scripts neither check nor install them):
 
@@ -45,58 +44,23 @@ Needed only for the optional pieces you enable later (the scripts neither check 
 
 ## Stage 1 — export the source
 
-For the ordinary single-repository layout, choose an exact commit:
+From the ordinary single-repository layout, choose one exact commit:
 
 ```sh
 python3 qorqut-code/tools/export-unified.py --repository /absolute/source-clone --commit <40-hex> --check-only
 python3 qorqut-code/tools/export-unified.py --repository /absolute/source-clone --commit <40-hex> --output /absolute/new-export
 ```
 
-The default selects eight core components, including the canonical role source. `--with-fastmail` also includes the optional
-Fastmail connector and email engine. Google Calendar, Telegram and WhatsApp source remains under the host's `extensions/`;
-the runtime projection determines what is bundled in a download. Each component gets the unified commit, its own subtree
-Git tree and a byte snapshot digest. Nested component files belong to the nested component, not twice to the host.
-Uncommitted/untracked files are excluded. Gitlinks, unsafe archive paths and links that escape component ownership are refused;
-`.gitmodules` is omitted. No history is exported. The resulting `SOURCE-MANIFEST.json` is the same format used by preparation.
+Add `--with-fastmail` when preparing that provider and its separate email engine.
+Exporting a provider does not install or configure it. Dirty/untracked files and
+Git metadata are excluded. The exporter validates committed directories, safe
+paths and symlinks, and publishes the completed export atomically.
 
-The following manifest-based exporter remains available for private development across multiple repositories:
-
-Write a manifest naming each component's local repository, its **full 40-character commit** and its
-destination. Components are exported with `git archive`: committed content only, no dirty or untracked files,
-no `.git` metadata.
-
-```json
-{"format": 1, "components": [
-  {"name": "qorqut-agentic",    "repository": "/abs/path/qorqut-agentic",    "commit": "<40-hex>", "destination": "qorqut-agentic"},
-  {"name": "qorqut-code",       "repository": "/abs/path/qorqut-code",       "commit": "<40-hex>", "destination": "qorqut-code"},
-  {"name": "qorqut-operations", "repository": "/abs/path/qorqut-operations", "commit": "<40-hex>", "destination": "qorqut-code/qorqut-operations"},
-  {"name": "qorqut-context",    "repository": "/abs/path/qorqut-context",    "commit": "<40-hex>", "destination": "qorqut-code/qorqut-context"},
-  {"name": "biz-dashboard",     "repository": "/abs/path/biz-dashboard",     "commit": "<40-hex>", "destination": "qorqut-code/biz-dashboard"},
-  {"name": "document-history",  "repository": "/abs/path/document-history",  "commit": "<40-hex>", "destination": "dependencies/document-history"},
-  {"name": "email-management",  "repository": "/abs/path/email-management",  "commit": "<40-hex>", "destination": "dependencies/email-management"}
-]}
-```
-
-Optional extensions add components at `extensions/qorqut-paper`, `services/paper-service`,
-`extensions/qorqut-content`, `extensions/content-library`, `extensions/qorqut-fastmail` and `services/email-engine` (13
-components with the seven above). A standard export needs neither the email engine nor the Fastmail package;
-`dependencies/email-management` stays in it because the instruction-only Email Management v3 package is a default feature, not
-the provider service. Each extension is selected independently later, so exporting an extension does not install it.
-
-```sh
-python3.12 tools/export-source.py --manifest manifest.json --output /abs/path/export
-```
-
-Rules the exporter enforces: the commit must be a commit that exists locally (a tree, tag, short id or missing
-object is rejected); destinations are relative and cannot contain `..` or `.git`; the output must be absent or
-empty and cannot lie inside an input repository or Git directory; symlinks must stay inside their own component
-(absolute or escaping links are rejected); a component may be nested inside another **only** at the parent's
-empty gitlink (submodule) location, so the three `qorqut-code` submodule paths are filled by their own components
-and nothing real is overwritten. `git archive` attributes of the committed tree apply (`export-ignore`); Git replacement refs are ignored, so the exact committed objects are exported.
-The export is built in a sibling staging directory and renamed into place only when complete.
-
-The result contains `SOURCE-MANIFEST.json` with each component's name, destination, commit, tree id and `snapshot_sha256` only;
-local repository paths are never written to it. Keep it with the export: stage 2 requires it.
+The export carries `SOURCE-MANIFEST.json` with component commits, trees and
+snapshot digests, without local repository paths. Keep it with the export:
+preparation verifies it before building. No sibling repositories or gitlinks
+are needed. The older multi-repository exporter remains an internal helper
+source for the unified exporter; it is not the normal release entry point.
 
 ## Stage 2 — prepare environments
 
@@ -112,8 +76,8 @@ anything is copied. The export is then copied to `prepared/src` and never modifi
 environment are ignored (index, proxy, certificate and cache settings are kept for third-party packages), and the tool needs
 `packaging` (installed with pip or setuptools). The tool then:
 
-1. creates `prepared/venv` and builds every first-party wheel from the copy into `prepared/wheels`
-   (`pip wheel --no-deps`);
+1. creates `prepared/venv` and reuses content-checked pure-Python first-party wheels; cache misses are built
+   from the copy into `prepared/wheels` (`pip wheel --no-deps`). Use `--no-wheel-cache` for a cold build;
 2. **before anything is installed**, reads each wheel's metadata and reconciles every active first-party requirement
    (`qorqut-*`, markers and extras applied) of each environment against the wheels selected for it. A
    requirement that is a URL, has no wheel among the selected sources, is satisfied only by a wheel built for a different
@@ -132,16 +96,18 @@ environment are ignored (index, proxy, certificate and cache settings are kept f
 6. verifies as a second check that every first-party distribution in each environment was installed from one of the
    wheels the tool built, then writes `prepared/PREPARATION-RECEIPT.json`.
 
-A missing component or empty gitlink location fails before anything is created, naming what is missing. A
+A missing component fails before anything is created, naming what is missing. A
 failed step leaves the incomplete output and its `prepared/logs/` in place; remove it before retrying.
 
 The receipt records the Python version, source components (name, commit, tree, snapshot digest), each wheel (name, version,
-SHA-256, source directory and owning commit), the installed versions of every environment, and an explicit
+SHA-256, source directory, owning commit, build-input digest and whether it was reused), the installed versions of every environment, and an explicit
 `not_included` list. Optional check of an environment's internal consistency:
 
 ```sh
 prepared/venv/bin/python -m pip check
 ```
+
+See [CI and release preparation](CI-AND-RELEASES.md) for wheel cache controls and the distinction between backend releases and download qualification.
 
 ## Optional builds (not done by the scripts)
 

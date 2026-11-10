@@ -5,9 +5,10 @@ its behavior. Include documentation when a user-visible operation changes.
 Keep credentials, personal records, local configuration and machine paths out of
 code, examples and screenshots. Use synthetic examples.
 
-Developer tests and fixtures are retained privately and excluded from this
-publication repository. Release workflows check package builds, contents and
-lifecycle behavior.
+Current backend and dashboard tests are in this repository. Ordinary PR checks
+run application tests; installer and connector qualification runs for relevant
+changes or an explicit download release. See [CI and release preparation](qorqut-code/docs/CI-AND-RELEASES.md)
+for selection rules, local commands and retained evidence.
 
 ## Rights and license
 

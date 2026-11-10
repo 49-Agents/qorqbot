@@ -4,7 +4,7 @@
     prepare-local.py --source-root EXPORTED_DIRECTORY --output NEW_DIRECTORY [--with-content] [--with-paper] [--with-fastmail]
                      [--with-google-calendar]
 
-``--source-root`` is the output of ``export-source.py`` (it must carry ``SOURCE-MANIFEST.json``) with this layout:
+``--source-root`` is the output of ``export-unified.py`` (it must carry ``SOURCE-MANIFEST.json``) with this layout:
 
     qorqut-code/ (app/, with qorqut-operations/, qorqut-context/, biz-dashboard/ filled by their own components;
                   extensions/google-calendar/ is part of this component and is built only with --with-google-calendar)
@@ -13,7 +13,8 @@
         (only for the selected extensions; a standard preparation needs neither the email engine nor the Fastmail package)
 
 The export is copied to ``OUTPUT/src`` and never modified; symlinks that are absolute or resolve outside it are refused before
-anything is copied. Every first-party wheel is built from that copy into ``OUTPUT/wheels``. Before anything is installed, each
+anything is copied. Unchanged pure-Python wheels are reused from a content-checked local cache; other wheels are built from
+that copy into ``OUTPUT/wheels``. Use ``--no-wheel-cache`` for a cold build. Before anything is installed, each
 environment's first-party requirements (extras and markers applied) are reconciled against the wheels selected for it: a
 requirement that is a URL, has no wheel among the selected sources, belongs to another environment or is not satisfied by the
 local version is an integration error. Each environment is then installed with its complete first-party set as explicit wheel
@@ -49,6 +50,8 @@ import re
 import shutil
 import subprocess
 import sys
+import sysconfig
+import tempfile
 import zipfile
 from datetime import datetime, timezone
 from email.parser import Parser
@@ -122,9 +125,11 @@ def inside(path, parent):
 
 
 class Preparer:
-    def __init__(self, source, output, content, paper, fastmail=False, google_calendar=False):
+    def __init__(self, source, output, content, paper, fastmail=False, google_calendar=False, wheel_cache=None):
         self.source, self.output, self.content, self.paper, self.fastmail = source, output, content, paper, fastmail
         self.google_calendar = google_calendar
+        self.wheel_cache = wheel_cache
+        self.wheel_inputs, self.reused = {}, set()
         self.src, self.wheels, self.logs = output / "src", output / "wheels", output / "logs"
         self.work, self.tmp = output / "build", output / "build" / "tmp"
         self.built, self.meta, self.step = {}, {}, 0
@@ -164,7 +169,7 @@ class Preparer:
             raise PrepareError(str(exc)) from exc
         for _, relative in self.wheel_sources():
             if (self.source / relative / ".git").exists():
-                raise PrepareError(f"{relative} is a Git checkout, not an export; use export-source.py")
+                raise PrepareError(f"{relative} is a Git checkout, not an export; use export-unified.py")
 
     def wheel_sources(self):
         sources = [*ENGINES, HOST]
@@ -202,6 +207,67 @@ class Preparer:
         return directory / "bin" / "python"
 
     def build(self, python, key, relative):
+        # Hash bytes/modes/links, not Git SHA or timestamps: an unrelated commit
+        # must not rebuild this package, and a changed resource must invalidate it.
+        inputs = {"source": _snapshot.snapshot_sha256(self.src / relative),
+                  "python": sys.version, "platform": sysconfig.get_platform(),
+                  "builder": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                  "snapshot": hashlib.sha256(Path(_spec.origin).read_bytes()).hexdigest()}
+        fingerprint = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
+        self.wheel_inputs[key] = fingerprint
+        cached = self.cached_wheel(fingerprint)
+        if cached is not None:
+            print(f"==> reuse wheel {key}", flush=True)
+            wheel = self.wheels / cached.name
+            shutil.copy2(cached, wheel)
+            self.reused.add(key)
+        else:
+            wheel = self.build_wheel(python, key, relative)
+            self.cache_wheel(fingerprint, wheel)
+        self.built[key] = wheel
+        with zipfile.ZipFile(wheel) as archive:
+            member = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
+            self.meta[key] = Parser().parsestr(archive.read(member).decode())
+        return wheel
+
+    def cached_wheel(self, fingerprint):
+        if self.wheel_cache is None:
+            return None
+        entry = self.wheel_cache / fingerprint
+        try:
+            record = json.loads((entry / "wheel.json").read_text())
+            name = record["file"]
+            if (record["inputs"] != fingerprint or Path(name).name != name
+                    or not name.endswith("-py3-none-any.whl")):
+                return None
+            wheel = entry / name
+            if wheel.is_symlink() or hashlib.sha256(wheel.read_bytes()).hexdigest() != record["sha256"]:
+                return None
+            with zipfile.ZipFile(wheel) as archive:
+                if archive.testzip() is not None:
+                    return None
+            return wheel
+        except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile):
+            return None  # Missing, partial or corrupt caches are misses, never evidence.
+
+    def cache_wheel(self, fingerprint, wheel):
+        if self.wheel_cache is None or not wheel.name.endswith("-py3-none-any.whl"):
+            return
+        # Atomic immutable entries: concurrent preparations never observe a
+        # half-written wheel. Cache problems do not make preparation unavailable.
+        try:
+            self.wheel_cache.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix=".partial-", dir=self.wheel_cache) as folder:
+                stage = Path(folder) / "entry"
+                stage.mkdir()
+                shutil.copy2(wheel, stage / wheel.name)
+                (stage / "wheel.json").write_text(json.dumps({"inputs": fingerprint, "file": wheel.name,
+                    "sha256": hashlib.sha256(wheel.read_bytes()).hexdigest()}) + "\n")
+                stage.rename(self.wheel_cache / fingerprint)
+        except OSError:
+            pass
+
+    def build_wheel(self, python, key, relative):
         build_source = self.work / "sources" / key
         shutil.copytree(self.src / relative, build_source, symlinks=True)
         before = set(self.wheels.iterdir())
@@ -209,10 +275,6 @@ class Preparer:
         new = [path for path in set(self.wheels.iterdir()) - before if path.suffix == ".whl"]
         if len(new) != 1:
             raise PrepareError(f"building {relative} produced {len(new)} wheels; expected exactly one")
-        self.built[key] = new[0]
-        with zipfile.ZipFile(new[0]) as archive:
-            member = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
-            self.meta[key] = Parser().parsestr(archive.read(member).decode())
         return new[0]
 
     # --- first-party rule, applied before anything is installed ---------------------------------------------------------
@@ -334,7 +396,8 @@ class Preparer:
             component = self.owner(sources[key])
             wheels.append({"key": key, "name": metadata["Name"], "version": metadata["Version"], "file": f"wheels/{path.name}",
                            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "source": sources[key],
-                           "component": component["name"], "commit": component["commit"], "tree": component["tree"]})
+                           "component": component["name"], "commit": component["commit"], "tree": component["tree"],
+                           "build_inputs_sha256": self.wheel_inputs[key], "reused": key in self.reused})
         selection = {"content": self.content, "paper": self.paper, "fastmail": self.fastmail, "google_calendar": self.google_calendar}
         receipt = {"format": 1, "state": "prepared-not-configured", "prepared_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                    "python": sys.version.split()[0], "selection": selection,
@@ -344,7 +407,7 @@ class Preparer:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Prepare local source copies, first-party wheels and Python environments from an export.")
-    parser.add_argument("--source-root", required=True, help="directory written by export-source.py")
+    parser.add_argument("--source-root", required=True, help="directory written by export-unified.py")
     parser.add_argument("--output", required=True, help="new or empty output directory")
     parser.add_argument("--with-content", action="store_true", help="also install the content-creation extension wheels")
     parser.add_argument("--with-paper", action="store_true", help="also prepare the Paper service environment and host bridge")
@@ -352,6 +415,11 @@ def main(argv=None):
                         help="also prepare the email engine environment and the Fastmail host bridge (nothing is configured or started)")
     parser.add_argument("--with-google-calendar", action="store_true",
                         help="also install the optional Google Calendar provider wheel (nothing is selected, configured or connected)")
+    cache = parser.add_mutually_exclusive_group()
+    cache.add_argument("--wheel-cache", type=Path,
+                       default=Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "qorqbot/wheels",
+                       help="content-checked first-party wheel cache (default: user cache directory/qorqbot/wheels)")
+    cache.add_argument("--no-wheel-cache", action="store_true", help="rebuild every first-party wheel")
     arguments = parser.parse_args(argv)
     try:
         if sys.version_info < (3, 12):
@@ -368,8 +436,11 @@ def main(argv=None):
         output = output.resolve() if output.exists() else output.parent.resolve() / output.name
         if inside(output, source) or inside(source, output):
             raise PrepareError("--output and --source-root must not contain one another")
+        wheel_cache = None if arguments.no_wheel_cache else arguments.wheel_cache.resolve()
+        if wheel_cache is not None and any(inside(wheel_cache, p) or inside(p, wheel_cache) for p in (source, output)):
+            raise PrepareError("--wheel-cache must be separate from the source export and prepared output")
         preparer = Preparer(source, output, arguments.with_content, arguments.with_paper, arguments.with_fastmail,
-                            arguments.with_google_calendar)
+                            arguments.with_google_calendar, wheel_cache)
         preparer.check_source()
         try:
             preparer.prepare()
