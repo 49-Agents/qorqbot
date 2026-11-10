@@ -1,20 +1,20 @@
-/* Workflow Step list above the native chat composer; state balls, typography and tokens come from the shared styles. */
-.wfpanel.agfocus { flex: none; min-width: 0; box-sizing: border-box; margin: 0 0 10px; padding: 0; border: 1px solid var(--line); border-radius: 14px; background: none; color: var(--fg); font-size: 13px; line-height: 1.45; }
-.wfpanel[hidden], .wfpanel-steps[hidden] { display: none; }
-.wfpanel button.wfpanel-head { display: flex; align-items: center; gap: 8px; width: 100%; height: auto; min-height: 36px; padding: 8px 14px; border: 0; border-radius: 0; box-shadow: none; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.wfpanel button.wfpanel-head:hover { background: transparent; transform: none; }
-.wfpanel-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; color: var(--fg-2); overflow-wrap: anywhere; }
-.wfpanel-chevron { flex: none; display: inline-flex; color: var(--fg-2); transition: transform .15s ease; }
-.wfpanel-collapsed .wfpanel-chevron { transform: rotate(-90deg); }
-.wfpanel-head:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; border-radius: 4px; }
-/* Roughly four short steps stay visible; longer lists scroll inside the panel above the composer. */
-.wfpanel-steps { list-style: none; margin: 0; padding: 0 14px 10px; max-height: min(24vh, 136px); overflow-y: auto; overscroll-behavior: contain; }
-.wfpanel.agfocus .agfocus-card > .agfocus-row { display: flex; gap: 8px; min-height: 30px; padding: 3px 0; border-radius: 0; cursor: default; }
-.wfpanel.agfocus .agfocus-card > .agfocus-row:hover { background: none; }
-.wfpanel.agfocus .agfocus-row > :is(.agfocus-notification, .agfocus-scope, .agfocus-actions) { display: none; }
-.wfpanel.agfocus .agfocus-row .agfocus-marker { width: 20px; height: 24px; }
-.wfpanel .agfocus-card.agfocus-collapsed > .agfocus-row .ttl { overflow: visible; white-space: normal; text-overflow: clip; font-size: 13px; font-weight: 400; letter-spacing: inherit; line-height: 1.45; text-transform: none; }
-.wfpanel .agfocus-error { margin: 0 0 6px 28px; }
-
-.wfpanel-symbol { display:inline-flex; flex:none; color:var(--fg-2); }
-.wfpanel .wfpanel-symbol svg, .wfpanel .wfpanel-chevron svg { width:18px; height:18px; }
+/* Compact Focus and Todo pane above the native chat composer. */
+.wfpanel { display:flex; flex-direction:column; flex:none; min-width:0; min-height:0; max-height:min(40%,260px); box-sizing:border-box; margin:0 0 10px; padding:0; overflow:hidden; border:1px solid var(--line); border-radius:14px; background:none; color:var(--fg); font-size:13px; line-height:1.45; }
+.wfpanel[hidden], .wfpanel-steps[hidden] { display:none; }
+.wfpanel .gchat-context { flex:none; max-height:min(14vh,94px); box-sizing:border-box; padding:10px 14px 8px; }
+.wfpanel button.wfpanel-head { display:flex; align-items:center; gap:8px; flex:none; width:100%; height:auto; min-height:32px; padding:5px 14px; border:0; border-radius:0; box-shadow:none; background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+.wfpanel button.wfpanel-head:hover { background:transparent; transform:none; }
+.wfpanel-name { flex:1; min-width:0; font-size:11px; font-weight:500; color:var(--fg-2); }
+.wfpanel-chevron { flex:none; display:inline-flex; color:var(--fg-2); transition:transform .15s ease; }
+.wfpanel-collapsed .wfpanel-chevron { transform:rotate(-90deg); }
+.wfpanel-head:focus-visible { outline:2px solid currentColor; outline-offset:-2px; border-radius:4px; }
+.wfpanel-steps { list-style:none; min-height:0; margin:0; padding:0 14px 10px; overflow-y:auto; overscroll-behavior:contain; }
+.wfpanel-step { display:grid; grid-template-columns:20px minmax(0,1fr); align-items:start; gap:0 8px; min-height:28px; padding:3px 0; box-sizing:border-box; }
+.wfpanel-step .ball { display:flex; align-items:center; justify-content:center; width:20px; height:20px; }
+.wfpanel-label { overflow-wrap:anywhere; white-space:pre-wrap; }
+.wfpanel-error { grid-column:2; margin:0 0 6px; color:var(--fg-2); }
+.wfpanel-empty { padding:3px 0; color:var(--fg-2); font-size:12px; }
+.wfpanel-list-heading { padding:6px 0; color:var(--fg-2); font-size:11px; }
+@media (max-width:700px) {
+  .wfpanel { display:none; }
+}

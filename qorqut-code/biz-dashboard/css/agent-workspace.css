@@ -75,7 +75,6 @@
 .agent-workspace-app .agfocus .agfocus-card { border-radius:0; }
 .agent-workspace-app .agfocus { --agfocus-lead:16px; --agfocus-marker:20px; --agfocus-gap:11px; }
 /* Attention's intent starts where the row title above it starts. */
-.agent-workspace-app .agfocus [data-attention-focus] > section > .attention-intent { padding-left:calc(var(--agfocus-lead) + var(--agfocus-marker) + 2 * var(--agfocus-gap)); }
 .agent-workspace-app .agfocus .agfocus-row { grid-template-columns:var(--agfocus-lead) var(--agfocus-marker) minmax(0,1fr) auto; gap:var(--agfocus-gap); min-height:32px; padding:2px 0; border:0; border-radius:0; background:none; }
 .agent-workspace-app .agfocus .agfocus-row:hover { background:var(--wash); }
 .agent-workspace-app .agfocus .agfocus-row > .task-headline { grid-column:3; grid-row:1; }

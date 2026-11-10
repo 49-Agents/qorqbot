@@ -23,7 +23,7 @@ function attentionAgentsUnavailable(p, agentId, error) {
   attentionAgentsObserve(p, cache);
   if (p.attentionCache !== cache || !p.attentionBoard) return;
   const board=p.attentionBoard;
-  board.data=null; board.focusRead=null; board.workspace.dispose();
+  board.data=null; board.workspace.dispose();
   board.board.querySelector('[data-attention-record]').hidden=true;
   board.board.querySelector('.agfocus-layout').classList.remove('agfocus-thread-open');
   agfocusOverlayClose(p);
