@@ -120,8 +120,11 @@ browserTest('hidden chats stop context polling and switching agents discards lat
     await page.evaluate(()=>{document.querySelector('#pane').hidden=true;});
     await page.clock.runFor(24000);
     assert.equal(await page.evaluate(()=>focusReads.length+actionReads.length),count);
+    await page.evaluate(()=>{working=false;stream.dispatchEvent(new MessageEvent('chat',{data:JSON.stringify({kind:'changed',cursor:1})}));});
+    await page.waitForFunction(()=>document.querySelector('.gchat-working-tag').hidden);
+    await page.evaluate(()=>{document.querySelector('#pane').hidden=false;});
+    assert.equal(await page.locator('.gchat-context').isVisible(),true);
     await page.evaluate(()=>{
-      document.querySelector('#pane').hidden=false;
       override=(args,options)=>new Promise(resolve=>{window.oldSignal=options.signal;window.finishOld=()=>resolve({agent_id:args.agent_id,attention:{state:'focused',focus:{label:'Old focus'},intent:'Old intent'}});});
     });
     await page.clock.runFor(12000);
