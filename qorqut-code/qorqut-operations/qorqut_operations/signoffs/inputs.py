@@ -10,6 +10,7 @@ from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.conversations import SUMMARY
 from qorqut_operations.storage.repositories import decode_row
 from .ports import ABSENT
+from .sources import SOURCE
 
 FOCUS_UNAVAILABLE = "The Focus attention domain is not installed"
 MANAGEMENT_UNAVAILABLE = "The management domain is not installed"
@@ -97,7 +98,9 @@ class InputRequests:
         descriptors = []
         for name, properties, required, description in (
             ('signoffs_input_create', {'request_key': {"type": "string", "minLength": 1, "maxLength": 200},
-                'form': FORM, 'attention': ATTENTION, **({'focus': schema(focus.fields)} if focus is not ABSENT else {})}, ('request_key', 'form'),
+                'form': FORM, 'attention': ATTENTION,
+                **({'source': SOURCE} if self.service.ports.sources is not ABSENT else {}),
+                **({'focus': schema(focus.fields)} if focus is not ABSENT else {})}, ('request_key', 'form'),
                 instruction_text('inputs-ask-the-owner-a-question-or-request-input')),
             ('signoffs_attention_set', {'signoff_id': {"type": "string", "format": "uuid"}, 'attention': ATTENTION},
                 ('signoff_id', 'attention'), instruction_text('inputs-set-notification-urgency-blocking-for-your-pending-signoff')),
@@ -128,7 +131,11 @@ class InputRequests:
         if name == 'signoffs_input_create':
             if 'focus' in args:
                 self.service.ports.require('focus', FOCUS_UNAVAILABLE).creation_access(self.service.app,ctx,args['focus'],uow)
-            form = validate_form(args['form'])
+            form = validate_form({'response_policy': 'owner_only', **args['form']} if 'source' in args else args['form'])
+            if 'source' in args:
+                self.service.sources.check_source(ctx, args['source'], uow)
+                if form['response_policy'] != 'owner_only':
+                    raise DomainError('validation_error', 'Source-linked user input requires response_policy owner_only')
             if form.get('previous_review_id'):
                 previous = self.service._row(ctx, form['previous_review_id'], uow)
                 if (previous['proposer_principal_id'] != ctx.principal_id or previous['state'] != 'answered'
@@ -217,7 +224,13 @@ class InputRequests:
                 row = self.service._update(row, {}, uow)
         if 'focus' in plan.arguments:
             self.service.ports.require('focus', FOCUS_UNAVAILABLE).present_created(self.service.app,ctx,plan.arguments['focus'],{'type':'signoff','id':row['id'],'business_id':row['review_business_id']},uow)
-        return {'signoff': self.service._dto(row, uow)}
+        result = {'signoff': self.service._dto(row, uow)}
+        if 'source' in plan.arguments:
+            source = plain(plan.arguments['source'])
+            self.service.sources.check_source(ctx, source, uow)
+            self.service.sources.check_signoff(ctx, row, uow)
+            result['link'] = self.service.sources.link(ctx, row['id'], source, uow)
+        return result
 
     def _coordinator(self, uow):
         return self.service.ports.require('management', MANAGEMENT_UNAVAILABLE).coordinator(uow)

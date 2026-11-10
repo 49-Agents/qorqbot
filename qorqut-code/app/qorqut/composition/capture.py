@@ -23,6 +23,7 @@ def _crm(table: str):
 
 # table -> (columns captured as the row identity, events captured)
 CAPTURED = {
+    "signoff_source_links": (("id", "source_type", "source_id", "source_business_id", "signoff_id"), ("insert", "update", "delete")),
     "tasks": (("business_id", "id"), ("insert", "update", "delete")),
     "thread_messages": (("business_id", "item_type", "item_id"), ("insert",)),
     "thread_follows": (("business_id", "item_type", "item_id"), ("insert", "update")),

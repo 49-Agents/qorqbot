@@ -192,7 +192,7 @@ class EventFinalizer:
         event_type = {'insert': 'created', 'update': 'updated', 'delete': 'deleted'}[action]
         if table == 'signoffs':
             decision_changed = after.get('decision_json') != before.get('decision_json') and after.get('decision_json') is not None
-            terminal = after.get('state') in {'applied', 'failed', 'conflicted'} and before.get('state') != after.get('state')
+            terminal = after.get('state') in {'applied', 'failed', 'conflicted', 'cancelled'} and before.get('state') != after.get('state')
             terminal = self.host.terminal_signoff(data, before, after, terminal)
             execution = _json(after.get('execution_json')) or {}
             previous = _json(before.get('execution_json')) or {}

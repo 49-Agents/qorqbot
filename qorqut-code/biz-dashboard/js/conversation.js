@@ -147,10 +147,34 @@ function conversationTimeline(s,adapter,source) {
   if(!adapter.related)return entries;
   const earliest=s.before?s.notes[0]?.created_at:null;
   for(const record of conversationRelatedRecords(s,source)) {
+    if((s.inputRequests || []).some(request=>!request.unavailable && conversationRecordKey(request)===conversationRecordKey(record)))continue;
     if(earliest && record.created_at<earliest)continue;
     entries.push(conversationRecordEntry(record));
   }
   return entries.sort((a,b)=>(a.timestamp || '').localeCompare(b.timestamp || ''));
+}
+// A separate region above the scrolling log. Keep mounts stable across polls so drafts survive refreshes.
+function conversationInputMount(host,options={}) {
+  const cards=new Map(),heading=document.createElement('p');
+  heading.className='conversation-input-heading';heading.textContent='Needs your input';host.append(heading);
+  function remove(key,card) {card.view?.dispose();options.onRemove?.(card.view);card.node.remove();cards.delete(key);}
+  return {
+    update(requests=[]) {
+      const wanted=new Set();
+      for(const request of requests) {
+        const key=request.unavailable?`unavailable:${request.link_id}`:conversationRecordKey(request);
+        wanted.add(key);
+        if(cards.has(key))continue;
+        const node=document.createElement('div');node.className='conversation-input-card';host.append(node);
+        const view=request.unavailable?null:sgChatMount(request,node,{active:options.active,dropOnDenied:true});
+        if(!view)node.textContent='An input request linked to this record is unavailable. Ask Ordubashy to check it.';
+        cards.set(key,{node,view});if(view)options.onAdd?.(view);
+      }
+      for(const [key,card] of cards)if(!wanted.has(key))remove(key,card);
+      host.hidden=cards.size===0;
+    },
+    dispose() {for(const [key,card] of cards)remove(key,card);host.replaceChildren();}
+  };
 }
 // ---- Task context and optional reference readers. Presentation only: both are read-only views over canonical
 // reads, built from text nodes or the shared safe renderer, and neither enters the private message store.
@@ -217,6 +241,10 @@ function conversationMount(host,source,adapter={}) {
   const toggle=host.querySelector('.conversation-toggle'),panel=host.querySelector('.conversation-panel');
   const unreadDot=host.querySelector('[data-conversation-unread]');
   const readerEl=panel.querySelector('.conversation-reference-reader'),viewEl=panel.querySelector('.conversation-view');
+  const inputEl=document.createElement('section');inputEl.className='conversation-inputs';inputEl.hidden=true;
+  inputEl.setAttribute('aria-label','Pending input requests');panel.insertBefore(inputEl,viewEl);
+  const inputCards=conversationInputMount(inputEl,{active:()=>current() && expanded,
+    onAdd:card=>signoffViews.add(card),onRemove:card=>signoffViews.delete(card)});
   // Progress stays outside private message state and renders as collapsed action runs.
   let ctx=null,ctxError=false,ctxGen=0,ctxMoreBusy=false,ctxMoreError=false,ctxPages=0,referenceGeneration=0;
   const referenceReader=conversationReferenceMount(readerEl,()=>{
@@ -253,13 +281,15 @@ function conversationMount(host,source,adapter={}) {
   const clearError=()=>{if(errorText)setError('');};
   let painted='';
   function paint(mode='auto') {
-    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before,adapter.related?s.related:null,relatedReady,ctx,ctxError,ctxMoreBusy,ctxMoreError]);
+    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before,adapter.related?s.related:null,s.inputRequests,relatedReady,ctx,ctxError,ctxMoreBusy,ctxMoreError]);
     if(painted===signature && mode==='auto')return;
     painted=signature;
+    inputCards.update(s.inputRequests);
     const entries=conversationTimeline(s,{...adapter,related:adapter.related && relatedReady},recordSource);
     const earliest=s.before?s.notes[0]?.created_at:null;
     for(const note of ctx?.notes || [])if(!earliest || note.created_at>=earliest)entries.push(conversationActivityEntry(note));
     entries.sort((a,b)=>(a.timestamp || '').localeCompare(b.timestamp || ''));
+    if(ctx?.input_request_missing)entries.unshift({key:'input-missing',speaker:'notice',text:'This task was previously marked as needing input without a linked Signoff. Ordubashy needs to check whether a question is still outstanding.'});
     if(ctx?.notes_next_cursor || ctxMoreError)entries.unshift({key:'progress-more',speaker:'notice',text:ctxMoreError?"Couldn't load earlier actions.":'',
       actions:[{key:'progress-more',label:ctxMoreBusy?'Loading…':'Load earlier actions',disabled:ctxMoreBusy}]});
     if(ctxError)entries.unshift({key:'context-error',speaker:'notice',text:"Couldn't load task context.",actions:[{key:'context-retry',label:'Retry'}]});
@@ -269,6 +299,7 @@ function conversationMount(host,source,adapter={}) {
   function paintContext() {if(!disposed)paint('preserve');}
   // The source is no longer readable: drop everything read from it and invalidate outstanding context and mail reads.
   function dropContext() {
+    s.inputRequests=[];
     ctx=null;ctxError=false;ctxGen++;ctxMoreBusy=false;ctxMoreError=false;ctxPages=0;relatedGeneration++;referenceGeneration++;
     referenceReader.close();paintContext();
   }
@@ -336,6 +367,7 @@ function conversationMount(host,source,adapter={}) {
     try {
       let result=await conversationPrivateCall(source,adapter,'owner_conversation_related',{limit:50,...(more?{offset}:{})});
       if(!current() || generation!==relatedGeneration)return;
+      if(!more)s.inputRequests=result.input_requests || [];
       let context=!more && source.type==='task'?result.context:null;
       const contextGeneration=more?ctxGen:++ctxGen;
       if(!more){ctxMoreBusy=false;ctxMoreError=false;}
@@ -543,13 +575,13 @@ function conversationMount(host,source,adapter={}) {
     refresh:()=>{if(expanded){for(const view of signoffViews)void view.refresh();}return load(false);},
     isExpanded:()=>expanded,expand:()=>expand(true),collapse:()=>expand(false),
     setUnread,
-    hasDraft:()=>!!(s.text || s.files.length),
+    hasDraft:()=>!!(s.text || s.files.length) || [...signoffViews].some(card=>card.hasUnsaved() || card.hasPendingWrite()),
     dispose:()=>{
       if(disposed)return;
       disposed=true;expanded=false;
       s.mounts.delete(host);
       if(s.loadOwner===view){s.loading=false;s.loadOwner=null;}
-      referenceReader.dispose();chat.dispose();
+      referenceReader.dispose();inputCards.dispose();chat.dispose();
       toggle.onclick=null;
       if(host._conversation===view){delete host._conversation;delete host.dataset.conversation;}
       toggle.remove();host.replaceChildren();

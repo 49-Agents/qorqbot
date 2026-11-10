@@ -70,14 +70,15 @@ test('Focus signoff cancellation requires confirmation and revalidates its ident
 test('signoff pending-write check is scoped to content and includes uncertain receipts', () => {
   const source=fs.readFileSync(path.join(__dirname,'../js/signoffs.js'),'utf8');
   const start=source.indexOf('    hasPendingWrite: () => {'), end=source.indexOf('\n    async save()',start);
-  const factory=new Function('sg','messageEdits','options','ownedWrites',`return {${source.slice(start,end)}}`);
+  const factory=new Function('sg','messageEdits','options','ownedWrites','reviewEdits',`return {${source.slice(start,end)}}`);
   const sg={slug:'a',selected:'one',items:new Map([['one',{}],['other',{}]]),busy:new Map(),executions:new Map()};
-  const edits=new Map(), view=factory(sg,edits,{},new Set());
+  const edits=new Map(), reviews=new Map(), view=factory(sg,edits,{},new Set(),reviews);
   sg.busy.set('b:one:2:hash',{unknown:true}); assert.equal(view.hasPendingWrite(),false);
   sg.busy.set('a:other:2:hash',{unknown:true}); assert.equal(view.hasPendingWrite(),false);
   sg.busy.set('a:one:2:hash',{unknown:true}); assert.equal(view.hasPendingWrite(),true);
   sg.busy.clear(); sg.executions.set('a:one:execution',{unknown:true}); assert.equal(view.hasPendingWrite(),true);
   sg.executions.clear(); edits.set('one',{receipt:{}}); assert.equal(view.hasPendingWrite(),true);
+  edits.clear();reviews.set('one',{receipt:{}});assert.equal(view.hasPendingWrite(),true);
 });
 
 test('Focus signoff host guards drafts and writes and keeps cancellation confirmation inline', async () => {

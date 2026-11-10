@@ -130,6 +130,16 @@ class HostEventRouting:
     def augment_recipients(self, uow, business, table, identity, change, recipients, batch):
         actor = change['actor']
         installation = uow.repository('installation').get('service')
+        if table == 'signoffs':
+            links = uow.connection.execute("SELECT source_id,source_business_id FROM signoff_source_links WHERE signoff_id=? AND source_type='task'", (identity,)).fetchall()
+            for link in links:
+                recipients.update(assigned(uow, link['source_business_id'], 'task', link['source_id']))
+                task = uow.connection.execute('SELECT worker_ids_json FROM tasks WHERE business_id IS ? AND id=?',
+                    (link['source_business_id'], link['source_id'])).fetchone()
+                if task:
+                    recipients.update(json.loads(task['worker_ids_json']))
+            if links and installation and installation['management_coordinator_id']:
+                recipients.add(installation['management_coordinator_id'])
         if (batch and installation and actor == installation['owner_principal_id'] and installation['management_coordinator_id']
                 and table == 'signoffs'):
             kind = ITEM_TYPES[table]

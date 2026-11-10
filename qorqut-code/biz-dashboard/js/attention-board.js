@@ -6,9 +6,9 @@ function taskWorkerMount(host, scope, task, agentId, {editable=true}={}) {
   if (!button) { button = document.createElement(tag.toLowerCase()); if(editable)button.type = 'button'; button.className = 'quiet task-workers'; button.dataset.taskWorkers = ''; host.prepend(button); }
   const current = taskStateObserve(scope, task);
   const workers = [...(current.workers || [])].sort((a,b) => (a.is_owner ? 2 : a.id === agentId ? 1 : 0) - (b.is_owner ? 2 : b.id === agentId ? 1 : 0));
-  button.innerHTML = (workers.map(w => identityAvatar(w.kind === 'human' ? 'person' : 'agent', w.display_name, globalAgentProfile(w.id) || w, w.display_name, true)).join('') || (editable?'<span class="muted">+</span>':'')) + (current.user_needed ? '<span class="task-user-needed">User needed</span>' : '');
-  button.setAttribute('aria-label', 'Workers' + (workers.length ? ': ' + workers.map(w=>w.display_name).join(', ') : ': none') + (current.user_needed ? ' · User needed' : ''));
-  button.title = current.user_needed ? 'Workers · User needed' : 'Workers';
+  button.innerHTML = (workers.map(w => identityAvatar(w.kind === 'human' ? 'person' : 'agent', w.display_name, globalAgentProfile(w.id) || w, w.display_name, true)).join('') || (editable?'<span class="muted">+</span>':'')) + (current.user_needed ? '<span class="task-user-needed">Owner assigned</span>' : '');
+  button.setAttribute('aria-label', 'Workers' + (workers.length ? ': ' + workers.map(w=>w.display_name).join(', ') : ': none') + (current.user_needed ? ' · Owner assigned' : ''));
+  button.title = current.user_needed ? 'Workers · Owner assigned' : 'Workers';
   button.hidden=!editable && !workers.length;
   if(!editable){button.setAttribute('role','img');return;}
   button.onpointerdown = event => event.stopPropagation();
@@ -47,7 +47,7 @@ function taskWorkerMount(host, scope, task, agentId, {editable=true}={}) {
 
 const ATTENTION_GROUPS = ['working','needs_input','open','blocked','waiting','done','cancelled'];
 function taskBoardStateMenu(button, scope, task) {
-  dropdown(button, T_STATES.map(s => ({value:s,label:T_LABEL[s],html:`<span class="towner">${tDotHtml(s)}<span class="tn">${T_LABEL[s]}</span></span>`})), value => {if(value !== task.status) taskStateSet(scope,task,value);}, task.status);
+  dropdown(button, T_STATES.filter(s => s !== 'needs_input').map(s => ({value:s,label:T_LABEL[s],html:`<span class="towner">${tDotHtml(s)}<span class="tn">${T_LABEL[s]}</span></span>`})), value => {if(value !== (task.work_status ?? task.status)) taskStateSet(scope,task,value);}, task.work_status ?? task.status);
 }
 function attentionBoardScope(ref, task) {
   if (ref.business_id == null) return null;
@@ -197,7 +197,7 @@ function attentionStateMarker(row, source, task, scope, unavailable = false) {
     return ball;
   }
   taskStateBind(ball,scope,task,()=>{});
-  ball.onclick=event=>{event.stopPropagation();taskStateSet(scope,task,tNext(task.status));};
+  ball.onclick=event=>{event.stopPropagation();taskStateSet(scope,task,tNext(task.work_status ?? task.status));};
   ball.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();taskBoardStateMenu(ball,scope,task);};
   return ball;
 }

@@ -1233,7 +1233,7 @@ function agfocusTaskState(p,item,button) {
   const source=item.resolved_source || item.source || item.conversation || {},task=agfocusTaskRecord(item);
   const scope=source.business_slug || item.context_business_slug || null;
   if(!taskShowsState(task) || agfocusTaskScopeMissing(item, scope))return;
-  const status=tNext(task.status);
+  const status=tNext(task.work_status ?? task.status);
   return taskStateSet(scope,task,status);
 }
 

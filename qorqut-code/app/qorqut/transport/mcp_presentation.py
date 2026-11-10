@@ -62,7 +62,7 @@ TOOL_NAMES_SCHEMA = {"type": "array", "minItems": 1, "maxItems": 20, "uniqueItem
 SECTIONS_SCHEMA = {"type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": True,
     "items": {"type": "string", "minLength": 1, "maxLength": 120},
     "description": instruction_text('mcp-presentation-context-only-return-exactly-these-sections-of')}
-TASK_FIELDS = ("id", "revision", "title", "status", "due", "follow_up", "snoozed_until", "snoozed", "assignee_ids", "blocked_by",
+TASK_FIELDS = ("id", "revision", "title", "status", "work_status", "input_needed", "input_requests", "input_version", "input_request_missing", "due", "follow_up", "snoozed_until", "snoozed", "assignee_ids", "blocked_by",
     "unresolved_blockers", "blocks", "parent", "kind", "closed", "paused", "archived", "tags", "created_by", "updated_at")
 SIGNOFF_FIELDS = ("id", "review_business_id", "review_scope", "proposal_revision", "payload_hash", "status_revision",
     "state", "decision_state", "actionable", "execution_state", "category", "operation_name", "operation_version",

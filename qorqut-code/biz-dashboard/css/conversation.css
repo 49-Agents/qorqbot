@@ -2,6 +2,10 @@
 /* The shared Chat view owns the feed and composer; this only bounds its height inside the panel. */
 .conversation-view{display:flex;flex-direction:column;height:min(560px,70vh);min-height:260px}
 .conversation-view>.chat-view{flex:1 1 auto;min-height:0}
+.conversation-inputs{flex:0 1 auto;max-height:45vh;overflow:auto;min-height:0;padding:0 0 12px;border-bottom:1px solid var(--line-2);margin-bottom:8px}
+.conversation-inputs[hidden]{display:none}
+.conversation-input-heading{margin:0 0 8px;font-weight:600}
+.conversation-input-card+.conversation-input-card{margin-top:12px}
 .conversation-toggle{margin-top:8px;display:inline-flex;align-items:center;justify-content:center;padding:5px}.conversation-toggle-icon{display:inline-flex;line-height:0}.conversation-toggle:focus-visible{outline:2px solid var(--accent,#66d9e8);outline-offset:2px}
 
 .conversation-toggle{width:34px;height:34px;min-height:34px;padding:7px}.conversation-toggle svg{width:20px;height:20px}
