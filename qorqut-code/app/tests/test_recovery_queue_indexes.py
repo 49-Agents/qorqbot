@@ -141,6 +141,44 @@ class QueueMigrationTests(unittest.TestCase):
         self.addCleanup(database.close)
         database.open_existing()
 
+    def test_revert_is_the_exact_inverse_and_keeps_every_record(self):
+        before, objects = self.rows(), read_objects(self.connection)
+        self.assertEqual(migration.revert(self.connection, self.extensions)['schema'], 'already_predecessor')
+        migration.apply(self.connection, self.extensions)
+        result = migration.revert(self.connection, self.extensions)
+        self.assertEqual((result['schema'], result['target_digest']), ('removed', self.predecessor.target.digest))
+        self.assertEqual(read_objects(self.connection), objects)
+        self.assertEqual(self.rows(), before)
+        self.assertEqual(migration.inspect(self.connection, self.extensions)['store'], 'predecessor')
+        # The earlier release opens the store again; the indexed release refuses it until it is applied again.
+        for assembly, opens in ((self.predecessor, True), (self.target, False)):
+            database = Database(self.path, assembly=assembly)
+            self.addCleanup(database.close)
+            if opens:
+                database.open_existing()
+            else:
+                with self.assertRaises(DomainError):
+                    database.open_existing()
+        self.assertEqual(migration.apply(self.connection, self.extensions)['schema'], 'added')
+
+    def test_a_failed_revert_leaves_the_indexes_and_identity_in_place(self):
+        migration.apply(self.connection, self.extensions)
+        before = read_objects(self.connection)
+        self.connection.set_authorizer(lambda action, name, *_: sqlite3.SQLITE_DENY
+            if action == sqlite3.SQLITE_DROP_INDEX and name == 'signoffs_approved_queue' else sqlite3.SQLITE_OK)
+        try:
+            with self.assertRaises(sqlite3.DatabaseError):
+                migration.revert(self.connection, self.extensions)
+        finally:
+            self.connection.set_authorizer(None)
+        self.assertFalse(self.connection.in_transaction)
+        self.assertEqual(read_objects(self.connection), before)
+        self.assertEqual(migration.inspect(self.connection, self.extensions)['store'], 'target')
+        self.connection.execute('CREATE INDEX unexpected ON synthetic_records(value)')
+        with self.assertRaises(DomainError):
+            migration.revert(self.connection, self.extensions)
+        self.assertTrue(OBJECTS <= set(read_objects(self.connection)))
+
     def test_service_open_does_not_silently_upgrade_the_schema(self):
         before = read_objects(self.connection)
         database = Database(self.path, assembly=self.target)

@@ -3,6 +3,11 @@
 Inspect is read-only. Apply requires exclusive instance ownership and recognizes
 only the exact predecessor or target schema, with the selected extensions.
 Neither service startup nor a tool call runs this migration.
+
+A release that declares these indexes refuses a store without them, and an
+earlier release refuses a store that has them. Revert is the exact inverse of
+apply, under the same ownership and checks, for returning to such a release:
+the indexes hold no data of their own, so dropping them loses nothing.
 """
 from __future__ import annotations
 
@@ -85,9 +90,34 @@ def apply(connection, extensions=NO_EXTENSIONS):
             'target_digest': target.target.digest}
 
 
+def revert(connection, extensions=NO_EXTENSIONS):
+    """Caller holds InstanceOwnership; the indexes and the target identity go back together."""
+    predecessor, target = compositions(extensions)
+    install_sql_functions(connection)
+    connection.execute('BEGIN IMMEDIATE')
+    try:
+        state = recognise(connection, predecessor, target)
+        if state == 'target':
+            for _, name in sorted(OBJECTS):
+                connection.execute(f'DROP INDEX "{name}"')
+            changed = connection.execute(f'UPDATE {IDENTITY_TABLE} SET digest=? WHERE id=?',
+                                         (predecessor.target.digest, 'target')).rowcount
+            if changed != 1:
+                raise DomainError('invalid_database', 'The target identity could not be restored')
+        if (recognise(connection, predecessor, target) != 'predecessor'
+                or connection.execute('PRAGMA foreign_key_check').fetchone()):
+            raise DomainError('invalid_database', 'The predecessor schema or references failed verification')
+        connection.execute('COMMIT')
+    except BaseException:
+        connection.execute('ROLLBACK')
+        raise
+    return {'transform': TRANSFORM, 'schema': 'removed' if state == 'target' else 'already_predecessor',
+            'target_digest': predecessor.target.digest}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['inspect', 'apply'])
+    parser.add_argument('command', choices=['inspect', 'apply', 'revert'])
     add_instance_arguments(parser)
     parser.add_argument('--extensions-config', type=Path)
     options = parser.parse_args(argv)
@@ -108,7 +138,7 @@ def main(argv=None):
             try:
                 connection = sqlite3.connect(database, isolation_level=None, timeout=30)
                 try:
-                    result = apply(connection, extensions)
+                    result = (apply if options.command == 'apply' else revert)(connection, extensions)
                 finally:
                     connection.close()
             finally:
