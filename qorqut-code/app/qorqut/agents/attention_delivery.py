@@ -104,7 +104,9 @@ class AttentionRuntime:
     def _text(self, uow, agent_id, kind):
         """The one reminder text shared by the hook and chat routes; reads only, never changes Attention state."""
         from qorqut.agents import attention_prompt
-        instructions = self.runtime.application.policy.agent_resolver.require_agentic_view().runtime_instructions()
+        view = self.runtime.application.policy.agent_resolver.require_agentic_view()
+        with view.read_snapshot():
+            instructions = view.runtime_instructions()
         state = self.attention.state(uow, agent_id)
         focus = _focus(state.get('focus_json'))
         focus = focus if isinstance(focus, dict) else None
@@ -209,9 +211,15 @@ class AttentionRuntime:
                 for row in rows:
                     claim = self.hooks.claim(uow, row['id'], consumer_id, binding['generation'], now)
                     if claim:
-                        return {**claim, 'registration_id': registration_id, 'kind': row['kind'],
-                                'text': self._text(uow, agent_id, row['kind'])}
-                return None
+                        break
+                else:
+                    return None
+            # Rendering loads managed instructions and reads the task board.
+            # The claim is durable; hook_begin still checks its generation and
+            # eligibility before anything can be emitted.
+            with self.runtime.database.read() as uow:
+                text = self._text(uow, agent_id, row['kind'])
+            return {**claim, 'registration_id': registration_id, 'kind': row['kind'], 'text': text}
 
     def hook_begin(self, agent_id, registration_id, claim):
         with self.runtime.native_chat.arbiter.locks(agent_id), self.runtime.application.writer_admission.writer():
@@ -442,6 +450,10 @@ class AttentionRuntime:
                     return
                 occurrence_id, generation, kind = row['id'], row['focus_generation'], row['kind']
                 consumer, binding_generation = owner['consumer_id'], owner['generation']
+            # Keep catalog loading and board projection out of SQLite's sole
+            # writer. The existing checkpoint revalidates this exact claim
+            # immediately before the native input is submitted.
+            with self.runtime.database.read() as uow:
                 text = self._text(uow, agent, kind)
             observed = chat.probe.observe(profile)
             reconciled = chat.registry.reconcile(profile, observed)
