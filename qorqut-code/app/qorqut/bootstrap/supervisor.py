@@ -327,7 +327,7 @@ class Supervisor:
                 elif future is None and time.monotonic() >= self.retry_at.get(path,(0,0))[0]:
                     self.recoveries[path] = self.pool.submit(self.recover,item)
                     self.recoveries[path].request_id = item.get('request_id')
-            except (OSError,ValueError,KeyError): continue
+            except (OSError,ValueError,KeyError,DomainError): continue
         self.reconcile_followups()
         # Only a session with delegated workers (Codex or Claude Code) needs a process of its own; nothing else is hosted.
         wanted = {}

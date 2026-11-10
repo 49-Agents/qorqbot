@@ -123,6 +123,28 @@ except (OSError,IndexError,ValueError): print('unknown')
 class NativeBindingAdapter:
     def __init__(self, runtime): self.runtime = runtime
 
+    def publish_local(self, profile, selected):
+        """Publish the committed owner generation to its still-current local hook.
+
+        Remote targets retain their own supervisor publication. This never
+        invents a session or generation, or writes through a replaced process.
+        """
+        from . import handoff, supervisor
+        from .codex_session import owner_alive
+        binding = selected.binding
+        if binding.get('execution_target') != 'local' or not owner_alive(binding['owner']):
+            return False
+        path = Path(profile['workspace']) / '.qorqut/registration.json'
+        registration = load_registration(path)
+        if (registration['agent_id'] != profile['agent_id']
+                or registration['registration_id'] != binding['registration_id']):
+            return False
+        native = handoff.observation(registration)
+        if not handoff.same(native, binding):
+            return False
+        return supervisor.register(path, native, {'inbox_generation': selected.generation,
+            'inbox_desired_state': selected.desired_state})
+
     def selected(self, agent_id):
         with self.runtime.database.read() as uow:
             profile = dict(uow.connection.execute('SELECT * FROM agent_profiles WHERE agent_id=?',(agent_id,)).fetchone())

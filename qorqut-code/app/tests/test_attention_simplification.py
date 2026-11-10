@@ -3,6 +3,7 @@ from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 import json
 import sqlite3
+import tempfile
 from types import SimpleNamespace as NS
 import unittest
 from unittest.mock import Mock, patch
@@ -70,6 +71,68 @@ class AttentionTests(unittest.TestCase):
 
     def row(self, identifier):
         return dict(self.conn.execute('SELECT * FROM attention_reminders WHERE id=?', (identifier,)).fetchone())
+
+    def independent_writer_renderer(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = directory.name + '/operations.sqlite3'
+        self.conn.commit()
+        connection = sqlite3.connect(path, timeout=.05)
+        connection.row_factory = sqlite3.Row
+        self.conn.backup(connection)
+        connection.execute('CREATE TABLE independent_write (value TEXT)')
+        connection.commit()
+        self.database.connection = self.conn = connection
+        self.addCleanup(connection.close)
+
+        def render(*_):
+            # This is a separate connection to the same real SQLite database.
+            # Before the fix, the reminder claim still held its writer lock.
+            with sqlite3.connect(path, timeout=.05) as other:
+                other.execute("INSERT INTO independent_write VALUES ('unblocked')")
+            return 'Current task reminder'
+        self.delivery._text = render
+
+    def test_hook_rendering_does_not_hold_database_writer(self):
+        self.agent('first')
+        self.independent_writer_renderer()
+        claim = self.delivery.hook_claim('first', 'reg-first', 'session-first')
+        self.assertEqual(claim['text'], 'Current task reminder')
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM independent_write').fetchone()[0], 1)
+
+    def test_claim_invalidated_during_render_cannot_begin_emission(self):
+        self.agent('first')
+        def render(*_):
+            self.conn.execute("UPDATE attention_reminders SET state='cancelled' WHERE agent_id='first'")
+            return 'Superseded reminder'
+        self.delivery._text = render
+        claim = self.delivery.hook_claim('first', 'reg-first', 'session-first')
+        self.assertFalse(self.delivery.hook_begin('first', 'reg-first', claim))
+
+    def test_chat_rendering_does_not_hold_database_writer(self):
+        self.agent('first')
+        self.expired('first', 1)
+        self.conn.execute("UPDATE attention_reminders SET state='pending',route=NULL,claim_token=NULL,"
+                          "claim_consumer_id=NULL,claim_binding_generation=NULL,claim_expires_at=NULL")
+        self.conn.execute("ALTER TABLE native_session_owners ADD COLUMN desired_state TEXT DEFAULT 'running'")
+        self.conn.execute('CREATE TABLE native_inputs (id TEXT, agent_id TEXT, source_key TEXT, state TEXT, '
+                          'reason TEXT, evidence_json TEXT, attempt INTEGER)')
+        self.independent_writer_renderer()
+        session = {'id': 'binding', 'conversation_id': 'session-first'}
+        chat = self.runtime.native_chat
+        chat.probe = NS(observe=Mock(return_value=object()))
+        chat.registry = NS(reconcile=Mock(return_value=NS(live=True, session=session)))
+        chat.arbiter.admit_nudge = Mock(return_value={})
+        self.delivery.todo_adjustment.send_due = Mock(return_value=False)
+        self.delivery._settle_chat = Mock()
+        advice = {'chat_eligible': True, 'kind': 'focus', 'due_at': EARLIER, 'reminder_sequence': 1}
+        with patch('qorqut.agents.attention_delivery.clock_advice', return_value=advice), \
+                patch('qorqut.native_chat.store.waiting_inputs', return_value=[]), \
+                patch('qorqut.native_chat.store.live_session', return_value=session), \
+                patch('qorqut.native_chat.store.input_by_key', return_value=None):
+            self.delivery.send_due({'agent_id': 'first'})
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM independent_write').fetchone()[0], 1)
+        chat.arbiter.admit_nudge.assert_called_once()
 
     def test_hook_only_reconciles_requesting_board_and_its_expired_claims(self):
         self.agent('requesting')

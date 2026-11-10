@@ -37,15 +37,21 @@ class BridgeBinding:
         if self.parent is None:return self.unbound()
         if not owner_alive(self.parent[1]):
             self.reason='native_process_binding_lost';return {'X-Qorqut-Binding-Reason':self.reason}
-        if self.bound is None:
-            path=Path(self.registration['workspace'])/'.qorqut/session-binding.json'
-            observation=path.with_name('native-binding.json')
-            try:
-                if path_has_symlink(path) or path_has_symlink(observation):return self.unbound()
-                value=json.loads(path.read_text());native=json.loads(observation.read_text())
-                if (value['registration_id']!=self.registration['registration_id'] or value['owner']!=self.parent[1]
-                        or value['runtime']!=self.parent[0] or native['session_id']!=value['session_id']
-                        or native['owner']!=value['owner']):return self.unbound()
-                self.bound=(value['session_id'],value['generation'])
-            except (OSError,ValueError,KeyError):return self.unbound()
+        # A surviving interactive client can change conversations, and recovery
+        # can replace its server-issued generation. Never retain authority from
+        # an older receipt after either observation changes.
+        self.bound=None
+        path=Path(self.registration['workspace'])/'.qorqut/session-binding.json'
+        observation=path.with_name('native-binding.json')
+        try:
+            if path_has_symlink(path) or path_has_symlink(observation):return self.unbound()
+            value=json.loads(path.read_text());native=json.loads(observation.read_text())
+            if (value['registration_id']!=self.registration['registration_id'] or value['owner']!=self.parent[1]
+                    or value['runtime']!=self.parent[0] or native['session_id']!=value['session_id']
+                    or native['owner']!=value['owner'] or native['runtime']!=value['runtime']
+                    or native['registration_id']!=value['registration_id']
+                    or type(value['generation']) is not int or not 1 <= value['generation'] < 2**63):
+                return self.unbound()
+            self.bound=(value['session_id'],value['generation'])
+        except (OSError,ValueError,KeyError,TypeError):return self.unbound()
         return {'X-Qorqut-Native-Session':self.bound[0],'X-Qorqut-Binding-Generation':str(self.bound[1])}

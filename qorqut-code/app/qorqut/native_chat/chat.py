@@ -444,11 +444,12 @@ class NativeChat:
             live = observed.observation if observed.reason == REASON_LIVE else None
             if live is None or live.provider != provider or live.conversation_id != conversation:
                 raise DomainError("not_found", "The terminal conversation is still connecting")
-            if current is not None and current.holds(live):
-                return {"selection": current.public(), "changed": False}
-            marker = self._candidate_marker(profile, agent_id, conversation, PROVIDER_RUNTIMES[provider])
             from qorqut.bootstrap.native_binding import NativeBindingAdapter
             adapter = getattr(self.runtime, "native_binding_adapter", None) or NativeBindingAdapter(self.runtime)
+            if current is not None and current.holds(live):
+                self._publish_local_binding(adapter, profile, current)
+                return {"selection": current.public(), "changed": False}
+            marker = self._candidate_marker(profile, agent_id, conversation, PROVIDER_RUNTIMES[provider])
             try:
                 binding, old_state = adapter.verify(agent_id, marker["registration_id"], conversation,
                                                     previous=current.binding if current is not None else None)
@@ -462,7 +463,8 @@ class NativeChat:
                     or latest.pid != binding.get("pid") or latest.started != binding.get("started")
                     or (latest.owner or f"{latest.pid}:{latest.started}") != binding.get("owner")):
                 raise DomainError("revision_conflict", "The terminal conversation changed; reconnecting")
-            context = self.runtime.agent_context(Principal(agent_id, "agent"))
+            with self.runtime.resolver.require_agentic_view().read_snapshot():
+                context = self.runtime.agent_context(Principal(agent_id, "agent"))
             self.runtime.inbox.start_session(context, marker["registration_id"], conversation,
                                              binding.get("event") or "startup", binding=binding, old_state=old_state,
                                              expected_generation=expected_generation, owner_selection=True)
@@ -470,8 +472,20 @@ class NativeChat:
                 self.runtime.application.ensure_writes_open(uow)
                 store.bump(uow.connection, agent_id)
                 chosen = selection.selected(uow.connection, agent_id)
+            self._publish_local_binding(adapter, profile, chosen)
         self.backend.wake()
         return {"selection": chosen.public(), "changed": True}
+
+    @staticmethod
+    def _publish_local_binding(adapter, profile, chosen):
+        publish = getattr(adapter, 'publish_local', None)
+        if publish is not None:
+            try:
+                publish(profile, chosen)
+            except (OSError, ValueError, KeyError, DomainError):
+                # Adoption is already durable. Its ordinary supervisor can
+                # retry publication; do not report that the selection failed.
+                LOG.warning("Local native binding publication deferred", exc_info=True)
 
     @staticmethod
     def _candidate_marker(profile: dict, agent_id: str, conversation: str, runtime: str) -> dict:
