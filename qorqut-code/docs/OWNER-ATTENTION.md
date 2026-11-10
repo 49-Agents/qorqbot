@@ -171,7 +171,7 @@ rejection feedback and input answers still append the shared Signoff note.
 
 ## Creating work
 
-Substantive owner handoffs use `tasks_create` with `kind: owner_request` and an
+Substantive owner handoffs use `tasks_create` with `kind: request_to_owner` and an
 explicit owner assignee. Ordinary task assignment, dependencies, snooze and
 completion remain unchanged. The configured coordinator can pass optional
 `focus` presentation arguments to task or input-request creation: source and
