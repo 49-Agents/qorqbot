@@ -970,7 +970,7 @@ class HTTPAPI:
         if request.method == "POST" and len(tail) == 3 and tail[2] == "respond":
             body = await read_json(request)
             required = {"proposal_revision", "payload_hash", "expected_status_revision", "idempotency_key"}
-            checked_fields(body, required | {"notes", "selected_choices", "draft_values"}, required)
+            checked_fields(body, required | {"notes", "selected_choices", "draft_values", "answers"}, required)
             return response(await anyio.to_thread.run_sync(partial(self.runtime.signoffs.respond, context, tail[1], **body)))
         if request.method == "POST" and len(tail) == 3 and tail[2] in {"approve", "reject", "retry"}:
             body = await read_json(request)

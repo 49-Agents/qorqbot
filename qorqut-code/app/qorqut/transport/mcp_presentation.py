@@ -502,6 +502,8 @@ def _config_summary(config):
 
 def _preserved_keys(name, detail):
     preserved = set(ELIDE_PRESERVED_KEYS)
+    if name in {"signoffs_get", "signoffs_list"}:
+        preserved.update({"input", "decision"})
     # Task custom fields are authored data, but structured signoff previews use
     # a controlled `fields` list whose unchanged entries are intentionally
     # compacted by preview_change(). Keep those rules operation-specific.

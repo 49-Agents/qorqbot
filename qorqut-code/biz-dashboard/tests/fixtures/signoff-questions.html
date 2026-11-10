@@ -1,0 +1,124 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../app.css">
+<link rel="stylesheet" href="../../css/signoffs.css">
+<style>body{margin:0;padding:16px;background:var(--bg)}.ref{width:560px;max-width:100%;margin-bottom:24px}</style>
+<main id="refs"></main><pre id="out" hidden></pre>
+<script src="../../js/safe-links.js"></script>
+<script>
+window.IntersectionObserver = undefined;
+const state = {agents:[],biz:'demo',bizs:[{id:'b1',slug:'demo',name:'Demo'}],session:null};
+const esc = s => String(s ?? '').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const sjDateTime = d => String(d), aicon = () => '', coreData = r => r.data;
+let sequence=0;
+const newRequestId = () => 'request-'+(++sequence);
+const globalAgentProfile = () => null, globalAgentProfiles=[1], identityAvatar=()=>'', RW_CHAT_ICON='', SVG_X='', SVG_CHECK='', T_VIEW_ICON={signoffs:''};
+const taskBusinessLabel=()=> 'Demo', businessPortraitHtml=()=>'', workRelatedChips=()=>{}, toast=()=>{};
+const choice = id => ({id,label:id === 'yes' ? 'Yes' : 'No',explanation:id === 'yes' ? 'Use this option.' : 'Choose another approach.'});
+const form = () => ({schema_version:2,kind:'question',title:'Plan the workshop',explanation:'Confirm the room and materials together.',response_policy:'owner_only',questions:[
+  {id:'location',prompt:'Use the main room?',selection_mode:'single',required:true,notes_required:false,choices:[choice('yes'),choice('no')]},
+  {id:'materials',prompt:'Which materials?',selection_mode:'multiple',required:true,notes_required:true,choices:[choice('yes'),choice('no')]},
+  {id:'details',prompt:'Anything else?',selection_mode:'none',required:false,notes_required:false,choices:[]}
+]});
+const item = id => ({id,state:'pending',category:'input_request',operation_name:'signoffs_input_create',review_business_id:'b1',status_revision:1,proposal_revision:1,
+  payload_hash:'hash-'+id,actionable:true,title:'Plan the workshop',created_at:'2026-11-10T12:00:00Z',input:form(),preview:{changes:[]}});
+const items=Object.fromEntries(['main','retry','lost','conflict','closed','server','stale','unknown','draft'].map(id=>[id,item(id)]));
+items.unknown.input.schema_version=99;
+items.draft.input={title:'Review a draft',explanation:'Edit before returning.',kind:'draft_review',selection_mode:'none',notes_required:false,choices:[],response_policy:'owner_only',draft_fields:[{id:'body',label:'Body',value:'Initial draft',required:true}]};
+items.draft.draft_review={values:{body:'Initial draft'},revision:1}; items.draft.draft_history=[];
+const api = async url => url === '/session' ? {data:{principal_kind:'human',is_owner:true,principal_id:'owner'}} : {data:{signoff:structuredClone(items[url.split('/').pop()])}};
+const posts=[], attempts={}, pending={};
+const finalized = (id,body) => {
+  const s=items[id]; s.state='answered'; s.actionable=false; s.status_revision++;
+  s.decision={kind:'respond',by:'owner',at:'2026-11-10T12:15:00Z',schema_version:2,answers:body.answers.map(a=>({...structuredClone(a),status:a.notes.trim()||a.selected_choices.length?'answered':'skipped',message_id:'note-'+a.question_id}))};
+  return {data:{signoff:structuredClone(s)}};
+};
+const post = async (url,body) => {
+  const id=url.split('/').at(-2); posts.push({id,body:structuredClone(body)}); attempts[id]=(attempts[id]||0)+1;
+  if(id==='main') return new Promise(resolve=>pending.main=()=>resolve(finalized(id,body)));
+  if(id==='retry' && attempts[id]===1) throw new TypeError('Network unavailable before commit');
+  if(id==='lost' && attempts[id]===1) {finalized(id,body); throw new TypeError('Response lost after commit');}
+  if(id==='server' && attempts[id]===1) throw Object.assign(new Error('Add details.'),{code:'validation_error',details:{field_errors:{materials:'Add the missing details.'}}});
+  if(id==='stale' && attempts[id]===1) {items[id].status_revision++;throw Object.assign(new Error('This request changed.'),{code:'revision_conflict',details:{signoff:structuredClone(items[id])}});}
+  if(id==='conflict') {const different=structuredClone(body);different.answers[0].notes='Saved elsewhere';return finalized(id,different);}
+  return finalized(id,body);
+};
+</script>
+<script src="../../js/signoffs.js"></script>
+<script>
+const refs=document.getElementById('refs'), hosts={}, views={};
+for(const id of Object.keys(items)) {
+  hosts[id]=document.createElement('div');hosts[id].className='ref';refs.append(hosts[id]);
+  views[id]=sgChatMount({id,business_id:'b1',business_slug:'demo'},hosts[id]);
+}
+hosts.peer=document.createElement('div');hosts.peer.className='ref';refs.prepend(hosts.peer);
+views.peer=sgCreateView({active:()=>true,body:()=>hosts.peer,global:true,workspace:()=> 'scope:global',item:()=>({id:'main',businessId:'b1'}),prefix:'peer-'});
+views.peer.paint();
+const wait = ms => new Promise(r=>setTimeout(r,ms));
+const q=(id,selector)=>hosts[id].querySelector(selector);
+const field=(id,qid)=>q(id,`[data-question-notes="${qid}"]`);
+const button=(id,qid,choice)=>q(id,`[data-question-id="${qid}"] [data-question-choice="${choice}"]`);
+const enter=(id,qid,value)=>{const f=field(id,qid);f.value=value;f.dispatchEvent(new Event('input',{bubbles:true}));};
+const done=id=>q(id,'[data-sg="respond"]');
+const fill=id=>{enter(id,'location','Use the garden.');enter(id,'materials','Bring paper.');};
+(async()=>{
+  const out={};
+  try {
+    await wait(300);
+    if(location.hash==='#shot') {Object.keys(hosts).filter(id=>id!=='main').forEach(id=>hosts[id].hidden=true);enter('main','materials','Bring notebooks and pens.');button('main','location','yes').click();button('main','materials','yes').click();return;}
+    out.singleDone=done('main').textContent==='Done' && hosts.main.querySelectorAll('[data-sg="respond"]').length===1;
+    const ids=[...document.querySelectorAll('.sg-question-notes')].map(el=>el.id);out.uniqueLabels=new Set(ids).size===ids.length;
+    // Message references are stored evidence, not part of the submitted answer byte budget.
+    const boundary=item('boundary'), values=boundary.input.questions.map((q,i)=>({question_id:q.id,selected_choices:[],notes:i<2?'😀'.repeat(8000):'',status:'answered'}));
+    values[2].notes='x'.repeat(65520-new TextEncoder().encode(JSON.stringify(values)).length);
+    boundary.state='answered';boundary.decision={schema_version:2,answers:values.map(a=>({...a,message_id:'12345678-1234-1234-1234-123456789012'}))};
+    out.boundaryEvidence=sgQuestionDecisionValid(boundary);
+    done('main').click();out.localErrors=posts.length===0 && hosts.main.querySelectorAll('.sg-question-error:not([hidden])').length===2;
+    button('main','location','yes').click();button('main','materials','no').click();button('main','materials','yes').click();
+    out.independent=button('main','location','no').getAttribute('aria-checked')==='false' && button('main','materials','no').getAttribute('aria-checked')==='true';
+    button('main','location','yes').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));
+    out.radioKeyboard=button('main','location','no').getAttribute('aria-checked')==='true' && button('main','materials','yes').getAttribute('aria-checked')==='true';
+    done('main').click();out.notesRequired=posts.length===0 && /written answer/.test(q('main','[data-question-id="materials"] .sg-question-error').textContent);
+    enter('main','materials','  Bring both.\nKeep this spacing.  ');
+    out.peerSync=field('peer','materials').value===field('main','materials').value && button('peer','materials','yes').getAttribute('aria-checked')==='true';
+    const stable=field('main','materials');stable.focus();stable.setSelectionRange(4,8);
+    items.main.status_revision++;await views.main.refresh();
+    out.pollKeepsCaret=stable===field('main','materials') && document.activeElement===stable && stable.selectionStart===4 && stable.selectionEnd===8;
+    button('main','location','no').click();out.singleChoice=button('main','location','yes').getAttribute('aria-checked')==='false';
+    q('main','[data-question-id="location"] [data-question-clear]').click();enter('main','location','Use the garden instead.');
+    out.unsubmitted=posts.length===0 && /Not submitted/.test(q('main','.sg-question-progress').textContent);
+    const shared=field('main','materials').value;views.main.dispose();hosts.main.replaceChildren();views.main=sgChatMount({id:'main',business_id:'b1',business_slug:'demo'},hosts.main);await wait(100);
+    out.remountKeepsDraft=field('main','materials').value===shared;
+    hosts.main.style.width='300px';window.dispatchEvent(new Event('resize'));
+    out.narrowFits=hosts.main.scrollWidth<=hosts.main.clientWidth+1;
+    done('main').click();
+    out.wholeFormLocked=done('main').disabled && done('peer').disabled && field('main','materials').readOnly && field('peer','materials').readOnly && views.peer.hasPendingWrite();
+    done('peer').click();out.onePost=posts.length===1;
+    out.payload=posts[0].body;
+    pending.main();await wait(100);
+    out.saved=hosts.main.querySelectorAll('.sg-question-saved:not([hidden])').length===3 && /Not answered \(optional\)/.test(q('main','[data-question-id="details"] .sg-question-saved').textContent);
+    out.globalKeepsReceipt=hosts.peer.querySelectorAll('.sg-question-saved:not([hidden])').length===3;
+    out.cleared=!Array.from(sgShared.questionDrafts.values()).some(d=>d.answers.some(a=>a.notes===shared));
+    fill('retry');done('retry').click();await wait(100);
+    const retry=posts.filter(p=>p.id==='retry');out.retry=retry.length===2 && JSON.stringify(retry[0].body)===JSON.stringify(retry[1].body) && items.retry.state==='answered';
+    fill('lost');done('lost').click();await wait(100);
+    out.lost=posts.filter(p=>p.id==='lost').length===1 && q('lost','.sg-question-saved').textContent==='Use the garden.';
+    fill('conflict');done('conflict').click();await wait(100);
+    out.conflict=/answered elsewhere/.test(q('conflict','.sg-question-progress').textContent) && /Use the garden/.test(q('conflict','.sg-question-retained').textContent) && /Saved elsewhere/.test(q('conflict','.sg-question-saved').textContent);
+    fill('closed');finalized('closed',{answers:items.closed.input.questions.map(q=>({question_id:q.id,selected_choices:[],notes:q.required?'Other window':''}))});await views.closed.refresh();
+    out.closed=/unsubmitted/.test(q('closed','.sg-question-progress').textContent) && /Use the garden/.test(q('closed','.sg-question-retained').textContent);
+    fill('server');done('server').click();await wait(100);
+    out.serverError=/missing details/.test(q('server','[data-question-id="materials"] .sg-question-error').textContent) && !done('server').disabled && field('server','materials').value==='Bring paper.';
+    enter('server','materials','More details');done('server').click();await wait(100);out.serverRetry=items.server.state==='answered';
+    fill('stale');done('stale').click();await wait(100);q('stale','[data-sg="detail"]').click();await wait(100);
+    out.staleRetained=field('stale','materials').value==='Bring paper.' && !done('stale').disabled;
+    done('stale').click();await wait(100);const stale=posts.filter(p=>p.id==='stale');
+    out.staleDeliberateRetry=stale.length===2 && stale[0].body.idempotency_key!==stale[1].body.idempotency_key && stale[1].body.expected_status_revision===2;
+    out.unknown=!done('unknown') && /could not be loaded/.test(q('unknown','.sg-detailnotice').textContent);
+    const legacyAction=done('draft').textContent;
+    const draft=q('draft','.sg-draft-editor');draft.value='Edited draft';draft.dispatchEvent(new Event('input',{bubbles:true}));await views.draft.refresh();
+    out.legacyDraft=draft===q('draft','.sg-draft-editor') && draft.value==='Edited draft' && legacyAction==='Return draft' && !!q('draft','[data-sg="save-draft"]');
+  } catch(error) {out.error=error.stack;}
+  document.getElementById('out').textContent=JSON.stringify(out);
+})();
+</script>

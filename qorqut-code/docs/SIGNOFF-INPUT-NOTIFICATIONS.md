@@ -23,6 +23,7 @@ mutation policy. Creation does not need an approval to ask a question.
   "request_key": "supplier-choice",
   "form": {
     "kind": "question",
+    "response_policy": "owner_only",
     "title": "Which supplier should we use?",
     "explanation": "I recommend the first supplier because stock is available today.",
     "selection_mode": "single",
@@ -39,9 +40,76 @@ mutation policy. Creation does not need an approval to ask a question.
 ```
 
 `selection_mode` is `none`, `single`, or `multiple`. Choice-based forms have 2–26
-choices with unique IDs, one/two-word labels, and explanations. A form may require
-notes, a selection, both, or neither. All text and choice counts are bounded by
-the installed JSON schemas. The owner can always supply optional notes.
+choices with unique IDs, one/two-word labels, and explanations. `selection_required`
+accepts either a selection or a nonblank written alternative; `notes_required`
+requires text. All text and choice counts are bounded by the installed JSON
+schemas. The owner can always supply notes.
+
+### Several questions, one Done
+
+Use `schema_version: 2` when each question needs its own choices. Existing
+`draft_review` forms remain appropriate for editable content and text
+questionnaires with prefilled fields or saved versions.
+
+```json
+{
+  "request_key": "workshop-arrangements",
+  "form": {
+    "schema_version": 2,
+    "kind": "question",
+    "title": "Confirm the workshop arrangements",
+    "explanation": "Answer these together before we prepare the final plan.",
+    "response_policy": "owner_only",
+    "questions": [
+      {
+        "id": "room", "prompt": "Which room?", "selection_mode": "single",
+        "choices": [
+          {"id": "main", "label": "Main room", "explanation": "More space."},
+          {"id": "small", "label": "Small room", "explanation": "Quieter setting."}
+        ]
+      },
+      {"id": "details", "prompt": "Anything else?", "selection_mode": "none", "required": false}
+    ]
+  }
+}
+```
+
+Supply 1–10 questions with unique IDs, prompts up to 200 characters, and an
+optional explanation. `selection_mode` is `none`, `single`, or `multiple`;
+choice modes need 2–26 choices whose IDs are unique within that question.
+`required` defaults to true and accepts a selection or a written alternative.
+`notes_required` defaults to false and requires text when that question is
+answered; an optional question may still be skipped entirely. Version 2 only
+supports `kind: question` and owner-only responses. Legacy top-level selection
+and draft fields cannot be mixed into it. The normalized form must fit 64 KiB.
+
+One **Done** button submits the whole form. Before that, edits are local to the
+browser session, shared across Signoff views and retained during polling; a
+full browser reload loses them. They do not update the Signoff, notify an agent,
+or release linked work. Each written answer permits 8000 Unicode characters,
+with at most 32000 across the form and 64 KiB for the normalized answer array.
+
+The same `/respond` endpoint takes the four binding/idempotency fields below
+plus `answers`, containing exactly one entry for every question, including
+skipped optional questions:
+
+```json
+{
+  "answers": [
+    {"question_id": "room", "selected_choices": ["main"], "notes": ""},
+    {"question_id": "details", "selected_choices": [], "notes": ""}
+  ]
+}
+```
+
+Do not also send top-level `notes`, `selected_choices`, or `draft_values`.
+Validation completes before any write. The server stores one immutable
+`decision` with `schema_version: 2` and ordered `answers`; each includes the
+submitted fields, `status: answered|skipped`, and a conversation `message_id`.
+Text is retained verbatim. Reordered answers and selections normalize to the
+same retry hash. A lost response is retried with the same body and key; a stale
+binding requires rereading and a new deliberate submission. Telegram replies
+remain comments and reactions cannot complete a grouped form.
 
 Same proposer + scope + request key deduplicates an outstanding identical form;
 a changed form is rejected rather than altering a question behind a draft.
@@ -78,8 +146,12 @@ input request. Existing approval and execution semantics remain unchanged.
 
 Agents retrieve answers with `signoffs_get` and `signoffs_list`; `responded: true`
 filters saved decisions. The dashboard offers Waiting and Responded. Reading is
-not acknowledgment, and drafts are not submitted. Agents are not actively alerted
-or started. Answers are not automatically filed as context, tasks, or Stories.
+not acknowledgment, and drafts are not submitted. The proposer receives one
+`response_submitted` inbox event for a completed response, including a grouped
+form. Its per-question conversation notes do not create separate answer events.
+Configured native inbox notices may alert an existing session; they acknowledge
+nothing and do not start an inactive agent. Answers are not automatically filed
+as context, tasks, or Stories.
 
 ## Notification lifecycle
 
@@ -117,7 +189,8 @@ explicit navigation, dismiss and snooze controls. Ordinary summaries contain
 clickable business rows. One toast is displayed at a time, prioritizing urgent/
 blocking individual deliveries. Business badges and the pane's urgent section
 include pending urgent/blocking items even when snoozed or notification is off.
-No webhook, external delivery channel, notification window, or agent wake exists.
+The configured [Telegram bridge](TELEGRAM-OWNER-BRIDGE.md) can also deliver Signoff
+notifications. Owner reminders and agent response-inbox delivery are separate.
 
 ## Installation and verification
 

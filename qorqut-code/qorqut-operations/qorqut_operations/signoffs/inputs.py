@@ -11,21 +11,19 @@ from qorqut_operations.conversations import SUMMARY
 from qorqut_operations.storage.repositories import decode_row
 from .ports import ABSENT
 from .sources import SOURCE
+from . import questions
+from .questions import TEXT, CHOICE
 
 FOCUS_UNAVAILABLE = "The Focus attention domain is not installed"
 MANAGEMENT_UNAVAILABLE = "The management domain is not installed"
 
-TEXT = {"type": "string", "minLength": 1, "maxLength": 8000, "pattern": r"\S"}
-CHOICE = schema({"id": {"type": "string", "pattern": "^[a-zA-Z0-9_-]{1,40}$"},
-    "label": {"type": "string", "maxLength": 80, "pattern": r"^\S+(?:\s+\S+)?$"},
-    "explanation": TEXT}, ("id", "label", "explanation"))
 ATTENTION = schema({"notify": {"type": "boolean"}, "urgent": {"type": "boolean"},
     "blocking": {"type": "boolean"}, "reason": {"type": "string", "maxLength": 2000},
     "deadline": {"type": ["string", "null"], "format": "date-time"}})
 DRAFT_FIELD = schema({"id": {"type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,39}$"},
     "label": {**TEXT, "maxLength": 100}, "value": {"type": "string", "maxLength": 16000},
     "multiline": {"type": "boolean"}, "required": {"type": "boolean"}}, ("id", "label", "value"))
-FORM = schema({"title": {**TEXT, "maxLength": 200}, "explanation": TEXT,
+LEGACY_FORM = schema({"title": {**TEXT, "maxLength": 200}, "explanation": TEXT,
     "kind": {"enum": ["question", "request", "draft_review"]}, "selection_mode": {"enum": ["none", "single", "multiple"]},
     "response_policy": {"enum": ["management_allowed", "owner_only"]},
     "choices": {"type": "array", "items": CHOICE, "maxItems": 26},
@@ -33,6 +31,7 @@ FORM = schema({"title": {**TEXT, "maxLength": 200}, "explanation": TEXT,
     "draft_fields": {"type": "array", "minItems": 1, "maxItems": 12, "items": DRAFT_FIELD},
     "previous_review_id": {"type": "string", "format": "uuid"}},
     ("title", "explanation", "kind", "selection_mode"))
+FORM = {"oneOf": [LEGACY_FORM, questions.FORM]}
 SCOPE = {"scope": {"enum": ["business", "global"]}}
 
 
@@ -46,6 +45,8 @@ def normalize_attention(values):
 
 
 def validate_form(form):
+    if 'schema_version' in form or 'questions' in form:
+        return questions.validate_form(form)
     form = {"choices": [], "selection_required": False, "notes_required": False, "response_policy": "management_allowed", **form}
     choices, mode = form['choices'], form['selection_mode']
     if len({c['id'] for c in choices}) != len(choices):
@@ -69,6 +70,8 @@ def validate_form(form):
 
 
 def validate_response(form, notes, selected):
+    if 'schema_version' in form or 'questions' in form:
+        raise DomainError('validation_error', 'This form requires all question answers in one submission')
     if not isinstance(notes, str) or len(notes) > 8000:
         raise DomainError('validation_error', 'Notes must contain at most 8000 characters')
     if not isinstance(selected, list) or any(not isinstance(x, str) for x in selected) or len(selected) != len(set(selected)):
