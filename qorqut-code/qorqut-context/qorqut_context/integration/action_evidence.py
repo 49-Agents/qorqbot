@@ -3,6 +3,15 @@
 Only explicit task/document references are resolved. No network, model, comments, private notes or journals are read.
 The queue freezes these observations alongside the exact Action revision; they are supporting context, not accepted
 actions or claims about the state of a linked record at the Action's occurrence time.
+
+The observations are for the interpreting model only. They are read under one caller's authority, while published
+Context is shared across projects, so the queue keeps them in the payload's model-only ``action_metadata`` and no
+source document, event or queue read carries them.
+
+This runs inside the Action writer's transaction, which holds the database's one write lock, so every read here must
+be small and bounded. A task read is bounded by that task's own relations. The registered ``context_get`` read is not
+(it loads the whole library and parses the whole document for its heading outline), so a document is read through
+the library's bounded ``excerpt`` instead, under ``context_get``'s authorization and selection rules.
 """
 from dataclasses import replace
 
@@ -68,8 +77,14 @@ class ActionEvidence:
         decision = app.authorize(selected, descriptor, (), uow, namespace=namespace, arguments=arguments)
         if decision.mode != "allow":
             raise DomainError("forbidden", "Evidence read is not allowed")
-        # Reuse the registered reader in the writer's existing transaction, not a nested Application.invoke.
-        result = descriptor.read(selected, arguments, InvocationOptions(), uow)
+        # Read in the writer's existing transaction, not through a nested Application.invoke.
+        if kind == "document":
+            library = getattr(app, "document_library", None)
+            if library is None:
+                raise DomainError("operation_unavailable", "The document library is not composed")
+            result = library.excerpt(selected, arguments, uow)
+        else:
+            result = descriptor.read(selected, arguments, InvocationOptions(), uow)
         row = result[kind]
         if kind == "document" and (row["metadata_stale"] or row["archived"]):
             raise DomainError("revision_conflict", "Evidence source is unavailable")

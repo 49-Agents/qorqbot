@@ -18,9 +18,13 @@ its immutable revision tag snapshots, and its add/edit/remove operation. Tags
 contain id, name and a nullable business_id. They group operational records;
 they are not graph subjects or evidence of relationships. Never create graph
 nodes from tags. These linking fields are not evidence hashes.
-When present, record_context.provenance.action_metadata contains the exact
+When present, private_context.action_metadata contains the exact
 Action revision's occurred, refs, business_ids, recorded_at and withdrawn fields.
 Use these alongside the short text before deciding that evidence is missing.
+private_context is given to you for interpretation only; it is not published
+with this event or its source. Record what it supports about identity, timing
+and effects, and do not copy excerpt passages into graph records, notes,
+questions or the handoff note.
 business_ids associate the operational record with projects; they do not establish
 ownership, employment, a graph relationship, or permission. Match existing graph
 identities from supported evidence; an opaque business ID alone is not a new entity.

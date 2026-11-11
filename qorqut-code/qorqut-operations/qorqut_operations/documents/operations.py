@@ -154,6 +154,9 @@ class DocumentSources:
 
     def register(self, registry, application):
         self.register_targets(application)
+        # A trusted port: the library's bounded single-document read for composed callers that hold a write
+        # transaction (Action evidence), which the registered ``context_get`` read is too slow for.
+        application.document_library = self.library
         for descriptor in self.descriptors.values():
             registry.register(descriptor)
 

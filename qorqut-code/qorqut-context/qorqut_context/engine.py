@@ -423,12 +423,17 @@ class Context:
     def begin_action(self, operation, action_ref, *, text=None, revision_ref=None,
                      related_objects=None, tags=None, submitted_by, event_id=None,
                      expected_previous_commit=None, source_bytes=modes.SOURCE_BYTES,
-                     record_context=None) -> Submission:
+                     record_context=None, private_context=None) -> Submission:
         """Stage one accepted Action revision.
 
         ``record_context`` is optional trusted-caller evidence ``{scope, provenance}``: it joins the
         canonical Action source document (add/edit), the submission identity and the event, and
         is retained by a removal's event. It is separate from tags, which stay ordinary labels.
+
+        ``private_context`` is an optional trusted-caller JSON object for the interpreting model only.
+        It joins the submission identity and the pending job, and reaches the model as
+        ``source_change.private_context``; it is never written to the source document, the event or
+        any other published file, and it is gone once the job is cleaned up after publication.
         """
         if operation not in ("add", "edit", "remove"):
             raise ContextError("Action operation must be add, edit, or remove")
@@ -440,6 +445,7 @@ class Context:
         related_objects = modes.pointers([] if related_objects is None else related_objects)
         self._validate_source(None, source_bytes)
         record_context = modes.record_context(record_context, source_bytes)
+        private_context = modes.private_context(private_context, source_bytes)
         if event_id is not None:
             identifier(event_id)
         if expected_previous_commit is not None:
@@ -459,7 +465,7 @@ class Context:
         action = {"action_ref": action_ref, "revision_ref": revision_ref,
                   "pointers": related_objects, "tags": tags,
                   "expected_previous_commit": expected_previous_commit}
-        evidence = self._evidence(record_context=record_context)
+        evidence = self._evidence(record_context=record_context, private_context=private_context)
         request_digest = digest({"input_mode": modes.ACTION, "operation": operation,
             "content": hashlib.sha256(content).hexdigest() if content is not None else None,
             "action": action, "submitted_by": submitted_by, **evidence})
@@ -696,6 +702,14 @@ class Context:
                "source_bytes": source_bytes, "draft": module.draft(plan)}
         self._require_effective(job, self._graph_files(snapshot, job, controlled_edit=True)[1], module)
 
+    def private_context(self, event_id):
+        """The unpublished model-only context bound to the pending event ``event_id``; ``None`` if none was supplied.
+
+        It is read from the pending job only. ``inspect_draft``, the model's draft tools and every published file omit it.
+        """
+        with self._lock():
+            return self._editable_job(event_id).get("private_context")
+
     def pending_edit(self, event_id):
         """The validated plan of the pending controlled edit ``event_id`` (graph or supervised); ``None`` for ordinary input."""
         identifier(event_id)
@@ -790,7 +804,8 @@ class Context:
         mode = job["input_mode"]
         request = {"input_mode": mode, "operation": job["operation"],
                    "content": job["input_digest"], "submitted_by": job["submitted_by"],
-                   **self._evidence(**{key: job.get(key) for key in ("record_context", "expected_revision", "execution")})}
+                   **self._evidence(**{key: job.get(key) for key in (
+                       "record_context", "private_context", "expected_revision", "execution")})}
         if mode == modes.GENERAL:
             if "action" in job or "action_associations" in job:
                 raise ContextError("GENERAL input rejects action output")

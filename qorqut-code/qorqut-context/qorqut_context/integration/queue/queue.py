@@ -136,11 +136,19 @@ def tag_envelope(snapshots) -> list[dict]:
     return snapshot_order({"id": tag["id"], "name": tag["name"], "business_id": tag["business_id"]} for tag in snapshots)
 
 
+# The one payload member that is never published and never shown by a queue read: the Action's occurrence, evidence
+# references, linked projects and any admission excerpts. Operations discloses evidence references only inside the
+# owning projects and an excerpt is read under one caller's authority, while published Context is shared, so the whole
+# member reaches the interpreting model as ``private_context`` and nothing else.
+ACTION_METADATA = "action_metadata"
+
+
 def action_payload(revision: dict) -> dict:
     """The exact envelope of one stored Action revision (``revision`` is its decoded ``action_revisions`` row).
 
     It is derived only from what the revision stored: nothing is read from the live Action afterwards, so a later
-    correction cannot change queued evidence. A withdrawal carries no text and no related objects."""
+    correction cannot change queued evidence. A withdrawal carries no text and no related objects. ``scope`` and
+    ``provenance`` are the published record context; ``action_metadata`` is model-only (see ``ACTION_METADATA``)."""
     snapshot, operation, key = revision["snapshot_json"], revision["operation"], revision["action_key"]
     payload = {"action_ref": key, "revision_ref": f"{key}:{revision['revision']}", "operation": operation,
                "submitted_by": revision["recorded_by"], "tags": tag_envelope(snapshot["tag_snapshots"]),
@@ -148,16 +156,19 @@ def action_payload(revision: dict) -> dict:
                "scope": scope_of(revision["business_id"]),
                "provenance": {"performed_by": revision["performed_by"], "recorded_by": revision["recorded_by"],
                               "origin": snapshot.get("origin"), "category": snapshot.get("category"),
-                              **(revision["provenance_json"] or {}),
-                              "action_metadata": deepcopy({
-                                  "version": 1, "occurred": snapshot.get("occurred"),
-                                  "refs": snapshot.get("refs", {}),
-                                  "business_ids": snapshot.get("business_ids", []),
-                                  "recorded_at": revision["created_at"],
-                                  "withdrawn": operation == "remove"})}}
+                              **(revision["provenance_json"] or {})},
+               ACTION_METADATA: deepcopy({
+                   "version": 1, "occurred": snapshot.get("occurred"), "refs": snapshot.get("refs", {}),
+                   "business_ids": snapshot.get("business_ids", []), "recorded_at": revision["created_at"],
+                   "withdrawn": operation == "remove"})}
     if operation != "remove":
         payload["text"] = snapshot["text"]
     return payload
+
+
+def public_payload(payload: dict) -> dict:
+    """A stored payload as a queue read may show it: everything except the model-only Action metadata."""
+    return {key: value for key, value in payload.items() if key != ACTION_METADATA}
 
 
 def admit_action_revision(ctx, revision: dict, uow, *, evidence=None) -> str:
@@ -190,7 +201,7 @@ def enqueue_action(uow, *, action_id: str, revision: int, operation: str, payloa
         invalid("An Action Context input requires its exact accepted revision payload")
     payload = deepcopy(payload)
     if capture_evidence is not None and operation != "remove":
-        payload["provenance"]["action_metadata"]["evidence"] = capture_evidence(stored)
+        payload[ACTION_METADATA]["evidence"] = capture_evidence(stored)
     input_id = new_id()
     uow.connection.execute(
         "INSERT INTO context_inputs(id,business_id,input_kind,item_id,revision,operation,payload_json,submitted_by,created_at) "
@@ -203,8 +214,11 @@ def enqueue_action(uow, *, action_id: str, revision: int, operation: str, payloa
 # -- reads --------------------------------------------------------------------------------------------------------------
 
 def input_view(row, *, payload: bool = False, execution: Any = OMITTED) -> dict:
-    """The public view of a stored input. ``execution`` is the controlled-execution facts of the input (or None for an
-    ordinary one) as the composed ``executions`` contribution reads them; an internal caller omits it and gets no key."""
+    """The view of a stored input. ``execution`` is the controlled-execution facts of the input (or None for an
+    ordinary one) as the composed ``executions`` contribution reads them; an internal caller omits it and gets no key.
+
+    ``payload`` adds the complete stored payload, as the driver submits it. A read operation shows ``public_payload`` of
+    it instead, because an Action payload carries model-only metadata."""
     result = {key: row[key] for key in INPUT_COLUMNS}
     result["scope"] = scope_of(row["business_id"])
     result["result"] = decode(row["result_json"])

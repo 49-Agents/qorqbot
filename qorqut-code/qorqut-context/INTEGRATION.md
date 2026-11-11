@@ -64,22 +64,35 @@ context_event_id, attempt, scope:{kind:global}|{kind:business,business_id}, resu
 runs after the immutable revision exists and before commit; a trigger requires the stored revision, the owning
 namespace, the operation and the submitter to match, and the payload is a snapshot (`queue.action_payload`: action and
 revision refs, operation, submitter, `tags` as `{id,name,business_id}` snapshots, related Context objects, scope,
-provenance, text unless removed). New Action inputs preserve the immutable revision's
+provenance, text unless removed). `scope` and `provenance` are the published record context; evidence refs and other
+business data are not in it. New Action inputs preserve the immutable revision's
 `occurred` (UTC anchor, local date/hour, precision and timezone), `refs`, `business_ids`,
-`recorded_at` and `withdrawn` in `provenance.action_metadata` (version 1). These are evidence, never authority or
-additional graph relationships. The exact base envelope is validated against the stored revision before enrichment.
-The composed `on_revision` reader may then add `action_metadata.evidence`: at most one explicitly referenced Task and
-one document, observed in the admitting transaction through the registered `tasks_get` / `context_get` read authority.
-Task excerpts contain only title, overview and status; document excerpts use the shared source library, excluding
-private/agent-owned documents, archived sources and bytes that disagree with their registered hash.
+`recorded_at` and `withdrawn` in a separate payload member, `action_metadata` (version 1). These are evidence, never
+authority or additional graph relationships. The exact base envelope is validated against the stored revision before
+enrichment. The composed `on_revision` reader may then add `action_metadata.evidence`: at most one explicitly referenced
+Task and one document, observed in the admitting transaction under the registered `tasks_get` / `context_get` read
+authority. Task excerpts contain only title, overview and status; document excerpts use the shared source library,
+excluding private/agent-owned documents, archived sources and bytes that disagree with their registered hash.
+
+`action_metadata` is model-only. Operations shows evidence refs only inside the owning projects, and an excerpt is read
+under one caller's authority, while published Context is shared across projects. So the driver submits it as
+`private_context` (see CORE_CONTRACTS.md), which both model stages receive as `source_change.private_context` and no
+source document, event or other published file contains; `context_queue_get` shows the payload without it
+(`queue.public_payload`). The published source and event of a new Action are byte for byte what an input without
+metadata produces, so bootstrap's lexical candidate matching is unchanged by it.
+
+The evidence read holds the Action writer's write transaction, so it is bounded: a Task read is limited by that Task's
+own relations, and a document is read through `SourceLibrary.excerpt` (one lookup per selected namespace, the current
+bytes and their hash, no heading parse) rather than the registered `context_get` read, which loads the whole library
+and parses the whole document.
 Each available observation carries its owning business, source revision, content hash (Task title/overview/status
 or complete document bytes), observation time and truncation flag. Title and excerpt limits are 1000 and 4000 UTF-8
 bytes per source. Missing, denied, ambiguous or stale references get the same generic unavailable result; supplied
 reference IDs remain intact. Namespace-local Task IDs prefer the Action's owning scope, then a unique match among
 its associated businesses and Global within the caller's grants. No comments, external URLs or models are read.
 Removals do not capture fresh excerpts. The queue freezes observations once: processing, retry and recovery use those
-same bytes, and existing queued or published filings are not rewritten. Both model stages receive the metadata through
-`record_context`, and publication retains it with the Action source/event.
+same bytes, and existing queued or published filings are not rewritten. An input queued before `action_metadata`
+existed has none and submits exactly as before.
 
 The driver uses `transitions` with the active `system` principal
 only: `head`, `used_event_ids`, `start_attempt(context_event_id)`, `record_preflight_failure`, `record_published`,

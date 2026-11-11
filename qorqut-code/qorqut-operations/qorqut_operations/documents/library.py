@@ -125,13 +125,42 @@ class SourceLibrary:
             raise DomainError("not_found", "Document is not in the selected context library")
         return row, self.observe(row, uow)[1]
 
-    def select(self, ctx, args, uow):
+    def namespaces(self, ctx, args):
+        """The namespaces a library read may select from for ``args``, after its scope and capability checks."""
         scope = args.get("scope", "business" if ctx.business_id else "shared")
         if scope in {"business", "all"} and not ctx.business_id:
             raise DomainError("scope_required", "Select a project for its context library")
         if scope in {"shared", "all"}:
             self.require_shared(ctx)
-        namespaces = ([ctx.business_id] if scope in {"business", "all"} else []) + ([None] if scope in {"shared", "all"} else [])
+        return ([ctx.business_id] if scope in {"business", "all"} else []) + ([None] if scope in {"shared", "all"} else [])
+
+    def excerpt(self, ctx, args, uow):
+        """The opening of one library document, for a trusted caller that reads inside a write transaction.
+
+        It serves what ``context_get`` would for the same ``document_id`` and ``scope``: the same scope and capability
+        checks, the same eligibility (so private, agent-owned and unregistered-kind documents are not found), and the same
+        observation of the current bytes and their hash. Its cost is bounded by the text file limit alone: the document is
+        found by one lookup per selected namespace instead of loading the library, and nothing is parsed, so there is no
+        heading outline, line range or cursor. The host's presentation of filing fields is not applied."""
+        row = None
+        for business in self.namespaces(ctx, args):
+            found = uow.repository("documents", business_id=business).get(args["document_id"])
+            if found is not None and self.eligible(found):
+                row = {**found, "metadata_json": projection(found, uow)}
+                break
+        if row is None:
+            raise DomainError("not_found", "Document is not in the selected context library")
+        try:
+            body, digest, _, _ = self.observe(row, uow)
+        except OSError as exc:
+            raise DomainError("document_unavailable", "Registered context source is unavailable") from exc
+        part = body[:args.get("max_chars", 6000)]
+        return {"document": {**self.summary(row), "content_hash": digest,
+                             "metadata_stale": digest != (row["content_hash"] or "").removeprefix("sha256:"), "body": part},
+                "complete": len(part) == len(body)}
+
+    def select(self, ctx, args, uow):
+        namespaces = self.namespaces(ctx, args)
         marks = ",".join("?" for _ in KINDS)
         found = [row for business in namespaces for row in rows(uow, "documents", business,
             where="kind IN (" + marks + ") AND owning_agent_id IS NULL", parameters=sorted(KINDS)) if self.eligible(row)]

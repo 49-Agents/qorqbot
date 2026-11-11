@@ -226,6 +226,20 @@ and `source_change.record_context` is part of the pipeline's model payload.
 `EventTools` accepts no argument that could set or change it. The propagator
 prompts are not changed by this extension.
 
+`private_context` (`Context.begin_action`/`Pipeline.submit_action` only) is an
+optional JSON object of the same strictly JSON-compatible values, within the source
+byte limit, for context that the interpreting model needs but that must not be
+published. It is copied, validated and bound into the submission digest, so reusing
+an event ID with a different, added or removed value is the usual different-input
+conflict, and it is kept in the pending job. The pipeline adds it to the model
+payload of both stages as `source_change.private_context`. It is never written to
+the Action source document, the event or any other published file, is not part of
+`Snapshot.event`, the Action projections, `inspect_draft` or the event tools, and
+is not read by bootstrap's lexical candidate matching; `Context.private_context(
+event_id)` reads it from the pending job, and it is gone once the job is cleaned up
+after publication. It also remains in the private run directory's
+`source-change.json`. Absent, it leaves a submission's digest unchanged.
+
 `expected_revision` (`Context.begin`/`Pipeline.submit` only) is an optional full
 published commit: 40 or 64 lowercase hex characters, never `self`, a branch or
 another revision expression. For a NEW event, under the same lock that stages it,
