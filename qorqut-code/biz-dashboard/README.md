@@ -344,6 +344,11 @@ host fixture) and
   snapshots (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z or Y) and zooms 50–200% with
   Ctrl/Cmd+Plus/Minus. Checks: `tests/test_global_notes_browser.js`,
   `tests/test_business_notes_browser.js`, `tests/test_context_notes_filing_browser.js`.
+- Journal's first load uses a quiet animated placeholder (static with reduced motion).
+  Reopening the same scope paints the last successful in-memory list immediately and
+  refreshes in the background; an unchanged response keeps the editor intact. Failed
+  initial loads offer Retry, and failed refreshes retain the visible notes. Check:
+  `PLAYWRIGHT_MODULE=/path/to/playwright node --test tests/journal-loading.test.js`.
 - The upload form has a **Context | Call | Meeting** switch and participant typeahead
   over People. Global uploads go through `/api/root/context/upload` and
   `/api/root/context/people`, are owner-only and refuse media or data files. Checks:
