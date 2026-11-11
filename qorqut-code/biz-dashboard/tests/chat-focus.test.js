@@ -22,6 +22,7 @@ async function fixture(width=900) {
     window.$=(selector,host=document)=>host.querySelector(selector);
     window.identityAvatar=()=>'<span class="identity-avatar">A</span>';
     window.state={bizs:[]};window.coreData=value=>value;window.evUrl=value=>value;
+    window.taskStateObserve=(_scope,task)=>task;
     window.onChange=()=>()=>{};window.accessLost=e=>['forbidden','invalid_principal'].includes(e?.code);
     window._agpad={agentId:'ord',attentionAgentId:'another-todo-agent'};
     window.EventSource=class extends EventTarget {
@@ -55,7 +56,7 @@ async function fixture(width=900) {
       return {agent_id:args.agent_id,attention:structuredClone(attentions[args.agent_id])};
     };
   });
-  for(const file of ['read-cache','safe-links','san-juan-time','chat-view','slash-commands','workflow-panel','global-chat'])await page.addScriptTag({path:path.join(root,'js',file+'.js')});
+  for(const file of ['read-cache','safe-links','san-juan-time','chat-view','slash-commands','attention-board','workflow-panel','global-chat'])await page.addScriptTag({path:path.join(root,'js',file+'.js')});
   await page.evaluate(()=>{
     window.mount=(id='ord',role='ordubashy')=>{
       window.controller?.dispose();
@@ -73,6 +74,7 @@ browserTest('bottom pane follows the chat agent and sits between the feed and co
     assert.equal(await page.locator('.gchat-focus-intent').textContent(),'Check the remaining tasks.');
     const dots=await page.locator('.gchat-working-dots').boundingBox();
     const focus=await page.locator('.wfpanel').boundingBox();
+    const focusLabel=await page.locator('.gchat-focus-label').boundingBox();
     const feed=await page.locator('.gchat-scroll').boundingBox();
     const composer=await page.locator('.gchat-composer').boundingBox();
     assert.ok(feed.y+feed.height<=focus.y);
@@ -81,6 +83,11 @@ browserTest('bottom pane follows the chat agent and sits between the feed and co
     assert.equal(await page.locator('.gchat-header').count(),0);
     assert.deepEqual(await page.locator('.wfpanel-label').allTextContents(),['Coordinate launch','Review the changes','Check the layout','Share the result','Later task']);
     assert.ok(dots.y+ dots.height<=composer.y);
+    assert.ok(Math.abs(dots.y+dots.height/2-(focusLabel.y+focusLabel.height/2))<1);
+    assert.ok(dots.x>focusLabel.x+focusLabel.width);
+    assert.ok(Math.abs(focus.x+focus.width-(dots.x+dots.width)-15)<1);
+    assert.equal(await page.locator('.wfpanel .gchat-working-dots').count(),1);
+    assert.equal(await page.locator('.gchat-session').isVisible(),false);
     assert.equal(await page.locator('.gchat-working-tag .identity-avatar').count(),0);
     assert.equal(await page.locator('.gchat-working-dots i').count(),3);
     assert.equal(await page.locator('.gchat-action-text,[data-chat-context]').count(),0);
@@ -258,20 +265,48 @@ browserTest('all Todo pages remain scrollable within the height limit and refres
   } finally {await browser.close();}
 });
 
+browserTest('Todo follows the main board groups and keeps server order within each group',async()=>{
+  const {browser,page,errors}=await fixture();
+  try {
+    await page.evaluate(()=>{
+      // The API puts blocked first; completed items arrive newest first.
+      todos.ord=[todoItem('blocked','Blocked','blocked'),todoItem('input','Needs input','needs_input'),
+        todoItem('working','Working','working'),todoItem('open-1','First open'),todoItem('open-2','Second open'),
+        todoItem('waiting','Waiting','waiting'),todoItem('done-new','Recently done','done'),
+        todoItem('done-old','Earlier done','done'),todoItem('cancelled','Cancelled','cancelled')];
+    });
+    await page.clock.fastForward(12000);
+    await page.waitForFunction(()=>document.querySelectorAll('.wfpanel-label').length===9);
+    assert.deepEqual(await page.locator('.wfpanel-label').allTextContents(),[
+      'Working','Needs input','First open','Second open','Blocked','Waiting','Recently done','Earlier done','Cancelled'
+    ]);
+    await page.evaluate(()=>{taskStateObserve=(_scope,task)=>task.id==='open-2'?{...task,status:'working'}:task;});
+    await page.clock.fastForward(12000);
+    await page.waitForFunction(()=>document.querySelectorAll('.wfpanel-label')[1]?.textContent==='Second open');
+    assert.deepEqual(await page.locator('.wfpanel-label').allTextContents(),[
+      'Working','Second open','Needs input','First open','Blocked','Waiting','Recently done','Earlier done','Cancelled'
+    ]);
+    assert.deepEqual(errors,[]);
+  } finally {await browser.close();}
+});
+
 browserTest('mobile hides the entire pane and stops reads; resizing to desktop restores it',async()=>{
   const {browser,page,errors}=await fixture(390);
   try {
     assert.equal(await page.locator('.wfpanel').isVisible(),false);
     assert.equal(await page.locator('.gchat-context').isVisible(),false);
+    assert.equal(await page.locator('.gchat-session .gchat-working-tag').isVisible(),true);
     await page.clock.fastForward(24000);
     assert.equal(await page.evaluate(()=>focusReads.length+todoReads.length),0);
     await page.setViewportSize({width:701,height:700});
     await page.waitForFunction(()=>document.querySelector('.gchat-focus-label').textContent==='Coordinate launch');
     assert.equal(await page.locator('.wfpanel').isVisible(),true);
+    assert.equal(await page.locator('.wfpanel .gchat-working-tag').isVisible(),true);
     await page.waitForFunction(()=>document.querySelectorAll('.wfpanel-label').length===5);
     await page.locator('.gchat-composer textarea').fill('Keep my draft');
     await page.setViewportSize({width:700,height:700});
     assert.equal(await page.locator('.wfpanel').isVisible(),false);
+    assert.equal(await page.locator('.gchat-session .gchat-working-tag').isVisible(),true);
     const reads=await page.evaluate(()=>focusReads.length+todoReads.length);
     await page.clock.fastForward(24000);
     assert.equal(await page.evaluate(()=>focusReads.length+todoReads.length),reads);

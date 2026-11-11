@@ -4,10 +4,10 @@ const WORKFLOW_PANEL_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fil
 const WORKFLOW_PANEL_STATE = {completed: 'done', active: 'working', pending: 'open'};
 const WORKFLOW_PANEL_TEXT = {completed: 'Done', active: 'Working', pending: 'Upcoming'};
 
-function chatFocusPanelMount(composer, agentId, {visible, onChange}) {
+function chatFocusPanelMount(composer, agentId, {visible, onChange, workingTag}) {
   const panel = document.createElement('section');
   panel.className = 'wfpanel'; panel.setAttribute('aria-label', 'Agent focus and Todo');
-  panel.innerHTML = '<div class="gchat-context" tabindex="0" aria-label="Agent focus and intent"><dl><dt>Focus</dt><dd class="gchat-focus-label">Loading…</dd><dt>Intent</dt><dd class="gchat-focus-intent">Loading…</dd></dl></div>';
+  panel.innerHTML = '<div class="wfpanel-context-row"><div class="gchat-context" tabindex="0" aria-label="Agent focus and intent"><dl><dt>Focus</dt><dd class="gchat-focus-label">Loading…</dd><dt>Intent</dt><dd class="gchat-focus-intent">Loading…</dd></dl></div></div>';
   const head = document.createElement('button');
   head.type = 'button'; head.className = 'quiet wfpanel-head';
   const name = document.createElement('span'); name.className = 'wfpanel-name';
@@ -18,6 +18,10 @@ function chatFocusPanelMount(composer, agentId, {visible, onChange}) {
   composer.before(panel);
   const todoKey = 'agent-todo-preview:' + agentId;
   const mobile = matchMedia('(max-width: 700px)');
+  const workingHost = workingTag.parentElement, contextRow = panel.querySelector('.wfpanel-context-row');
+  // Keep the same native-session indicator; mobile still needs it when the pane is hidden.
+  const placeWorkingTag = () => { if (mobile.matches) workingHost.prepend(workingTag); else contextRow.append(workingTag); };
+  placeWorkingTag();
   let open = true, disposed = false, pending = null, last = 0, attention = null, loaded = false, focusError = false, todoError = false;
   let todos = uiReads.peek(todoKey)?.items || null;
   const show = () => { panel.hidden = false; };
@@ -35,7 +39,8 @@ function chatFocusPanelMount(composer, agentId, {visible, onChange}) {
     panel.classList.toggle('wfpanel-collapsed', !open);
     list.hidden = !open;
     const workflowSteps = workflow?.steps || [];
-    const steps = [...workflowSteps, ...(todos || []).map(item => ({label: item.task.title, status: item.task.status}))];
+    const todoItems = attentionBoardGroups(todos || []).flatMap(group => group.items);
+    const steps = [...workflowSteps, ...todoItems.map(item => ({label: item.task.title, status: item.task.status}))];
     const rows = steps.map(step => {
       const blocked = !!(step.current && workflow?.blocked);
       const row = document.createElement('li'); row.className = 'wfpanel-step';
@@ -106,11 +111,11 @@ function chatFocusPanelMount(composer, agentId, {visible, onChange}) {
   queueMicrotask(() => { void refresh(); });
   const timer = setInterval(() => { void refresh(); }, 12000);
   const onVisible = () => { if (!document.hidden) void refresh(); };
-  const onResize = () => { if (!mobile.matches) void refresh(true); };
+  const onResize = () => { placeWorkingTag(); onChange(); if (!mobile.matches) void refresh(true); };
   document.addEventListener('visibilitychange', onVisible);
   mobile.addEventListener('change', onResize);
   return {
     refresh, show,
-    dispose() { disposed = true; unsubscribe(); clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); mobile.removeEventListener('change', onResize); panel.remove(); },
+    dispose() { disposed = true; unsubscribe(); clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); mobile.removeEventListener('change', onResize); workingHost.prepend(workingTag); panel.remove(); },
   };
 }
