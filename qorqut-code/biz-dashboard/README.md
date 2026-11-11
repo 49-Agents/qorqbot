@@ -318,14 +318,19 @@ owner table page. Checks: `tests/test_agent_viewbox_browser.js` (stub API) and
 
 Global Calendar shows the owner's provider events together on an hourly
 grid with Day, 3 days and Week views and a month navigator; overlapping events use
-adjacent lanes and all-day events sit above the grid. Basic create, edit, delete and
-invitation-response controls use the calendar tools. Each event has an owner-only
+adjacent lanes and all-day events sit above the grid. The clock, day boundaries,
+event details and edit fields use the app's `operational_timezone`, independent
+of the browser timezone. All-day dates and existing recurrence timezones are preserved.
+Basic create, edit, delete and invitation-response controls use the calendar tools.
+Each event has an owner-only
 **Personal status** (Pending, Completed, Cancelled or Rescheduled) at
 `GET/POST /api/root/calendar-statuses`: revision-checked, shared by every Focus pane
 and the drawer Calendar, never a provider change, and a recurring event's status
 belongs to the clicked occurrence. Checks: `tests/test_calendar_browser.js` (needs the
 host fixture) and
 `PLAYWRIGHT_MODULE=/path/to/playwright node tests/test_agent_calendar_browser.js`.
+Timezone regression checks: `node --test tests/calendar-timezone.test.js tests/calendar-focus.test.js`
+and `PLAYWRIGHT_MODULE=/path/to/playwright CHROME_PATH=/path/to/chrome node --test tests/calendar-timezone-browser.test.js`.
 
 ## Tasks, notes and uploads
 
