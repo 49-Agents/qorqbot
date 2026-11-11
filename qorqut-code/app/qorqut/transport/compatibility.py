@@ -477,7 +477,25 @@ class DashboardCompatibility:
             return response(result) if result.status != "ok" else JSONResponse({"ok": True, **self.appearance({**profile, "presentation": presentation})})
         return self.document_post(request, context, business, tail, body)
 
-    def page_view(self, document, uow=None, context=None):
+    @staticmethod
+    def journal_uploads(documents, uow):
+        """Load submission rows once per page, after the note list has passed its access checks."""
+        from qorqut_operations.documents.journal_access import JOURNAL_KINDS
+        found = {row["id"]: [] for row in documents if row.get("kind") in JOURNAL_KINDS}
+        identities = list(found)
+        for offset in range(0, len(identities), 200):
+            batch = identities[offset:offset + 200]
+            placeholders = ",".join("?" for _ in batch)
+            saved = uow.connection.execute(
+                "SELECT * FROM documents WHERE kind='context_upload' "
+                f"AND json_extract(metadata_json, '$.journal_source_id') IN ({placeholders}) ORDER BY created_at, id",
+                batch)
+            for row in saved:
+                upload = decode_row(row)
+                found[upload["metadata_json"]["journal_source_id"]].append(upload)
+        return found
+
+    def page_view(self, document, uow=None, context=None, *, journal_uploads=None):
         """A note or journal entry. Its ``filing`` (and each journal submission's) is the one current-source projection of the
         upload it references, taken from the document operations; ``context`` is the caller (it decides error redaction)."""
         from qorqut_operations.documents.note_snapshot import snapshot_hash
@@ -497,13 +515,11 @@ class DashboardCompatibility:
         def submissions(uow):
             if document.get("kind") not in JOURNAL_KINDS:
                 return []
-            found = uow.connection.execute(
-                "SELECT * FROM documents WHERE kind='context_upload' "
-                "AND json_extract(metadata_json, '$.journal_source_id')=? ORDER BY created_at, id",
-                (document["id"],)).fetchall()
+            found = journal_uploads
+            if found is None:
+                found = self.journal_uploads([document], uow)[document["id"]]
             result = []
-            for saved in found:
-                upload = decode_row(saved)
+            for upload in found:
                 upload_meta = upload["metadata_json"]
                 result.append({"uploadId": upload["id"], "sourceRevision": upload_meta.get("journal_source_revision"),
                     "sourceHash": upload_meta.get("journal_source_hash"), "sourceDate": upload_meta.get("journal_source_date"),
@@ -691,7 +707,8 @@ class DashboardCompatibility:
                 target = self.project_target(context, request.query_params.get("target_business_id"))
                 rows = self.collection(context, tail[0] + "_list", {**({"tag": tag} if tag else {}), **target})
                 with self.runtime.database.read() as uow:
-                    return JSONResponse([self.page_view(row, uow, context) for row in rows])
+                    uploads = self.journal_uploads(rows, uow)
+                    return JSONResponse([self.page_view(row, uow, context, journal_uploads=uploads.get(row["id"], ())) for row in rows])
             # page_view()'s filing status reads the Context queue's rows (coarse, global-only context_queue) and `jobs` directly
             # (coarse jobs_routines).
             return revalidated(request, self.runtime.changes, {"documents", "jobs_routines", "context_queue"}, context.business_id, produce)

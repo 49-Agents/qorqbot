@@ -23,7 +23,7 @@ function attentionAgentsUnavailable(p, agentId, error) {
   attentionAgentsObserve(p, cache);
   if (p.attentionCache !== cache || !p.attentionBoard) return;
   const board=p.attentionBoard;
-  board.data=null; board.focusRead=null; board.workspace.dispose();
+  board.data=null; board.workspace.dispose();
   board.board.querySelector('[data-attention-record]').hidden=true;
   board.board.querySelector('.agfocus-layout').classList.remove('agfocus-thread-open');
   agfocusOverlayClose(p);
@@ -121,8 +121,7 @@ function attentionAgentsPaint(p) {
     const row=document.createElement('button');row.type='button';row.className='attention-agent';row.dataset.attentionAgent=agent.agent_id;
     row.setAttribute('aria-pressed',String(selected === agent.agent_id));
     const name=agent.display_name || agent.name || 'Agent';
-    row.innerHTML=identityAvatar('agent',name,agent)+'<span class="attention-agent-copy"><span class="attention-agent-heading"><strong></strong><span class="attention-agent-focus"></span></span><span class="attention-agent-intent"></span></span>';
-    row.querySelector('strong').textContent=name;
+    row.innerHTML=identityAvatar('agent',name,agent)+'<span class="attention-agent-copy"><span class="attention-agent-heading"><span class="attention-agent-focus"></span></span><span class="attention-agent-intent"></span></span>';
     const attention=data?.attention, focus=attention?.focus;
     const focused=attention?.state === 'focused' && focus && !focus.unavailable;
     row.querySelector('.attention-agent-focus').textContent=!data ? (error ? 'Focus unavailable' : 'Loading focus…')
@@ -130,6 +129,7 @@ function attentionAgentsPaint(p) {
     const intent=row.querySelector('.attention-agent-intent');
     intent.textContent=focused ? attention.intent || 'No intent recorded' : '';
     intent.hidden=!focused;
+    row.setAttribute('aria-label',name+': '+row.querySelector('.attention-agent-focus').textContent+(focused ? '. '+intent.textContent : ''));
     if (error) { const stale=document.createElement('span');stale.className='attention-agent-stale';stale.textContent='Couldn’t refresh';row.querySelector('.attention-agent-copy').append(stale); }
     row.onclick=()=>{void attentionBoardSelectAgent(p,agent.agent_id);};
     host.append(row);

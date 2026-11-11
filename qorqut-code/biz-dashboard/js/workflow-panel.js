@@ -1,90 +1,154 @@
-// Read-only Step list for the workflow Ordubashy currently has in Focus, shown directly above the native chat composer.
-// Source is the workflow summary in attention_get's focus (exact run, engine step states); the panel never starts or controls a run.
-const WORKFLOW_PANEL_REFRESH_MS = 5000;
+// Recorded Focus, Intent and the full Todo list above the native chat composer.
+// Workflow focus keeps its canonical steps; only the native session controls the working dots.
 const WORKFLOW_PANEL_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 const WORKFLOW_PANEL_STATE = {completed: 'done', active: 'working', pending: 'open'};
 const WORKFLOW_PANEL_TEXT = {completed: 'Done', active: 'Working', pending: 'Upcoming'};
 
-function workflowPanelStepBall(step, blocked) {
-  const ball = document.createElement('span');
-  ball.className = 'ball ' + (blocked ? 'blocked' : WORKFLOW_PANEL_STATE[step.status] || 'open');
-  const core = document.createElement('span'); core.className = 'core'; ball.append(core);
-  return ball;
-}
-
-function workflowPanelMount(composer, agentId) {
+function chatFocusPanelMount(composer, agentId, {visible, onChange, workingTag}) {
   const panel = document.createElement('section');
-  panel.className = 'wfpanel agfocus'; panel.hidden = true; panel.setAttribute('aria-label', 'Workflow steps');
+  panel.className = 'wfpanel'; panel.setAttribute('aria-label', 'Agent focus and Todo');
+  panel.innerHTML = '<div class="wfpanel-context-row"><div class="gchat-context" tabindex="0" aria-label="Agent focus and intent"><dl><dt>Focus</dt><dd class="gchat-focus-label">Loading…</dd><dt>Intent</dt><dd class="gchat-focus-intent">Loading…</dd></dl></div></div>';
   const head = document.createElement('button');
   head.type = 'button'; head.className = 'quiet wfpanel-head';
   const name = document.createElement('span'); name.className = 'wfpanel-name';
-  const symbol = document.createElement('span'); symbol.className = 'wfpanel-symbol'; symbol.innerHTML = T_VIEW_ICON.workflow;
   const chevron = document.createElement('span'); chevron.className = 'wfpanel-chevron'; chevron.innerHTML = WORKFLOW_PANEL_ICON;
-  head.append(symbol, name, chevron);
-  const list = document.createElement('ol'); list.className = 'wfpanel-steps agfocus-items';
+  head.append(name, chevron);
+  const list = document.createElement('ol'); list.className = 'wfpanel-steps'; list.tabIndex = 0; list.setAttribute('aria-label', 'Todo');
   panel.append(head, list);
   composer.before(panel);
-  let open = true, disposed = false, busy = false, token = 0, last = 0, dirty = false, trailing = null, summary = null;
-  const reads = new AbortController();
+  const resize=document.createElement('div');resize.className='wfpanel-resize';resize.tabIndex=0;
+  resize.setAttribute('role','separator');resize.setAttribute('aria-orientation','horizontal');resize.setAttribute('aria-label','Resize Todo height');
+  resize.title='Drag to resize Todo. Double-click to reset.';panel.prepend(resize);
+  const heightKey='chat-todo-height';let requestedHeight=null,drag=null;
+  try {const saved=Number(localStorage.getItem(heightKey));if(Number.isFinite(saved) && saved>0)requestedHeight=saved;}catch(_){}
+  const limits=()=>{const max=Math.max(80,Math.min(600,panel.parentElement.getBoundingClientRect().height*.65));return {min:Math.min(120,max),max};};
+  const applyHeight=()=>{
+    const {min,max}=limits();
+    if(requestedHeight!==null){panel.style.setProperty('--wfpanel-height',Math.min(max,Math.max(min,requestedHeight))+'px');panel.style.setProperty('--wfpanel-max-height','min(65%,600px)');}
+    else {panel.style.removeProperty('--wfpanel-height');panel.style.removeProperty('--wfpanel-max-height');}
+    resize.setAttribute('aria-valuemin',String(Math.round(min)));resize.setAttribute('aria-valuemax',String(Math.round(max)));
+    resize.setAttribute('aria-valuenow',String(Math.round(panel.getBoundingClientRect().height)));
+  };
+  const saveHeight=()=>{try{if(requestedHeight===null)localStorage.removeItem(heightKey);else localStorage.setItem(heightKey,String(requestedHeight));}catch(_){}};
+  const setHeight=value=>{const {min,max}=limits();requestedHeight=Math.min(max,Math.max(min,value));applyHeight();onChange();};
+  resize.onpointerdown=event=>{
+    if(event.button!==0 || !event.isPrimary)return;
+    event.preventDefault();drag={id:event.pointerId,y:event.clientY,height:panel.getBoundingClientRect().height};
+    resize.setPointerCapture(event.pointerId);panel.classList.add('wfpanel-resizing');
+  };
+  resize.onpointermove=event=>{if(drag?.id===event.pointerId)setHeight(drag.height+drag.y-event.clientY);};
+  const finishResize=event=>{
+    if(drag?.id!==event.pointerId)return;
+    drag=null;panel.classList.remove('wfpanel-resizing');if(resize.hasPointerCapture(event.pointerId))resize.releasePointerCapture(event.pointerId);saveHeight();
+  };
+  resize.onpointerup=finishResize;resize.onpointercancel=finishResize;resize.onlostpointercapture=finishResize;
+  resize.ondblclick=()=>{requestedHeight=null;applyHeight();saveHeight();onChange();};
+  resize.onkeydown=event=>{
+    if(!['ArrowUp','ArrowDown','Home','End'].includes(event.key))return;
+    event.preventDefault();const {min,max}=limits(),height=panel.getBoundingClientRect().height;
+    setHeight(event.key==='Home'?min:event.key==='End'?max:height+(event.key==='ArrowUp'?24:-24));saveHeight();
+  };
+  const sizeObserver=new ResizeObserver(applyHeight);sizeObserver.observe(panel.parentElement);applyHeight();
+  const todoKey = 'agent-todo-preview:' + agentId;
+  const mobile = matchMedia('(max-width: 700px)');
+  const workingHost = workingTag.parentElement, contextRow = panel.querySelector('.wfpanel-context-row');
+  // Keep the same native-session indicator; mobile still needs it when the pane is hidden.
+  const placeWorkingTag = () => { if (mobile.matches) workingHost.prepend(workingTag); else contextRow.append(workingTag); };
+  placeWorkingTag();
+  let open = true, disposed = false, pending = null, last = 0, attention = null, loaded = false, focusError = false, todoError = false;
+  let todos = uiReads.peek(todoKey)?.items || null;
+  const show = () => { panel.hidden = false; };
 
   const paint = () => {
-    const hidden = !summary || summary.unavailable || !summary.steps?.length;
-    panel.hidden = hidden;
-    if (hidden) { list.replaceChildren(); return; }
-    name.textContent = summary.name || 'Workflow';
+    const focus = attention?.focus, focused = attention?.state === 'focused' && focus && !focus.unavailable;
+    panel.querySelector('.gchat-focus-label').textContent = !loaded ? 'Loading…' : focusError || focus?.unavailable ? 'Focus unavailable'
+      : focused ? focus.label || attention.task?.label || 'Focused' : 'No focus set';
+    panel.querySelector('.gchat-focus-intent').textContent = !loaded ? 'Loading…' : focusError || focus?.unavailable ? 'Intent unavailable'
+      : focused && attention.intent ? attention.intent : 'No intent recorded';
+    const workflow = focused && focus.type === 'workflow' && !attention.workflow?.unavailable ? attention.workflow : null;
+    name.textContent = 'Todo';
     head.setAttribute('aria-expanded', String(open));
-    head.setAttribute('aria-label', (open ? 'Hide steps of ' : 'Show steps of ') + name.textContent);
+    head.setAttribute('aria-label', (open ? 'Hide ' : 'Show ') + name.textContent.toLowerCase());
     panel.classList.toggle('wfpanel-collapsed', !open);
-    list.hidden = !open;
-    const rows = [];
-    for (const step of summary.steps) {
-      const blocked = !!(step.current && summary.blocked);
-      const row = document.createElement('li');
-      row.className = 'agfocus-card agfocus-collapsed';
+    list.hidden = !open;resize.hidden=!open;
+    const workflowSteps = workflow?.steps || [];
+    const todoItems = attentionBoardGroups(todos || []).flatMap(group => group.items);
+    const steps = [...workflowSteps, ...todoItems.map(item => ({label: item.task.title, status: item.task.status}))];
+    const rows = steps.map(step => {
+      const blocked = !!(step.current && workflow?.blocked);
+      const row = document.createElement('li'); row.className = 'wfpanel-step';
       if (step.current) row.setAttribute('aria-current', 'step');
-      const status = blocked ? 'Blocked' : step.current && summary.paused ? 'Paused' : WORKFLOW_PANEL_TEXT[step.status] || step.status;
+      const status = blocked ? 'Blocked' : step.current && workflow?.paused ? 'Paused' : WORKFLOW_PANEL_TEXT[step.status] || step.status;
       row.setAttribute('aria-label', step.label + ': ' + status);
-      row.innerHTML = agfocusRowHtml();
-      row.querySelector('.ttl').textContent = step.label;
-      row.querySelector('.agfocus-marker').append(workflowPanelStepBall(step, blocked));
-      if (blocked && summary.blocker_reason) {
-        const reason = document.createElement('p'); reason.className = 'agfocus-error'; reason.textContent = summary.blocker_reason; row.append(reason);
+      const ball = document.createElement('span');
+      ball.className = 'ball agfocus-task-state ' + (blocked ? 'blocked' : WORKFLOW_PANEL_STATE[step.status] || step.status || 'open');
+      ball.setAttribute('aria-hidden', 'true'); ball.innerHTML = '<span class="core"></span>';
+      const label = document.createElement('span'); label.className = 'wfpanel-label'; label.textContent = step.label;
+      row.append(ball, label);
+      if (blocked && workflow.blocker_reason) {
+        const reason = document.createElement('p'); reason.className = 'wfpanel-error'; reason.textContent = workflow.blocker_reason; row.append(reason);
       }
-      rows.push(row);
+      return row;
+    });
+    if (workflowSteps.length) {
+      const heading = text => { const row = document.createElement('li'); row.className = 'wfpanel-list-heading'; row.textContent = text; return row; };
+      rows.splice(workflowSteps.length, 0, heading('Todo'));
+      rows.unshift(heading('Workflow steps'));
     }
+    if (!todos?.length) {
+      const empty = document.createElement('li'); empty.className = 'wfpanel-empty';
+      empty.textContent = todoError ? 'Todo unavailable' : todos ? 'No tasks on Todo.' : 'Loading Todo…'; rows.push(empty);
+    }
+    const scrollTop = list.scrollTop;
     list.replaceChildren(...rows);
+    list.scrollTop = scrollTop;
+    show(); onChange();
   };
-
-  // One guarded read of the existing Attention endpoint (single-item page); an older answer never replaces a newer one.
-  async function refresh(force = false) {
+  const receive = data => {
     if (disposed) return;
-    // Skipped requests are never lost: one trailing refresh runs once the throttle, the in-flight read or a hidden tab clears.
-    if (busy || document.hidden || (!force && Date.now() - last < WORKFLOW_PANEL_REFRESH_MS)) {
-      dirty = true;
-      if (!busy && !document.hidden && !trailing) trailing = setTimeout(() => { trailing = null; void refresh(); }, Math.max(0, WORKFLOW_PANEL_REFRESH_MS - (Date.now() - last)));
-      return;
-    }
-    clearTimeout(trailing); trailing = null; dirty = false;
-    busy = true; last = Date.now();
-    const mine = ++token;
-    try {
-      const data = coreData(await post('/root/operations/attention_get', {scope: 'global', agent_id: agentId, projection: 'focus'}, {signal: reads.signal}));
-      if (disposed || mine !== token) return;
-      summary = data?.agent_id === agentId && data.attention?.focus?.type === 'workflow' ? data.attention.workflow || null : null;
-    } catch (_) {
-      if (disposed || mine !== token) return;
-      summary = null;
-    } finally {
-      busy = false;
-      if (!disposed && dirty && !trailing && !document.hidden) trailing = setTimeout(() => { trailing = null; void refresh(); }, Math.max(0, WORKFLOW_PANEL_REFRESH_MS - (Date.now() - last)));
-    }
-    paint();
-  }
+    attention = data?.attention || null; loaded = true; focusError = !data; paint();
+  };
+  const refresh = (force = false) => {
+    if (disposed || mobile.matches || document.hidden || !visible() || !force && Date.now() - last < 12000) return Promise.resolve();
+    if (pending) return pending;
+    last = Date.now();
+    // Focus can paint immediately from its shared snapshot while Todo pages load.
+    pending = Promise.all([
+      agentFocusRead(agentId, {force}).then(receive, () => receive(null)),
+      uiReads.read(todoKey, async () => {
+        const items = [], seen = new Set();
+        let cursor = null;
+        do {
+          if (disposed || mobile.matches || !visible()) throw Error('Todo hidden');
+          const data = coreData(await post('/root/operations/todo_get', {scope: 'global', agent_id: agentId, projection: 'summary', limit: 100, ...(cursor ? {cursor} : {})}));
+          if (data?.agent_id !== agentId || !Array.isArray(data.items)) throw Error('Todo unavailable');
+          items.push(...data.items); cursor = data.next_cursor;
+          if (cursor && seen.has(cursor)) throw Error('Todo pagination did not advance');
+          if (cursor) seen.add(cursor);
+        } while (cursor);
+        return {items};
+      }, {force}).then(data => {
+        if (disposed) return;
+        todos = data.items; todoError = false; paint();
+      }, () => {
+        if (disposed) return;
+        todos = null; todoError = true; paint();
+      }),
+    ]).finally(() => { pending = null; });
+    return pending;
+  };
+  const unsubscribe = uiReads.subscribe(agentFocusKey(agentId), receive);
+  const cached = uiReads.peek(agentFocusKey(agentId));
+  if (cached) receive(cached); else paint();
   head.onclick = () => { open = !open; paint(); };
+  queueMicrotask(() => { void refresh(); });
+  const timer = setInterval(() => { void refresh(); }, 12000);
   const onVisible = () => { if (!document.hidden) void refresh(); };
+  const onResize = () => { placeWorkingTag(); onChange(); if (!mobile.matches) void refresh(true); };
   document.addEventListener('visibilitychange', onVisible);
+  mobile.addEventListener('change', onResize);
   return {
-    refresh,
-    dispose() { disposed = true; token++; reads.abort(); clearTimeout(trailing); document.removeEventListener('visibilitychange', onVisible); panel.remove(); },
+    refresh, show,
+    dispose() { disposed = true; sizeObserver.disconnect(); unsubscribe(); clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); mobile.removeEventListener('change', onResize); workingHost.prepend(workingTag); panel.remove(); },
   };
 }

@@ -134,11 +134,16 @@ const remInputOf = date => `${date.getFullYear()}-${remPad(date.getMonth() + 1)}
 // ---------------------------------------------------------------- detail (shared by modal and record reader)
 // Controller for one reminder. `opts.onChange(reminder|null, op)` runs after an applied or refreshed result.
 function remindersDetailMount(host, initial, opts = {}) {
-  let current = remNormalize(initial), busy = false, verifiedOwner = null, duplicate = null, error = '', gone = false, snoozeOpen = false, confirmCancel = false, disposed = false;
+  let current = remNormalize(initial), busy = false, verifiedOwner = null, duplicate = null, error = '', gone = false, snoozeOpen = false, confirmCancel = false, disposed = false, loaded = false;
   const box = document.createElement('div');
   box.className = 'rem-detail';
   host.append(box);
   const alive = () => !disposed && box.isConnected;
+  const acknowledge = () => {
+    if(loaded && !gone && alive() && !document.hidden && box.getClientRects().length && !box.closest('[hidden],[inert],[aria-hidden="true"]') && typeof attentionQueue!=='undefined')attentionQueue.reminderViewed(current);
+  };
+  window.addEventListener('focus', acknowledge);
+  document.addEventListener('visibilitychange', acknowledge);
   const node = (tag, className, text) => { const n = document.createElement(tag); if (className) n.className = className; if (text != null) n.textContent = text; return n; };
 
   function paint() {
@@ -237,8 +242,9 @@ function remindersDetailMount(host, initial, opts = {}) {
     }
     if (!alive()) return false;
     const refreshed = !!data.reminder;
-    if (refreshed) { current = remNormalize(data.reminder); gone = false; error = ''; }
+    if (refreshed) { current = remNormalize(data.reminder); gone = false; error = ''; loaded = true; }
     paint();
+    if(refreshed)acknowledge();
     opts.onChange?.(current, 'reminders_get');
     return refreshed;
   }
@@ -266,7 +272,7 @@ function remindersDetailMount(host, initial, opts = {}) {
         else if (remFail(failure)) { if (await reload()) error = 'This reminder changed since you opened it. It was refreshed; check and try again.'; }
         else error = failure.message || uiFailure(failure);
       }
-    } finally { busy = false; await refreshPending(); if (alive()) paint(); }
+    } finally { busy = false; await refreshPending(); if (alive()) { paint(); acknowledge(); } }
   }
   async function refreshPending() {
     verifiedOwner=null; if (alive()) paint();
@@ -283,7 +289,7 @@ function remindersDetailMount(host, initial, opts = {}) {
     reminder: () => current,
     isBusy: () => busy,
     refresh: reload,
-    dispose() { disposed = true; window.removeEventListener('focus',onFocus); box.remove(); },
+    dispose() { disposed = true; window.removeEventListener('focus',onFocus); window.removeEventListener('focus', acknowledge); document.removeEventListener('visibilitychange', acknowledge); box.remove(); },
   };
 }
 

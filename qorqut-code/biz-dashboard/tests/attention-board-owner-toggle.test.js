@@ -12,7 +12,7 @@ async function fixture(width) {
   const browser = await chromium.launch({headless:true, executablePath:process.env.CHROME_PATH || undefined});
   const page = await browser.newPage();
   await page.setViewportSize({width,height:520});
-  await page.setContent('<div class="agfocus" data-attention-board><header><div data-attention-focus></div><p data-attention-error hidden></p></header><div data-attention-list></div></div>');
+  await page.setContent('<div class="agfocus" data-attention-board><header><p data-attention-error hidden></p></header><div data-attention-list></div></div>');
   await page.addStyleTag({path:path.join(__dirname,'../app.css')});
   await page.addStyleTag({path:path.join(__dirname,'../css/agent-focus.css')});
   await page.evaluate(() => {

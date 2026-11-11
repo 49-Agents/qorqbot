@@ -344,6 +344,22 @@ function sgCreateView(options) {
   const capture = () => ({ slug: sg.slug, generation: sg.generation, mount: sg.mount });
   const mounted = c => c.slug === workspace() && c.slug === sg.slug && c.generation === sg.generation && c.mount === sg.mount && c.mount && c.mount.isConnected;
   const current = c => active() && mounted(c);
+  // Loading an inline preview near the viewport is not an owner read. Observe
+  // the selected detail itself, after it has rendered, including clipped feeds.
+  let readTarget=null,readVisible=false;
+  const readObserver=typeof IntersectionObserver==='undefined'?null:new IntersectionObserver(entries=>{
+    for(const entry of entries)if(entry.target===readTarget)readVisible=entry.isIntersecting;
+    markSelectedRead();
+  });
+  function markSelectedRead(){
+    if(!active() || !sg.mount?.isConnected)return;
+    const item=sg.items.get(sg.selected);
+    const detail=[...sg.mount.querySelectorAll('.sg-row')].find(row=>row.dataset.id===sg.selected)?.querySelector('.sg-detail');
+    if(detail!==readTarget){readObserver?.disconnect();readTarget=detail;readVisible=!readObserver;if(detail)readObserver?.observe(detail);}
+    if(readVisible && detail && item && !sg.error && !sg.detailErrors.has(item.id) && sg.verified.get(item.id)===item.status_revision && completePreview(item) && typeof attentionQueue!=='undefined')attentionQueue.signoffViewed(item,detail);
+  }
+  document.addEventListener('visibilitychange',markSelectedRead);
+  window.addEventListener('focus',markSelectedRead);
   const path = (slug, id = "") => `${options.global ? "/root" : "/biz/" + encodeURIComponent(slug)}/signoffs${id ? "/" + encodeURIComponent(id) : ""}`;
   const binding = s => `${s.id}:${s.proposal_revision}:${s.payload_hash}`;
   const expected = s => s.actionable !== false && (!options.expectedBinding || (!options.readOnly && s.id === options.expectedBinding.signoff_id && s.proposal_revision === options.expectedBinding.proposal_revision && s.payload_hash === options.expectedBinding.payload_hash && !s.superseded_by_id && options.expectedBinding.actionable));
@@ -903,6 +919,7 @@ function sgCreateView(options) {
     }
     const anchor = selectedRow && selectedRow.isConnected ? selectedRow.getBoundingClientRect().top : null;
     sg.mount.scrollTop = scroll + (anchorTop != null && anchor != null ? anchor - anchorTop : 0);
+    markSelectedRead();
   }
   async function loadDetail(id, force = false) {
     if (!active() || !sg.slug) return;
@@ -917,7 +934,6 @@ function sgCreateView(options) {
       if(s.id!==id){sg.items.delete(id);sg.order=sg.order.filter(key=>key!==id);sg.selected=s.id;sg.selections.set(sg.slug,s.id);}
       if (merge(s)) {
         sg.verified.set(s.id, s.status_revision);
-        if(typeof attentionQueue!=='undefined')attentionQueue.signoffViewed(s);
         const receipt = sg.busy.get(busyKey(c.slug, s));
         if (receipt && s.state !== "pending") finishReceipt(receipt, s);
         appliedRefresh(s, c.slug);
@@ -970,7 +986,6 @@ function sgCreateView(options) {
         if (receipt && item.state !== 'pending') finishReceipt(receipt, item);
         sg.nextCursor = null; sg.error = null; sg.loaded = true;
         appliedRefresh(item, c.slug);
-        if(typeof attentionQueue!=='undefined')attentionQueue.signoffViewed(item);
         return;
       }
       const responses = await Promise.all([api(path(c.slug) + "?" + query), sg.session ? Promise.resolve(null) : api("/session")]);
@@ -1399,8 +1414,8 @@ function sgCreateView(options) {
       const textarea = row && row.querySelector(".sg-feedbackwrap .sg-feedback");
       if (selected && draftKey(selected) === key && textarea && textarea.value !== value) { textarea.value = value; if (options.inline || sgIsDraftReview(selected)) fitFeedback(textarea); }
     },
-    suspend() { sg.generation++; sg.mount = null; sg.loading = false; sg.detailLoading = null; },
-    dispose() { this.suspend(); window.removeEventListener('resize',resizeMessages); sgViews.delete(view); document.removeEventListener('click', outsideClick); document.removeEventListener('pointerdown', outsidePointer, true); },
+    suspend() { readObserver?.disconnect();readTarget=null;readVisible=false;sg.generation++; sg.mount = null; sg.loading = false; sg.detailLoading = null; },
+    dispose() { this.suspend();window.removeEventListener('focus',markSelectedRead);document.removeEventListener('visibilitychange',markSelectedRead);window.removeEventListener('resize',resizeMessages); sgViews.delete(view); document.removeEventListener('click', outsideClick); document.removeEventListener('pointerdown', outsidePointer, true); },
     livePaint(slug, live) {
       if (slug !== workspace() || slug !== sg.slug || active() || !live || !Number.isInteger(live.signoffs_pending)) return;
       sg.counts = { ...(sg.counts || {}), pending: live.signoffs_pending };

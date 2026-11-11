@@ -75,14 +75,20 @@ function ntPreview(content) {
 
 // ---- data
 async function ntFetch() {
-  if (!ntScope()) { ntNotes = []; return; }
+  if (!ntScope()) { ntNotes = []; ntLoadedScope = null; return; }
   const key = ntListKey(), biz = ntScope(), owner = ntMount, generation = ntGeneration;
-  if (ntTargetMissing(biz)) { toast("Couldn't load. Retry"); return; }
+  if (ntTargetMissing(biz)) throw new Error('This project is unavailable.');
   const r = await api(ntEndpoint(biz) + (biz !== '/root' ? `?target_business_id=${encodeURIComponent(ntProjectId(biz))}` : ''));
   // The read belongs to the editor that started it: once that mount is gone the response can neither
   // replace this list nor be painted into a later mount (both mounts read the same Global scope).
   if (ntMount !== owner || ntGeneration !== generation || ntListKey() !== key) return;
-  if (Array.isArray(r)) { ntNotes = r; ntLoadedScope = key; } else if (r && r.error) toast("Couldn't load. Retry");
+  if (!Array.isArray(r)) {
+    if ([401, 403].includes(r?.httpStatus)) { ntNotes = []; ntLoadedScope = null; }
+    throw new Error(r?.error || "Couldn't load notes.");
+  }
+  const changed = ntLoadedScope !== key || JSON.stringify(ntNotes) !== JSON.stringify(r);
+  ntNotes = r; ntLoadedScope = key;
+  return changed;
 }
 const ntById = id => ntNotes.find(n => n.id === id);
 async function ntCreate(fields, biz = ntScope()) {
@@ -119,24 +125,43 @@ async function ntDeleteReq(id, version = ntById(id) || {}, biz = ntScope()) {
 // ---- entry / flush
 // called by tasks.js's tSetView(v) on tab-entry ("notes") and by its 500ms business-change interval
 function tPaintNotes() { ntOpenView(); }
+function ntLoadingHtml() {
+  return `<div class="nt-loading" role="status">
+    <div class="nt-loading-label"><span class="nt-loading-dot" aria-hidden="true"></span>Loading notes…</div>
+    <div class="nt-loading-paper" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  </div>`;
+}
+function ntLoadError() {
+  const body = nt$("#tbody"); if (!body) return;
+  body.removeAttribute('aria-busy');
+  if (ntLoadedScope === ntListKey()) { toast("Couldn't refresh notes. Try again."); return; }
+  body.className = 'tbody nt';
+  body.innerHTML = '<div class="nt-load-error" role="status"><p>Couldn’t load notes.</p><button class="btn" type="button">Try again</button></div>';
+  body.querySelector('button').onclick = ntOpenView;
+}
 function ntOpenView() {
   if (ls("ntlistoff") == null && ntPaneWidth() <= 760) ntListOff = true;
-  let justRestored = false;
-  if(ntRestoredBiz!==ntListKey()){ntNotes=[];ntSel=null;ntSearch="";ntLoadedScope=null;const body=nt$("#tbody");if(body)body.innerHTML='<p class="muted">Loading notes…</p>';}
   if (ntScope() && ntRestoredBiz !== ntListKey()) {
+    if (ntLoadedScope !== ntListKey()) { ntNotes = []; ntLoadedScope = null; }
+    ntSel = null; ntSearch = '';
     ntRestoredBiz = ntListKey();
     const saved = ls(ntKey());
-    // ntNotes isn't loaded yet here, so ntRender's not-found fallback would wipe an unverified id
-    // right back to null; skip the synchronous render this once and let the fetch below paint it
-    if (saved) { ntSel = saved; justRestored = true; }
+    if (saved) ntSel = saved;
   }
-  if (!justRestored && ntLoadedScope === ntListKey()) ntRender();
-  if (!ntScope()) return;
+  if (!ntScope()) { ntRender(); return; }
+  if (ntLoadedScope === ntListKey()) ntRender();
+  else {
+    const body = nt$("#tbody");
+    if (body) { body.className = 'tbody nt'; body.setAttribute('aria-busy', 'true'); body.innerHTML = ntLoadingHtml(); }
+  }
   const key = ntListKey(), generation = ntGeneration;
+  const current = () => ntGeneration === generation && ntActive() && ntListKey() === key;
   // Until the session lands the owner is assumed; repaint if this viewer only reads.
   if (ntBusinessScope() && !state.session && typeof loadSession === "function")
-    loadSession().then(() => { if (ntGeneration === generation && ntActive() && ntListKey() === key && ntReadOnly() && !ntEditState?.dirty) ntRender(); }).catch(() => {});
-  ntFetch().then(() => { if (ntGeneration === generation && ntActive() && ntListKey() === key && !ntEditState?.dirty && !ntEditState?.saving) ntRender(); });
+    loadSession().then(() => { if (current() && ntLoadedScope === key && ntReadOnly() && !ntEditState?.dirty) ntRender(); }).catch(() => {});
+  ntFetch().then(changed => {
+    if (current() && changed && !ntEditState?.dirty && !ntEditState?.saving) ntRender();
+  }).catch(() => { if (current()) ntLoadError(); });
 }
 // force-save whatever's dirty in the open editor, reading the DOM/model before it's torn down by a
 // repaint; used when the tab is left or the business/selection changes (tasks.js's tSetView/interval)
@@ -152,6 +177,8 @@ async function ntFlush() {
 // ---- render dispatch
 function ntRender() {
   const body = nt$("#tbody"); if (!body) return;
+  const arriving = !!body.querySelector('.nt-loading');
+  body.removeAttribute('aria-busy');
   if (!ntScope()) { body.className = "tbody"; body.innerHTML = `<div class="tempty"><div class="ic">${SVG_TINBOX}</div><p class="t">Pick a project first.</p></div>`; return; }
   if (ntSel == null) {
     body.className = "tbody nt nt-home";
@@ -164,6 +191,7 @@ function ntRender() {
     body.innerHTML = ntDetailHtml(n);
     ntWireDetail(body, n);
   }
+  if (arriving) body.classList.add('nt-arriving');
 }
 // non-typing refreshes (pin, rename): patch sidebar/meta in place, never rebuild the homepage or the
 // open lines editor from a background write
@@ -1200,9 +1228,11 @@ function journalMount(root, options = {}) {
   };
   ntMount = mount;
   ntGeneration++;   // a new editor: reads started by any earlier one can no longer land in it
-  // A new mount never inherits another pane's list, restore marker or pending timer.
+  // Keep the last successful list for this same scope so reopening paints immediately.
+  // Responses still belong to their original generation; drafts and timers remain mount-owned.
   ntClearTimers(); clearTimeout(ntFilingPoll); ntFilingPoll = null;
-  ntNotes = []; ntSel = null; ntSearch = ''; ntLoadedScope = null; ntRestoredBiz = null;
+  if (ntLoadedScope !== mount.scope) { ntNotes = []; ntLoadedScope = null; }
+  ntSel = null; ntSearch = ''; ntRestoredBiz = null;
   if (ntEditState && !ntEditState.dirty) ntEditState = null;   // an unsaved draft stays until its own entry is shown
   root.innerHTML = '<section id="tbody" class="tbody nt" aria-label="Journal"></section>';
   ntOpenView();

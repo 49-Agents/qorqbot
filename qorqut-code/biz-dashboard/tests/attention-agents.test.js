@@ -85,6 +85,12 @@ browserTest('Ordubashy stays first while only focused workers appear, including 
   const {browser,page,errors}=await fixture();
   try {
     assert.deepEqual(await agentIds(page),['ord','atlas','cedar']);
+    assert.equal(await page.locator('.attention-agent-heading strong').count(),0);
+    assert.match(await page.locator('[data-attention-agent=ord]').getAttribute('aria-label'),/^Ordubashy: Coordinate launch/);
+    assert.equal(await page.locator('[data-attention-focus]').count(),0);
+    assert.equal(await page.locator('[data-attention-agent=ord] .attention-agent-focus').textContent(),'Coordinate launch');
+    assert.equal(await page.locator('[data-attention-agent=ord] .attention-agent-intent').textContent(),'Check the remaining launch tasks.');
+    assert.deepEqual(await titles(page),['Global task']);
     assert.equal(await page.locator('[data-attention-agent=atlas] .attention-agent-intent').textContent(),'Verify the sources <img src=x onerror=alert(1)>.');
     assert.equal(await page.locator('[data-attention-agent] img').count(),0);
     assert.equal(await page.locator('[data-attention-agent=lens]').count(),0);
@@ -99,6 +105,12 @@ browserTest('Ordubashy stays first while only focused workers appear, including 
     await refresh(page);
     assert.deepEqual(await agentIds(page),['ord','cedar','lens']);
     assert.equal(await page.locator('[data-attention-agent=ord] .attention-agent-focus').textContent(),'No focus set');
+    const row=await page.locator('[data-attention-agent=ord]').boundingBox();
+    const avatar=await page.locator('[data-attention-agent=ord] > .identity-avatar').boundingBox();
+    const copy=await page.locator('[data-attention-agent=ord] .attention-agent-copy').boundingBox();
+    assert.equal(avatar.width,28);
+    assert.ok(Math.abs(avatar.y+avatar.height/2-(row.y+row.height/2))<1);
+    assert.ok(Math.abs(copy.y+copy.height/2-(row.y+row.height/2))<1);
     await page.evaluate(()=>{boards.cedar.attention={state:'focused',focus:{unavailable:true}};boards.lens.attention={state:'unfocused'};});
     await refresh(page);
     assert.deepEqual(await agentIds(page),['ord']);
@@ -197,7 +209,7 @@ browserTest('narrow panes support keyboard selection, the owner filter and full 
     await refresh(page);
     await page.locator('[data-attention-agent=atlas]').focus();await page.keyboard.press('Enter');
     await page.waitForFunction(()=>p.attentionAgentId==='atlas' && !p.attentionCache.run);
-    assert.equal(await page.locator('.attention-intent').textContent(),'A long recorded intention. '.repeat(35));
+    assert.equal(await page.locator('[data-attention-agent=atlas] .attention-agent-intent').textContent(),'A long recorded intention. '.repeat(35));
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
     await page.locator('.attention-owner-toggle').click();
     assert.deepEqual(await titles(page),[]);

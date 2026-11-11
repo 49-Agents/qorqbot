@@ -8,7 +8,7 @@ EXECUTION_STATES = ("not_applicable", "not_started", "applied", "conflicted", "f
 
 
 def execution_state(row, uow=None):
-    if row["category"] == "input_request":
+    if row["category"] in {"input_request", "side_chat"}:
         return "not_applicable"
     if uow is not None:
         return uow.connection.execute("SELECT " + execution_sql("s") + " FROM signoffs s WHERE s.id=?", (row["id"],)).fetchone()[0]
@@ -27,7 +27,7 @@ def execution_sql(alias):
     # Fixed internal alias, never caller SQL. Mirrors execution_state for pagination.
     if alias != "s":
         raise ValueError("Unsupported SQL alias")
-    return """(CASE WHEN s.category = 'input_request' THEN 'not_applicable' WHEN s.category = 'internal_change' THEN
+    return """(CASE WHEN s.category IN ('input_request','side_chat') THEN 'not_applicable' WHEN s.category = 'internal_change' THEN
         CASE WHEN s.state IN ('applied','conflicted','failed') THEN s.state ELSE 'not_started' END
         WHEN json_extract(s.execution_json, '$.state') IS NOT NULL THEN
             CASE WHEN json_extract(s.execution_json, '$.state') = 'dispatched' AND EXISTS (
