@@ -521,7 +521,7 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     runtime.native_chat = NativeChat.build(runtime)
     from qorqut.overseer.operations import OverseerOperations
     runtime.overseer = OverseerOperations(runtime).register()
-    from qorqut.native_chat.nudges import NudgeBackend, delivery_view
+    from qorqut.native_chat.nudges import NudgeBackend, delivery_view, isolated
     # The shared reminder service is registered (its operations, legacy wrappers, delivery adapter and runtime.reminders /
     # application.reminders) before the nudge pass can call its reconcile; it needs only the application and inbox; owner delivery uses a selected extension.
     from qorqut.reminders.service import ReminderService
@@ -535,11 +535,13 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     def reconcile_inbox(uow):
         # The one bounded inbox reconcile hook: the retained Task snoozes, the shared reminders' due boundaries and pending
         # deliveries, then the durable due-extraction membership and its ordinary inbox event in this same host transaction.
-        # The reminder pass isolates its own failures with savepoints, so a bad reminder never blocks the rest.
+        # The reminder pass isolates its own failures with savepoints, so a bad reminder never blocks the rest. Each
+        # duty is isolated the same way: one that fails is rolled back and reported alone instead of discarding the
+        # others on every pass.
         if tasks:
-            tasks.reconcile_snoozes(uow)
-        runtime.reminders.reconcile(uow)
-        return reconcile_due(runtime, uow)
+            isolated(uow, "Task snooze reconcile", lambda: tasks.reconcile_snoozes(uow))
+        isolated(uow, "Reminder reconcile", lambda: runtime.reminders.reconcile(uow))
+        isolated(uow, "Due extraction reconcile", lambda: reconcile_due(runtime, uow))
 
     runtime.inbox_nudges = NudgeBackend.build(runtime, inbox, reconcile=reconcile_inbox)
     from qorqut.agentic.inbox import attach_agentic_inbox
@@ -581,7 +583,11 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     from qorqut.agents.checkpoints import AgentCheckpoints
     runtime.checkpoints = AgentCheckpoints(runtime)
     from qorqut.agents.attention import register_attention
-    register_attention(runtime)
+    attention = register_attention(runtime)
+    archive = getattr(runtime.domains, 'archive', None)
+    if archive is not None:
+        # Archiving a project takes its Tasks off every Todo board in the same write.
+        archive.release_todos = attention.release_project
     from qorqut.agentic.attention import register_workflow_attention
     register_workflow_attention(runtime)
     from qorqut.agents.attention_delivery import attach_attention_runtime

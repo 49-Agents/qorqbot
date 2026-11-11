@@ -172,6 +172,70 @@ class AttentionTests(unittest.TestCase):
             self.assertIsNotNone(self.conn.execute('SELECT 1 FROM attention_reminders WHERE agent_id=? AND sequence=0',
                                                    (agent,)).fetchone())
 
+    def test_background_pass_skips_a_board_that_cannot_be_read(self):
+        # One board whose mode could not be derived used to raise out of the write unit that every board and every
+        # timed duty shares, on every pass. It is now rolled back and skipped alone.
+        for agent in ('broken', 'idle'):
+            self.agent(agent)
+        self.conn.execute('UPDATE agent_attention SET focus_json=NULL,focus_generation=2,focus_started_at=NULL')
+        self.conn.commit()
+
+        def mode(_uow, agent):
+            if agent == 'broken':
+                self.conn.execute("UPDATE agent_attention SET board_mode='reassess' WHERE agent_id='broken'")
+                raise DomainError('business_archived', 'This project is archived')
+            return 'normal'
+        self.attention.board_mode = Mock(side_effect=mode)
+        with patch('qorqut.agents.attention.enrolled_boards', return_value=['broken', 'idle']):
+            with self.assertLogs('qorqut.native_chat.nudges', 'WARNING') as logs:
+                with self.database.transaction() as uow:
+                    self.delivery.reconcile(uow)
+        self.assertEqual([record.getMessage() for record in logs.records],
+                         ['Board reminder reconcile for broken failed and was skipped: business_archived'])
+        reminders = {row['agent_id']: row['kind'] for row in self.conn.execute('SELECT agent_id,kind FROM attention_reminders')}
+        self.assertEqual(reminders, {'idle': 'board_normal'})
+        modes = dict(self.conn.execute('SELECT agent_id,board_mode FROM agent_attention').fetchall())
+        self.assertEqual(modes, {'broken': 'empty', 'idle': 'normal'})    # the failed board's partial write is undone
+
+    def test_background_pass_still_stops_when_writes_are_closed(self):
+        self.agent('first')
+        self.conn.execute('UPDATE agent_attention SET focus_json=NULL,focus_generation=2,focus_started_at=NULL')
+        self.attention.board_mode = Mock(side_effect=DomainError('maintenance', 'Writes are unavailable'))
+        with patch('qorqut.agents.attention.enrolled_boards', return_value=['first']):
+            with self.assertRaises(DomainError):
+                self.delivery.reconcile(NS(connection=self.conn))
+
+    def test_archiving_a_project_takes_its_tasks_off_every_board(self):
+        for agent in ('first', 'second'):
+            self.agent(agent)
+        entries = (('m1', 'first', 'project', 'one'), ('m2', 'first', 'project', 'two'), ('m3', 'first', 'other', 'one'),
+                   ('m4', 'first', None, 'one'), ('m5', 'second', 'project', 'one'))
+        for identifier, agent, business, task in entries:
+            self.conn.execute('INSERT INTO attention_memberships(id,agent_id,task_business_id,task_id,task_created_at,'
+                              'created_at) VALUES(?,?,?,?,?,?)', (identifier, agent, business, task, EARLIER, EARLIER))
+        work = json.dumps({'type': 'task', 'id': 'one', 'business_id': 'project'})
+        self.conn.execute("UPDATE agent_attention SET work_task_json=? WHERE agent_id='first'", (work,))
+        self.conn.execute("UPDATE agent_attention SET work_task_json=? WHERE agent_id='second'",
+                          (json.dumps({'type': 'task', 'id': 'one', 'business_id': 'other'}),))
+        self.conn.execute('INSERT INTO attention_workflows(agent_id,run_id,consumer_id,work_task_json,workflow_ref,'
+                          "workflow_name,updated_at) VALUES('first','run','session-first',?,'ref','Example',?)", (work, EARLIER))
+        before = {row['agent_id']: row['revision'] for row in self.conn.execute('SELECT * FROM agent_attention')}
+        with self.database.transaction() as uow:
+            self.assertEqual(self.attention.release_project(uow, 'project', 'owner'), 3)
+        left = [row[0] for row in self.conn.execute('SELECT id FROM attention_memberships ORDER BY id')]
+        self.assertEqual(left, ['m3', 'm4'])
+        history = [tuple(row) for row in self.conn.execute('SELECT membership_id,agent_id,task_business_id,task_id,actor_id,'
+            'event_type,rationale FROM attention_membership_events ORDER BY membership_id')]
+        self.assertEqual(history, [(identifier, agent, 'project', task, 'owner', 'removed', 'Project archived')
+                                   for identifier, agent, business, task in entries if business == 'project'])
+        first, second = (self.attention.state(NS(connection=self.conn), agent) for agent in ('first', 'second'))
+        self.assertEqual((first['focus_json'], first['work_task_json']), (None, None))     # its focus was on that project
+        self.assertIsNotNone(second['focus_json'])                                         # a focus elsewhere is kept
+        self.assertTrue(all(state['revision'] > before[state['agent_id']] for state in (first, second)))
+        self.assertIsNotNone(self.conn.execute("SELECT detached_at FROM attention_workflows WHERE run_id='run'").fetchone()[0])
+        with self.database.transaction() as uow:
+            self.assertEqual(self.attention.release_project(uow, 'project', 'owner'), 0)   # nothing left to remove
+
     def test_registration_and_native_consumer_checks_still_precede_work(self):
         self.agent('first')
         self.assertIsNone(self.delivery.hook_claim('first', 'wrong', 'session-first'))

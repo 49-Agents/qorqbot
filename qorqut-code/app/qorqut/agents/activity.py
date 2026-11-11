@@ -24,7 +24,10 @@ from qorqut_operations.tasks.scope import task_context, task_namespace
 
 STALE_SECONDS = 180
 # A source the reader may not read: its details are withheld, never an error for the whole answer.
-UNREADABLE = frozenset({'forbidden', 'policy_denied', 'invalid_policy', 'not_found', 'operation_unavailable'})
+# ``business_archived``: a Task in an archived project is retained but is not current work, so it is left out like
+# any other Task the agent can no longer read instead of failing the whole read.
+UNREADABLE = frozenset({'forbidden', 'policy_denied', 'invalid_policy', 'not_found', 'operation_unavailable',
+                        'business_archived'})
 WORK_STALE_SECONDS = 7200
 # A worker's one current assignment: authored summary and blocked reason together stay this short in words. The
 # legacy per-session items keep their character caps (checked when written); a worker item has no character cap beyond
