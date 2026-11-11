@@ -318,12 +318,17 @@ class AttentionRuntime:
             self.attention.update_clock(uow, row['agent_id'], {field: prior})
 
     def reconcile(self, uow):
-        """One bounded pass over every enrolled board; none of them can postpone another's occurrence."""
+        """One bounded pass over every enrolled board; none of them can postpone another's occurrence.
+
+        Each board is reconciled in its own savepoint. A board that cannot be read is rolled back and reported alone,
+        so it cannot discard the other boards' occurrences or the timed duties that share this write unit."""
         from qorqut.agents.attention import enrolled_boards
+        from qorqut.native_chat.nudges import isolated
         now = self._now()
         self.hooks.recover_expired(uow, now)
         for agent_id in enrolled_boards(uow):
-            self.reconcile_board(uow, agent_id, now)
+            isolated(uow, 'Board reminder reconcile for ' + agent_id,
+                     lambda agent_id=agent_id: self.reconcile_board(uow, agent_id, now), savepoint='reconcile_board')
 
     def reconcile_board(self, uow, agent_id, now):
         advice = clock_advice(uow, agent_id, self.attention, now)

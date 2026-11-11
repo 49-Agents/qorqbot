@@ -34,11 +34,16 @@ POLICY_RULES = PolicyRules(before_override=(archive_approval_rule,))
 class BusinessArchive:
     """``reset_terminals(business_row, agent_rows)`` is the host's terminal reset. It is optional at construction because the
     real terminal service is built after the domains and assigned to ``reset_terminals`` then, never supplied by a caller;
-    until it is set, an approved archive is refused with ``operation_unavailable``."""
+    until it is set, an approved archive is refused with ``operation_unavailable``.
 
-    def __init__(self, application, *, reset_terminals=None):
+    ``release_todos(uow, business_id, actor_id)`` is the host's Todo boards, assigned the same way. It runs inside the
+    archive's own write and takes the project's Tasks off every agent's board, so no board keeps pointing at work
+    that is no longer current. A host without Todo boards leaves it unset."""
+
+    def __init__(self, application, *, reset_terminals=None, release_todos=None):
         self.application = application
         self.reset_terminals = reset_terminals
+        self.release_todos = release_todos
 
     def register(self, registry):
         registry.register(OperationDescriptor(OPERATION,
@@ -118,6 +123,7 @@ class BusinessArchive:
         builder.effects.extend([
             "Remove " + before["name"] + " (" + before["slug"] + ") from the active project menu, agent directory and normal project discovery.",
             "Reset project terminal sessions, stopping their running agents: " + (", ".join(row["name"] for row in agents) or "none registered") + ".",
+            "Take this project's tasks off every agent's Todo board. Restoring the project does not put them back.",
             "Retain project records and files. No domain, mailbox or external-service changes."])
         plan = builder.build()
         self.guard(ctx, plan, uow)
@@ -132,6 +138,8 @@ class BusinessArchive:
         # business/profile changes during this bounded, idempotent terminal reset.
         self.reset_terminals(business, self.agents(uow, business["id"]))
         apply_records(ctx, plan, uow)
+        if self.release_todos is not None:
+            self.release_todos(uow, business["id"], ctx.principal_id)
         saved = uow.repository("businesses").get(business["id"], required=True)
         return {"business_id": saved["id"], "archived": True, "revision": saved["revision"]}
 

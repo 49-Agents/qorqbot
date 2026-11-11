@@ -260,6 +260,37 @@ class SignoffSourceTests(unittest.TestCase):
         self.assertEqual(summary['input_requests'], task['input_requests'])
         self.assertEqual(summary['input_version'], task['input_version'])
 
+    def test_board_mode_leaves_out_tasks_in_an_archived_project(self):
+        # A project archived while its Tasks were still on a worker's board made every timed pass raise
+        # ``business_archived``, which discarded every agent's reminders. Those Tasks are retained, not current work.
+        from qorqut.agents.attention import Attention
+        from qorqut_operations.business_lifecycle import require_active_business
+        worker = new_id()
+        profile = {'status': 'active', 'role': {'id': 'global-worker'},
+                   'scope': {'kind': 'ecosystem', 'global_capabilities': ['read_global_context']}}
+        with self.db.transaction() as uow:
+            uow.repository('principals').insert({'id': worker, 'kind': 'agent', 'display_name': 'Example worker'})
+            uow.repository('agent_profiles', business_id=None).insert({'agent_id': worker, 'principal_id': worker,
+                'namespace': 'ecosystem', 'name': 'example-worker', 'workspace': 'example-worker', 'profile_json': profile})
+            task = uow.repository('tasks', business_id=self.business).get('work')
+            uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_business_id,task_id,task_created_at,'
+                'created_at) VALUES(?,?,?,?,?,?)', (new_id(), worker, self.business, 'work', task['created_at'], task['created_at']))
+        ctx = replace(self.ctx, principal=Principal(worker, 'agent'), source='mcp', profile_revision=1)
+        self.policy.context_for = lambda principal_id, business_id=None, review_business_id=None, **_: replace(
+            ctx if principal_id == worker else self.ctx, business_id=business_id, review_business_id=review_business_id)
+
+        def refresh(context, uow):
+            require_active_business(uow.connection, context.business_id)
+            return context
+        self.app.context_resolver = refresh
+        board = Attention(NS(application=self.app, focus=NS(inbox=NS())))
+        with self.db.read() as uow:
+            self.assertEqual(board.board_mode(uow, worker), 'normal')
+        with self.db.transaction() as uow:
+            uow.connection.execute('UPDATE businesses SET archived_at=? WHERE id=?', (task['created_at'], self.business))
+        with self.db.read() as uow:
+            self.assertEqual(board.board_mode(uow, worker), 'empty')
+
     def test_worker_creation_response_delivery_and_board_mode(self):
         from qorqut.agents.attention import Attention
         worker = new_id()
