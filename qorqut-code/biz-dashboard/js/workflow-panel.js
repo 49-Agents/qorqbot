@@ -65,17 +65,21 @@ function chatFocusPanelMount(composer, agentId, {visible, onChange, workingTag})
   const peerData=new Map();
   const peersVisible=()=>!disposed && open && !mobile.matches && !document.hidden && visible();
   const paintPeers=()=>{
-    peers.hidden=!peerAgents.length;
-    peers.replaceChildren(...peerAgents.map(agent=>{
+    const focusedAgents=peerAgents.filter(agent=>{
+      const attention=peerData.get(agent.agent_id)?.attention;
+      return attention?.state==='focused' && attention.focus && !attention.focus.unavailable;
+    });
+    peers.hidden=!focusedAgents.length;
+    peers.replaceChildren(...focusedAgents.map(agent=>{
       const row=document.createElement('div');row.className='wfpanel-agent';
       const data=peerData.get(agent.agent_id),attention=data?.attention,focus=attention?.focus;
-      const text=data===undefined?'Loading focus…':!data || focus?.unavailable?'Focus unavailable'
-        :attention?.state==='focused' && focus ? focus.label || attention.task?.label || 'Focused':'-';
+      const text=focus.label || attention.task?.label || 'Focused';
       const label=agent.display_name || agent.name || 'Agent';
       row.innerHTML=identityAvatar('agent',label,agent);
       const summary=document.createElement('span');summary.textContent=String(text).replace(/\s+/g,' ').trim();row.append(summary);
       row.title=label+': '+summary.textContent;row.setAttribute('aria-label',row.title);return row;
     }));
+    onChange();
   };
   const refreshPeers=()=>{
     if(!peersVisible() || typeof loadGlobalAgentProfiles!=='function')return Promise.resolve();
@@ -86,7 +90,7 @@ function chatFocusPanelMount(composer, agentId, {visible, onChange, workingTag})
         const agents=await loadGlobalAgentProfiles();if(!current())return;
         peerAgents=agents.filter(agent=>agent.agent_id!==agentId && globalRosterAgent(agent) && ['ordubashy','global-worker'].includes(agent.role?.id || agent.role_id));
         for(const agent of peerAgents){const cached=uiReads.peek(agentFocusKey(agent.agent_id));if(cached)peerData.set(agent.agent_id,cached);}
-        paintPeers();onChange();
+        paintPeers();
         for(let i=0;i<peerAgents.length;i+=3){
           if(!current())return;
           await Promise.all(peerAgents.slice(i,i+3).map(async agent=>{

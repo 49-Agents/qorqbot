@@ -346,14 +346,15 @@ browserTest('expanded pane shows other agents above Todo and collapses both toge
   const {browser,page,errors}=await fixture();
   try {
     await page.evaluate(()=>{
-      window.loadGlobalAgentProfiles=async()=>['ord','atlas','idle'].map(id=>({agent_id:id,name:id,role:{id:id==='ord'?'ordubashy':'global-worker'}}));
+      window.loadGlobalAgentProfiles=async()=>['ord','atlas','idle','unavailable'].map(id=>({agent_id:id,name:id,role:{id:id==='ord'?'ordubashy':'global-worker'}}));
       window.globalRosterAgent=()=>true;
       attentions.idle={state:'unfocused',focus:null,intent:'Hidden idle intent'};
+      attentions.unavailable={state:'focused',focus:{unavailable:true}};
       mount();
     });
     await page.waitForFunction(()=>document.querySelector('.wfpanel-agents')?.textContent.includes('Verify sources'));
-    assert.deepEqual(await page.locator('.wfpanel-agent > span:last-child').allTextContents(),['Verify sources','-']);
-    assert.equal(await page.locator('.wfpanel-agent').count(),2);
+    assert.deepEqual(await page.locator('.wfpanel-agent > span:last-child').allTextContents(),['Verify sources']);
+    assert.equal(await page.locator('.wfpanel-agent').count(),1);
     assert.equal(await page.locator('.gchat-focus-intent').count(),0);
     assert.ok(!(await page.locator('.wfpanel').innerText()).includes('Compare the original documents'));
     const agents=await page.locator('.wfpanel-agents').boundingBox(),todo=await page.locator('.wfpanel-steps').boundingBox();
@@ -369,6 +370,14 @@ browserTest('expanded pane shows other agents above Todo and collapses both toge
     await page.evaluate(()=>attentions.atlas.focus.label='Review evidence');
     await page.locator('.wfpanel-head').click();
     await page.waitForFunction(()=>document.querySelector('.wfpanel-agents').textContent.includes('Review evidence'));
+    assert.equal(await page.locator('.wfpanel-steps').isVisible(),true);
+    await page.evaluate(()=>{attentions.atlas={state:'unfocused',focus:null};attentions.idle={state:'focused',focus:{label:'New active focus'}};});
+    await page.clock.fastForward(12000);
+    await page.waitForFunction(()=>document.querySelector('.wfpanel-agents').textContent==='ANew active focus');
+    await page.evaluate(()=>{attentions.idle={state:'unfocused',focus:null};});
+    await page.clock.fastForward(12000);
+    await page.waitForFunction(()=>document.querySelector('.wfpanel-agents').hidden);
+    assert.equal(await page.locator('.wfpanel-agent').count(),0);
     assert.equal(await page.locator('.wfpanel-steps').isVisible(),true);
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
