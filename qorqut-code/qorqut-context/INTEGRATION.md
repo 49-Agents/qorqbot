@@ -64,7 +64,24 @@ context_event_id, attempt, scope:{kind:global}|{kind:business,business_id}, resu
 runs after the immutable revision exists and before commit; a trigger requires the stored revision, the owning
 namespace, the operation and the submitter to match, and the payload is a snapshot (`queue.action_payload`: action and
 revision refs, operation, submitter, `tags` as `{id,name,business_id}` snapshots, related Context objects, scope,
-provenance, text unless removed). Evidence refs and other business data are not in it. The driver uses `transitions` with the active `system` principal
+provenance, text unless removed). New Action inputs preserve the immutable revision's
+`occurred` (UTC anchor, local date/hour, precision and timezone), `refs`, `business_ids`,
+`recorded_at` and `withdrawn` in `provenance.action_metadata` (version 1). These are evidence, never authority or
+additional graph relationships. The exact base envelope is validated against the stored revision before enrichment.
+The composed `on_revision` reader may then add `action_metadata.evidence`: at most one explicitly referenced Task and
+one document, observed in the admitting transaction through the registered `tasks_get` / `context_get` read authority.
+Task excerpts contain only title, overview and status; document excerpts use the shared source library, excluding
+private/agent-owned documents, archived sources and bytes that disagree with their registered hash.
+Each available observation carries its owning business, source revision, content hash (Task title/overview/status
+or complete document bytes), observation time and truncation flag. Title and excerpt limits are 1000 and 4000 UTF-8
+bytes per source. Missing, denied, ambiguous or stale references get the same generic unavailable result; supplied
+reference IDs remain intact. Namespace-local Task IDs prefer the Action's owning scope, then a unique match among
+its associated businesses and Global within the caller's grants. No comments, external URLs or models are read.
+Removals do not capture fresh excerpts. The queue freezes observations once: processing, retry and recovery use those
+same bytes, and existing queued or published filings are not rewritten. Both model stages receive the metadata through
+`record_context`, and publication retains it with the Action source/event.
+
+The driver uses `transitions` with the active `system` principal
 only: `head`, `used_event_ids`, `start_attempt(context_event_id)`, `record_preflight_failure`, `record_published`,
 `record_blocked`, `record_discarded`, `record_discard_failure`. They are compare-and-set, keep the single open head,
 append the attempt/control histories, enforce the exact 5-lowercase-alphanumeric Context event id (unique, never

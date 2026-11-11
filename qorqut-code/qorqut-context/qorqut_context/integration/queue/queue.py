@@ -12,6 +12,7 @@ controls are bound to one namespace: nothing here lists across businesses.
 
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 from pathlib import PurePosixPath
 from typing import Any
@@ -147,28 +148,36 @@ def action_payload(revision: dict) -> dict:
                "scope": scope_of(revision["business_id"]),
                "provenance": {"performed_by": revision["performed_by"], "recorded_by": revision["recorded_by"],
                               "origin": snapshot.get("origin"), "category": snapshot.get("category"),
-                              **(revision["provenance_json"] or {})}}
+                              **(revision["provenance_json"] or {}),
+                              "action_metadata": deepcopy({
+                                  "version": 1, "occurred": snapshot.get("occurred"),
+                                  "refs": snapshot.get("refs", {}),
+                                  "business_ids": snapshot.get("business_ids", []),
+                                  "recorded_at": revision["created_at"],
+                                  "withdrawn": operation == "remove"})}}
     if operation != "remove":
         payload["text"] = snapshot["text"]
     return payload
 
 
-def admit_action_revision(ctx, revision: dict, uow) -> str:
+def admit_action_revision(ctx, revision: dict, uow, *, evidence=None) -> str:
     """The Action writer's ``on_revision`` port: queue one stored Action revision and return the exact input ID.
 
     ``revision`` is the decoded ``action_revisions`` row ``settle`` just read. It is admitted in the caller's open
     transaction (no transaction, hook or retry of its own), so a failure here rolls back the Action, its revision, its
     input and its events together, and a retried operation finds no earlier input to duplicate."""
     return enqueue_action(uow, action_id=revision["action_key"], revision=revision["revision"],
-                          operation=revision["operation"], payload=action_payload(revision))
+                          operation=revision["operation"], payload=action_payload(revision),
+                          capture_evidence=None if evidence is None else lambda stored: evidence(ctx, stored, uow))
 
 
-def enqueue_action(uow, *, action_id: str, revision: int, operation: str, payload: dict) -> str:
+def enqueue_action(uow, *, action_id: str, revision: int, operation: str, payload: dict, capture_evidence=None) -> str:
     """Queue one accepted Action revision and return the input ID (reached through ``admit_action_revision``).
 
     It runs after the immutable revision exists and before the same transaction commits. The stored revision is
     authoritative: the input's owning scope and submitter come from it, and ``payload`` must be exactly the envelope that
-    revision implies, so nothing the caller supplies can change the queued evidence or its attribution."""
+    revision implies. Only the composed, authorized evidence reader can supplement that envelope, after validation.
+    Its versioned excerpts are frozen here, never reread by the driver or a retry."""
     uow.require_write()
     if operation not in OPERATIONS or not isinstance(payload, dict):
         invalid("An Action Context input requires its exact accepted revision payload")
@@ -179,6 +188,9 @@ def enqueue_action(uow, *, action_id: str, revision: int, operation: str, payloa
     stored = {key: json.loads(value) if key.endswith("_json") and value is not None else value for key, value in dict(row).items()}
     if stored["operation"] != operation or payload != action_payload(stored):
         invalid("An Action Context input requires its exact accepted revision payload")
+    payload = deepcopy(payload)
+    if capture_evidence is not None and operation != "remove":
+        payload["provenance"]["action_metadata"]["evidence"] = capture_evidence(stored)
     input_id = new_id()
     uow.connection.execute(
         "INSERT INTO context_inputs(id,business_id,input_kind,item_id,revision,operation,payload_json,submitted_by,created_at) "
