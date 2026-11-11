@@ -1,4 +1,5 @@
-"""A Task write says what it changed, a comment needs no prior read, and newly named Workers reach the boards port."""
+"""A Task write says what it changed, a comment needs no prior read, newly named Workers reach the boards port, and
+work that sat untouched past its state's limit is pushed once per period to whoever answers for it."""
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import json
@@ -8,6 +9,7 @@ import unittest
 from uuid import uuid4
 
 from qorqut.composition.assembly import host_assembly
+from qorqut.domains.tasks.ports import HostOversight
 from qorqut.service.changes import ChangeFeed
 from qorqut.transport.mcp_presentation import present
 from qorqut_operations.application.engine import Application
@@ -15,13 +17,14 @@ from qorqut_operations.application.registry import OperationRegistry
 from qorqut_operations.contracts import DomainError, InvocationContext, PolicyDecision, Principal
 from qorqut_operations.inbox.service import ENTRY_TEXT, InboxService
 from qorqut_operations.items import ItemContribution, ItemResolver
-from qorqut_operations.roles import GLOBAL_WORKER_ROLE
+from qorqut_operations.roles import GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE
 from qorqut_operations.storage.assembly import AssemblyError
 from qorqut_operations.storage.database import Database
 from qorqut_operations.tasks import events
 from qorqut_operations.tasks.operations import TASK_ENTRIES, TaskOperations
 from qorqut_operations.tasks.overview import TaskOverview
 from qorqut_operations.tasks.ports import TaskPorts
+from qorqut_operations.tasks.stale import stamp
 
 
 def ports(**extra):
@@ -49,12 +52,14 @@ class TaskChangeRecordTests(unittest.TestCase):
                 owner_principal_id=self.owner, created_at=stamp, updated_at=stamp))
             # Registered global workers: the one kind of agent that is assignable and addressable in Global.
             self.agent, self.reader = str(uuid4()), str(uuid4())
-            for identity, name in ((self.agent, 'Scout'), (self.reader, 'Compass')):
+            self.coordinator = str(uuid4())
+            for identity, name, role in ((self.agent, 'Scout', GLOBAL_WORKER_ROLE), (self.reader, 'Compass', GLOBAL_WORKER_ROLE),
+                                         (self.coordinator, 'Ordubashy', ORDUBASHY_ROLE)):
                 uow.repository('principals').insert(dict(id=identity, kind='agent', display_name=name,
                     active=1, created_at=stamp, updated_at=stamp))
                 uow.repository('agent_profiles', business_id=None).insert(dict(agent_id=identity, principal_id=identity,
                     home_business_id=None, namespace='ecosystem', name=name.lower(), workspace='/tmp/' + name.lower(),
-                    status='active', profile_json={'status': 'active', 'role': {'id': GLOBAL_WORKER_ROLE}, 'scope': {
+                    status='active', profile_json={'status': 'active', 'role': {'id': role}, 'scope': {
                         'kind': 'ecosystem', 'business_id': None, 'global_capabilities': ['read_global_context']}},
                     created_at=stamp, updated_at=stamp))
         self.ctx = InvocationContext(Principal(self.owner, 'human'), global_capabilities={'read_global_context'})
@@ -70,7 +75,11 @@ class TaskChangeRecordTests(unittest.TestCase):
         boards = NS(workers_named=lambda ctx, item, task, worker_ids, uow: self.named.append((item['id'], list(worker_ids))))
         # Every Task event is addressed to a second agent, so a write by the first leaves it a pending event to read.
         routing = NS(routes=lambda *a: ((self.reader,), ()), snooze_routes=lambda *a: ())
-        self.tasks = TaskOperations(self.app, items, ports=ports(boards=boards, routing=routing))
+        # The second agent also answers for every stale Task except the ones a test leaves out.
+        self.unanswered = set()
+        oversight = NS(stale_routes=lambda uow, tasks: {
+            (task['business_id'], task['id']): [self.reader] for task in tasks if task['id'] not in self.unanswered})
+        self.tasks = TaskOperations(self.app, items, ports=ports(boards=boards, routing=routing, oversight=oversight))
         for descriptor in self.tasks.descriptors():
             self.registry.register(descriptor)
 
@@ -84,6 +93,21 @@ class TaskChangeRecordTests(unittest.TestCase):
         created = self.invoke('tasks_create', {'title': 'Find suppliers', **extra})
         self.assertEqual(created.status, 'ok', created.to_dict())
         return created.data['task']
+
+    def in_state(self, status, days, **extra):
+        """A Task in ``status`` whose last change was ``days`` ago."""
+        task = self.create(**extra)
+        if status != 'open':
+            moved = self.invoke('tasks_update', {'task_id': task['id'], 'changes': {'status': status}}, revision=task['revision'])
+            self.assertEqual(moved.status, 'ok', moved.to_dict())
+        with self.db.transaction() as uow:
+            uow.connection.execute('UPDATE tasks SET updated_at=? WHERE id=?',
+                                   (stamp(datetime.now(timezone.utc) - timedelta(days=days)), task['id']))
+        return task['id']
+
+    def push(self, **options):
+        with self.db.transaction() as uow:
+            return [(told['task_id'], told['status']) for told in self.tasks.reconcile_stale(uow, **options)]
 
     def system_entries(self, task_id):
         with self.db.read() as uow:
@@ -204,6 +228,88 @@ class TaskChangeRecordTests(unittest.TestCase):
         listed = {task['id'] for group in result['holders'] for task in group['tasks']}
         self.assertFalse({closed['id'], customer['id']} & listed)
         self.assertEqual(recent['counts']['tasks'], 0)
+
+    def test_stale_work_is_pushed_once_per_untouched_period(self):
+        quiet = self.in_state('working', 2)
+        fresh = self.in_state('working', 0)
+        self.in_state('blocked', 1)
+        held = self.in_state('blocked', 4)
+        self.in_state('waiting', 5)
+        self.in_state('open', 30)
+        self.assertEqual(self.push(), [(held, 'blocked'), (quiet, 'working')])
+        with self.db.read() as uow:
+            events = [dict(row) for row in uow.connection.execute(
+                "SELECT e.*,d.agent_id,d.required FROM inbox_events e JOIN inbox_deliveries d ON d.event_id=e.id "
+                "WHERE e.event_type='stale' ORDER BY e.id")]
+            threads = uow.connection.execute("SELECT COUNT(*) FROM thread_messages WHERE item_id IN (?,?) AND body LIKE 'No change%'",
+                                             (held, quiet)).fetchone()[0]
+        self.assertEqual([(row['source_id'], row['agent_id'], row['required'], row['actor_id'], row['summary']) for row in events],
+                         [(held, self.reader, 1, None, 'Find suppliers'), (quiet, self.reader, 1, None, 'Find suppliers')])
+        # A notice is an inbox event only: nothing is added to the thread the owner reads.
+        self.assertEqual(threads, 0)
+        # A second look, a restart or a racing tick tells nobody again within the period.
+        self.assertEqual(self.push(), [])
+        ahead = lambda hours: datetime.now(timezone.utc) + timedelta(hours=hours)
+        self.assertEqual(self.push(now=ahead(23)), [])
+        # Still untouched a full period later, the working Task comes back (the blocked one has two more days), and
+        # the Task that was fresh has now gone a day without a change.
+        self.assertEqual(self.push(now=ahead(25)), [(quiet, 'working'), (fresh, 'working')])
+
+    def test_stale_push_skips_what_nobody_answers_for_and_what_is_not_current_work(self):
+        answered = self.in_state('working', 3)
+        self.unanswered.add(self.in_state('working', 5))
+        snoozed, customer, archived, closed = (self.in_state('working', 3), self.in_state('working', 3, task_type='customer'),
+                                              self.in_state('working', 3), self.in_state('working', 3))
+        with self.db.transaction() as uow:
+            later = stamp(datetime.now(timezone.utc) + timedelta(days=1))
+            uow.connection.execute('UPDATE tasks SET snoozed_until=? WHERE id=?', (later, snoozed))
+            uow.connection.execute('UPDATE tasks SET archived=1 WHERE id=?', (archived,))
+            uow.connection.execute("UPDATE tasks SET status='done' WHERE id=?", (closed,))
+        self.assertEqual(self.push(), [(answered, 'working')])
+        # Without the oversight port nobody answers for anything and nothing is told.
+        bare = TaskOperations(self.app, self.tasks.items, ports=ports())
+        self.unanswered.clear()
+        with self.db.transaction() as uow:
+            self.assertEqual(bare.reconcile_stale(uow), [])
+        with self.assertRaises(AssemblyError):
+            ports(oversight=NS())
+
+    def test_stale_push_takes_the_longest_untouched_first_and_a_change_ends_the_stretch(self):
+        newer, older = self.in_state('working', 2), self.in_state('working', 9)
+        self.assertEqual(self.push(limit=1), [(older, 'working')])
+        with self.db.read() as uow:
+            event = uow.connection.execute("SELECT * FROM inbox_events WHERE event_type='stale' AND source_id=?", (older,)).fetchone()
+            self.assertEqual(InboxService.task_entries(None, event, uow),
+                             [{'kind': 'system', 'text': 'No change for 9 days while working.'}])
+        # A note on the other Task is a change: its stretch ends before it was ever told.
+        noted = self.invoke('tasks_comment', {'task_id': newer, 'text': 'Two of five done.'}, ctx=self.worker)
+        self.assertEqual(noted.status, 'ok', noted.to_dict())
+        self.assertEqual(self.push(), [])
+        # And once the told Task changes, its pending notice says so instead of repeating a stale fact.
+        touched = self.invoke('tasks_comment', {'task_id': older, 'text': 'Resumed.'}, ctx=self.worker)
+        self.assertEqual(touched.status, 'ok', touched.to_dict())
+        with self.db.read() as uow:
+            self.assertEqual(InboxService.task_entries(None, event, uow),
+                             [{'kind': 'system', 'text': 'Changed since this notice; nothing is stale now.'}])
+
+    def test_host_oversight_sends_quiet_delegated_work_to_ordubashy(self):
+        named = self.in_state('working', 2, worker_ids=[self.agent])
+        listed = self.in_state('working', 3)
+        self.in_state('working', 4, worker_ids=[self.owner])
+        self.in_state('working', 5)
+        with self.db.transaction() as uow:
+            created = uow.connection.execute('SELECT created_at FROM tasks WHERE id=?', (listed,)).fetchone()[0]
+            uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_business_id,task_id,task_created_at,created_at) '
+                                   'VALUES(?,?,NULL,?,?,?)', (str(uuid4()), self.reader, listed, created, created))
+        # The host's own rule over the stored rows: a permanent worker is named, or nobody is and a worker's Todo lists it.
+        delegated = TaskOperations(self.app, self.tasks.items, ports=ports(oversight=HostOversight(NS(ordubashy_attention=object()))))
+        with self.db.transaction() as uow:
+            told = [row['task_id'] for row in delegated.reconcile_stale(uow)]
+        self.assertEqual(told, [listed, named])
+        with self.db.read() as uow:
+            recipients = {row[0] for row in uow.connection.execute(
+                "SELECT d.agent_id FROM inbox_deliveries d JOIN inbox_events e ON e.id=d.event_id WHERE e.event_type='stale'")}
+        self.assertEqual(recipients, {self.coordinator})
 
 
 if __name__ == '__main__':

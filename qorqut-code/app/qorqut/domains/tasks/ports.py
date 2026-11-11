@@ -1,4 +1,5 @@
-"""The host's side of the engine's Tasks: who may be assigned, Focus, incident links, note references, routing.
+"""The host's side of the engine's Tasks: who may be assigned, Focus, incident links, note references, routing,
+work boards and oversight of delegated work.
 
 The Task flow itself (states, fields, parents, dependencies, tags, discussion, follows, events, snooze) is the Operations
 engine's ``TaskOperations``. Each class here answers one typed ``TaskPorts`` part with the retained v1 host rule; none
@@ -211,11 +212,48 @@ class HostRouting:
         return sorted(required)
 
 
+class HostOversight:
+    """Ordubashy answers for delegated work that has gone quiet. A Task is delegated when it names a permanent worker
+    as Worker, or names nobody and is listed on a permanent worker's Todo (the same reading of who must act next as
+    the board reminders). Work that names only the owner, Ordubashy or another person is waiting on them and is
+    not chased here."""
+
+    def __init__(self, application):
+        self.application = application
+
+    def stale_routes(self, uow, tasks):
+        from qorqut.agents.worker_access import is_worker
+
+        coordinators = ordubashies(uow)
+        if not coordinators:
+            return {}
+        known = {}
+
+        def worker(identity):
+            if identity not in known:
+                known[identity] = is_worker(uow.connection, identity)
+            return known[identity]
+
+        listed = {}
+        if getattr(self.application, "ordubashy_attention", None) is not None:
+            for row in uow.connection.execute("SELECT agent_id,task_business_id,task_id FROM attention_memberships"):
+                listed.setdefault((row["task_business_id"], row["task_id"]), []).append(row["agent_id"])
+        routes = {}
+        for task in tasks:
+            key = (task["business_id"], task["id"])
+            named = task.get("worker_ids_json") or []
+            if isinstance(named, str):
+                named = json.loads(named)
+            if any(worker(identity) for identity in (named or listed.get(key, ()))):
+                routes[key] = sorted(coordinators)
+        return routes
+
+
 def task_ports(application, derivations=()) -> TaskPorts:
     return TaskPorts(assignees=HostAssignees(), focus=HostFocus(application), incidents=HostIncidents(),
                      references=HostNoteReferences(application, derivations), routing=HostRouting(),
-                     boards=HostBoards(application))
+                     boards=HostBoards(application), oversight=HostOversight(application))
 
 
-__all__ = ["HostAssignees", "HostBoards", "HostFocus", "HostIncidents", "HostNoteReferences", "HostRouting", "NOTE_REFS",
-           "NOTE_REF_TYPES", "email_reference", "task_ports"]
+__all__ = ["HostAssignees", "HostBoards", "HostFocus", "HostIncidents", "HostNoteReferences", "HostOversight", "HostRouting",
+           "NOTE_REFS", "NOTE_REF_TYPES", "email_reference", "task_ports"]

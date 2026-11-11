@@ -24,6 +24,7 @@ from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.discussion import ThreadItem, set_follow
 from qorqut_operations.tasks.relocation import moved_location
 from qorqut_operations.tasks.scope import task_context
+from qorqut_operations.tasks.stale import EVENT_TYPE as STALE_EVENT, untouched
 
 from .events import row_for, source_summary
 
@@ -256,6 +257,12 @@ class InboxService:
         read the Task. Each text is bounded; a longer note is marked and read in full from the Task."""
         if row['source_type'] != 'tasks':
             return []
+        if row['event_type'] == STALE_EVENT:
+            # A stale notice writes nothing in the thread; what it says is derived from the Task as it is now.
+            task = uow.connection.execute('SELECT status,updated_at,revision FROM tasks WHERE business_id IS ? AND id=?',
+                                          (row['business_id'], row['source_id'])).fetchone()
+            line = untouched(task, utc_clock()) if task and task['revision'] == row['source_revision'] else None
+            return [{'kind': 'system', 'text': line or 'Changed since this notice; nothing is stale now.'}]
         found = []
         for message in uow.connection.execute(
                 "SELECT kind,body,author_id,recorder_id FROM thread_messages WHERE business_id IS ? AND item_type='task' "

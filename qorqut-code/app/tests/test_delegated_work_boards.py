@@ -1,5 +1,5 @@
 """Naming a worker as a Task's Worker lists it on that worker's Todo; a board reminds only about work its agent must
-move; a result or blocker on delegated work still reaches Ordubashy."""
+move; a result or blocker on delegated work still reaches Ordubashy, and so does delegated work that went quiet."""
 import json
 import sqlite3
 from types import SimpleNamespace as NS
@@ -9,7 +9,8 @@ from unittest.mock import Mock, patch
 from qorqut.agents.attention import Attention, acts_on
 from qorqut.agents.attention_delivery import AttentionRuntime
 from qorqut.composition.attention import SCHEMA
-from qorqut.domains.tasks.ports import HostBoards, HostRouting
+from qorqut.domains.tasks.ports import HostBoards, HostOversight, HostRouting
+from qorqut.native_chat.nudges import paced
 from qorqut_operations.contracts import DomainError, InvocationContext, Principal
 
 # Fixed canonical UUIDs in sorted order, so listings by agent id read COORDINATOR, OWNER, SCOUT, COMPASS, GUEST.
@@ -172,6 +173,51 @@ class DelegatedWorkBoardTests(unittest.TestCase):
             quiet, _ = HostRouting().routes(self.uow, None, task('working', [SCOUT]), SCOUT)
         self.assertEqual((required, optional), ({COMPASS, COORDINATOR}, ['follower']))
         self.assertEqual(quiet, {COMPASS})
+
+    # -- delegated work that went quiet reaches Ordubashy ------------------------------------------------------
+
+    def test_stale_routes_name_ordubashy_for_work_a_permanent_worker_holds(self):
+        rows = {'named': task('working', [SCOUT, OWNER], 'named'), 'listed': task('waiting', (), 'listed'),
+                'text': {**task('blocked', identity='text'), 'worker_ids_json': json.dumps([COMPASS])},
+                'his': task('working', [COORDINATOR], 'his'), 'owners': task('blocked', [OWNER], 'owners'),
+                'unheld': task('working', (), 'unheld'), 'loose': task('working', (), 'loose')}
+        rows = {identity: {**row, 'business_id': None} for identity, row in rows.items()}
+        # On a worker's board: counts only while the Task names nobody. On Ordubashy's own board: his, not delegated.
+        for agent, identity in ((SCOUT, 'listed'), (SCOUT, 'owners'), (COORDINATOR, 'unheld')):
+            self.member(agent, identity)
+        routes = HostOversight(self.app).stale_routes(self.uow, list(rows.values()))
+        self.assertEqual(routes, {(None, 'named'): [COORDINATOR], (None, 'listed'): [COORDINATOR], (None, 'text'): [COORDINATOR]})
+        # An assembly without boards still answers for a named worker.
+        self.assertEqual(HostOversight(NS()).stale_routes(self.uow, list(rows.values())),
+                         {(None, 'named'): [COORDINATOR], (None, 'text'): [COORDINATOR]})
+        with patch('qorqut.domains.tasks.ports.ordubashies', lambda uow: set()):
+            self.assertEqual(HostOversight(self.app).stale_routes(self.uow, list(rows.values())), {})
+
+    def test_paced_duty_runs_once_per_period_and_again_after_an_abandoned_run(self):
+        clock, calls = [0.0], []
+
+        def duty(uow):
+            calls.append(uow)
+            if uow == 'abandoned':
+                raise KeyboardInterrupt  # stands for the storage layer abandoning a unit to take the writer
+            if uow == 'fault':
+                raise ValueError('broken')
+            return 'looked'
+        run = paced(600, duty, monotonic=lambda: clock[0])
+        with self.assertRaises(KeyboardInterrupt):
+            run('abandoned')
+        self.assertEqual(run('first'), 'looked')
+        clock[0] = 599.0
+        self.assertIsNone(run('early'))
+        clock[0] = 600.0
+        with self.assertRaises(ValueError):
+            run('fault')
+        clock[0] = 1199.0
+        # A fault is retried at the same pace, not on every pass.
+        self.assertIsNone(run('early'))
+        clock[0] = 1200.0
+        self.assertEqual(run('second'), 'looked')
+        self.assertEqual(calls, ['abandoned', 'first', 'fault', 'second'])
 
 
 if __name__ == '__main__':

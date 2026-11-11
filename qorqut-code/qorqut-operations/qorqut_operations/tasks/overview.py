@@ -9,7 +9,7 @@ from qorqut_agentic.behavior.tool_help import text as instruction_text
 
 import json
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 from qorqut_operations.application.plans import PAGE, page, schema, timestamp
 from qorqut_operations.application.registry import OperationDescriptor
@@ -19,16 +19,12 @@ from qorqut_operations.roles import ORDUBASHY_ROLE
 from qorqut_operations.tags.catalog import labels_by_item
 from qorqut_operations.tasks.models import snooze_view
 from qorqut_operations.tasks.scope import task_context
+# The holders view marks a Task stale by the same rule the backend pushes with. The mark is derived on read from
+# ``updated_at``; nothing is stored and no state changes.
+from qorqut_operations.tasks.stale import STALE_AFTER, limits as stale_limits, stamp
 
 MAX_MATCHES = 20_000
-# How long a Task may sit untouched in a state before the holders view marks it stale. The mark is derived on read
-# from ``updated_at``; nothing is stored and no state changes.
-STALE_AFTER = {"working": timedelta(days=1), "blocked": timedelta(days=3), "waiting": timedelta(days=7)}
 HOLDER_STATES = ("open", "working", "blocked", "waiting")
-
-
-def stamp(value):
-    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def moment(value):
@@ -150,7 +146,7 @@ class TaskOverview:
                 raise DomainError("validation_error", f"{name} applies to view=assigned")
         since = moment(args["updated_since"]) if "updated_since" in args else None
         current = self.tasks.clock()
-        limits = {status: stamp(current - age) for status, age in STALE_AFTER.items()}
+        limits = stale_limits(current)
         pairs, people, tasks_seen = [], {}, 0
 
         def holder(identity):
