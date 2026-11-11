@@ -259,9 +259,10 @@ class Assembly:
 
 class AssemblyBuilder:
     """Single-threaded, trusted composition. The engine's own tables are always present first, so a domain
-    cannot redefine them."""
+    cannot redefine them. ``core_schema`` is only for an offline upgrade that composes the engine's schema as
+    an earlier release had it."""
 
-    def __init__(self, *, target_name: str, target_version: int):
+    def __init__(self, *, target_name: str, target_version: int, core_schema: tuple[str, ...] = CORE_SCHEMA):
         if not isinstance(target_name, str) or not OWNER.fullmatch(target_name):
             raise AssemblyError("The target schema needs an explicit lowercase name")
         if type(target_version) is not int or target_version < 1:
@@ -272,7 +273,7 @@ class AssemblyBuilder:
         self._transactions: list[TransactionContribution] = []
         self._files: list[FileEffectContribution] = []
         self._records: list[RecordEffectContribution] = []
-        self.add(StorageContribution(CORE_OWNER, CORE_TABLES, CORE_IMMUTABLE_FIELDS, CORE_SCHEMA))
+        self.add(StorageContribution(CORE_OWNER, CORE_TABLES, CORE_IMMUTABLE_FIELDS, core_schema))
 
     @property
     def frozen(self) -> bool:

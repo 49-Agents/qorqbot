@@ -248,7 +248,7 @@ earlier schema transitions must already be complete.
 That last condition blocks a store that is more than one transform behind: a
 store that also lacks the Signoff source links matches neither this command's
 predecessor nor that of `qorqut.migration.signoff_sources`, so neither runs.
-`qorqut.migration.upgrade` applies every pending additive transform in release
+`qorqut.migration.upgrade` applies every pending transform in release
 order, in one transaction, and is the command to use for an existing instance:
 
 ```sh
