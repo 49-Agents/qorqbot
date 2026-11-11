@@ -20,7 +20,7 @@ const replyNotifications=(()=>{
     };
     document.querySelectorAll('[data-global-agent]').forEach(row=>{
       const id=row.dataset.globalAgent;
-      dot(row.querySelector('.nm'),eligible(id) && !!unreadAgent(id),'Unread reply');
+      dot(row.querySelector('.agent-nav-status') || row.querySelector('.nm'),eligible(id) && !!unreadAgent(id),'Unread reply');
     });
   }
   async function open(item){

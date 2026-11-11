@@ -72,11 +72,38 @@ function globalAgentNavAvatar(agent) {
   const primary = primaryAgent(agent), name = agent.display_name || agent.name;
   return `<span class="identity-avatar identity-agent ${primary ? 'nav-primary-face' : 'nav-secondary-icon'}" role="img" aria-label="${esc(name)}">${agentGlyph(agent, primary ? 31.68 : 18)}</span>`;
 }
+// Reuse the shared focus snapshots, limiting concurrent reads and discarding updates after close.
+function agentNavFocusMount(nav) {
+  let generation=0;
+  const current=token=>token===generation && nav.isConnected && nav.matches(':popover-open');
+  const paint=(label,data)=>{
+    const attention=data?.attention,focus=attention?.focus;
+    const text=!attention || focus?.unavailable ? 'Focus unavailable'
+      : attention.state==='focused' && focus ? focus.label || attention.task?.label || 'Focused' : 'No focus set';
+    const full=String(text).replace(/\s+/g,' ').trim(),characters=Array.from(full);
+    label.textContent=characters.length>50?characters.slice(0,50).join('')+'...':full;
+    label.title=full;
+  };
+  return {
+    async open(){
+      const token=++generation,labels=[...nav.querySelectorAll('[data-agent-focus]')];let index=0;
+      await Promise.all(Array.from({length:Math.min(3,labels.length)},async()=>{
+        while(current(token) && index<labels.length){
+          const label=labels[index++];
+          if(label.closest('[data-overseer-coming-soon]')){label.textContent='Coming soon';continue;}
+          try {const data=await agentFocusRead(label.dataset.agentFocus);if(current(token))paint(label,data);}
+          catch(_){if(current(token))paint(label,null);}
+        }
+      }));
+    },
+    close(){generation++;},
+  };
+}
 // Native popovers sit above the workspace without taking a layout column.
 // Hover spans the trigger and menu; native button activation also supports keyboard and touch.
 function wireGlobalAgentNavOverlay(root) {
   const trigger=root.querySelector('[data-agent-nav-trigger]'), nav=root.querySelector('.agent-nav-overlay');
-  const timeline=agentNavTimelineMount(nav);
+  const timeline=agentNavTimelineMount(nav),focus=agentNavFocusMount(nav);
   let closeTimer;
   const inside=target=>target instanceof Node && (trigger.contains(target) || nav.contains(target));
   const open=()=>{clearTimeout(closeTimer);if(!nav.matches(':popover-open'))nav.showPopover();trigger.setAttribute('aria-expanded','true');};
@@ -96,7 +123,7 @@ function wireGlobalAgentNavOverlay(root) {
   }
   nav.addEventListener('toggle',()=>{
     const opened=nav.matches(':popover-open');trigger.setAttribute('aria-expanded',String(opened));
-    if(opened)timeline.open();else {clearTimeout(closeTimer);timeline.close();}
+    if(opened){timeline.open();void focus.open();}else {clearTimeout(closeTimer);timeline.close();focus.close();}
   });
   return timeline;
 }
@@ -182,7 +209,7 @@ async function renderGlobalAgents(c) {
     const name = agent.display_name || agent.name;
     return `${index > 0 && globalAgentNavRank(agents[index - 1]) < 2 && globalAgentNavRank(agent) >= 2
       ? '<span class="global-agent-group-divider" aria-hidden="true"></span>' : ''}<button class="item agent${gated ? ' overseer-coming-soon-entry' : ''}" type="button" data-global-agent="${esc(agent.agent_id)}" aria-pressed="false" aria-label="${esc(gated ? OVERSEER_UNAVAILABLE_LABEL : name)}"${gated ? ` title="${esc(OVERSEER_UNAVAILABLE_TITLE)}" data-overseer-coming-soon="1"` : ''}>
-    <span class="nm">${globalAgentNavAvatar(agent)}<span class="agent-nav-label">${esc(name)}</span></span><span class="agent-nav-working" data-agent-presence="${esc(agent.agent_id)}" role="img" aria-label="Working" hidden><i></i><i></i><i></i></span>
+    <span class="nm">${globalAgentNavAvatar(agent)}<span class="agent-nav-copy"><span class="agent-nav-label">${esc(name)}</span><span class="agent-nav-focus" data-agent-focus="${esc(agent.agent_id)}">Loading focus…</span></span></span><span class="agent-nav-status"><span class="agent-nav-working" data-agent-presence="${esc(agent.agent_id)}" role="img" aria-label="Working" hidden><i></i><i></i><i></i></span></span>
   </button>`.replace(/\s*\n\s*/g, '');
   }).join('');
   wireGlobalAgentGaze();
