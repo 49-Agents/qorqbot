@@ -17,7 +17,7 @@ from qorqut_operations.application.plans import PAGE, UUID, PlanBuilder, apply_r
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
 from qorqut_context.integration.queue.outcomes import TerminalOutcomes, require_outcomes
 from qorqut_context.integration.queue.queue import (OPERATIONS, STATES, detail, general_arguments, general_values, input_view,
-                                                   list_inputs, lookup, no_executions)
+                                                   list_inputs, lookup, no_executions, public_payload)
 from qorqut_operations.contracts import DomainError, new_id, plain
 
 QUEUE_ENTRIES = (CatalogEntry("context_queue_list", False, "read"), CatalogEntry("context_queue_get", False, "read"),
@@ -131,7 +131,9 @@ class ContextQueueOperations:
         return list_inputs(uow, ctx.business_id, arguments, "context_queue_list", ctx.principal_id, self.executions)
 
     def get_input(self, ctx, arguments, options, uow):
-        return {"input": detail(uow, lookup(uow, ctx.business_id, arguments["input_id"]), self.executions)}
+        view = detail(uow, lookup(uow, ctx.business_id, arguments["input_id"]), self.executions)
+        # The driver works from the complete payload; a reader of the queue never sees an Action's model-only metadata.
+        return {"input": {**view, "payload": public_payload(view["payload"])}}
 
     # -- source admission ------------------------------------------------------------------------------------------
 

@@ -1,6 +1,7 @@
 """Fresh instruction evidence with bounded parsing and filesystem work."""
 import os
 from pathlib import Path
+import sys
 import tempfile
 import time
 import unittest
@@ -14,6 +15,8 @@ from qorqut_agentic import files as files_module
 from qorqut_agentic.files import SafeTree
 
 import test_mcp_catalog_cache as fixtures
+# The benchmark helper is source tooling, deliberately absent from the wheel.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.measure_toolcall_latency import fixture
 
 SKILL = fixtures.SKILL

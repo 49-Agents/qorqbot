@@ -9,7 +9,8 @@ reinterprets either:
   upload. An edit or removal is submitted as such; a missing prior add is a blocked input, never an inferred add.
 * Controlled ``record_context`` evidence ``{scope, provenance}`` is derived from the stored input, never from a tag or from
   public text. For an Action it is the revision's own scope and provenance; for a GENERAL source it is the input's
-  namespace with the queue's own facts (input id, submitter, queue time).
+  namespace with the queue's own facts (input id, submitter, queue time). An Action's frozen ``action_metadata`` is not
+  part of it: it is submitted as ``private_context``, which only the interpreting model receives and nothing publishes.
 * The source is bound to the input's scope (``context_filing``) in the transaction that starts the attempt, before any
   Context work. A source of another scope, or one nobody owns, blocks the head with an ownership error; that refused
   attempt is recorded in the same transaction and never reaches Context or a model.
@@ -63,6 +64,7 @@ from qorqut_context.integration import graph_edits as context_graph_edits
 from qorqut_context.integration.filing import completion
 from qorqut_context.integration.graph_edits.graph_edit import GraphEditRefused
 from qorqut_context.integration.queue import transitions
+from qorqut_context.integration.queue.queue import ACTION_METADATA
 from qorqut_context.integration.queue.outcomes import require_outcomes
 from qorqut_operations.contracts import DomainError
 
@@ -122,9 +124,12 @@ def submission_of(row: dict, event_id: str) -> tuple[tuple, dict]:
     if row.get("edit") is not None:
         return (edit_plan(row),), {"submitted_by": payload["submitted_by"], "event_id": event_id, "record_context": evidence}
     if row["input_kind"] == "action":
+        # An input queued before Action metadata existed has none and submits exactly as it always did.
+        private = ({"private_context": {ACTION_METADATA: payload[ACTION_METADATA]}} if ACTION_METADATA in payload else {})
         return (payload["operation"], payload["action_ref"]), {
             "text": payload.get("text"), "revision_ref": payload["revision_ref"], "related_objects": payload["related_objects"],
-            "tags": payload["tags"], "submitted_by": payload["submitted_by"], "event_id": event_id, "record_context": evidence}
+            "tags": payload["tags"], "submitted_by": payload["submitted_by"], "event_id": event_id, "record_context": evidence,
+            **private}
     content = payload["content"]
     return (payload["operation"], payload["path"]), {
         "content": None if content is None else content.encode("utf-8"), "metadata": payload["metadata"],

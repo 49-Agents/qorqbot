@@ -2,7 +2,7 @@
 
 `runtime_source.py` prepares the source subset used to build the Linux download.
 It is a build tool and is excluded from its own output. Run it after exporting
-the selected commits with `tools/export-source.py`; never point it at a worktree
+the selected commit with `tools/export-unified.py`; never point it at a worktree
 or an installed instance.
 
 ```sh
@@ -32,6 +32,11 @@ WhatsApp, email engine, Paper, content and Cloudflare components are excluded.
 Host-owned `extensions/fastmail`, `extensions/telegram` and
 `extensions/whatsapp` directories are also excluded, so an ordinary-directory
 source repository can contain optional installation packages.
+
+`native_build.py` calls `audit_prepared` once, including wheel resources and
+console entry points, and embeds its findings in the build report. A separate
+CLI audit is available for investigation; it is not a prerequisite to repeat
+before every native build.
 
 The filter removes development tests, CI, Git control files, private reports,
 build/deployment tools and the developer release executor. It preserves runtime

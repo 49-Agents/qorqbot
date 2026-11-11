@@ -16,7 +16,10 @@ REF = schema({'type': ID, 'id': ID, 'business_id': {'type': ['string', 'null']}}
 TASK = schema({'type': {'const': 'task'}, 'id': ID, 'business_id': {'type': ['string', 'null']}}, ('type', 'id', 'business_id'))
 REV = {'type': 'integer', 'minimum': 0}
 CLOCK_FIELDS = frozenset({'board_mode', 'board_due_at', 'focus_due_at', 'last_agent_activity_at', 'last_owner_message_at', 'reminder_sequence'})
-UNREADABLE = frozenset({'forbidden', 'policy_denied', 'invalid_policy', 'not_found', 'operation_unavailable'})
+# ``business_archived``: a Task in an archived project is retained but is not current work, so it is left out like
+# any other Task the agent can no longer read instead of failing the whole read.
+UNREADABLE = frozenset({'forbidden', 'policy_denied', 'invalid_policy', 'not_found', 'operation_unavailable',
+                        'business_archived'})
 
 
 def board_agent(uow, agent_id):
@@ -189,6 +192,29 @@ class Attention:
     def membership_event(self, uow, agent, membership_id, ref, created_at, actor, kind, now, *, owner_requested=False, rationale=''):
         uow.connection.execute('INSERT INTO attention_membership_events(id,agent_id,membership_id,task_business_id,task_id,task_created_at,actor_id,event_type,owner_requested,rationale,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
             (new_id(), agent, membership_id, ref['business_id'], ref['id'], created_at, actor, kind, int(owner_requested), rationale, now))
+
+    def release_project(self, uow, business_id, actor_id):
+        """Take an archived project's Tasks off every Todo board; returns how many entries were removed.
+
+        Runs inside the approved archive's own write. Each entry leaves the history record an ordinary removal does,
+        a workflow working on the Task is detached and a focus on it is cleared. No inbox event is sent, because an
+        archived project is not current work. The Tasks are retained; restoring the project does not re-add them."""
+        now = timestamp(self.clock)
+        rows = uow.connection.execute('SELECT * FROM attention_memberships WHERE task_business_id=? ORDER BY agent_id,id',
+                                      (business_id,)).fetchall()
+        for row in rows:
+            agent = row['agent_id']
+            ref = {'type': 'task', 'id': row['task_id'], 'business_id': business_id}
+            self.membership_event(uow, agent, row['id'], ref, row['task_created_at'], actor_id, 'removed', now,
+                                  rationale='Project archived')
+            uow.connection.execute('DELETE FROM attention_memberships WHERE id=?', (row['id'],))
+            uow.connection.execute("UPDATE attention_workflows SET detached_at=?,updated_at=?,revision=revision+1 "
+                "WHERE agent_id=? AND detached_at IS NULL AND json_extract(work_task_json,'$.id')=? "
+                "AND json_extract(work_task_json,'$.business_id') IS ?", (now, now, agent, ref['id'], business_id))
+            if self.state(uow, agent)['work_task_json'] == ref:
+                self.clear_focus(uow, agent, 'membership_removed')
+            uow.connection.execute('UPDATE agent_attention SET revision=revision+1,updated_at=? WHERE agent_id=?', (now, agent))
+        return len(rows)
 
     def task_membership(self, uow, agent_id, task_ref):
         row = uow.connection.execute('SELECT * FROM attention_memberships WHERE agent_id=? AND task_business_id IS ? AND task_id=?',

@@ -20,6 +20,7 @@ from qorqut_operations.storage.assembly import (Assembly, AssemblyBuilder, Assem
                                                 FileEffectContribution, RecordEffectContribution,
                                                 TransactionContribution)
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.storage.core_schema import CORE_SCHEMA
 from qorqut_operations.document_history.lifecycle import DocumentLifecycle, RESOURCE_TYPE as DOCUMENTS
 from qorqut_operations.storage.database import Database
 from qorqut_operations.storage.queue_indexes import storage_contribution as queue_index_storage
@@ -45,8 +46,8 @@ TARGET_VERSION = 1
 class HostComposition:
     """Collects contributions, refusing a repeated owner or table before the engine builder sees it."""
 
-    def __init__(self, *, target_name=TARGET_NAME, target_version=TARGET_VERSION):
-        self._builder = AssemblyBuilder(target_name=target_name, target_version=target_version)
+    def __init__(self, *, target_name=TARGET_NAME, target_version=TARGET_VERSION, core_schema=CORE_SCHEMA):
+        self._builder = AssemblyBuilder(target_name=target_name, target_version=target_version, core_schema=core_schema)
         self._owners: set[tuple[type, str]] = set()
         self._tables: set[str] = set()
 

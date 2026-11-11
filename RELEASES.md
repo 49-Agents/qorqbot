@@ -19,7 +19,9 @@ Preview downloads and setup instructions are available at
 [49agents.com/qorqbot](https://49agents.com/qorqbot/). The current preview's native
 Mac and Windows host acceptance remains pending, as stated on those pages.
 
-GitHub Releases is the selected channel for future versioned releases. A release
+GitHub Releases hosts versioned releases, including
+[1.3.0-preview.3](https://github.com/49-Agents/qorqbot/releases/tag/v1.3.0-preview.3),
+published November 7, 2026. A release
 page can host both the application and separate
 connector assets, with a short index linking to each connector's setup guide.
 This requires no separate marketplace or automatic extension registry. The
@@ -35,6 +37,9 @@ compatibility.
 
 The [release runbook](qorqut-code/docs/distribution/RELEASE-RUNBOOK.md) describes
 build and acceptance steps. Publication is a distinct maintainer action after
-source, artifact and license checks are complete. The current unpublished
-candidate is described in
+source, artifact and license checks are complete. The preview's scope and
+platform limitations are described in
 [1.3.0-preview.3](qorqut-code/docs/distribution/PREVIEW-3-CANDIDATE.md).
+
+Ordinary backend releases do not require rebuilding these downloads. See
+[CI and release preparation](qorqut-code/docs/CI-AND-RELEASES.md).

@@ -63,28 +63,28 @@ def tag_snapshots(values):
     return result
 
 
-def _json_value(value, limit):
+def _json_value(value, limit, name="record_context"):
     """A deep copy of ``value`` if it is strictly JSON-compatible; nothing is converted or stringified."""
     if value is None or type(value) in (bool, int):
         return value
     if type(value) is float:
         if not math.isfinite(value):
-            raise ContextError("record_context numbers must be finite JSON numbers")
+            raise ContextError(f"{name} numbers must be finite JSON numbers")
         return value
     if type(value) is str:
-        utf8(value, "record_context text", limit)
+        utf8(value, f"{name} text", limit)
         return value
     if type(value) is list:
-        return [_json_value(member, limit) for member in value]
+        return [_json_value(member, limit, name) for member in value]
     if type(value) is dict:
         result = {}
         for key, member in value.items():
             if type(key) is not str:
-                raise ContextError("record_context object keys must be strings")
-            utf8(key, "record_context key", limit)
-            result[key] = _json_value(member, limit)
+                raise ContextError(f"{name} object keys must be strings")
+            utf8(key, f"{name} key", limit)
+            result[key] = _json_value(member, limit, name)
         return result
-    raise ContextError("record_context may contain only JSON-compatible values")
+    raise ContextError(f"{name} may contain only JSON-compatible values")
 
 
 def record_context(value, limit=SOURCE_BYTES):
@@ -114,6 +114,27 @@ def record_context(value, limit=SOURCE_BYTES):
         raise ContextError("record_context is nested too deeply") from error
     if size > limit:
         raise ContextError("record_context exceeds the configured byte limit")
+    return result
+
+
+def private_context(value, limit=SOURCE_BYTES):
+    """Trusted caller context for the interpreting model only: a JSON object that is never published.
+
+    ``None`` means none was supplied. Unlike ``record_context`` it joins neither the source document nor the event; it is
+    bound into the submission identity and kept with the pending job. The canonical serialization obeys the source byte
+    limit.
+    """
+    if value is None:
+        return None
+    if type(value) is not dict:
+        raise ContextError("private_context must be a JSON object")
+    try:
+        result = _json_value(value, limit, "private_context")
+        size = len(encode(result))
+    except RecursionError as error:
+        raise ContextError("private_context is nested too deeply") from error
+    if size > limit:
+        raise ContextError("private_context exceeds the configured byte limit")
     return result
 
 

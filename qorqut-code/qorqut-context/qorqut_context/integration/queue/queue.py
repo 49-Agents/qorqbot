@@ -12,6 +12,7 @@ controls are bound to one namespace: nothing here lists across businesses.
 
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 from pathlib import PurePosixPath
 from typing import Any
@@ -135,11 +136,19 @@ def tag_envelope(snapshots) -> list[dict]:
     return snapshot_order({"id": tag["id"], "name": tag["name"], "business_id": tag["business_id"]} for tag in snapshots)
 
 
+# The one payload member that is never published and never shown by a queue read: the Action's occurrence, evidence
+# references, linked projects and any admission excerpts. Operations discloses evidence references only inside the
+# owning projects and an excerpt is read under one caller's authority, while published Context is shared, so the whole
+# member reaches the interpreting model as ``private_context`` and nothing else.
+ACTION_METADATA = "action_metadata"
+
+
 def action_payload(revision: dict) -> dict:
     """The exact envelope of one stored Action revision (``revision`` is its decoded ``action_revisions`` row).
 
     It is derived only from what the revision stored: nothing is read from the live Action afterwards, so a later
-    correction cannot change queued evidence. A withdrawal carries no text and no related objects."""
+    correction cannot change queued evidence. A withdrawal carries no text and no related objects. ``scope`` and
+    ``provenance`` are the published record context; ``action_metadata`` is model-only (see ``ACTION_METADATA``)."""
     snapshot, operation, key = revision["snapshot_json"], revision["operation"], revision["action_key"]
     payload = {"action_ref": key, "revision_ref": f"{key}:{revision['revision']}", "operation": operation,
                "submitted_by": revision["recorded_by"], "tags": tag_envelope(snapshot["tag_snapshots"]),
@@ -147,28 +156,39 @@ def action_payload(revision: dict) -> dict:
                "scope": scope_of(revision["business_id"]),
                "provenance": {"performed_by": revision["performed_by"], "recorded_by": revision["recorded_by"],
                               "origin": snapshot.get("origin"), "category": snapshot.get("category"),
-                              **(revision["provenance_json"] or {})}}
+                              **(revision["provenance_json"] or {})},
+               ACTION_METADATA: deepcopy({
+                   "version": 1, "occurred": snapshot.get("occurred"), "refs": snapshot.get("refs", {}),
+                   "business_ids": snapshot.get("business_ids", []), "recorded_at": revision["created_at"],
+                   "withdrawn": operation == "remove"})}
     if operation != "remove":
         payload["text"] = snapshot["text"]
     return payload
 
 
-def admit_action_revision(ctx, revision: dict, uow) -> str:
+def public_payload(payload: dict) -> dict:
+    """A stored payload as a queue read may show it: everything except the model-only Action metadata."""
+    return {key: value for key, value in payload.items() if key != ACTION_METADATA}
+
+
+def admit_action_revision(ctx, revision: dict, uow, *, evidence=None) -> str:
     """The Action writer's ``on_revision`` port: queue one stored Action revision and return the exact input ID.
 
     ``revision`` is the decoded ``action_revisions`` row ``settle`` just read. It is admitted in the caller's open
     transaction (no transaction, hook or retry of its own), so a failure here rolls back the Action, its revision, its
     input and its events together, and a retried operation finds no earlier input to duplicate."""
     return enqueue_action(uow, action_id=revision["action_key"], revision=revision["revision"],
-                          operation=revision["operation"], payload=action_payload(revision))
+                          operation=revision["operation"], payload=action_payload(revision),
+                          capture_evidence=None if evidence is None else lambda stored: evidence(ctx, stored, uow))
 
 
-def enqueue_action(uow, *, action_id: str, revision: int, operation: str, payload: dict) -> str:
+def enqueue_action(uow, *, action_id: str, revision: int, operation: str, payload: dict, capture_evidence=None) -> str:
     """Queue one accepted Action revision and return the input ID (reached through ``admit_action_revision``).
 
     It runs after the immutable revision exists and before the same transaction commits. The stored revision is
     authoritative: the input's owning scope and submitter come from it, and ``payload`` must be exactly the envelope that
-    revision implies, so nothing the caller supplies can change the queued evidence or its attribution."""
+    revision implies. Only the composed, authorized evidence reader can supplement that envelope, after validation.
+    Its versioned excerpts are frozen here, never reread by the driver or a retry."""
     uow.require_write()
     if operation not in OPERATIONS or not isinstance(payload, dict):
         invalid("An Action Context input requires its exact accepted revision payload")
@@ -179,6 +199,9 @@ def enqueue_action(uow, *, action_id: str, revision: int, operation: str, payloa
     stored = {key: json.loads(value) if key.endswith("_json") and value is not None else value for key, value in dict(row).items()}
     if stored["operation"] != operation or payload != action_payload(stored):
         invalid("An Action Context input requires its exact accepted revision payload")
+    payload = deepcopy(payload)
+    if capture_evidence is not None and operation != "remove":
+        payload[ACTION_METADATA]["evidence"] = capture_evidence(stored)
     input_id = new_id()
     uow.connection.execute(
         "INSERT INTO context_inputs(id,business_id,input_kind,item_id,revision,operation,payload_json,submitted_by,created_at) "
@@ -191,8 +214,11 @@ def enqueue_action(uow, *, action_id: str, revision: int, operation: str, payloa
 # -- reads --------------------------------------------------------------------------------------------------------------
 
 def input_view(row, *, payload: bool = False, execution: Any = OMITTED) -> dict:
-    """The public view of a stored input. ``execution`` is the controlled-execution facts of the input (or None for an
-    ordinary one) as the composed ``executions`` contribution reads them; an internal caller omits it and gets no key."""
+    """The view of a stored input. ``execution`` is the controlled-execution facts of the input (or None for an
+    ordinary one) as the composed ``executions`` contribution reads them; an internal caller omits it and gets no key.
+
+    ``payload`` adds the complete stored payload, as the driver submits it. A read operation shows ``public_payload`` of
+    it instead, because an Action payload carries model-only metadata."""
     result = {key: row[key] for key in INPUT_COLUMNS}
     result["scope"] = scope_of(row["business_id"])
     result["result"] = decode(row["result_json"])

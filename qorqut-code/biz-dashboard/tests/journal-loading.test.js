@@ -1,12 +1,17 @@
 'use strict';
 // PLAYWRIGHT_MODULE=/path/to/playwright node --test tests/journal-loading.test.js
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const {test, before, after} = require('node:test');
-const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+let chromium;
+try { ({chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright')); } catch (_) { /* Optional local browser dependency. */ }
+const executable = process.env.CHROME_PATH || chromium?.executablePath();
+const available = !!chromium && fs.existsSync(executable);
+const browserOnly = {skip: !available && 'Local Playwright Chromium is unavailable'};
 const dashboard = path.resolve(__dirname, '..');
 let browser;
-before(async () => { browser = await chromium.launch({headless: true}); });
+before(async () => { if (available) browser = await chromium.launch({headless: true, executablePath: executable}); });
 after(async () => { await browser?.close(); });
 
 const note = (id = 'note-a', title = 'A quiet morning') => ({id, title, content: 'A thought to keep.', revision: 1,
@@ -45,7 +50,7 @@ async function fixture(t) {
   return page;
 }
 
-test('cold load animates, returns immediately from cache, and keeps an unchanged editor intact', async t => {
+test('cold load animates, returns immediately from cache, and keeps an unchanged editor intact', browserOnly, async t => {
   const page = await fixture(t);
   const notes = [note(), ...Array.from({length:83}, (_,i) => ({...note(`note-${i}`, `Journal entry ${i}`), content:'A thought to keep. '.repeat(350)}))];
   await page.evaluate(() => openJournal());
@@ -69,7 +74,7 @@ test('cold load animates, returns immediately from cache, and keeps an unchanged
   assert.equal(await page.evaluate(() => existingEditor === document.querySelector('#ntdoc')), true);
 });
 
-test('refresh cannot overwrite a draft typed into the cached note', async t => {
+test('refresh cannot overwrite a draft typed into the cached note', browserOnly, async t => {
   const page = await fixture(t);
   await page.evaluate(() => { ls('nt:/root','note-a'); openJournal(); });
   await page.evaluate(rows => finish(0,rows), [note()]);
@@ -81,7 +86,7 @@ test('refresh cannot overwrite a draft typed into the cached note', async t => {
   assert.equal(await page.evaluate(() => mount.dirty()), true);
 });
 
-test('retired requests and other project scopes cannot populate the current Journal', async t => {
+test('retired requests and other project scopes cannot populate the current Journal', browserOnly, async t => {
   const page = await fixture(t);
   await page.evaluate(() => { openJournal(); mount.dispose(); openJournal('project'); });
   await page.evaluate(rows => finish(0,rows), [note()]);
@@ -96,7 +101,7 @@ test('retired requests and other project scopes cannot populate the current Jour
   assert.equal(await page.getByText('Project plan', {exact:true}).count(), 0);
 });
 
-test('failed cold requests offer a retry; failed refreshes retain existing notes', async t => {
+test('failed cold requests offer a retry; failed refreshes retain existing notes', browserOnly, async t => {
   const page = await fixture(t);
   await page.evaluate(() => { openJournal(); fail(0); });
   await page.getByRole('button', {name:'Try again'}).waitFor();
@@ -110,7 +115,7 @@ test('failed cold requests offer a retry; failed refreshes retain existing notes
   assert.equal(await page.evaluate(() => notices.at(-1)), "Couldn't refresh notes. Try again.");
 });
 
-test('loading respects reduced motion and fits a narrow pane', async t => {
+test('loading respects reduced motion and fits a narrow pane', browserOnly, async t => {
   const page = await fixture(t);
   await page.setViewportSize({width: 360,height:640});
   await page.emulateMedia({reducedMotion:'reduce'});
@@ -120,7 +125,7 @@ test('loading respects reduced motion and fits a narrow pane', async t => {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
 });
 
-test('a denied refresh clears cached notes and a missing project offers retry', async t => {
+test('a denied refresh clears cached notes and a missing project offers retry', browserOnly, async t => {
   const page = await fixture(t);
   await page.evaluate(() => openJournal());
   await page.evaluate(rows => finish(0,rows), [note()]);

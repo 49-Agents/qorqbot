@@ -32,11 +32,11 @@ test('reminder opening only reads and dismissal uses the exact due occurrence', 
     constructor(tag){this.tag=tag;this.children=[];this.isConnected=true;this.dataset={};}
     append(...nodes){this.children.push(...nodes);} replaceChildren(...nodes){this.children=nodes;}
     contains(node){return node === this || this.children.some(child=>child.contains?.(node));}
-    remove(){this.isConnected=false;} setAttribute(){}
+    remove(){this.isConnected=false;} setAttribute(){} getClientRects(){return [];}
   }
   const calls=[], reminder={reminder_id:'rem-1',revision:7,state:'due',occurrence_id:'occ-2',text:'Test',recurrence:{schedule:'0 9 * * *',timezone:'UTC'}};
   let finishDismiss;
-  const context={document:{createElement:tag=>new Node(tag),dispatchEvent(){}},window:{addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,state:{session:{principal_id:'owner'},bizs:[]},
+  const context={document:{createElement:tag=>new Node(tag),dispatchEvent(){},addEventListener(){},removeEventListener(){}},window:{addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,state:{session:{principal_id:'owner'},bizs:[]},
     post:async (_url,args)=>{calls.push(args); if(args.occurrence_id) return await new Promise(resolve=>{finishDismiss=resolve;}); return {reminder};},
     coreData:x=>x, accessLost:()=>false,sourceGone:()=>false,uiFailure:()=>'',newRequestId:()=> 'key-1',Intl,Date};
   vm.createContext(context);
@@ -70,9 +70,11 @@ test('Focus signoff cancellation requires confirmation and revalidates its ident
 test('signoff pending-write check is scoped to content and includes uncertain receipts', () => {
   const source=fs.readFileSync(path.join(__dirname,'../js/signoffs.js'),'utf8');
   const start=source.indexOf('    hasPendingWrite: () => {'), end=source.indexOf('\n    async save()',start);
-  const factory=new Function('sg','messageEdits','options','ownedWrites','reviewEdits',`return {${source.slice(start,end)}}`);
-  const sg={slug:'a',selected:'one',items:new Map([['one',{}],['other',{}]]),busy:new Map(),executions:new Map()};
-  const edits=new Map(), reviews=new Map(), view=factory(sg,edits,{},new Set(),reviews);
+  const busyKeySource=source.match(/  const busyKey = (.*);/)[1];
+  const factory=new Function('sg','messageEdits','options','ownedWrites','reviewEdits','sgIsQuestionnaire','owner','binding',`const busyKey=${busyKeySource}; return {${source.slice(start,end)}}`);
+  const item=id=>({id,proposal_revision:2,payload_hash:'hash'});
+  const sg={slug:'a',selected:'one',items:new Map([['one',item('one')],['other',item('other')]]),busy:new Map(),executions:new Map()};
+  const edits=new Map(), reviews=new Map(), view=factory(sg,edits,{},new Set(),reviews,()=>false,()=> 'owner',s=>`${s.id}:${s.proposal_revision}:${s.payload_hash}`);
   sg.busy.set('b:one:2:hash',{unknown:true}); assert.equal(view.hasPendingWrite(),false);
   sg.busy.set('a:other:2:hash',{unknown:true}); assert.equal(view.hasPendingWrite(),false);
   sg.busy.set('a:one:2:hash',{unknown:true}); assert.equal(view.hasPendingWrite(),true);
@@ -114,10 +116,10 @@ test('attention overflow opens without acknowledging unrelated unread entries', 
 });
 
 test('reminder Focus opening and disposal do not dismiss the reminder', async () => {
-  class Node { constructor(){this.children=[];this.isConnected=true;this.dataset={};} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){} }
+  class Node { constructor(){this.children=[];this.isConnected=true;this.dataset={};} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){} getClientRects(){return [];} }
   const calls=[]; let spec, guard;
   const reminder={reminder_id:'r',revision:2,state:'due',occurrence_id:'o',text:'Due'};
-  const context={document:{createElement:()=>new Node(),dispatchEvent(){}},window:{focusExpansion:{async open(s){spec=s;return {};}},addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,
+  const context={document:{createElement:()=>new Node(),dispatchEvent(){},addEventListener(){},removeEventListener(){}},window:{focusExpansion:{async open(s){spec=s;return {};}},addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,
     state:{session:{principal_id:'owner'},bizs:[]},post:async(_path,args)=>{calls.push(args);return {reminder};},coreData:x=>x,
     accessLost:()=>false,sourceGone:()=>false,uiFailure:()=>'',Intl,Date};
   vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.open=remindersOpenDetail;',context);
@@ -144,10 +146,10 @@ test('embedded task and project signoff links dispatch canonical identity to par
 });
 
 test('uncertain reminder dismissal remains retryable after disposal with identical request', async () => {
-  class Node {constructor(){this.children=[];this.isConnected=true;this.dataset={};} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){}}
+  class Node {constructor(){this.children=[];this.isConnected=true;this.dataset={};} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){} getClientRects(){return [];}}
   const reminder={reminder_id:'r',business_id:'b',revision:7,state:'due',occurrence_id:'occ-1',text:'Due'};
   const writes=[];let tries=0;
-  const context={document:{createElement:()=>new Node(),dispatchEvent(){}},window:{addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,state:{session:{principal_id:'owner'},bizs:[{id:'b',slug:'project'}]},
+  const context={document:{createElement:()=>new Node(),dispatchEvent(){},addEventListener(){},removeEventListener(){}},window:{addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,state:{session:{principal_id:'owner'},bizs:[{id:'b',slug:'project'}]},
     post:async(path,args)=>{if(path.endsWith('reminders_get'))return {reminder};writes.push({path,args:{...args}});if(!tries++)throw new Error('lost');return {reminder:{...reminder,state:'dismissed'}};},
     coreData:x=>x,accessLost:()=>false,sourceGone:()=>false,uiFailure:()=> 'unknown',newRequestId:()=> 'original-key',Intl,Date};
   vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.mount=remindersDetailMount;',context);
@@ -299,9 +301,9 @@ test('ordinary reminder Create prompts for retry or deliberate separate creation
 });
 
 test('ordinary dismissal of a different recurring occurrence uses a separate request', async () => {
-  class Node {constructor(){this.children=[];this.isConnected=true;this.dataset={};} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){}}
+  class Node {constructor(){this.children=[];this.isConnected=true;this.dataset={};} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){} getClientRects(){return [];}}
   let current={reminder_id:'r',revision:4,state:'due',occurrence_id:'one',text:'Repeat'}, key=0;const writes=[];
-  const context={document:{createElement:()=>new Node(),dispatchEvent(){}},window:{addEventListener(){},removeEventListener(){}},Event:class{},embeddedAgentPane:true,
+  const context={document:{createElement:()=>new Node(),dispatchEvent(){},addEventListener(){},removeEventListener(){}},window:{addEventListener(){},removeEventListener(){}},Event:class{},embeddedAgentPane:true,
     state:{session:{principal_id:'owner'},bizs:[]},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),newRequestId:()=>`key-${++key}`,
     post:async(path,args)=>{if(path.endsWith('reminders_get'))return {reminder:current};writes.push({...args});throw new Error('lost');},
     coreData:x=>x,accessLost:()=>false,sourceGone:()=>false,uiFailure:()=> 'retry',Intl,Date};

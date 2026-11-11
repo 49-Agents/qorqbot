@@ -52,6 +52,61 @@ STEADY = frozenset({"coalesced", "offline"})
 RECOVERY_TEXT = ("The session helper has refreshed your instructions. The trusted hook delivers them with this notice. "
                  "Continue the owner's authorized work using the hook's current status; no startup command or status reply is needed.")
 RECOVERY_KIND = "bootstrap_recovery"
+# The only failures that end a whole pass: this process is not the authority, or writes are closed.
+PASS_STOPPERS = frozenset({"authority_invalid", "maintenance"})
+REPEAT_SECONDS = 600.0
+
+
+class FailureLog:
+    """Reports a failure that repeats on every pass when it starts, when it changes, every few minutes while it
+    lasts and when it clears. The pass runs every few seconds, so one line per pass buries the cause."""
+
+    def __init__(self, clock=time.monotonic):
+        self._clock = clock
+        self._seen = {}
+
+    def failed(self, subject: str, error: BaseException) -> None:
+        code = getattr(error, "code", None)
+        code = code if isinstance(code, str) else type(error).__name__
+        seen = self._seen.get(subject)
+        now = self._clock()
+        if seen is None or seen[0] != code:
+            self._seen[subject] = [code, now, 0]
+            LOG.warning("%s failed and was skipped: %s", subject, code, exc_info=not isinstance(error, DomainError))
+            return
+        seen[2] += 1
+        if now - seen[1] >= REPEAT_SECONDS:
+            LOG.warning("%s is still failing: %s (%d more passes)", subject, code, seen[2])
+            seen[1], seen[2] = now, 0
+
+    def passed(self, subject: str) -> None:
+        if self._seen.pop(subject, None) is not None:
+            LOG.warning("%s recovered", subject)
+
+
+FAILURES = FailureLog()
+
+
+def isolated(uow, subject: str, call: Callable, *, savepoint: str = "reconcile_part") -> bool:
+    """Run one part of a reconcile pass in its own savepoint; report whether it completed.
+
+    The pass is one write unit shared by every timed duty and every agent's board, so a part that raises would
+    otherwise discard all of them, on every pass, for as long as its cause lasts. Only that part is rolled back and
+    reported here, and the rest of the pass commits. A failure that ends the whole pass is still raised."""
+    from qorqut.reminders.service import savepoint as scope
+    try:
+        with scope(uow, savepoint):
+            call()
+    except DomainError as error:
+        if error.code in PASS_STOPPERS:
+            raise
+        FAILURES.failed(subject, error)
+        return False
+    except Exception as error:
+        FAILURES.failed(subject, error)
+        return False
+    FAILURES.passed(subject)
+    return True
 
 
 class HostVisibility:
@@ -230,20 +285,29 @@ class NudgeBackend:
                 return
             attention_runtime = getattr(self.runtime, 'attention_runtime', None)
             if attention_runtime is not None:
+                subject = "Attention reminder for " + profile["agent_id"]
                 try:
                     with self.runtime.application.writer_admission.writer():
                         attention_runtime.send_due(profile)
-                except DomainError:
-                    raise
+                    FAILURES.passed(subject)
+                except DomainError as error:
+                    # One agent's unreadable board must not end the pass for every agent listed after it.
+                    if error.code in PASS_STOPPERS:
+                        raise
+                    FAILURES.failed(subject, error)
                 except Exception:
                     LOG.debug('Attention reminder deferred for %s', profile['agent_id'], exc_info=True)
             if profile["agent_id"] not in due:
                 self._memo.pop(profile["agent_id"], None)
                 continue
+            subject = "Inbox nudge for " + profile["agent_id"]
             try:
                 self.step(profile)
-            except DomainError:
-                raise
+                FAILURES.passed(subject)
+            except DomainError as error:
+                if error.code in PASS_STOPPERS:
+                    raise
+                FAILURES.failed(subject, error)
             except Exception:
                 LOG.debug("Inbox nudge deferred for %s", profile["agent_id"], exc_info=True)
 
@@ -264,7 +328,7 @@ class NudgeBackend:
             with self.runtime.application.writer_admission.writer():
                 self.database.write_if_needed(self._reconcile_unit, operation="inbox_nudges.reconcile")
         except DomainError as error:
-            if error.code in {"authority_invalid", "maintenance"}:
+            if error.code in PASS_STOPPERS:
                 raise
             LOG.warning("Inbox nudge reconcile hook failed: %s", error.code)
         except Exception:

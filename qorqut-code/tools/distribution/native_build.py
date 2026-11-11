@@ -92,7 +92,8 @@ def main(argv=None):
     receipt = json.loads((prepared / 'PREPARATION-RECEIPT.json').read_text())
     if receipt.get('state') != 'prepared-not-configured' or set(receipt['environments']) != {'venv'}:
         raise ValueError('Expected a core-only prepared environment')
-    audit = runtime_source.audit(source, wheels=prepared / 'wheels')
+    # One authoritative audit, including the prepared console entry points.
+    audit = runtime_source.audit_prepared(prepared)
     # Qualification is handled by the release gate; this assembler never publishes.
     blockers = audit['findings']
     if blockers:

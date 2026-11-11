@@ -102,7 +102,8 @@ published commit>`. The context is recorded in the event beside, never inside, t
 unchanged source bytes; the expectation must be the published head when a new event
 is staged. See [CORE_CONTRACTS.md](CORE_CONTRACTS.md), "Controlled record context and
 expected base". `begin_action`/`submit_action` take `record_context` too and keep it in
-the canonical Action envelope; neither grants permission or ownership.
+the canonical Action envelope; neither grants permission or ownership. They also take
+`private_context`, a JSON object the interpreting model receives and nothing publishes.
 
 `Pipeline.submit_edit(plan, *, submitted_by, event_id, record_context=None)` is a
 trusted-caller library entry (no CLI command or model tool) that executes a fixed
@@ -253,7 +254,12 @@ runner for focused deterministic checks; production uses `AppServerRunner`.
 
 The default model is `gpt-6-astra`, effort `max`, standard service tier, with
 existing Codex authentication. Submit/retry accepts explicit `--model`,
-`--effort`, and `--codex`; there is no automatic provider/model fallback.
+`--effort`, `--service-tier` (`default`, `priority`, or `ultrafast`), and `--codex`;
+there is no automatic provider/model fallback. Host installations can select the same
+fields through their explicit `--context-config` JSON file. For example:
+`{"model":"gpt-6.1-sol","effort":"high","service_tier":"ultrafast"}`.
+The requested tier is passed to both thread and turn creation. A non-default tier
+must be confirmed by the app-server; a different or missing tier fails before a turn starts.
 The runner uses ephemeral threads in an empty scratch directory, application
 tools, disabled inherited MCP entries and native external capabilities, and
 read-only/never permissions. Read-only alone does not isolate filesystem reads.

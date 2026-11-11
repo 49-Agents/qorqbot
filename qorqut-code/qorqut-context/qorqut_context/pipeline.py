@@ -129,13 +129,18 @@ class Pipeline:
 
     def submit_action(self, operation, action_ref, *, text=None, revision_ref=None,
                       related_objects=None, tags=None, submitted_by, event_id=None,
-                      expected_previous_commit=None, record_context=None):
+                      expected_previous_commit=None, record_context=None, private_context=None):
+        """Stage and interpret one accepted Action revision; see ``Context.begin_action``.
+
+        ``private_context`` is given to both model stages as ``source_change.private_context`` and is never published.
+        """
         with self._lock():
             submission = self.context.begin_action(operation, action_ref, text=text,
                 revision_ref=revision_ref, related_objects=related_objects,
                 tags=tags, submitted_by=submitted_by,
                 event_id=event_id, expected_previous_commit=expected_previous_commit,
-                source_bytes=self.config.source_bytes, record_context=record_context)
+                source_bytes=self.config.source_bytes, record_context=record_context,
+                private_context=private_context)
             if self.on_event:
                 self.on_event(submission.event_id)
             return self._run(submission.event_id)
@@ -225,6 +230,11 @@ class Pipeline:
                   "before": self._text(before), "after": self._text(after)}
         if "record_context" in draft:
             change["record_context"] = draft["record_context"]
+        # Model-only context is read from the pending job: it is in neither the source text nor the draft view, so
+        # bootstrap's lexical matching (which reads ``before``/``after``) and every published file are unaffected by it.
+        private_context = self.context.private_context(draft["event_id"])
+        if private_context is not None:
+            change["private_context"] = private_context
         if "action" in draft:
             action = draft["action"]
             change["action"] = action

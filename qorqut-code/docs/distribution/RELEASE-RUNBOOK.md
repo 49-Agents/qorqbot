@@ -1,52 +1,48 @@
-# Release runbook
+# Download release runbook
 
-Build from one reviewed commit in the ordinary publication repository. Keep
-private input manifests, test instances and reports outside every artifact.
+Use this for a downloadable release or installer change. Ordinary PRs and backend
+releases follow [CI and release preparation](../CI-AND-RELEASES.md). Run commands
+from the repository root, using one reviewed commit. Keep private input manifests,
+test instances and reports outside every artifact.
 
-1. Export the exact commit with `python3 qorqut-code/tools/export-unified.py --repository /absolute/repo --commit COMMIT --with-fastmail --output EXPORT`.
-   During the private multi-repository transition, use `tools/export-source.py`
-   with its reviewed manifest and `--require-gitlink-pins`. Git metadata/private
-   working files are never exported.
-2. Run `python3 -m unittest discover -s tools -p 'test_export_*.py'` and
-   `python3 -m pytest -q tools/distribution/test_runtime_source.py tools/distribution/test_native.py tools/distribution/test_native_extension.py` from the host component, plus affected feature tests.
-3. Run `tools/distribution/runtime_source.py project --source EXPORT --output RUNTIME_SOURCE --report PROJECTION.json`.
-4. Run `tools/prepare-local.py --source-root RUNTIME_SOURCE --output PREPARED --with-google-calendar`.
-   Standard Python build/pip produce the first-party wheels and the resolved
-   application dependency inventory. No native toolchain is built or copied.
-5. Run `tools/distribution/runtime_source.py audit --prepared PREPARED --report CONTENTS.json`.
-   Require a clean result, including first-party license/resource coverage.
-6. Run `tools/distribution/native_build.py --prepared PREPARED --output BUILD --report BUILD_REPORT.json --version VERSION`.
-   This assembles the app and verified wheelhouse. The system Python interpreter,
-   Git/tmux, clients, browser and desktop stack are external requirements.
-7. Run `tools/distribution/check_native.py --archive BUILD/ARCHIVE.tar.gz --output NEW_ACCEPTANCE_DIRECTORY`.
-   Its test-only Ubuntu image installs ordinary Python/Git/tmux packages using
-   APT, then runs the exact download as a nonroot user with networking disabled.
-   Core must run without Chrome/Node/Codex/Claude. Check missing-tool messages,
-   restart, repeated supported updates and preservation of task/document/owner/DB
-   identity. The receipt records the exact test image and archive hashes.
-8. Verify agent preparation, user-installed clients/browser and optional connector
-   installation separately. Stock-host AppArmor/browser acceptance and actual
-   account/provider acceptance are distinct from Docker and synthetic tests.
-9. Build connectors with `tools/distribution/extension_bundle.py`, using exact
-   wheels plus required dependency wheels. It does not install account/vendor
-   software. Test the final bundle against the final core download. Include any
-   corresponding-source artifact required by a helper's license next to it.
-   For Fastmail and Telegram, run `tools/distribution/check_optional_extensions.py
-   --archive BUILD/ARCHIVE.tar.gz --bundle telegram=TELEGRAM.tar.gz
-   --bundle fastmail=FASTMAIL.tar.gz --report-directory NEW_CONNECTOR_EVIDENCE`.
-   The CI workflow builds these bundles and runs this offline preservation check.
-10. Audit final archives for private data/history/tests/build tools, unexpected
-    external executable payloads and notices. Record sizes, checksums, resolved
-    libraries, source commit, test results and real limitations. Any changed bytes
-    require a new artifact and appropriate acceptance.
-11. Complete the publication-date/license ledger and source privacy review.
-    Prepare the release notes, app/connector/source assets and checksum file.
-    Build/check commands never upload, push, deploy or change visibility.
+The manual `Release checks` workflow performs Linux preparation and qualification
+and retains the checked downloads. Supply the release version and the connectors
+being released. Reuse those exact artifacts for publication; do not rebuild them
+merely to copy them to the release channel.
 
-Only the owner may change repository visibility. Historical legacy-migration
-suites are documented in HISTORICAL-TEST-SCOPE.md and do not qualify conversion
-of the old private deployment. Data migrations remain app-specific work even
-when package installation uses standard tools.
+For a local build:
+
+1. Run the relevant current application and tooling tests. The `Checks` workflow
+   lists their installation requirements and executable commands; obsolete test
+   inventories are not release gates.
+2. Export the exact commit with `python3 qorqut-code/tools/export-unified.py --repository /absolute/repo --commit COMMIT --with-fastmail --output EXPORT`.
+   Git metadata and private working files are never exported.
+3. Run `python3 qorqut-code/tools/distribution/runtime_source.py project --source EXPORT --output RUNTIME_SOURCE --report PROJECTION.json`.
+4. Run `python3 qorqut-code/tools/prepare-local.py --source-root RUNTIME_SOURCE --output PREPARED --with-google-calendar`.
+   Unchanged pure-Python first-party wheels reuse the content-checked cache. The
+   receipt records source, wheel hashes, reuse and resolved dependencies. No
+   native toolchain is built or copied.
+5. Run `python3 qorqut-code/tools/distribution/native_build.py --prepared PREPARED --output BUILD --report BUILD_REPORT.json --version VERSION`.
+   The builder audits source, wheels, notices/resources and console entry points
+   once, retaining the findings in `source_audit`. It assembles the verified
+   wheelhouse and archive. Python, Git/tmux, clients and browsers stay external.
+6. Run `python3 qorqut-code/tools/distribution/check_native.py --archive BUILD/ARCHIVE.tar.gz --output NEW_ACCEPTANCE_DIRECTORY`.
+   The exact archive runs as a nonroot user with networking disabled. Check fresh
+   setup, missing-tool messages, restart, supported repeated updates and retained
+   task/document/owner/DB identity. Keep the report and failure logs.
+7. Build only the optional bundles being released and qualify them against this
+   exact core archive with `check_optional_extensions.py`. Include WhatsApp's exact
+   corresponding-source archive and offline rebuild evidence when releasing its
+   helper. Actual provider sign-in, native clients/browser and stock-host checks
+   are separate from synthetic offline qualification.
+8. Preserve the verified archives and checksums, source commit, dependency/license
+   notices, source artifacts, test evidence and platform limitations. Complete the
+   publication-date ledger and release notes. Publishing is a separate maintainer
+   action; build commands do not deploy, publish or change repository visibility.
+
+Only the owner changes repository visibility. Existing installations require
+explicit database/instruction compatibility checks and migration evidence; a
+fresh-install or same-archive update test does not establish those properties.
 
 ## Additional platforms
 
