@@ -46,9 +46,15 @@ const agentFocusKey = id => 'agent-focus:'+id;
 function agentFocusRead(id, options) {
   return uiReads.read(agentFocusKey(id), async()=>{
     const data=coreData(await post('/root/operations/todo_get',{scope:'global',agent_id:id,projection:'focus'}));
-    if (data?.agent_id !== id || !data.attention) throw Error('Focus unavailable');
+    if (data?.agent_id !== id || !data.attention || data.attention.focus?.unavailable) throw Error('Focus unavailable');
     return data;
-  }, options);
+  }, options).catch(error=>{
+    // A refresh failure is not a new focus state. Reuse this agent's last
+    // successful snapshot, including an explicit cleared focus, without aging it.
+    const previous=uiReads.peek(agentFocusKey(id));
+    if (previous?.attention && !previous.attention.focus?.unavailable && !accessLost(error) && error.code !== 'not_found') return previous;
+    throw error;
+  });
 }
 // Change events invalidate only read snapshots. Components keep their normal refresh lifecycle.
 onChange(['agents'], null, ()=>uiReads.invalidate('agent-roster'));
