@@ -60,7 +60,8 @@ function harness() {
     FormData:class { constructor(form) { this.items = Object.values(form.elements).filter(f => !f.disabled && (f.type !== 'checkbox' || f.checked)).map(f => [f.name,f.value]); } [Symbol.iterator]() {return this.items[Symbol.iterator]();} },
     esc:s=>String(s ?? ''),toast:s=>notices.push(s),coreData:x=>x,accessLost:()=>false,clearEtagCache:()=>{},newRequestId:()=> 'request-'+(++requestNumber),loadSession:async()=>owner ? {principal_id:owner,principal_kind:'human',is_owner:true} : null,AICONS:{},T_VIEW_ICON:{calendar:''},
     api:async()=>({items:[]}),post:async (url,args) => {calls.push({url,args}); if (url.endsWith('calendar_event_get')) { if (deferRead) return new Promise(resolve=>{resolveRead=()=>resolve({event:{...occurrence,id:args.event_id}});}); return {event:{...occurrence,id:args.event_id}}; } if (successOperation && url.endsWith(successOperation)) return {}; if (url.endsWith('calendar_event_respond')) return new Promise((resolve,reject)=>{rejectResponse=reject;}); throw Error('Provider mutation intentionally rejected');}};
-  vm.createContext(context); vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/global-calendar.js'),'utf8'),context);
+  vm.createContext(context);
+  for (const file of ['san-juan-time','global-calendar']) vm.runInContext(fs.readFileSync(path.join(__dirname,`../js/${file}.js`),'utf8'),context);
   const run = code => vm.runInContext(code,context);
   const flush = async () => { for(let i=0;i<8;i++) await Promise.resolve(); };
   const button = label => session.host.firstElementChild.footer.children.find(b=>b.textContent===label);
@@ -68,6 +69,40 @@ function harness() {
 }
 
 const pill = (root, status) => root.pills.find(p => p.dataset.calendarStatusChoice === status);
+
+test('editing app-local times preserves unchanged instants and the provider recurrence zone', async () => {
+  const h = harness();
+  h.context.calendars = [h.calendar];
+  h.context.event = {...h.occurrence,start:'2026-11-01T06:30:45Z',end:'2026-11-01T08:00:00Z',timezone:'America/Los_Angeles'};
+  h.run("sjConfigure('America/New_York')");
+  await h.run('calendarEdit(event,calendars,()=>{})'); await h.flush();
+  const f = h.session.host.firstElementChild.form.elements;
+  assert.equal(f.start.value,'2026-11-01T01:30');
+  assert.equal(f.end.value,'2026-11-01T03:00');
+  f.end.value = '2026-11-01T04:00';
+  await h.button('Save').onclick();
+  const changes = h.calls.at(-1).args.changes;
+  assert.equal(changes.start,'2026-11-01T06:30:45Z');
+  assert.equal(changes.end,'2026-11-01T09:00:00.000Z');
+  assert.equal(changes.timezone,'America/Los_Angeles');
+});
+
+test('new timed events use the app zone and invalid DST times never reach the provider', async () => {
+  const h = harness(); h.context.calendars = [h.calendar];
+  h.run("sjConfigure('America/New_York')");
+  await h.run("calendarEdit(null,calendars,()=>{},'2026-03-08')"); await h.flush();
+  const root = h.session.host.firstElementChild, f = root.form.elements;
+  assert.equal(f.start.value,'2026-03-08T10:00');
+  f.title.value = 'New'; f.start.value = '2026-03-08T02:30'; f.end.value = '2026-03-08T03:30';
+  await h.button('Save').onclick();
+  assert.equal(h.calls.length,0);
+  assert.match(root.error.textContent,/daylight-saving gap/);
+  f.start.value = '2026-03-08T03:00';
+  await h.button('Save').onclick();
+  assert.equal(h.calls.at(-1).args.start,'2026-03-08T07:00:00.000Z');
+  assert.equal(h.calls.at(-1).args.end,'2026-03-08T07:30:00.000Z');
+  assert.equal(h.calls.at(-1).args.timezone,'America/New_York');
+});
 
 test('detail, occurrence status, RSVP and pending navigation use Focus', async () => {
   const h=harness(); h.context.event=h.occurrence; h.context.calendars=[h.calendar];
