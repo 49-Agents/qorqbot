@@ -35,7 +35,7 @@ def register(registry, clock):
                     '(SELECT 1 FROM relationships r WHERE r.business_id=t.business_id AND r.from_type=\'task\' AND r.from_id=t.id '
                     'AND r.role=\'assigned_to\' AND r.to_id=?)', (bid, timestamp(lambda: now), *open_states, ctx.principal_id)).fetchone()[0]
             signoffs = uow.connection.execute("SELECT COUNT(*),COALESCE(SUM(category='platform_action'),0) FROM signoffs "
-                "WHERE review_business_id=? AND state='pending' AND superseded_by_id IS NULL", (bid,)).fetchone()
+                "WHERE review_business_id=? AND state='pending' AND category!='side_chat' AND superseded_by_id IS NULL", (bid,)).fetchone()
             # A shared action counts once in each linked business, on its recorded local occurrence day.
             activity = dict(uow.connection.execute("SELECT a.occurred_date,COUNT(DISTINCT a.action_key) FROM action_logs a "
                 "JOIN action_businesses m ON m.action_key=a.action_key WHERE m.business_id=? AND a.occurred_date>=? "

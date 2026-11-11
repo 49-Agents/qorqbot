@@ -162,6 +162,8 @@ class InputRequests:
         return builder.build()
 
     def authorize_update(self, ctx, row, name, uow):
+        if row['category'] == 'side_chat':
+            raise DomainError('invalid_transition', 'Side chats use private messages and owner-only close')
         if ctx.principal_kind == 'human':
             self.service._context(ctx, uow, owner=True)
         elif row['proposer_principal_id'] != ctx.principal_id:
