@@ -1,4 +1,8 @@
-"""One ordered offline upgrade over every additive schema transform a store may still owe.
+"""One ordered offline upgrade over every schema transform a store may still owe.
+
+A transform adds its own objects or, where it says so, changes the definition
+of an existing one; a state of the chain differs from the one before it by
+exactly that.
 
 Each transform under ``qorqut.migration`` recognises a store that lacks only its
 own change. That is exact for a store one transform behind. A store two
@@ -37,22 +41,34 @@ import sqlite3
 import sys
 
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.storage.assembly import CORE_OWNER, StorageContribution
+from qorqut_operations.storage.core_schema import CORE_SCHEMA
 from qorqut_operations.storage.database import APPLICATION_ID
 from qorqut_operations.storage.inventory import IDENTITY_TABLE, compile_target, describe, differences, read_objects
 from qorqut_operations.storage.sqlfunctions import install_sql_functions
 
 from qorqut.composition.assembly import HostComposition, host_contributions
 from qorqut.extensions import NO_EXTENSIONS
-from qorqut.migration import queue_indexes, signoff_sources
+from qorqut.migration import queue_indexes, signoff_side_chat, signoff_sources
 from qorqut.service.changes import ChangeFeed
 from qorqut.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from qorqut.service.ownership import InstanceOwnership
 
-# Release order, oldest first. A new additive schema transform is appended here; it provides NAME, OBJECTS,
-# strip(contribution), forward(connection, objects), backward(connection) and held_rows(connection).
-TRANSFORMS = (signoff_sources, queue_indexes)
+# Release order, oldest first. A new schema transform is appended here; it provides NAME, OBJECTS (what it adds),
+# strip(contribution), forward(connection, objects), backward(connection) and held_rows(connection). One that changes
+# the definition of an existing object also names it in CHANGED.
+TRANSFORMS = (signoff_sources, queue_indexes, signoff_side_chat)
 BASE = 'base'
 STATES = (BASE, *(transform.NAME for transform in TRANSFORMS))
+
+
+def _before(contribution, transforms):
+    """``contribution`` as it stood before every one of ``transforms``; None when one of them introduced it."""
+    for transform in transforms:
+        contribution = transform.strip(contribution)
+        if contribution is None:
+            break
+    return contribution
 
 
 def chain(extensions=NO_EXTENSIONS):
@@ -60,19 +76,19 @@ def chain(extensions=NO_EXTENSIONS):
     after the first k taken out. The last entry is the build's own target."""
     states = []
     for applied in range(len(TRANSFORMS) + 1):
-        builder = HostComposition()
+        later = TRANSFORMS[applied:]
+        # The engine seeds its own schema, so the transforms see it here and not among the host contributions.
+        builder = HostComposition(core_schema=_before(StorageContribution(CORE_OWNER, schema=CORE_SCHEMA), later).schema)
         for contribution in host_contributions(ChangeFeed(), extensions):
-            for transform in TRANSFORMS[applied:]:
-                contribution = transform.strip(contribution)
-                if contribution is None:
-                    break
+            contribution = _before(contribution, later)
             if contribution is not None:
                 builder.add(contribution)
         assembly = builder.freeze()
         states.append((assembly, compile_target(assembly).objects))
     for transform, (_, old), (_, new) in zip(TRANSFORMS, states, states[1:]):
-        if set(new) - set(old) != set(transform.OBJECTS) or any(new.get(key) != value for key, value in old.items()):
-            raise DomainError('invalid_database', f'Transform {transform.NAME} must only add its own declared objects')
+        changed = {key for key, value in old.items() if new.get(key) != value}
+        if set(new) - set(old) != set(transform.OBJECTS) or changed != set(getattr(transform, 'CHANGED', ())):
+            raise DomainError('invalid_database', f'Transform {transform.NAME} must only add or change its own declared objects')
     return states
 
 
