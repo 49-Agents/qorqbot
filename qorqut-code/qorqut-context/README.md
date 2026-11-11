@@ -102,7 +102,8 @@ published commit>`. The context is recorded in the event beside, never inside, t
 unchanged source bytes; the expectation must be the published head when a new event
 is staged. See [CORE_CONTRACTS.md](CORE_CONTRACTS.md), "Controlled record context and
 expected base". `begin_action`/`submit_action` take `record_context` too and keep it in
-the canonical Action envelope; neither grants permission or ownership.
+the canonical Action envelope; neither grants permission or ownership. They also take
+`private_context`, a JSON object the interpreting model receives and nothing publishes.
 
 `Pipeline.submit_edit(plan, *, submitted_by, event_id, record_context=None)` is a
 trusted-caller library entry (no CLI command or model tool) that executes a fixed

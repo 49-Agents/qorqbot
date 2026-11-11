@@ -32,12 +32,14 @@ runner: the library's normal adapter by default, or the one an explicit construc
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 import logging
 from pathlib import Path
 import threading
 import uuid
 
 from qorqut_context import Context, Pipeline
+from qorqut_context.integration.action_evidence import ActionEvidence
 from qorqut_context.integration.driver import ContextQueueDriver
 from qorqut_context.integration.filing import FilingOutcomes
 from qorqut_context.integration.filing.filing import FilingPorts
@@ -145,7 +147,7 @@ def compose_context(application, locations: ContextLocations, settings: ContextS
                             roles=instruct_roles, coordinator=coordinator)
     questions = QuestionStore(locations.questions)
     return ContextComposition(context, pipeline, outcomes, executions, queue, filing, graph_edits, settings,
-                              admit_action_revision, coordinator, locations, questions)
+                              partial(admit_action_revision, evidence=ActionEvidence(application)), coordinator, locations, questions)
 
 
 class _Steps:
