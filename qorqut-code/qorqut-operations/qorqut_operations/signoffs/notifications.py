@@ -52,7 +52,7 @@ class SignoffNotifications:
                 clause += ' AND NOT ('+self.service.ports.management.managed_input_sql+')'
             found = uow.connection.execute(f'''SELECT s.* FROM signoffs s WHERE {clause}
                 AND s.review_business_id IS ?
-                AND s.state='pending' AND s.superseded_by_id IS NULL ORDER BY s.created_at,s.id''', [*params, business['id']])
+                AND s.state='pending' AND s.category!='side_chat' AND s.superseded_by_id IS NULL ORDER BY s.created_at,s.id''', [*params, business['id']])
             for raw in found:
                 row = self.service._dto(decode_row(raw), uow, detail=False)
                 row.update(business_slug=business['slug'], business_name=business['name'])

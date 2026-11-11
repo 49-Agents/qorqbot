@@ -331,16 +331,16 @@ function agviewboxBack(p, toList = false) {
 }
 
 // ------------------------------------------------------------ Focus surfaces strip
-// Browser and Desktop launchers stay fixed beside the shared pending Signoff queue.
+// Browser, Desktop and new side chat stay fixed beside the shared pending Signoff queue.
 const AGVB_SURFACES = [['browser', 'Browser'], ['desktop', 'Desktop']];
 const agvbSurfaceIcon = name => (typeof T_VIEW_ICON === 'object' && T_VIEW_ICON[name]) || '';
 
 function agviewboxSurfacesMount(p, host) {
   if (!host || !p.agentId) return null;
   const strip = { agentId: p.agentId, dead: false, discovery: 'checking', surfaces: null, active: { kind: null, id: null } };
-  host.setAttribute('aria-label', 'Browser, Desktop and Signoffs');
-  host.innerHTML = `<div class="attention-stack agfocus-surfaces"><div class="agfocus-fixed" role="group" aria-label="Browser and Desktop">${AGVB_SURFACES.map(([view, label]) =>
-    `<button type="button" class="attention-chip agfocus-surface-chip" data-focus-surface="${view}" aria-disabled="true">${agvbSurfaceIcon(view)}<span class="attention-label">${label}</span></button>`).join('')}</div>
+  host.setAttribute('aria-label', 'Browser, Desktop, side chats and Signoffs');
+  host.innerHTML = `<div class="attention-stack agfocus-surfaces"><div class="agfocus-fixed" role="group" aria-label="Browser, Desktop and new side chat">${AGVB_SURFACES.map(([view, label]) =>
+    `<button type="button" class="attention-chip agfocus-surface-chip" data-focus-surface="${view}" aria-disabled="true">${agvbSurfaceIcon(view)}<span class="attention-label">${label}</span></button>`).join('')}<button type="button" class="attention-chip agfocus-surface-chip" data-side-chat-new aria-label="New side chat" title="New side chat">${AGVB_SVG('<path d="M12 5v14M5 12h14"/>')}</button></div>
     <span class="agfocus-divider" aria-hidden="true"></span>
     <div class="agfocus-surface-board focus-signoff-queue" role="group" aria-label="Signoff queue" hidden></div></div>`;
   strip.signoffHost = $('.agfocus-surface-board', host);
@@ -380,6 +380,7 @@ function agviewboxSurfacesMount(p, host) {
   host.onclick = event => {
     const button = event.target.closest('button');
     if (!button || !host.contains(button)) return;
+    if (button.hasAttribute('data-side-chat-new')) { sideChatCreate(); return; }
     if (button.dataset.focusSurface) { if (button.getAttribute('aria-disabled') !== 'true') agpadRequestView(p, button.dataset.focusSurface); return; }
   };
   const applyActive = () => {

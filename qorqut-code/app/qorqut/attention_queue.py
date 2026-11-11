@@ -6,7 +6,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from qorqut_operations.contracts import DomainError
+from qorqut_operations.contracts import DomainError, InvocationOptions
 from qorqut.agents.global_scope import active_global
 from qorqut.management.identity import installation_owner
 from qorqut.reply_notifications import replies
@@ -15,6 +15,10 @@ from qorqut.domains.viewbox import BOARD_LIMIT, attention_key
 
 def signoff_key(row):
     return f"signoff:{row['id']}:{row['proposal_revision']}:{row['payload_hash']}"
+
+
+def reminder_key(row):
+    return f"reminder:{row['reminder_id']}:{row['occurrence_id']}:{row['revision']}"
 
 
 def viewed(runtime_directory, owner, ids=()):
@@ -72,6 +76,19 @@ def queue(runtime, ctx, change=None):
                 data = json.loads(profile[0])
                 item['presentation'] = {k: data[k] for k in ('role', 'icon', 'name', 'scope') if k in data}
         _, _, signoffs = runtime.signoffs.notifications._rows(ctx, uow)
+        side_chats = runtime.side_chats.active(ctx, uow)
+        # Reuse the reminder reader's scope and recipient checks. Each recurrence
+        # and edit gets its own read marker; viewing never dismisses the reminder.
+        runtime.application.authorize(ctx, runtime.application.registry.get('reminders_list'), (), uow, namespace='global')
+        args = {'states': ['due'], 'all_scopes': True, 'limit': 100}
+        while True:
+            page = runtime.reminders.list(ctx, args, InvocationOptions(), uow)
+            for row in page['reminders']:
+                candidates.append({'id': reminder_key(row), 'kind': 'reminder', 'reminder_id': row['reminder_id'],
+                    'title': row['text'], 'text': row['text'], 'created_at': row['updated_at']})
+            if not page['next_cursor']:
+                break
+            args['cursor'] = page['next_cursor']
     for row in signoffs:
         candidates.append({'id': signoff_key(row), 'kind': 'signoff', 'signoff_id': row['id'],
             'title': row['title'], 'text': row['title'], 'category': row['category'],
@@ -88,8 +105,10 @@ def queue(runtime, ctx, change=None):
         source = item.get('source', {})
         if item['kind'] == 'viewbox':
             group = ('viewbox', item['viewbox_item_id'])
+        elif item['kind'] == 'reminder':
+            group = ('reminder', item['reminder_id'])
         else:
             group = (item['kind'], item.get('agent_id'), bool(item.get('chat')), source.get('type'), source.get('business_id'), source.get('id')) if item['kind'] != 'signoff' else ('signoff', item['signoff_id'])
         previous = groups.get(group)
         groups[group] = {**item, 'viewed_ids': (previous['viewed_ids'] if previous else []) + [item['id']]}
-    return {'items': sorted(groups.values(), key=order, reverse=True)}
+    return {'items': sorted(groups.values(), key=order, reverse=True), 'side_chats': side_chats}

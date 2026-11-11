@@ -92,6 +92,7 @@ class Runtime:
     management: object = None
     incidents: object = None
     private_conversations: object = None
+    side_chats: object = None
     calendar: object = None
     owner_bootstrap: object = None
     workspaces: object = None
@@ -557,6 +558,8 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     signoff_domains.bind(management=management, focus_board=runtime.focus.board).require()
     from qorqut.inbox.private_conversations import PrivateConversations
     runtime.private_conversations = PrivateConversations(inbox).register()
+    from qorqut.inbox.side_chats import SideChats
+    runtime.side_chats = SideChats(runtime).register()
     # The six Project record operations: one existing Project's inventory, item reads and explicit cross-scope links.
     from qorqut.domains.projects import ProjectRecords
     runtime.projects = ProjectRecords(application, domains.items).register(registry)

@@ -31,7 +31,7 @@ from .ports import ABSENT, SignoffPorts, checked_narrowing
 from .rejection import Rejection
 from .sources import SignoffSources
 
-CATEGORIES = ("internal_change", "platform_action", "input_request")
+CATEGORIES = ("internal_change", "platform_action", "input_request", "side_chat")
 
 STATES = ("pending", "approved", "applied", "rejected", "conflicted", "failed", "answered", "cancelled")
 CONFLICTS = frozenset({"revision_conflict", "forbidden", "policy_denied", "inactive_agent",
@@ -232,7 +232,7 @@ class SignoffService:
             value['attention']['priority_updated_by_name'] = actor['display_name'] if actor else None
         decision = (row["decision_json"] or {}).get("kind")
         value["decision_state"] = {"approve": "approved", "reject": "rejected", "respond": "answered"}.get(decision, "unknown" if row["legacy_evidence_json"] is not None else "pending")
-        value["actionable"] = row["state"] == "pending" and not row["superseded_by_id"]
+        value["actionable"] = row["category"] != "side_chat" and row["state"] == "pending" and not row["superseded_by_id"]
         value["execution_state"] = self.ports.execution.execution_state(row, uow)
         if row["category"] == "platform_action":
             if self.ports.platform is ABSENT:
@@ -323,6 +323,8 @@ class SignoffService:
         if "category" in arguments:
             clause += " AND s.category = ?"
             params.append(arguments["category"])
+        else:
+            clause += " AND s.category != 'side_chat'"
         if arguments.get("execution_states"):
             clause += " AND " + self.ports.execution.execution_sql("s") + " IN (" + ",".join("?" for _ in arguments["execution_states"]) + ")"
             params.extend(sorted(arguments["execution_states"]))
@@ -606,6 +608,8 @@ class SignoffService:
                     raise self._stale(context, row, uow, "Prepared proposal binding changed")
                 if row["category"] == "input_request":
                     raise DomainError("invalid_transition", "Input requests must be answered, not approved or rejected")
+                if row["category"] == "side_chat":
+                    raise DomainError("invalid_transition", "Only the owner can close a side chat, using Close side chat")
                 previous = row["decision_json"]
                 if decision != "retry" and previous:
                     if previous["kind"] != decision or self.decision_text(previous, uow) != feedback:
