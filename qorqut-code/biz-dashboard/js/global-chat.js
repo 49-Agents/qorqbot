@@ -420,7 +420,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     sessionText.textContent = finished ? 'This chat is no longer available.' : emptyState().action ? '' : summary.line;
     workingTag.hidden = !working;
     contextStatus?.show();
-    sessionLine.hidden = !working && !sessionText.textContent;
+    sessionLine.hidden = !sessionText.textContent && (!working || workingTag.parentElement !== sessionLine);
     const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope);
     const pending = presentInputs();
     view.render({
@@ -609,7 +609,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   }
   // Recorded focus and upcoming work belong to this chat's agent, independently of the selected Todo board.
   if (hasContext && view.elements?.composer) {
-    contextStatus=chatFocusPanelMount(view.elements.composer,agentId,{visible:contextVisible,onChange:paintSession});
+    contextStatus=chatFocusPanelMount(view.elements.composer,agentId,{visible:contextVisible,onChange:paintSession,workingTag});
     cleanups.push(()=>contextStatus.dispose());
   }
 
