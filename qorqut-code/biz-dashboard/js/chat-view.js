@@ -379,7 +379,7 @@ function chatViewTypedChip(ref, cls) {
   }
   if (ref.type === 'task' && ref.available !== false) {
     const dot = document.createElement('span');
-    dot.className = 'ball gchat-task-state' + (Object.hasOwn(CHAT_VIEW_TASK_STATES, ref.state) ? ' ' + ref.state : '');
+    dot.className = 'ball agfocus-task-state gchat-task-state' + (Object.hasOwn(CHAT_VIEW_TASK_STATES, ref.state) ? ' ' + ref.state : '');
     dot.setAttribute('aria-hidden', 'true');
     dot.append(Object.assign(document.createElement('span'), {className: 'core'}));
     chip.append(dot);
@@ -753,7 +753,7 @@ function mountChatView(host, options = {}) {
     if (!available) row.classList.add('gchat-ref-row-unavailable');
     if (kind === 'task' && available) {
       const dot = document.createElement('span');
-      dot.className = 'ball gchat-task-state' + chatViewStateClass(state);
+      dot.className = 'ball agfocus-task-state gchat-task-state' + chatViewStateClass(state);
       dot.setAttribute('aria-hidden', 'true');
       const core = document.createElement('span'); core.className = 'core'; dot.append(core);
       row.append(dot);

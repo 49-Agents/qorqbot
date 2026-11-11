@@ -1,4 +1,4 @@
-// Recorded Focus, Intent and the full Todo list above the native chat composer.
+// Recorded focus, other agents and the full Todo list above the native chat composer.
 // Workflow focus keeps its canonical steps; only the native session controls the working dots.
 const WORKFLOW_PANEL_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 const WORKFLOW_PANEL_STATE = {completed: 'done', active: 'working', pending: 'open'};
@@ -7,14 +7,17 @@ const WORKFLOW_PANEL_TEXT = {completed: 'Done', active: 'Working', pending: 'Upc
 function chatFocusPanelMount(composer, agentId, {visible, onChange, workingTag}) {
   const panel = document.createElement('section');
   panel.className = 'wfpanel'; panel.setAttribute('aria-label', 'Agent focus and Todo');
-  panel.innerHTML = '<div class="wfpanel-context-row"><div class="gchat-context" tabindex="0" aria-label="Agent focus and intent"><dl><dt>Focus</dt><dd class="gchat-focus-label">Loading…</dd><dt>Intent</dt><dd class="gchat-focus-intent">Loading…</dd></dl></div></div>';
+  panel.innerHTML = '<div class="wfpanel-context-row"><div class="gchat-context" tabindex="0" aria-label="Agent focus"><dl><dt>Focus</dt><dd class="gchat-focus-label">Loading…</dd></dl></div></div>';
   const head = document.createElement('button');
   head.type = 'button'; head.className = 'quiet wfpanel-head';
   const name = document.createElement('span'); name.className = 'wfpanel-name';
   const chevron = document.createElement('span'); chevron.className = 'wfpanel-chevron'; chevron.innerHTML = WORKFLOW_PANEL_ICON;
   head.append(name, chevron);
   const list = document.createElement('ol'); list.className = 'wfpanel-steps'; list.tabIndex = 0; list.setAttribute('aria-label', 'Todo');
-  panel.append(head, list);
+  const expanded=document.createElement('div');expanded.className='wfpanel-expanded';expanded.tabIndex=0;
+  const peers=document.createElement('section');peers.className='wfpanel-agents';peers.setAttribute('aria-label','Other agents');peers.hidden=true;
+  const todoHeading=document.createElement('div');todoHeading.className='wfpanel-list-heading';todoHeading.textContent='Todo';
+  expanded.append(peers,todoHeading,list);panel.append(head,expanded);
   composer.before(panel);
   const resize=document.createElement('div');resize.className='wfpanel-resize';resize.tabIndex=0;
   resize.setAttribute('role','separator');resize.setAttribute('aria-orientation','horizontal');resize.setAttribute('aria-label','Resize Todo height');
@@ -58,19 +61,56 @@ function chatFocusPanelMount(composer, agentId, {visible, onChange, workingTag})
   let open = true, disposed = false, pending = null, last = 0, attention = null, loaded = false, focusError = false, todoError = false;
   let todos = uiReads.peek(todoKey)?.items || null;
   const show = () => { panel.hidden = false; };
+  let peerVersion=0,peerPending=null,peerAgents=[];
+  const peerData=new Map();
+  const peersVisible=()=>!disposed && open && !mobile.matches && !document.hidden && visible();
+  const paintPeers=()=>{
+    peers.hidden=!peerAgents.length;
+    peers.replaceChildren(...peerAgents.map(agent=>{
+      const row=document.createElement('div');row.className='wfpanel-agent';
+      const data=peerData.get(agent.agent_id),attention=data?.attention,focus=attention?.focus;
+      const text=data===undefined?'Loading focus…':!data || focus?.unavailable?'Focus unavailable'
+        :attention?.state==='focused' && focus ? focus.label || attention.task?.label || 'Focused':'-';
+      const label=agent.display_name || agent.name || 'Agent';
+      row.innerHTML=identityAvatar('agent',label,agent);
+      const summary=document.createElement('span');summary.textContent=String(text).replace(/\s+/g,' ').trim();row.append(summary);
+      row.title=label+': '+summary.textContent;row.setAttribute('aria-label',row.title);return row;
+    }));
+  };
+  const refreshPeers=()=>{
+    if(!peersVisible() || typeof loadGlobalAgentProfiles!=='function')return Promise.resolve();
+    if(peerPending)return peerPending;
+    const version=++peerVersion,current=()=>version===peerVersion && peersVisible();
+    peerPending=(async()=>{
+      try {
+        const agents=await loadGlobalAgentProfiles();if(!current())return;
+        peerAgents=agents.filter(agent=>agent.agent_id!==agentId && globalRosterAgent(agent) && ['ordubashy','global-worker'].includes(agent.role?.id || agent.role_id));
+        for(const agent of peerAgents){const cached=uiReads.peek(agentFocusKey(agent.agent_id));if(cached)peerData.set(agent.agent_id,cached);}
+        paintPeers();onChange();
+        for(let i=0;i<peerAgents.length;i+=3){
+          if(!current())return;
+          await Promise.all(peerAgents.slice(i,i+3).map(async agent=>{
+            try {const data=await agentFocusRead(agent.agent_id);if(current())peerData.set(agent.agent_id,data);}
+            catch(error){if(current() && error?.name!=='AbortError')peerData.set(agent.agent_id,null);}
+          }));
+          if(current())paintPeers();
+        }
+      } catch(error) {
+        if(current()){peers.hidden=false;peers.textContent='Agent focus unavailable';}
+      } finally {if(version===peerVersion)peerPending=null;}
+    })();return peerPending;
+  };
 
   const paint = () => {
     const focus = attention?.focus, focused = attention?.state === 'focused' && focus && !focus.unavailable;
     panel.querySelector('.gchat-focus-label').textContent = !loaded ? 'Loading…' : focusError || focus?.unavailable ? 'Focus unavailable'
       : focused ? focus.label || attention.task?.label || 'Focused' : 'No focus set';
-    panel.querySelector('.gchat-focus-intent').textContent = !loaded ? 'Loading…' : focusError || focus?.unavailable ? 'Intent unavailable'
-      : focused && attention.intent ? attention.intent : 'No intent recorded';
     const workflow = focused && focus.type === 'workflow' && !attention.workflow?.unavailable ? attention.workflow : null;
-    name.textContent = 'Todo';
+    name.textContent = 'Agents and Todo';
     head.setAttribute('aria-expanded', String(open));
     head.setAttribute('aria-label', (open ? 'Hide ' : 'Show ') + name.textContent.toLowerCase());
     panel.classList.toggle('wfpanel-collapsed', !open);
-    list.hidden = !open;resize.hidden=!open;
+    expanded.hidden = !open;resize.hidden=!open;
     const workflowSteps = workflow?.steps || [];
     const todoItems = attentionBoardGroups(todos || []).flatMap(group => group.items);
     const steps = [...workflowSteps, ...todoItems.map(item => ({label: item.task.title, status: item.task.status}))];
@@ -99,9 +139,9 @@ function chatFocusPanelMount(composer, agentId, {visible, onChange, workingTag})
       const empty = document.createElement('li'); empty.className = 'wfpanel-empty';
       empty.textContent = todoError ? 'Todo unavailable' : todos ? 'No tasks on Todo.' : 'Loading Todo…'; rows.push(empty);
     }
-    const scrollTop = list.scrollTop;
+    const scrollTop = expanded.scrollTop;
     list.replaceChildren(...rows);
-    list.scrollTop = scrollTop;
+    expanded.scrollTop = scrollTop;
     show(); onChange();
   };
   const receive = data => {
@@ -114,6 +154,7 @@ function chatFocusPanelMount(composer, agentId, {visible, onChange, workingTag})
     last = Date.now();
     // Focus can paint immediately from its shared snapshot while Todo pages load.
     pending = Promise.all([
+      refreshPeers(),
       agentFocusRead(agentId, {force}).then(receive, () => receive(null)),
       uiReads.read(todoKey, async () => {
         const items = [], seen = new Set();
@@ -140,7 +181,7 @@ function chatFocusPanelMount(composer, agentId, {visible, onChange, workingTag})
   const unsubscribe = uiReads.subscribe(agentFocusKey(agentId), receive);
   const cached = uiReads.peek(agentFocusKey(agentId));
   if (cached) receive(cached); else paint();
-  head.onclick = () => { open = !open; paint(); };
+  head.onclick = () => { open = !open;peerVersion++;peerPending=null;paint();if(open)void refreshPeers(); };
   queueMicrotask(() => { void refresh(); });
   const timer = setInterval(() => { void refresh(); }, 12000);
   const onVisible = () => { if (!document.hidden) void refresh(); };
@@ -149,6 +190,6 @@ function chatFocusPanelMount(composer, agentId, {visible, onChange, workingTag})
   mobile.addEventListener('change', onResize);
   return {
     refresh, show,
-    dispose() { disposed = true; sizeObserver.disconnect(); unsubscribe(); clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); mobile.removeEventListener('change', onResize); workingHost.prepend(workingTag); panel.remove(); },
+    dispose() { disposed = true;peerVersion++; sizeObserver.disconnect(); unsubscribe(); clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); mobile.removeEventListener('change', onResize); workingHost.prepend(workingTag); panel.remove(); },
   };
 }

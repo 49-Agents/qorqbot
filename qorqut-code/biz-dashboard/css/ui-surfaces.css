@@ -11,3 +11,6 @@
 .tip, .jrtip { max-width:min(360px,calc(100vw - 24px)); padding:8px 12px; font:500 12px/1.45 var(--sans); overflow-wrap:anywhere; }
 select:not([multiple]) { border-radius:10px; }
 .select-menu { max-height:min(360px,calc(100vh - 24px)); }
+
+/* Menus must stay interactive above the notification stack (1100). */
+.menu, .cmenu { z-index:1200; }

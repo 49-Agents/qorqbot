@@ -16,16 +16,14 @@
 .agent-timeline-error p { margin: 0 0 8px; }
 .agent-timeline-empty { margin-top: 15px; }
 .agent-timeline-empty button { height: 28px; padding: 0; border: 0; font-size: 12px; font-weight: 450; }
-.agent-timeline-list { list-style: none; padding: 0; margin: 28px 0 0; }
-.agent-timeline-row { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 26px; position: relative; padding: 0 0 24px; }
-.agent-timeline-row::before { content: ''; position: absolute; left: 55px; top: 10px; bottom: -10px; border-left: 1px solid var(--line); }
-.agent-timeline-row:last-child { padding-bottom: 0; }
-.agent-timeline-row:last-child::before { display: none; }
-.agent-timeline-row::after { content: ''; position: absolute; left: 53px; top: 8px; width: 5px; height: 5px; border-radius: 50%; background: var(--fg-3); }
-.agent-timeline-row time { padding-top: 1px; color: var(--fg-2); font-size: 11px; line-height: 21px; font-variant-numeric: tabular-nums; }
-.agent-timeline-copy { min-width: 0; }
-.agent-timeline-text { margin: 0; color: var(--fg); font-size: 13px; font-weight: 400; line-height: 1.65; overflow-wrap: anywhere; }
-.agent-timeline-meta { margin: 4px 0 0; color: var(--fg-2); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.agent-timeline-list { list-style:none; padding:0 0 0 12px; margin:28px 0 0; }
+/* Shared with the navigation report: date and content sit to the right of the dot. */
+.agent-timeline-row,.agent-nav-events li { position:relative; padding:0 0 20px 18px; border-left:1px solid var(--line-2); }
+.agent-timeline-row::before,.agent-nav-events li::before { content:""; position:absolute; left:-4px; top:5px; width:7px; height:7px; border-radius:50%; background:var(--fg-2); }
+.agent-timeline-row time,.agent-timeline-meta,.agent-nav-events time,.agent-nav-events small { color:var(--fg-2); font-size:11px; }
+.agent-timeline-copy { min-width:0; }
+.agent-timeline-text,.agent-nav-events p { margin:5px 0 0; font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+.agent-timeline-meta { margin:4px 0 0; line-height:1.5; overflow-wrap:anywhere; }
 .agent-timeline .agent-timeline-entry { min-width: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; }
 .agent-timeline .agent-timeline-entry > summary { display: grid; grid-template-columns: minmax(0, 1fr) 14px; align-items: start; gap: 12px; margin: 0; padding: 0; border: 0; border-radius: 2px; background: none; list-style: none; cursor: pointer; }
 .agent-timeline-entry > summary::-webkit-details-marker { display: none; }
@@ -45,8 +43,5 @@
 .agent-timeline :is(button, input, summary, a):focus-visible { outline: 1px solid var(--fg-2); outline-offset: 3px; }
 @media (max-width: 600px) {
   .agent-timeline { padding: 12px 4px; }
-  .agent-timeline-row { grid-template-columns: 37px minmax(0, 1fr); gap: 22px; }
-  .agent-timeline-row::before { left: 46px; }
-  .agent-timeline-row::after { left: 44px; }
 }
 @media (prefers-reduced-motion: reduce) { .agent-timeline .agent-timeline-expand svg { transition: none; } }
