@@ -570,9 +570,9 @@ function conversationMount(host,source,adapter={}) {
   view=host._conversation={
     dismissOnOutside:adapter.dismissOnOutside!==false,
     // Refresh must also revalidate a retained but hidden Chat: a source denial there has to
-    // reach the host even though the pane is collapsed. load() itself never acknowledges a
-    // hidden conversation; only expand() asks it to acknowledge.
-    refresh:()=>{if(expanded){for(const view of signoffViews)void view.refresh();}return load(false);},
+    // reach the host even though the pane is collapsed. A caller may explicitly request
+    // acknowledgment, but load() never acknowledges a hidden conversation.
+    refresh:(options={})=>{if(expanded){for(const view of signoffViews)void view.refresh();}return load(false,options);},
     isExpanded:()=>expanded,expand:()=>expand(true),collapse:()=>expand(false),
     setUnread,
     hasDraft:()=>!!(s.text || s.files.length) || [...signoffViews].some(card=>card.hasUnsaved() || card.hasPendingWrite()),

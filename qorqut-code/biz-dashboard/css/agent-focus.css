@@ -230,6 +230,8 @@
 .agfocus .focus-signoff-queue .focus-signoff-chip{display:flex;align-items:center;justify-content:center;flex:none;width:40px;max-width:100%;min-height:40px;margin:0;padding:8px;border:0;border-radius:5px;background:var(--hover);color:var(--fg-2);font-size:11px;text-align:left}
 .focus-signoff-chip .attention-signoff{width:18px;height:18px;border:0;border-radius:0}
 .focus-signoff-chip svg{width:18px;height:18px}
+.focus-signoff-chip{position:relative}
+.focus-signoff-chip[data-unread="true"]::after{content:"";position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 0 1px #777;pointer-events:none}
 
 /* Fixed Browser/Desktop pair, a quiet divider, then the scrolling Signoff queue. */
 .agfocus-surfaces > .focus-signoff-queue{flex-wrap:nowrap;margin:0}

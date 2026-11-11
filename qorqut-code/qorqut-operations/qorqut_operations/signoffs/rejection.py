@@ -46,6 +46,8 @@ class Rejection:
             raise DomainError('historical_record', 'Historical signoffs cannot receive new decisions')
         if row['category'] == 'input_request':
             raise DomainError('invalid_transition', 'Input requests require an owner answer')
+        if row['category'] == 'side_chat':
+            raise DomainError('forbidden', 'Only the owner can close a side chat')
         if (row['state'] != 'pending' or row['decision_json'] or row['superseded_by_id']
                 or row['status_revision'] != args['expected_status_revision']
                 or not self.service._binding_matches(row, args['proposal_revision'], args['payload_hash'])):
