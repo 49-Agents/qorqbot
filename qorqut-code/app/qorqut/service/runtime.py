@@ -45,8 +45,6 @@ from qorqut_operations.storage.files import FileApplier
 RECOVERY_WRITERS = ("native_chat", "inbox_nudges", "activity", "incidents", "terminal_control", "broadcast_dispatcher", "changes",
                     "context", "history")
 RECOVERY_REQUIRED = RECOVERY_WRITERS
-# How often the backend pass looks for delegated work that has gone quiet.
-STALE_PASS_SECONDS = 600.0
 # The runtime attribute behind a lifecycle step whose name differs from it.
 STEP_ATTRIBUTES = {"context": "context_services", "history": "history_observer"}
 
@@ -523,7 +521,7 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     runtime.native_chat = NativeChat.build(runtime)
     from qorqut.overseer.operations import OverseerOperations
     runtime.overseer = OverseerOperations(runtime).register()
-    from qorqut.native_chat.nudges import NudgeBackend, delivery_view, isolated, paced
+    from qorqut.native_chat.nudges import NudgeBackend, delivery_view, isolated
     # The shared reminder service is registered (its operations, legacy wrappers, delivery adapter and runtime.reminders /
     # application.reminders) before the nudge pass can call its reconcile; it needs only the application and inbox; owner delivery uses a selected extension.
     from qorqut.reminders.service import ReminderService
@@ -533,10 +531,6 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # agent. Without a Task service there are no snoozes to reconcile.
     tasks = getattr(domains, "tasks", None)
     from qorqut.overseer.due import reconcile as reconcile_due
-    # Work goes stale over days, so the pass that runs every few seconds looks for it once per STALE_PASS_SECONDS:
-    # one inbox event to Ordubashy per delegated Task that sat untouched past its state's limit, and again after each
-    # further full period. It changes no Task and writes no thread entry.
-    stale_work = paced(STALE_PASS_SECONDS, lambda uow: tasks.reconcile_stale(uow))
 
     def reconcile_inbox(uow):
         # The one bounded inbox reconcile hook: the retained Task snoozes, the shared reminders' due boundaries and pending
@@ -546,7 +540,6 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
         # others on every pass.
         if tasks:
             isolated(uow, "Task snooze reconcile", lambda: tasks.reconcile_snoozes(uow))
-            isolated(uow, "Stale delegated work reconcile", lambda: stale_work(uow))
         isolated(uow, "Reminder reconcile", lambda: runtime.reminders.reconcile(uow))
         isolated(uow, "Due extraction reconcile", lambda: reconcile_due(runtime, uow))
 

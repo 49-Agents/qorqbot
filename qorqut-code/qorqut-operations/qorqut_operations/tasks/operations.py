@@ -39,7 +39,6 @@ from qorqut_operations.tasks.relocation import TaskRelocation, moved_location
 from qorqut_operations.tasks.scope import task_context, task_namespace
 from qorqut_operations.tasks.schema import CLOSED_STATES, PAUSED_STATES, STATES
 from qorqut_operations.tasks.snooze import reconcile_snoozes
-from qorqut_operations.tasks.stale import reconcile_stale
 from qorqut_operations.tasks.types import (KIND_SCHEMA, PROFILE_SCHEMA, STATE_SCHEMA, TYPES, apply_attributes, attributes,
                                            custom_fields)
 from qorqut_operations.team_channel import reject_owner_team_write
@@ -694,13 +693,6 @@ class TaskOperations:
     def reconcile_snoozes(self, uow, *, now=None, limit=500):
         """The host lifecycle's one call: wake every passed snooze generation once, routed through this service's ``Routing`` port."""
         return reconcile_snoozes(uow, self.ports.routing, now=now, limit=limit)
-
-    def reconcile_stale(self, uow, *, now=None, limit=20):
-        """The host lifecycle's call for work that has gone quiet: tell whoever the ``Oversight`` port names about every
-        Task untouched past its state's limit, once per period. Without that port nobody is told."""
-        if self.ports.oversight is None:
-            return []
-        return reconcile_stale(uow, self.ports.oversight, now=now or self.clock(), limit=limit)
 
     # -- follows ---------------------------------------------------------------------------------------------------
 

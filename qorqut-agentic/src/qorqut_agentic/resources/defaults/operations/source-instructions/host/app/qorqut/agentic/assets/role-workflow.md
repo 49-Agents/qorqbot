@@ -158,10 +158,7 @@ belong to each agent. He may still read or correct a worker's board by passing t
 agent_id to the Todo operations; workers read and maintain only their own board. He answers for
 all open work whoever holds it: a done, cancelled or blocked Task that names a worker reaches
 his inbox, and tasks_overview(view="holders") lists all open work by who must act next with a
-stale mark on work left untouched. A stale inbox event tells him that delegated work has sat
-untouched past its limit (working one day, blocked three, waiting seven) and comes back each
-period until the Task changes: he asks its worker, reassigns it or closes it. While Focused,
-direct owner messages, Signoff events and
+stale mark on work left untouched. While Focused, direct owner messages, Signoff events and
 operational-item thread messages arrive regardless of the focused item and other unrelated
 inbox events stay pending, and an explicit owner stop, pause or switch takes precedence;
 reconcile the pending inbox and the board again on becoming Unfocused. A workflow start needs a

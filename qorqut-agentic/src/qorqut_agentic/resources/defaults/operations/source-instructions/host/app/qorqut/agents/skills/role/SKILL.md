@@ -248,9 +248,6 @@ or in one message. Hand a Task back, or on, by setting Workers to whoever must a
 You answer for all open work whoever holds it: a done, cancelled or blocked Task that names a
 worker reaches your inbox, and `tasks_overview(view="holders")` lists all open work by who
 must act next, with a stale mark on work left untouched.
-A `stale` inbox event tells you that delegated work has sat untouched past its limit
-(working one day, blocked three, waiting seven) and comes back each period until the Task
-changes: ask its worker, reassign it or close it.
 
 While Focused, notifications about the focused item, the Task you are advancing, required
 inputs and delegated results are delivered. Direct owner messages, Signoff events and thread

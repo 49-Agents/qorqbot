@@ -87,28 +87,6 @@ class FailureLog:
 FAILURES = FailureLog()
 
 
-def paced(seconds: float, call: Callable, *, monotonic: Callable[[], float] = time.monotonic) -> Callable:
-    """``call(uow)`` at most once per ``seconds``, for a duty of the pass that changes over hours, not seconds.
-
-    The time is kept once the call has finished, or failed: a fault is retried at the same pace, not on every pass.
-    A unit the pass abandons at its first write, to run it again holding the writer, has not finished, so that
-    second run calls again."""
-    last = [None]
-
-    def run(uow):
-        now = monotonic()
-        if last[0] is not None and now - last[0] < seconds:
-            return None
-        try:
-            result = call(uow)
-        except Exception:
-            last[0] = now
-            raise
-        last[0] = now
-        return result
-    return run
-
-
 def isolated(uow, subject: str, call: Callable, *, savepoint: str = "reconcile_part") -> bool:
     """Run one part of a reconcile pass in its own savepoint; report whether it completed.
 

@@ -97,23 +97,11 @@ class Boards(Protocol):
                       worker_ids: Sequence[str], uow) -> None: ...
 
 
-class Oversight(Protocol):
-    """Who answers for work that has gone quiet.
-
-    ``stale_routes(uow, tasks)`` receives the Tasks the stale reconciler found untouched past their state's limit (each
-    with ``id``, ``business_id``, ``status``, ``updated_at``, ``created_by`` and ``worker_ids_json`` as stored) and returns
-    the agents to tell, keyed by ``(business_id, id)``. A Task it leaves out is nobody's to chase and gets no event.
-    It is asked once per reconcile for the whole batch, reads only, and the engine keeps the eligible agents."""
-
-    def stale_routes(self, uow, tasks: Sequence[Mapping[str, Any]]) -> Mapping[tuple[str | None, str], Sequence[str]]: ...
-
-
 @dataclass(frozen=True)
 class TaskPorts:
     """All host knowledge of one ``TaskOperations``, built once by trusted assembly code.
 
-    ``boards`` and ``oversight`` are the optional parts: an assembly without work boards, or with nobody who answers
-    for other agents' work, leaves them out."""
+    ``boards`` is the one optional part: an assembly without work boards leaves it out."""
 
     assignees: AssigneeRules
     focus: Focus
@@ -121,13 +109,10 @@ class TaskPorts:
     references: NoteReferences
     routing: Routing
     boards: Boards | None = None
-    oversight: Oversight | None = None
 
     def __post_init__(self):
         if self.boards is not None and not callable(getattr(self.boards, "workers_named", None)):
             raise AssemblyError("The optional task port boards must provide workers_named")
-        if self.oversight is not None and not callable(getattr(self.oversight, "stale_routes", None)):
-            raise AssemblyError("The optional task port oversight must provide stale_routes")
         for label, value, methods in (
                 ("assignees", self.assignees, ("protect", "owner_directed", "worker_excluded")),
                 ("focus", self.focus, ("creation_access", "present_created")), ("incidents", self.incidents, ("link_task",)),
@@ -142,4 +127,4 @@ class TaskPorts:
             raise AssemblyError("The note reference port lists its reference types and its host-resolved types")
 
 
-__all__ = ["AssigneeRules", "Boards", "Focus", "Incidents", "NoteReferences", "Oversight", "Routing", "TaskPorts"]
+__all__ = ["AssigneeRules", "Boards", "Focus", "Incidents", "NoteReferences", "Routing", "TaskPorts"]
