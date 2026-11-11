@@ -202,7 +202,7 @@
 }
 
 /* Both surfaces belong to the native top-layer popover; the page remains behind its blurred backdrop. */
-.agent-nav-timeline { position:fixed; top:50%; right:32px; transform:translateY(-50%); width:min(560px,calc(100vw - 344px)); max-height:min(78dvh,760px); box-sizing:border-box; display:flex; flex-direction:column; gap:14px; padding:20px; overflow:hidden; border:1px solid color-mix(in srgb,var(--fg) 20%,transparent); border-radius:18px; background:linear-gradient(135deg,color-mix(in srgb,var(--fg) 9%,transparent),transparent),color-mix(in srgb,var(--bg) 82%,transparent); backdrop-filter:blur(20px) saturate(150%); box-shadow:0 12px 40px #0004; }
+.agent-nav-timeline { position:fixed; top:50%; right:32px; transform:translateY(-50%); width:min(760px,calc(100vw - 344px)); max-height:min(86dvh,900px); box-sizing:border-box; display:flex; flex-direction:column; gap:14px; padding:20px; overflow:hidden; border:1px solid color-mix(in srgb,var(--fg) 20%,transparent); border-radius:18px; background:linear-gradient(135deg,color-mix(in srgb,var(--fg) 9%,transparent),transparent),color-mix(in srgb,var(--bg) 82%,transparent); backdrop-filter:blur(20px) saturate(150%); box-shadow:0 12px 40px #0004; }
 .agent-nav-timeline header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .agent-nav-timeline h2 { margin:0; font-size:16px; font-weight:500; color:var(--fg); text-transform:none; letter-spacing:0; }
 .agent-nav-timeline header p,.agent-nav-timeline-status { margin:4px 0 0; color:var(--fg-2); font-size:12px; }
@@ -219,3 +219,18 @@
 .agent-nav-events time,.agent-nav-events small { color:var(--fg-2); font-size:11px; }
 .agent-nav-events p { margin:5px 0 0; font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
 @media(max-width:700px) { .agent-nav-timeline { display:none; } }
+
+.agent-nav-charts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; flex:none; }
+.agent-nav-charts section { display:flex; flex-direction:column; min-width:0; }
+.agent-nav-charts .agent-nav-chart { margin-top:auto; }
+.agent-nav-charts h3 { margin:0 0 8px; font-size:12px; font-weight:500; color:var(--fg); letter-spacing:0; text-transform:none; }
+.agent-nav-tasks-status { margin:0 0 8px; font-size:11px; line-height:1.4; color:var(--fg-2); }
+.agent-nav-tasks-chart .agent-nav-chart-track i { background:color-mix(in srgb,var(--ok) 75%,var(--fg)); }
+.agent-nav-timeline button[data-more] { display:flex; align-items:center; justify-content:center; gap:9px; flex:none; width:100%; min-height:42px; height:auto; padding:10px 16px; border:1px solid color-mix(in srgb,var(--fg) 16%,transparent); border-radius:12px; background:color-mix(in srgb,var(--fg) 7%,transparent); color:var(--fg); font-size:12px; font-weight:500; line-height:1.4; box-shadow:inset 0 1px 0 color-mix(in srgb,var(--fg) 5%,transparent); }
+.agent-nav-timeline button[data-more]:hover:not(:disabled) { background:color-mix(in srgb,var(--fg) 12%,transparent); border-color:var(--fg-2); transform:none; }
+.agent-nav-timeline button[data-more]:focus-visible { outline:2px solid var(--fg-2); outline-offset:2px; }
+.agent-nav-timeline button[data-more]:disabled { cursor:wait; opacity:.55; }
+.agent-nav-timeline button[data-more][hidden] { display:none; }
+.agent-nav-timeline button[data-more] svg { flex:none; }
+@media(max-width:1100px) { .agent-nav-charts { grid-template-columns:minmax(0,1fr); gap:16px; } }
+@media(max-height:650px) { .agent-nav-timeline { overflow-y:auto; } .agent-nav-events { flex:none; max-height:220px; } }

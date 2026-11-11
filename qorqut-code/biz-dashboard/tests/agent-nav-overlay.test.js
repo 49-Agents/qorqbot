@@ -30,7 +30,7 @@ async function fixture({mobile=false,many=false}={}) {
     window.GLOBAL_ICONS={settings:'<svg viewBox="0 0 24 24"></svg>'};
     window.testingModeReady=async()=>{};window.testingModeEnabled=()=>true;window.testingModeSubscribe=()=>()=>{};
     window.coreData=value=>value;window.acOccurred=action=>action.occurred?.date || 'Undated';
-    window.actionReads=[];window.post=async(url,body)=>{actionReads.push({url,body});return {actions:[{action_id:body.performer+'-1',text:'Reviewed the plan',occurred:{date:'2026-11-10',precision:'day'}}]};};
+    window.actionReads=[];window.post=async(url,body)=>{if(url.endsWith('/global_progress_get'))return {series:Array.from({length:7},(_,i)=>({date:'2026-11-'+String(i+5).padStart(2,'0'),tasks_done:0})),timezone:'UTC'};actionReads.push({url,body});return {actions:[{action_id:body.performer+'-1',text:'Reviewed the plan',occurred:{date:'2026-11-10',precision:'day'}}]};};
     window.agentNavPaint=()=>{};window.agentNavRefresh=()=>{};
     window.agTakeLinkedWorkspace=()=>null;window.agentWorkspaceTakeRequest=()=>null;window.agentWorkspaceRehydrate=()=>null;
     window.agentWorkspaceRequest=null;window.agentWorkspaceApplied=null;window._agpad=null;
@@ -43,6 +43,8 @@ async function fixture({mobile=false,many=false}={}) {
     };
     window.goGlobalTab=tab=>{window.destination=tab;};window.onboarding={open(){window.walkthrough=true;}};
   },many);
+  await page.addScriptTag({path:path.join(root,'js/san-juan-time.js')});
+  await page.clock.setFixedTime(new Date('2026-11-11T18:00:00Z'));
   await page.addScriptTag({path:path.join(root,'js/agent-nav-timeline.js')});
   await page.addScriptTag({path:path.join(root,'js/global-agents.js')});
   await page.evaluate(()=>renderGlobalAgents(document.querySelector('#host')));
@@ -173,7 +175,7 @@ browserTest('touch opens and dismisses navigation without reserving a mobile sid
 browserTest('late action reads cannot replace another agent and failed reads stay distinct from empty',async()=>{
   const {browser,page,errors}=await fixture();
   try {
-    await page.evaluate(()=>{window.held=[];window.post=(url,body)=>new Promise((resolve,reject)=>held.push({body,resolve,reject}));});
+    await page.evaluate(()=>{window.held=[];window.post=(url,body)=>url.endsWith('/global_progress_get')?Promise.resolve({series:[{date:'2026-11-11',tasks_done:0}],timezone:'UTC'}):new Promise((resolve,reject)=>held.push({body,resolve,reject}));});
     await page.mouse.move(34,32);
     await page.waitForFunction(()=>held.length===1);
     await page.locator('[data-global-agent="ord"]').click();
@@ -193,6 +195,56 @@ browserTest('late action reads cannot replace another agent and failed reads sta
     await page.keyboard.press('Escape');
     await page.evaluate(()=>held[3].resolve({actions:[{action_id:'late',text:'Hidden action'}]}));
     assert.equal(await page.locator('.agent-nav-overlay').isVisible(),false);
+    assert.deepEqual(errors,[]);
+  }finally{await browser.close();}
+});
+
+
+browserTest('task chart uses historical daily counts independently of Todo membership',async()=>{
+  const {browser,page,errors}=await fixture();
+  try {
+    await page.evaluate(()=>{
+      window.progressReads=[];const original=post;
+      window.post=async(url,body)=>{
+        if(!url.endsWith('/global_progress_get'))return {...await original(url,body),next_cursor:'older-actions'};
+        progressReads.push(body);
+        return {series:Array.from({length:30},(_,i)=>({date:sjAddDays('2026-11-11',i-29),tasks_done:i===28?12:i===29?3:0})),timezone:'America/La_Paz'};
+      };
+    });
+    await page.mouse.move(34,32);
+    const chart=page.locator('.agent-nav-tasks-chart');await chart.waitFor();
+    assert.equal(await chart.locator('[aria-label="2026-11-10: 12 completed tasks"]').count(),1);
+    assert.equal(await chart.locator('[aria-label="2026-11-11: 3 completed tasks"]').count(),1);
+    assert.equal(await chart.locator('.agent-nav-chart-day').count(),7);
+    assert.deepEqual(await page.evaluate(()=>progressReads),[{days:30}]);
+    assert.match(await page.locator('[data-tasks-status]').innerText(),/Across workspaces.*America\/La_Paz/);
+    const pane=page.locator('.agent-nav-timeline'),more=pane.locator('[data-more]');
+    assert.equal((await pane.boundingBox()).width,760);
+    assert.ok((await more.boundingBox()).height>=42);
+    assert.equal(await more.evaluate(el=>getComputedStyle(el).borderRadius),'12px');
+    assert.deepEqual(errors,[]);
+  }finally{await browser.close();}
+});
+
+browserTest('historical task reads discard stale responses and distinguish errors from zero completions',async()=>{
+  const {browser,page,errors}=await fixture();
+  try {
+    await page.evaluate(()=>{
+      const original=post;window.progressHeld=[];
+      window.post=(url,body)=>url.endsWith('/global_progress_get')?new Promise((resolve,reject)=>progressHeld.push({resolve,reject})):original(url,body);
+    });
+    await page.mouse.move(34,32);await page.waitForFunction(()=>progressHeld.length===1);
+    await page.locator('[data-global-agent="ord"]').click();await page.waitForFunction(()=>progressHeld.length===2);
+    await page.evaluate(()=>{
+      progressHeld[1].resolve({series:[{date:'2026-11-11',tasks_done:0}]});
+      progressHeld[0].resolve({series:[{date:'2026-11-11',tasks_done:99}]});
+    });
+    const chart=page.locator('.agent-nav-tasks-chart');await chart.waitFor();
+    assert.deepEqual(await chart.locator('.agent-nav-chart-count').allTextContents(),['0']);
+    await page.locator('[data-refresh]').click();await page.waitForFunction(()=>progressHeld.length===3);
+    await page.evaluate(()=>progressHeld[2].reject(Error('Offline')));
+    await page.waitForFunction(()=>document.querySelector('[data-tasks-status]').textContent.includes('unavailable'));
+    assert.equal(await chart.isVisible(),false);
     assert.deepEqual(errors,[]);
   }finally{await browser.close();}
 });

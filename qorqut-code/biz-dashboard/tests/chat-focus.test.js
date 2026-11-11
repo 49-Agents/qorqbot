@@ -314,3 +314,30 @@ browserTest('mobile hides the entire pane and stops reads; resizing to desktop r
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });
+
+browserTest('Todo resizes vertically by drag and keyboard, persists, and resets without changing width',async()=>{
+  const {browser,page,errors}=await fixture();
+  try {
+    await page.evaluate(()=>{
+      const saved=new Map();Object.defineProperty(window,'localStorage',{value:{getItem:key=>saved.get(key) || null,setItem:(key,value)=>saved.set(key,String(value)),removeItem:key=>saved.delete(key)},configurable:true});
+    });
+    const panel=page.locator('.wfpanel'),grip=page.getByRole('separator',{name:'Resize Todo height'});
+    const before=await panel.boundingBox(),handle=await grip.boundingBox();
+    await page.mouse.move(handle.x+handle.width/2,handle.y+5);await page.mouse.down();
+    await page.mouse.move(handle.x+handle.width/2+80,handle.y-85,{steps:5});await page.mouse.up();
+    const grown=await panel.boundingBox();assert.ok(grown.height>before.height+70);assert.equal(grown.width,before.width);
+    assert.ok((await page.locator('.gchat-composer').boundingBox()).y+50<=700);
+    const saved=await page.evaluate(()=>Number(localStorage.getItem('chat-todo-height')));assert.ok(saved>before.height);
+    await page.evaluate(()=>mount());await page.waitForFunction(()=>document.querySelector('.gchat-focus-label').textContent==='Coordinate launch');
+    assert.ok(Math.abs((await panel.boundingBox()).height-saved)<1);
+    await grip.focus();await page.keyboard.press('ArrowDown');
+    assert.ok((await panel.boundingBox()).height<saved-20);
+    await page.locator('.wfpanel-head').click();assert.equal(await grip.isVisible(),false);
+    assert.ok((await panel.boundingBox()).height<150);
+    await page.locator('.wfpanel-head').click();assert.equal(await grip.isVisible(),true);
+    await grip.dblclick();assert.equal(await page.evaluate(()=>localStorage.getItem('chat-todo-height')),null);
+    assert.ok((await panel.boundingBox()).height<=260);
+    await page.setViewportSize({width:390,height:700});assert.equal(await panel.isVisible(),false);
+    assert.deepEqual(errors,[]);
+  }finally{await browser.close();}
+});

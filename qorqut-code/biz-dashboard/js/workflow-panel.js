@@ -16,6 +16,39 @@ function chatFocusPanelMount(composer, agentId, {visible, onChange, workingTag})
   const list = document.createElement('ol'); list.className = 'wfpanel-steps'; list.tabIndex = 0; list.setAttribute('aria-label', 'Todo');
   panel.append(head, list);
   composer.before(panel);
+  const resize=document.createElement('div');resize.className='wfpanel-resize';resize.tabIndex=0;
+  resize.setAttribute('role','separator');resize.setAttribute('aria-orientation','horizontal');resize.setAttribute('aria-label','Resize Todo height');
+  resize.title='Drag to resize Todo. Double-click to reset.';panel.prepend(resize);
+  const heightKey='chat-todo-height';let requestedHeight=null,drag=null;
+  try {const saved=Number(localStorage.getItem(heightKey));if(Number.isFinite(saved) && saved>0)requestedHeight=saved;}catch(_){}
+  const limits=()=>{const max=Math.max(80,Math.min(600,panel.parentElement.getBoundingClientRect().height*.65));return {min:Math.min(120,max),max};};
+  const applyHeight=()=>{
+    const {min,max}=limits();
+    if(requestedHeight!==null){panel.style.setProperty('--wfpanel-height',Math.min(max,Math.max(min,requestedHeight))+'px');panel.style.setProperty('--wfpanel-max-height','min(65%,600px)');}
+    else {panel.style.removeProperty('--wfpanel-height');panel.style.removeProperty('--wfpanel-max-height');}
+    resize.setAttribute('aria-valuemin',String(Math.round(min)));resize.setAttribute('aria-valuemax',String(Math.round(max)));
+    resize.setAttribute('aria-valuenow',String(Math.round(panel.getBoundingClientRect().height)));
+  };
+  const saveHeight=()=>{try{if(requestedHeight===null)localStorage.removeItem(heightKey);else localStorage.setItem(heightKey,String(requestedHeight));}catch(_){}};
+  const setHeight=value=>{const {min,max}=limits();requestedHeight=Math.min(max,Math.max(min,value));applyHeight();onChange();};
+  resize.onpointerdown=event=>{
+    if(event.button!==0 || !event.isPrimary)return;
+    event.preventDefault();drag={id:event.pointerId,y:event.clientY,height:panel.getBoundingClientRect().height};
+    resize.setPointerCapture(event.pointerId);panel.classList.add('wfpanel-resizing');
+  };
+  resize.onpointermove=event=>{if(drag?.id===event.pointerId)setHeight(drag.height+drag.y-event.clientY);};
+  const finishResize=event=>{
+    if(drag?.id!==event.pointerId)return;
+    drag=null;panel.classList.remove('wfpanel-resizing');if(resize.hasPointerCapture(event.pointerId))resize.releasePointerCapture(event.pointerId);saveHeight();
+  };
+  resize.onpointerup=finishResize;resize.onpointercancel=finishResize;resize.onlostpointercapture=finishResize;
+  resize.ondblclick=()=>{requestedHeight=null;applyHeight();saveHeight();onChange();};
+  resize.onkeydown=event=>{
+    if(!['ArrowUp','ArrowDown','Home','End'].includes(event.key))return;
+    event.preventDefault();const {min,max}=limits(),height=panel.getBoundingClientRect().height;
+    setHeight(event.key==='Home'?min:event.key==='End'?max:height+(event.key==='ArrowUp'?24:-24));saveHeight();
+  };
+  const sizeObserver=new ResizeObserver(applyHeight);sizeObserver.observe(panel.parentElement);applyHeight();
   const todoKey = 'agent-todo-preview:' + agentId;
   const mobile = matchMedia('(max-width: 700px)');
   const workingHost = workingTag.parentElement, contextRow = panel.querySelector('.wfpanel-context-row');
@@ -37,7 +70,7 @@ function chatFocusPanelMount(composer, agentId, {visible, onChange, workingTag})
     head.setAttribute('aria-expanded', String(open));
     head.setAttribute('aria-label', (open ? 'Hide ' : 'Show ') + name.textContent.toLowerCase());
     panel.classList.toggle('wfpanel-collapsed', !open);
-    list.hidden = !open;
+    list.hidden = !open;resize.hidden=!open;
     const workflowSteps = workflow?.steps || [];
     const todoItems = attentionBoardGroups(todos || []).flatMap(group => group.items);
     const steps = [...workflowSteps, ...todoItems.map(item => ({label: item.task.title, status: item.task.status}))];
@@ -116,6 +149,6 @@ function chatFocusPanelMount(composer, agentId, {visible, onChange, workingTag})
   mobile.addEventListener('change', onResize);
   return {
     refresh, show,
-    dispose() { disposed = true; unsubscribe(); clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); mobile.removeEventListener('change', onResize); workingHost.prepend(workingTag); panel.remove(); },
+    dispose() { disposed = true; sizeObserver.disconnect(); unsubscribe(); clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); mobile.removeEventListener('change', onResize); workingHost.prepend(workingTag); panel.remove(); },
   };
 }

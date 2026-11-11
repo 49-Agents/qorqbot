@@ -136,8 +136,8 @@ function sgAttentionPaint() {
   const title=individual ? row.title : `${delivery.items.length} signoffs need your response`;
   if(typeof desktopNotify!=='undefined')desktopNotify.send({kind:'signoffs',title:individual?row.title:'Waiting on you',
     body:individual?(row.attention?.reason||row.business_name||''):`${delivery.items.length} signoffs need your response`,tag:'signoff:'+delivery.id});
-  // Same capsule as a reminder; it stays until the owner acts and expiry never changes a record.
-  host.innerHTML=`<div class="toast reminder-toast sg-toast" role="button" tabindex="0" aria-keyshortcuts="Shift+F10" aria-label="Approval needed: ${esc(title)}. Press Shift+F10 for dismiss and snooze options." title="${esc(title)}"><span class="reminder-icon" aria-hidden="true">${SG_CLIPBOARD}</span><span class="reminder-text">${esc(title)}</span></div>`;
+  // Share the reply notification card styling; signoff delivery and decision behavior stay independent.
+  host.innerHTML=`<div class="toast reply-toast sg-toast" role="button" tabindex="0" aria-keyshortcuts="Shift+F10" aria-label="Approval needed: ${esc(title)}. Press Shift+F10 for dismiss and snooze options." title="${esc(title)}"><span class="reply-icon" aria-hidden="true">${SG_CLIPBOARD}</span><span class="reply-copy"><span class="reply-name">Approval needed</span><span class="reply-preview">${esc(title)}</span></span></div>`;
 }
 window.sgAttentionRefresh = async () => {
   if (sgAttention.loading) return;

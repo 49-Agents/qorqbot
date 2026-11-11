@@ -1,5 +1,5 @@
 /* Compact Focus and Todo pane above the native chat composer. */
-.wfpanel { display:flex; flex-direction:column; flex:none; min-width:0; min-height:0; max-height:min(40%,260px); box-sizing:border-box; margin:0 0 10px; padding:0; overflow:hidden; border:1px solid color-mix(in srgb,var(--fg) 20%,transparent); border-radius:18px; background:linear-gradient(135deg,color-mix(in srgb,var(--fg) 9%,transparent),color-mix(in srgb,var(--fg) 2%,transparent)),color-mix(in srgb,var(--bg) 62%,transparent); backdrop-filter:blur(20px) saturate(150%); -webkit-backdrop-filter:blur(20px) saturate(150%); box-shadow:inset 0 1px 0 color-mix(in srgb,var(--fg) 12%,transparent),0 8px 24px #0002; color:var(--fg); font-size:13px; line-height:1.45; }
+.wfpanel { position:relative; display:flex; flex-direction:column; flex:none; min-width:0; min-height:0; height:var(--wfpanel-height,auto); max-height:var(--wfpanel-max-height,min(40%,260px)); box-sizing:border-box; margin:0 0 10px; padding:0; overflow:hidden; border:1px solid color-mix(in srgb,var(--fg) 20%,transparent); border-radius:18px; background:linear-gradient(135deg,color-mix(in srgb,var(--fg) 9%,transparent),color-mix(in srgb,var(--fg) 2%,transparent)),color-mix(in srgb,var(--bg) 62%,transparent); backdrop-filter:blur(20px) saturate(150%); -webkit-backdrop-filter:blur(20px) saturate(150%); box-shadow:inset 0 1px 0 color-mix(in srgb,var(--fg) 12%,transparent),0 8px 24px #0002; color:var(--fg); font-size:13px; line-height:1.45; }
 .wfpanel[hidden], .wfpanel-steps[hidden] { display:none; }
 .wfpanel-context-row { display:flex; align-items:flex-start; flex:none; min-width:0; }
 .wfpanel .gchat-context { flex:1; max-height:min(14vh,94px); box-sizing:border-box; padding:10px 14px 8px; }
@@ -20,3 +20,11 @@
 @media (max-width:700px) {
   .wfpanel { display:none; }
 }
+
+.wfpanel-collapsed { height:auto; }
+.wfpanel-resize { position:absolute; top:0; left:14px; right:14px; height:10px; z-index:1; cursor:ns-resize; touch-action:none; border-radius:8px; }
+.wfpanel-resize::after { content:""; position:absolute; top:3px; left:50%; width:32px; height:3px; transform:translateX(-50%); border-radius:3px; background:var(--fg-3); opacity:.5; }
+.wfpanel-resize:hover::after,.wfpanel-resize:focus-visible::after { opacity:1; background:var(--fg-2); }
+.wfpanel-resize:focus-visible { outline:1px solid var(--fg-2); outline-offset:1px; }
+.wfpanel-resize[hidden] { display:none; }
+.wfpanel-resizing { user-select:none; }
