@@ -24,8 +24,8 @@
 .gchat-agent { align-self: flex-start; }
 .gchat-msg.gchat-agent { max-width: min(760px, 100%); }
 .gchat-notice { align-self: center; align-items: center; max-width: 80%; font-size: 12px; color: var(--fg-2); }
-.gchat-body { font-size: calc(13.25px * .85); padding: 12px 18px; border: 1px solid var(--line-2); border-radius: 24px; overflow-wrap: anywhere; line-height: 1.5; }
-.gchat-user .gchat-body { background: #126bd4; color: #fff; white-space: pre-wrap; line-height: 1.65; }
+.gchat-body { font-size: calc(13.25px * .935); padding: 12px 18px; border: 1px solid var(--line-2); border-radius: 24px; overflow-wrap: anywhere; line-height: 1.5; }
+.gchat-user .gchat-body { background: color-mix(in srgb, var(--fg) 10%, var(--bg)); color: var(--fg); white-space: pre-wrap; line-height: 1.65; }
 .gchat-user .gchat-body, .gchat-agent .gchat-body { border: 0; }
 /* Agent prose sits directly on the page; user bubbles and embedded reference cards keep their own surfaces. */
 .gchat-agent > .gchat-body, .gchat-agent > .gchat-bubble-row > .gchat-body { padding: 4px 0; border: 0; border-radius: 0; background: none; text-align: left; line-height: 1.65; }
@@ -111,7 +111,7 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 .gchat-empty { padding: 24px 8px; color: var(--fg-2); text-align: center; }
 .gchat-jump { position: absolute; right: 18px; bottom: 12px; z-index: 3; }
 /* The composer carries its own typography so it looks the same when a wrapper hosts the form outside the view. */
-.gchat-composer { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:8px; padding:10px; border:1px solid var(--line-2); border-radius:32px; background:color-mix(in srgb, var(--fg) 9%, var(--bg)); box-sizing:border-box; flex:none; color:var(--fg); font-size:calc(15.75px * .85); line-height:1.55; }
+.gchat-composer { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:8px; padding:10px; border:1px solid var(--line-2); border-radius:32px; background:color-mix(in srgb, var(--fg) 9%, var(--bg)); box-sizing:border-box; flex:none; color:var(--fg); font-size:calc(15.75px * .935); line-height:1.55; }
 .gchat-composer:has(.gchat-attach) { grid-template-columns:minmax(0,1fr) auto auto; }
 .gchat-composer-expanded, .gchat-composer:has(.gchat-attachments:not([hidden])) { border-radius:24px; }
 .gchat-composer-expanded textarea { grid-column:1 / -1; }
@@ -126,8 +126,8 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 .gchat-attach:disabled { opacity:.4; }
 .chat-view.gchat-file-drop::after { content:'Drop files'; display:flex; align-items:center; justify-content:center; position:absolute; inset:5px; z-index:6; border:1px dashed var(--fg-2); border-radius:8px; background:color-mix(in srgb, var(--bg) 90%, transparent); pointer-events:none; font-size:14px; }
 .gchat-composer textarea:disabled { opacity: .6; cursor: not-allowed; }
-.gchat-composer textarea { min-width:0; width:100%; height:36px; min-height:36px; max-height:200px; box-sizing:border-box; resize:none; overflow-y:auto; padding:6px 8px; font:inherit; font-size:calc(15.75px * .85); line-height:24px; border:0; border-radius:0; background:none; box-shadow:none; }
-.gchat-composer textarea::placeholder { font-size:calc(14px * .85); }
+.gchat-composer textarea { min-width:0; width:100%; height:36px; min-height:36px; max-height:200px; box-sizing:border-box; resize:none; overflow-y:auto; padding:6px 8px; font:inherit; font-size:calc(15.75px * .935); line-height:24px; border:0; border-radius:0; background:none; box-shadow:none; }
+.gchat-composer textarea::placeholder { font-size:calc(14px * .935); }
 .gchat-composer textarea:focus { outline:none; }
 .gchat-composer:focus-within { border-color:color-mix(in srgb, var(--fg) 22%, transparent); }
 .gchat-send { flex:none; min-height:36px; height:36px; padding:5px 11px; border-radius:18px; }

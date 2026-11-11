@@ -179,7 +179,7 @@
 .agent-workspace-app .global-agents .agent-nav-trigger { position:fixed; top:10px; left:12px; z-index:1000; display:grid; place-items:center; width:44px; height:44px; min-height:44px; margin:0; padding:6px; border:1px solid var(--line-2); border-radius:12px; background:color-mix(in srgb,var(--bg) 88%,transparent); backdrop-filter:blur(16px); box-shadow:0 2px 12px #0002; color:var(--fg); }
 .agent-nav-trigger .identity-avatar { width:28px; height:28px; border:0; background:none; }
 .agent-nav-trigger > svg, .agent-nav-trigger .identity-avatar svg { width:28px; height:28px; }
-.agent-workspace-app .global-agents > .listcol.agent-nav-overlay { position:fixed; inset:0 auto 0 0; width:280px; max-width:100vw; max-height:100dvh; height:100dvh; min-height:0; margin:0; padding:12px; box-sizing:border-box; overflow:visible; border:0; border-right:1px solid color-mix(in srgb,var(--fg) 18%,transparent); border-radius:0; background:color-mix(in srgb,var(--bg) 92%,transparent); box-shadow:0 16px 48px #0005; color:var(--fg); }
+.agent-workspace-app .global-agents > .listcol.agent-nav-overlay { position:fixed; inset:0 auto 0 0; width:400px; max-width:calc(100vw - 24px); max-height:100dvh; height:100dvh; min-height:0; margin:0; padding:12px; box-sizing:border-box; overflow:visible; border:0; border-right:1px solid color-mix(in srgb,var(--fg) 18%,transparent); border-radius:0; background:color-mix(in srgb,var(--bg) 92%,transparent); box-shadow:0 16px 48px #0005; color:var(--fg); }
 .agent-nav-overlay::backdrop { background:#0003; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); pointer-events:none; }
 .agent-workspace-app .global-agents > .agent-nav-overlay:not(:popover-open) { display:none; }
 .agent-workspace-app .global-agents > .agent-nav-overlay:popover-open { display:flex; flex-direction:column; }
@@ -189,7 +189,7 @@
 .agent-workspace-app .global-agents .agent-nav-overlay .item.agent { width:100%; height:auto; min-height:42px; margin:0; padding:8px 10px; border-radius:8px; justify-content:flex-start; }
 .agent-workspace-app .global-agents .agent-nav-overlay .item.agent .nm { flex:1; flex-direction:row; align-items:center; justify-content:flex-start; gap:12px; min-width:0; }
 .agent-nav-overlay .identity-avatar { flex:none; }
-.agent-workspace-app .global-agents .agent-nav-overlay .agent-nav-working { position:static; flex:none; align-self:center; margin-left:12px; transform:none; gap:4px; }
+.agent-workspace-app .global-agents .agent-nav-overlay .agent-nav-working { position:static; flex:none; align-self:center; margin:0; transform:none; gap:4px; }
 .agent-nav-overlay .agent-nav-working i { width:5px; height:5px; }
 .agent-nav-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; line-height:1.4; }
 .agent-workspace-app .global-agents .agent-nav-overlay .global-workspace-terminals { flex:none; margin-top:auto; padding-top:8px; }
@@ -202,7 +202,7 @@
 }
 
 /* Both surfaces belong to the native top-layer popover; the page remains behind its blurred backdrop. */
-.agent-nav-timeline { position:fixed; top:50%; right:32px; transform:translateY(-50%); width:min(760px,calc(100vw - 344px)); max-height:min(86dvh,900px); box-sizing:border-box; display:flex; flex-direction:column; gap:14px; padding:20px; overflow:hidden; border:1px solid color-mix(in srgb,var(--fg) 20%,transparent); border-radius:18px; background:linear-gradient(135deg,color-mix(in srgb,var(--fg) 9%,transparent),transparent),color-mix(in srgb,var(--bg) 82%,transparent); backdrop-filter:blur(20px) saturate(150%); box-shadow:0 12px 40px #0004; }
+.agent-nav-timeline { position:fixed; top:50%; right:32px; transform:translateY(-50%); width:min(960px,calc(100vw - 464px)); max-height:min(86dvh,900px); box-sizing:border-box; display:flex; flex-direction:column; gap:14px; padding:20px; overflow:hidden; border:1px solid color-mix(in srgb,var(--fg) 20%,transparent); border-radius:18px; background:linear-gradient(135deg,color-mix(in srgb,var(--fg) 9%,transparent),transparent),color-mix(in srgb,var(--bg) 82%,transparent); backdrop-filter:blur(20px) saturate(150%); box-shadow:0 12px 40px #0004; }
 .agent-nav-timeline header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .agent-nav-timeline h2 { margin:0; font-size:16px; font-weight:500; color:var(--fg); text-transform:none; letter-spacing:0; }
 .agent-nav-timeline header p,.agent-nav-timeline-status { margin:4px 0 0; color:var(--fg-2); font-size:12px; }
@@ -234,3 +234,8 @@
 .agent-nav-timeline button[data-more] svg { flex:none; }
 @media(max-width:1100px) { .agent-nav-charts { grid-template-columns:minmax(0,1fr); gap:16px; } }
 @media(max-height:650px) { .agent-nav-timeline { overflow-y:auto; } .agent-nav-events { flex:none; max-height:220px; } }
+
+.agent-nav-copy { display:flex; flex-direction:column; gap:4px; min-width:0; flex:1; }
+.agent-nav-focus { color:var(--fg-2); font-size:11px; font-weight:400; line-height:1.4; white-space:normal; overflow-wrap:anywhere; }
+.agent-nav-status { display:flex; align-items:center; gap:8px; flex:none; }
+.agent-workspace-app .global-agents .agent-nav-status > .chat-unread-dot { position:static; flex:none; width:7px; height:7px; margin:0; transform:none; }

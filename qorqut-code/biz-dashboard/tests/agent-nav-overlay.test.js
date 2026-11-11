@@ -15,7 +15,7 @@ async function fixture({mobile=false,many=false}={}) {
   const page=await browser.newPage({viewport:{width:mobile?390:1200,height:800},hasTouch:mobile,isMobile:mobile});
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
   await page.setContent('<meta name="viewport" content="width=device-width, initial-scale=1"><body class="agent-workspace-app"><main id="host" style="display:flex;height:100vh;min-width:0"></main></body>');
-  for(const file of ['app.css','css/context.css','css/global.css','css/agentpane.css','css/agent-workspace.css','css/agent-workspace-nav.css'])await page.addStyleTag({path:path.join(root,file)});
+  for(const file of ['app.css','css/context.css','css/global.css','css/global-chat.css','css/agentpane.css','css/agent-workspace.css','css/agent-workspace-nav.css'])await page.addStyleTag({path:path.join(root,file)});
   await page.evaluate(many=>{
     window.$=(selector,host=document)=>host.querySelector(selector);
     window.esc=value=>String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -25,12 +25,13 @@ async function fixture({mobile=false,many=false}={}) {
     window.globalAgentProfiles=[{agent_id:'ord',display_name:'Ordubashy',role:{id:'ordubashy'},scope:{kind:'ecosystem'}},
       {agent_id:'atlas',display_name:'Atlas',role:{id:'global-worker'},scope:{kind:'ecosystem'}}];
     if(many)for(let i=0;i<40;i++)globalAgentProfiles.push({agent_id:'worker-'+i,display_name:'Worker '+i,role:{id:'global-worker'},scope:{kind:'ecosystem'}});
-    window.primaryAgent=agent=>agent.role.id==='ordubashy';
+    window.primaryAgent=agent=>agent?.role?.id==='ordubashy';
     window.agentGlyph=(agent,size)=>'<svg data-profile="'+esc(agent.agent_id)+'" width="'+size+'" height="'+size+'" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="currentColor"/></svg>';
     window.GLOBAL_ICONS={settings:'<svg viewBox="0 0 24 24"></svg>'};
     window.testingModeReady=async()=>{};window.testingModeEnabled=()=>true;window.testingModeSubscribe=()=>()=>{};
     window.coreData=value=>value;window.acOccurred=action=>action.occurred?.date || 'Undated';
     window.actionReads=[];window.post=async(url,body)=>{if(url.endsWith('/global_progress_get'))return {series:Array.from({length:7},(_,i)=>({date:'2026-11-'+String(i+5).padStart(2,'0'),tasks_done:0})),timezone:'UTC'};actionReads.push({url,body});return {actions:[{action_id:body.performer+'-1',text:'Reviewed the plan',occurred:{date:'2026-11-10',precision:'day'}}]};};
+    window.agentFocusRead=async id=>({agent_id:id,attention:{state:'focused',focus:{label:'Review the launch plan'}}});
     window.agentNavPaint=()=>{};window.agentNavRefresh=()=>{};
     window.agTakeLinkedWorkspace=()=>null;window.agentWorkspaceTakeRequest=()=>null;window.agentWorkspaceRehydrate=()=>null;
     window.agentWorkspaceRequest=null;window.agentWorkspaceApplied=null;window._agpad=null;
@@ -51,6 +52,10 @@ async function fixture({mobile=false,many=false}={}) {
   return {browser,page,errors};
 }
 
+async function reopenNav(page) {
+  await page.keyboard.press('Escape');await page.locator('[data-agent-nav-trigger]').focus();await page.keyboard.press('Enter');
+}
+
 browserTest('navigation is hidden by default and hover overlays without resizing or remounting chat',async()=>{
   const {browser,page,errors}=await fixture();
   try {
@@ -63,7 +68,7 @@ browserTest('navigation is hidden by default and hover overlays without resizing
     { const box=await trigger.boundingBox(); await page.mouse.move(box.x+box.width/2,box.y+box.height/2); }
     assert.equal(await nav.isVisible(),true);
     assert.equal(await trigger.getAttribute('aria-expanded'),'true');
-    assert.deepEqual(await nav.boundingBox(),{x:0,y:0,width:280,height:page.viewportSize().height});
+    assert.deepEqual(await nav.boundingBox(),{x:0,y:0,width:400,height:page.viewportSize().height});
     assert.equal(await trigger.locator('.agent-nav-caret').count(),0);
     assert.equal(await nav.locator('.ctop').count(),0);
     assert.equal(await nav.evaluate(el=>getComputedStyle(el).padding),'12px');
@@ -81,7 +86,7 @@ browserTest('navigation is hidden by default and hover overlays without resizing
     await page.evaluate(()=>{const cover=document.createElement('div');cover.id='cover';cover.style='position:fixed;inset:0;z-index:2147483647;background:transparent';document.body.append(cover);});
     assert.equal(await nav.evaluate(el=>{const r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.x+20,r.y+20));}),true);
     await page.evaluate(()=>document.querySelector('#cover').remove());
-    await page.mouse.move(300,780);await page.waitForFunction(()=>!document.querySelector('.agent-nav-overlay').matches(':popover-open'));
+    await page.mouse.move(420,780);await page.waitForFunction(()=>!document.querySelector('.agent-nav-overlay').matches(':popover-open'));
     assert.equal(await nav.isVisible(),false);
     assert.equal(await trigger.getAttribute('aria-expanded'),'false');
     assert.deepEqual(await page.evaluate(()=>mounts),['atlas']);
@@ -98,7 +103,7 @@ browserTest('the trigger follows agent selection and mouse focus never keeps the
     assert.equal(await trigger.getAttribute('data-selected-agent'),'ord');
     assert.equal(await trigger.locator('[data-profile]').getAttribute('data-profile'),'ord');
     assert.match(await trigger.getAttribute('aria-label'),/Ordubashy selected/);
-    await page.mouse.move(300,780);await page.waitForFunction(()=>!document.querySelector('.agent-nav-overlay').matches(':popover-open'));
+    await page.mouse.move(420,780);await page.waitForFunction(()=>!document.querySelector('.agent-nav-overlay').matches(':popover-open'));
     assert.equal(await nav.isVisible(),false);
     { const box=await trigger.boundingBox(); await page.mouse.move(box.x+box.width/2,box.y+box.height/2); }
     await nav.locator('.global-workspace-terminal').click();
@@ -155,7 +160,7 @@ browserTest('touch opens and dismisses navigation without reserving a mobile sid
     await pane.locator('.agent-nav-events li').waitFor();
     assert.equal(await pane.locator('[data-agent]').innerText(),'Atlas');
     assert.equal(await page.evaluate(()=>actionReads[0].body.performer),'atlas');
-    const bounds=await pane.boundingBox();assert.ok(bounds.x>=280);assert.ok(bounds.x+bounds.width<=1200);
+    const bounds=await pane.boundingBox();assert.ok(bounds.x>=400);assert.ok(bounds.x+bounds.width<=1200);
     await page.mouse.move(bounds.x+30,bounds.y+30);await page.waitForTimeout(450);
     assert.equal(await nav.isVisible(),true);
     await pane.locator('.agent-nav-chart-day').first().click();
@@ -186,11 +191,11 @@ browserTest('late action reads cannot replace another agent and failed reads sta
     });
     await page.locator('.agent-nav-events li').waitFor();
     assert.equal(await page.locator('.agent-nav-events').innerText().then(text=>text.includes('Stale action')),false);
-    await page.locator('.agent-nav-timeline [data-refresh]').click();
+    await reopenNav(page);
     await page.waitForFunction(()=>held.length===3);await page.evaluate(()=>held[2].reject(Error('Offline')));
     await page.waitForFunction(()=>document.querySelector('.agent-nav-timeline [data-status]').textContent.includes('unavailable'));
     assert.equal(await page.locator('.agent-nav-events li').count(),0);
-    await page.locator('.agent-nav-timeline [data-refresh]').click();
+    await reopenNav(page);
     await page.waitForFunction(()=>held.length===4);
     await page.keyboard.press('Escape');
     await page.evaluate(()=>held[3].resolve({actions:[{action_id:'late',text:'Hidden action'}]}));
@@ -219,7 +224,8 @@ browserTest('task chart uses historical daily counts independently of Todo membe
     assert.deepEqual(await page.evaluate(()=>progressReads),[{days:30}]);
     assert.match(await page.locator('[data-tasks-status]').innerText(),/Across workspaces.*America\/La_Paz/);
     const pane=page.locator('.agent-nav-timeline'),more=pane.locator('[data-more]');
-    assert.equal((await pane.boundingBox()).width,760);
+    assert.equal((await pane.boundingBox()).width,Math.min(960,page.viewportSize().width-464));
+    assert.equal(await pane.locator('[data-refresh]').count(),0);
     assert.ok((await more.boundingBox()).height>=42);
     assert.equal(await more.evaluate(el=>getComputedStyle(el).borderRadius),'12px');
     assert.deepEqual(errors,[]);
@@ -241,10 +247,53 @@ browserTest('historical task reads discard stale responses and distinguish error
     });
     const chart=page.locator('.agent-nav-tasks-chart');await chart.waitFor();
     assert.deepEqual(await chart.locator('.agent-nav-chart-count').allTextContents(),['0']);
-    await page.locator('[data-refresh]').click();await page.waitForFunction(()=>progressHeld.length===3);
+    await reopenNav(page);await page.waitForFunction(()=>progressHeld.length===3);
     await page.evaluate(()=>progressHeld[2].reject(Error('Offline')));
     await page.waitForFunction(()=>document.querySelector('[data-tasks-status]').textContent.includes('unavailable'));
     assert.equal(await chart.isVisible(),false);
+    assert.deepEqual(errors,[]);
+  }finally{await browser.close();}
+});
+
+
+browserTest('navigation shows safe focus previews and unread dots follow working dots',async()=>{
+  const {browser,page,errors}=await fixture();
+  try {
+    await page.evaluate(()=>{
+      window.fullFocus='Review <draft> '+ '🚀'.repeat(50);
+      window.agentFocusRead=async id=>({agent_id:id,attention:id==='ord'?{state:'focused',focus:{label:fullFocus}}:{state:'idle'}});
+      window.globalAgentProfile=id=>globalAgentProfiles.find(agent=>agent.agent_id===id);
+      window.loadGlobalAgentProfiles=async()=>globalAgentProfiles;
+      window.api=async()=>({items:[{id:'reply',kind:'global',agent_id:'ord',chat:true,unread:true}]});
+    });
+    await page.addScriptTag({path:path.join(root,'js/reply-notifications.js')});
+    await page.evaluate(()=>replyNotifications.refresh());
+    await page.mouse.move(34,32);
+    await page.waitForFunction(()=>document.querySelector('[data-agent-focus="ord"]').textContent.endsWith('...'));
+    assert.equal(await page.locator('[data-agent-focus="ord"]').innerText(),await page.evaluate(()=>Array.from(fullFocus).slice(0,50).join('')+'...'));
+    assert.equal(await page.locator('[data-agent-focus="ord"]').getAttribute('title'),await page.evaluate(()=>fullFocus));
+    assert.equal(await page.locator('[data-agent-focus="ord"] draft').count(),0);
+    assert.equal(await page.locator('[data-agent-focus="atlas"]').innerText(),'No focus set');
+    const row=page.locator('[data-global-agent="ord"]'),dots=row.locator('.agent-nav-working'),unread=row.locator('.chat-unread-dot');
+    await dots.evaluate(el=>el.hidden=false);
+    const working=await dots.boundingBox(),notification=await unread.boundingBox();
+    assert.ok(notification.x>=working.x+working.width);
+    assert.ok(Math.abs(notification.y+notification.height/2-working.y-working.height/2)<1);
+    assert.equal(await row.locator('.nm > .chat-unread-dot').count(),0);
+    assert.deepEqual(errors,[]);
+  }finally{await browser.close();}
+});
+
+browserTest('focus preview reads stop scheduling after navigation closes',async()=>{
+  const {browser,page,errors}=await fixture({many:true});
+  try {
+    await page.evaluate(()=>{window.focusHeld=[];window.agentFocusRead=id=>new Promise(resolve=>focusHeld.push({id,resolve}));});
+    await page.mouse.move(34,32);await page.waitForFunction(()=>focusHeld.length===3);
+    await page.mouse.move(420,780);await page.waitForFunction(()=>!document.querySelector('.agent-nav-overlay').matches(':popover-open'));
+    await page.evaluate(()=>focusHeld.forEach(read=>read.resolve({attention:{state:'focused',focus:{label:'Stale focus'}}})));
+    await page.waitForTimeout(50);
+    assert.equal(await page.evaluate(()=>focusHeld.length),3);
+    assert.equal(await page.locator('[data-agent-focus]').first().textContent(),'Loading focus…');
     assert.deepEqual(errors,[]);
   }finally{await browser.close();}
 });
