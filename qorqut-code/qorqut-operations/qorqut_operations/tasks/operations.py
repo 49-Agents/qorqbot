@@ -459,7 +459,10 @@ class TaskOperations:
         if not creating:
             if before is None:
                 raise self.missing(ctx, uow, identity)
-            require_revision(before, options.expected_revision)
+            # A comment adds to the thread and edits no field, so it needs no prior read of the Task. A caller that
+            # does name a revision is still held to it, and the plan pins the row it was prepared against.
+            if operation != "tasks_comment" or options.expected_revision is not None:
+                require_revision(before, options.expected_revision)
         edits = {key: value for key, value in arguments.items() if key in TASK_FIELDS} if creating else plain(arguments.get("changes", {}))
         if edits.get('status') == 'needs_input':
             raise DomainError('validation_error', 'Needs input is derived from pending Signoffs. Use signoffs_input_create with source, or signoffs_source_link for an existing approval.')
@@ -666,6 +669,11 @@ class TaskOperations:
         """Follows, the thread's system entry and the one event of an operation, derived from the committed difference."""
         item = ThreadItem(ctx.business_id, "task", after["row"]["id"])
         row = after["row"]
+        named = sorted(set(events.workers(after)) - set(events.workers(before)))
+        if named and self.ports.boards is not None:
+            # Before the event is routed, so a board the host fills here is already a recipient of this change.
+            self.ports.boards.workers_named(ctx, {"type": "task", "id": row["id"], "business_id": ctx.business_id},
+                                            row, named, uow)
         auto_follow(uow, item, [row["created_by"]] if before is None else [], "creator")
         auto_follow(uow, item, [value for value in after["assignees"]], "assignee")
         for comment in comments:
