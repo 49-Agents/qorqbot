@@ -10,6 +10,28 @@
 :is(.tasks, .agent-pane-embedded, .agent-journal-host) .tbody.nt.nt-home { overflow-y: auto; }
 :is(.tasks, .agent-pane-embedded, .agent-journal-host) .tbody.nt.nt-detail { overflow: hidden; display: flex; flex-direction: row; min-height: 0; }
 
+/* First load follows the writing surface; returning visits render the cached notes immediately. */
+.nt-loading, .nt-load-error { width: min(100%, 680px); box-sizing: border-box; margin: 0 auto; padding: 48px 32px; }
+.nt-loading-label { display: flex; align-items: center; gap: 9px; font: 13px/1.5 var(--sans); color: var(--fg-2); }
+.nt-loading-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: nt-loading-breathe 1.6s ease-in-out infinite; }
+.nt-loading-paper { position: relative; overflow: hidden; margin-top: 28px; padding: 24px; border: 1px solid var(--line); border-radius: 16px; }
+.nt-loading-paper i { display: block; height: 8px; margin-top: 14px; border-radius: 4px; background: color-mix(in srgb, var(--fg) 7%, transparent); }
+.nt-loading-paper i:first-child { width: 42%; height: 13px; margin: 0 0 26px; }
+.nt-loading-paper i:nth-child(3) { width: 88%; }
+.nt-loading-paper i:last-child { width: 64%; }
+.nt-loading-paper::after { content: ''; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--fg) 4%, transparent) 50%, transparent 80%); transform: translateX(-100%); animation: nt-loading-sweep 2s ease-in-out infinite; }
+.nt-load-error { color: var(--fg-2); font-size: 13px; }
+.nt-load-error p { margin: 0 0 16px; }
+.nt-arriving { animation: nt-arrive .18s ease-out; }
+@keyframes nt-loading-breathe { 0%, 100% { opacity: .35; } 50% { opacity: .9; } }
+@keyframes nt-loading-sweep { to { transform: translateX(100%); } }
+@keyframes nt-arrive { from { opacity: .5; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .nt-loading-dot, .nt-loading-paper::after, .nt-arriving { animation: none; }
+  .nt-loading-paper::after { display: none; }
+}
+@media (max-width: 760px) { .nt-loading, .nt-load-error { padding: 24px 16px; } }
+
 /* sidebar's "Pinned" group label (jreyebrow's detail-view analog — the homepage uses .jreyebrow
    itself now, not this) */
 .nteyebrow {

@@ -6,6 +6,7 @@ preserved exactly."""
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 
 import yaml
 
@@ -19,6 +20,19 @@ MAX_TEXT_BYTES = 2_000_000
 BINARY_KINDS = {"asset", "data_upload"}
 
 
+def _metadata(text):
+    metadata = parse_yaml(text) or {}
+    if not isinstance(metadata, dict):
+        raise DomainError("invalid_document", "Document frontmatter must be a mapping")
+    return metadata
+
+
+# File bytes and hashes are still read on every call. Only parsing of identical small
+# headers is reused, including across unrelated filing-status invalidations. Never expose
+# the cached mapping: split_document returns its own recursive plain() copy below.
+_cached_metadata = lru_cache(maxsize=256)(_metadata)
+
+
 def split_document(data):
     try:
         text = data.decode("utf-8")
@@ -29,9 +43,9 @@ def split_document(data):
         end = next((index for index, line in enumerate(lines[1:], 1) if line.strip() == "---"), None)
         if end is None:
             raise DomainError("invalid_document", "Document frontmatter is unterminated")
-        metadata = parse_yaml("".join(lines[1:end])) or {}
-        if not isinstance(metadata, dict):
-            raise DomainError("invalid_document", "Document frontmatter must be a mapping")
+        header = "".join(lines[1:end])
+        # Keep the cache bounded by both entry count and header size (at most 8 MiB of text).
+        metadata = (_cached_metadata if len(header.encode('utf-8')) <= 32768 else _metadata)(header)
         body = "".join(lines[end + 1:])
         # Remove only the framing separator, never the source's leading blank lines.
         if body.startswith("\r\n"): body = body[2:]
