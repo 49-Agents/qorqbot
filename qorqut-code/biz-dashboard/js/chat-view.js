@@ -161,12 +161,17 @@ function chatViewFileFace(name, kind) {
 }
 
 // Rendered files and websites use the same flat rows as Task/Action references.
-// A row never requests anything: only its click opens the existing preview.
-function chatViewLinkRow(target, label, glyph, metadata) {
-  const row = document.createElement('button');
-  row.type = 'button'; row.className = 'gchat-ref-row';
-  row.dataset.previewHref = target.url.href; row.dataset.previewTitle = label;
-  row.setAttribute('aria-label', `Preview ${label}`);
+// A row never requests anything until clicked: websites open a new tab, files use the preview.
+function chatViewLinkRow(target, label, glyph, metadata, {newTab=false}={}) {
+  const row = document.createElement(newTab ? 'a' : 'button');
+  row.className = 'gchat-ref-row';
+  if (newTab) {
+    row.href = target.url.href; row.target = '_blank'; row.rel = 'noopener noreferrer';
+    row.setAttribute('aria-label', `Open ${label} in a new tab`);
+  } else {
+    row.type = 'button'; row.dataset.previewHref = target.url.href; row.dataset.previewTitle = label;
+    row.setAttribute('aria-label', `Preview ${label}`);
+  }
   if (glyph) {
     const icon = document.createElement('span'); icon.className = 'gchat-ref-row-icon';
     icon.setAttribute('aria-hidden', 'true'); icon.innerHTML = glyph;
@@ -179,7 +184,7 @@ function chatViewLinkRow(target, label, glyph, metadata) {
   return row;
 }
 function chatViewWebsiteRow(target, label) {
-  const row = chatViewLinkRow(target, label, typeof AGVB_ICON !== 'undefined' ? AGVB_ICON.web : '', target.url.hostname);
+  const row = chatViewLinkRow(target, label, typeof AGVB_ICON !== 'undefined' ? AGVB_ICON.web : '', target.url.hostname, {newTab:true});
   row.lastElementChild.classList.add('gchat-ref-row-host');
   return row;
 }
@@ -379,7 +384,7 @@ function chatViewTypedChip(ref, cls) {
   }
   if (ref.type === 'task' && ref.available !== false) {
     const dot = document.createElement('span');
-    dot.className = 'ball gchat-task-state' + (Object.hasOwn(CHAT_VIEW_TASK_STATES, ref.state) ? ' ' + ref.state : '');
+    dot.className = 'ball agfocus-task-state gchat-task-state' + (Object.hasOwn(CHAT_VIEW_TASK_STATES, ref.state) ? ' ' + ref.state : '');
     dot.setAttribute('aria-hidden', 'true');
     dot.append(Object.assign(document.createElement('span'), {className: 'core'}));
     chip.append(dot);
@@ -753,7 +758,7 @@ function mountChatView(host, options = {}) {
     if (!available) row.classList.add('gchat-ref-row-unavailable');
     if (kind === 'task' && available) {
       const dot = document.createElement('span');
-      dot.className = 'ball gchat-task-state' + chatViewStateClass(state);
+      dot.className = 'ball agfocus-task-state gchat-task-state' + chatViewStateClass(state);
       dot.setAttribute('aria-hidden', 'true');
       const core = document.createElement('span'); core.className = 'core'; dot.append(core);
       row.append(dot);

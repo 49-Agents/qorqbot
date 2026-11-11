@@ -46,6 +46,11 @@ function taskWorkerMount(host, scope, task, agentId, {editable=true}={}) {
 }
 
 const ATTENTION_GROUPS = ['working','needs_input','open','blocked','waiting','done','cancelled'];
+// Both Todo surfaces share the projected task state and stable ordering within each group.
+function attentionBoardGroups(items) {
+  const projected=items.map(item=>({...item,task:attentionBoardTask(item.task_ref,item.task)}));
+  return ATTENTION_GROUPS.map(status=>({status,items:projected.filter(item=>(item.task.status || 'open')===status)}));
+}
 function taskBoardStateMenu(button, scope, task) {
   dropdown(button, T_STATES.filter(s => s !== 'needs_input').map(s => ({value:s,label:T_LABEL[s],html:`<span class="towner">${tDotHtml(s)}<span class="tn">${T_LABEL[s]}</span></span>`})), value => {if(value !== (task.work_status ?? task.status)) taskStateSet(scope,task,value);}, task.work_status ?? task.status);
 }
@@ -284,10 +289,9 @@ function attentionBoardPaint(p) {
   filter.onclick=()=>{p.attentionBoard.filter=mine?'all':'owner';attentionBoardPaint(p);filter.isConnected||board.querySelector('.attention-owner-toggle')?.focus({preventScroll:true});};toolbar.append(filter);
   const rows=document.createElement('div');rows.className='agfocus-items';
   const visible=data.items.filter(item=>!mine || (attentionBoardTask(item.task_ref,item.task).worker_ids || []).includes(data.owner_id));
-  for (const status of ATTENTION_GROUPS) {
-    const items=visible.filter(item=>(attentionBoardTask(item.task_ref,item.task).status || 'open')===status);
+  for (const {status,items} of attentionBoardGroups(visible)) {
     for (const item of items) {
-      const ref=item.task_ref, scope=attentionBoardScope(ref,item.task), task=attentionBoardTask(ref,item.task);
+      const ref=item.task_ref, scope=attentionBoardScope(ref,item.task), task=item.task;
       const row=attentionReferenceRow(p,{...ref,business_slug:scope,label:task.title,state:task.status,task_type:task.task_type,revision:task.revision},task);
       row.dataset.attentionMember=item.membership_id;
       if(status==='done' && item===items[0] && rows.childElementCount)row.classList.add('attention-completed-start');

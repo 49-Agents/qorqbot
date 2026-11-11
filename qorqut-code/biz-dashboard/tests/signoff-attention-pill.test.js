@@ -33,7 +33,7 @@ const item = (id, slug, name) => ({id, title: 'Proposal ' + id, business_slug: s
 
 test('an individual approval capsule opens its exact signoff and mutates nothing', async () => {
   const t = setup([{id: 'd1', kind: 'individual', items: [item('s1', 'p', 'Project')]}]);
-  assert.match(t.host.innerHTML, /reminder-toast sg-toast/);
+  assert.match(t.host.innerHTML, /reply-toast sg-toast/);
   assert.match(t.host.innerHTML, /Proposal s1/);
   assert.doesNotMatch(t.host.innerHTML, /approve/i);
   await t.handlers.click({target: t.pill});

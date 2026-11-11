@@ -468,6 +468,14 @@ function agpadRememberView(p, view) {
   if (key) ls(key, AGPAD_REMEMBERED_VIEWS.has(view) ? view : "");
 }
 
+// One transition for tab content and the nested Focus surfaces; never delay interaction.
+function agpadAnimateContent(host) {
+  if (!host?.animate || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  host.getAnimations().forEach(animation => animation.cancel());
+  host.animate([{opacity:0, transform:'translateY(5px)'}, {opacity:1, transform:'none'}],
+    {duration:180, easing:'cubic-bezier(.2,.8,.2,1)'});
+}
+
 function agpadSetView(p, view, leaveChecked = false) {
   if (_agpad !== p || !p.views.includes(view) || !agentPaneViewAllowed(p.workspaceRole, view)) return;
   if (agpadFocusSurfaces(p)) {
@@ -517,6 +525,7 @@ function agpadSetView(p, view, leaveChecked = false) {
   if (agpadWorkspaceView(view)) agpadWorkspaceMount(p, view);
   if (view === 'globalTasks') globalTasksMount($('#agpad-body', p.el), {agentId: p.agentId, compact: true});
   agpadPaint(p);
+  if (view !== from) agpadAnimateContent($('#agpad-body', p.el));
   agpadTick();
 }
 
@@ -571,6 +580,7 @@ async function agpadSurfaceOpenNow(p, kind) {
   else if (kind === "browser" && typeof agbrowserMount === "function") agbrowserMount(p, false, surface.ctx);
   else if (kind === "viewbox" && typeof agviewboxMount === "function") agviewboxMount(p, surface.ctx);
   agpadSurfacePaint(p);
+  agpadAnimateContent(body);
   if (!switching) $("[data-surface-close]", host)?.focus({preventScroll: true});
 }
 
@@ -602,6 +612,7 @@ async function agpadSurfaceCloseNow(p) {
   const layout = board.querySelector(".agfocus-layout");
   if (layout) layout.scrollTop = p.surfaceScroll || 0;
   agfocusPaint(p);
+  agpadAnimateContent(layout);
   const opener = surface.opener?.isConnected ? surface.opener : p.focusSurfaces?.chip(surface.kind) || $('.ttab[data-v="focus"]', p.el);
   opener?.focus({preventScroll: true});
   return true;

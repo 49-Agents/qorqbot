@@ -321,18 +321,19 @@ class DocumentSources:
         kinds = {"notes_list": {"agent_note", "business_note", "journal", "global_note"},
             "content_list": {"content", "context_note"}, "context_people_list": {"context_person"},
             "context_maps_get": {"context_map"}}.get(operation, CONTEXT_KINDS)
-        found = self.store.collection(ctx, uow, kinds=kinds)
         project_notes = operation == "notes_list" and TARGET in args
         if operation == "notes_list" and not project_notes and ctx.business_id and not ctx.agent_id and not args.get("agent_id"):
             raise DomainError("validation_error", "Project notes require target_business_id")
-        if operation == "notes_list" and ctx.business_id is None and not ctx.agent_id and not args.get("agent_id") and not project_notes:
-            require_owner(ctx, uow)
-            found = journal_entries(uow)
-        if operation != "notes_list":
-            found = [row for row in found if matches(classification(row), args)]
         if project_notes:
             found = self._project_notes(ctx, args, uow)
-        elif operation == "notes_list":
+        elif operation == "notes_list" and ctx.business_id is None and not ctx.agent_id and not args.get("agent_id"):
+            require_owner(ctx, uow)
+            found = journal_entries(uow)
+        else:
+            found = self.store.collection(ctx, uow, kinds=kinds)
+        if operation != "notes_list":
+            found = [row for row in found if matches(classification(row), args)]
+        if operation == "notes_list" and not project_notes:
             agent = args.get("agent_id", ctx.agent_id)
             if agent:
                 profile = self.active_agent(ctx, uow, agent)

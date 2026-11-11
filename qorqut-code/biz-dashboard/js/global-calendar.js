@@ -1,7 +1,31 @@
 // One time grid over provider calendars; events stay in the provider.
-const calendarZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
-const calendarDateString = date => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
-const calendarAddDays = (date, days) => { const next = new Date(date); next.setDate(next.getDate()+days); return next; };
+const calendarZone = () => SJ_ZONE;
+// Navigation and all-day events use literal dates; only timed events are converted to the app zone.
+const calendarDateString = date => typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : sjDate(date);
+const calendarAddDays = (date, days) => sjAddDays(calendarDateString(date),days);
+const calendarDateFormat = (date, options, locale = 'en-GB') => new Date(calendarDateString(date)+'T12:00:00Z').toLocaleDateString(locale,{...options,timeZone:'UTC'});
+const calendarMonthStart = date => calendarDateString(date).slice(0,7)+'-01';
+const calendarMonthShift = (month, offset) => new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5,7))-1+offset,1)).toISOString().slice(0,10);
+function calendarDayStart(date) {
+  const key = calendarDateString(date);
+  // Some zones advance their clocks at midnight. Queries start at the first existing minute.
+  for (let minute = 0; minute < 1440; minute++) {
+    const start = sjInstant(key,Math.floor(minute/60),minute%60);
+    if (Number.isFinite(+start)) return start;
+  }
+  return calendarDayStart(calendarAddDays(key,1)); // A wholly skipped civil date has no timed events.
+}
+const calendarLocalInput = value => {
+  if (!value || value.length === 10) return value || '';
+  const parts = sjParts(value);
+  return parts ? `${parts.date}T${parts.time}` : '';
+};
+function calendarInputInstant(value) {
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})$/.exec(value);
+  const instant = match ? sjInstant(match[1],Number(match[2]),Number(match[3])) : new Date(NaN);
+  if (!Number.isFinite(+instant)) throw new Error(`Choose a valid time in ${calendarZone()}; this time may fall in a daylight-saving gap.`);
+  return instant.toISOString();
+}
 const calendarTarget = event => ({connection_id:event.connection_id, calendar_id:event.calendar_id, event_id:event.id, revision:event.revision});
 const calendarCall = async (operation, args = {}, key) => {
   try { return coreData(await post(`/root/operations/${operation}`, {...args, ...(key ? {idempotency_key:key} : {})})); }
@@ -23,17 +47,17 @@ function calendarDirectoryLoad(force = false) {
   flight.then(clear, clear);
   return flight;
 }
-const calendarTime = date => date.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+const calendarTime = (date, timeZone = calendarZone()) => date.toLocaleTimeString([], {hour:'numeric', minute:'2-digit',timeZone});
 const calendarDateLabel = (date, now = new Date()) => {
   const key = calendarDateString(date);
   for (const [offset,label] of [[0,'Today'],[1,'Tomorrow'],[-1,'Yesterday']]) {
     if (key === calendarDateString(calendarAddDays(now,offset))) return label;
   }
-  return date.toLocaleDateString('en-GB', {day:'numeric', month:'short'});
+  return calendarDateFormat(key,{day:'numeric', month:'short'});
 };
 const calendarEventWhen = event => {
   if (event.start.length === 10) {
-    const first = new Date(event.start+'T12:00:00'), last = calendarAddDays(new Date(event.end+'T12:00:00'),-1);
+    const first = event.start, last = calendarAddDays(event.end,-1);
     return `${calendarDateLabel(first)}${event.start === calendarDateString(last) ? '' : ' – '+calendarDateLabel(last)} · All day`;
   }
   const start = new Date(event.start), end = new Date(event.end);
@@ -67,17 +91,16 @@ function calendarLinkify(text) {
   }
   return out+esc(source.slice(last));
 }
-// Human date and time with the viewer's timezone abbreviation; falls back to the compact label for unparsable input.
+// Human date and time in the app timezone; literal all-day dates never shift.
 function calendarWhenParts(event) {
-  const day = date => date.toLocaleDateString([], {weekday:'short', day:'numeric', month:'short', year:'numeric'});
+  const day = date => calendarDateFormat(date,{weekday:'short', day:'numeric', month:'short', year:'numeric'},[]);
   if (event.start.length === 10) {
-    const first = new Date(event.start+'T12:00:00'), last = calendarAddDays(new Date(event.end+'T12:00:00'),-1);
-    if (isNaN(first) || isNaN(last)) return {time:calendarEventWhen(event)};
+    const first = event.start, last = calendarAddDays(event.end,-1);
     return {date:event.start === calendarDateString(last) ? day(first) : `${day(first)} – ${day(last)}`, time:'All day'};
   }
   const start = new Date(event.start), end = new Date(event.end);
   if (isNaN(start) || isNaN(end)) return {time:calendarEventWhen(event)};
-  const zone = new Intl.DateTimeFormat([], {timeZoneName:'short'}).formatToParts(start).find(part => part.type === 'timeZoneName')?.value || '';
+  const zone = new Intl.DateTimeFormat([], {timeZone:calendarZone(),timeZoneName:'short'}).formatToParts(start).find(part => part.type === 'timeZoneName')?.value || '';
   const sameDay = calendarDateString(start) === calendarDateString(end);
   return {date:sameDay ? day(start) : `${day(start)} – ${day(end)}`, time:`${calendarTime(start)} – ${calendarTime(end)}${zone ? ' '+zone : ''}`};
 }
@@ -102,7 +125,7 @@ function calendarDetailBody(event, calendar, attendee, recurring, statusTarget) 
       ${guests.length ? `<details class="calendar-guests"><summary>Guests (${guests.length})</summary><ul>${guests.map(a => `<li><span>${esc(calendarDisplayAddress(a.email))}</span><small>${esc(calendarGuestLabel(a.status))}</small></li>`).join('')}</ul></details>` : ''}
       <div class="calendar-personal-status"><span class="calendar-status-label" aria-hidden="true">Your tracking status</span>
         <div class="calendar-status-pills" role="group" aria-label="Your tracking status">${Object.entries(calendarStatusLabels).map(([value,label]) => `<button type="button" class="calendar-status-pill" data-calendar-status-choice="${value}" aria-pressed="false">${label}</button>`).join('')}</div>
-        <p class="muted calendar-status-help">Only for you; guests aren’t notified.${statusTarget.occurrence_start ? ` Applies to the ${esc(calendarDateLabel(new Date(statusTarget.occurrence_start.length === 10 ? statusTarget.occurrence_start+'T12:00:00' : statusTarget.occurrence_start)))} occurrence only.` : ''}</p>
+        <p class="muted calendar-status-help">Only for you; guests aren’t notified.${statusTarget.occurrence_start ? ` Applies to the ${esc(calendarDateLabel(statusTarget.occurrence_start))} occurrence only.` : ''}</p>
         <p class="calendar-status-note" role="status"></p></div>
       <p class="calendar-detail-error" role="alert"></p></div>`;
 }
@@ -173,13 +196,14 @@ const calendarStatuses = (() => {
 })();
 const calendarStatusNotice = () => calendarStatuses.state.error;
 
-// Split a timed event at local midnight, retaining its position on each day's clock.
+// Split a timed event at midnight in the app zone, retaining its position on each day's clock.
 function calendarDaySpan(event, day) {
   if (!event.start || event.start.length === 10 || event.status === 'cancelled') return null;
-  const start = new Date(event.start), end = new Date(event.end), next = calendarAddDays(day,1);
-  if (!Number.isFinite(+start) || !Number.isFinite(+end) || end <= day || start >= next || end <= start) return null;
-  const from = start < day ? 0 : start.getHours()*60 + start.getMinutes();
-  const to = end >= next ? 1440 : end.getHours()*60 + end.getMinutes();
+  const start = sjParts(event.start), end = sjParts(event.end), key = calendarDateString(day);
+  if (!start || !end || end.date < key || start.date > key || new Date(event.end) <= new Date(event.start)) return null;
+  const from = start.date < key ? 0 : start.hour*60 + Number(start.time.slice(3));
+  const to = end.date > key ? 1440 : end.hour*60 + Number(end.time.slice(3));
+  if (to === 0 && +new Date(event.end) === +calendarDayStart(key)) return null;
   return {event, start:from, end:Math.max(from+1,to)};
 }
 
@@ -257,14 +281,14 @@ function calendarChanged(refresh) {
 
 // Each pane owns its navigation and lifecycle; embedding never changes the route.
 function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
-  let calendarDate = new Date(), calendarViewDays = embedded ? 1 : 3, calendarGeneration = 0, active = true, repaint = () => {};
-  let calendarMonth = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1), dispose = () => {};
+  let calendarDate = calendarDateString(new Date()), calendarViewDays = embedded ? 1 : 3, calendarGeneration = 0, active = true, repaint = () => {};
+  let calendarMonth = calendarMonthStart(calendarDate), dispose = () => {};
   const render = async (force = false) => {
     dispose();
     const generation = ++calendarGeneration;
     const countForWidth = () => host.clientWidth <= 600 ? 1 : calendarViewDays;
     const count = countForWidth();
-    const first = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), calendarDate.getDate());
+    const first = calendarDate, zone = calendarZone();
     const last = calendarAddDays(first,count), dates = Array.from({length:count},(_,i) => calendarAddDays(first,i));
     host.innerHTML = `<section class="pane calendar-page${embedded ? ' calendar-embedded' : ''}" aria-label="Calendar" style="--calendar-columns:${count}">
       <header class="calendar-header"><div class="calendar-brand"><h1>Calendar</h1><time class="calendar-clock" aria-label="Current time"></time></div>
@@ -296,18 +320,18 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
     dispose = () => { calendarAttemptListeners.delete(updateUnconfirmed); };
     void updateUnconfirmed();
     const reload = (force = false) => { if (current()) return render(force === true); };
-    const chooseDate = date => { calendarDate = date; calendarMonth = new Date(date.getFullYear(),date.getMonth(),1); reload(); };
+    const chooseDate = date => { calendarDate = date; calendarMonth = calendarMonthStart(date); reload(); };
     const paintDates = () => {
       $('.calendar-range',page).textContent = count === 1 ? calendarDateLabel(first) : `${calendarDateLabel(first)} – ${calendarDateLabel(calendarAddDays(last,-1))}`;
-      $('.calendar-dayheads',page).innerHTML = '<span></span>'+dates.map(date => `<div class="calendar-dayhead">${esc(date.toLocaleDateString('en-GB',{weekday:'short'}))}</div>`).join('');
-      $('.calendar-month-heading h2',page).textContent = calendarMonth.toLocaleDateString('en-GB',{month:'long'});
-      const offset = (calendarMonth.getDay()+6)%7, total = new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+1,0).getDate();
+      $('.calendar-dayheads',page).innerHTML = '<span></span>'+dates.map(date => `<div class="calendar-dayhead">${esc(calendarDateFormat(date,{weekday:'short'}))}</div>`).join('');
+      $('.calendar-month-heading h2',page).textContent = calendarDateFormat(calendarMonth,{month:'long'});
+      const offset = (new Date(calendarMonth+'T12:00:00Z').getUTCDay()+6)%7, total = Number(calendarAddDays(calendarMonthShift(calendarMonth,1),-1).slice(8));
       const month = $('.calendar-month',page);
       month.innerHTML = ['M','T','W','T','F','S','S'].map(day => `<span class="calendar-weekday">${day}</span>`).join('') + (offset ? `<span style="grid-column:span ${offset}"></span>` : '') +
-        Array.from({length:total},(_,i) => { const date = new Date(calendarMonth.getFullYear(),calendarMonth.getMonth(),i+1), key = calendarDateString(date);
-          return `<button type="button" class="calendar-monthday ${date >= first && date < last ? 'in-range' : ''}" data-calendar-date="${key}" aria-label="${esc(calendarDateLabel(date))}" aria-pressed="${key === calendarDateString(first)}">${i+1}</button>`;
+        Array.from({length:total},(_,i) => { const date = calendarAddDays(calendarMonth,i);
+          return `<button type="button" class="calendar-monthday ${date >= first && date < last ? 'in-range' : ''}" data-calendar-date="${date}" aria-label="${esc(calendarDateLabel(date))}" aria-pressed="${date === first}">${i+1}</button>`;
         }).join('');
-      month.querySelectorAll('button').forEach(button => button.onclick = () => chooseDate(new Date(button.dataset.calendarDate+'T12:00:00')));
+      month.querySelectorAll('button').forEach(button => button.onclick = () => chooseDate(button.dataset.calendarDate));
     };
     $('.calendar-view',page).value = String(calendarViewDays);
     $('.calendar-view',page).onchange = event => { calendarViewDays = Number(event.target.value); reload(); };
@@ -315,7 +339,7 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
     $('[data-calendar-next]',page).onclick = () => chooseDate(last);
     $('[data-calendar-refresh]',page).onclick = () => reload(true);
     for (const [selector,offset] of [['[data-month-prev]',-1],['[data-month-next]',1]]) $(selector,page).onclick = () => {
-      calendarMonth = new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+offset,1); paintDates();
+      calendarMonth = calendarMonthShift(calendarMonth,offset); paintDates();
     };
     paintDates();
     let clockDay = calendarDateString(new Date()), clockTimer, observer;
@@ -324,7 +348,8 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
     dispose = () => { cleanup(); disposeReview(); };
     const tick = () => {
       if (!current()) { cleanup(); return; }
-      const now = new Date(), clock = $('.calendar-clock',page); clock.dateTime = now.toISOString(); clock.textContent = calendarTime(now);
+      if (zone !== calendarZone()) { reload(); return; }
+      const now = new Date(), clock = $('.calendar-clock',page); clock.dateTime = now.toISOString(); clock.textContent = calendarTime(now); clock.title = zone;
       const day = calendarDateString(now); if (day !== clockDay) { clockDay = day; paintDates(); }
     };
     tick(); clockTimer = setInterval(tick,1000);
@@ -358,7 +383,7 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
           if (more) more.disabled = true;
           try {
             const result = await calendarCall('calendar_events_list',{connection_id:calendar.connection_id,calendar_id:calendar.id,
-              start:first.toISOString(),end:last.toISOString(),limit:200,...(cursor ? {cursor} : {})});
+              start:calendarDayStart(first).toISOString(),end:calendarDayStart(last).toISOString(),limit:200,...(cursor ? {cursor} : {})});
             if (!current()) return;
             result.events.forEach(event => { const index = allEvents.findIndex(old => calendarStatusKey(calendarStatusTarget(old)) === calendarStatusKey(calendarStatusTarget(event))); if (index < 0) allEvents.push(event); else allEvents[index] = event; });
             cursor = result.next_cursor; failures.delete(failureKey);
@@ -403,11 +428,12 @@ function calendarPaintGrid(page, dates, allEvents, eventButton, hourHeight = 64)
   const endHour = Math.max(19,...flat.map(item => Math.ceil(item.end/60)));
   page.style.setProperty('--calendar-hours',endHour-startHour);
   const grid = $('.calendar-week',page);
-  grid.innerHTML = `<div class="calendar-axis">${Array.from({length:endHour-startHour+1},(_,i) => { const hour = startHour+i, date = new Date(dates[0]); date.setHours(hour,0,0,0); return `<span class="calendar-tick" style="top:${i*hourHeight}px">${esc(calendarTime(date))}</span>`; }).join('')}</div>`;
+  // Axis labels are wall-clock hours, including the skipped/repeated hour on DST transition days.
+  grid.innerHTML = `<div class="calendar-axis">${Array.from({length:endHour-startHour+1},(_,i) => `<span class="calendar-tick" style="top:${i*hourHeight}px">${esc(calendarTime(new Date(Date.UTC(2000,0,1,startHour+i)),'UTC'))}</span>`).join('')}</div>`;
   const allDayRow = $('.calendar-all-day',page); allDayRow.innerHTML = '<span class="calendar-all-day-label">All day</span>'; let hasAllDay = false;
   dates.forEach((date,index) => {
     const key = calendarDateString(date), column = document.createElement('section'); column.className = 'calendar-day'; column.dataset.calendarDay = key;
-    column.setAttribute('aria-label',date.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'}));
+    column.setAttribute('aria-label',calendarDateFormat(date,{weekday:'long',day:'numeric',month:'long'}));
     for (const span of spans[index]) {
       const button = eventButton(span.event), height = (span.end-span.start)/60*hourHeight;
       button.style.top = `${(span.start/60-startHour)*hourHeight}px`; button.style.height = `${height}px`;
@@ -435,7 +461,8 @@ function calendarTodayLoad(force = false) {
   if (calendarTodayFlight) return force ? calendarTodayFlight.catch(() => {}).then(() => { calendarDirectory = null; return calendarTodayLoad(); }) : calendarTodayFlight;
   const generation = calendarWriteGeneration;
   const flight = calendarTodayFlight = (async () => {
-    const now = new Date(), day = new Date(now.getFullYear(),now.getMonth(),now.getDate()), key = calendarDateString(day);
+    const key = calendarDateString(new Date()), zone = calendarZone();
+    const start = calendarDayStart(key).toISOString(), end = calendarDayStart(calendarAddDays(key,1)).toISOString();
     const result = await calendarDirectoryLoad(force);
     const calendars = result.calendars, events = [], errors = result.errors.map(e => `${e.connection_id}: ${e.message}`);
     await Promise.all(calendars.map(async calendar => {
@@ -443,7 +470,7 @@ function calendarTodayLoad(force = false) {
       try {
         do {
           const page = await calendarCall('calendar_events_list',{connection_id:calendar.connection_id,calendar_id:calendar.id,
-            start:day.toISOString(),end:calendarAddDays(day,1).toISOString(),limit:200,...(cursor ? {cursor} : {})});
+            start,end,limit:200,...(cursor ? {cursor} : {})});
           events.push(...page.events); cursor = page.next_cursor;
         } while (cursor);
       } catch (error) {
@@ -456,8 +483,8 @@ function calendarTodayLoad(force = false) {
       const allDayA = a.start.length === 10, allDayB = b.start.length === 10;
       return Number(allDayB)-Number(allDayA) || (allDayA ? a.start.localeCompare(b.start) : new Date(a.start)-new Date(b.start)) || a.id.localeCompare(b.id);
     });
-    const resultData = {key,calendars,visibleEvents,configured:result.configured,errors,at:Date.now()};
-    if (generation === calendarWriteGeneration) calendarTodayShared = resultData;
+    const resultData = {key,zone,calendars,visibleEvents,configured:result.configured,errors,at:Date.now()};
+    if (generation === calendarWriteGeneration && zone === calendarZone()) calendarTodayShared = resultData;
     return resultData;
   })();
   const clear = () => { if (calendarTodayFlight === flight) calendarTodayFlight = null; };
@@ -504,6 +531,7 @@ function calendarTodayMount(host, openCalendar) {
     try {
       const shared = await calendarTodayLoad(force !== false);
       if (!current() || generation !== calendarWriteGeneration) return;
+      if (shared.zone !== calendarZone()) { refreshAgain = true; return; }
       data = shared; refreshError = '';
       await statuses;
       if (generation === calendarWriteGeneration) paintQueue();
@@ -524,8 +552,9 @@ function calendarTodayMount(host, openCalendar) {
   const visible = () => { if (!document.hidden) void refresh(false); };
   document.addEventListener('visibilitychange',visible);
   const seed = calendarTodayShared;
-  if (seed && seed.key === calendarDateString(new Date())) { data = seed; paintQueue(); }
-  if (!seed || seed.key !== calendarDateString(new Date()) || Date.now() - seed.at >= CALENDAR_TODAY_FRESH_MS) void refresh(false);
+  const sameDay = seed && seed.key === calendarDateString(new Date()) && seed.zone === calendarZone();
+  if (sameDay) { data = seed; paintQueue(); }
+  if (!sameDay || Date.now() - seed.at >= CALENDAR_TODAY_FRESH_MS) void refresh(false);
   return {refresh,dispose};
 }
 
@@ -759,8 +788,7 @@ function calendarEdit(event, calendars, refresh, calendarDate = new Date(), orig
   if (!surface) return calendarSurface(event ? 'Edit event' : 'Add event',origin, current => calendarEdit(event,calendars,refresh,calendarDate,origin,current,() => current.close()));
   const writable = calendars.filter(c => c.writable);
   const active = event ? calendars.find(c => c.id === event.calendar_id && c.connection_id === event.connection_id) : writable[0];
-  const localInput = value => value?.length === 10 ? value : value ? calendarDateString(new Date(value))+'T'+new Date(value).toTimeString().slice(0,5) : '';
-  const start = event?.start || new Date(calendarDate.getFullYear(), calendarDate.getMonth(),calendarDate.getDate(),10).toISOString();
+  const start = event?.start || sjInstant(calendarDateString(calendarDate),10).toISOString();
   const end = event?.end || new Date(new Date(start).getTime()+30*60000).toISOString();
   const repeatOptions = [['','Does not repeat'],['RRULE:FREQ=DAILY','Every day'],['RRULE:FREQ=WEEKLY','Every week'],['RRULE:FREQ=MONTHLY','Every month']];
   const recurrence = event?.recurrence.join('\n') || '';
@@ -776,8 +804,8 @@ function calendarEdit(event, calendars, refresh, calendarDate = new Date(), orig
     <label>Invitation from<select class="inp" aria-label="Invitation from" name="organizer" ${event ? 'disabled' : ''}></select></label>
     <label>Title<input class="inp" name="title" required maxlength="1000" value="${esc(event?.title || '')}"></label>
     <label class="calendar-inline"><input type="checkbox" name="allDay" ${start.length === 10 ? 'checked' : ''}> All day</label>
-    <div class="calendar-form-pair"><label>Start<input class="inp" name="start" required type="${start.length === 10 ? 'date' : 'datetime-local'}" value="${localInput(start)}"></label>
-    <label>End <small>(all-day end date excluded)</small><input class="inp" name="end" required type="${start.length === 10 ? 'date' : 'datetime-local'}" value="${localInput(end)}"></label></div>
+    <div class="calendar-form-pair"><label>Start<input class="inp" name="start" required type="${start.length === 10 ? 'date' : 'datetime-local'}" value="${calendarLocalInput(start)}"></label>
+    <label>End <small>(all-day end date excluded)</small><input class="inp" name="end" required type="${start.length === 10 ? 'date' : 'datetime-local'}" value="${calendarLocalInput(end)}"></label></div>
     <label>Location or meeting link<input class="inp" name="location" value="${esc(event?.location || '')}"></label>
     <label>Guests<input class="inp" name="attendees" placeholder="Email addresses, separated by commas" value="${esc(event?.attendees.map(a => a.email).join(', ') || '')}"></label>
     <div class="calendar-form-pair"><label>Repeat<select class="inp" aria-label="Repeat" name="recurrence">${repeatOptions.map(([value,label]) => `<option value="${esc(value)}" ${value === recurrence ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
@@ -793,9 +821,14 @@ function calendarEdit(event, calendars, refresh, calendarDate = new Date(), orig
       const changes = {};
       for (const name of ['title','location','description']) if (!event || values[name] !== initial[name]) changes[name] = values[name];
       if (!event || values.start !== initial.start || values.end !== initial.end || values.allDay !== initial.allDay) {
-        changes.start = f.allDay.checked ? values.start : new Date(values.start).toISOString();
-        changes.end = f.allDay.checked ? values.end : new Date(values.end).toISOString();
-        if (!f.allDay.checked) changes.timezone = calendarZone();
+        try {
+          for (const name of ['start','end']) {
+            // Retain unchanged instants, including seconds and the second occurrence of a repeated DST minute.
+            changes[name] = f.allDay.checked ? values[name] : event && values[name] === initial[name] && values.allDay === initial.allDay ? event[name] : calendarInputInstant(values[name]);
+          }
+          if (new Date(changes.end) <= new Date(changes.start)) throw new Error('Event end must follow start.');
+        } catch (error) { $('.calendar-detail-error',el).textContent = error.message; return; }
+        if (!f.allDay.checked) changes.timezone = event?.timezone || calendarZone();
       }
       if (!event || values.attendees !== initial.attendees) changes.attendees = values.attendees.split(',').map(s => s.trim()).filter(Boolean);
       if (!event || values.recurrence !== initial.recurrence) changes.recurrence = values.recurrence ? values.recurrence.split('\n') : [];

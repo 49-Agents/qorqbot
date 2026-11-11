@@ -15,7 +15,7 @@ function wireGlobalAgentGaze() {
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const paint = () => {
     frame = 0;
-    document.querySelectorAll('#global-agent-list .qorqbot-agent').forEach(svg => {
+    document.querySelectorAll('#global-agent-list .qorqbot-agent, .agent-nav-trigger .qorqbot-agent').forEach(svg => {
       const box = svg.getBoundingClientRect();
       if (!box.width || !box.height) return;
       const dx = pointer ? pointer.x - (box.left + box.width / 2) : 0;
@@ -72,6 +72,61 @@ function globalAgentNavAvatar(agent) {
   const primary = primaryAgent(agent), name = agent.display_name || agent.name;
   return `<span class="identity-avatar identity-agent ${primary ? 'nav-primary-face' : 'nav-secondary-icon'}" role="img" aria-label="${esc(name)}">${agentGlyph(agent, primary ? 31.68 : 18)}</span>`;
 }
+// Reuse the shared focus snapshots, limiting concurrent reads and discarding updates after close.
+function agentNavFocusMount(nav) {
+  let generation=0;
+  const current=token=>token===generation && nav.isConnected && nav.matches(':popover-open');
+  const paint=(label,data)=>{
+    const attention=data?.attention,focus=attention?.focus;
+    const text=!attention || focus?.unavailable ? 'Focus unavailable'
+      : attention.state==='focused' && focus ? focus.label || attention.task?.label || 'Focused' : '-';
+    const full=String(text).replace(/\s+/g,' ').trim(),characters=Array.from(full);
+    label.textContent=characters.length>50?characters.slice(0,50).join('')+'...':full;
+    label.title=full;
+  };
+  return {
+    async open(){
+      const token=++generation,labels=[...nav.querySelectorAll('[data-agent-focus]')];let index=0;
+      await Promise.all(Array.from({length:Math.min(3,labels.length)},async()=>{
+        while(current(token) && index<labels.length){
+          const label=labels[index++];
+          if(label.closest('[data-overseer-coming-soon]')){label.textContent='Coming soon';continue;}
+          try {const data=await agentFocusRead(label.dataset.agentFocus);if(current(token))paint(label,data);}
+          catch(_){if(current(token))paint(label,null);}
+        }
+      }));
+    },
+    close(){generation++;},
+  };
+}
+// Native popovers sit above the workspace without taking a layout column.
+// Hover spans the trigger and menu; native button activation also supports keyboard and touch.
+function wireGlobalAgentNavOverlay(root) {
+  const trigger=root.querySelector('[data-agent-nav-trigger]'), nav=root.querySelector('.agent-nav-overlay');
+  const timeline=agentNavTimelineMount(nav),focus=agentNavFocusMount(nav);
+  let closeTimer;
+  const inside=target=>target instanceof Node && (trigger.contains(target) || nav.contains(target));
+  const open=()=>{clearTimeout(closeTimer);if(!nav.matches(':popover-open'))nav.showPopover();trigger.setAttribute('aria-expanded','true');};
+  const close=()=>{clearTimeout(closeTimer);if(nav.matches(':popover-open'))nav.hidePopover();trigger.setAttribute('aria-expanded','false');};
+  let keyboard=false;
+  for(const host of [trigger,nav,timeline.panel]) {
+    host.onpointerenter=event=>{if(event.pointerType!=='touch'){keyboard=false;open();}};
+    host.onpointerleave=event=>{if(event.pointerType!=='touch' && !inside(event.relatedTarget)){clearTimeout(closeTimer);closeTimer=setTimeout(close,400);}};
+    host.addEventListener('focusout',event=>{if(keyboard && !inside(event.relatedTarget))close();});
+    host.onkeydown=event=>{
+      keyboard=true;
+      if(event.key==='Escape'){event.preventDefault();close();trigger.focus({preventScroll:true});}
+      else if(host===trigger && event.key==='ArrowDown'){
+        event.preventDefault();open();(nav.querySelector('[aria-pressed="true"]') || nav.querySelector('button'))?.focus();
+      }
+    };
+  }
+  nav.addEventListener('toggle',()=>{
+    const opened=nav.matches(':popover-open');trigger.setAttribute('aria-expanded',String(opened));
+    if(opened){timeline.open();void focus.open();}else {clearTimeout(closeTimer);timeline.close();focus.close();}
+  });
+  return timeline;
+}
 // Retired profiles and archival records never reach the list.
 const globalActiveProfile = agent => !!agent && typeof agent.agent_id === 'string' && !agent.archival_record && (agent.status === undefined || agent.status === 'active');
 // A global profile has ecosystem scope and no home business; a business-scoped
@@ -116,16 +171,17 @@ async function renderGlobalAgents(c) {
   }
   if (!current()) return;
   const rosterOverseer = agents.find(overseerRole) || null;
-  c.innerHTML = `<div class="split global-agents agsplit">
-    <div class="listcol"><div class="ctop"><div class="global-eyebrow">Global</div><div class="agent-nav-heading"><h1>Agents</h1><span class="agent-nav-actions">${agentNavButton()}</span></div></div>
+  c.innerHTML = `<div class="split global-agents agsplit agent-nav-overlay-mode">
+    <button type="button" class="quiet agent-nav-trigger" data-agent-nav-trigger popovertarget="global-agent-navigation" aria-controls="global-agent-navigation" aria-expanded="false" aria-label="Agent navigation">${GLOBAL_TERMINAL_ICON}</button>
+    <div class="listcol agent-nav-overlay" id="global-agent-navigation" popover="auto" role="navigation" aria-label="Agent navigation">
       <div class="global-nav-body">
         <div class="crows global-primary" id="global-primary-roster">
           <div class="global-roster" id="global-agent-list"></div>
         </div>
         <div class="crows global-workspace-terminals">
-          <button class="item agent global-workspace-guide" type="button" data-global-guide data-tip="Walkthrough" aria-label="Walkthrough"><span class="nm">${GLOBAL_GUIDE_ICON}</span></button>
-          <button class="item agent global-workspace-terminal" type="button" data-global-agent="${GLOBAL_WORKSPACE_TERMINAL}" aria-pressed="false" data-tip="Terminal" aria-label="Terminal"><span class="nm">${GLOBAL_TERMINAL_ICON}</span></button>
-          <button class="item agent global-workspace-settings" type="button" data-global-settings data-tip="Settings" aria-label="Settings"><span class="nm">${GLOBAL_ICONS.settings}</span></button>
+          <button class="item agent global-workspace-guide" type="button" data-global-guide data-tip="Walkthrough" aria-label="Walkthrough"><span class="nm">${GLOBAL_GUIDE_ICON}<span class="agent-nav-label">Walkthrough</span></span></button>
+          <button class="item agent global-workspace-terminal" type="button" data-global-agent="${GLOBAL_WORKSPACE_TERMINAL}" aria-pressed="false" data-tip="Terminal" aria-label="Terminal"><span class="nm">${GLOBAL_TERMINAL_ICON}<span class="agent-nav-label">Terminal</span></span></button>
+          <button class="item agent global-workspace-settings" type="button" data-global-settings data-tip="Settings" aria-label="Settings"><span class="nm">${GLOBAL_ICONS.settings}<span class="agent-nav-label">Settings</span></span></button>
         </div>
       </div></div>
     <section class="overseer-coming-soon" id="overseer-coming-soon" aria-label="Overseer" aria-live="polite" hidden>
@@ -141,19 +197,19 @@ async function renderGlobalAgents(c) {
     <div class="agent-pane-divider" data-agent-pane-divider role="separator" aria-label="Terminal and agent pane divider" aria-orientation="vertical" tabindex="0"></div>
     <aside class="tasks agpad" id="agpad" aria-label="Agent pane"></aside>
   </div>`;
-  wireAgentNavToggle(c, 'global');
+  const navTimeline=wireGlobalAgentNavOverlay($('.global-agents', c));
   const list = $('#global-agent-list', c), pane = $('#global-agent-terminal', c), nav = $('.listcol', c);
   const comingSoon = $('#overseer-coming-soon', c);
   const comingSoonError = $('.overseer-coming-soon-error', comingSoon);
   const comingSoonRetry = $('.overseer-coming-soon-retry', comingSoon);
-  // Icon-only rows: the agent name lives in the accessible label, with no visible text, tooltip or presence ball.
+  // The wider overlay shows the same saved avatar alongside the agent's name.
   // The unavailable Overseer row keeps its real avatar and gains an explicit hover/accessible status label.
   list.innerHTML = agents.map((agent, index) => {
     const gated = overseerRole(agent) && !testingModeEnabled();
     const name = agent.display_name || agent.name;
     return `${index > 0 && globalAgentNavRank(agents[index - 1]) < 2 && globalAgentNavRank(agent) >= 2
       ? '<span class="global-agent-group-divider" aria-hidden="true"></span>' : ''}<button class="item agent${gated ? ' overseer-coming-soon-entry' : ''}" type="button" data-global-agent="${esc(agent.agent_id)}" aria-pressed="false" aria-label="${esc(gated ? OVERSEER_UNAVAILABLE_LABEL : name)}"${gated ? ` title="${esc(OVERSEER_UNAVAILABLE_TITLE)}" data-overseer-coming-soon="1"` : ''}>
-    <span class="nm">${globalAgentNavAvatar(agent)}</span><span class="agent-nav-working" data-agent-presence="${esc(agent.agent_id)}" role="img" aria-label="Working" hidden><i></i><i></i><i></i></span>
+    <span class="nm">${globalAgentNavAvatar(agent)}<span class="agent-nav-copy"><span class="agent-nav-label">${esc(name)}</span><span class="agent-nav-focus" data-agent-focus="${esc(agent.agent_id)}">Loading focus…</span></span></span><span class="agent-nav-status"><span class="agent-nav-working" data-agent-presence="${esc(agent.agent_id)}" role="img" aria-label="Working" hidden><i></i><i></i><i></i></span></span>
   </button>`.replace(/\s*\n\s*/g, '');
   }).join('');
   wireGlobalAgentGaze();
@@ -168,6 +224,13 @@ async function renderGlobalAgents(c) {
       const on = button.dataset.globalAgent === selected;
       button.classList.toggle('on', on); button.setAttribute('aria-pressed', String(on));
     });
+    const agent=agents.find(candidate=>candidate.agent_id===selected), trigger=$('[data-agent-nav-trigger]',c);
+    const name=agent ? agent.display_name || agent.name : 'Terminal';
+    trigger.innerHTML=agent ? globalAgentNavAvatar(agent) : GLOBAL_TERMINAL_ICON;
+    trigger.dataset.selectedAgent=selected;
+    navTimeline.setAgent(agent);
+    trigger.setAttribute('aria-label',`Agent navigation, ${name} selected`);
+    globalAgentGazeRefresh?.();
   };
 
   // ---- selection

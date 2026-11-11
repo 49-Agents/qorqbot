@@ -72,7 +72,6 @@
 /* Approval attention is the reminder capsule of app.css; this host only stacks it in the centred queue. */
 #sg-toast-host { display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; }
 #sg-toast-host:empty { display:none; }
-.toast.sg-toast .reminder-icon svg { width:14px; height:14px; }
 
 .sg-platform { min-width: 0; }
 .sg-platform-field { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; margin: 6px 0; font-size: 13px; overflow-wrap: anywhere; }

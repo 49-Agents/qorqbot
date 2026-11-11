@@ -14,6 +14,9 @@ function timeline(overrides = {}) {
   });
   vm.runInContext(read('safe-links.js'), context);
   vm.runInContext('const esc = safeLinkEsc;', context);
+  vm.runInContext(read('san-juan-time.js'), context);
+  vm.runInContext('const AICONS = {};', context);
+  vm.runInContext(read('actions.js'), context);
   vm.runInContext(read('agent-timeline.js'), context);
   return context;
 }
@@ -21,7 +24,10 @@ function timeline(overrides = {}) {
 test('evidence has no summary tooltip and links prose without allowing unsafe URLs', () => {
   const t = timeline();
   const html = t.agentTimelineRow({text:'Recorded result', detail:'Read [source](https://example.com/receipt).',
-    refs:{url:'javascript:alert(1)',task:'task-1'}});
+    refs:{url:'javascript:alert(1)',task:'task-1'},
+    businesses:[{name:'Hidden project'}], occurred:{date:vm.runInContext('sjToday()', t),precision:'day'}});
+  assert.ok(html.includes('<time>Today · time unknown</time>'));
+  assert.ok(!html.includes('Hidden project'));
   assert.ok(!html.includes('title="Show evidence"'));
   assert.ok(html.includes('href="https://example.com/receipt"'));
   assert.ok(!html.includes('href="javascript:'));
