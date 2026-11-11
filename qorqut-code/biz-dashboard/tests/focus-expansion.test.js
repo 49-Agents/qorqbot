@@ -17,7 +17,7 @@ function harness({active=true}={}) {
   let disposed=0, browser=0, desktop=0;
   const context={window:{},document:{activeElement:opener,createElement:node}, _agpad:active?p:null,state:{scope:active?'global':'business',globalTab:'agents'},
     AGPAD_FOCUS_SURFACES:new Set(['browser','desktop','viewbox']),agentPaneViewAllowed:()=>true,agpadFocusSurfaces:q=>q.views.includes('focus'),
-    agpadActive:q=>context._agpad===q, $:(selector,root)=>root?.querySelector?.(selector) || null, agpadRememberView(){},agfocusPaint(){},
+    agpadActive:q=>context._agpad===q, $:(selector,root)=>root?.querySelector?.(selector) || null, agpadRememberView(){},agpadAnimateContent(){},agfocusPaint(){},
     agfocusDesktopMount(){desktop++;},agbrowserMount(){browser++;},agpadModeKey:()=>null,toast(){},
     loadGlobalAgentProfiles:async()=>[{agent_id:'a',role:{id:'ordubashy'}}],globalRosterAgent:()=>true,
     selectGlobal:async()=>{context.state.scope='global';},globalAgentsNavigate:async()=>{context._agpad=p;},

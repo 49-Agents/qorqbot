@@ -1,7 +1,9 @@
-# Release candidate 1.3.0-preview.3
+# Release 1.3.0-preview.3
 
-This is a candidate, **not a published release**. Nothing here uploads, tags,
-deploys or replaces a website download. Preview 1 and 2 downloads are unchanged.
+Published on November 7, 2026 as a
+[GitHub prerelease](https://github.com/49-Agents/qorqbot/releases/tag/v1.3.0-preview.3).
+The limits below describe that download; publication does not qualify additional
+platforms or establish compatibility with an existing installation.
 
 ## Contents and source
 
