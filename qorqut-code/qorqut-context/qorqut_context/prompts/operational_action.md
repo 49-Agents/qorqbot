@@ -84,9 +84,12 @@ accepted action. Earlier immutable history must stay available.
 Use the existing UTC/earliest-component/unknown-0 date rules. occurred.at is the
 stored UTC anchor; occurred.date/hour, precision and time_zone retain the source's
 local precision. A day/hour anchor does not assert an exact instant. With precision
-instant the Action defaults to its recording occurrence; retain that distinction
-and never use recorded_at to override an explicitly stated historical date.
-Use a supplied Action occurrence when consistent with the accepted text; use 0
+instant no time was supplied: occurred.at is when the record was written, which
+is the action time only if the accepted text does not place the action earlier.
+When it does, do not substitute the recording time for the action time: use the
+date the text states, or 0 if it states none. Never use recorded_at to override
+an explicitly stated historical date.
+Use a supplied day or hour occurrence when consistent with the accepted text; use 0
 when the actual date remains unknown. Material conflicts need clarification,
 not a silently invented reconciliation. A single shared action summary/date is held once;
 object-specific explanations describe relevance/effects rather than independent
