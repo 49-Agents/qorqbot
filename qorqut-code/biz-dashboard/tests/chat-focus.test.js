@@ -71,7 +71,7 @@ async function fixture(width=900) {
 browserTest('bottom pane follows the chat agent and sits between the feed and composer',async()=>{
   const {browser,page,errors}=await fixture();
   try {
-    assert.equal(await page.locator('.gchat-focus-intent').textContent(),'Check the remaining tasks.');
+    assert.equal(await page.locator('.gchat-focus-intent').count(),0);
     const dots=await page.locator('.gchat-working-dots').boundingBox();
     const focus=await page.locator('.wfpanel').boundingBox();
     const focusLabel=await page.locator('.gchat-focus-label').boundingBox();
@@ -104,7 +104,7 @@ browserTest('bottom pane follows the chat agent and sits between the feed and co
     assert.equal(await page.locator('.gchat-composer textarea').inputValue(),'Unsent draft');
     await page.evaluate(()=>mount('atlas','global-worker'));
     await page.waitForFunction(()=>document.querySelector('.gchat-focus-label')?.textContent==='Verify sources');
-    assert.equal(await page.locator('.gchat-focus-intent').textContent(),'Compare the original documents.');
+    assert.equal(await page.locator('.gchat-focus-intent').count(),0);
     await page.waitForFunction(()=>document.querySelector('.wfpanel-label')?.textContent==='Compare documents');
     assert.deepEqual(await page.evaluate(()=>actionReads),[]);
     assert.deepEqual(errors,[]);
@@ -117,14 +117,14 @@ browserTest('missing or unavailable focus is explicit and an error never retains
     await page.evaluate(()=>{attentions.ord={state:'unfocused',focus:null,intent:''};});
     await page.clock.runFor(12000);
     await page.waitForFunction(()=>document.querySelector('.gchat-focus-label').textContent==='No focus set');
-    assert.equal(await page.locator('.gchat-focus-intent').textContent(),'No intent recorded');
+    assert.equal(await page.locator('.gchat-focus-intent').count(),0);
     await page.evaluate(()=>{attentions.ord={state:'focused',focus:{unavailable:true},intent:'Must not be shown'};});
     await page.clock.runFor(12000);
     await page.waitForFunction(()=>document.querySelector('.gchat-focus-label').textContent==='Focus unavailable');
-    assert.equal(await page.locator('.gchat-focus-intent').textContent(),'Intent unavailable');
+    assert.equal(await page.locator('.gchat-focus-intent').count(),0);
     await page.evaluate(()=>{override=async()=>{throw Object.assign(Error('Denied'),{code:'forbidden'});};});
     await page.clock.runFor(12000);
-    assert.equal(await page.locator('.gchat-focus-intent').textContent(),'Intent unavailable');
+    assert.equal(await page.locator('.gchat-focus-intent').count(),0);
     assert.equal(await page.locator('.gchat-action-text,[data-chat-context]').count(),0);
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
@@ -150,7 +150,7 @@ browserTest('hidden chats stop context polling and switching agents discards lat
     await page.waitForFunction(()=>document.querySelector('.gchat-focus-label')?.textContent==='Verify sources');
     // The shared read may finish for other consumers; the disposed chat must ignore it.
     await page.evaluate(()=>finishOld());
-    assert.equal(await page.locator('.gchat-focus-intent').textContent(),'Compare the original documents.');
+    assert.equal(await page.locator('.gchat-focus-intent').count(),0);
     assert.deepEqual(await page.evaluate(()=>actionReads),[]);
     await page.evaluate(()=>mount('learning','learning-applier'));
     const after=await page.evaluate(()=>focusReads.length+todoReads.length+actionReads.length);
@@ -168,7 +168,7 @@ browserTest('long focus text stays readable on a narrow chat and is rendered onl
     await page.clock.runFor(12000);
     await page.waitForFunction(()=>document.querySelector('.gchat-focus-label').textContent.length===300);
     assert.equal(await page.locator('.gchat-context img').count(),0);
-    assert.match(await page.locator('.gchat-focus-intent').textContent(),/^<img/);
+    assert.equal(await page.locator('.gchat-focus-intent').count(),0);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
     const box=await page.locator('.gchat-context').boundingBox();
     assert.ok(box.height<=180);
@@ -205,7 +205,7 @@ browserTest('Todo includes current and completed tasks and handles empty and una
     await page.clock.runFor(12000);
     await page.waitForFunction(()=>document.querySelector('.wfpanel-label')?.textContent==='Current task');
     assert.deepEqual(await page.locator('.wfpanel-label').allTextContents(),['Current task','Same ID in another project','Completed task','Cancelled task']);
-    await page.getByRole('button',{name:'Hide todo',exact:true}).click();
+    await page.getByRole('button',{name:'Hide agents and todo',exact:true}).click();
     assert.equal(await page.locator('.wfpanel-steps').isVisible(),false);
     assert.equal(await page.locator('.gchat-focus-label').isVisible(),true);
     await page.keyboard.press('Enter');
@@ -232,14 +232,14 @@ browserTest('workflow focus retains its steps and blocker inside the bounded bot
       ]}};
     });
     await page.clock.runFor(12000);
-    await page.waitForFunction(()=>document.querySelector('.wfpanel-list-heading')?.textContent==='Workflow steps');
+    await page.waitForFunction(()=>document.querySelector('.wfpanel-steps .wfpanel-list-heading')?.textContent==='Workflow steps');
     assert.equal(await page.locator('.wfpanel-step[aria-current=step]').getAttribute('aria-label'),'Review changes: Blocked');
     assert.equal(await page.locator('.wfpanel-error').textContent(),'Waiting for review');
     assert.equal(await page.locator('.wfpanel-step .ball.done').count(),1);
     assert.equal(await page.locator('.wfpanel-step .ball.blocked').count(),1);
     assert.ok((await page.locator('.wfpanel-label').allTextContents()).includes('Later task'));
     assert.ok((await page.locator('.wfpanel').boundingBox()).height<=260);
-    assert.ok(await page.locator('.wfpanel-steps').evaluate(el=>el.scrollHeight>el.clientHeight));
+    assert.ok(await page.locator('.wfpanel-expanded').evaluate(el=>el.scrollHeight>el.clientHeight));
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });
@@ -253,14 +253,14 @@ browserTest('all Todo pages remain scrollable within the height limit and refres
     assert.deepEqual(await page.evaluate(()=>todoReads.map(read=>read.cursor || null)),[null,'100','200']);
     assert.ok((await page.locator('.wfpanel').boundingBox()).height<=260);
     assert.ok((await page.locator('.gchat-scroll').boundingBox()).height>200);
-    assert.ok(await page.locator('.wfpanel-steps').evaluate(el=>el.scrollHeight>el.clientHeight));
-    await page.locator('.wfpanel-steps').evaluate(el=>{el.scrollTop=el.scrollHeight;});
-    const previous=await page.locator('.wfpanel-steps').evaluate(el=>el.scrollTop);
+    assert.ok(await page.locator('.wfpanel-expanded').evaluate(el=>el.scrollHeight>el.clientHeight));
+    await page.locator('.wfpanel-expanded').evaluate(el=>{el.scrollTop=el.scrollHeight;});
+    const previous=await page.locator('.wfpanel-expanded').evaluate(el=>el.scrollTop);
     assert.ok(previous>0);
     await page.evaluate(()=>{todos.ord[204].task.title='Updated last task';});
     await page.clock.fastForward(12000);
     await page.waitForFunction(()=>document.querySelector('.wfpanel-label:last-child') && [...document.querySelectorAll('.wfpanel-label')].at(-1).textContent==='Updated last task');
-    assert.equal(await page.locator('.wfpanel-steps').evaluate(el=>el.scrollTop),previous);
+    assert.equal(await page.locator('.wfpanel-expanded').evaluate(el=>el.scrollTop),previous);
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });
@@ -340,4 +340,36 @@ browserTest('Todo resizes vertically by drag and keyboard, persists, and resets 
     await page.setViewportSize({width:390,height:700});assert.equal(await panel.isVisible(),false);
     assert.deepEqual(errors,[]);
   }finally{await browser.close();}
+});
+
+browserTest('expanded pane shows other agents above Todo and collapses both together',async()=>{
+  const {browser,page,errors}=await fixture();
+  try {
+    await page.evaluate(()=>{
+      window.loadGlobalAgentProfiles=async()=>['ord','atlas','idle'].map(id=>({agent_id:id,name:id,role:{id:id==='ord'?'ordubashy':'global-worker'}}));
+      window.globalRosterAgent=()=>true;
+      attentions.idle={state:'unfocused',focus:null,intent:'Hidden idle intent'};
+      mount();
+    });
+    await page.waitForFunction(()=>document.querySelector('.wfpanel-agents')?.textContent.includes('Verify sources'));
+    assert.deepEqual(await page.locator('.wfpanel-agent > span:last-child').allTextContents(),['Verify sources','-']);
+    assert.equal(await page.locator('.wfpanel-agent').count(),2);
+    assert.equal(await page.locator('.gchat-focus-intent').count(),0);
+    assert.ok(!(await page.locator('.wfpanel').innerText()).includes('Compare the original documents'));
+    const agents=await page.locator('.wfpanel-agents').boundingBox(),todo=await page.locator('.wfpanel-steps').boundingBox();
+    assert.ok(agents.y+agents.height<=todo.y);
+    assert.equal(await page.locator('.wfpanel-agent > span:last-child').first().evaluate(el=>getComputedStyle(el).whiteSpace),'nowrap');
+    await page.locator('.wfpanel-head').click();
+    assert.equal(await page.locator('.wfpanel-agents').isVisible(),false);
+    assert.equal(await page.locator('.wfpanel-steps').isVisible(),false);
+    assert.equal(await page.locator('.gchat-focus-label').isVisible(),true);
+    const reads=await page.evaluate(()=>focusReads.filter(read=>read.agent_id!=='ord').length);
+    await page.clock.runFor(24000);
+    assert.equal(await page.evaluate(()=>focusReads.filter(read=>read.agent_id!=='ord').length),reads);
+    await page.evaluate(()=>attentions.atlas.focus.label='Review evidence');
+    await page.locator('.wfpanel-head').click();
+    await page.waitForFunction(()=>document.querySelector('.wfpanel-agents').textContent.includes('Review evidence'));
+    assert.equal(await page.locator('.wfpanel-steps').isVisible(),true);
+    assert.deepEqual(errors,[]);
+  } finally {await browser.close();}
 });

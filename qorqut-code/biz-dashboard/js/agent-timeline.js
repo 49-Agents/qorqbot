@@ -10,13 +10,6 @@ if (typeof testingModeSubscribe === 'function') testingModeSubscribe(() => {
   if (_agpad?.workspaceRole === 'ordubashy') agpadWorkspaceViewsSync(_agpad);
 });
 
-function agentTimelineTime(action) {
-  const time = action.occurred || {};
-  if (time.precision === 'instant' && time.instant) return sjTime(time.instant, time.time_zone || SJ_ZONE);
-  if (time.precision === 'hour' && Number.isInteger(time.hour)) return `${String(time.hour).padStart(2, '0')}h`;
-  return '—';
-}
-
 function agentTimelineEvidence(key, value) {
   const href = safeLinkUrl(value);
   if (href) return `<a class="safe-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(value)}</a>`;
@@ -91,18 +84,16 @@ async function agentTimelineOpenEvidence(p, button) {
 
 function agentTimelineRow(action) {
   const refs = Object.entries(action.refs || {});
-  const projects = (action.businesses || []).map(b => b.name || b.slug).filter(Boolean);
-  const meta = [...projects, ...(action.attribution === 'recorded' ? [acPerson(action)] : [])];
+  const meta = action.attribution === 'recorded' ? [acPerson(action)] : [];
   const zone = action.occurred?.time_zone;
   if (zone && zone !== SJ_ZONE) meta.push(zone);
   const content = `<div class="agent-timeline-copy">
     <p class="agent-timeline-text">${esc(action.text)}</p>
     ${meta.length ? `<p class="agent-timeline-meta">${meta.map(esc).join(' · ')}</p>` : ''}</div>`;
   const precision = action.occurred?.precision;
-  const timeLabel = precision === 'hour' ? 'Recorded to the hour' : precision === 'instant' ? '' : 'Time not recorded';
   const instant = precision === 'instant' && action.occurred?.instant;
   return `<li class="agent-timeline-row" data-action-id="${esc(action.action_id || '')}">
-    <time${instant ? ` datetime="${esc(instant)}"` : ''}${timeLabel ? ` title="${timeLabel}" aria-label="${esc(agentTimelineTime(action))} · ${timeLabel}"` : ''}>${esc(agentTimelineTime(action))}</time>
+    <time${instant ? ` datetime="${esc(instant)}"` : ''}>${esc(acOccurred(action))}</time>
     ${refs.length || action.detail ? `<details class="agent-timeline-entry">
       <summary>${content}<span class="agent-timeline-expand">${AGENT_TIMELINE_CHEVRON}</span></summary>
       <div class="agent-timeline-evidence" aria-label="Evidence">
