@@ -79,7 +79,7 @@ function agentNavFocusMount(nav) {
   const paint=(label,data)=>{
     const attention=data?.attention,focus=attention?.focus;
     const text=!attention || focus?.unavailable ? 'Focus unavailable'
-      : attention.state==='focused' && focus ? focus.label || attention.task?.label || 'Focused' : 'No focus set';
+      : attention.state==='focused' && focus ? focus.label || attention.task?.label || 'Focused' : '-';
     const full=String(text).replace(/\s+/g,' ').trim(),characters=Array.from(full);
     label.textContent=characters.length>50?characters.slice(0,50).join('')+'...':full;
     label.title=full;

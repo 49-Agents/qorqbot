@@ -384,7 +384,7 @@ function notify(n) {
 function replyToastHTML(n) {
   return `<span class="reply-icon">${agentGlyph({agent_id:n.replyAgentId}, 28)}</span><span class="reply-copy"><span class="reply-name">${esc(n.text)}</span><span class="reply-preview">${esc(n.sub || "")}</span></span>`;
 }
-// Reminder pill: a plain bell and one ellipsized line; the label and title keep the full text.
+// Reminder pill: a plain bell and one ellipsized line; the accessible label keeps the full text.
 function reminderToastHTML(n) {
   return `<span class="reminder-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#eee" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z"/><path d="M10 21h4"/></svg></span><span class="reminder-text">${esc(n.text)}</span>`;
 }
@@ -395,7 +395,7 @@ function notePump() {
     const el = document.createElement("div");
     el.className = "toast in" + (n.fold ? " fold" : "") + (n.reminder ? " reminder-toast" : "") + (n.replyAgentId ? " reply-toast" : "");
     if (n.color) el.style.setProperty("--c", n.color);
-    if (n.reminder) { el.setAttribute("aria-label", `Reminder: ${n.text}`); el.title = n.text; }
+    if (n.reminder) { el.setAttribute("aria-label", `Reminder: ${n.text}`); }
     el.innerHTML = n.reminder ? reminderToastHTML(n) : n.replyAgentId ? replyToastHTML(n) : `<div class="tx">${esc(n.text)}</div>${n.sub ? `<div class="tsub">${esc(n.sub)}</div>` : ""}`;
     box.appendChild(el);
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove("in")));

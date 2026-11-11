@@ -15,7 +15,7 @@ async function fixture({mobile=false,many=false}={}) {
   const page=await browser.newPage({viewport:{width:mobile?390:1200,height:800},hasTouch:mobile,isMobile:mobile});
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
   await page.setContent('<meta name="viewport" content="width=device-width, initial-scale=1"><body class="agent-workspace-app"><main id="host" style="display:flex;height:100vh;min-width:0"></main></body>');
-  for(const file of ['app.css','css/context.css','css/global.css','css/global-chat.css','css/agentpane.css','css/agent-workspace.css','css/agent-workspace-nav.css'])await page.addStyleTag({path:path.join(root,file)});
+  for(const file of ['app.css','css/context.css','css/global.css','css/global-chat.css','css/agentpane.css','css/agent-workspace.css','css/agent-workspace-nav.css','css/agent-timeline.css'])await page.addStyleTag({path:path.join(root,file)});
   await page.evaluate(many=>{
     window.$=(selector,host=document)=>host.querySelector(selector);
     window.esc=value=>String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -158,7 +158,8 @@ browserTest('touch opens and dismisses navigation without reserving a mobile sid
     assert.equal(await page.evaluate(()=>actionReads.length),0);
     await page.mouse.move(34,32);
     await pane.locator('.agent-nav-events li').waitFor();
-    assert.equal(await pane.locator('[data-agent]').innerText(),'Atlas');
+    assert.equal(await pane.locator('h2').innerText(),'Weekly Report');
+    assert.equal(await pane.locator('[data-agent]').count(),0);
     assert.equal(await page.evaluate(()=>actionReads[0].body.performer),'atlas');
     const bounds=await pane.boundingBox();assert.ok(bounds.x>=400);assert.ok(bounds.x+bounds.width<=1200);
     await page.mouse.move(bounds.x+30,bounds.y+30);await page.waitForTimeout(450);
@@ -171,7 +172,6 @@ browserTest('touch opens and dismisses navigation without reserving a mobile sid
     await page.evaluate(()=>document.querySelector('#cover').remove());
     await nav.locator('[data-global-agent="ord"]').click();
     await page.waitForFunction(()=>actionReads.at(-1)?.body.performer==='ord');
-    assert.equal(await pane.locator('[data-agent]').innerText(),'Ordubashy');
     await page.keyboard.press('Escape');assert.equal(await nav.isVisible(),false);
     assert.deepEqual(errors,[]);
   }finally{await browser.close();}
@@ -222,12 +222,17 @@ browserTest('task chart uses historical daily counts independently of Todo membe
     assert.equal(await chart.locator('[aria-label="2026-11-11: 3 completed tasks"]').count(),1);
     assert.equal(await chart.locator('.agent-nav-chart-day').count(),7);
     assert.deepEqual(await page.evaluate(()=>progressReads),[{days:30}]);
-    assert.match(await page.locator('[data-tasks-status]').innerText(),/Across workspaces.*America\/La_Paz/);
-    const pane=page.locator('.agent-nav-timeline'),more=pane.locator('[data-more]');
+    assert.match(await page.locator('[data-tasks-status]').innerText(),/^Last 7 days · America\/La_Paz$/);
+    const pane=page.locator('.agent-nav-timeline');
     assert.equal((await pane.boundingBox()).width,Math.min(960,page.viewportSize().width-464));
     assert.equal(await pane.locator('[data-refresh]').count(),0);
-    assert.ok((await more.boundingBox()).height>=42);
-    assert.equal(await more.evaluate(el=>getComputedStyle(el).borderRadius),'12px');
+    assert.equal(await pane.locator('[data-more]').count(),0);
+    assert.equal(await pane.locator('[data-status]').isVisible(),false);
+    await page.waitForTimeout(250);
+    const bounds=await pane.boundingBox(),viewport=page.viewportSize();
+    assert.equal(bounds.y,32);
+    assert.equal(viewport.height-bounds.y-bounds.height,32);
+    assert.equal(viewport.width-bounds.x-bounds.width,32);
     assert.deepEqual(errors,[]);
   }finally{await browser.close();}
 });
@@ -273,12 +278,15 @@ browserTest('navigation shows safe focus previews and unread dots follow working
     assert.equal(await page.locator('[data-agent-focus="ord"]').innerText(),await page.evaluate(()=>Array.from(fullFocus).slice(0,50).join('')+'...'));
     assert.equal(await page.locator('[data-agent-focus="ord"]').getAttribute('title'),await page.evaluate(()=>fullFocus));
     assert.equal(await page.locator('[data-agent-focus="ord"] draft').count(),0);
-    assert.equal(await page.locator('[data-agent-focus="atlas"]').innerText(),'No focus set');
+    assert.equal(await page.locator('[data-agent-focus="atlas"]').innerText(),'-');
     const row=page.locator('[data-global-agent="ord"]'),dots=row.locator('.agent-nav-working'),unread=row.locator('.chat-unread-dot');
     await dots.evaluate(el=>el.hidden=false);
     const working=await dots.boundingBox(),notification=await unread.boundingBox();
     assert.ok(notification.x>=working.x+working.width);
-    assert.ok(Math.abs(notification.y+notification.height/2-working.y-working.height/2)<1);
+    const bounds=await row.boundingBox();
+    assert.ok(notification.y < working.y);
+    assert.ok(Math.abs(notification.y-bounds.y-8)<2);
+    assert.ok(Math.abs(bounds.x+bounds.width-notification.x-notification.width-10)<2);
     assert.equal(await row.locator('.nm > .chat-unread-dot').count(),0);
     assert.deepEqual(errors,[]);
   }finally{await browser.close();}
