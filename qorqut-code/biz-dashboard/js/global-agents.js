@@ -76,13 +76,15 @@ function globalAgentNavAvatar(agent) {
 // Hover spans the trigger and menu; native button activation also supports keyboard and touch.
 function wireGlobalAgentNavOverlay(root) {
   const trigger=root.querySelector('[data-agent-nav-trigger]'), nav=root.querySelector('.agent-nav-overlay');
+  const timeline=agentNavTimelineMount(nav);
+  let closeTimer;
   const inside=target=>target instanceof Node && (trigger.contains(target) || nav.contains(target));
-  const open=()=>{if(!nav.matches(':popover-open'))nav.showPopover();trigger.setAttribute('aria-expanded','true');};
-  const close=()=>{if(nav.matches(':popover-open'))nav.hidePopover();trigger.setAttribute('aria-expanded','false');};
+  const open=()=>{clearTimeout(closeTimer);if(!nav.matches(':popover-open'))nav.showPopover();trigger.setAttribute('aria-expanded','true');};
+  const close=()=>{clearTimeout(closeTimer);if(nav.matches(':popover-open'))nav.hidePopover();trigger.setAttribute('aria-expanded','false');};
   let keyboard=false;
-  for(const host of [trigger,nav]) {
+  for(const host of [trigger,nav,timeline.panel]) {
     host.onpointerenter=event=>{if(event.pointerType!=='touch'){keyboard=false;open();}};
-    host.onpointerleave=event=>{if(event.pointerType!=='touch' && !inside(event.relatedTarget))close();};
+    host.onpointerleave=event=>{if(event.pointerType!=='touch' && !inside(event.relatedTarget)){clearTimeout(closeTimer);closeTimer=setTimeout(close,400);}};
     host.addEventListener('focusout',event=>{if(keyboard && !inside(event.relatedTarget))close();});
     host.onkeydown=event=>{
       keyboard=true;
@@ -92,7 +94,11 @@ function wireGlobalAgentNavOverlay(root) {
       }
     };
   }
-  nav.addEventListener('toggle',()=>trigger.setAttribute('aria-expanded',String(nav.matches(':popover-open'))));
+  nav.addEventListener('toggle',()=>{
+    const opened=nav.matches(':popover-open');trigger.setAttribute('aria-expanded',String(opened));
+    if(opened)timeline.open();else {clearTimeout(closeTimer);timeline.close();}
+  });
+  return timeline;
 }
 // Retired profiles and archival records never reach the list.
 const globalActiveProfile = agent => !!agent && typeof agent.agent_id === 'string' && !agent.archival_record && (agent.status === undefined || agent.status === 'active');
@@ -140,7 +146,7 @@ async function renderGlobalAgents(c) {
   const rosterOverseer = agents.find(overseerRole) || null;
   c.innerHTML = `<div class="split global-agents agsplit agent-nav-overlay-mode">
     <button type="button" class="quiet agent-nav-trigger" data-agent-nav-trigger popovertarget="global-agent-navigation" aria-controls="global-agent-navigation" aria-expanded="false" aria-label="Agent navigation">${GLOBAL_TERMINAL_ICON}</button>
-    <div class="listcol agent-nav-overlay" id="global-agent-navigation" popover="auto" role="navigation" aria-label="Agent navigation"><div class="ctop"><h2 class="agent-overlay-heading">Agents</h2></div>
+    <div class="listcol agent-nav-overlay" id="global-agent-navigation" popover="auto" role="navigation" aria-label="Agent navigation">
       <div class="global-nav-body">
         <div class="crows global-primary" id="global-primary-roster">
           <div class="global-roster" id="global-agent-list"></div>
@@ -164,7 +170,7 @@ async function renderGlobalAgents(c) {
     <div class="agent-pane-divider" data-agent-pane-divider role="separator" aria-label="Terminal and agent pane divider" aria-orientation="vertical" tabindex="0"></div>
     <aside class="tasks agpad" id="agpad" aria-label="Agent pane"></aside>
   </div>`;
-  wireGlobalAgentNavOverlay($('.global-agents', c));
+  const navTimeline=wireGlobalAgentNavOverlay($('.global-agents', c));
   const list = $('#global-agent-list', c), pane = $('#global-agent-terminal', c), nav = $('.listcol', c);
   const comingSoon = $('#overseer-coming-soon', c);
   const comingSoonError = $('.overseer-coming-soon-error', comingSoon);
@@ -193,8 +199,9 @@ async function renderGlobalAgents(c) {
     });
     const agent=agents.find(candidate=>candidate.agent_id===selected), trigger=$('[data-agent-nav-trigger]',c);
     const name=agent ? agent.display_name || agent.name : 'Terminal';
-    trigger.innerHTML=(agent ? globalAgentNavAvatar(agent) : GLOBAL_TERMINAL_ICON)+'<svg class="agent-nav-caret" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg>';
+    trigger.innerHTML=agent ? globalAgentNavAvatar(agent) : GLOBAL_TERMINAL_ICON;
     trigger.dataset.selectedAgent=selected;
+    navTimeline.setAgent(agent);
     trigger.setAttribute('aria-label',`Agent navigation, ${name} selected`);
     globalAgentGazeRefresh?.();
   };
