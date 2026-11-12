@@ -1,5 +1,6 @@
 """Explicit dependencies on owner responses, separate from immutable proposals and Task revisions."""
 from dataclasses import replace
+import json
 
 from qorqut_operations.application.plans import PlanBuilder, schema
 from qorqut_operations.application.registry import OperationDescriptor
@@ -162,6 +163,19 @@ class SignoffSources:
             candidates.extend(uow.connection.execute('SELECT l.*,s.review_business_id,s.created_at AS requested_at FROM signoff_source_links l '
                 'JOIN signoffs s ON s.id=l.signoff_id WHERE (' + wanted + ") AND s.state='pending' AND s.superseded_by_id IS NULL ORDER BY s.created_at,l.id",
                 [value for source in batch for value in source_key(source)]).fetchall())
+        visible = self.readable(ctx, candidates, uow)
+        for row in candidates:
+            entry = {'link_id': row['id'], 'link_revision': row['revision']}
+            if row['signoff_id'] in visible:
+                entry.update(type='signoff', id=row['signoff_id'], business_id=row['review_business_id'],
+                             title=visible[row['signoff_id']], created_at=row['requested_at'])
+            else:
+                entry['unavailable'] = True
+            result[(row['source_type'], row['source_id'], row['source_business_id'])].append(entry)
+        return result
+
+    def readable(self, ctx, candidates, uow):
+        """``{signoff id: title}`` of the candidate rows' Signoffs the caller may read, each judged in its own review scope."""
         visible = {}
         for business in {row['review_business_id'] for row in candidates}:
             try:
@@ -178,14 +192,38 @@ class SignoffSources:
             except DomainError as error:
                 if error.code not in {'forbidden', 'policy_denied', 'not_found', 'inactive_agent', 'operation_unavailable', 'invalid_principal'}:
                     raise
-        for row in candidates:
-            entry = {'link_id': row['id'], 'link_revision': row['revision']}
-            if row['signoff_id'] in visible:
-                entry.update(type='signoff', id=row['signoff_id'], business_id=row['review_business_id'],
-                             title=visible[row['signoff_id']], created_at=row['requested_at'])
-            else:
-                entry['unavailable'] = True
-            result[(row['source_type'], row['source_id'], row['source_business_id'])].append(entry)
+        return visible
+
+    def decided(self, ctx, sources, uow):
+        """The newest decided Signoff of each source, keyed like ``pending``; a source with none is absent.
+
+        A decision is the owner's submitted response, whatever happened to the change afterwards; ``kind`` and
+        ``selected_choices`` say in short what it was. One the caller may not
+        read is reported as unavailable, without its ID, title or scope. The caller must have already authorized reads of
+        the supplied sources."""
+        candidates = []
+        for offset in range(0, len(sources), 150):
+            batch = sources[offset:offset + 150]
+            wanted = ' OR '.join('(l.source_type=? AND l.source_id=? AND l.source_business_id IS ?)' for _ in batch)
+            candidates.extend(uow.connection.execute(
+                'SELECT l.source_type,l.source_id,l.source_business_id,l.signoff_id,s.review_business_id,s.state,s.decision_json,'
+                "coalesce(json_extract(s.decision_json,'$.at'),s.updated_at) AS decided_at FROM signoff_source_links l "
+                'JOIN signoffs s ON s.id=l.signoff_id WHERE (' + wanted
+                + ") AND s.decision_json IS NOT NULL AND s.state<>'pending'",
+                [value for source in batch for value in source_key(source)]).fetchall())
+        visible, result = self.readable(ctx, candidates, uow), {}
+        for row in sorted(candidates, key=lambda row: (row['decided_at'], row['signoff_id']), reverse=True):
+            key = (row['source_type'], row['source_id'], row['source_business_id'])
+            if key in result:
+                continue
+            if row['signoff_id'] not in visible:
+                result[key] = {'unavailable': True}
+                continue
+            decision = json.loads(row['decision_json'])
+            result[key] = {'type': 'signoff', 'id': row['signoff_id'], 'business_id': row['review_business_id'],
+                           'title': visible[row['signoff_id']], 'state': row['state'], 'decided_at': row['decided_at'],
+                           # What was chosen, in short; the full response is the Signoff's own.
+                           **{name: decision[name] for name in ('kind', 'selected_choices') if decision.get(name) is not None}}
         return result
 
     def project_tasks(self, ctx, tasks, uow):

@@ -20,6 +20,7 @@ import json
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp, utc_clock
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.tasks.lifecycle import CHILD_LIMIT
 from qorqut_operations.tasks.types import IDENTIFIER, LINE_LIMIT
 
 from qorqut.management.identity import configured_ordubashy, installation_owner
@@ -27,10 +28,16 @@ from qorqut.management.identity import configured_ordubashy, installation_owner
 EXAMPLES = 5
 REPAIR_EXAMPLES = 20
 RECONCILED = "Reconciled: the Task was already on this agent's Todo board"
+RETYPED = "Reconciled: this CRM row is stored as a Customer record now, not as a piece of work"
+# One call retypes at most this many records, so a long list is worked off in a few calls and never in one long write.
+RETYPE_BATCH = 150
+REPAIRS = ("record_worker", "remove_entry", "set_status_line", "retype_crm_record")
 RECONCILE_DESCRIPTION = ("Owner and coordinator, once after an upgrade. Applies the repairs that records_health lists: records "
                          "each Todo board's agent as a worker of the open Tasks on its board, removes Todo entries for closed "
-                         "or archived Tasks, and moves each Task card's text to the Task's status line. Read records_health "
-                         "first; it shows exactly what this will change.")
+                         "or archived Tasks, moves each Task card's text to the Task's status line, and stores the open CRM row "
+                         "records that are typed as work as Customer records (at most 150 a call; call again while "
+                         "retype_remaining is above 0). repairs names the ones to apply; all when omitted. Read "
+                         "records_health first; it shows exactly what this will change.")
 WORKING_STALE = timedelta(days=1)
 PARKED_STALE = timedelta(days=7)
 DESCRIPTION = ("Owner and coordinator read. Counts where Todo boards, reminders, Focus cards and CRM rows disagree "
@@ -81,6 +88,12 @@ CHECKS = {
     "crm_record_typed_as_work": ("CRM row records stored as open work Tasks",
         f"crm_entries e JOIN tasks t ON t.business_id IS e.record_business_id AND t.id=e.record_task_id "
         f"WHERE e.removed=0 AND {WORK} AND {OPEN}", "e.table_id"),
+    "parent_with_many_open_children": (f"Tasks with more than {CHILD_LIMIT} open work Tasks directly under them (a list kept as Tasks)",
+        "tasks t JOIN (SELECT c.business_id AS scope, c.parent_id AS parent, COUNT(*) AS open_children FROM tasks c "
+        "WHERE c.parent_id IS NOT NULL AND c.archived=0 AND c.status NOT IN ('done','cancelled') "
+        "AND coalesce(json_extract(c.fields_json,'$.\"$task\".task_type'),'task')='task' "
+        f"GROUP BY c.business_id, c.parent_id HAVING COUNT(*)>{CHILD_LIMIT}) k ON k.scope IS t.business_id AND k.parent=t.id",
+        "k.open_children"),
 }
 TOTALS = {
     "open_work_tasks": f"tasks t WHERE {WORK} AND {OPEN}",
@@ -115,7 +128,8 @@ def repairs(connection):
     ``record_worker``: a board entry on an open Task whose board agent is not a recorded worker. ``remove_entry``: a
     board entry on a Task that is closed, archived or in an archived project. ``set_status_line``: a shown Task card
     with text, on a Task that has no status line yet. ``status_line_needs_rewrite``: the same, where the text is too
-    long or names a record identifier, so somebody has to write the line."""
+    long or names a record identifier, so somebody has to write the line. ``retype_crm_record``: an open record of a CRM
+    row that is typed as work; it becomes a Customer record, which is what a row added today is."""
     listed = lambda sql, names: [dict(zip(names, row)) for row in connection.execute(sql)]
     entry = ("membership_id", "agent_id", "business_id", "task_id", "title")
     found = {
@@ -123,7 +137,11 @@ def repairs(connection):
                                 f"AND NOT {ARCHIVED_PROJECT} AND NOT {HOLDS} ORDER BY t.business_id, t.id, m.agent_id", entry),
         "remove_entry": listed(f"SELECT m.id, m.agent_id, t.business_id, t.id, t.title FROM {ENTRY} WHERE {CLOSED} OR t.archived=1 "
                                f"OR {ARCHIVED_PROJECT} ORDER BY t.business_id, t.id, m.agent_id", entry),
-        "set_status_line": [], "status_line_needs_rewrite": []}
+        "set_status_line": [], "status_line_needs_rewrite": [],
+        "retype_crm_record": listed(
+            "SELECT DISTINCT t.business_id, t.id, t.title FROM crm_entries e JOIN tasks t ON t.business_id IS e.record_business_id "
+            f"AND t.id=e.record_task_id WHERE e.removed=0 AND {WORK} AND {OPEN} AND NOT {ARCHIVED_PROJECT} "
+            "ORDER BY t.business_id, t.id", ("business_id", "task_id", "title"))}
     cards = connection.execute(
         f"SELECT f.id, f.reason, t.business_id, t.id, t.title, t.fields_json FROM focus_cards f "
         f"{LINKED.format(column='f.source_json')} WHERE f.archived=0 AND json_extract(f.source_json,'$.type')='task' "
@@ -162,7 +180,9 @@ class RecordsHealth:
             scope_kinds=frozenset({"global"}), global_capability="read_global_context", effect_kind="read",
             supports_signoff=False, exposure=frozenset({"mcp", "dashboard"}), description=DESCRIPTION,
             resolve_namespace=lambda ctx, args: "global", read=self.read))
-        registry.register(OperationDescriptor("records_reconcile", schema({"scope": {"const": "global"}}),
+        registry.register(OperationDescriptor("records_reconcile", schema({"scope": {"const": "global"}, "repairs": {
+                "type": "array", "items": {"enum": list(REPAIRS)}, "minItems": 1, "uniqueItems": True,
+                "description": "The repairs to apply, by the names records_health lists them under. All of them when omitted."}}),
             scope_kinds=frozenset({"global"}), global_capability="read_global_context", supports_signoff=False,
             exposure=frozenset({"mcp", "dashboard"}), description=RECONCILE_DESCRIPTION,
             resolve_namespace=lambda ctx, args: "global", prepare=self.prepare, apply=self.apply))
@@ -189,7 +209,9 @@ class RecordsHealth:
         self.allowed(ctx, uow)
         from qorqut.agents.attention import task_workers
         found, skipped = repairs(uow.connection), []
-        done = {"record_worker": 0, "remove_entry": 0, "set_status_line": 0}
+        chosen = set(plan.arguments.get("repairs") or REPAIRS)
+        found = {name: items if name in chosen or name not in REPAIRS else [] for name, items in found.items()}
+        done = {name: 0 for name in REPAIRS}
         for item in found["record_worker"]:
             ref = {"type": "task", "id": item["task_id"], "business_id": item["business_id"]}
             try:
@@ -197,11 +219,7 @@ class RecordsHealth:
                 written = self.attention.write_task(ctx, uow, ref, task["revision"],
                                                     {"worker_ids": sorted(task_workers(task) | {item["agent_id"]})})
                 # The Task was already on this agent's board, so being recorded as its worker is not news to act on.
-                uow.connection.execute(
-                    "UPDATE inbox_deliveries SET acknowledged_at=?,outcome=? WHERE agent_id=? AND acknowledged_at IS NULL "
-                    "AND event_id IN (SELECT id FROM inbox_events WHERE source_type='tasks' AND source_id=? "
-                    "AND business_id IS ? AND source_revision=?)",
-                    (timestamp(self.clock), RECONCILED, item["agent_id"], ref["id"], ref["business_id"], written["revision"]))
+                self.acknowledge(uow, written, RECONCILED, item["agent_id"])
                 done["record_worker"] += 1
             except DomainError as error:
                 skipped.append({**item, "repair": "record_worker", "code": error.code, "message": error.message})
@@ -222,5 +240,25 @@ class RecordsHealth:
             done["set_status_line"] += 1
         if done["set_status_line"]:
             uow.next_sequence("focus_board")
+        for item in found["retype_crm_record"][:RETYPE_BATCH]:
+            ref = {"type": "task", "id": item["task_id"], "business_id": item["business_id"]}
+            try:
+                task = self.attention.task(ctx, ref, uow, lifecycle_only=True)
+                written = self.attention.write_task(ctx, uow, ref, task["revision"], {"task_type": "customer"})
+                # Nothing about the record changed for the agents that follow it, so its event asks nothing of them.
+                self.acknowledge(uow, written, RETYPED)
+                done["retype_crm_record"] += 1
+            except DomainError as error:
+                skipped.append({**item, "repair": "retype_crm_record", "code": error.code, "message": error.message})
         return {"applied": done, "skipped": skipped, "status_line_needs_rewrite": found["status_line_needs_rewrite"],
+                "retype_remaining": max(0, len(found["retype_crm_record"]) - RETYPE_BATCH),
                 "health": disagreements(uow.connection, self.clock())}
+
+    def acknowledge(self, uow, task, outcome, agent_id=None):
+        """Settle the deliveries of the event this write of ``task`` raised: for one agent, or for every recipient."""
+        uow.connection.execute(
+            "UPDATE inbox_deliveries SET acknowledged_at=:at,outcome=:outcome WHERE acknowledged_at IS NULL "
+            "AND (:agent IS NULL OR agent_id=:agent) AND event_id IN (SELECT id FROM inbox_events WHERE source_type='tasks' "
+            "AND source_id=:id AND business_id IS :business AND source_revision=:revision)",
+            {"at": timestamp(self.clock), "outcome": outcome, "agent": agent_id, "id": task["id"],
+             "business": task["business_id"], "revision": task["revision"]})

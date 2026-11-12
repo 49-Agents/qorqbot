@@ -163,8 +163,9 @@ class TaskOperations:
         comment = {"note_refs": refs, "summary": SUMMARY, "relay": RELAY, "for_owner": FOR_OWNER}
         mutations = {
             "tasks_create": ({"focus": schema(self.ports.focus.schema), **TASK_FIELDS, "id": IDENTITY, "note": TEXT, **comment,
-                              "allow_duplicate": lifecycle.ALLOW_DUPLICATE}, ("title",)),
-            "tasks_update": ({"task_id": IDENTITY, "changes": {**schema({**TASK_FIELDS, "related_task": links.EDIT}), "minProperties": 1}, "note": TEXT, **comment}, ("task_id", "changes")),
+                              "allow_duplicate": lifecycle.ALLOW_DUPLICATE, "owner_requested": lifecycle.OWNER_REQUESTED}, ("title",)),
+            "tasks_update": ({"task_id": IDENTITY, "changes": {**schema({**TASK_FIELDS, "related_task": links.EDIT}), "minProperties": 1}, "note": TEXT, **comment,
+                              "owner_requested": lifecycle.OWNER_REQUESTED}, ("task_id", "changes")),
             "tasks_assign": ({"task_id": IDENTITY, "assignee_ids": ASSIGNEES}, ("task_id", "assignee_ids")),
             "tasks_comment": ({"task_id": IDENTITY, "text": BODY, **comment}, ("task_id", "text")),
             "tasks_complete": ({"task_id": IDENTITY, "status": {"enum": list(CLOSED_STATES)}, "note": TEXT, **comment,

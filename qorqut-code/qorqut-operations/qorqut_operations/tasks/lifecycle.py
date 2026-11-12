@@ -29,6 +29,12 @@ from qorqut_operations.tasks.types import attributes, state_key
 PARKED = ("waiting", "blocked")
 STALLED_AFTER = timedelta(days=1)
 CASCADE_LIMIT = 200
+# A list of targets (people to contact, places to apply) is rows of a table, not one work Task each.
+CHILD_LIMIT = 10
+OWNER_REQUESTED = {"type": "boolean", "description": (
+    f"true only when the owner asked for more than {CHILD_LIMIT} separate open Tasks under this parent. Without it an agent "
+    "cannot add one: a list of targets is kept as rows of a table (crm_entries_add or tables_*), one row each, and the work "
+    "on the list is a single Task.")}
 # Literal descriptions: a key in the tool-instruction catalog would have to be adopted by every installed catalog
 # before the engine could start.
 ALLOW_DUPLICATE = {"type": "boolean",
@@ -94,6 +100,15 @@ def check(ctx, uow, arguments, before, current, *, blocked_by=()) -> list[dict]:
             if parent and parent["status"] in CLOSED_STATES:
                 raise DomainError("validation_error", "The parent Task is closed. Reopen it, choose an open parent, or leave "
                                                       "this Task without a parent")
+            if not arguments.get("owner_requested"):
+                siblings = sum(1 for task in rows(uow, "tasks", ctx.business_id)
+                               if task["parent_id"] == parent_id and task["id"] != current["id"] and live(task) and work(task))
+                if siblings >= CHILD_LIMIT:
+                    raise DomainError("validation_error",
+                                      f"{siblings} open Tasks already sit under this parent. A list of targets belongs in a table, "
+                                      "one row each (crm_entries_add or tables_*), with one Task for the work on the list. Pass "
+                                      "owner_requested: true only if the owner asked for separate Tasks",
+                                      details={"parent_id": parent_id, "open_children": siblings})
         if before is None and not arguments.get("allow_duplicate"):
             key = state_key(current["title"])
             twin = next((task for task in rows(uow, "tasks", ctx.business_id)
@@ -131,4 +146,4 @@ def closed_values(task, status, at) -> dict:
     return values
 
 
-__all__ = ["ALLOW_DUPLICATE", "CHILDREN", "DELEGATE", "RESULT", "beneath", "check", "closed_values", "stalled", "work"]
+__all__ = ["ALLOW_DUPLICATE", "CHILDREN", "CHILD_LIMIT", "DELEGATE", "OWNER_REQUESTED", "RESULT", "beneath", "check", "closed_values", "stalled", "work"]

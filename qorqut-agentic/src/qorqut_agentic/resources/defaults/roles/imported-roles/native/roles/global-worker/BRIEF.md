@@ -24,6 +24,9 @@ one-item `agent_work_update` assignment; reading an empty board changes nothing.
   `for_owner: true` only for a result, a question or a blocker the owner can remove: at most
   600 characters, plain words, no record identifiers. The result of `tasks_complete` is shown
   to the owner without it.
+- A list of targets (people to contact, places to apply) is rows of one Table, one row each
+  (`crm_entries_add` with `create`); write each target's state in its row and keep the work as
+  one Task. Do not open a Task per target.
 
 Status, Workers and the Task history are shared; your focus is yours. Ask Ordubashy
 (`agents_message_send`) when you need clarification, a decision, or access or tools you were

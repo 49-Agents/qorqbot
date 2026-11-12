@@ -264,13 +264,14 @@ class ReconcileTests(BoardFixture):
                  'kept': self.card(aligned, 'An older card text')}
         report = self.ok(self.invoke(self.owner, 'records_health', {}))['repairs']
         self.assertEqual({name: item['count'] for name, item in report.items()},
-                         {'record_worker': 1, 'remove_entry': 1, 'set_status_line': 1, 'status_line_needs_rewrite': 1})
+                         {'record_worker': 1, 'remove_entry': 1, 'set_status_line': 1, 'status_line_needs_rewrite': 1,
+                          'retype_crm_record': 0})
         self.assertEqual(report['record_worker']['examples'][0]['task_id'], unrecorded['id'])
         self.assertEqual(report['set_status_line']['examples'][0]['text'], 'Waiting on the notary')
 
         self.assertEqual(self.invoke(self.worker, 'records_reconcile', {}).error['code'], 'forbidden')
         result = self.ok(self.invoke(self.owner, 'records_reconcile', {}))
-        self.assertEqual(dict(result['applied']), {'record_worker': 1, 'remove_entry': 1, 'set_status_line': 1})
+        self.assertEqual(dict(result['applied']), {'record_worker': 1, 'remove_entry': 1, 'set_status_line': 1, 'retype_crm_record': 0})
         self.assertEqual(list(result['skipped']), [])
         self.assertEqual([item['task_id'] for item in result['status_line_needs_rewrite']], [long['id']])
 
@@ -287,10 +288,11 @@ class ReconcileTests(BoardFixture):
         self.assertTrue(all(row[0] == RECONCILED for row in told))
         after = self.ok(self.invoke(self.owner, 'records_health', {}))['repairs']
         self.assertEqual({name: item['count'] for name, item in after.items()},
-                         {'record_worker': 0, 'remove_entry': 0, 'set_status_line': 0, 'status_line_needs_rewrite': 1})
+                         {'record_worker': 0, 'remove_entry': 0, 'set_status_line': 0, 'status_line_needs_rewrite': 1,
+                          'retype_crm_record': 0})
         # Running it again changes nothing.
         again = self.ok(self.invoke(self.owner, 'records_reconcile', {}))
-        self.assertEqual(dict(again['applied']), {'record_worker': 0, 'remove_entry': 0, 'set_status_line': 0})
+        self.assertEqual(dict(again['applied']), {'record_worker': 0, 'remove_entry': 0, 'set_status_line': 0, 'retype_crm_record': 0})
 
 
 if __name__ == '__main__':

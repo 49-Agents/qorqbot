@@ -28,6 +28,13 @@ kind, table, alias, redirect or compatibility route.
   attribution). Everything else, system entries included, is a working note. `tasks_get`, `tasks_thread_get` and
   `tasks_notes_list` take `audience: "owner"` and report how many notes were left out; the dashboard thread asks
   for the owner's part by default and offers "Show all". Agents read everything by default.
+* A list of targets is rows of a table, not a Task each. An agent cannot create or move a work Task under a parent that
+  already has 10 open work Tasks unless it passes `owner_requested: true` (`tasks/lifecycle.py`), and cannot add a
+  work Task as a CRM row or create one through `crm_entries_add` (`crm/entries.py`); a new row is a Customer record.
+  People in the dashboard are not stopped. Each item of `crm_entries_list` carries `decisions`
+  (`waiting_on_owner`, `decided` or `none`, with the pending count and the last decision: its Signoff, when, and what was chosen), computed from the Signoffs
+  linked to the row's record (`signoffs/sources.py::decided`). `records_reconcile` stores the open CRM row records
+  that are still typed as work as Customer records, 150 a call; `repairs` names the repairs to apply.
 * Group text is the Task's own fields and its thread. `tasks_get` returns `parent_id`, `parent {id,title,status}` and
   `children`.
 

@@ -107,6 +107,8 @@ CRM Tables (`table_kind: crm`): entries point at existing records and add a stag
 reads one record's discussion and the activity of what it is directly linked to; `crm_activity_record` records an observed
 email, message or development on the Task and needs Task comment authority. A Table's team thread is `tables_thread_get`
 and `tables_comment`; your private conversation with the owner about it stays `owner_conversation_*` and is never reposted.
+A list of targets is rows of one Table, one row each, with one Task for the work on the list; each row's `decisions` in
+`crm_entries_list` says whether it waits on the owner or was decided, and that read is the source for any list you give them.
 
 Remind owner or agent, once or repeating: reminders_* (owner-reminders).
 
