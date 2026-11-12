@@ -26,6 +26,7 @@
 }
 
 .wfpanel-collapsed { height:auto; }
+.wfpanel-collapsed .wfpanel-context-row { padding-bottom:13px; }
 .wfpanel-resize { position:absolute; top:0; left:16px; right:16px; height:10px; z-index:1; cursor:ns-resize; touch-action:none; border-radius:8px; }
 .wfpanel-resize::after { content:""; position:absolute; top:3px; left:50%; width:32px; height:3px; transform:translateX(-50%); border-radius:3px; background:var(--fg-3); opacity:.5; }
 .wfpanel-resize:hover::after,.wfpanel-resize:focus-visible::after { opacity:1; background:var(--fg-2); }
