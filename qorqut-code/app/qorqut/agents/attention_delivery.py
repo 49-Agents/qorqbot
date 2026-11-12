@@ -98,11 +98,9 @@ class AttentionRuntime:
     """Attention scheduling shares the existing nudge pass and input arbiter."""
 
     def __init__(self, runtime):
-        from qorqut.agents.todo_adjustment import TodoAdjustment
         self.runtime = runtime
         self.attention = runtime.application.ordubashy_attention
         self.hooks = HookClaims(self._hook_eligible, self._delivered)
-        self.todo_adjustment = TodoAdjustment(runtime)
 
     def _now(self):
         return _stamp(datetime.now(timezone.utc))
@@ -135,7 +133,9 @@ class AttentionRuntime:
         from qorqut_operations.tasks.types import attributes
         from qorqut_operations.tasks.workers import project_workers
         from qorqut.agents import attention_prompt as prompt
-        from qorqut.agents.attention import UNREADABLE
+        from qorqut.agents.attention import UNREADABLE, acts_on
+        from qorqut.management.identity import configured_ordubashy
+        coordinator = configured_ordubashy(uow)
         work_ref = state.get('work_task_json')
         snapshot = {'focus': {key: focus.get(key) for key in ('type', 'id', 'business_id')} if focus else None,
                     'focused_for': _age(state.get('focus_started_at'), self._now()) if focus else None,
@@ -170,7 +170,7 @@ class AttentionRuntime:
                 continue
             task = member(ref, row['task_created_at'])
             # Filter on lifecycle first; Workers are projected only for tasks that will be shown.
-            if task is None or task['status'] not in ('open', 'working'):
+            if task is None or task['status'] not in ('open', 'working') or not acts_on(task, agent_id, coordinator):
                 continue
             if len(candidates) == prompt.CANDIDATES:
                 snapshot['more'] = True
@@ -479,8 +479,6 @@ class AttentionRuntime:
 
     def send_due(self, profile):
         """At most one chat attempt, under the arbiter's existing agent lock."""
-        if self.todo_adjustment.send_due(profile):
-            return
         from qorqut.native_chat import store
         from qorqut.native_chat.arbiter import StaleSession
         agent = profile['agent_id']

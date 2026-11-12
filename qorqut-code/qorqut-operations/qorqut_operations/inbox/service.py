@@ -27,6 +27,9 @@ from qorqut_operations.tasks.scope import task_context
 
 from .events import row_for, source_summary
 
+# The thread entries a Task event carries on the pending page: how many, and how much of each.
+ENTRY_LIMIT, ENTRY_TEXT = 5, 600
+
 # Tasks, Actions and Tables are followed through the discussion's follow state (a personal, sticky preference), not
 # through a subscription row; every other source keeps its subscription.
 THREAD_SOURCES = {'tasks': 'task', 'actions': 'action', 'data_tables': 'table'}
@@ -236,10 +239,36 @@ class InboxService:
             for row in rows:
                 cursor = row['id']
                 if self.event_visible(ctx, row, uow):
-                    found.append(self.event_item(ctx, row, uow))
+                    item = self.event_item(ctx, row, uow)
+                    entries = self.task_entries(row, uow)
+                    if entries:
+                        item['entries'] = entries
+                    found.append(item)
                     if len(found) > limit: break
         more = len(found) > limit
         return {'items': found[:limit], 'next_cursor': found[limit - 1]['id'] if more else None}
+
+    def task_entries(self, row, uow):
+        """What a Task event recorded in the Task's thread: the system line naming the change, then any note written
+        with it, so the pending page says what happened without a read of every Task it mentions.
+
+        Called only for an event the reader was just authorized to see, and a Task's thread is readable by whoever can
+        read the Task. Each text is bounded; a longer note is marked and read in full from the Task."""
+        if row['source_type'] != 'tasks':
+            return []
+        found = []
+        for message in uow.connection.execute(
+                "SELECT kind,body,author_id,recorder_id FROM thread_messages WHERE business_id IS ? AND item_type='task' "
+                "AND item_id=? AND event_id=? ORDER BY CASE kind WHEN 'system' THEN 0 ELSE 1 END,created_at,id LIMIT ?",
+                (row['business_id'], row['source_id'], row['id'], ENTRY_LIMIT)):
+            entry = {'kind': 'note' if message['kind'] == 'comment' else 'system', 'text': message['body'][:ENTRY_TEXT]}
+            if len(message['body']) > ENTRY_TEXT:
+                entry['truncated'] = True
+            if message['kind'] == 'comment':
+                author = uow.repository('principals').get(message['author_id'] or message['recorder_id'])
+                entry['by'] = author['display_name'] if author else 'Unknown'
+            found.append(entry)
+        return found
 
     def event_item(self, ctx, row, uow):
         """Return the same bounded, currently authorized view used by inbox_list."""

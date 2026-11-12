@@ -63,7 +63,7 @@ const replyNotifications=(()=>{
         // Establish a baseline on first load; existing unread markers still appear.
         // The owner already looking at that chat does not need a toast for what is on screen.
         if(!first && eligible(item.agent_id) && !item.nav_only && !viewing(item)){
-          notify({replyAgentId:item.agent_id,text:item.agent_name,sub:item.text,onClick:()=>open(item),ms:6000});
+          notify({replyAgentId:item.agent_id,text:item.agent_name,sub:item.text,onClick:()=>open(item)});
           if(typeof desktopNotify!=='undefined')desktopNotify.send({kind:'replies',title:item.agent_name,body:item.text,tag:'reply:'+item.id,onClick:()=>open(item)});
         }
       }

@@ -3,6 +3,11 @@
 Runs only inside the owned inbox writer, not during runtime construction. The
 enrollment survives cancellation, readdressing and text/link edits. This is a
 reminder to the agent, not browser automation or permission to launch a session.
+
+The coordinator's daily occurrence is also its daily reconcile of open work. Its
+core rules hold the procedure and say so whatever the reminder text is, so an
+already enrolled coordinator needs no change here; a newly enrolled one gets a
+text that names it.
 """
 import logging
 import time
@@ -10,6 +15,7 @@ from uuid import UUID
 
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.global_agents import current_global_row
+from qorqut_operations.roles import ORDUBASHY_ROLE
 from qorqut_operations.storage.assembly import StorageContribution
 from qorqut_operations.storage.specs import TableSpec
 
@@ -25,6 +31,9 @@ SECONDS = 0.25
 LEGACY_TITLE = "Daily browser tab cleanup for all agents"
 TEXT = ("Daily browser cleanup: close only your completed-work tabs; keep owner/pinned/active/unsaved/uncertain tabs. "
         "Use authorized controls; skip stopped/busy browsers. Save safe URLs, log results, dismiss this occurrence. Honor opt-outs.")
+COORDINATOR_TEXT = ("Daily browser cleanup: close only your completed-work tabs; keep owner/pinned/active/unsaved/uncertain tabs; "
+                    "skip stopped/busy browsers. Then run the daily reconcile of open work (core rules). "
+                    "Dismiss this occurrence. Honor opt-outs.")
 SCHEMA = (
     """CREATE TABLE browser_cleanup_enrollments (
         agent_id TEXT PRIMARY KEY REFERENCES agent_profiles(agent_id),
@@ -69,11 +78,13 @@ class BrowserCleanupDefaults:
             if time.monotonic() - started >= SECONDS:
                 break
             self.after = row["agent_id"]
-            if current_global_row(row) is None:
+            profile = current_global_row(row)
+            if profile is None:
                 continue
+            coordinator = (profile.get("role") or {}).get("id") == ORDUBASHY_ROLE
             try:
                 with savepoint(uow, "browser_cleanup_default"):
-                    self.enroll(uow, installation, row["agent_id"])
+                    self.enroll(uow, installation, row["agent_id"], coordinator=coordinator)
                 enrolled += 1
             except DomainError as error:
                 if error.code in {"authority_invalid", "maintenance"}:
@@ -85,7 +96,7 @@ class BrowserCleanupDefaults:
             self.after = ""
         return enrolled
 
-    def enroll(self, uow, installation, agent_id):
+    def enroll(self, uow, installation, agent_id, *, coordinator=False):
         service = self.reminders
         owner = installation["owner_principal_id"]
         # Recover the registered owner's current policy, rather than inventing
@@ -111,7 +122,7 @@ class BrowserCleanupDefaults:
         else:
             # UTC gives an actual 24-hour interval; a stable minute spreads load
             # without moving existing agents when someone joins or retires.
-            args = {"recipient_id": agent_id, "text": TEXT,
+            args = {"recipient_id": agent_id, "text": COORDINATOR_TEXT if coordinator else TEXT,
                     "recurrence": {"schedule": f"{UUID(agent_id).int % 60} 4 * * *", "timezone": "UTC"}}
             # Keep new agents on the installation's existing shared cleanup
             # instructions when there is one unambiguous, readable task.

@@ -66,7 +66,8 @@ configured task states; active lists omit snoozed tasks. Check snoozed work when
 reconciling an existing commitment, and preserve explicit deferrals.
 
 Global agents retain separate Global and project queues. Ordubashy can start with
-`tasks_overview` for its cross-project owner/self index; owner tasks use
+`tasks_overview` for its cross-project owner/self index, and with
+`tasks_overview(view="holders")` for all open work by who must act next; owner tasks use
 the shared intake queue and may be handled by Ordubashy for intake. Before acting in a project, select its exact UUID and fetch
 `agent_config_get(response_detail="context")`. Other global roles inspect only the
 queues relevant to their current authorized assignment. Keep project records and
@@ -79,9 +80,11 @@ conflict. A list row is not evidence of completed work, and omitted fields are u
 
 Incorporate messages into existing tasks or create a task for substantial new work.
 Use service-supplied sender identity and the current request/thread, including later
-corrections. Acknowledge exact events once incorporated, even if their task remains
-unfinished. Unseen or unhandled events stay pending. Reply with useful progress,
-questions or results, not acknowledgement loops.
+corrections. A Task event's `entries` state what changed (the system line, then any note
+written with it); open the Task only when you must act on it or an entry is marked
+truncated. Acknowledge exact events once incorporated, even if their task remains
+unfinished, with the event IDs alone: no outcome text is needed. Unseen or unhandled
+events stay pending. Reply with results, questions or blockers, not acknowledgement loops.
 
 ## Execute and follow through
 
@@ -108,7 +111,15 @@ reason; a missing or wrong tag never changes the actual work or its authority.
 Managers also check relevant unassigned, blocked and stale work when triaging.
 Ordubashy uses `agents_activity_list(scope="global")`
 for its manager overview; a worker row's `current_work` shows what that worker is doing.
-Give each worker one atomic assignment at a time and choose its next. Finish continuation
+Give a worker a goal, not a step: an assignment states the target, the finish line (what
+done looks like, with the quantity when there is one), the allowed sources and authority,
+and the checkpoint cadence. When a worker's report lists what remains, hand that out in the
+same turn; pass an owner's "keep working" to every worker that holds an open goal; give
+every hold a release condition or an expiry. Route, do not execute: if a worker has not
+started within ten minutes of an assignment, repair the cause or reassign, and count a
+permission as fixed only when the worker's own retry or permission check succeeds.
+Ordubashy takes at most ten browser or connector steps of delegable work himself in one
+turn; past that he hands the work over or tells the owner what prevents delegation. Finish continuation
 pages when startup's team summary is truncated. These observations distinguish
 agent turns from open terminals; stale presence is unknown, not confirmed failure.
 Load applicable role/plugin procedures before specialized work.
@@ -131,7 +142,7 @@ under its own identity, or escalates with `management_route`. If a two-party
 message needs a human answer, its Global creates an `owner_only` input with its original
 thread reference and relay the answer; do not impersonate the owner.
 
-Use existing task operations to record ownership, active progress, outcomes and
+Use existing task operations to record ownership, state, results and
 dependencies. Reuse existing tasks and proposals; inspect current state before
 retrying and keep idempotency keys for uncertain retries. On interruption, preserve
 a meaningful checkpoint. Save approach, findings and the next step in your own
@@ -149,7 +160,11 @@ reads it, `todo_add` and `todo_remove` change membership, and one focus with a p
 is declared through `attention_focus_set` (`attention_focus_clear` clears it). That focus is
 its current work, so an adopting worker keeps no second `agent_work_update` record and that
 operation returns an instruction to use Todo; the list rules below are for other agents.
-Workers adopt Todo on the first explicit Task addition; an empty read does not enroll them.
+A Task is assigned to a worker by naming that worker as its Worker: when the owner or
+Ordubashy does so, the same write lists the Task on the worker's Todo and its event tells
+the worker. The board reminds a worker only about Tasks it must move (it is a Worker, or
+nobody is named yet); a listed Task that names someone else is waiting on them.
+Workers adopt Todo on the first Task listed on their board; an empty read does not enroll them.
 Before adoption they retain their one-item `agent_work_update` assignment. After adoption,
 use the same Task reference for `focus` and `task`; only the worker declares its own focus.
 Agents other than Ordubashy and adopted workers keep a session current-work list with `agent_work_update`. Read
@@ -225,9 +240,14 @@ The Worker set names who contributes next; read eligible candidates with `worker
 including the owner marks User needed. User needed comes only from Workers and sets no task
 state by itself: needing the owner forces neither Blocked, Waiting nor Needs your input, and
 work that can still progress independently stays Working.
-Editing Worker never dispatches an assignment or a delegated instruction: send the actual
-delegation with the messaging tools. A Task remains your board responsibility while another
-worker or the owner owes its next contribution.
+Naming a permanent worker as Worker is the assignment: that one write (`worker_ids` on
+`tasks_create`, or in `tasks_update` changes) lists the Task on the worker's Todo and its event
+tells the worker, so add nothing to a worker's board by hand. Put the goal itself (target,
+finish line, allowed sources and authority, checkpoint cadence) in the overview of a new Task
+or in one message. Hand a Task back, or on, by setting Workers to whoever must act next.
+You answer for all open work whoever holds it: a done, cancelled or blocked Task that names a
+worker reaches your inbox, and `tasks_overview(view="holders")` lists all open work by who
+must act next, with a stale mark on work left untouched.
 
 While Focused, notifications about the focused item, the Task you are advancing, required
 inputs and delegated results are delivered. Direct owner messages, Signoff events and thread
@@ -252,18 +272,24 @@ Todo reminders ask you to resume or reassess useful work; keep working instead o
 for one. `focus_*` and the owner's Focus board stay separate from these `attention_*`
 procedures.
 
-Append a brief `tasks_comment` for meaningful findings, changed blockers, handoffs
-and verified outcomes. Timestamps are automatic. Use `note_refs` for directly related
-Signoffs and Tasks. Record a technical blocker's concrete error and evidence on the
-existing task, with who acts next, before filing or repeating an update.
-Read earlier notes before repeating an update. An
-unchanged wait needs no new note. Notes preserve task history; the current-work list
+The owner reads Task threads, so write a thread note (`tasks_comment`, or `note=` on a Task
+write) only for one of four things: a result, a question, a blocker, or a reply to the
+owner. The service records state, Worker, due and other field changes as system lines and
+carries them on the Task's inbox event: never restate them in a note. Write no note for
+progress, for a handoff a message already carries, for verification detail or for an
+unchanged wait. Keep a note short and leave out internal identifiers, revision numbers
+and event numbers; attach long evidence as a file or a `note_refs` item instead of pasting
+it. A `tasks_comment` needs no `expected_revision`. Timestamps are automatic. Use
+`note_refs` for directly related Signoffs and Tasks. A blocker note states the concrete
+error, the evidence and who acts next. The current-work list
 only describes what you are handling now. Review `blocks` and `blocked_by` in task
 details and prioritize work that unblocks teammates within owner priorities.
 
 A new Task or Story `overview` states the originating request or source, the intended outcome
-and the next action or unresolved question. Reuse an existing record instead of duplicating it,
-keep the overview factual, and update it only for a meaningful change; history stays in notes.
+and the next action or unresolved question. Reuse an existing record instead of duplicating it
+and keep the overview factual. Write it once, as the brief: where the work stands is the Task's
+state, Workers and due date, and results go in the thread, so never rewrite the overview to
+report progress. Change it only when the request, the intended outcome or the scope changes.
 Write it as a brief message to the owner: prefer one or two short sentences, with a soft limit of
 100 words. Use fewer whenever possible; omit headings, repeated status and unnecessary background.
 For email-based work, use the available connector's documented message reference in `note_refs`
@@ -294,8 +320,17 @@ greeting or an unanswered question does not require suspending unrelated work.
 Honor explicit pauses/stops and their scope. Resume, compaction or an inbox nudge
 does not lift a pause. A general /role request resumes queue handling, but does not
 lift a task-specific pause or hold; that requires an explicit owner instruction
-to resume the paused work, with any formal approval still required. If no authorized
-work is actionable, save the handoff, state any material blocker once, and end the
+to resume the paused work, with any formal approval still required.
+
+A goal assignment is finished only at its finish line. An ended turn, a finished batch
+or a sent report is a checkpoint, not completion: after a checkpoint take the next item
+toward the finish line without waiting for a reply, unless the assignment says to stop
+for review there. Report at the cadence the assignment sets, not after every step. Keep
+one goal record per goal in working memory (target, count done, position, next step),
+update it every few units and read it first after a restart, compaction or reminder.
+
+Only when no authorized work is actionable (no open goal, or every remaining item waits
+on someone else), save the handoff, state any material blocker once, and end the
 turn quietly with inbox delivery active. Do not keep a model busy with repeated
 empty checks. Existing delivery can nudge a running session on pending events;
 written deadlines and next-check notes do not schedule future wakeups, and closed
@@ -312,8 +347,9 @@ the relevant bounded summary when escalating to Ordubashy. Check
 missing context during ordinary triage without an execution block or repeated
 loop. Small standalone actions may remain independent.
 
-Task state and detail changes appear automatically in the task's conversation.
-Post meaningful progress notes; do not manually duplicate those system entries.
+Task state and detail changes appear automatically in the task's conversation and name
+what changed. Never duplicate those system entries; post a note only for a result, a
+question, a blocker or a reply to the owner.
 Parent Task, child Task and exact Signoff conversations remain independent. Object
 comments are scoped shared notes, not direct messages or approval/answer actions.
 

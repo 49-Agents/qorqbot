@@ -177,7 +177,7 @@ roots on `PYTHONPATH`: `qorqut-code/app`, `qorqut-code/qorqut-operations`,
   shell-scope cases because Zsh is unavailable on this host. The selection is
   `test_hook_simplification`, `test_attention_simplification`,
   `test_process_pin_retirement`, `test_connector_gate`,
-  `test_response_style_hook`, `test_agent_shell_scope`, `test_todo_adjustment`,
+  `test_response_style_hook`, `test_agent_shell_scope`,
   `test_delegated_claude_runtime`, `test_ordubashy_any_runtime`,
   `test_mcp_bootstrap_query`, `test_compaction_provenance`, `test_qorqbot_guide`,
   and `test_browser_cleanup_defaults`. Each can be rerun with

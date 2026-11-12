@@ -589,7 +589,7 @@ const reminderNotifications = (() => {
           const key = `${remId(reminder)}:${reminder.occurrence_id || reminder.due_at || reminder.at || ''}`;
           if (seen.has(key)) continue;
           seen.add(key);
-          notify({text: reminder.text || 'Reminder due', reminder: true, ms: 10000,
+          notify({text: reminder.text || 'Reminder due', reminder: true,
             onDismiss: () => remindersDismissDue(reminder),
             onClick: () => remindersOpenDetail(reminder, {onChange: () => {
               if (typeof attentionQueue !== 'undefined') void attentionQueue.refreshSignoffs();

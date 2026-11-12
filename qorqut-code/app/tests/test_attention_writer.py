@@ -46,7 +46,6 @@ class AttentionWriterTests(unittest.TestCase):
         self.delivery._now = lambda: NOW
         self.delivery._verified_consumer = Mock(return_value=True)
         self.delivery._text = lambda *_: 'Current task reminder'
-        self.delivery.todo_adjustment.send_due = Mock(return_value=False)
         self.attention.board_mode = Mock(return_value='normal')
         self.attention.reminder_eligible = Mock(return_value=True)
         self.claim_unit = self.delivery._claim_due = Mock(wraps=self.delivery._claim_due)

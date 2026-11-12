@@ -275,16 +275,16 @@ details[open] summary { color: var(--fg); }
 .side .actions { padding: 6px 22px 22px; display: flex; gap: 8px; flex-wrap: wrap; }
 
 /* ============================================================ toasts (see notify() in core.js) */
-/* Notifications appear centered at the top, above the current view. */
-.toasts { position: fixed; left: 0; right: 0; top: 22px; z-index: 1100; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0 12px; pointer-events: none; }
+/* Notifications stack in the bottom-right corner, newest at the bottom. */
+.toasts { position: fixed; right: 20px; bottom: 20px; z-index: 1100; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; }
 .toast {
-  position: relative; pointer-events: auto; max-width: 320px; min-width: 160px; padding: 9px 14px 9px 17px;
+  position: relative; pointer-events: auto; max-width: min(320px, calc(100vw - 24px)); min-width: 160px; padding: 9px 14px 9px 17px;
   background: var(--elevated); color: var(--fg); border: 0; border-radius: var(--r);
   box-shadow: var(--shadow-float); font-size: 12.5px; line-height: 1.4; cursor: default;
   opacity: 1; transform: none; transition: opacity .22s ease, transform .22s cubic-bezier(.2,.7,.2,1);
 }
-.toast.in, .toast.out { opacity: 0; transform: translateY(-10px); }
-@media (max-width: 640px) { .toasts { top: 12px; } }
+.toast.in, .toast.out { opacity: 0; transform: translateY(10px); }
+@media (max-width: 640px) { .toasts { right: 12px; bottom: 12px; } }
 .toast .tx { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
 .toast .tsub { margin-top: 2px; font: 10px/1.2 var(--mono); color: var(--fg-3); font-variant-numeric: tabular-nums; }
 .toast.fold { color: var(--fg-2); }
@@ -297,7 +297,7 @@ details[open] summary { color: var(--fg); }
 .reply-toast .reply-copy { min-width: 0; flex: 1; }
 .reply-toast .reply-name { display: block; font-size: 12px; font-weight: 600; line-height: 18px; color: var(--fg); }
 .reply-toast .reply-preview { display: block; font-size: 13px; font-weight: 400; line-height: 20px; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* Reminder pill: a bell and the reminder text on one line, centred in the shared queue. */
+/* Reminder pill: a bell and the reminder text on one line in the shared queue. */
 .toast.reminder-toast {
   box-sizing: border-box; display: flex; align-items: center; gap: 12px; width: fit-content;
   min-width: 0; max-width: calc(85vw - 27px); padding: 12px 18px;

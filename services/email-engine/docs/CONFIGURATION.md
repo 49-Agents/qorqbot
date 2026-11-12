@@ -26,7 +26,9 @@ These settings name private JSON files. Their schemas live in `engine_email.mode
 
 - `EMAIL_MAILBOXES_FILE`: registered business mailbox mappings. Existing account/folder/address ownership cannot be reassigned.
 - `EMAIL_SHARED_SENDERS_FILE`: shared sender profiles, disabled until explicitly enabled. Exact approved transport, recipients,
-  footer and expiry remain binding. Shared accounts use atomic rolling limits and a separate installation-wide ceiling.
+  footer and expiry remain binding. Shared accounts use atomic rolling limits and a separate installation-wide ceiling
+  of 220 messages per rolling 24 hours. The lower allowance wins: a profile still configured with `rolling_limit: 150`
+  remains limited to 150 until its owner raises that setting. Campaign-specific Paper limits remain independent.
 - `EMAIL_HISTORY_FILE`: encrypted private history configuration, including archive database and key file locations. See
   [history](HISTORY.md) for its format, scope and recovery limits. Enabling account-wide history does not grant other agents access.
 - `EMAIL_OUTLOOK_WEB_FILE`: optional Outlook browser transport settings; requires an independently configured authenticated session.

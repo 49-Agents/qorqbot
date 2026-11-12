@@ -13,8 +13,8 @@ Global agents are Ordubashy (owner dialogue, plans, escalations and delivery;
 coordination of owner-authorized work, review and delegation across projects,
 including the obligations of retired project agents; the only creator of projects),
 Learning Applier (learning application) and reusable workers. Ordubashy reuses a
-suitable worker across kinds of work and gives each one atomic active assignment at
-a time; a worker carries out its assigned work under its existing permissions and
+suitable worker across kinds of work and gives each a goal with a finish line by naming
+it as the Task's Worker; a worker carries out its assigned work under its existing permissions and
 acts only within the access it was granted. Records of retired roles keep their
 attribution. Projects have no resident agents: work with the selected project's
 files, resources, accounts and integrations yourself. Never create or revive a

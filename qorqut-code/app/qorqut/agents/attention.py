@@ -56,6 +56,20 @@ def enrolled_boards(uow):
     return found
 
 
+def acts_on(task, agent_id, coordinator):
+    """Whether a board Task is this agent's to move.
+
+    Ordubashy answers for everything on his board. A worker moves a Task only while it is one of its Workers (who must
+    act next) or nobody is named yet; a Task that names someone else is waiting on them, however long it stays listed,
+    so it neither drives that worker's reminders nor is offered to it as a candidate."""
+    if agent_id == coordinator:
+        return True
+    workers = task.get('worker_ids_json') or []
+    if isinstance(workers, str):
+        workers = json.loads(workers)
+    return not workers or agent_id in workers
+
+
 def task_recipients(uow, business_id, task, actor_id):
     """Current board membership is a routing reason, never a source grant."""
     rows = uow.connection.execute(
@@ -216,6 +230,50 @@ class Attention:
             uow.connection.execute('UPDATE agent_attention SET revision=revision+1,updated_at=? WHERE agent_id=?', (now, agent))
         return len(rows)
 
+    def workers_named(self, ctx, ref, task, worker_ids, uow):
+        """Naming a permanent worker as a Task's Worker is the assignment, so the same write lists the Task on that
+        worker's Todo; returns the boards it filled.
+
+        The caller must be someone ``todo_add`` already lets fill that board: the installation owner or Ordubashy for any
+        worker, or the worker for its own, and its policy must allow the board write. Ordubashy's own board, a closed or
+        archived Task, a delegated identity and a worker that cannot read the Task are left alone, and nothing is ever
+        removed here. No event of its own is sent: the Task write's event follows, and board membership makes the
+        worker one of its required recipients."""
+        if task.get('archived') or task.get('status') in ('done', 'cancelled') or ctx.delegation_assignment_id is not None:
+            return []
+        from qorqut.agents.worker_access import is_worker
+        coordinator = configured_ordubashy(uow)
+        manager = (is_active_installation_owner(uow, ctx.principal_id, ctx.principal_kind)
+                   or (ctx.principal_kind == 'agent' and ctx.principal_id == coordinator))
+        targets = [agent for agent in worker_ids if agent != coordinator and is_worker(uow.connection, agent)
+                   and (manager or (ctx.principal_kind == 'agent' and ctx.principal_id == agent))
+                   and not self.task_membership(uow, agent, ref)]
+        if not targets:
+            return []
+        try:
+            actor = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
+            self.app.authorize(actor, self.app.registry.get('attention_add'), (), uow, namespace='global')
+        except DomainError as error:
+            if error.code not in UNREADABLE: raise
+            return []
+        now, filled = timestamp(self.clock), []
+        for agent in targets:
+            try:
+                self.task(self.app.policy.context_for(agent, business_id=None, review_business_id=None, uow=uow),
+                          ref, uow, lifecycle_only=True)
+            except DomainError as error:
+                if error.code not in UNREADABLE: raise
+                continue
+            self.ensure(uow, agent)
+            membership_id = new_id()
+            uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_business_id,task_id,task_created_at,created_at) VALUES(?,?,?,?,?,?)',
+                (membership_id, agent, ref['business_id'], ref['id'], task['created_at'], now))
+            self.membership_event(uow, agent, membership_id, ref, task['created_at'], ctx.principal_id, 'added', now,
+                                  rationale='Named as Worker')
+            uow.connection.execute('UPDATE agent_attention SET revision=revision+1,updated_at=? WHERE agent_id=?', (now, agent))
+            filled.append(agent)
+        return filled
+
     def task_membership(self, uow, agent_id, task_ref):
         row = uow.connection.execute('SELECT * FROM attention_memberships WHERE agent_id=? AND task_business_id IS ? AND task_id=?',
             (agent_id, task_ref['business_id'], task_ref['id'])).fetchone()
@@ -294,6 +352,7 @@ class Attention:
         except DomainError: return 'empty'
         scopes = {}
         tasks = []
+        coordinator = configured_ordubashy(uow)
         for row in uow.connection.execute('SELECT * FROM attention_memberships WHERE agent_id=?', (agent_id,)):
             business_id = row['task_business_id']
             try:
@@ -309,7 +368,8 @@ class Attention:
                 if repository is None:
                     continue
                 task = repository.get(row['task_id'])
-                if task and not task.get('archived') and task.get('created_at') == row['task_created_at']:
+                if (task and not task.get('archived') and task.get('created_at') == row['task_created_at']
+                        and acts_on(task, agent_id, coordinator)):
                     tasks.append(task)
             except DomainError as error:
                 if error.code not in UNREADABLE: raise
@@ -333,8 +393,6 @@ class Attention:
             for operation in ('attention_get', 'inbox_list'):
                 if self.app.policy.resolve(ctx, self.app.registry.get(operation), (), uow).mode != 'allow': return False
             state = self.state(uow, agent_id)
-            if kind == 'todo_adjustment':
-                return True  # Daily housekeeping may also review a stale focus or a Done-only board.
             if kind in ('board_normal', 'board_reassess'):
                 return not state['focus_json'] and self.board_mode(uow, agent_id) == kind.removeprefix('board_')
             if kind not in ('focus','workflow_detach') or not state['focus_json'] or state['focus_generation'] != focus_generation: return False

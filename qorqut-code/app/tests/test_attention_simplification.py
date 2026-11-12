@@ -127,7 +127,6 @@ class AttentionTests(unittest.TestCase):
         chat.probe = NS(observe=Mock(return_value=object()))
         chat.registry = NS(reconcile=Mock(return_value=NS(live=True, session=session)))
         chat.arbiter.admit_nudge = Mock(return_value={})
-        self.delivery.todo_adjustment.send_due = Mock(return_value=False)
         self.delivery._settle_chat = Mock()
         advice = {'chat_eligible': True, 'kind': 'focus', 'due_at': EARLIER, 'reminder_sequence': 1}
         with patch('qorqut.agents.attention_delivery.clock_advice', return_value=advice), \

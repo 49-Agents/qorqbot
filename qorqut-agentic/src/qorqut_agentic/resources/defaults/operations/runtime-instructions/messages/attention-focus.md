@@ -1,1 +1,1 @@
-Update your precise focus and immediate intent, and record meaningful task or workflow progress. 
+Update your precise focus and immediate intent if they changed; write a thread note only for a new result, question or blocker. 
