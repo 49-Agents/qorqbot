@@ -396,6 +396,7 @@ def catalog(extensions=()):
             TableClassification('native_captures', PRIVATE_EXCLUDED, 'Native conversations, archived inputs and saved read state are protected separately; no Chat bytes in general history.'),
             TableClassification('native_input_events', PRIVATE_EXCLUDED, 'Native conversations, archived inputs and saved read state are protected separately; no Chat bytes in general history.'),
             TableClassification('native_inputs', PRIVATE_EXCLUDED, 'Native conversations, archived inputs and saved read state are protected separately; no Chat bytes in general history.'),
+            TableClassification('native_owner_turns', PRIVATE_EXCLUDED, 'Native conversations, archived inputs and saved read state are protected separately; no Chat bytes in general history.'),
             TableClassification('native_reads', PRIVATE_EXCLUDED, 'Native conversations, archived inputs and saved read state are protected separately; no Chat bytes in general history.'),
             TableClassification('native_replies', PRIVATE_EXCLUDED, 'Native conversations, archived inputs and saved read state are protected separately; no Chat bytes in general history.'),
             TableClassification('native_session_owners', PRIVATE_EXCLUDED, 'Native conversations, archived inputs and saved read state are protected separately; no Chat bytes in general history.'),
