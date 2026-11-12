@@ -2,24 +2,18 @@
 function agentNavTimelineMount(nav) {
   const panel=document.createElement('aside');
   panel.className='agent-nav-timeline';panel.setAttribute('aria-label','Weekly Report');
-  panel.innerHTML='<header><h2>Weekly Report</h2></header><p class="agent-nav-timeline-status" data-status role="status"></p><div class="agent-nav-charts"><section><h3>Actions per day</h3><div class="agent-nav-chart" role="group" aria-label="Daily activity in the loaded actions"></div></section><section><h3>Tasks done per day</h3><p class="agent-nav-tasks-status" data-tasks-status role="status">Loading completed tasks…</p><div class="agent-nav-chart agent-nav-tasks-chart" role="group" aria-label="Completed tasks per day across workspaces" hidden></div></section></div><button type="button" class="quiet" data-reset hidden>Show all dates</button><ol class="agent-nav-events" aria-label="Recent recorded actions"></ol>';
+  panel.innerHTML='<header><h2>Weekly Report</h2></header><p class="agent-nav-timeline-status" data-status role="status"></p><div class="agent-nav-charts"><section><h3>Actions per day</h3><div class="agent-nav-chart" role="group" aria-label="Recorded actions per day in the last 7 days"></div></section><section><h3>Tasks done per day</h3><p class="agent-nav-tasks-status" data-tasks-status role="status">Loading completed tasks…</p><div class="agent-nav-chart agent-nav-tasks-chart" role="group" aria-label="Completed tasks per day across workspaces" hidden></div></section></div><button type="button" class="quiet" data-reset hidden>Show all dates</button><ol class="agent-nav-events" aria-label="Recent recorded actions"></ol>';
   nav.append(panel);
   const status=panel.querySelector('[data-status]'),chart=panel.querySelector('.agent-nav-chart'),list=panel.querySelector('ol'),reset=panel.querySelector('[data-reset]');
   const taskStatus=panel.querySelector('[data-tasks-status]'),taskChart=panel.querySelector('.agent-nav-tasks-chart');
   let taskRequest=null,taskVersion=0;
-  let agent=null,rows=[],filter=null,request=null,version=0;
+  let agent=null,rows=[],days=[],filter=null,request=null,version=0;
   const active=()=>nav.isConnected && nav.matches(':popover-open');
   function paint() {
-    const dates=rows.map(row=>row.occurred?.date).filter(date=>/^\d{4}-\d{2}-\d{2}$/.test(date || '')).sort();
-    const days=[];
-    if(dates.length){
-      const last=new Date(dates.at(-1)+'T12:00:00Z');
-      for(let i=6;i>=0;i--){const day=new Date(last);day.setUTCDate(day.getUTCDate()-i);days.push(day.toISOString().slice(0,10));}
-    }
     const counts=days.map(day=>rows.filter(row=>row.occurred?.date===day).length),max=Math.max(1,...counts);
     chart.replaceChildren(...days.map((day,i)=>{
       const button=document.createElement('button');button.type='button';button.className='agent-nav-chart-day';
-      button.setAttribute('aria-label',`${day}: ${counts[i]} loaded actions`);button.setAttribute('aria-pressed',String(filter===day));
+      button.setAttribute('aria-label',`${day}: ${counts[i]} recorded actions`);button.setAttribute('aria-pressed',String(filter===day));
       const count=document.createElement('span');count.className='agent-nav-chart-count';count.textContent=counts[i];
       const track=document.createElement('span');track.className='agent-nav-chart-track';
       const bar=document.createElement('i');bar.style.height=(counts[i]/max*100)+'%';track.append(bar);
@@ -69,18 +63,31 @@ function agentNavTimelineMount(nav) {
     if(!active() || matchMedia('(max-width:700px)').matches || request || !agent)return;
     void refreshTasks();
     const mine=++version,id=agent.agent_id,controller=request=new AbortController();
+    const current=()=>active() && version===mine && agent?.agent_id===id;
+    const until=sjToday(),since=sjAddDays(until,-6),loaded=new Map(),cursors=new Set();
+    rows=[];days=[];filter=null;paint();
     status.hidden=false;status.textContent='Loading actions…';
     try {
-      const data=coreData(await post('/root/operations/actions_list',{performer:id,limit:50},{signal:controller.signal}));
-      if(!active() || version!==mine || agent?.agent_id!==id)return;
-      if(!Array.isArray(data.actions))throw Error('Invalid actions response');
-      rows=[...new Map(data.actions.map(row=>[row.action_id,row])).values()];
-      status.textContent=rows.length ? '' : 'No actions recorded yet.';status.hidden=!!rows.length;
-      filter=null;
+      // Publish totals only after every page in this week has loaded.
+      let cursor;
+      do {
+        const data=coreData(await post('/root/operations/actions_list',{
+          performer:id,since,until,limit:200,...(cursor?{cursor}:{}),
+        },{signal:controller.signal}));
+        if(!current())return;
+        if(!Array.isArray(data.actions))throw Error('Invalid actions response');
+        for(const row of data.actions)loaded.set(row.action_id,row);
+        cursor=data.next_cursor;
+        if(cursor!=null && (typeof cursor!=='string' || !cursor || cursors.has(cursor)))throw Error('Invalid actions cursor');
+        if(cursor)cursors.add(cursor);
+      }while(cursor);
+      rows=[...loaded.values()];
+      days=Array.from({length:7},(_,i)=>sjAddDays(since,i));
+      status.textContent=rows.length ? '' : 'No actions recorded in the last 7 days.';status.hidden=!!rows.length;
       paint();
     } catch(error) {
-      if(version!==mine || !active() || controller.signal.aborted)return;
-      rows=[];paint();status.hidden=false;status.textContent='Actions unavailable. Reopen navigation to retry.';
+      if(!current() || controller.signal.aborted)return;
+      rows=[];days=[];paint();status.hidden=false;status.textContent='Actions unavailable. Reopen navigation to retry.';
     } finally {
       if(version===mine)request=null;
     }
@@ -91,7 +98,7 @@ function agentNavTimelineMount(nav) {
     panel,
     setAgent(next){
       if(agent?.agent_id===next?.agent_id)return;
-      stop();agent=next;rows=[];filter=null;paint();taskChart.replaceChildren();taskChart.hidden=true;taskStatus.textContent='Select an agent to view completed tasks.';
+      stop();agent=next;rows=[];days=[];filter=null;paint();taskChart.replaceChildren();taskChart.hidden=true;taskStatus.textContent='Select an agent to view completed tasks.';
       status.hidden=false;status.textContent=agent?'Open navigation to view actions.':'Select an agent to view its actions.';
       void refresh();
     },
