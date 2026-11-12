@@ -53,7 +53,15 @@ async function fixture({mobile=false,many=false}={}) {
 }
 
 async function reopenNav(page) {
-  await page.keyboard.press('Escape');await page.locator('[data-agent-nav-trigger]').focus();await page.keyboard.press('Enter');
+  await page.evaluate(()=>{
+    const nav=document.querySelector('.agent-nav-overlay');
+    window.navClosed=new Promise(resolve=>nav.addEventListener('toggle',function closed(event){
+      if(event.newState!=='closed')return;
+      nav.removeEventListener('toggle',closed);resolve();
+    }));
+  });
+  await page.keyboard.press('Escape');await page.evaluate(()=>navClosed);
+  await page.locator('[data-agent-nav-trigger]').focus();await page.keyboard.press('Enter');
 }
 
 browserTest('navigation is hidden by default and hover overlays without resizing or remounting chat',async()=>{
@@ -204,6 +212,126 @@ browserTest('late action reads cannot replace another agent and failed reads sta
   }finally{await browser.close();}
 });
 
+browserTest('weekly action totals load every page before showing counts or filtering earlier days',async()=>{
+  const {browser,page,errors}=await fixture();
+  try {
+    await page.evaluate(()=>{
+      const original=post;window.weekReads=[];
+      window.post=(url,body)=>{
+        if(!url.endsWith('/actions_list'))return original(url,body);
+        weekReads.push(body);
+        if(body.cursor)return new Promise(resolve=>{window.finishWeek=resolve;});
+        return Promise.resolve({actions:Array.from({length:200},(_,i)=>({
+          action_id:'today-'+i,text:'Today '+i,occurred:{date:'2026-11-11'},
+        })),next_cursor:'older-actions'});
+      };
+    });
+    await page.mouse.move(34,32);await page.waitForFunction(()=>weekReads.length===2);
+    const pane=page.locator('.agent-nav-timeline'),chart=pane.locator('.agent-nav-chart').first();
+    assert.equal(await chart.isVisible(),false);
+    assert.equal(await pane.locator('.agent-nav-events li').count(),0);
+    assert.equal(await pane.locator('[data-status]').innerText(),'Loading actions…');
+    assert.deepEqual(await page.evaluate(()=>weekReads),[
+      {performer:'atlas',since:'2026-11-05',until:'2026-11-11',limit:200},
+      {performer:'atlas',since:'2026-11-05',until:'2026-11-11',limit:200,cursor:'older-actions'},
+    ]);
+    await page.evaluate(()=>finishWeek({actions:[
+      {action_id:'today-199',text:'Duplicate from the first page',occurred:{date:'2026-11-11'}},
+      ...Array.from({length:25},(_,i)=>({action_id:'extra-'+i,text:'Another action',occurred:{date:'2026-11-11'}})),
+      ...Array.from({length:3},(_,i)=>({action_id:'yesterday-'+i,text:'Yesterday',occurred:{date:'2026-11-10'}})),
+      {action_id:'first-day',text:'Start of the week',occurred:{date:'2026-11-05'}},
+    ],next_cursor:null}));
+    await chart.waitFor();
+    assert.deepEqual(await chart.locator('.agent-nav-chart-count').allTextContents(),['1','0','0','0','0','3','225']);
+    assert.equal(await pane.locator('.agent-nav-events li').count(),229);
+    await chart.locator('[aria-label="2026-11-10: 3 recorded actions"]').click();
+    assert.equal(await pane.locator('.agent-nav-events li').count(),3);
+    assert.deepEqual(await pane.locator('.agent-nav-events time').allTextContents(),Array(3).fill('2026-11-10'));
+    await chart.locator('[aria-label="2026-11-05: 1 recorded actions"]').click();
+    assert.equal(await pane.locator('.agent-nav-events').innerText(),'2026-11-05\n\nStart of the week');
+    await pane.locator('[data-reset]').click();assert.equal(await pane.locator('.agent-nav-events li').count(),229);
+    assert.deepEqual(errors,[]);
+  }finally{await browser.close();}
+});
+
+browserTest('weekly actions stay anchored to today in the installation timezone, including empty weeks',async()=>{
+  const {browser,page,errors}=await fixture();
+  try {
+    await page.clock.setFixedTime(new Date('2026-11-12T02:00:00Z'));
+    await page.evaluate(()=>sjConfigure('America/La_Paz'));
+    await page.mouse.move(34,32);
+    const pane=page.locator('.agent-nav-timeline'),chart=pane.locator('.agent-nav-chart').first();await chart.waitFor();
+    assert.deepEqual(await page.evaluate(()=>actionReads[0].body),
+      {performer:'atlas',since:'2026-11-05',until:'2026-11-11',limit:200});
+    assert.equal(await chart.locator('.agent-nav-chart-day').last().getAttribute('aria-label'),'2026-11-11: 0 recorded actions');
+    assert.equal(await chart.locator('[aria-label="2026-11-10: 1 recorded actions"]').count(),1);
+    await page.evaluate(()=>{const original=post;window.post=(url,body)=>url.endsWith('/actions_list')?Promise.resolve({actions:[]}):original(url,body);});
+    await reopenNav(page);await page.waitForFunction(()=>document.querySelector('[data-status]').textContent.includes('No actions'));
+    assert.deepEqual(await chart.locator('.agent-nav-chart-count').allTextContents(),Array(7).fill('0'));
+    assert.equal(await pane.locator('[data-status]').innerText(),'No actions recorded in the last 7 days.');
+    assert.deepEqual(errors,[]);
+  }finally{await browser.close();}
+});
+
+browserTest('failed or looping action pages never expose partial weekly counts and can be retried',async()=>{
+  const {browser,page,errors}=await fixture();
+  try {
+    await page.evaluate(()=>{
+      const original=post;window.loopPages=false;window.pageReads=[];
+      window.post=(url,body)=>{
+        if(!url.endsWith('/actions_list'))return original(url,body);
+        pageReads.push(body);
+        if(body.cursor && !loopPages)return Promise.reject(Error('Offline'));
+        return Promise.resolve({actions:[{action_id:'partial',text:'Partial week',occurred:{date:'2026-11-11'}}],next_cursor:'older-actions'});
+      };
+    });
+    const pane=page.locator('.agent-nav-timeline'),chart=pane.locator('.agent-nav-chart').first();
+    await page.mouse.move(34,32);await page.waitForFunction(()=>document.querySelector('[data-status]').textContent.includes('unavailable'));
+    assert.equal(await chart.isVisible(),false);
+    assert.equal(await pane.locator('.agent-nav-events li').count(),0);
+    assert.equal(await page.locator('.agent-nav-tasks-chart').isVisible(),true);
+    await page.evaluate(()=>{window.loopPages=true;window.pageReads=[];});
+    await reopenNav(page);await page.waitForFunction(()=>pageReads.length>=2 && document.querySelector('[data-status]').textContent.includes('unavailable'));
+    assert.equal(await page.evaluate(()=>pageReads.length),2);
+    assert.equal(await chart.isVisible(),false);
+    await page.evaluate(()=>{const original=post;window.post=(url,body)=>url.endsWith('/actions_list')?Promise.resolve({actions:[]}):original(url,body);});
+    await reopenNav(page);await chart.waitFor();
+    assert.deepEqual(await chart.locator('.agent-nav-chart-count').allTextContents(),Array(7).fill('0'));
+    assert.deepEqual(errors,[]);
+  }finally{await browser.close();}
+});
+
+browserTest('switching agents or closing navigation cancels older weekly action pages',async()=>{
+  const {browser,page,errors}=await fixture();
+  try {
+    await page.evaluate(()=>{
+      const original=post;window.weekReads=[];window.weekHeld=[];
+      window.post=(url,body,options)=>{
+        if(!url.endsWith('/actions_list'))return original(url,body);
+        weekReads.push(body);
+        if(body.cursor)return new Promise(resolve=>weekHeld.push({resolve,signal:options.signal}));
+        return Promise.resolve({actions:[{action_id:body.performer,text:body.performer,occurred:{date:'2026-11-11'}}],
+          next_cursor:body.performer==='atlas'?'older-actions':null});
+      };
+    });
+    await page.mouse.move(34,32);await page.waitForFunction(()=>weekHeld.length===1);
+    await page.locator('[data-global-agent="ord"]').click();
+    await page.locator('.agent-nav-events li').waitFor();
+    assert.equal(await page.evaluate(()=>weekHeld[0].signal.aborted),true);
+    await page.evaluate(()=>weekHeld[0].resolve({actions:[{action_id:'stale',text:'Stale action',occurred:{date:'2026-11-10'}}],next_cursor:'never-read'}));
+    assert.equal(await page.evaluate(()=>weekReads.length),3);
+    assert.equal(await page.locator('.agent-nav-events p').innerText(),'ord');
+    await page.locator('[data-global-agent="atlas"]').click();await page.waitForFunction(()=>weekHeld.length===2);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(()=>weekHeld[1].signal.aborted);
+    assert.equal(await page.evaluate(()=>weekHeld[1].signal.aborted),true);
+    await page.evaluate(()=>weekHeld[1].resolve({actions:[],next_cursor:'never-read'}));
+    assert.equal(await page.evaluate(()=>weekReads.length),5);
+    assert.equal(await page.locator('.agent-nav-events li').count(),0);
+    assert.deepEqual(errors,[]);
+  }finally{await browser.close();}
+});
+
 
 browserTest('task chart uses historical daily counts independently of Todo membership',async()=>{
   const {browser,page,errors}=await fixture();
@@ -211,7 +339,7 @@ browserTest('task chart uses historical daily counts independently of Todo membe
     await page.evaluate(()=>{
       window.progressReads=[];const original=post;
       window.post=async(url,body)=>{
-        if(!url.endsWith('/global_progress_get'))return {...await original(url,body),next_cursor:'older-actions'};
+        if(!url.endsWith('/global_progress_get'))return {...await original(url,body),next_cursor:body.cursor?null:'older-actions'};
         progressReads.push(body);
         return {series:Array.from({length:30},(_,i)=>({date:sjAddDays('2026-11-11',i-29),tasks_done:i===28?12:i===29?3:0})),timezone:'America/La_Paz'};
       };

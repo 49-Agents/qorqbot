@@ -128,6 +128,12 @@ rollback contract is in the host's [`docs/INSTALLATION.md`](../docs/INSTALLATION
   falls back to Ordubashy. Terminal opens a plain shell at the configured Qorqut
   workspace with no agent profile, inbox, preparation, credential or transcript
   capture. Check: `node tests/test_global_roster_browser.js`.
+- **Weekly report.** Desktop agent navigation counts the selected agent's actions
+  for today and the previous six days in the installation timezone. It follows
+  every page of the date-filtered action read before displaying totals; failed
+  pages show an unavailable state. Selecting a day filters the complete weekly
+  action list. Task totals remain the separate historical counts across workspaces.
+  Check: `node --test tests/agent-nav-overlay.test.js` (requires Playwright Chromium).
 - **Testing mode.** Global Settings has one owner-wide Testing mode switch, off by
   default, stored per owner in the runtime's dashboard preferences and read/written
   through `GET|POST /api/root/testing-mode`. While it is off, Overseer stays in the
