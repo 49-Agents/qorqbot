@@ -89,8 +89,8 @@ const connectorsPanel = (() => {
   const POLL_MS = 3000;
   const PRIVACY = `<section class="cx-privacy" aria-labelledby="cx-privacy-title">
       <div class="cx-privacy-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.2 2.2 4.3-4.6"/></svg></div>
-      <div><h2 id="cx-privacy-title">Private by design. Qorqbot collects nothing.</h2>
-      <p>No Qorqbot account, no tracking, no Qorqbot servers. Qorqbot runs on this computer and everything it keeps stays here.</p>
+      <div><h2 id="cx-privacy-title">Private by design. Your work stays on this computer.</h2>
+      <p>Qorqbot’s servers know only your sign-in email, whether you use it for personal or work, and a daily check that it is running. Never your conversations, files, records or what your agents do.</p>
       <ul><li>Browser sessions stay in each agent’s private local profile. External connection sign-ins happen on the provider’s page.</li>
       <li>External connections are optional and managed in their own services.</li>
       <li>What you ask your agents goes to Claude or Codex under your own account, the same as when you use them directly.</li></ul></div>

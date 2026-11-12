@@ -58,7 +58,7 @@ const onboarding = (() => {
       target: () => document.querySelector('[data-global-settings]')},
     // No target: the whole screen dims and the promise stands on its own.
     {id: 'privacy', chapter: 'connect', title: 'your data stays yours', wide: true, standalone: true,
-      body: '<b class="onboarding-promise">Qorqbot collects nothing.</b> No Qorqbot account, no tracking, no Qorqbot servers. It runs on this computer, and everything it keeps stays here.',
+      body: '<b class="onboarding-promise">Your work stays on this computer.</b> Qorqbot’s servers know only your sign-in email and that Qorqbot is in use. Never your conversations, files or what your agents do.',
       instructions: ['What you ask your agents goes to Claude or Codex under your own account, the same as when you use them directly.'],
       target: () => null},
     {id: 'connect-overview', chapter: 'connect', title: 'two ways to reach your tools', wide: true, standalone: true,
@@ -266,7 +266,7 @@ const onboarding = (() => {
     const mascot = findAgent('ordubashy');
     const intro = resume ? `<p>You stopped at <b>${chapterTitles[steps[resume].chapter]}</b>.</p>`
       : `<p>Qorqbot runs AI agents for you on this computer. This short tour gets Ordubashy online, shows you around and connects the tools your agents use, in ${onboardingPlan.chapters(steps).length} chapters. Skip any of it, or take it again anytime with the ? button at the bottom left.</p>`;
-    const promise = `<p class="onboarding-private"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.2 2.2 4.3-4.6"/></svg><span><b>Private by design.</b> Qorqbot collects nothing. It runs on this computer and keeps your data here.</span></p>`;
+    const promise = `<p class="onboarding-private"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.2 2.2 4.3-4.6"/></svg><span><b>Private by design.</b> Your work stays on this computer. Qorqbot only knows your email and that it is in use.</span></p>`;
     const list = menu ? `<div class="onboarding-chapters" aria-label="chapters">${onboardingPlan.chapters(steps).map((c, i) =>
       `<button type="button" class="onboarding-chapter-pick" data-tour-chapter-pick="${c.start}"><span>${String(i + 1).padStart(2, '0')}</span>${chapterTitles[c.id]}</button>`).join('')}</div>` : '';
     card.innerHTML = `<button class="onboarding-close" type="button" aria-label="close walkthrough">×</button>

@@ -72,15 +72,15 @@ async function renderSettings(c) {
         control: `<div class="st-chapters">${onboarding.chapters().map(chapter => `<button type="button" class="quiet" data-onboarding-chapter="${esc(chapter.id)}">${esc(chapter.title)}</button>`).join('')}</div>`})}</div>`,
     about: `<div class="st-rows" data-about><p class="st-help">Loading…</p></div>
       <div class="st-privacy" data-search="privacy data collect tracking passwords private local">
-        <h3>Private by design. Qorqbot collects nothing.</h3>
-        <p>No Qorqbot account, no tracking and no Qorqbot servers. Qorqbot runs on this computer and everything it keeps stays here.</p>
+        <h3>Private by design. Your work stays on this computer.</h3>
+        <p>Qorqbot’s servers know only your sign-in email, whether you use it for personal or work, and a daily check that it is running. Never your conversations, files, records or what your agents do.</p>
         <ul><li>You sign in on each service’s own page. Qorqbot never sees or stores your passwords, and website sessions stay in your agents’ private browsers on this computer.</li>
           <li>Every connection is optional, and you can turn it off at any time.</li>
           <li>What you ask your agents goes to Claude or Codex under your own account, the same as when you use them directly.</li></ul></div>`,
   };
   pane.innerHTML = `
     <header class="st-header"><div><h1 class="st-title">${global ? 'Settings' : 'Project settings'}</h1>
-      ${global ? '<p class="st-promise"><span aria-hidden="true">●</span> Private by design: Qorqbot collects nothing and keeps everything on this computer. <button type="button" class="cx-link" data-show-section="about">Details</button></p>' : ''}</div>
+      ${global ? '<p class="st-promise"><span aria-hidden="true">●</span> Private by design: your work stays on this computer. <button type="button" class="cx-link" data-show-section="about">Details</button></p>' : ''}</div>
       ${global ? '<label class="st-search"><span class="sr-only">Search settings</span><input type="search" placeholder="Search settings" data-settings-search autocomplete="off" spellcheck="false"></label>' : ''}</header>
     <div class="st-layout">
       ${global ? `<nav class="st-nav" aria-label="Settings sections">${sections.map(section =>
@@ -270,18 +270,48 @@ async function paintAgentClients(pane) {
   pane.dispatchEvent(new Event('settings-painted'));
 }
 
+// The Qorqbot account row in About (qorqut/account.py): who is signed in, personal or work use, and sign out.
+function settingsAccountRow(account) {
+  if (!account.signed_in) {
+    return settingsRow({label: 'Qorqbot account', keywords: 'account sign in email login license',
+      help: 'Not signed in.', control: '<button type="button" class="quiet" data-account-signin>Sign in</button>'});
+  }
+  const info = account.account || {};
+  const free = new Date(account.license.commercial_free_until + 'T00:00:00')
+    .toLocaleDateString(undefined, {year: 'numeric', month: 'long', day: 'numeric'});
+  const use = info.use === 'work'
+    ? `For work${info.company ? ` at ${esc(info.company)}` : ''}. Commercial license free until ${esc(free)}. <a href="${accountGate.LICENSE_URL}" target="_blank" rel="noopener noreferrer">License</a>`
+    : 'Personal use.';
+  return settingsRow({label: 'Qorqbot account', keywords: 'account sign in email login license commercial',
+    help: `${esc(info.email || '')} · ${use}`, control: '<button type="button" class="quiet" data-account-signout>Sign out</button>'});
+}
+function settingsAccountRefresh() {
+  const pane = document.querySelector('.settingspane');
+  if (pane) paintAbout(pane);
+}
+
 // About section: version and folders (owner_settings.about_view).
 async function paintAbout(pane) {
   const host = pane.querySelector('[data-about]'); if (!host) return;
-  let view;
+  let view, account = null;
   try { view = coreData(await api('/root/about')); } catch (error) { host.innerHTML = `<p class="st-help">${esc(error.message || 'Could not read version details.')}</p>`; return; }
+  try { account = await accountGate.read(); } catch (_) { /* Shown without the account row. */ }
   if (!host.isConnected) return;
   const copy = value => value ? `<button type="button" class="quiet" data-copy="${esc(value)}">Copy path</button>` : '';
-  host.innerHTML = settingsRow({label: 'Version', keywords: 'version update release', help: esc(view.version || 'Development server')}) +
+  const update = account && account.update
+    ? ` · <a href="${esc(account.update.url)}" target="_blank" rel="noopener noreferrer">Qorqbot ${esc(account.update.version)} is available</a>` : '';
+  host.innerHTML = settingsRow({label: 'Version', keywords: 'version update release', help: esc(view.version || 'Development server') + update}) +
+    (account ? settingsAccountRow(account) : '') +
     (view.install_folder ? settingsRow({label: 'Program folder', keywords: 'install folder path', help: `<code>${esc(view.install_folder)}</code>`, control: copy(view.install_folder)}) : '') +
     (view.data_folder ? settingsRow({label: 'Your data', keywords: 'data folder records backup path', help: `<code>${esc(view.data_folder)}</code> All records, chats and history. Back up this folder to keep them.`, control: copy(view.data_folder)}) : '') +
     (view.logs_folder ? settingsRow({label: 'Logs', keywords: 'logs debug troubleshoot path', help: `<code>${esc(view.logs_folder)}</code>`, control: copy(view.logs_folder)}) : '');
   pane.dispatchEvent(new Event('settings-painted'));
+  host.querySelector('[data-account-signout]')?.addEventListener('click', async event => {
+    event.target.disabled = true;
+    try { await accountGate.send('logout', {}); } catch (_) { /* Repainted below either way. */ }
+    paintAbout(pane);
+  });
+  host.querySelector('[data-account-signin]')?.addEventListener('click', () => accountGate.signIn());
   host.querySelectorAll('[data-copy]').forEach(button => button.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(button.dataset.copy); button.textContent = 'Copied'; } catch (_) { button.textContent = 'Select and copy'; }
     setTimeout(() => { if (button.isConnected) button.textContent = 'Copy path'; }, 2000);

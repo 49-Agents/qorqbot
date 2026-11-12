@@ -1,0 +1,23 @@
+/* The owner's sign-in before the walkthrough (js/account-gate.js). The card reuses the walkthrough's look. */
+.account-gate { position:fixed; inset:0; z-index:10050; display:grid; place-items:center; padding:16px;
+  background:rgba(0,0,0,.72); backdrop-filter:blur(6px); }
+.account-gate .account-gate-card { position:relative; width:380px; }
+.account-gate-form { display:flex; flex-direction:column; gap:12px; margin-top:18px; }
+.account-gate-form input[type=email], .account-gate-form input[name=code], .account-gate-form input[name=company] {
+  height:38px; padding:0 12px; font:14px var(--sans); color:var(--fg); background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.14); border-radius:var(--r-sm); }
+.account-gate-form input:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.account-gate-code { font-family:var(--mono) !important; letter-spacing:.18em; text-transform:uppercase; }
+.account-gate-check { display:flex; align-items:center; gap:8px; font-size:12px; color:#a8a8a8; }
+.account-gate-use { display:flex; flex-wrap:wrap; gap:6px 16px; margin:0; padding:0; border:0; font-size:13px; color:#c0c0c0; }
+.account-gate-use legend { width:100%; margin-bottom:6px; font-size:12px; color:#909090; }
+.account-gate-use label { display:flex; align-items:center; gap:6px; }
+.account-gate-error { min-height:1em; font-size:12px !important; color:var(--warn) !important; }
+.account-gate-error:empty { display:none; }
+.account-gate .onboarding-private { margin-top:20px; }
+.account-gate .onboarding-welcome-actions { margin-top:6px; }
+.account-gate a { color:inherit; text-decoration:underline; }
+:root[data-theme="light"] .account-gate { background:rgba(240,240,240,.7); }
+:root[data-theme="light"] .account-gate-form input[type=email], :root[data-theme="light"] .account-gate-form input[name=code],
+:root[data-theme="light"] .account-gate-form input[name=company] { background:#fff; border-color:rgba(0,0,0,.15); color:#111; }
+:root[data-theme="light"] .account-gate-check, :root[data-theme="light"] .account-gate-use { color:#444; }
