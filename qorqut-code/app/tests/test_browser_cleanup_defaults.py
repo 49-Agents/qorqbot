@@ -71,8 +71,12 @@ class DefaultsTest(unittest.TestCase):
             self.assertEqual(row["creator_id"], self.owner)
             self.assertFalse(row["time_critical"])
             self.assertLessEqual(len(row["text"]), 240)
+            # The coordinator's daily occurrence is also its daily reconcile; every other agent gets the cleanup alone.
+            self.assertEqual(row["text"], defaults.COORDINATOR_TEXT if row["recipient_id"] == identities[0] else defaults.TEXT)
             first = timing.parse_stamp(row["next_at"])
             self.assertEqual(timing.first_slot_after(row["schedule"], row["timezone"], first) - first, timedelta(hours=24))
+        self.assertIn("daily reconcile of open work", defaults.COORDINATOR_TEXT)
+        self.assertTrue(defaults.COORDINATOR_TEXT.startswith("Daily browser cleanup:"))
         before = self.reminders()
         self.service.defaults = defaults.BrowserCleanupDefaults(self.service)  # simulated restart
         self.reconcile()
