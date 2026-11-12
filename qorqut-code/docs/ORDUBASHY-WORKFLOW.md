@@ -33,6 +33,14 @@ The reconcile has two parts. His own Todo: read every page, remove Done membersh
 
 This replaces the earlier daily Todo adjustment invitation, which was a one-shot chat nudge on the first idle pass. The reminder itself never changes Tasks or Todo memberships.
 
+### Unreachable workers
+
+Inbox notices are typed into an agent's session. When a permanent worker has pending inbox items and every notice for at least 20 minutes was definitely not typed (its input box holds unsent text, its screen shows something else or a dialog, or it has no session), the backend pass sends the configured Ordubashy one `unreachable` inbox event for that worker, and again after six hours while it lasts (`qorqut/agents/unreachable.py`). A worker in a running turn is not reported. The event names the worker, since when, why and how many inbox items wait, and his core rules tell him to repair it himself with `agent_terminal_status` and `agent_terminal_restart`, then to reassign the worker's open Tasks and tell the owner if two restarts do not hold. The pass reads the nudge attempts; it touches no session and adds no table. Learning Applier is not a worker and is not reported here.
+
+### Worker messages
+
+A permanent worker's message to Ordubashy is at most 1,200 characters; a longer one is refused whole with where the detail belongs (the Task's result, a thread note or a linked file). Finished work is reported by closing the Task with its result, and progress on a longer goal is the Task's `status_line`; neither needs a message. Ordubashy writes no note to accept a closed Task.
+
 ## Recording on behalf of the owner
 
 Task, Action and Table discussions, Signoff notes, private item conversations and agent messages accept attributed relays. `explicit_owner_statement` records a reported statement; `owner_intent` marks Ordubashy's interpretation; `agent_report` reports another registered agent. The actual writer remains recorded, and agent-message replies continue routing to the actual sender. Relayed owner text is right-aligned with agent colouring and a recorder label.
