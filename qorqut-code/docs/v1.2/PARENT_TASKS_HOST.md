@@ -15,6 +15,12 @@ kind, table, alias, redirect or compatibility route.
   beneath it, cannot put new work under a closed parent, and closes a whole group with
   `tasks_complete {children: "close"}`, which closes every open work Task under the parent in the same write. A person
   closing a Task in the dashboard is not stopped, and Stories, Customers and Email Tasks are never closed along.
+* The Task is the one record of who holds a piece of work and where it stands. A Todo board entry is written by the
+  engine for each recorded worker that keeps a board, for as long as the Task is open and unarchived
+  (`agents/attention.py::follow_task`, run from `domains/tasks/closure.py` inside every Task write); `todo_add` and
+  `todo_remove` record or clear the worker. A Task's Focus card shows the Task's `status_line`, and a `reason` given
+  for a Task card is written to that line. `records_health` lists what still disagrees and what
+  `records_reconcile` would repair; `records_reconcile` (owner or coordinator, once after an upgrade) applies it.
 * Group text is the Task's own fields and its thread. `tasks_get` returns `parent_id`, `parent {id,title,status}` and
   `children`.
 

@@ -40,8 +40,11 @@ def render(kind, snapshot, *, instructions):
         lines.append('Focus: ' + quote(snapshot['focus']) + '; focused for: ' + (snapshot['focused_for'] or 'unavailable'))
         lines.append('Work task: ' + (quote(snapshot['work']) if snapshot['work'] else
                                       'unavailable (not readable, archived, or no longer on the board)'))
-        lines.append('Intent: ' + (quote(clip(snapshot['intent'], INTENT)) if snapshot['work'] and snapshot['intent']
-                                   else 'unavailable'))
+        # The Task's next step says what is being done; an Intent recorded with an older focus is shown beside it.
+        lines.append('Next step: ' + (quote(clip(snapshot['next_step'], INTENT)) if snapshot['work'] and snapshot.get('next_step')
+                                      else 'not written on the Task'))
+        if snapshot['work'] and snapshot['intent']:
+            lines.append('Intent: ' + quote(clip(snapshot['intent'], INTENT)))
         if snapshot.get('workflow'):
             lines.append('Workflow data: ' + quote({'name': clip(snapshot['workflow']['name'], TITLE),
                                                     'run_id': snapshot['workflow']['run_id']}))

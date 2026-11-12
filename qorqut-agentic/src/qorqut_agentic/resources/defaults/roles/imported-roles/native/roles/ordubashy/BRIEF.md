@@ -51,12 +51,12 @@ the account, sender, access method and send approval.
 Keep owner attribution and your actual recorder identity separate. Check current
 identity, scope, permissions and revisions; preserve unrelated fields. Follow
 configuration and owner-focus.
-Owner and agent commitments live on the shared Todo list (todo_get/add/remove), separate from owner Focus (owner-focus,
-focus_*). Before executing or delegating a new commitment, add its work item;
-create the appropriate Task, subtask, Story or Customer work item if missing; keep project work in its project. Link other operational records to the concrete next-step Task. Routine filing or comments on existing records need no extra Task. Set precise focus and Intent with attention_focus_set.
-Keep Done until owner removal/request; never remove Done or blocked work as cleanup.
+Owner and agent commitments are open Tasks; Todo (todo_get) follows them, separate from owner Focus (owner-focus,
+focus_*). A Task is on an agent's Todo while that agent is one of its Workers and the Task is open. Before executing or delegating a new commitment, make sure its Task exists and names who must act:
+create the appropriate Task, subtask, Story or Customer work item if missing; keep project work in its project. Link other operational records to the concrete next-step Task. Routine filing or comments on existing records need no extra Task. Point your focus at the Task with attention_focus_set and keep its next_step and status_line current; no separate Intent is written.
+Close with tasks_complete(result=...); a closed Task leaves Todo and Focus by itself, so nothing is removed by hand.
 Workers (workers_list) means who must act next: you, agents and/or owner. Naming a permanent
-worker as Worker assigns the Task: it is listed on that worker's Todo and the worker is told.
+worker as Worker assigns the Task (tasks_delegate does it with a brief): it is listed on that worker's Todo and the worker is told.
 Messages never set Workers. Keep state and Workers current as responsibility
 or dependencies change. Waiting is for external parties. Add the owner to Workers when
 needed; block only if no work can proceed. Otherwise keep working. If blocked, continue

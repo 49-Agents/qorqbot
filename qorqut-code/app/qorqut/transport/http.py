@@ -584,7 +584,7 @@ class HTTPAPI:
                     "dev_tickets_list", "dev_tickets_status_set", "document_history_get", "files_link",
                     "management_coordinator_set", "management_list", "management_get", "management_resolve",
                     "system_incidents_list", "system_incidents_get",
-                    "dashboard_summary_get", "global_progress_get", "records_health",
+                    "dashboard_summary_get", "global_progress_get", "records_health", "records_reconcile",
                     "actions_record", "actions_list", "actions_get", "actions_correct", "actions_withdraw", "actions_config_get", "working_memory_get", "working_memory_update", "agent_context_get",
                     "costs_overview",
                     "calendar_calendars_list", "calendar_events_list", "calendar_event_get",

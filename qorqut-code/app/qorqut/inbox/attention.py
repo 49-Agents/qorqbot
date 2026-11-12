@@ -160,6 +160,8 @@ class AttentionBoard:
                 if ref['business_id'] is not None: descriptor = replace(descriptor, global_capability=None)
                 self.app.authorize(selected, descriptor, (), uow, namespace='business:'+ref['business_id'] if ref['business_id'] else 'global')
                 value['task'] = descriptor.read(selected, {'task_id':ref['id'], **({'scope':'global'} if ref['business_id'] is None else {})}, InvocationOptions(), uow)['task']
+                # A Task card says what the Task says. Its own stored text is shown only until the Task has a status line.
+                if value['task'].get('status_line'): value['reason']=value['task']['status_line']
             if row['reference']: value['opening_target']=self.target(ctx,row['reference']['target'],uow)
             value['references']=[]
             for ref in row['references']:
@@ -403,6 +405,9 @@ class AttentionBoard:
             ordered.insert(index,row['id'])
             uow.connection.executemany('UPDATE focus_cards SET position=? WHERE id=?',enumerate(ordered))
             changes={}
+        if 'reason' in changes and (row['source'] or {}).get('type')=='task':
+            self.write_status_line(ctx,row['source'],changes['reason'],uow)
+            changes['reason']=''
         if changes.get('deferred_until'): changes['deferred_until']=instant(changes['deferred_until'])
         if 'references' in changes: changes['references_json']=json.dumps(changes.pop('references'))
         # Field names come only from the registered closed schemas above.
@@ -412,6 +417,24 @@ class AttentionBoard:
         current=self.row(row['id'],uow)
         if op=='focus_edit': self.capture_edit(ctx,row,current,uow)
         return {'item':self.projection(ctx,current,uow),**({'outcome':outcome} if op=='focus_present' else {})}
+
+    def write_status_line(self,ctx,source,text,uow):
+        """Write a Task card's text to the Task itself, as the caller, with the Task's own rules.
+
+        The card shows the Task's status line, so the line has one home and the card keeps no copy of it. An unchanged
+        text writes nothing."""
+        selected=self.app.current_context(replace(ctx,business_id=source['business_id'],review_business_id=source['business_id']),uow)
+        scope={'scope':'global'} if source['business_id'] is None else {}
+        namespace='business:'+source['business_id'] if source['business_id'] else 'global'
+        read,update=(self.app.registry.get(name) if source['business_id'] is None
+                     else replace(self.app.registry.get(name),global_capability=None) for name in ('tasks_get','tasks_update'))
+        self.app.authorize(selected,read,(),uow,namespace=namespace)
+        task=read.read(selected,{'task_id':source['id'],'notes_limit':0,**scope},InvocationOptions(),uow)['task']
+        if task.get('status_line','')==' '.join(text.split()): return
+        self.app.authorize(selected,update,(),uow,namespace=namespace)
+        plan=update.prepare(selected,{'task_id':source['id'],'changes':{'status_line':text},**scope},
+            InvocationOptions(expected_revision=task['revision']),uow)
+        update.apply(selected,plan,uow)
 
     def capture_edit(self,ctx,before,after,uow):
         """Queue one transaction-local inbox capture for an owner's semantic Focus edit.

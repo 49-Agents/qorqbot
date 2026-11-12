@@ -276,8 +276,8 @@ class WorkflowAttention:
         association = self.association(uow, ctx.principal_id, run_id) if run_id else None
         if op not in ('workflows.start', 'workflows.resume', 'workflows.pause', 'workflows.cancel') and association is None:
             raise DomainError('not_found', 'Workflow attention association is unavailable')
-        if op == 'workflows.resume' and association is None and ('task' not in args or 'intent' not in args):
-            raise DomainError('validation_error', 'Resuming an unassociated run requires an Attention Task and Intent')
+        if op == 'workflows.resume' and association is None and 'task' not in args:
+            raise DomainError('validation_error', 'Resuming an unassociated run requires an Attention Task')
         state = self.service.state(uow, ctx.principal_id)
         focused_task = _json(state.get('work_task_json'))
         task = args.get('task') or (_json(association['work_task_json']) if association else None) or focused_task
@@ -294,8 +294,9 @@ class WorkflowAttention:
                 raise DomainError('validation_error', 'Workflow work requires an ordinary Task')
             membership, task_created_at = selected['membership'], selected['task']['created_at']
         if op in ('workflows.start', 'workflows.resume'):
-            if not isinstance(intent, str) or not intent.strip() or len(intent.strip()) > 1000 or task is None:
-                raise DomainError('validation_error', 'Select an Attention Task and a precise Intent before starting or resuming')
+            # The Task says what is being done (its next_step); an Intent sentence is optional.
+            if not isinstance(intent, str) or len(intent.strip()) > 1000 or task is None:
+                raise DomainError('validation_error', 'Select an Attention Task before starting or resuming')
         elif op in ('workflows.pause', 'workflows.cancel') and association is not None:
             # Control after revocation never discloses a Task projection.
             membership = self.service.task_membership(uow, ctx.principal_id, task) if task else None

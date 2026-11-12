@@ -165,7 +165,7 @@ class TaskOperations:
             "tasks_assign": ({"task_id": IDENTITY, "assignee_ids": ASSIGNEES}, ("task_id", "assignee_ids")),
             "tasks_comment": ({"task_id": IDENTITY, "text": BODY, **comment}, ("task_id", "text")),
             "tasks_complete": ({"task_id": IDENTITY, "status": {"enum": list(CLOSED_STATES)}, "note": TEXT, **comment,
-                                "children": lifecycle.CHILDREN}, ("task_id",)),
+                                "children": lifecycle.CHILDREN, "result": lifecycle.RESULT}, ("task_id",)),
             "tasks_delegate": ({"task_id": IDENTITY, "worker_id": UUID, "brief": TEXT, "note_refs": refs}, ("task_id", "worker_id")),
             "tasks_config_update": ({"config": {"type": "object"}}, ("config",)),
         }
@@ -488,6 +488,9 @@ class TaskOperations:
             if status not in CLOSED_STATES:
                 raise DomainError("validation_error", "Completion requires a terminal state (done or cancelled)")
             edits["status"] = status
+            if arguments.get("result") is not None:
+                # The outcome is recorded once: it is the Task's status line.
+                edits["status_line"] = arguments["result"]
         if operation == "tasks_delegate":
             if before["status"] in CLOSED_STATES:
                 raise DomainError("validation_error", "This Task is closed; reopen it before delegating it")
@@ -606,7 +609,8 @@ class TaskOperations:
     def plan_comment(self, ctx, uow, builder, operation, arguments, identity, *, team_note=True):
         """The one discussion write of an operation: its comment, summary and typed references, with attribution."""
         plan_comment(ctx, uow, builder, ThreadItem(ctx.business_id, "task", identity),
-                     note=arguments.get({"tasks_comment": "text", "tasks_delegate": "brief"}.get(operation, "note")),
+                     note=arguments.get({"tasks_comment": "text", "tasks_delegate": "brief"}.get(operation, "note"))
+                     or (arguments.get("result") if operation == "tasks_complete" else None),
                      summary=arguments.get("summary"), refs=arguments.get("note_refs", []), relay=arguments.get("relay"),
                      resolve=lambda refs: self.note_refs(ctx, refs, uow, builder),
                      guard=(lambda: reject_owner_team_write(ctx, uow, operation)) if team_note else None,

@@ -37,6 +37,9 @@ ALLOW_DUPLICATE = {"type": "boolean",
 CHILDREN = {"enum": ["close"],
             "description": "close: every open work Task under this one is closed with it, in the same state. Without it, "
                            "an agent cannot close a Task that still has open work beneath it."}
+RESULT = {"type": "string", "minLength": 1, "maxLength": 1000,
+          "description": "The outcome in one plain sentence for the owner, at most 240 characters. It becomes the Task's "
+                         "status line and, when no note is given, the closing comment, so nothing else needs to repeat it."}
 DELEGATE = ("Hand a Task to the agent who will do it, in one write: that agent becomes the Task's recorded worker and the "
             "brief is posted on the Task as the hand-over. The worker is notified. Use this instead of a separate message "
             "plus a board entry; the Task stays yours to answer for.")
@@ -128,4 +131,4 @@ def closed_values(task, status, at) -> dict:
     return values
 
 
-__all__ = ["ALLOW_DUPLICATE", "CHILDREN", "DELEGATE", "beneath", "check", "closed_values", "stalled", "work"]
+__all__ = ["ALLOW_DUPLICATE", "CHILDREN", "DELEGATE", "RESULT", "beneath", "check", "closed_values", "stalled", "work"]

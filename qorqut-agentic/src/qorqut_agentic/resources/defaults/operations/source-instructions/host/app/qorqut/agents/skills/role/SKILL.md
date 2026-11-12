@@ -155,18 +155,16 @@ Do not repeat the blocker in both fields. Keep IDs in reference fields; put coun
 prices, evidence, history and detailed next steps in the linked task or working memory.
 Preserve the essential meaning; this is a writing target, not a reason to abbreviate
 cryptically or omit a necessary blocker. Apply it to your own work and worker assignments.
-An adopted permanent worker keeps its commitments on its own Todo board: `todo_get`
-reads it, `todo_add` and `todo_remove` change membership, and one focus with a precise Intent
-is declared through `attention_focus_set` (`attention_focus_clear` clears it). That focus is
-its current work, so an adopting worker keeps no second `agent_work_update` record and that
-operation returns an instruction to use Todo; the list rules below are for other agents.
-A Task is assigned to a worker by naming that worker as its Worker: when the owner or
-Ordubashy does so, the same write lists the Task on the worker's Todo and its event tells
-the worker. The board reminds a worker only about Tasks it must move (it is a Worker, or
-nobody is named yet); a listed Task that names someone else is waiting on them.
-Workers adopt Todo on the first Task listed on their board; an empty read does not enroll them.
-Before adoption they retain their one-item `agent_work_update` assignment. After adoption,
-use the same Task reference for `focus` and `task`; only the worker declares its own focus.
+A permanent worker's commitments are the open Tasks that name it as Worker, and its Todo
+board (`todo_get`) shows exactly those. A Task is assigned by naming that worker as its Worker
+(`tasks_delegate` does it with a brief): the same write lists the Task on the worker's Todo and its
+event tells the worker. It leaves the board when it is done, cancelled or given to someone else, so
+nothing is added or removed by hand. One focus points at the Task being worked on through
+`attention_focus_set` (`attention_focus_clear` clears it), using the same Task reference for
+`focus` and `task`; focusing an open Task marks it working, and only the worker declares its own
+focus. What happens next is the Task's `next_step`; no separate Intent is written. That focus is its
+current work, so it keeps no second `agent_work_update` record; the list rules below are for other
+agents. Before its first Task a worker retains its one-item `agent_work_update` assignment.
 Agents other than Ordubashy and adopted workers keep a session current-work list with `agent_work_update`. Read
 `agents_activity_list(session_id=your_native_session_id)` in the intended scope for
 `work_revision` and parallel `item_keys`; use the native UUID from bootstrap.
@@ -212,29 +210,27 @@ batch.
 
 ## Todo list and current work (Ordubashy)
 
-Ordubashy keeps owner and agent commitments on Todo, not in the session current-work
-list above. He keeps no second session list: Todo membership, the precise focus with
-Intent, and the actual Task and thread state are his bookkeeping. Before executing or delegating a new commitment,
-make sure its work item is on Todo: add the existing authorized Task with `todo_add`, or
-create the appropriate Task or subtask first. Routine filing and comments on existing records
-need no extra Task. Project work stays in its owning project. Board and Task changes reach you through the existing inbox, so
-add no second subscription. Read the board with `todo_get`. Never discard blocked
-or Needs your input work.
-Remove unfinished work only to release a commitment you no longer pursue, and remove Done work
-only when the owner removed it or instructed you to (`owner_requested: true`, with the owner's
-instruction recorded as the rationale). Removal releases the related focus; it never completes
-or deletes the Task or cancels another worker. Clearing current-work items, reaching an Intent
-or tidying the board never removes Done membership or completes the Task.
+Ordubashy's and the workers' commitments are open Tasks, and Todo is computed from them, not
+kept in the session current-work list above. A Task is on an agent's Todo while that agent is
+its recorded worker and the Task is open; a Task leaves every board in the write that closes it
+and returns if it is reopened, so nothing is added or removed by hand to keep a board right.
+Read the board with `todo_get`: Ordubashy's read also lists the open work other agents hold and
+the open work with no worker. The Task's own fields are the only record of where it stands:
+state, worker, `next_step` (who does what next) and `status_line` (one plain sentence for the
+owner). Before executing or delegating a new commitment, make sure its Task exists and has a
+worker; routine filing and comments on existing records need no extra Task. Project work stays
+in its owning project. Task changes reach you through the existing inbox, so add no second
+subscription. `todo_add` records the board's agent as the Task's worker and `todo_remove` takes
+it off the Task; neither completes or deletes the Task.
 
-Current work is the precise focus plus atomic Intent, without a word limit: keep both current
-with `attention_focus_set`, choosing the most precise useful operational item (Task, Story,
-Project, email, customer or workflow) and the immediate outcome you aim to achieve now.
-Focusing a Story, Project, email, customer or workflow still points at the exact work Task
-already on the board; the broader item never replaces it.
-Intent-only edits and ordinary tool use do not restart the focus reminder, and reaching an
-Intent completes neither the Task nor its membership. Release or change the focus with
-`attention_focus_set` or `attention_focus_clear` when the work ends or you switch, and
-reconcile the deferred inbox and the board first when you become Unfocused.
+Current work is the focus: point it at the exact work Task with `attention_focus_set`
+(a Story, Project, email, customer or workflow focus still names that Task), which marks an
+open Task working. Write no Intent sentence; keep the Task's `next_step` current instead.
+Release or change the focus with `attention_focus_set` or `attention_focus_clear` when the work
+ends or you switch, and reconcile the deferred inbox and the board first when you become
+Unfocused. Parking a Task as waiting or blocked needs the time to come back to it
+(`snoozed_until` or `due`) or the Task it waits on (`blocked_by`). Close with
+`tasks_complete(result=...)`; the details are in the role workflow.
 
 The Worker set names who contributes next; read eligible candidates with `workers_list`, and
 including the owner marks User needed. User needed comes only from Workers and sets no task

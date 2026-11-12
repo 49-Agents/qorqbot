@@ -127,9 +127,10 @@ function attentionAgentsPaint(p) {
     row.querySelector('.attention-agent-focus').textContent=!data ? (error ? 'Focus unavailable' : 'Loading focus…')
       : focus?.unavailable ? 'Focus unavailable' : focused ? (focus.label || attention.task?.label || 'Focused') : 'No focus set';
     const intent=row.querySelector('.attention-agent-intent');
-    intent.textContent=focused ? attention.intent || 'No intent recorded' : '';
-    intent.hidden=!focused;
-    row.setAttribute('aria-label',name+': '+row.querySelector('.attention-agent-focus').textContent+(focused ? '. '+intent.textContent : ''));
+    // What the agent is doing is the focused Task's next step; an older recorded intent is shown when the Task has none.
+    intent.textContent=focused ? attention.next_step || attention.intent || '' : '';
+    intent.hidden=!intent.textContent;
+    row.setAttribute('aria-label',name+': '+row.querySelector('.attention-agent-focus').textContent+(intent.textContent ? '. '+intent.textContent : ''));
     if (error) { const stale=document.createElement('span');stale.className='attention-agent-stale';stale.textContent='Couldn’t refresh';row.querySelector('.attention-agent-copy').append(stale); }
     row.onclick=()=>{void attentionBoardSelectAgent(p,agent.agent_id);};
     host.append(row);

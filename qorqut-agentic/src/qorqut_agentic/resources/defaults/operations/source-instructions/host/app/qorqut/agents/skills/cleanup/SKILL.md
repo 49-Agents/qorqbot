@@ -59,7 +59,7 @@ what remains, and how to continue from verified cursors or unresolved IDs.
    work. Respect owner intent, holds and deferrals through documented fields;
    do not invent a pin field. Archiving is not deletion or source completion. If
    Focus access is unavailable, skip this section and report the coverage limit.
-6. Ordubashy reconciles Todo and its item threads; do not create or clear a second session work list. Keep Done and blocked entries until the owner requests removal. The remaining session-list procedure is for other agents only. Read `agents_activity_list(session_id=your_native_session_id)` in the
+6. Ordubashy reconciles Todo and its item threads; do not create or clear a second session work list. A closed Task leaves Todo by itself; never take blocked work off a board as cleanup. The remaining session-list procedure is for other agents only. Read `agents_activity_list(session_id=your_native_session_id)` in the
    intended authorized scope for `work_revision` and parallel `item_keys`.
    Remove resolved items using `agent_work_update(patch=[{action:"remove",
    item_key:...}], expected_work_revision=...)`; preserve unrelated and unreadable

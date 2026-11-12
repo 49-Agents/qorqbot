@@ -294,15 +294,18 @@ class ClosureTests(Fixture):
 
     def test_only_a_move_into_a_closed_state_cleans_up(self):
         calls = []
-        closure = TaskClosure(NS(release_task=lambda *a: calls.append('todo') or 2),
+        closure = TaskClosure(NS(follow_task=lambda *a: calls.append('todo') or {'added': 0, 'removed': 2}, clock=lambda: NOW),
                               NS(release_task=lambda *a: calls.append('focus') or True),
                               NS(release_task=lambda *a: calls.append('reminders') or 1))
-        ctx = NS(principal_id=self.worker)
-        self.assertEqual(closure(ctx, None, *self.state('done')), {'todo_entries': 2, 'focus_card': True, 'reminders': 1})
+        ctx = NS(principal_id=self.owner, principal_kind='human')
+        self.assertEqual(closure(ctx, None, *self.state('done')),
+                         {'todo': {'added': 0, 'removed': 2}, 'acknowledged': 0, 'focus_card': True, 'reminders': 1})
         self.assertEqual(calls, ['todo', 'focus', 'reminders'])
+        # Every write lets the boards follow the Task; only closing it touches Focus and reminders.
         for before, after in (('working', 'waiting'), ('done', 'cancelled'), ('open', 'working')):
-            self.assertIsNone(closure(ctx, None, *self.state(after, before)))
-        self.assertEqual(len(calls), 3)
+            self.assertEqual(closure(ctx, None, *self.state(after, before)),
+                             {'todo': {'added': 0, 'removed': 2}, 'acknowledged': 0})
+        self.assertEqual(calls, ['todo', 'focus', 'reminders', 'todo', 'todo', 'todo'])
 
     def test_the_task_leaves_every_todo_board_and_a_focus_on_it_is_cleared(self):
         attention = object.__new__(Attention)
@@ -315,8 +318,9 @@ class ClosureTests(Fixture):
                 for task in ('task', 'other'):
                     uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_business_id,task_id,task_created_at,'
                                            'created_at) VALUES(?,?,NULL,?,?,?)', (f'{agent}-{task}', agent, task, STAMP, STAMP))
-            self.assertEqual(attention.release_task(uow, None, 'task', STAMP, self.worker), 2)
-            self.assertEqual(attention.release_task(uow, None, 'task', STAMP, self.worker), 0)
+            before, after = self.state('done')
+            self.assertEqual(attention.follow_task(uow, before, after, self.worker), {'added': 0, 'removed': 2})
+            self.assertEqual(attention.follow_task(uow, before, after, self.worker), {'added': 0, 'removed': 0})
             left = uow.connection.execute('SELECT task_id FROM attention_memberships ORDER BY id').fetchall()
             self.assertEqual({row[0] for row in left}, {'other'})
             self.assertEqual(len(left), 2)

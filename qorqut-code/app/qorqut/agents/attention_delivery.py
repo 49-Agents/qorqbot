@@ -139,7 +139,7 @@ class AttentionRuntime:
         work_ref = state.get('work_task_json')
         snapshot = {'focus': {key: focus.get(key) for key in ('type', 'id', 'business_id')} if focus else None,
                     'focused_for': _age(state.get('focus_started_at'), self._now()) if focus else None,
-                    'work': None, 'intent': None, 'candidates': None, 'more': False}
+                    'work': None, 'intent': None, 'next_step': None, 'candidates': None, 'more': False}
         try:
             ctx = self.runtime.application.policy.context_for(agent_id, business_id=None, review_business_id=None, uow=uow)
         except DomainError:
@@ -163,6 +163,8 @@ class AttentionRuntime:
             if task is not None:
                 snapshot['work'] = prompt.describe(work_ref, task, project_workers(uow, task))
                 snapshot['intent'] = state.get('intent')
+                # What the agent is doing is the focused Task's own next step.
+                snapshot['next_step'] = attributes(task).get('next_step') or None
         candidates = []
         for row in uow.connection.execute('SELECT * FROM attention_memberships WHERE agent_id=? ORDER BY created_at,id', (agent_id,)):
             ref = {'type': 'task', 'id': row['task_id'], 'business_id': row['task_business_id']}

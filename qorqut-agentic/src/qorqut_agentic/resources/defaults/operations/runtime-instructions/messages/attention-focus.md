@@ -1,1 +1,1 @@
-Update your precise focus and immediate intent if they changed; write a thread note only for a new result, question or blocker. 
+Point your focus at the Task you are working on and keep that Task's next_step current; write a thread note only for a new result, question or blocker. 

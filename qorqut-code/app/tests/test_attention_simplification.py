@@ -329,7 +329,8 @@ class TodoReceiptTests(unittest.TestCase):
         self.attention.context = lambda ctx, args, uow: (ctx, 'board')
         self.attention.alias_authorize = Mock()
         self.attention.read = Mock(side_effect=AssertionError('full board read inside mutation'))
-        self.task = {'created_at': EARLIER, 'revision': 3, 'worker_ids': [], 'archived': False}
+        # The board's agent is already the Task's recorded worker, so adding writes the entry and nothing on the Task.
+        self.task = {'created_at': EARLIER, 'revision': 3, 'worker_ids': ['board'], 'archived': False}
         self.attention.board_task = Mock(return_value=self.task)
         self.ref = {'type': 'task', 'id': 'selected', 'business_id': None}
         self.addCleanup(patch.stopall)
@@ -371,6 +372,7 @@ class TodoReceiptTests(unittest.TestCase):
         result = self.apply()
         self.assertNotIn('agent_hint', result)
         instructions.render.assert_not_called()
+        self.task['worker_ids'] = []
         hint = self.attention.mutation_hint(self.ctx, {'task': self.ref}, 'todo_add')
         self.assertIn('attention-board-transition', hint)
         self.assertIn('attention-next-actor', hint)
