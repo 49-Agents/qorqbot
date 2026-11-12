@@ -13,3 +13,18 @@ entries:
     description: Short management reminder and catalog pointer for agent bootstrap.
     when_to_use: Always in the bootstrap of an agent authorized by the host to manage the layer.
     path: bootstrap.md
+  - id: onboarding-about-you
+    kind: instruction
+    description: Ask the owner for basic facts about themselves and save them to the personal context node.
+    when_to_use: During the about-you step of the get-set-up workflow.
+    path: instructions/onboarding-about-you.md
+  - id: onboarding-connect-tools
+    kind: instruction
+    description: Connect the websites and services the owner wants agents to use, and confirm each one works.
+    when_to_use: During the connect-tools step of the get-set-up workflow.
+    path: instructions/onboarding-connect-tools.md
+  - id: get-set-up
+    kind: workflow
+    description: Ordubashy learns the basics about the owner and connects their tools in one short conversation.
+    when_to_use: Ordubashy only. When the owner accepts the offer to get set up on a new installation, or asks to set up or redo it later. Starting it needs a Task for this work on your board and a one-line intent.
+    path: workflows/get-set-up.yaml

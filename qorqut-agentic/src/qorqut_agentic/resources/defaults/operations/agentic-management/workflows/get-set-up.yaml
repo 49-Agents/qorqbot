@@ -1,0 +1,17 @@
+schema_version: 1
+id: get-set-up
+description: One short conversation in which Ordubashy records basic facts about the owner and connects the tools the owner wants agents to use. The two parts are independent, so the owner may do either first.
+arguments: []
+steps:
+  - id: about-you
+    instruction_ref: agentic-management/onboarding-about-you
+  - id: connect-tools
+    instruction_ref: agentic-management/onboarding-connect-tools
+  - id: wrap-up
+    instructions: >-
+      Tell the owner in a few lines what you now know about them, which tools are connected and what is
+      still open, and where to see each (the personal context node in Context, the agent browser card in
+      Settings). Report only what the two earlier steps actually saved or confirmed. Ask what they would
+      like to start with. Complete this step with an open_items output listing what is still open (an
+      empty list when nothing is), then complete the Task behind this run.
+    depends_on: [about-you, connect-tools]
