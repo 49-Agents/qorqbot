@@ -292,13 +292,11 @@
 .side-chat-create{display:flex;flex-direction:column;gap:12px}
 .side-chat-create textarea{resize:vertical;min-height:100px}
 .side-chat-create > button{align-self:flex-end}
-.overlay:has(> .side-chat-modal){padding:24px 20px;align-items:center}
-.side-chat-modal{display:flex;flex-direction:column;height:min(680px,calc(100dvh - 48px))}
-.side-chat-modal .mhead{flex:none}
-.side-chat-modal .mbody{display:flex;flex-direction:column;flex:1;min-height:0;max-height:none;overflow:hidden}
 .side-chat-thread{display:flex;flex-direction:column;flex:1;min-height:0}
 .side-chat-thread > .conversation-toggle{display:none}
 .side-chat-thread .conversation-panel:not([hidden]){display:flex;flex-direction:column;flex:1;min-height:0}
 .side-chat-thread .conversation-view{height:auto;flex:1;min-height:0}
 .side-chat-thread .conversation-inline-compose{flex:none}
 .side-chat-footer{display:flex;align-items:center;justify-content:flex-end;flex:none;gap:12px;margin-top:12px}
+
+.agfocus-expansion-content:has(> .side-chat-thread){overflow:hidden}

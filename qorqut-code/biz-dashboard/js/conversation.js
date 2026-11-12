@@ -575,6 +575,8 @@ function conversationMount(host,source,adapter={}) {
     refresh:(options={})=>{if(expanded){for(const view of signoffViews)void view.refresh();}return load(false,options);},
     isExpanded:()=>expanded,expand:()=>expand(true),collapse:()=>expand(false),
     setUnread,
+    // Message drafts are retained by source; embedded question edits belong to their mounted reader.
+    canLeave:()=>!s.sending && ![...signoffViews].some(card=>card.hasUnsaved() || card.hasPendingWrite()),
     hasDraft:()=>!!(s.text || s.files.length) || [...signoffViews].some(card=>card.hasUnsaved() || card.hasPendingWrite()),
     dispose:()=>{
       if(disposed)return;

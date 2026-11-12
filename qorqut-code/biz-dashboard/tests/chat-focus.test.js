@@ -111,20 +111,27 @@ browserTest('bottom pane follows the chat agent and sits between the feed and co
   } finally {await browser.close();}
 });
 
-browserTest('missing or unavailable focus is explicit and an error never retains an old intent',async()=>{
+browserTest('refresh failures retain recorded focus and a successful clear removes it',async()=>{
   const {browser,page,errors}=await fixture();
   try {
+    await page.evaluate(()=>{override=async()=>{throw Error('Offline');};});
+    await page.clock.fastForward(12000);
+    assert.equal(await page.locator('.gchat-focus-label').textContent(),'Coordinate launch');
+    await page.evaluate(()=>{override=null;attentions.ord={state:'focused',focus:{unavailable:true}};});
+    await page.clock.fastForward(12000);
+    assert.equal(await page.locator('.gchat-focus-label').textContent(),'Coordinate launch');
     await page.evaluate(()=>{attentions.ord={state:'unfocused',focus:null,intent:''};});
-    await page.clock.runFor(12000);
+    await page.clock.fastForward(12000);
     await page.waitForFunction(()=>document.querySelector('.gchat-focus-label').textContent==='No focus set');
     assert.equal(await page.locator('.gchat-focus-intent').count(),0);
     await page.evaluate(()=>{attentions.ord={state:'focused',focus:{unavailable:true},intent:'Must not be shown'};});
-    await page.clock.runFor(12000);
-    await page.waitForFunction(()=>document.querySelector('.gchat-focus-label').textContent==='Focus unavailable');
+    await page.clock.fastForward(12000);
+    await page.waitForFunction(()=>document.querySelector('.gchat-focus-label').textContent==='No focus set');
     assert.equal(await page.locator('.gchat-focus-intent').count(),0);
     await page.evaluate(()=>{override=async()=>{throw Object.assign(Error('Denied'),{code:'forbidden'});};});
-    await page.clock.runFor(12000);
+    await page.clock.fastForward(12000);
     assert.equal(await page.locator('.gchat-focus-intent').count(),0);
+    await page.waitForFunction(()=>document.querySelector('.gchat-focus-label').textContent==='Focus unavailable');
     assert.equal(await page.locator('.gchat-action-text,[data-chat-context]').count(),0);
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
