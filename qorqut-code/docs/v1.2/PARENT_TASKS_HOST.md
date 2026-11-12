@@ -21,6 +21,13 @@ kind, table, alias, redirect or compatibility route.
   `todo_remove` record or clear the worker. A Task's Focus card shows the Task's `status_line`, and a `reason` given
   for a Task card is written to that line. `records_health` lists what still disagrees and what
   `records_reconcile` would repair; `records_reconcile` (owner or coordinator, once after an upgrade) applies it.
+* A thread message is for the owner or it is a working note (`qorqut_operations/discussion/threads.py`). The audience
+  is derived from what is stored, with no extra column: the owner's own messages, owner relays, the closing note of
+  `tasks_complete`, an agent's first note after the owner's own message, and notes an agent posts with
+  `for_owner: true` (at most 600 characters, no record identifiers; the marker is kept in the message's
+  attribution). Everything else, system entries included, is a working note. `tasks_get`, `tasks_thread_get` and
+  `tasks_notes_list` take `audience: "owner"` and report how many notes were left out; the dashboard thread asks
+  for the owner's part by default and offers "Show all". Agents read everything by default.
 * Group text is the Task's own fields and its thread. `tasks_get` returns `parent_id`, `parent {id,title,status}` and
   `children`.
 

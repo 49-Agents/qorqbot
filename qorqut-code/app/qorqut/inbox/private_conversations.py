@@ -153,7 +153,8 @@ class PrivateConversations:
             description=instruction_text('private-conversations-list-readable-owner-ordubashy-threads-by-their')))
         registry.register(OperationDescriptor('owner_conversation_related', schema({**FIELDS,
             'offset': {'type': 'integer', 'minimum': 0},
-            'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}}, ('source',)),
+            'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100},
+            'notes_audience': {'enum': ['owner', 'all']}}, ('source',)),
             **common, owner_only=True, exposure=frozenset({'dashboard', 'worker'}), effect_kind='read',
             read=lambda c, a, o, u: related(self, c, a, u),
             description=instruction_text('private-conversations-read-related-records-for-visual-thread-context')))

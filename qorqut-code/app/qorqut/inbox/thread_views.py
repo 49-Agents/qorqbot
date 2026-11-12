@@ -40,7 +40,7 @@ def project(service, ctx, source, uow):
     return result
 
 
-def task_context(service, ctx, source, uow):
+def task_context(service, ctx, source, uow, audience=None):
     """What an opened Task/Story conversation shows first: the current overview and the newest progress notes.
 
     The one canonical ``tasks_get`` read in the source's own scope (the caller's read policy for it was already checked by
@@ -48,13 +48,16 @@ def task_context(service, ctx, source, uow):
     business = source['business_id']
     selected = service.select(ctx, business, uow)
     task = service.app.registry.get('tasks_get').read(
-        selected, {'task_id': source['id'], 'notes_limit': CONTEXT_NOTES, **({'scope': 'global'} if business is None else {})},
+        selected, {'task_id': source['id'], 'notes_limit': CONTEXT_NOTES, **({'audience': audience} if audience else {}),
+                   **({'scope': 'global'} if business is None else {})},
         InvocationOptions(), uow)['task']
     project = uow.repository('businesses').get(business) if business else None
     return {'title': task['title'], 'task_type': task['task_type'], 'status': task['status'], 'overview': task['overview'],
             'revision': task['revision'], 'business_slug': project['slug'] if project else None,
             **{key: task[key] for key in ('input_requests', 'input_needed', 'input_version', 'input_request_missing', 'work_status')},
-            'notes': task['notes'], 'notes_next_cursor': task['notes_next_cursor']}
+            'notes': task['notes'], 'notes_next_cursor': task['notes_next_cursor'],
+            # With ``notes_audience: owner`` the notes are what is for the owner; this is how many working notes were left out.
+            **({'notes_hidden': task['notes_hidden']} if 'notes_hidden' in task else {})}
 
 
 def directory(service, ctx, args, uow):
@@ -146,5 +149,5 @@ def related(service, ctx, args, uow):
     result = {'items': items, 'next_offset': args.get('offset', 0) + limit if len(rows) > limit else None,
               'input_requests': inputs}
     if kind == 'task' and not args.get('offset', 0):
-        result['context'] = task_context(service, ctx, source, uow)
+        result['context'] = task_context(service, ctx, source, uow, args.get('notes_audience'))
     return result

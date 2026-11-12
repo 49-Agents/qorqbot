@@ -24,7 +24,8 @@ from qorqut_operations.business_lifecycle import active_business_ids
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.conversations import SUMMARY, participants
 from qorqut_operations.discussion.follows import ThreadItem, auto_follow, can_follow, follow_state
-from qorqut_operations.discussion.threads import BODY, RELAY, DiscussionReferences, message_count, plan_comment, read_messages
+from qorqut_operations.discussion.threads import (AUDIENCE, BODY, FOR_OWNER, RELAY, DiscussionReferences, message_count, plan_comment,
+                                                  read_messages)
 from qorqut_operations.global_agents import global_agent_ids, is_global_agent
 from qorqut_operations.items import ItemResolver
 from qorqut_operations.relationships import create_edge, related_rows
@@ -149,15 +150,17 @@ class TaskOperations:
             "tasks_get": {"task_id": IDENTITY, "related_cursor": PAGE["cursor"],
                           "notes_limit": {"type": "integer", "minimum": 0, "maximum": 10, "default": 7,
                                           "description": instruction_text('operations-comments-per-page-newest-first-0-omits-them')},
-                          "notes_cursor": PAGE["cursor"]}, "tasks_thread_get": {**PAGE, "task_id": IDENTITY},
-            "tasks_notes_list": {**PAGE, "task_id": IDENTITY}, "tasks_config_get": {}, "assignees_list": {}, "workers_list": {},
+                          "notes_cursor": PAGE["cursor"], "audience": AUDIENCE},
+            "tasks_thread_get": {**PAGE, "task_id": IDENTITY, "audience": AUDIENCE},
+            "tasks_notes_list": {**PAGE, "task_id": IDENTITY, "audience": AUDIENCE},
+            "tasks_config_get": {}, "assignees_list": {}, "workers_list": {},
         }
         descriptors = [self.overview.descriptor(), self.associated.descriptor()]
         for name, properties in reads.items():
             descriptors.append(OperationDescriptor(
                 name, schema({**SCOPE, **properties}, ("task_id",) if name in {"tasks_get", "tasks_notes_list", "tasks_thread_get"} else ()),
                 **common, effect_kind="read", supports_signoff=False, read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
-        comment = {"note_refs": refs, "summary": SUMMARY, "relay": RELAY}
+        comment = {"note_refs": refs, "summary": SUMMARY, "relay": RELAY, "for_owner": FOR_OWNER}
         mutations = {
             "tasks_create": ({"focus": schema(self.ports.focus.schema), **TASK_FIELDS, "id": IDENTITY, "note": TEXT, **comment,
                               "allow_duplicate": lifecycle.ALLOW_DUPLICATE}, ("title",)),
@@ -335,8 +338,11 @@ class TaskOperations:
             # Newest comments first; notes_next_cursor continues into older ones.
             cursor = {"cursor": notes_page["notes_cursor"]} if notes_page.get("notes_cursor") else {}
             history = read_messages(uow, item, {"limit": limit, **cursor}, "tasks_get", ctx.principal_id,
-                                    resolve_refs=self.message_refs(ctx, uow), kinds=("comment",))
+                                    resolve_refs=self.message_refs(ctx, uow), kinds=("comment",),
+                                    audience=notes_page.get("audience"))
             view["notes"], view["notes_next_cursor"] = history["messages"][::-1], history["next_cursor"]
+            if "hidden" in history:
+                view["notes_hidden"] = history["hidden"]
         return public_task(self.project_input(ctx, [view], uow)[0] if 'input_version' not in view else view)
 
     def project_input(self, ctx, tasks, uow):
@@ -365,13 +371,15 @@ class TaskOperations:
             item = ThreadItem(ctx.business_id, "task", arguments["task_id"])
             if operation == "tasks_notes_list":
                 history = read_messages(uow, item, arguments, operation, ctx.principal_id, resolve_refs=self.message_refs(ctx, uow),
-                                        kinds=("comment",))
-                return {"thread_id": history["thread_id"], "notes": history["messages"], "next_cursor": history["next_cursor"]}
-            history = read_messages(uow, item, arguments, operation, ctx.principal_id, resolve_refs=self.message_refs(ctx, uow))
+                                        kinds=("comment",), audience=arguments.get("audience"))
+                return {"thread_id": history["thread_id"], "notes": history["messages"], "next_cursor": history["next_cursor"],
+                        **({"hidden": history["hidden"]} if "hidden" in history else {})}
+            history = read_messages(uow, item, arguments, operation, ctx.principal_id, resolve_refs=self.message_refs(ctx, uow),
+                                    audience=arguments.get("audience"))
             task = self.require(ctx, uow, arguments["task_id"])
             people = {task["created_by"], *(note["created_by"] for note in history["messages"]), *events.assigned(uow, ctx.business_id, task["id"])}
             return {"thread_id": history["thread_id"], "participants": participants(uow, people), "notes": history["messages"],
-                    "next_cursor": history["next_cursor"]}
+                    "next_cursor": history["next_cursor"], **({"hidden": history["hidden"]} if "hidden" in history else {})}
         if operation == "tasks_get":
             task = self.require(ctx, uow, arguments["task_id"])
             detail = self.detail(ctx, task, uow, configuration["fields"], now, notes_page=arguments)
@@ -614,7 +622,10 @@ class TaskOperations:
                      summary=arguments.get("summary"), refs=arguments.get("note_refs", []), relay=arguments.get("relay"),
                      resolve=lambda refs: self.note_refs(ctx, refs, uow, builder),
                      guard=(lambda: reject_owner_team_write(ctx, uow, operation)) if team_note else None,
-                     operation_name="tasks_comment" if operation != "tasks_comment" else None)
+                     operation_name="tasks_comment" if operation != "tasks_comment" else None,
+                     # A delegation brief is for the worker. What closes the work is its outcome, which the owner reads.
+                     for_owner=False if operation == "tasks_delegate" else arguments.get("for_owner"),
+                     outcome=operation == "tasks_complete")
 
     def validate_prepared(self, ctx, plan, uow):
         ctx = task_context(ctx, plan.arguments, uow)

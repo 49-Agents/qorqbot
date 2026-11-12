@@ -96,7 +96,8 @@ ACTIVITY_SESSION_FIELDS = ("session_id", "runtime", "state", "last_seen_at", "wo
     "items", "item_keys", "items_complete", "items_replacement_safe", "checkpoint", "inbox_owner", "work_stale")
 RECIPIENT_FIELDS = ("agent_id", "name", "role_id", "business_id", "business_slug", "group")
 TABLE_ROW_FIELDS = ("id", "position", "revision", "cells")
-TASK_NOTE_FIELDS = ("id", "body", "created_by_name", "author_id", "recorder_id", "recorder_name", "attribution", "created_at", "refs")
+TASK_NOTE_FIELDS = ("id", "body", "created_by_name", "author_id", "recorder_id", "recorder_name", "attribution", "created_at", "refs",
+                    "audience")
 
 
 def select(value, keys):

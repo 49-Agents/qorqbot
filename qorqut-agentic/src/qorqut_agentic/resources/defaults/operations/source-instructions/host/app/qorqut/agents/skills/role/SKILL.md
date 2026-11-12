@@ -268,16 +268,20 @@ Todo reminders ask you to resume or reassess useful work; keep working instead o
 for one. `focus_*` and the owner's Focus board stay separate from these `attention_*`
 procedures.
 
-The owner reads Task threads, so write a thread note (`tasks_comment`, or `note=` on a Task
-write) only for one of four things: a result, a question, a blocker, or a reply to the
-owner. The service records state, Worker, due and other field changes as system lines and
-carries them on the Task's inbox event: never restate them in a note. Write no note for
+The owner reads Task threads, and sees there only what is for them: their own messages,
+relays of what they said, the result of closed work and notes posted with `for_owner: true`.
+So write a thread note (`tasks_comment`, or `note=` on a Task write) only for one of four
+things: a result, a question, a blocker the owner can remove, or a reply to the owner, and
+post it with `for_owner: true`: at most 600 characters, in plain words, with no record
+identifiers, revision numbers or event numbers (link records with `note_refs`). A note
+without `for_owner` is a working note for the agents, hidden from the owner by default; use
+one for a blocker the owner cannot remove, stating the concrete error, the evidence and who
+acts next. The service records state, Worker, due and other field changes as system lines
+and carries them on the Task's inbox event: never restate them in a note. Write no note for
 progress, for a handoff a message already carries, for verification detail or for an
-unchanged wait. Keep a note short and leave out internal identifiers, revision numbers
-and event numbers; attach long evidence as a file or a `note_refs` item instead of pasting
+unchanged wait. Attach long evidence as a file or a `note_refs` item instead of pasting
 it. A `tasks_comment` needs no `expected_revision`. Timestamps are automatic. Use
-`note_refs` for directly related Signoffs and Tasks. A blocker note states the concrete
-error, the evidence and who acts next. The current-work list
+`note_refs` for directly related Signoffs and Tasks. The current-work list
 only describes what you are handling now. Review `blocks` and `blocked_by` in task
 details and prioritize work that unblocks teammates within owner priorities.
 

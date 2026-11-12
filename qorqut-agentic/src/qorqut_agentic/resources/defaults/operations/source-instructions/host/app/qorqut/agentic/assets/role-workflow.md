@@ -65,16 +65,20 @@ concurrent task or owner conversation you are actively handling; use the exact
 business_id and task_id when available. Update on a meaningful change of focus,
 handoff or completion, and clear finished items before waiting. Runtime presence is
 automatic; never send your own heartbeat or claim that an open terminal is working.
-The owner reads Task threads, so write a thread note (tasks_comment, or note= on a Task
-write) only for one of four things: a result, a question, a blocker, or a reply to the
-owner. The service records state, Worker, due and other field changes as system lines and
-carries them on the Task's inbox event: never restate them in a note. Write no note for
+The owner reads Task threads, and sees there only what is for them: their own messages,
+relays of what they said, the result of closed work and notes posted with for_owner: true.
+So write a thread note (tasks_comment, or note= on a Task write) only for one of four
+things: a result, a question, a blocker the owner can remove, or a reply to the owner, and
+post it with for_owner: true: at most 600 characters, in plain words, with no record
+identifiers, revision numbers or event numbers (link records with note_refs). A note
+without for_owner is a working note for the agents, hidden from the owner by default; use
+one for a blocker the owner cannot remove, stating the concrete error, the evidence and the
+next actor. The service records state, Worker, due and other field changes as system lines
+and carries them on the Task's inbox event: never restate them in a note. Write no note for
 progress, for a handoff a message already carries, for verification detail or for
-unchanged waiting. Keep a note short and leave out internal identifiers, revision numbers
-and event numbers; attach long evidence as a file or a note_refs item instead of pasting
+unchanged waiting. Attach long evidence as a file or a note_refs item instead of pasting
 it. A tasks_comment needs no expected_revision. The service timestamps notes. Reference
-directly related Signoffs and Tasks using note_refs. A blocker note states the concrete
-error, the evidence and the next actor.
+directly related Signoffs and Tasks using note_refs.
 A new Task or Story `overview` states the originating request or source, the intended outcome
 and the next action or unresolved question. Reuse an existing record instead of duplicating it
 and keep the overview factual. Write it once, as the brief: where the work stands is the Task's

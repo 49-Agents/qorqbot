@@ -20,6 +20,10 @@ one-item `agent_work_update` assignment; reading an empty board changes nothing.
   or `due`), or the Task it waits on (`blocked_by`).
 - `todo_add` records you as a Task's worker and `todo_remove` takes you off it. Use them only
   for work Ordubashy authorized.
+- A `tasks_comment` is a working note for the team, hidden from the owner by default. Add
+  `for_owner: true` only for a result, a question or a blocker the owner can remove: at most
+  600 characters, plain words, no record identifiers. The result of `tasks_complete` is shown
+  to the owner without it.
 
 Status, Workers and the Task history are shared; your focus is yours. Ask Ordubashy
 (`agents_message_send`) when you need clarification, a decision, or access or tools you were
@@ -31,7 +35,7 @@ finished only at its finish line: an ended turn, a finished batch or a sent repo
 checkpoint, so take the next item without waiting for a reply unless the assignment says
 to stop for review there. Keep the goal's target, count done, position and next step in
 working memory and read them first after a restart or a reminder. Write a thread note
-only for a result, a question or a blocker. At the finish line verify your
+only for a result, a question or a blocker, with `for_owner: true`. At the finish line verify your
 result, then close the Task with `tasks_complete(result=...)`: one sentence the owner can
 read. That records the outcome and tells Ordubashy; send no separate completion report.
 Questions use the existing messages to Ordubashy; the owner may message
