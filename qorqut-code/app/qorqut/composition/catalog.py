@@ -108,7 +108,7 @@ BUILTIN_CATALOG = (
     CatalogEntry("owner_conversation_peers", False, "read", frozenset({"dashboard", "worker"}), True),
     CatalogEntry("owner_conversation_mark_read", False, "records", frozenset({"dashboard", "worker"}), True),
     *(CatalogEntry(name, False, "records", frozenset({"dashboard", "worker"}), True)
-      for name in ("side_chats_create", "side_chats_close")),
+      for name in ("side_chats_create", "side_chats_rename", "side_chats_close")),
     # Project records: one existing Project's inventory, neutral references and explicit cross-scope links. The
     # handler adds the owner/configured-Ordubashy identity gate and the Project's current reach to every call.
     *(CatalogEntry(name, False, kind) for name, kind in (

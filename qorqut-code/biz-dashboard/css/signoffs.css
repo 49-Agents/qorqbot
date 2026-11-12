@@ -292,6 +292,12 @@
 .side-chat-create{display:flex;flex-direction:column;gap:12px}
 .side-chat-create textarea{resize:vertical;min-height:100px}
 .side-chat-create > button{align-self:flex-end}
+.agfocus-surface-title.side-chat-title{flex:1;overflow:visible;white-space:normal}
+.agfocus .side-chat-title-button{display:block;max-width:100%;min-height:0;padding:4px 6px;margin-left:-6px;border:0;border-radius:var(--r-sm);background:none;color:inherit;font:inherit;letter-spacing:inherit;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:text}
+.agfocus .side-chat-title-button:hover{background:var(--hover)}
+.side-chat-title-button:focus-visible{outline:2px solid var(--fg-2);outline-offset:2px}
+.side-chat-title .inp{width:100%;min-width:0;font:inherit;letter-spacing:inherit}
+.side-chat-title-error{flex:none;margin:0 0 10px;font-size:12px}
 .side-chat-thread{display:flex;flex-direction:column;flex:1;min-height:0}
 .side-chat-thread > .conversation-toggle{display:none}
 .side-chat-thread .conversation-panel:not([hidden]){display:flex;flex-direction:column;flex:1;min-height:0}

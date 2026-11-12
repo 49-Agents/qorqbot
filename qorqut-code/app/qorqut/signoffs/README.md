@@ -18,7 +18,10 @@ uses the shared application engine and storage receipts; domain handlers never i
 
 Side chats use category `side_chat` and retain `source.type=signoff`, so their private conversations, inbox deliveries
 and nudges follow the existing path. `side_chats_create` atomically creates the shell and first private message; a title
-is optional. Only the installation owner may use `side_chats_close`. Internally, `pending` means open and `cancelled`
+is optional. Clicking a side chat's name in Focus opens its inline editor; Enter or leaving the field saves, and Escape
+cancels. Only the installation owner may use `side_chats_rename` or `side_chats_close`. Renaming updates the nullable
+`display_title` without changing the immutable proposal, messages, read cursors or last-message order.
+Internally, `pending` means open and `cancelled`
 means closed; closing retains the conversation. Side chats are excluded from approval lists, counts and decisions.
 The `+` beside the machine controls opens a minimal form with the optional title above the first message.
 
@@ -29,7 +32,9 @@ Reading changes no decision or reminder state. Hidden or prefetched Signoff deta
 Existing installations need the offline ordered upgrade before running this schema, while the service is stopped:
 `python -m qorqut.migration.upgrade inspect|apply --instance-root ROOT` with the installation's component selection and
 `--extensions-config`. Its `signoff_side_chat` step widens the stored category rule in place, keeps every row, index and
-trigger, and brings a store that is also behind on earlier steps up in the same transaction. It never runs at startup.
+trigger. The following `side_chat_titles` step adds editable names while retaining the original titles. Both bring a
+store that is also behind on earlier steps up in the same transaction. Reverting past `side_chat_titles` refuses to
+discard saved display names without `--discard-rows`; conversations and original names remain. It never runs at startup.
 
 ## Assembly
 

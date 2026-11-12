@@ -178,7 +178,7 @@ class Sources:
         row = self.signoffs._row(self.signoffs._context(selected, uow), target.id, uow)
         if row["review_business_id"] != target.business_id:
             raise DomainError("not_found", "Select this signoff's owning review scope")
-        return {"label": (row["preview_json"] or {}).get("title") or target.id, "row": row,
+        return {"label": row["display_title"] or (row["preview_json"] or {}).get("title") or target.id, "row": row,
                 "discussion": self.discussion(selected, "signoffs_notes_list", target.business_id, {"signoff_id": target.id}, uow)}
 
     def open_action(self, ctx, target, uow):

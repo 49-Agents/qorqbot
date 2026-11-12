@@ -13,9 +13,16 @@ async function fixture(){
   window.$=(selector,host=document)=>host.querySelector(selector);window.state={scope:'global',globalTab:'agents',bizs:[{id:'p',slug:'project'}]};
   window.coreData=value=>value;window.uiFailure=e=>e.message;window.newRequestId=(()=>{let n=0;return()=>String(++n);})();window.toast=()=>{};
   window.modal=()=>{throw Error('Side chat must not open a modal');};window.calls=[];window.hold=null;window.failCreate=false;
+  window.renameReceipts=new Map();window.failRename=false;window.holdRename=false;
   window.post=async(url,body)=>{
    calls.push({url,body});
    if(url.endsWith('/side_chats_create')){if(hold)return new Promise(resolve=>window.finishCreate=resolve);if(failCreate)throw Error('Offline');return {signoff:{id:'created',title:body.title,review_business_id:null}};}
+   if(url.endsWith('/side_chats_rename')){
+    if(holdRename)await new Promise(resolve=>window.finishRename=resolve);
+    if(!renameReceipts.has(body.idempotency_key))renameReceipts.set(body.idempotency_key,{signoff:{id:body.signoff_id,title:body.title}});
+    if(failRename){failRename=false;throw Error('Lost rename response');}
+    return renameReceipts.get(body.idempotency_key);
+   }
    if(url.endsWith('/owner_conversation_get'))return {messages:[],conversation:{latest_sequence:0,message_count:0}};
    return {};
   };
@@ -28,6 +35,8 @@ async function fixture(){
  for(const name of ['safe-links','san-juan-time','chat-view','conversation'])await page.addScriptTag({path:path.join(root,'js',name+'.js')});
  await page.evaluate(()=>window.esc=safeLinkEsc);
  const pane=fs.readFileSync(path.join(root,'js/agentpane.js'),'utf8');await page.addScriptTag({content:pane.slice(pane.indexOf('// ------------------------------------------------------------ Focus nested surfaces'),pane.indexOf('function agpadVisibility('))});
+ const focus=fs.readFileSync(path.join(root,'js/agent-focus.js'),'utf8'),escapeStart=focus.indexOf('  const escape=event=>{');
+ await page.addScriptTag({content:'{const p=_agpad;'+focus.slice(escapeStart,focus.indexOf("  document.addEventListener('keydown',escape);",escapeStart))+"document.addEventListener('keydown',escape);}"});
  await page.addScriptTag({path:path.join(root,'js/side-chats.js')});await page.evaluate(()=>document.querySelector('[data-surface-close]').onclick=()=>agpadSurfaceClose(_agpad));
  return {browser,page,errors};
 }
@@ -70,5 +79,75 @@ browserTest('pending sends and question edits block leaving inline; detached cre
   await page.evaluate(()=>{const view=document.querySelector('.side-chat-thread')._conversation;view.state.sending=false;view.state.inputRequests=[{type:'signoff',id:'question'}];cardUnsaved=true;view._paint();});
   await page.locator('[data-surface-close]').click();assert.equal(await page.locator('.side-chat-thread').isVisible(),true);assert.equal(await page.locator('.overlay,.modal').count(),0);
   await page.evaluate(()=>cardUnsaved=false);await page.locator('[data-surface-close]').click();assert.equal(await page.locator('.agfocus-surface').isVisible(),false);assert.deepEqual(errors,[]);
+ }finally{await browser.close();}
+});
+
+browserTest('clicking the name selects it; Enter and blur save while the message draft remains',async()=>{
+ const {browser,page,errors}=await fixture();try{
+  await page.evaluate(()=>{window.chatItem={id:'one',title:'Older chat'};return sideChatOpen(chatItem);});
+  const heading=page.locator('.side-chat-title-button'),input=page.getByRole('textbox',{name:'Side chat name',exact:true});
+  const composer=page.getByRole('textbox',{name:'Side chat message',exact:true});
+  await composer.fill('Keep this draft');await heading.click();
+  assert.deepEqual(await input.evaluate(el=>({focused:document.activeElement===el,start:el.selectionStart,end:el.selectionEnd})),{focused:true,start:0,end:10});
+  await input.fill('  Budget <2027> & plans  ');await input.press('Enter');
+  await page.waitForFunction(()=>document.querySelector('.side-chat-title-button').textContent==='Budget <2027> & plans');
+  assert.equal(await page.locator('.agfocus-surface').getAttribute('aria-label'),'Budget <2027> & plans');
+  assert.equal(await composer.inputValue(),'Keep this draft');
+  await heading.click();await input.fill('Saved on blur');await composer.click();
+  await page.waitForFunction(()=>document.querySelector('.side-chat-title-button').textContent==='Saved on blur');
+  await page.locator('[data-surface-close]').click();await page.evaluate(()=>sideChatOpen(chatItem));
+  assert.equal(await heading.innerText(),'Saved on blur');assert.equal(await composer.inputValue(),'Keep this draft');
+  const renames=await page.evaluate(()=>calls.filter(c=>c.url.endsWith('/side_chats_rename')));
+  assert.equal(renames.length,2);assert.equal(renames[0].body.title,'Budget <2027> & plans');
+  assert.equal(renames[0].body.scope,'global');assert.equal(renames[0].body.signoff_id,'one');
+  await heading.click();await input.fill('A long name '.repeat(18));await page.setViewportSize({width:600,height:850});
+  assert.equal(await input.evaluate(el=>el.getBoundingClientRect().right<=innerWidth),true);
+  assert.deepEqual(errors,[]);
+ }finally{await browser.close();}
+});
+
+browserTest('Escape cancels name editing without leaving the chat, and blank names are not saved',async()=>{
+ const {browser,page,errors}=await fixture();try{
+  await page.evaluate(()=>sideChatOpen({id:'one',title:'Older chat'}));
+  const heading=page.locator('.side-chat-title-button'),input=page.getByRole('textbox',{name:'Side chat name',exact:true});
+  await heading.focus();await heading.press('Enter');await input.fill('Discard this');await input.press('Escape');
+  assert.equal(await heading.innerText(),'Older chat');assert.equal(await heading.evaluate(el=>document.activeElement===el),true);
+  assert.equal(await page.locator('.side-chat-thread').isVisible(),true);
+  await heading.click();await input.fill('   ');await input.press('Enter');
+  assert.equal(await page.locator('.side-chat-title-error').innerText(),'Enter a side chat name.');
+  assert.equal(await input.isVisible(),true);assert.equal(await input.getAttribute('maxlength'),'200');
+  await input.press('Escape');assert.equal(await page.evaluate(()=>calls.filter(c=>c.url.endsWith('/side_chats_rename')).length),0);
+  await heading.press('Escape');await page.waitForFunction(()=>document.querySelector('.agfocus-surface').hidden);
+  assert.equal(await page.locator('.side-chat-title-button').count(),0);assert.deepEqual(errors,[]);
+ }finally{await browser.close();}
+});
+
+browserTest('a lost project rename response keeps the draft and reuses the receipt before leaving',async()=>{
+ const {browser,page,errors}=await fixture();try{
+  await page.evaluate(()=>{window.chatItem={id:'one',title:'Project chat',source:{type:'signoff',id:'one',business_id:'p'}};return sideChatOpen(chatItem);});
+  const input=page.getByRole('textbox',{name:'Side chat name',exact:true});
+  await page.locator('.side-chat-title-button').click();await input.fill('Project plans');
+  await page.evaluate(()=>failRename=true);await input.press('Enter');await page.getByText('Lost rename response',{exact:true}).waitFor();
+  assert.equal(await input.inputValue(),'Project plans');assert.equal(await input.evaluate(el=>el.readOnly),false);
+  await page.evaluate(()=>holdRename=true);await page.locator('[data-surface-close]').click();
+  await page.waitForFunction(()=>typeof finishRename==='function');assert.equal(await page.locator('.side-chat-thread').isVisible(),true);
+  await page.evaluate(()=>finishRename());await page.waitForFunction(()=>document.querySelector('.agfocus-surface').hidden);
+  const renames=await page.evaluate(()=>calls.filter(c=>c.url.endsWith('/side_chats_rename')));
+  assert.equal(renames.length,2);assert.deepEqual(renames[0].body,renames[1].body);
+  assert.equal(renames[0].url,'/biz/project/operations/side_chats_rename');assert.equal(renames[0].body.scope,'business');
+  await page.evaluate(()=>sideChatOpen(chatItem));assert.equal(await page.locator('.side-chat-title-button').innerText(),'Project plans');
+  assert.deepEqual(errors,[]);
+ }finally{await browser.close();}
+});
+
+browserTest('a detached rename cannot change the title of newer Focus content',async()=>{
+ const {browser,page,errors}=await fixture();try{
+  await page.evaluate(()=>{holdRename=true;return sideChatOpen({id:'one',title:'Old chat'});});
+  await page.locator('.side-chat-title-button').click();const input=page.getByRole('textbox',{name:'Side chat name',exact:true});
+  await input.fill('Renamed chat');await input.press('Enter');await page.waitForFunction(()=>typeof finishRename==='function');
+  await page.evaluate(()=>{agpadSurfaceDispose(_agpad);return focusExpansion.open({title:'Newer view',mount:host=>{host.textContent='Newer content';}});});
+  await page.evaluate(()=>finishRename());await page.waitForTimeout(20);
+  assert.equal(await page.locator('.agfocus-surface-title').innerText(),'Newer view');
+  assert.equal(await page.locator('.side-chat-title-button').count(),0);assert.deepEqual(errors,[]);
  }finally{await browser.close();}
 });

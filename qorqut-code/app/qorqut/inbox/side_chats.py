@@ -26,6 +26,9 @@ class SideChats:
             ('side_chats_create', {'text': {'type': 'string', 'minLength': 1, 'maxLength': 20000, 'pattern': r'\S'},
                 'title': {'type': 'string', 'maxLength': 200}}, ('text',),
                 'Open a side chat with the owner’s first private message to Ordubashy. A title is optional.'),
+            ('side_chats_rename', {'signoff_id': {'type': 'string', 'format': 'uuid'},
+                'title': {'type': 'string', 'minLength': 1, 'maxLength': 200, 'pattern': r'\S'}}, ('signoff_id', 'title'),
+                'Owner only: rename a side chat while retaining its conversation history.'),
             ('side_chats_close', {'signoff_id': {'type': 'string', 'format': 'uuid'}}, ('signoff_id',),
                 'Owner only: close a side chat while retaining its conversation history.')):
             self.app.registry.register(OperationDescriptor(name, schema({
@@ -37,13 +40,13 @@ class SideChats:
     def owner(self, ctx, uow):
         ctx = self.signoffs._context(ctx, uow, owner=True)
         if self.conversations.role(ctx, uow) != 'owner':
-            raise DomainError('forbidden', 'Only the installation owner may create or close side chats')
+            raise DomainError('forbidden', 'Only the installation owner may create, rename or close side chats')
         return ctx
 
     def target(self, ctx, identity, uow):
         row = self.signoffs._row(ctx, identity, uow)
         if row['category'] != 'side_chat':
-            raise DomainError('invalid_transition', 'Only side chats may be closed here')
+            raise DomainError('invalid_transition', 'Only side chats may be changed here')
         return row
 
     def prepare(self, name, ctx, args, uow):
@@ -59,7 +62,14 @@ class SideChats:
             builder.record('signoffs', new_id(), None, {'title': args.get('title', '').strip() or 'Side chat'})
         else:
             row = self.target(ctx, args['signoff_id'], uow)
-            builder.record('signoffs', row['id'], row, {'state': 'cancelled'}, business_id=row['review_business_id'])
+            if name == 'side_chats_rename':
+                title = args['title'].strip()
+                if not title:
+                    raise DomainError('validation_error', 'Enter a side chat name')
+                values = {'display_title': title}
+            else:
+                values = {'state': 'cancelled'}
+            builder.record('signoffs', row['id'], row, values, business_id=row['review_business_id'])
         return builder.build()
 
     def apply(self, ctx, plan, uow):
@@ -67,10 +77,11 @@ class SideChats:
         ctx = self.owner(replace(ctx, business_id=change.resource.business_id,
                                  review_business_id=change.resource.business_id), uow)
         identity = change.resource.resource_id
-        if plan.operation_name == 'side_chats_close':
+        if plan.operation_name in {'side_chats_rename', 'side_chats_close'}:
             row = self.target(ctx, identity, uow)
-            if row['state'] != 'cancelled':
-                row = self.signoffs._update(row, {'state': 'cancelled'}, uow)
+            values = plain(change.values)
+            if any(row[key] != value for key, value in values.items()):
+                row = self.signoffs._update(row, values, uow)
         else:
             self.conversations.validate_peer(ctx, {}, plan, uow)
             # Shared Signoff metadata contains no copy of the private first message.
@@ -107,7 +118,7 @@ class SideChats:
     def active(self, ctx, uow):
         ctx = self.owner(ctx, uow)
         clause, params = self.signoffs._visibility(ctx, uow)
-        rows = uow.connection.execute(f"""SELECT s.id,s.review_business_id,s.preview_json,b.slug AS business_slug,
+        rows = uow.connection.execute(f"""SELECT s.id,s.review_business_id,s.preview_json,s.display_title,b.slug AS business_slug,
             c.id AS conversation_id,c.latest_sequence,c.updated_at,m.body
             FROM signoffs s JOIN owner_conversations c ON c.source_type='signoff'
                 AND c.source_id=s.id AND c.business_id IS s.review_business_id AND c.peer_agent_id IS NULL
@@ -124,7 +135,7 @@ class SideChats:
                 if error.code in UNAVAILABLE:
                     continue
                 raise
-            items.append({'id': row['id'], 'source': source, 'title': json.loads(row['preview_json'])['title'],
+            items.append({'id': row['id'], 'source': source, 'title': row['display_title'] or json.loads(row['preview_json'])['title'],
                 'business_slug': row['business_slug'],
                 'preview': row['body'][:180], 'updated_at': row['updated_at'], 'latest_sequence': row['latest_sequence'],
                 'unread': has_unread(uow, row['conversation_id'], read_cursor(uow, row['conversation_id'], ctx.principal_id))})

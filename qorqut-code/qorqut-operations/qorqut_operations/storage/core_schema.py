@@ -103,6 +103,7 @@ WHERE status = 'active' AND home_business_id IS NOT NULL""",
     execution_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(execution_json) AND json_type(execution_json)='object'),
     legacy_evidence_json TEXT CHECK(legacy_evidence_json IS NULL OR json_valid(legacy_evidence_json)),
     request_key TEXT,
+    display_title TEXT CHECK(display_title IS NULL OR (category='side_chat' AND length(trim(display_title)) BETWEEN 1 AND 200)),
     CHECK ((review_scope_kind = 'business' AND review_business_id IS NOT NULL) OR (review_scope_kind = 'global' AND review_business_id IS NULL))
 )""",
     """CREATE INDEX signoffs_category_queue ON signoffs(review_business_id, category, state, created_at, id)""",

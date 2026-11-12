@@ -81,7 +81,7 @@ class FocusService:
             row = self.signoffs._row(selected, item['id'], uow)
             if row['review_business_id'] != business:
                 raise DomainError('not_found', 'Choose the signoff’s actual review scope')
-            resolved = {'label': row['preview_json']['title'], 'state': row['state'], 'revision': row['status_revision'], 'category': row['category'],
+            resolved = {'label': row['display_title'] or row['preview_json']['title'], 'state': row['state'], 'revision': row['status_revision'], 'category': row['category'],
                 'resource_type': 'signoffs', 'resource_id': item['id']}
         else:
             resolved = self.items.resolve(selected, {'type': item['type'], 'id': item['id']}, uow, allow_busy=True)

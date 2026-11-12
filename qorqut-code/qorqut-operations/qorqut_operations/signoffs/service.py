@@ -247,7 +247,7 @@ class SignoffService:
                                  if row["review_business_id"] else {"kind": "global"})
         value["legacy_review_routing"] = (row["review_scope_kind"] == "business"
                                             and row["affected_scope_json"].get("kind") == "global")
-        value.update(title=row["preview_json"]["title"], affected_scope=row["affected_scope_json"],
+        value.update(title=row["display_title"] or row["preview_json"]["title"], affected_scope=row["affected_scope_json"],
                      decision=row["decision_json"], proposer_display_name=names.get(row["proposer_principal_id"], ""),
                      initiated_by_display_name=names.get(row["initiated_by_principal_id"]),
                      job_id=row["policy_binding_json"].get("job_id"))

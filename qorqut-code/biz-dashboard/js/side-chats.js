@@ -1,4 +1,4 @@
-// A side chat is an ordinary private Signoff thread. Only its owner can close it.
+// A side chat is an ordinary private Signoff thread. Only its owner can rename or close it.
 let sideChatDraft={text:'',title:''},sideChatSubmission=null;
 
 function sideChatCreate(){
@@ -45,8 +45,26 @@ function sideChatOpen(item){
   const closeKey=newRequestId();
   return window.focusExpansion.open({title:item.title || 'Side chat',mount(el,session){
     let closing=false;
-    el.innerHTML='<div class="side-chat-thread"></div><div class="side-chat-footer"><p class="ferr" role="alert" hidden></p><button type="button" class="quiet" data-side-chat-close>Close side chat</button></div>';
-    const host=el.querySelector('.side-chat-thread'),button=el.querySelector('[data-side-chat-close]'),error=el.querySelector('.ferr');
+    let title=item.title || 'Side chat',renamePending=null,renameSubmission=null;
+    el.innerHTML='<p class="ferr side-chat-title-error" role="alert" hidden></p><div class="side-chat-thread"></div><div class="side-chat-footer"><p class="ferr" role="alert" hidden></p><button type="button" class="quiet" data-side-chat-close>Close side chat</button></div>';
+    const host=el.querySelector('.side-chat-thread'),button=el.querySelector('[data-side-chat-close]'),error=el.querySelector('.side-chat-footer .ferr');
+    const titleHost=el.closest('.agfocus-surface').querySelector('.agfocus-surface-title'),titleError=el.querySelector('.side-chat-title-error');
+    const titleButton=document.createElement('button'),titleInput=document.createElement('input');
+    titleButton.type='button';titleButton.className='side-chat-title-button';titleButton.title='Rename side chat';titleButton.textContent=title;
+    titleInput.type='text';titleInput.className='inp';titleInput.maxLength=200;titleInput.hidden=true;
+    titleInput.setAttribute('aria-label','Side chat name');titleInput.title='Enter to save, Escape to cancel';
+    titleHost.classList.add('side-chat-title');titleHost.replaceChildren(titleButton,titleInput);
+    titleButton.onclick=()=>{
+      if(!session.isCurrent() || closing || renamePending)return;
+      titleInput.value=title;titleButton.hidden=true;titleInput.hidden=false;titleError.hidden=true;
+      titleInput.focus();titleInput.select();
+    };
+    titleInput.onkeydown=event=>{
+      if(event.isComposing)return;
+      if(event.key==='Enter'){event.preventDefault();void saveTitle();}
+      else if(event.key==='Escape'){event.preventDefault();event.stopPropagation();if(!renamePending)finishTitleEdit(true);}
+    };
+    titleInput.onblur=()=>{void saveTitle();};
     const visible=()=>session.isCurrent() && host.isConnected && !document.hidden && !!host.getClientRects().length && !host.closest('[inert],[aria-hidden="true"],[hidden]');
     const view=conversationMount(host,{...source,biz},{privateSource:source,privateGlobal:true,inlineComposer:true,dismissOnOutside:false,
       placeholder:'Message Ordubashy…',ariaLabel:'Side chat message',sourceTitle:item.title || 'Side chat',
@@ -59,14 +77,45 @@ function sideChatOpen(item){
       }
       return true;
     };
-    session.setBeforeLeave(canLeave);
+    session.setBeforeLeave(async()=>canLeave() && await saveTitle());
     view.expand();
     const refresh=()=>{if(visible())void view.refresh({acknowledge:true});};
     const timer=setInterval(refresh,10000);window.addEventListener('focus',refresh);
     document.addEventListener('visibilitychange',refresh);
     button.onclick=()=>void closeChat();
+    function finishTitleEdit(focus=false){
+      if(!session.isCurrent())return;
+      titleInput.hidden=true;titleInput.value=title;titleButton.hidden=false;titleButton.textContent=title;titleError.hidden=true;
+      session.setTitle(title);titleHost.replaceChildren(titleButton,titleInput);
+      if(focus)titleButton.focus();
+    }
+    async function saveTitle(){
+      if(renamePending)return renamePending;
+      if(!session.isCurrent())return false;
+      if(titleInput.hidden)return true;
+      const nextTitle=titleInput.value.trim();
+      if(!nextTitle){titleError.textContent='Enter a side chat name.';titleError.hidden=false;return false;}
+      if(nextTitle===title){finishTitleEdit(document.activeElement===titleInput);return true;}
+      if(!renameSubmission || renameSubmission.title!==nextTitle)renameSubmission={scope:biz?'business':'global',signoff_id:source.id,title:nextTitle,idempotency_key:newRequestId()};
+      titleInput.readOnly=true;titleInput.setAttribute('aria-busy','true');titleError.hidden=true;
+      renamePending=Promise.resolve().then(async()=>{
+        try{
+          if(source.business_id && !biz)throw new Error('The project is unavailable. Reload the queue and try again.');
+          const data=coreData(await post(`${biz?'/biz/'+encodeURIComponent(biz):'/root'}/operations/side_chats_rename`,renameSubmission));
+          if(typeof data.signoff?.title!=='string' || !data.signoff.title.trim())throw new Error('Could not confirm the new name. Retry saving.');
+          title=data.signoff.title;item.title=title;renameSubmission=null;
+          finishTitleEdit(document.activeElement===titleInput);void attentionQueue.refresh();
+          return true;
+        }catch(e){
+          if(session.isCurrent()){titleError.textContent=e.message;titleError.hidden=false;}
+          return false;
+        }finally{titleInput.readOnly=false;titleInput.removeAttribute('aria-busy');renamePending=null;}
+      });
+      return renamePending;
+    }
     async function closeChat(){
       if(!session.isCurrent() || !canLeave())return;
+      if(!await saveTitle() || !session.isCurrent() || !canLeave())return;
       closing=true;button.disabled=true;error.hidden=true;
       try{
         if(source.business_id && !biz)throw new Error('The project is unavailable. Reload the queue and try again.');
@@ -76,6 +125,6 @@ function sideChatOpen(item){
       }catch(e){if(session.isCurrent()){error.textContent=e.message;error.hidden=false;}}
       finally{closing=false;button.disabled=false;}
     }
-    return ()=>{clearInterval(timer);window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);view.dispose();};
+    return ()=>{clearInterval(timer);window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);titleHost.classList.remove('side-chat-title');titleHost.textContent=title;view.dispose();};
   }});
 }
