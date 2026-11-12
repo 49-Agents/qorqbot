@@ -53,7 +53,15 @@ async function fixture({mobile=false,many=false}={}) {
 }
 
 async function reopenNav(page) {
-  await page.keyboard.press('Escape');await page.locator('[data-agent-nav-trigger]').focus();await page.keyboard.press('Enter');
+  await page.evaluate(()=>{
+    const nav=document.querySelector('.agent-nav-overlay');
+    window.navClosed=new Promise(resolve=>nav.addEventListener('toggle',function closed(event){
+      if(event.newState!=='closed')return;
+      nav.removeEventListener('toggle',closed);resolve();
+    }));
+  });
+  await page.keyboard.press('Escape');await page.evaluate(()=>navClosed);
+  await page.locator('[data-agent-nav-trigger]').focus();await page.keyboard.press('Enter');
 }
 
 browserTest('navigation is hidden by default and hover overlays without resizing or remounting chat',async()=>{
