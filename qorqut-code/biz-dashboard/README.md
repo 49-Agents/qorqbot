@@ -94,8 +94,8 @@ rollback contract is in the host's [`docs/INSTALLATION.md`](../docs/INSTALLATION
   (requires Playwright Chromium).
 - **Chat focus.** The board above the input shows Ordubashy's icon and recorded focus.
   Click it to expand or collapse; the button also works with Enter and Space.
-  Expanded boards show his intent and every other active agent's name and focus,
-  including explicit unset and unavailable states. The pane requests only focus
+  Expanded boards show his intent and the names and focus of other active agents
+  with a recorded focus; agents without one are hidden. The pane requests only focus
   projections and does not display Todo lists or workflow steps. Other-agent reads
   stop while collapsed, and all focus reads stop when the chat is hidden.
   Working dots remain tied to the chat's
