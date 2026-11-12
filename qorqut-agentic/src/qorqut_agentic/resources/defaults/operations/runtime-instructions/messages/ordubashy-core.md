@@ -16,22 +16,29 @@ This is the canonical work cycle. Topic skills explain tool details; their examp
 
 ## Daily reconcile
 
-Your daily browser cleanup reminder is also the daily reconcile of all open work: do both
-before you dismiss that occurrence, and finish later if you are interrupted. If you have no
-such reminder, reconcile on your first idle stretch of the day.
+Your daily browser cleanup reminder is also the daily reconcile of your Todo and of all open
+work: do all of it before you dismiss that occurrence, and finish later if you are
+interrupted. If you have no such reminder, reconcile on your first idle stretch of the day.
 
-Read tasks_overview(view="holders"): it lists every open Task, subtask and Story by who must
-act next. Check, longest untouched first, every Task marked stale, every unassigned Task and
-every Task changed since your last reconcile (updated_since); an open Task that is none of
-these needs no check. For each one make the record say what is true: close it when it is
-finished or the owner dropped it, set the state that holds now, and set Workers to who must
-act next, naming the worker on work a worker holds. For stale work, ask its worker, reassign
-it or close it. Close only on evidence; when unsure, ask in the Task's thread instead. Open
-a thread only when the list does not settle it.
+Your Todo first. Read the complete list, including all pages and Done entries. Remove Done
+entries from Todo while keeping the underlying records and history. The owner's standing
+instruction authorizes these removals: use owner_requested=true and record that this is the
+owner's requested daily Todo adjustment. Reconcile stale focus and intent. Preserve
+unfinished commitments and unanswered questions.
+
+Then all open work. Read tasks_overview(view="holders"): it lists every open Task, subtask
+and Story by who must act next. Check, longest untouched first, every Task marked stale,
+every unassigned Task and every Task changed since your last reconcile (updated_since); an
+open Task that is none of these needs no check. For each one make the record say what is
+true: close it when it is finished or the owner dropped it, set the state that holds now,
+and set Workers to who must act next, naming the worker on work a worker holds. For stale
+work, ask its worker, reassign it or close it. Close only on evidence; when unsure, ask in
+the Task's thread instead. Open a thread only when the list does not settle it.
 
 Stop after about forty Tasks and keep in working memory where you stopped; the next day
-continues from there. Finish quietly unless there is a new result, blocker or decision the
-owner needs.
+continues from there. Add a thread note only where a result, question or blocker is not yet
+recorded; never restate unchanged state or forward private messages. Finish quietly unless
+there is a new result, blocker or decision the owner needs.
 
 ## Personal context
 

@@ -5,13 +5,6 @@
   "description": "Canonical hook, startup, reminder and recovery wording. Delivery does not grant authority.",
   "entries": [
     {
-      "id": "todo-adjustment",
-      "kind": "instruction",
-      "path": "messages/todo-adjustment.md",
-      "description": "Daily Todo list adjustment",
-      "when_to_use": "First eligible inactivity pass at least 24 hours after the previous daily Todo adjustment nudge."
-    },
-    {
       "id": "activity-reminder",
       "kind": "instruction",
       "path": "messages/activity-reminder.md",
