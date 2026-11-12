@@ -6,6 +6,7 @@ grants access, and every one runs inside the Task write it belongs to."""
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
 from urllib.parse import unquote
@@ -129,9 +130,27 @@ class HostNoteReferences:
         return None
 
 
+class HostBoards:
+    """Naming a permanent worker as a Task's Worker is the assignment: the same write lists the Task on that worker's
+    Todo (the board the application installs). An assembly without boards changes nothing."""
+
+    def __init__(self, application):
+        self.application = application
+
+    def workers_named(self, ctx, item, task, worker_ids, uow):
+        board = getattr(self.application, "ordubashy_attention", None)
+        if board is not None:
+            board.workers_named(ctx, item, task, worker_ids, uow)
+
+
+# A delegated Task in one of these states is a result or a blocker Ordubashy answers for.
+OVERSIGHT_STATES = frozenset({"done", "cancelled", "blocked"})
+
+
 class HostRouting:
     """The v1 routes that are mandatory (the Focus coordinator and the Ordubashy followers of owner work) or discretionary
-    (subscribers, with related work, of a group Task this Task is directly related to)."""
+    (subscribers, with related work, of a group Task this Task is directly related to), and the coordinator's oversight
+    of delegated work."""
 
     @staticmethod
     def mandatory(uow, business_id, task, actor_id):
@@ -156,8 +175,26 @@ class HostRouting:
             required |= owners
         return required
 
+    @staticmethod
+    def oversight(uow, task, actor_id):
+        """Ordubashy answers for all work, whoever holds it: a Task that names a permanent worker as Worker routes to
+        him once it is done, cancelled or blocked, so a result or a blocker on delegated work cannot pass him by.
+        Progress on open delegated work stays with its followers and the worker's own reports."""
+        if task.get("status") not in OVERSIGHT_STATES:
+            return set()
+        coordinators = ordubashies(uow) - {actor_id}
+        if not coordinators:
+            return set()
+        from qorqut.agents.worker_access import is_worker
+
+        workers = task.get("worker_ids_json") or []
+        if isinstance(workers, str):
+            workers = json.loads(workers)
+        return coordinators if any(is_worker(uow.connection, worker) for worker in workers) else set()
+
     def routes(self, uow, business_id, task, actor_id):
-        return self.mandatory(uow, business_id, task, actor_id), related_subscribers(uow, business_id, "task", task["id"])
+        required = self.mandatory(uow, business_id, task, actor_id) | self.oversight(uow, task, actor_id)
+        return required, related_subscribers(uow, business_id, "task", task["id"])
 
     def snooze_routes(self, uow, business_id, task, human_ids):
         """The agents told when a snooze expires on behalf of the Task's responsible humans (its human assignees, or its
@@ -176,8 +213,9 @@ class HostRouting:
 
 def task_ports(application, derivations=()) -> TaskPorts:
     return TaskPorts(assignees=HostAssignees(), focus=HostFocus(application), incidents=HostIncidents(),
-                     references=HostNoteReferences(application, derivations), routing=HostRouting())
+                     references=HostNoteReferences(application, derivations), routing=HostRouting(),
+                     boards=HostBoards(application))
 
 
-__all__ = ["HostAssignees", "HostFocus", "HostIncidents", "HostNoteReferences", "HostRouting", "NOTE_REFS",
+__all__ = ["HostAssignees", "HostBoards", "HostFocus", "HostIncidents", "HostNoteReferences", "HostRouting", "NOTE_REFS",
            "NOTE_REF_TYPES", "email_reference", "task_ports"]

@@ -79,7 +79,7 @@ SIGNOFF_INDEX_FIELDS = ("id", "review_scope", "proposal_revision", "status_revis
     "proposer_agent_id", "proposer_display_name", "initiated_by_display_name",
     "attention", "job_id", "outcome", "created_at", "updated_at", "supersedes_id", "superseded_by_id")
 INBOX_EVENT_FIELDS = ("id", "source_type", "source_id", "event_type", "summary", "created_at",
-    "business_id", "business_slug", "actor_name", "message", "source")
+    "business_id", "business_slug", "actor_name", "message", "source", "entries")
 # A reminder event's compact pointer: the identities the reminder operations take back, the due time, the explicit urgency and
 # the recipient-authorized link. The text is already the event summary.
 REMINDER_POINTER_FIELDS = ("reminder_id", "occurrence_id", "revision", "due_at", "time_critical", "business_id")

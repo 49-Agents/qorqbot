@@ -1,10 +1,15 @@
-"""Small cross-scope owner/self index of Tasks, without hydrating discussions or custom fields."""
+"""Small cross-scope index of Tasks, without hydrating discussions or custom fields.
+
+Two views of the same authorized scopes: ``assigned`` (the owner's and the coordinator's own assignments) and ``holders``
+(all open work grouped by who must act next, so the coordinator can answer for work other agents hold)."""
 
 from __future__ import annotations
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
+import json
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 
 from qorqut_operations.application.plans import PAGE, page, schema, timestamp
 from qorqut_operations.application.registry import OperationDescriptor
@@ -16,6 +21,25 @@ from qorqut_operations.tasks.models import snooze_view
 from qorqut_operations.tasks.scope import task_context
 
 MAX_MATCHES = 20_000
+# How long a Task may sit untouched in a state before the holders view marks it stale. The mark is derived on read
+# from ``updated_at``; nothing is stored and no state changes.
+STALE_AFTER = {"working": timedelta(days=1), "blocked": timedelta(days=3), "waiting": timedelta(days=7)}
+HOLDER_STATES = ("open", "working", "blocked", "waiting")
+
+
+def stamp(value):
+    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def moment(value):
+    """A caller's ISO-8601 instant in the stored UTC form, so it compares with ``updated_at`` as text."""
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        raise DomainError("validation_error", "updated_since must be an ISO-8601 timestamp") from None
+    if parsed.tzinfo is None:
+        raise DomainError("validation_error", "updated_since must carry a UTC offset")
+    return stamp(parsed)
 
 
 class TaskOverview:
@@ -28,7 +52,10 @@ class TaskOverview:
                 **PAGE, "limit": {**PAGE["limit"], "default": 100},
                 "assignee": {"enum": ["both", "owner", "self"], "default": "both"},
                 "snooze_filter": {"enum": ["all", "active", "snoozed"], "default": "all"},
-                "include_closed": {"type": "boolean", "default": False}}),
+                "include_closed": {"type": "boolean", "default": False},
+                # Both are explained in the operation's one description; the help catalog keeps a fixed key set.
+                "view": {"enum": ["assigned", "holders"], "default": "assigned"},
+                "updated_since": {"type": "string", "minLength": 1, "maxLength": 40}}),
             effect_kind="read", supports_signoff=False, scope_kinds=frozenset({"global"}), global_capability="read_global_context",
             description=instruction_text('overview-ordubashy-only-brief-owner-self-task-overview-across'), read=self.read)
 
@@ -45,6 +72,10 @@ class TaskOverview:
             raise DomainError("unavailable", "An active installation owner is required")
         # The aggregate must not become an alternate route around task read denials.
         descriptor = self.app.registry.get("tasks_list")
+        if args.get("view", "assigned") == "holders":
+            return self.holders(ctx, args, uow, descriptor, owner)
+        if "updated_since" in args:
+            raise DomainError("validation_error", "updated_since applies to view=holders")
         now = timestamp(self.tasks.clock)
         filters = {"assignee": args.get("assignee", "both"), "snooze_filter": args.get("snooze_filter", "all"),
                    "include_closed": args.get("include_closed", False)}
@@ -106,3 +137,88 @@ class TaskOverview:
             group["snoozed" if task["snoozed"] else "active"].append(brief)
         return {"assignees": {"owner": owner["id"], "self": ctx.principal_id}, "counts": counts, "scopes": list(groups.values()),
                 "next_cursor": cursor}
+
+    def holders(self, ctx, args, uow, descriptor, owner):
+        """All open work across the readable scopes, grouped by who must act next (the Task's Workers).
+
+        Every holder is listed with its counts over all matches; the Tasks themselves are one page, oldest change
+        first, so the work most likely to have been dropped leads. A Task with several Workers appears under each,
+        and a Task that names nobody under ``unassigned``. Customer records are not work items and are left out. An
+        archived project is not current work and is skipped."""
+        for name in ("assignee", "snooze_filter", "include_closed"):
+            if name in args:
+                raise DomainError("validation_error", f"{name} applies to view=assigned")
+        since = moment(args["updated_since"]) if "updated_since" in args else None
+        current = self.tasks.clock()
+        limits = {status: stamp(current - age) for status, age in STALE_AFTER.items()}
+        pairs, people, tasks_seen = [], {}, 0
+
+        def holder(identity):
+            if identity not in people:
+                principal = uow.repository("principals").get(identity) if identity else None
+                if identity is None:
+                    people[identity] = {"id": None, "name": "Unassigned", "kind": "unassigned", "rank": 4}
+                elif not principal:
+                    people[identity] = {"id": identity, "name": identity, "kind": "person", "rank": 3}
+                else:
+                    kind, rank = (("self", 0) if identity == ctx.principal_id else ("agent", 1) if principal["kind"] == "agent"
+                                  else ("owner", 2) if identity == owner["id"] else ("person", 3))
+                    people[identity] = {"id": identity, "name": principal["display_name"], "kind": kind, "rank": rank}
+            return people[identity]
+
+        for business_id in [None, *sorted(ctx.allowed_business_ids & effective_business_ids(uow.connection, ctx.principal_id))]:
+            selected = replace(ctx, business_id=business_id, review_business_id=business_id)
+            try:
+                self.app.authorize(selected, descriptor, (), uow, namespace="business:" + business_id if business_id else "global")
+            except DomainError as error:
+                if error.code != "business_archived":
+                    raise
+                continue
+            if business_id and not uow.repository("businesses").get(business_id):
+                continue
+            clauses = ["t.business_id IS ?", "t.archived=0", "t.status NOT IN ('done','cancelled')",
+                       "COALESCE(json_extract(t.fields_json,'$.\"$task\".task_type'),'task')!='customer'"]
+            parameters = [business_id]
+            if since:
+                clauses.append("t.updated_at>=?")
+                parameters.append(since)
+            found = uow.connection.execute(
+                "SELECT t.id,t.revision,t.title,t.status,t.due,t.updated_at,t.worker_ids_json FROM tasks t WHERE "
+                + " AND ".join(clauses) + " LIMIT ?", [*parameters, MAX_MATCHES + 1 - tasks_seen]).fetchall()
+            tasks_seen += len(found)
+            if tasks_seen > MAX_MATCHES:
+                raise DomainError("result_too_large", f"Task overview exceeds {MAX_MATCHES:,} matches; narrow updated_since")
+            for row in found:
+                task = {key: row[key] for key in ("id", "revision", "title", "status", "due", "updated_at")}
+                task.update(business_id=business_id,
+                            stale=task["status"] in limits and (task["updated_at"] or "") < limits[task["status"]])
+                for identity in json.loads(row["worker_ids_json"] or "[]") or [None]:
+                    pairs.append({**task, "holder": holder(identity)})
+        groups = {}
+        for pair in pairs:
+            entry = pair["holder"]
+            group = groups.setdefault(entry["id"], {"holder": {key: entry[key] for key in ("id", "name", "kind")},
+                                                    "counts": {**{status: 0 for status in HOLDER_STATES}, "stale": 0, "total": 0},
+                                                    "tasks": [], "rank": entry["rank"]})
+            if pair["status"] in group["counts"]:
+                group["counts"][pair["status"]] += 1
+            group["counts"]["stale"] += int(pair["stale"])
+            group["counts"]["total"] += 1
+        selected, cursor = page(pairs, {"view": "holders", "updated_since": since, "principal_id": ctx.principal_id,
+                                        "limit": args.get("limit", 100), **({"cursor": args["cursor"]} if "cursor" in args else {})},
+                                None, "tasks_overview", reverse=False,
+                                key=lambda pair: (pair["holder"]["rank"], pair["holder"]["id"] or "", pair["updated_at"] or "",
+                                                  pair["business_id"] or "", pair["id"]))
+        for pair, task in zip(selected, self.tasks.project_input(ctx, selected, uow)):
+            brief = {key: task[key] for key in ("id", "business_id", "revision", "title", "status", "due", "updated_at")}
+            brief.update({key: task[key] for key in ("work_status", "input_needed") if key in task})
+            if len(brief["title"]) > 180:
+                brief.update(title=brief["title"][:179] + "…", title_truncated=True)
+            if pair["stale"]:
+                brief["stale"] = True
+            groups[pair["holder"]["id"]]["tasks"].append(brief)
+        ordered = sorted(groups.values(), key=lambda group: (group.pop("rank"), group["holder"]["id"] or ""))
+        return {"view": "holders", "holders": ordered,
+                "counts": {"tasks": tasks_seen, "stale": sum(group["counts"]["stale"] for group in ordered),
+                           "unassigned": groups[None]["counts"]["total"] if None in groups else 0},
+                "stale_after_days": {status: age.days for status, age in STALE_AFTER.items()}, "next_cursor": cursor}

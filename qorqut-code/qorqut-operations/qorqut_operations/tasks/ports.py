@@ -85,17 +85,34 @@ class Routing(Protocol):
     def snooze_routes(self, uow, business_id: str | None, task: Mapping[str, Any], human_ids: Sequence[str]) -> Sequence[str]: ...
 
 
+class Boards(Protocol):
+    """The host's work boards, told when a Task names new Workers (who must act next).
+
+    ``workers_named(ctx, item, task, worker_ids, uow)`` runs once per write that adds Workers, before that write's event
+    is routed: ``item`` is the Task reference, ``task`` its row after the write and ``worker_ids`` only the principals
+    this write added. The host may list the Task on a board it keeps for one of them; it never refuses the write, and
+    it decides by its own rules whose board the caller may fill. Removing a Worker tells nobody."""
+
+    def workers_named(self, ctx: InvocationContext, item: Mapping[str, Any], task: Mapping[str, Any],
+                      worker_ids: Sequence[str], uow) -> None: ...
+
+
 @dataclass(frozen=True)
 class TaskPorts:
-    """All host knowledge of one ``TaskOperations``, built once by trusted assembly code."""
+    """All host knowledge of one ``TaskOperations``, built once by trusted assembly code.
+
+    ``boards`` is the one optional part: an assembly without work boards leaves it out."""
 
     assignees: AssigneeRules
     focus: Focus
     incidents: Incidents
     references: NoteReferences
     routing: Routing
+    boards: Boards | None = None
 
     def __post_init__(self):
+        if self.boards is not None and not callable(getattr(self.boards, "workers_named", None)):
+            raise AssemblyError("The optional task port boards must provide workers_named")
         for label, value, methods in (
                 ("assignees", self.assignees, ("protect", "owner_directed", "worker_excluded")),
                 ("focus", self.focus, ("creation_access", "present_created")), ("incidents", self.incidents, ("link_task",)),
@@ -110,4 +127,4 @@ class TaskPorts:
             raise AssemblyError("The note reference port lists its reference types and its host-resolved types")
 
 
-__all__ = ["AssigneeRules", "Focus", "Incidents", "NoteReferences", "Routing", "TaskPorts"]
+__all__ = ["AssigneeRules", "Boards", "Focus", "Incidents", "NoteReferences", "Routing", "TaskPorts"]

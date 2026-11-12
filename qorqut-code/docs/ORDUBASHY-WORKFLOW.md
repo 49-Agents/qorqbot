@@ -25,15 +25,13 @@ after an owner message still applies to chat delivery, not the focused hook.
 Existing persisted deadlines are retained until their normal clock transition or
 delivery; installing a new interval does not replay missed reminders.
 
-### Daily Todo adjustment
+### Daily reconcile
 
-The existing inactivity polling pass invites the configured Ordubashy to run a careful Todo list adjustment at most once per elapsed 24 hours. The first eligible pass sends the invitation; it is not a calendar-day schedule and missed days do not accumulate. Eligibility requires a live, idle native session, at least 15 minutes since session observation and agent activity, and at least 15 minutes since the last owner message. Paused or stopped sessions, pending native input and revoked session authority prevent delivery. A stale Focus does not prevent housekeeping when the session is actually idle. Done-only lists qualify; empty lists do not.
+Every registered agent is enrolled once, by default, in one daily repeating reminder (browser cleanup). For the configured Ordubashy that occurrence is also the daily reconcile: his core rules (`ordubashy-core`) tell him to do it before he dismisses the occurrence, and a newly enrolled Ordubashy gets a default reminder text that names it. A stored reminder is never rewritten, so an already enrolled Ordubashy keeps his text and takes the reconcile from the core rules. An occurrence stays due until it is dismissed; if the reminder was cancelled, the core rules ask for the reconcile on the first idle stretch of the day.
 
-The authored `todo-adjustment` instruction asks Ordubashy to read every page, remove Done memberships while retaining the underlying records and history, reconcile states, Workers and stale focus, and update the appropriate threads with meaningful progress. The owner's standing daily-cleanup request supplies the explicit owner authorization required for Done removal. Unfinished commitments, unanswered questions and private messages retain their existing protections. The invitation itself never changes Tasks or Todo memberships.
+The reconcile has two parts. His own Todo: read every page, remove Done memberships while retaining the underlying records and history, and reconcile stale focus and intent. The owner's standing daily-cleanup request supplies the explicit owner authorization required for Done removal. Then all open work, from `tasks_overview(view="holders")`: Tasks marked stale, unassigned Tasks and Tasks changed since the last reconcile are checked, longest untouched first, and each record is made to say what is true (state, who must act next, closed only on evidence). It stops after about forty Tasks and continues the next day. Unfinished commitments, unanswered questions and private messages retain their existing protections.
 
-Native input receipts preserve the interval across host restarts and session/provider changes without a schema change. A known-not-typed attempt can retry with its original text; an uncertain delivery consumes the interval conservatively and is not replayed. After 24 hours, the next eligible invitation is a new occurrence, independent of any earlier uncertain receipt. The daily invitation takes precedence over an ordinary Attention nudge and suppresses another ordinary chat reminder for 15 minutes. It uses the existing idle-only input arbiter and never launches or resumes an agent.
-
-Existing installations need both the host change and adoption of the Agentic instruction. Until `todo-adjustment` is available in the active instruction catalog, ordinary nudges continue without the daily invitation.
+This replaces the earlier daily Todo adjustment invitation, which was a one-shot chat nudge on the first idle pass. The reminder itself never changes Tasks or Todo memberships.
 
 ## Recording on behalf of the owner
 
