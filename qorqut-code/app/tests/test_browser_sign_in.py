@@ -246,6 +246,10 @@ class CommandTest(unittest.TestCase):
         window = supervisor.visible_chrome_command(META, "https://slack.com", 55555)
         self.assertIn("--headless=new", headless)
         self.assertNotIn("--headless=new", window)
+        # Agents' headless browsers draw no 3D; the owner's sign-in window still can.
+        self.assertIn("--disable-3d-apis", headless)
+        self.assertNotIn("--disable-3d-apis", window)
+        self.assertEqual(headless[-1], "about:blank")
         self.assertEqual(window[-1], "https://slack.com")
         for flag in supervisor.profile_flags(META["managed"]):
             self.assertIn(flag, headless)

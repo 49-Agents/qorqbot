@@ -52,11 +52,15 @@ def load_meta(state: Path) -> dict:
 
 
 def chrome_command(meta: dict) -> list[str]:
-    """The only Chrome argv this supervisor ever runs: normal sandbox, loopback CDP, a profile private to the agent."""
+    """The only Chrome argv this supervisor ever runs: normal sandbox, loopback CDP, a profile private to the agent.
+
+    No WebGL or other 3D: the host has no GPU, so 3D content (embedded maps, animated widgets) is drawn in software,
+    and a headless browser treats every tab as visible, so a forgotten tab keeps redrawing and holds a CPU core.
+    The owner's sign-in window keeps 3D: it is short-lived and shows whatever the sign-in page needs."""
     managed = meta["managed"]
     return [managed["chrome"], "--headless=new", *profile_flags(managed),
             "--remote-debugging-address=127.0.0.1", f"--remote-debugging-port={managed['port']}",
-            "--disable-background-networking", "about:blank"]
+            "--disable-background-networking", "--disable-3d-apis", "about:blank"]
 
 
 def profile_flags(managed: dict) -> list[str]:
