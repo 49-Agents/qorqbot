@@ -36,6 +36,7 @@ from .working_memory import WorkingMemory
 from .owner_actions import OwnerActions
 from .business_progress import BusinessProgress
 from .business_briefing import BusinessBriefing
+from .records_health import RecordsHealth
 from qorqut.agents.roles import LEARNING_APPLIER_ROLE
 from qorqut.incidents import IncidentOperations
 from qorqut.shared_context.service import INSTRUCT_ROLES
@@ -93,6 +94,7 @@ def register_business_domains(registry, application, paths, *, agent_resolver, q
     IncidentOperations(application).register(registry)
     BusinessProgress(clock=clock).register(registry)
     BusinessBriefing(application, clock=clock).register(registry)
+    RecordsHealth(clock=clock).register(registry)
     tables.register(registry)
     context_sources = ContextSourceOperations(filing=documents.filing, clock=documents.clock, graph_edits=graph_edits,
                                               instruct_roles=INSTRUCT_ROLES).register(registry)

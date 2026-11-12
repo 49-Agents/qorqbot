@@ -35,6 +35,10 @@ and set Workers to who must act next, naming the worker on work a worker holds. 
 work, ask its worker, reassign it or close it. Close only on evidence; when unsure, ask in
 the Task's thread instead. Open a thread only when the list does not settle it.
 
+Then the records that point at Tasks. Read records_health: its summary counts where Todo
+boards, reminders, Focus cards and CRM rows disagree with their Tasks, with examples of
+each. Fix what it lists, starting with the largest count.
+
 Stop after about forty Tasks and keep in working memory where you stopped; the next day
 continues from there. Add a thread note only where a result, question or blocker is not yet
 recorded; never restate unchanged state or forward private messages. Finish quietly unless
