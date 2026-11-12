@@ -24,15 +24,21 @@ Reorder only when useful, not as routine churn. New cards append; restoring a ca
 saved position unless explicitly moved.
 
 This board is shown as Focus. It is the owner's board and stays separate from Ordubashy's
-Todo list (`attention_*`): archiving a card here, or clearing a session current-work
-list, never removes Todo membership or Done work, and `focus_*` is not a work queue.
+Todo list (`todo_*`): archiving a card here, or clearing a session current-work
+list, never changes a Task or who holds it, and `focus_*` is not a work queue. A Task that is
+done or cancelled leaves Focus in the write that closes it.
+
+A Task card shows the Task's `status_line`: one plain sentence, at most 240 characters, with no
+record identifiers. Keep it current on the Task (`tasks_update`); a `reason` given for a Task
+card is written to that line, so the card holds no second text. Reference and Signoff cards keep
+their own `reason`.
 
 Use these six tools:
 
 - `focus_get`: compact active board; include archived/deferred items explicitly.
   Read one `item_id` with `conversation=true` only when its discussion is needed.
 - `focus_present`: present an existing `source={type,id,business_id}` (task or signoff), or `reference={key,title,target}`. Use stable Reference keys.
-  Give a short reason, display_name, requested_response, blocker and urgent. Re-presenting
+  Give a short reason (for a Task: its status line), display_name, requested_response, blocker and urgent. Re-presenting
   restores the same card. Distinct previews can share a parent Task conversation.
 - `focus_edit`: patch framing, references, postponement, or a Reference's target.
   Supply `expected_card_revision`. Conversation binding cannot be retargeted.

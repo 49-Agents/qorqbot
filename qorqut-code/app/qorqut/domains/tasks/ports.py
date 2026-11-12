@@ -21,6 +21,7 @@ from qorqut.agents.roles import LEARNING_APPLIER_ROLE
 from qorqut.domains.dev_tickets import DevTickets
 from qorqut.inbox import attention
 from qorqut.inbox.owner_tasks import ordubashies, tasks as owner_task_rows
+from qorqut.management.identity import configured_ordubashy
 from qorqut_operations.inbox.related import subscribers as related_subscribers
 from qorqut.incidents import IncidentReporter
 
@@ -145,12 +146,34 @@ class HostBoards:
 
 # A delegated Task in one of these states is a result or a blocker Ordubashy answers for.
 OVERSIGHT_STATES = frozenset({"done", "cancelled", "blocked"})
+# The states in which an agent has stopped working on a Task: finished, given up, or parked.
+STOPPED = ("done", "cancelled", "blocked", "waiting")
+
+
+def held_work(uow, task, change, actor_id):
+    """The agents a write to a Task's state or workers must reach because of who holds the work.
+
+    A newly recorded worker is told the Task is theirs (this is the whole notification of a delegation). The coordinator
+    answers for all open work, so it is told when another agent stops working on a work Task: closes it, blocks it or
+    parks it. Starting work, comments and detail edits tell the coordinator nothing here."""
+    required = set(change["new_workers"])
+    if change["from"] is None or change["from"] == change["to"] or change["to"] not in STOPPED:
+        return required
+    coordinator = configured_ordubashy(uow)
+    actor = uow.repository("principals").get(actor_id) if actor_id else None
+    if coordinator is None or actor_id == coordinator or not actor or actor["kind"] != "agent":
+        return required
+    fields = task.get("fields_json") or {}
+    fields = json.loads(fields) if isinstance(fields, str) else fields
+    if (fields.get("$task") or {}).get("task_type", "task") == "task":
+        required.add(coordinator)
+    return required
 
 
 class HostRouting:
     """The v1 routes that are mandatory (the Focus coordinator and the Ordubashy followers of owner work) or discretionary
-    (subscribers, with related work, of a group Task this Task is directly related to), and the coordinator's oversight
-    of delegated work."""
+    (subscribers, with related work, of a group Task this Task is directly related to), the coordinator's oversight of
+    delegated work, and the routes of held work."""
 
     @staticmethod
     def mandatory(uow, business_id, task, actor_id):
@@ -192,8 +215,10 @@ class HostRouting:
             workers = json.loads(workers)
         return coordinators if any(is_worker(uow.connection, worker) for worker in workers) else set()
 
-    def routes(self, uow, business_id, task, actor_id):
+    def routes(self, uow, business_id, task, actor_id, change=None):
         required = self.mandatory(uow, business_id, task, actor_id) | self.oversight(uow, task, actor_id)
+        if change is not None:
+            required |= held_work(uow, task, change, actor_id)
         return required, related_subscribers(uow, business_id, "task", task["id"])
 
     def snooze_routes(self, uow, business_id, task, human_ids):

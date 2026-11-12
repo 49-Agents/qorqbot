@@ -6,6 +6,9 @@ states, one shared ``snoozed_until``, a parent Task, labels from the shared cata
 (``thread_messages``) for comments, summaries, typed references and the system entries that describe a change. Events
 are written by the operation that changed the Task, in its own transaction; see ``events``.
 
+The Task is the one record of a piece of work, so the rules that keep it true are checked where it is written (see
+``lifecycle``), and ``on_change`` lets the host update the records that point at a Task in the same transaction.
+
 Host-specific behaviour (who may be assigned, Focus presentation, the incident link, host note
 references, owner-work routing) arrives through ``TaskPorts``."""
 
@@ -21,13 +24,14 @@ from qorqut_operations.business_lifecycle import active_business_ids
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.conversations import SUMMARY, participants
 from qorqut_operations.discussion.follows import ThreadItem, auto_follow, can_follow, follow_state
-from qorqut_operations.discussion.threads import BODY, RELAY, DiscussionReferences, message_count, plan_comment, read_messages
+from qorqut_operations.discussion.threads import (AUDIENCE, BODY, FOR_OWNER, RELAY, DiscussionReferences, message_count, plan_comment,
+                                                  read_messages)
 from qorqut_operations.global_agents import global_agent_ids, is_global_agent
 from qorqut_operations.items import ItemResolver
 from qorqut_operations.relationships import create_edge, related_rows
 from qorqut_operations.storage.assembly import AssemblyError
 from qorqut_operations.tags.catalog import LABELS_SCHEMA, distinct_labels, item_labels, labels_by_item, matches, plan_item_tags
-from qorqut_operations.tasks import customers, events, links
+from qorqut_operations.tasks import customers, events, lifecycle, links
 from qorqut_operations.tasks.kinds import KIND_INPUT, normalize_arguments, project_result, public_task
 from qorqut_operations.tasks.associated import TaskAssociatedRecords
 from qorqut_operations.tasks.history import HistoricalReferences
@@ -39,13 +43,14 @@ from qorqut_operations.tasks.relocation import TaskRelocation, moved_location
 from qorqut_operations.tasks.scope import task_context, task_namespace
 from qorqut_operations.tasks.schema import CLOSED_STATES, PAUSED_STATES, STATES
 from qorqut_operations.tasks.snooze import reconcile_snoozes
-from qorqut_operations.tasks.types import (KIND_SCHEMA, PROFILE_SCHEMA, STATE_SCHEMA, TYPES, apply_attributes, attributes,
-                                           custom_fields)
+from qorqut_operations.tasks.types import (KIND_SCHEMA, NEXT_STEP_SCHEMA, PROFILE_SCHEMA, STATE_SCHEMA, STATUS_LINE_SCHEMA, TYPES,
+                                           apply_attributes, attributes, custom_fields)
 from qorqut_operations.team_channel import reject_owner_team_write
 
 TASK_READS = ("tasks_list", "tasks_get", "tasks_thread_get", "tasks_notes_list", "tasks_config_get", "assignees_list", "workers_list", "tasks_overview",
               "tasks_associated_records")
-TASK_MUTATIONS = ("tasks_create", "tasks_update", "tasks_assign", "tasks_comment", "tasks_complete", "tasks_config_update")
+TASK_MUTATIONS = ("tasks_create", "tasks_update", "tasks_assign", "tasks_comment", "tasks_complete", "tasks_delegate",
+                  "tasks_config_update")
 TASK_FOLLOW = "tasks_follow"
 TASK_ENTRIES = (
     *(CatalogEntry(name, False, "read") for name in TASK_READS),
@@ -60,6 +65,7 @@ TASK_FIELDS = {
     "overview": {"type": "string", "maxLength": 20000, "description": instruction_text('operations-maintained-current-summary-and-next-steps-history-stays')},
     "email_conversation_id": {"anyOf": [IDENTITY, {"type": "null"}], "description": instruction_text('operations-historical-binding-of-an-email-task-kept-read')},
     "customer_kind": KIND_SCHEMA, "customer_state": STATE_SCHEMA, "customer_profile": PROFILE_SCHEMA,
+    "status_line": STATUS_LINE_SCHEMA, "next_step": NEXT_STEP_SCHEMA,
     "kind": KIND_INPUT, "title": {"type": "string", "minLength": 1, "maxLength": 1000},
     "status": {"enum": list(STATES)}, "assignee_ids": ASSIGNEES, "worker_ids": {**ASSIGNEES, "uniqueItems": True}, "archived": {"type": "boolean"}, "tags": LABELS_SCHEMA,
     "due": {"anyOf": [DATE, {"type": "null"}]}, "blocked_by": {"type": "array", "items": IDENTITY, "maxItems": 100, "uniqueItems": True},
@@ -89,6 +95,10 @@ class TaskOperations:
         if unknown:
             raise AssemblyError("Note reference types are neither engine items nor host references: " + ", ".join(unknown))
         self.note_ref_types = list(ports.references.types)
+        # ``on_change(ctx, uow, before, after)``: the host's one hook on every committed Task write, called inside the
+        # writing transaction with the stored state before (``None`` for a new Task) and after. The host uses it to keep the
+        # records that point at a Task (board entries, Focus cards, reminders) in step with it.
+        self.on_change = None
 
     # -- moved Tasks -----------------------------------------------------------------------------------------------
 
@@ -140,21 +150,27 @@ class TaskOperations:
             "tasks_get": {"task_id": IDENTITY, "related_cursor": PAGE["cursor"],
                           "notes_limit": {"type": "integer", "minimum": 0, "maximum": 10, "default": 7,
                                           "description": instruction_text('operations-comments-per-page-newest-first-0-omits-them')},
-                          "notes_cursor": PAGE["cursor"]}, "tasks_thread_get": {**PAGE, "task_id": IDENTITY},
-            "tasks_notes_list": {**PAGE, "task_id": IDENTITY}, "tasks_config_get": {}, "assignees_list": {}, "workers_list": {},
+                          "notes_cursor": PAGE["cursor"], "audience": AUDIENCE},
+            "tasks_thread_get": {**PAGE, "task_id": IDENTITY, "audience": AUDIENCE},
+            "tasks_notes_list": {**PAGE, "task_id": IDENTITY, "audience": AUDIENCE},
+            "tasks_config_get": {}, "assignees_list": {}, "workers_list": {},
         }
         descriptors = [self.overview.descriptor(), self.associated.descriptor()]
         for name, properties in reads.items():
             descriptors.append(OperationDescriptor(
                 name, schema({**SCOPE, **properties}, ("task_id",) if name in {"tasks_get", "tasks_notes_list", "tasks_thread_get"} else ()),
                 **common, effect_kind="read", supports_signoff=False, read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
-        comment = {"note_refs": refs, "summary": SUMMARY, "relay": RELAY}
+        comment = {"note_refs": refs, "summary": SUMMARY, "relay": RELAY, "for_owner": FOR_OWNER}
         mutations = {
-            "tasks_create": ({"focus": schema(self.ports.focus.schema), **TASK_FIELDS, "id": IDENTITY, "note": TEXT, **comment}, ("title",)),
-            "tasks_update": ({"task_id": IDENTITY, "changes": {**schema({**TASK_FIELDS, "related_task": links.EDIT}), "minProperties": 1}, "note": TEXT, **comment}, ("task_id", "changes")),
+            "tasks_create": ({"focus": schema(self.ports.focus.schema), **TASK_FIELDS, "id": IDENTITY, "note": TEXT, **comment,
+                              "allow_duplicate": lifecycle.ALLOW_DUPLICATE, "owner_requested": lifecycle.OWNER_REQUESTED}, ("title",)),
+            "tasks_update": ({"task_id": IDENTITY, "changes": {**schema({**TASK_FIELDS, "related_task": links.EDIT}), "minProperties": 1}, "note": TEXT, **comment,
+                              "owner_requested": lifecycle.OWNER_REQUESTED}, ("task_id", "changes")),
             "tasks_assign": ({"task_id": IDENTITY, "assignee_ids": ASSIGNEES}, ("task_id", "assignee_ids")),
             "tasks_comment": ({"task_id": IDENTITY, "text": BODY, **comment}, ("task_id", "text")),
-            "tasks_complete": ({"task_id": IDENTITY, "status": {"enum": list(CLOSED_STATES)}, "note": TEXT, **comment}, ("task_id",)),
+            "tasks_complete": ({"task_id": IDENTITY, "status": {"enum": list(CLOSED_STATES)}, "note": TEXT, **comment,
+                                "children": lifecycle.CHILDREN, "result": lifecycle.RESULT}, ("task_id",)),
+            "tasks_delegate": ({"task_id": IDENTITY, "worker_id": UUID, "brief": TEXT, "note_refs": refs}, ("task_id", "worker_id")),
             "tasks_config_update": ({"config": {"type": "object"}}, ("config",)),
         }
         for name, (properties, required) in mutations.items():
@@ -162,6 +178,8 @@ class TaskOperations:
             if name in {"tasks_create", "tasks_update"}:
                 options = {**common, "description": common["description"] +
                            instruction_text('operations-tags-are-ordinary-labels-that-group-work-they')}
+            if name == "tasks_delegate":
+                options = {**common, "description": lifecycle.DELEGATE}
             descriptors.append(OperationDescriptor(
                 name, schema({**SCOPE, **properties, "rationale": TEXT}, required), **options,
                 normalize_arguments=normalize_arguments if name in {"tasks_create", "tasks_update"} else None,
@@ -312,6 +330,7 @@ class TaskOperations:
                 "parent": {key: parent[key] for key in ("id", "title", "status")} if parent else None,
                 "children": children[:50], "children_has_more": len(children) > 50,
                 "closed": task["status"] in CLOSED_STATES, "paused": task["status"] in PAUSED_STATES,
+                "stalled": lifecycle.stalled(task, now),
                 "following": follow["following"], "follow_reason": follow["reason"]}
         view["notes"], view["notes_next_cursor"] = [], None
         notes_page = notes_page or {}
@@ -320,8 +339,11 @@ class TaskOperations:
             # Newest comments first; notes_next_cursor continues into older ones.
             cursor = {"cursor": notes_page["notes_cursor"]} if notes_page.get("notes_cursor") else {}
             history = read_messages(uow, item, {"limit": limit, **cursor}, "tasks_get", ctx.principal_id,
-                                    resolve_refs=self.message_refs(ctx, uow), kinds=("comment",))
+                                    resolve_refs=self.message_refs(ctx, uow), kinds=("comment",),
+                                    audience=notes_page.get("audience"))
             view["notes"], view["notes_next_cursor"] = history["messages"][::-1], history["next_cursor"]
+            if "hidden" in history:
+                view["notes_hidden"] = history["hidden"]
         return public_task(self.project_input(ctx, [view], uow)[0] if 'input_version' not in view else view)
 
     def project_input(self, ctx, tasks, uow):
@@ -350,13 +372,15 @@ class TaskOperations:
             item = ThreadItem(ctx.business_id, "task", arguments["task_id"])
             if operation == "tasks_notes_list":
                 history = read_messages(uow, item, arguments, operation, ctx.principal_id, resolve_refs=self.message_refs(ctx, uow),
-                                        kinds=("comment",))
-                return {"thread_id": history["thread_id"], "notes": history["messages"], "next_cursor": history["next_cursor"]}
-            history = read_messages(uow, item, arguments, operation, ctx.principal_id, resolve_refs=self.message_refs(ctx, uow))
+                                        kinds=("comment",), audience=arguments.get("audience"))
+                return {"thread_id": history["thread_id"], "notes": history["messages"], "next_cursor": history["next_cursor"],
+                        **({"hidden": history["hidden"]} if "hidden" in history else {})}
+            history = read_messages(uow, item, arguments, operation, ctx.principal_id, resolve_refs=self.message_refs(ctx, uow),
+                                    audience=arguments.get("audience"))
             task = self.require(ctx, uow, arguments["task_id"])
             people = {task["created_by"], *(note["created_by"] for note in history["messages"]), *events.assigned(uow, ctx.business_id, task["id"])}
             return {"thread_id": history["thread_id"], "participants": participants(uow, people), "notes": history["messages"],
-                    "next_cursor": history["next_cursor"]}
+                    "next_cursor": history["next_cursor"], **({"hidden": history["hidden"]} if "hidden" in history else {})}
         if operation == "tasks_get":
             task = self.require(ctx, uow, arguments["task_id"])
             detail = self.detail(ctx, task, uow, configuration["fields"], now, notes_page=arguments)
@@ -473,6 +497,15 @@ class TaskOperations:
             if status not in CLOSED_STATES:
                 raise DomainError("validation_error", "Completion requires a terminal state (done or cancelled)")
             edits["status"] = status
+            if arguments.get("result") is not None:
+                # The outcome is recorded once: it is the Task's status line.
+                edits["status_line"] = arguments["result"]
+        if operation == "tasks_delegate":
+            if before["status"] in CLOSED_STATES:
+                raise DomainError("validation_error", "This Task is closed; reopen it before delegating it")
+            # One recorded worker: the agent doing the work. The brief is the Task's own comment, so the hand-over and the
+            # work it describes are one record.
+            edits["worker_ids"] = [arguments["worker_id"]]
         current = dict(before) if before else {
             "id": identity, "title": arguments["title"], "status": DEFAULT_STATE, "due": None, "fields_json": {}, "archived": False,
             "created_by": ctx.principal_id, "created_at": builder.at, "updated_at": builder.at, "kind": "ordinary", "parent_id": None,
@@ -512,6 +545,8 @@ class TaskOperations:
         if current["parent_id"] and (before or {}).get("parent_id") != current["parent_id"]:
             builder.expect(ref("tasks", current["parent_id"], ctx.business_id),
                            uow.repository("tasks", business_id=ctx.business_id).get(current["parent_id"], required=True))
+        closing = lifecycle.check(ctx, uow, arguments, before, current,
+                                  blocked_by=blockers if blockers is not None else events.blockers(uow, ctx.business_id, identity))
         if creating and current["kind"] == "owner_request":
             installation = uow.repository("installation").get("service")
             if not installation or not assignees or installation["owner_principal_id"] not in assignees:
@@ -554,6 +589,11 @@ class TaskOperations:
                 builder.record("tasks", identity, before, {**values, "updated_at": builder.at}, label=current["title"])
             else:
                 builder.expect(resource, before)
+        # Open work under a Task closed with ``children: close`` closes with it, after the Task's own record so that record
+        # stays the plan's first Task change.
+        for child in closing:
+            builder.record("tasks", child["id"], child, lifecycle.closed_values(child, current["status"], builder.at),
+                           label=child["title"])
         builder.effects.append("Updates the task in its owning scope. No agent session is started, resumed, or notified through a terminal.")
         return builder.build()
 
@@ -578,11 +618,15 @@ class TaskOperations:
     def plan_comment(self, ctx, uow, builder, operation, arguments, identity, *, team_note=True):
         """The one discussion write of an operation: its comment, summary and typed references, with attribution."""
         plan_comment(ctx, uow, builder, ThreadItem(ctx.business_id, "task", identity),
-                     note=arguments.get("text") if operation == "tasks_comment" else arguments.get("note"),
+                     note=arguments.get({"tasks_comment": "text", "tasks_delegate": "brief"}.get(operation, "note"))
+                     or (arguments.get("result") if operation == "tasks_complete" else None),
                      summary=arguments.get("summary"), refs=arguments.get("note_refs", []), relay=arguments.get("relay"),
                      resolve=lambda refs: self.note_refs(ctx, refs, uow, builder),
                      guard=(lambda: reject_owner_team_write(ctx, uow, operation)) if team_note else None,
-                     operation_name="tasks_comment" if operation != "tasks_comment" else None)
+                     operation_name="tasks_comment" if operation != "tasks_comment" else None,
+                     # A delegation brief is for the worker. What closes the work is its outcome, which the owner reads.
+                     for_owner=False if operation == "tasks_delegate" else arguments.get("for_owner"),
+                     outcome=operation == "tasks_complete")
 
     def validate_prepared(self, ctx, plan, uow):
         ctx = task_context(ctx, plan.arguments, uow)
@@ -601,6 +645,8 @@ class TaskOperations:
         proposed = {**current, **plain(task_change.values)} if task_change else current
         validate_task(proposed, fields)
         worker_changes = plan.arguments.get("worker_ids") if plan.operation_name == "tasks_create" else plan.arguments.get("changes", {}).get("worker_ids")
+        if plan.operation_name == "tasks_delegate":
+            worker_changes = [plan.arguments["worker_id"]]
         if worker_changes is not None:
             for worker_id in worker_changes:
                 self.assignee(ctx, worker_id, uow, worker=True)
@@ -655,9 +701,19 @@ class TaskOperations:
             return {"config": configuration, "revision": row["revision"]}
         identity = self.planned_task(plan)
         before = events.state(uow, ctx.business_id, identity)
+        # Tasks closed along with this one (``children: close``): each keeps its own thread entry and host hook; the one
+        # event of the operation is the parent's.
+        carried = {change.resource.resource_id: events.state(uow, ctx.business_id, change.resource.resource_id)
+                   for change in plan.changes if change.resource.resource_type == "tasks" and change.action == "update"
+                   and change.resource.resource_id != identity}
         apply_records(ctx, plan, uow)
         after = events.state(uow, ctx.business_id, identity)
         self.announce(ctx, uow, plan, before, after, [plain(change.values) for change in messages])
+        for child_id, earlier in carried.items():
+            later = events.state(uow, ctx.business_id, child_id)
+            events.record_change(uow, ctx.business_id, earlier, later, ctx.principal_id)
+            if self.on_change is not None:
+                self.on_change(ctx, uow, earlier, later)
         for item in plan.arguments.get("note_refs", ()):
             if item["type"] == "dev_ticket":
                 self.ports.incidents.link_task(uow, item["id"], ctx.business_id, identity, ctx.principal_id, timestamp(self.clock))
@@ -688,7 +744,10 @@ class TaskOperations:
         if kinds:
             events.announce(uow, self.ports.routing, ctx.business_id, row, ctx.principal_id, kinds,
                             responsibility=bool({"created", "updated", "assignment_changed"} & set(kinds)),
-                            targets=events.assignment_targets(uow, before, after), messages=written)
+                            targets=events.assignment_targets(uow, before, after), messages=written,
+                            change=events.change(before, after))
+        if self.on_change is not None:
+            self.on_change(ctx, uow, before, after)
 
     def reconcile_snoozes(self, uow, *, now=None, limit=500):
         """The host lifecycle's one call: wake every passed snooze generation once, routed through this service's ``Routing`` port."""

@@ -289,6 +289,10 @@ function conversationMount(host,source,adapter={}) {
     const earliest=s.before?s.notes[0]?.created_at:null;
     for(const note of ctx?.notes || [])if(!earliest || note.created_at>=earliest)entries.push(conversationActivityEntry(note));
     entries.sort((a,b)=>(a.timestamp || '').localeCompare(b.timestamp || ''));
+    // The thread shows what is for the owner. Agents' working notes stay one click away and are never dropped.
+    if(s.allNotes || ctx?.notes_hidden)entries.push({key:'working-notes',speaker:'notice',
+      text:s.allNotes?'Showing agents’ working notes.':`${ctx.notes_hidden} working note${ctx.notes_hidden===1?'':'s'} hidden.`,
+      actions:[{key:'working-notes',label:s.allNotes?'Show only what is for you':'Show all'}]});
     if(ctx?.input_request_missing)entries.unshift({key:'input-missing',speaker:'notice',text:'This task was previously marked as needing input without a linked Signoff. Ordubashy needs to check whether a question is still outstanding.'});
     if(ctx?.notes_next_cursor || ctxMoreError)entries.unshift({key:'progress-more',speaker:'notice',text:ctxMoreError?"Couldn't load earlier actions.":'',
       actions:[{key:'progress-more',label:ctxMoreBusy?'Loading…':'Load earlier actions',disabled:ctxMoreBusy}]});
@@ -307,6 +311,7 @@ function conversationMount(host,source,adapter={}) {
     const slug=context.business_slug,path=slug?`/biz/${encodeURIComponent(slug)}`:'/root';
     const data=coreData(await conversationRequest(post(`${path}/operations/tasks_get`,{
       scope:slug?'business':'global',task_id:source.id,notes_cursor:context.notes_next_cursor,notes_limit:10,
+      ...(s.allNotes?{}:{audience:'owner'}),
     })));
     if(!data.task)throw Object.assign(new Error('Task unavailable'),{code:'not_found'});
     const next=data.task.notes_next_cursor;
@@ -365,7 +370,8 @@ function conversationMount(host,source,adapter={}) {
     relatedPending=true;
     const generation=relatedGeneration,offset=more?s.relatedOffset:null;
     try {
-      let result=await conversationPrivateCall(source,adapter,'owner_conversation_related',{limit:50,...(more?{offset}:{})});
+      let result=await conversationPrivateCall(source,adapter,'owner_conversation_related',{limit:50,...(more?{offset}:{}),
+        ...(s.allNotes?{}:{notes_audience:'owner'})});
       if(!current() || generation!==relatedGeneration)return;
       if(!more)s.inputRequests=result.input_requests || [];
       let context=!more && source.type==='task'?result.context:null;
@@ -562,6 +568,8 @@ function conversationMount(host,source,adapter={}) {
     onReference:ref=>{if(ref)void openRef(ref);},
     onEntryAction:(actionKey,entryKey)=>{
       if(actionKey==='progress-more'){void loadEarlier();return;}
+      // Switching between the owner's part and everything rereads the Task's notes from the start.
+      if(actionKey==='working-notes'){s.allNotes=!s.allNotes;ctxPages=0;void loadRelated();return;}
       if(actionKey==='context-retry'){void loadRelated();return;}
       const note=actionKey==='parent'?s.notes.find(n=>n.id===entryKey):null;
       if(note && adapter.openParent)Promise.resolve().then(()=>adapter.openParent(note)).catch(()=>setError(CONVERSATION_TEXT.load));

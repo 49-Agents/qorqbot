@@ -7,7 +7,12 @@ the relay carries no permission to decide, approve or write anything the recorde
 operation that carries it is authorized for the recorder exactly as for any other comment.
 
 Reading is governed by the item's own authorization, done by the operation that calls ``read_messages``; reading
-never follows an item and never acknowledges an inbox event."""
+never follows an item and never acknowledges an inbox event.
+
+Every message has an audience, derived from what is stored and never written twice. A message is for the owner when
+the owner wrote it, when it is an owner relay, or when an agent posted it for the owner: explicitly (``for_owner``),
+as the outcome of closing the work, or as the first reply after the owner's own message. Everything else, including
+every system entry, is a working note: agents read all of it, and a reader may ask for the owner's part only."""
 
 from __future__ import annotations
 
@@ -16,6 +21,7 @@ from qorqut_agentic.behavior.tool_help import text as instruction_text
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 import json
+import re
 
 from qorqut_operations.application.plans import IDENTITY, PAGE, page, page_position, schema
 from qorqut_operations.contracts import DomainError, new_id, utc_now
@@ -40,6 +46,23 @@ RELAY = {"description": instruction_text('threads-optional-attribution-of-a-rela
 THREAD_READ = {**PAGE}
 SELF = {"kind": "self"}
 NOTE_REF_LIMIT = 10
+OWNER_RELAYS = ("explicit_owner_statement", "owner_intent")
+OWNER_POST_LIMIT = 600
+RECORD_IDENTIFIER = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+FOR_OWNER = {"type": "boolean", "description": (
+    "true: this note is for the owner to read: a result, a question, a blocker the owner can remove, or a reply to the "
+    f"owner. At most {OWNER_POST_LIMIT} characters, in plain words, with no record identifiers; link records with "
+    "note_refs and put detail in a linked file. false or omitted: a working note for the agents, hidden from the owner "
+    "by default. A note written straight after the owner's own message, and the result of tasks_complete, are shown to "
+    "the owner without it.")}
+AUDIENCE = {"enum": ["owner", "all"], "description": (
+    "owner: only what is for the owner (the owner's messages, owner relays and notes posted for the owner); the result "
+    "also says how many working notes were left out. all (default): every note.")}
+# The stored facts that make a message the owner's to read, for a filter over ``thread_messages``. Every term is true
+# or false, never unknown, so the filter and its complement together cover every row.
+FOR_OWNER_SQL = ("(kind='comment' AND (coalesce(json_extract(attribution_json,'$.audience'),'')='owner' "
+                 "OR coalesce(json_extract(attribution_json,'$.kind'),'') IN ('explicit_owner_statement','owner_intent') "
+                 "OR EXISTS (SELECT 1 FROM principals p WHERE p.id=thread_messages.author_id AND p.kind='human')))")
 
 
 @dataclass(frozen=True)
@@ -109,6 +132,37 @@ def read_attribution(uow, message_type, message_id, recorder_id):
             "attribution": json.loads(row["attribution_json"]) if row else dict(SELF)}
 
 
+def owner_post(note: str) -> None:
+    """Refuse a note that is posted for the owner but is not written for a person to read."""
+    if len(note) > OWNER_POST_LIMIT:
+        raise DomainError("validation_error",
+                          f"A note for the owner is at most {OWNER_POST_LIMIT} characters: say the result, the question or the "
+                          "blocker, and put the detail in a linked file or a working note")
+    if RECORD_IDENTIFIER.search(note):
+        raise DomainError("validation_error",
+                          "A note for the owner names no record identifiers: link the record with note_refs instead")
+
+
+def replies_to_owner(uow, item: ThreadItem) -> bool:
+    """Whether the newest comment of the thread was written here by a person, so the next agent comment answers it.
+
+    A relayed owner statement does not count: the owner said it somewhere else and is answered there."""
+    row = uow.connection.execute(
+        "SELECT p.kind, m.author_id=m.recorder_id FROM thread_messages m LEFT JOIN principals p ON p.id=m.author_id "
+        "WHERE m.business_id IS ? AND m.item_type=? AND m.item_id=? AND m.kind='comment' "
+        "ORDER BY m.created_at DESC,m.id DESC LIMIT 1", (item.business_id, item.item_type, item.item_id)).fetchone()
+    return bool(row and row[0] == "human" and row[1])
+
+
+def audience(view: Mapping) -> str:
+    """``owner`` or ``working`` for one projected message."""
+    attributed = view.get("attribution") or {}
+    if view["kind"] == "comment" and (attributed.get("audience") == "owner" or attributed.get("kind") in OWNER_RELAYS
+                                      or view.get("author_kind") == "human"):
+        return "owner"
+    return "working"
+
+
 def message_values(ctx, item: ThreadItem, *, body, summary, refs, speaker, attributed, at) -> dict:
     """The row of a comment, for a plan to record. ``summary`` requires its full body, as in v1."""
     summary = normalize_summary(summary)
@@ -121,12 +175,15 @@ def message_values(ctx, item: ThreadItem, *, body, summary, refs, speaker, attri
 
 
 def plan_comment(ctx, uow, builder, item: ThreadItem, *, note, summary, refs, relay, resolve: Callable,
-                 guard: Callable | None = None, operation_name: str | None = None) -> dict | None:
+                 guard: Callable | None = None, operation_name: str | None = None, for_owner: bool | None = None,
+                 outcome: bool = False) -> dict | None:
     """The one discussion write of an operation on a Task or an Action: its comment, summary and typed references,
     with attribution. Returns the recorded row, or None when the operation carries no note.
 
     ``resolve(refs)`` resolves the typed references with the caller's own authority (the Task reference ports);
-    ``guard()`` is the caller's extra refusal, run once a note is known to be present."""
+    ``guard()`` is the caller's extra refusal, run once a note is known to be present. ``for_owner`` is the agent's own
+    statement of who the note is for; left unsaid, a note that is the ``outcome`` of the operation or that answers the
+    owner's latest message is for the owner, and any other is a working note."""
     summary = normalize_summary(summary)
     refs = list(refs or ())
     if summary and not note:
@@ -143,6 +200,12 @@ def plan_comment(ctx, uow, builder, item: ThreadItem, *, note, summary, refs, re
         guard()
     resolve(refs)
     speaker, attributed = attribution(ctx, uow, relay)
+    if ctx.principal_kind == "agent":
+        if for_owner:
+            owner_post(note)
+            attributed = {**attributed, "audience": "owner"}
+        elif for_owner is None and attributed["kind"] == "self" and (outcome or replies_to_owner(uow, item)):
+            attributed = {**attributed, "audience": "owner"}
     values = message_values(ctx, item, body=note, summary=summary, refs=refs, speaker=speaker, attributed=attributed, at=builder.at)
     builder.record("thread_messages", values["id"], None, values, label="comment", operation_name=operation_name)
     return values
@@ -180,24 +243,36 @@ def message_view(row, uow, resolve_refs: Callable | None = None) -> dict:
     if row["kind"] == "comment" and resolve_refs is not None:
         # The stored scope of the references travels beside the message, not inside its public shape.
         view["refs"] = resolve_refs({**view, "reference_namespace": row["reference_namespace"] if "reference_namespace" in row.keys() else None})
-    return author(view, uow)
+    view = author(view, uow)
+    view["audience"] = audience(view)
+    return view
 
 
 def read_messages(uow, item: ThreadItem, arguments: Mapping, operation: str, principal_id: str, *,
-                  resolve_refs: Callable | None = None, kinds=("comment", "system")) -> dict:
-    """One bounded newest-first page, returned oldest-first. The cursor is bound to the item, principal and filters."""
+                  resolve_refs: Callable | None = None, kinds=("comment", "system"), audience: str | None = None) -> dict:
+    """One bounded newest-first page, returned oldest-first. The cursor is bound to the item, principal and filters.
+
+    ``audience="owner"`` returns only what is for the owner and adds ``hidden``: how many messages of ``kinds`` in the
+    whole thread were left out. Any other value reads everything, as before."""
+    owner_only = audience == "owner"
     normalized = {"item_id": item.item_id, "principal_id": principal_id, "limit": min(arguments.get("limit", 20), 100),
-                  "kinds": list(kinds), **({"cursor": arguments["cursor"]} if arguments.get("cursor") else {})}
+                  "kinds": list(kinds), **({"audience": "owner"} if owner_only else {}),
+                  **({"cursor": arguments["cursor"]} if arguments.get("cursor") else {})}
     _, after = page_position(normalized, item.business_id, operation)
     bounds = " AND (created_at,id)<(?,?)" if after else ""
     marks = ",".join("?" for _ in kinds)
+    scope = f"business_id IS ? AND item_type=? AND item_id=? AND kind IN ({marks})"
+    selection = [item.business_id, item.item_type, item.item_id, *kinds]
     rows = uow.connection.execute(
-        f"SELECT * FROM thread_messages WHERE business_id IS ? AND item_type=? AND item_id=? AND kind IN ({marks}){bounds} "
-        "ORDER BY created_at DESC,id DESC LIMIT ?",
-        [item.business_id, item.item_type, item.item_id, *kinds, *(after or ()), normalized["limit"] + 1]).fetchall()
+        f"SELECT * FROM thread_messages WHERE {scope}{' AND ' + FOR_OWNER_SQL if owner_only else ''}{bounds} "
+        "ORDER BY created_at DESC,id DESC LIMIT ?", [*selection, *(after or ()), normalized["limit"] + 1]).fetchall()
     selected, cursor = page([dict(row) for row in rows], normalized, item.business_id, operation)
-    return {"thread_id": item.thread_id, "messages": [message_view(row, uow, resolve_refs) for row in reversed(selected)],
-            "next_cursor": cursor}
+    result = {"thread_id": item.thread_id, "messages": [message_view(row, uow, resolve_refs) for row in reversed(selected)],
+              "next_cursor": cursor}
+    if owner_only:
+        result["hidden"] = uow.connection.execute(
+            f"SELECT count(*) FROM thread_messages WHERE {scope} AND NOT ({FOR_OWNER_SQL})", selection).fetchone()[0]
+    return result
 
 
 def message_count(uow, item: ThreadItem) -> int:

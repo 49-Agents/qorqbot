@@ -8,10 +8,15 @@ prepared plans, history and notifications. No separate Story/Customer/Email reco
 A Customer keeps a person/company kind, one free-text state label and a small contact
 profile in the same payload. They are valid only for the Customer type and never move
 the Task: the state is a label, not a lifecycle state.
+
+Every type also holds two short lines that are the Task's own record of where it stands: ``status_line`` is what the owner
+is told (shown wherever the Task is shown, so nobody keeps a second copy of it), and ``next_step`` is the one pending
+action. Both are single lines stored only while they hold something.
 """
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 from copy import deepcopy
+import re
 import unicodedata
 
 from qorqut_operations.contracts import DomainError
@@ -22,12 +27,18 @@ CUSTOMER_KINDS = ("person", "company")
 STATE_LIMIT = 120
 NOTES_LIMIT = 20000
 PROFILE_LIMITS = {"company": 500, "contact_name": 500, "email": 500, "phone": 500, "website": 500, "notes": NOTES_LIMIT}
+LINE_LIMIT = 240
 DEFAULTS = {"task_type": "task", "overview": "", "email_conversation_id": None,
-            "customer_kind": None, "customer_state": "", "customer_profile": {}}
+            "customer_kind": None, "customer_state": "", "customer_profile": {},
+            "status_line": "", "next_step": ""}
 # Stored whenever the Task is not all-default, exactly as before Customers existed, so a repeated write of an older
 # Story or Email Task stays a no-op. The customer attributes are stored only while they hold something.
 STORED_ALWAYS = ("task_type", "overview", "email_conversation_id")
 CUSTOMER = ("customer_kind", "customer_state", "customer_profile")
+LINES = ("status_line", "next_step")
+# The owner reads the status line, so it names things in words. A record identifier in it is a sign that working detail
+# was pasted where a sentence belongs.
+IDENTIFIER = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
 
 KIND_SCHEMA = {"anyOf": [{"enum": list(CUSTOMER_KINDS)}, {"type": "null"}],
                "description": instruction_text('types-person-or-company-for-a-customer-a-new')}
@@ -37,6 +48,15 @@ STATE_SCHEMA = {"type": "string", "maxLength": 1000,
 PROFILE_SCHEMA = {"type": "object", "additionalProperties": False,
                   "properties": {name: {"type": "string", "maxLength": limit} for name, limit in PROFILE_LIMITS.items()},
                   "description": instruction_text('types-customer-contact-profile-replaced-as-a-whole-the')}
+# These descriptions are literal: a key in the tool-instruction catalog would have to be adopted by every installed
+# catalog before the engine could start.
+STATUS_LINE_SCHEMA = {"type": "string", "maxLength": 1000,
+                      "description": f"Where this Task stands now, in one plain sentence of at most {LINE_LIMIT} characters written "
+                                     "for the owner. Replaced as a whole; it is the text shown for the Task, so do not repeat it "
+                                     "elsewhere. No record identifiers. Empty clears it."}
+NEXT_STEP_SCHEMA = {"type": "string", "maxLength": 1000,
+                    "description": f"The one pending action on this Task and who takes it, at most {LINE_LIMIT} characters. "
+                                   "Replaced as a whole; empty when nothing is pending."}
 
 
 def normalize_state(value):
@@ -78,6 +98,9 @@ def apply_attributes(current, edits, states=()):
         values["email_conversation_id"] = None
     if isinstance(given.get("customer_state"), str):
         values["customer_state"] = resolve_state(given["customer_state"], states)
+    for name in LINES:
+        if isinstance(given.get(name), str):
+            values[name] = normalize_state(given[name])
     if values["task_type"] == "customer" and values["customer_kind"] is None and "customer_kind" not in given:
         values["customer_kind"] = "person"
     if "fields" in edits:
@@ -113,6 +136,16 @@ def validate_customer(values):
             raise DomainError("validation_error", f"Customer profile {name} must be text up to {PROFILE_LIMITS[name]} characters")
 
 
+def validate_lines(values):
+    """The status line and next step: each one line within the limit, and a status line free of record identifiers."""
+    for name in LINES:
+        value = values[name]
+        if not isinstance(value, str) or value != normalize_state(value) or len(value) > LINE_LIMIT:
+            raise DomainError("validation_error", f"Task {name} must be one line of at most {LINE_LIMIT} characters")
+    if IDENTIFIER.search(values["status_line"]):
+        raise DomainError("validation_error", "The status line is read by the owner: name things in words, not by record identifier")
+
+
 def validate_attributes(task):
     links = task["fields_json"].get("$task_links", [])
     if (not isinstance(links, list) or len(links) > 100
@@ -135,3 +168,4 @@ def validate_attributes(task):
     elif email is not None:
         raise DomainError("validation_error", "Only an Email Task can bind an email conversation")
     validate_customer(values)
+    validate_lines(values)

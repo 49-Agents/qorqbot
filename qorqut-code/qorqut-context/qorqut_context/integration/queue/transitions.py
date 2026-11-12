@@ -196,7 +196,9 @@ def record_published(uow, *, driver_id: str, input_id: str, result: Mapping[str,
 
     ``result`` is the verified publication: the exact event and its actual Git ``published_commit``. ``handoff_note`` is
     the committed event's exact ``{disposition, text}``, kept in the saved result. An explicit empty handoff is recorded
-    and notifies nobody. A discard request that found the event already published is closed as published, never as a
+    and notifies nobody. Neither does the note of an Action input: the Action was recorded by an agent who already knows
+    what it did, so a notice about filing it only wakes the coordinator to read its own news back. The note stays in the
+    saved result for anyone who reads the input. A discard request that found the event already published is closed as published, never as a
     discarded input. The terminal-outcome contribution records the input's completion receipt in this same transaction."""
     _system(uow, driver_id)
     outcomes = require_outcomes(outcomes)
@@ -207,7 +209,7 @@ def record_published(uow, *, driver_id: str, input_id: str, result: Mapping[str,
             or not isinstance(result.get("published_commit"), str) or not result["published_commit"]):
         invalid("A publication result requires its exact event and published commit")
     notice = None
-    if note["disposition"] == "prepared":
+    if note["disposition"] == "prepared" and row["input_kind"] != "action":
         notice = _notify(uow, driver_id, ordubashy_id, input_id, row["attempt"], "context.handoff_published",
                          f"Context input {input_id} published as event {row['context_event_id']}: a handoff note is prepared")
     saved = {**result, "handoff_note": note, "handoff_event_id": notice}

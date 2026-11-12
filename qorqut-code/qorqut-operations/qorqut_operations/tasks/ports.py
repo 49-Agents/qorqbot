@@ -69,7 +69,8 @@ class NoteReferences(Protocol):
 class Routing(Protocol):
     """Mandatory and optional recipients the host adds to a Task event (v1 coordinator routing).
 
-    ``routes(uow, business_id, task, actor_id)`` returns ``(required, optional)`` principal ids: the Focus coordinator
+    ``routes(uow, business_id, task, actor_id, change)`` returns ``(required, optional)`` principal ids; ``change`` is
+    ``events.change`` for a Task write (its state before and after and its newly recorded workers) and ``None`` otherwise: the Focus coordinator
     for an owner's change to a focused Task and the Ordubashy followers of owner work are required; the subscribers of a
     group Task this Task is directly related to (a child, or a related link in either direction) are optional. The engine adds the recipients every Task has (assignees, assignment targets, owners
     of dependent work, followers) itself, and the acting principal is always removed.
@@ -80,7 +81,8 @@ class Routing(Protocol):
     own, so this is where the host answers for it (the Focus coordinator, the owner-work coordinators); optional
     followers are never part of it. The engine filters the result to agents eligible in the Task's scope."""
 
-    def routes(self, uow, business_id: str | None, task: Mapping[str, Any], actor_id: str | None) -> tuple[Sequence[str], Sequence[str]]: ...
+    def routes(self, uow, business_id: str | None, task: Mapping[str, Any], actor_id: str | None,
+               change: Mapping[str, Any] | None = None) -> tuple[Sequence[str], Sequence[str]]: ...
 
     def snooze_routes(self, uow, business_id: str | None, task: Mapping[str, Any], human_ids: Sequence[str]) -> Sequence[str]: ...
 

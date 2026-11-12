@@ -9,8 +9,32 @@ kind, table, alias, redirect or compatibility route.
 * A **work group is an ordinary Task.** Its children are Tasks with `parent_id`. Anything else a group relates to (Materials,
   tables, uploads, assets, other Tasks, Signoffs) is an ordinary `concerns` relationship to the group Task. A
   resource can concern several groups and a group can have any number of resources. Hierarchy is never inferred from a link.
-* The parent is completed and reopened with the normal Task operations and permissions. Children are informational and
-  independent: completing, reopening, cancelling or snoozing a parent or a child changes nothing in the other.
+* The parent is completed and reopened with the normal Task operations and permissions. Reopening or snoozing a parent
+  or a child changes nothing in the other. Closing is where the two meet, so that no open work is left under a closed
+  parent (`qorqut_operations/tasks/lifecycle.py`): an agent cannot close a Task that has open work Tasks directly
+  beneath it, cannot put new work under a closed parent, and closes a whole group with
+  `tasks_complete {children: "close"}`, which closes every open work Task under the parent in the same write. A person
+  closing a Task in the dashboard is not stopped, and Stories, Customers and Email Tasks are never closed along.
+* The Task is the one record of who holds a piece of work and where it stands. A Todo board entry is written by the
+  engine for each recorded worker that keeps a board, for as long as the Task is open and unarchived
+  (`agents/attention.py::follow_task`, run from `domains/tasks/closure.py` inside every Task write); `todo_add` and
+  `todo_remove` record or clear the worker. A Task's Focus card shows the Task's `status_line`, and a `reason` given
+  for a Task card is written to that line. `records_health` lists what still disagrees and what
+  `records_reconcile` would repair; `records_reconcile` (owner or coordinator, once after an upgrade) applies it.
+* A thread message is for the owner or it is a working note (`qorqut_operations/discussion/threads.py`). The audience
+  is derived from what is stored, with no extra column: the owner's own messages, owner relays, the closing note of
+  `tasks_complete`, an agent's first note after the owner's own message, and notes an agent posts with
+  `for_owner: true` (at most 600 characters, no record identifiers; the marker is kept in the message's
+  attribution). Everything else, system entries included, is a working note. `tasks_get`, `tasks_thread_get` and
+  `tasks_notes_list` take `audience: "owner"` and report how many notes were left out; the dashboard thread asks
+  for the owner's part by default and offers "Show all". Agents read everything by default.
+* A list of targets is rows of a table, not a Task each. An agent cannot create or move a work Task under a parent that
+  already has 10 open work Tasks unless it passes `owner_requested: true` (`tasks/lifecycle.py`), and cannot add a
+  work Task as a CRM row or create one through `crm_entries_add` (`crm/entries.py`); a new row is a Customer record.
+  People in the dashboard are not stopped. Each item of `crm_entries_list` carries `decisions`
+  (`waiting_on_owner`, `decided` or `none`, with the pending count and the last decision: its Signoff, when, and what was chosen), computed from the Signoffs
+  linked to the row's record (`signoffs/sources.py::decided`). `records_reconcile` stores the open CRM row records
+  that are still typed as work as Customer records, 150 a call; `repairs` names the repairs to apply.
 * Group text is the Task's own fields and its thread. `tasks_get` returns `parent_id`, `parent {id,title,status}` and
   `children`.
 

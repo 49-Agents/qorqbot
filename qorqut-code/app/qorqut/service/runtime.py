@@ -588,6 +588,11 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     if archive is not None:
         # Archiving a project takes its Tasks off every Todo board in the same write.
         archive.release_todos = attention.release_project
+    # Closing a Task takes it off every Todo board and Focus and cancels agents' follow-up reminders, in the same write.
+    from qorqut.domains.tasks.closure import TaskClosure
+    runtime.domains.tasks.on_change = TaskClosure(attention, runtime.focus.board, runtime.reminders)
+    # The one-time alignment of older records with their Tasks needs both boards.
+    runtime.domains.records_health.bind(attention, runtime.focus.board)
     from qorqut.agentic.attention import register_workflow_attention
     register_workflow_attention(runtime)
     from qorqut.agents.attention_delivery import attach_attention_runtime

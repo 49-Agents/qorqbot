@@ -159,16 +159,16 @@ class TaskChangeRecordTests(unittest.TestCase):
     def test_pending_task_event_carries_its_thread_entries(self):
         task = self.create()
         long_note = 'Checked the registry. ' * 60
-        blocked = self.invoke('tasks_update', {'task_id': task['id'], 'changes': {'status': 'blocked'}, 'note': long_note},
+        started = self.invoke('tasks_update', {'task_id': task['id'], 'changes': {'status': 'working'}, 'note': long_note},
                               revision=task['revision'], ctx=self.worker)
-        self.assertEqual(blocked.status, 'ok', blocked.to_dict())
+        self.assertEqual(started.status, 'ok', started.to_dict())
         with self.db.read() as uow:
             event = uow.connection.execute("SELECT * FROM inbox_events WHERE source_type='tasks' AND source_id=? "
                                            "ORDER BY id DESC LIMIT 1", (task['id'],)).fetchone()
             entries = InboxService.task_entries(None, event, uow)
             other = InboxService.task_entries(None, {**dict(event), 'source_type': 'signoffs'}, uow)
         self.assertEqual(other, [])
-        self.assertEqual(entries[0], {'kind': 'system', 'text': 'State changed from open to blocked.'})
+        self.assertEqual(entries[0], {'kind': 'system', 'text': 'State changed from open to working.'})
         self.assertEqual(entries[1], {'kind': 'note', 'text': long_note.strip()[:ENTRY_TEXT], 'truncated': True, 'by': 'Scout'})
         shown = present('inbox_list', {'status': 'ok', 'data': {'items': [
             {'id': 1, 'source_type': 'tasks', 'source_id': task['id'], 'entries': entries, 'visibility_json': '{}'}]}})

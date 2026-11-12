@@ -36,6 +36,7 @@ from .working_memory import WorkingMemory
 from .owner_actions import OwnerActions
 from .business_progress import BusinessProgress
 from .business_briefing import BusinessBriefing
+from .records_health import RecordsHealth
 from qorqut.agents.roles import LEARNING_APPLIER_ROLE
 from qorqut.incidents import IncidentOperations
 from qorqut.shared_context.service import INSTRUCT_ROLES
@@ -64,6 +65,7 @@ class BusinessDomains:
     tags: TagOperations = None
     queue: ContextQueueOperations = None
     crm: CRMOperations = None
+    records_health: RecordsHealth = None
 
     def resolve_file_target(self, resource):
         if resource.resource_type == "business_creation_directories":
@@ -93,6 +95,7 @@ def register_business_domains(registry, application, paths, *, agent_resolver, q
     IncidentOperations(application).register(registry)
     BusinessProgress(clock=clock).register(registry)
     BusinessBriefing(application, clock=clock).register(registry)
+    records_health = RecordsHealth(clock=clock).register(registry)
     tables.register(registry)
     context_sources = ContextSourceOperations(filing=documents.filing, clock=documents.clock, graph_edits=graph_edits,
                                               instruct_roles=INSTRUCT_ROLES).register(registry)
@@ -142,4 +145,4 @@ def register_business_domains(registry, application, paths, *, agent_resolver, q
     if agent_resolver is not None:
         agent_resolver.working_memory = memory
     documents.register(registry, application, working_memory=memory, shared_context=shared_context)
-    return BusinessDomains(tasks, activity, documents, assets, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, business_creation, memory, archive, context_sources=context_sources, context_questions=context_questions, shared_context=shared_context, viewbox=viewbox, actions=actions, tags=tags, queue=queue, crm=crm)
+    return BusinessDomains(tasks, activity, documents, assets, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, business_creation, memory, archive, context_sources=context_sources, context_questions=context_questions, shared_context=shared_context, viewbox=viewbox, actions=actions, tags=tags, queue=queue, crm=crm, records_health=records_health)

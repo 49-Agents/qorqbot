@@ -16,6 +16,7 @@ from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.storage.repositories import decode_row
 from qorqut_operations.tables import crm_model
 from qorqut_operations.tables.operations import MAX_ROWS, cells_checked, columns_checked, table_context, table_namespace
+from qorqut_operations.tasks import lifecycle
 
 from .access import ScopeCache
 from .refs import namespace_of, record_ref
@@ -180,8 +181,28 @@ class Entries:
         chosen, cursor = page(selected, {**args, "table_revision": table["revision"]}, ctx.business_id, operation, key=key,
                               reverse=args.get("descending", False))
         now = timestamp(self.crm.clock)
-        return {"items": [self.view(ctx, table, entry, uow, cache, now) for entry in chosen], "next_cursor": cursor,
-                "table_revision": table["revision"]}
+        items = [self.view(ctx, table, entry, uow, cache, now) for entry in chosen]
+        self.decisions(ctx, items, uow)
+        return {"items": items, "next_cursor": cursor, "table_revision": table["revision"]}
+
+    def decisions(self, ctx, items, uow):
+        """Say for each row where its decisions stand, read from the Signoffs linked to its record.
+
+        ``waiting_on_owner``: a question or approval about the record is pending (they are the record's own
+        ``input_requests``). ``decided``: none is pending and the owner has decided one before; ``last`` is that decision.
+        ``none``: no Signoff concerns the record. A list of what the owner still has to decide is this read, so it never has
+        to be kept in a note or a report."""
+        signoffs = getattr(self.crm.application, "signoffs", None)
+        shown = [item for item in items if item.get("record")]
+        if signoffs is None or not shown:
+            return
+        latest = signoffs.sources.decided(ctx, [item["record_ref"] for item in shown], uow)
+        for item in shown:
+            reference = item["record_ref"]
+            pending = len(item["record"].get("input_requests") or ())
+            last = latest.get((reference["type"], reference["id"], reference["business_id"]))
+            item["decisions"] = {"state": "waiting_on_owner" if pending else "decided" if last else "none",
+                                 "pending": pending, "last": last}
 
     def matches(self, ctx, entry, table, uow, cache, query):
         """Whether the query is in the entry's title, its local values or the Task fields its columns show."""
@@ -229,8 +250,13 @@ class Entries:
             entry = None
         else:
             reference = args["record"]
-            self.crm.access.require(ctx, reference, uow, builder)
+            record = self.crm.access.require(ctx, reference, uow, builder)
             entry = self.lookup(ctx, table["id"], reference, uow)
+            if ctx.principal_kind == "agent" and (entry is None or entry["removed"]) and lifecycle.work(record):
+                raise DomainError("validation_error",
+                                  "This Task is a piece of work, and a CRM row is a record. Add the row with create (it is "
+                                  "stored as a Customer record), or change the Task's task_type first; keep the work on the "
+                                  "rows as one separate Task")
             if entry is not None and not entry["removed"]:
                 self.agree(entry, cells, args)
                 builder.expect(ref("crm_entries", entry["id"], ctx.business_id), entry)
@@ -264,7 +290,13 @@ class Entries:
 
     def task_arguments(self, ctx, args):
         """The ``tasks_create`` arguments of a new entry: a Customer (person) unless another Task type is chosen."""
-        create = {"task_type": "customer", **args["create"]}
+        # A row is a record of its Table, so a second row with the same name is the Table's business, not a duplicate Task.
+        create = {"task_type": "customer", "allow_duplicate": True, **args["create"]}
+        if ctx.principal_kind == "agent" and create["task_type"] == "task":
+            # A work Task per row fills every work view with records and leaves each row's state in two places.
+            raise DomainError("validation_error",
+                              "A CRM row is a record, not a piece of work: leave task_type out (the row is stored as a Customer "
+                              "record) and keep the work on the rows as one separate Task")
         return {**create, **({"scope": "global"} if ctx.business_id is None else {})}
 
     def compose_task(self, ctx, builder, args, options, uow):

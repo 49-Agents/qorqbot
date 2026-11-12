@@ -6,14 +6,17 @@ records a wake for the Task's current generation in the same transaction as the 
 a restart or two racing ticks cannot notify twice for the same due state. A Task that is done or cancelled gets no
 reminder.
 
-Responsibility is computed once: all of the Task's actual assignees, or its creator when it has none. Each responsible
-principal is classified from the principal registry. Agents receive the event through the inbox (the event writer
+Responsibility is computed once: all of the Task's actual assignees, or its creator when it has none, and always its
+recorded workers, who are the ones to pick the work up again. Each responsible principal is classified from the
+principal registry. Agents receive the event through the inbox (the event writer
 keeps only the eligible ones). Human responsibility is not an inbox row: it always goes through the typed host
 ``Routing.snooze_routes(uow, business_id, task, human_ids)``, creator fallback included, and the host answers with the
 agents to tell on their behalf. The creator is never told while somebody else is assigned. A wake nobody is eligible
 for is still recorded, so it is never retried."""
 
 from __future__ import annotations
+
+import json
 
 from qorqut_operations.application.plans import timestamp, utc_clock
 from qorqut_operations.contracts import DomainError, utc_now
@@ -22,8 +25,10 @@ from qorqut_operations.tasks.events import SOURCE_TYPE, assigned
 
 
 def responsible(uow, task) -> list[str]:
-    """The principals a snooze wake is for: every actual assignee, otherwise the creator."""
-    return assigned(uow, task["business_id"], task["id"]) or [task["created_by"]]
+    """The principals a snooze wake is for: every actual assignee, otherwise the creator, and every recorded worker."""
+    workers = task.get("worker_ids_json") or []
+    workers = json.loads(workers) if isinstance(workers, str) else list(workers)
+    return (assigned(uow, task["business_id"], task["id"]) or [task["created_by"]]) + workers
 
 
 def recipients(uow, routing, task) -> list[str]:
