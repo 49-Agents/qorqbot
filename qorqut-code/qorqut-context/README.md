@@ -35,7 +35,8 @@ propagator can read the node and link notes to it, but hands profile changes to
 Ordubashy. Its per-input operational-intake reminder includes automatic personal
 fact capture, sources and dates, explicit corrections and unresolved contradictions.
 Capture remains an agent responsibility; the hook does not verify factual accuracy
-or prove that a fact was saved. No onboarding interview or profile UI is included.
+or prove that a fact was saved. No profile UI is included; the first-conversation interview is the host's
+`agentic-management/get-set-up` workflow, which writes through the same `context_edit` path.
 
 Standalone library callers that need a graph without an installation owner can
 explicitly pass `personal_context=False` to `Context.initialize`. Reads and normal

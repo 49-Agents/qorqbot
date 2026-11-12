@@ -25,7 +25,7 @@ const onboarding = (() => {
       online: 'Ordubashy is online. He is setting himself up and will answer in Chat in a moment.',
       target: () => document.querySelector('#global-agent-terminal .gchat-terminal')},
     {id: 'chat', chapter: 'online', title: 'say hello',
-      body: 'Once he is connected, type “hi, what can you help me with?” in the message box and press send.',
+      body: 'Once he is connected, type “hi, help me get set up” in the message box and press send. He asks a few quick questions about you and connects the tools you want him to use.',
       hint: 'Wait for his reply, then continue. To watch him work, the >_ icon above Chat opens his Terminal.',
       target: () => document.querySelector('#global-agent-terminal .gchat-composer')},
     {id: 'focus', chapter: 'workspace', view: 'focus', title: 'focus',
