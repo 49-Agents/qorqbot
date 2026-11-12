@@ -65,11 +65,12 @@ WORKSPACE_OPERATIONS = frozenset({"workspace_types", "workspace_get", "workspace
 # files_link only builds a link: a path is checked lexically and a document ID through the caller's own
 # document read rules. Content is read solely by the owner's viewer, never through this grant.
 # records_health and records_reconcile answer only the owner and the configured coordinator; each refuses everyone else.
-# So do owner_inputs_list and owner_input_get, the read of the owner's own messages.
+# So do owner_inputs_list and owner_input_get, the read of the owner's own messages, and work_review_get, what was done.
 CORE_DEFAULT_ALLOWED = frozenset({"environment_list", "operations_batch", "operations_describe", "agent_runtime_get",
                                   "working_memory_get", "working_memory_update", "agent_context_get",
                                   "agents_activity_list", "agent_work_update", "business_briefing", "files_link", "agentic_access",
-                                  "records_health", "records_reconcile", "owner_inputs_list", "owner_input_get"})
+                                  "records_health", "records_reconcile", "owner_inputs_list", "owner_input_get",
+                                  "work_review_get"})
 
 
 

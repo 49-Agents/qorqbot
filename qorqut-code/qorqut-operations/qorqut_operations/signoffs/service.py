@@ -377,14 +377,26 @@ class SignoffService:
                 "review_business_id": context.business_id, "items": [self._dto(row, uow, detail=False) for row in rows],
                 "counts": counts, "next_cursor": next_cursor, "updated_cursor": updated_cursor, "has_more": has_more}
 
-    def recent_outcomes(self, context, uow, *, since, limit):
-        """Newest decided proposals updated since a time, with signoffs_list visibility."""
+    def recent_outcomes(self, context, uow, *, since, limit, until=None, side_chats=True):
+        """Newest decided proposals updated since a time (and before ``until``), with signoffs_list visibility."""
+        where = "s.state IN ('approved','applied','rejected','answered','failed')" + ("" if side_chats else " AND s.category != 'side_chat'")
+        return self._recent(context, uow, where, "updated_at", since, until, limit)
+
+    def recent_proposals(self, context, uow, *, since, limit, until=None):
+        """Newest proposals created since a time (and before ``until``), whatever became of them, with signoffs_list
+        visibility. A side chat is a conversation, not a proposal."""
+        return self._recent(context, uow, "s.category != 'side_chat'", "created_at", since, until, limit)
+
+    def _recent(self, context, uow, where, column, since, until, limit):
         context = self._context(context, uow)
         clause, params = self._visibility(context, uow)
-        clause += " AND s.state IN ('approved','applied','rejected','answered','failed') AND s.updated_at>=?"
+        clause += f" AND {where} AND s.{column}>=?"
         params.append(since)
+        if until is not None:
+            clause += f" AND s.{column}<?"
+            params.append(until)
         count = uow.connection.execute(f"SELECT COUNT(*) FROM signoffs s WHERE {clause}", params).fetchone()[0]
-        rows = uow.connection.execute(f"SELECT s.* FROM signoffs s WHERE {clause} ORDER BY s.updated_at DESC, s.id DESC LIMIT ?",
+        rows = uow.connection.execute(f"SELECT s.* FROM signoffs s WHERE {clause} ORDER BY s.{column} DESC, s.id DESC LIMIT ?",
                                       [*params, limit]).fetchall()
         return {"count": count, "items": [self._dto(decode_row(row), uow, detail=False) for row in rows]}
 
