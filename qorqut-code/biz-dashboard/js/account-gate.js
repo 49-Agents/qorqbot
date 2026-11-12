@@ -7,7 +7,7 @@ const accountGate = (() => {
   const LICENSE_URL = 'https://qorqbot.com/license/';
   const PRIVACY_URL = 'https://qorqbot.com/privacy/';
   const UPDATE_DISMISSED = 'qorqbot:update-notice-dismissed';
-  const RECHECK = 6 * 3600 * 1000;
+  const RECHECK = 6 * 3600 * 1000, FIRST_RECHECK = 15000;
   let root = null, email = '', marketing = false, resolveGate = null;
 
   function updateMessage(view) {
@@ -47,6 +47,8 @@ const accountGate = (() => {
     }
     const section = root.querySelector('section');
     section.innerHTML = html;
+    // A message about the last attempt goes away once the owner types again.
+    section.oninput = () => { const line = section.querySelector('[data-account-error]'); if (line) line.textContent = ''; };
     return section;
   }
   const privacyNote = `<p class="onboarding-private"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.2 2.2 4.3-4.6"/></svg><span><b>Your work stays here.</b> Qorqbot only learns your email and that Qorqbot is in use. Never your conversations, files or what your agents do. <a href="${PRIVACY_URL}" target="_blank" rel="noopener noreferrer">Privacy</a></span></p>`;
@@ -139,7 +141,10 @@ const accountGate = (() => {
     let view;
     try { view = await read(); } catch (_) { return null; }
     paintUpdate(view);
-    setInterval(async () => { try { paintUpdate(await read()); } catch (_) { /* Checked again later. */ } }, RECHECK);
+    // The first read after a start only begins the release check; its answer is ready moments later.
+    const recheck = async () => { try { paintUpdate(await read()); } catch (_) { /* Checked again later. */ } };
+    setTimeout(recheck, FIRST_RECHECK);
+    setInterval(recheck, RECHECK);
     if (!view.required) return view;
     return new Promise(resolve => { resolveGate = resolve; emailStep(); });
   }
