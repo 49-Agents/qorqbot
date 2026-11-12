@@ -105,6 +105,10 @@ Pass these commands as the `browser_turn` command array:
   Dialogs, alerts, statuses and invalid controls remain visible in narrow views.
 - `goto <url>`, `tab-select <tab-id>` and `tab-close <tab-id>` manage the selected
   task tabs. Use stable IDs such as `t2`; recheck tabs before closing a tab you created.
+- When a browser task is done (its result recorded or the work handed back), close every
+  tab you opened for it with `tab-close`, leaving the browser on a blank tab. Keep a tab
+  open only when an open Task's `next_step` needs it soon. An open tab keeps running and
+  costs CPU even when nobody looks at it. Never close owner tabs or tabs you did not open.
 - `screenshot` is a fallback for visual tasks or inaccessible controls. Inspect
   the image before coordinate actions. Avoid repeated full snapshots/screenshots.
 - `eval <function>` runs a page JavaScript function when ordinary controls are
