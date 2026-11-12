@@ -92,11 +92,14 @@ rollback contract is in the host's [`docs/INSTALLATION.md`](../docs/INSTALLATION
   scoped task navigation and the owner filter. Empty boards disappear on refresh,
   while failed reads are labelled. Check: `node --test tests/attention-agents.test.js`
   (requires Playwright Chromium).
-- **Chat focus.** Above the input, the chat agent's recorded focus and intent appear
-  beside its working dots. Todo selection does not change this identity. Idle agents
-  retain the focus text without an animation; unavailable and unset focus are labelled.
-  The read-only focus projection refreshes while the chat is visible and is disposed
-  with it. Check: `node --test tests/chat-focus.test.js` (requires Playwright Chromium).
+- **Chat focus.** The board above the input shows Ordubashy's icon and recorded focus.
+  Click it to expand or collapse; the button also works with Enter and Space.
+  Expanded boards show his intent and every other active agent's name and focus,
+  including explicit unset and unavailable states. The pane requests only focus
+  projections and does not display Todo lists or workflow steps. Other-agent reads
+  stop while collapsed, and all focus reads stop when the chat is hidden.
+  Working dots remain tied to the chat's
+  own session. Check: `node --test tests/chat-focus.test.js` (requires Playwright Chromium).
 - **No main menu.** The Agents navigation (roster, Terminal, Settings below it)
   is the only navigation. A non-Agent top-level page such as Settings offers one
   **Back to agents** action. First visits open Global → Agents with the registered

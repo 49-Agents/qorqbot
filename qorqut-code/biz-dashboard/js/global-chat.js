@@ -607,9 +607,9 @@ function mountGlobalChat(pane, agent, options = {}) {
     slashMenu = slashCommands.attach({input: view.elements.input, form: view.elements.composer, commands: commandCatalog});
     cleanups.push(() => slashMenu.dispose());
   }
-  // Recorded focus and upcoming work belong to this chat's agent, independently of the selected Todo board.
+  // The focus board keeps Ordubashy first without changing this chat's input or session identity.
   if (hasContext && view.elements?.composer) {
-    contextStatus=chatFocusPanelMount(view.elements.composer,agentId,{visible:contextVisible,onChange:paintSession,workingTag});
+    contextStatus=chatFocusPanelMount(view.elements.composer,agentId,{agent,visible:contextVisible,onChange:paintSession,workingTag});
     cleanups.push(()=>contextStatus.dispose());
   }
 
