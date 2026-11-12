@@ -1,4 +1,4 @@
-// Ordubashy's recorded focus above the composer; expand to see the full active agent roster.
+// Ordubashy's recorded focus above the composer; expand to see other agents with a focus.
 // Only focus projections are read. The working dots always belong to the chat's native session.
 const WORKFLOW_PANEL_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 
@@ -66,14 +66,15 @@ function chatFocusPanelMount(composer, agentId, {agent, visible, onChange, worki
   const peerData=new Map();
   const paintPeers=()=>{
     const scrollTop=expanded.scrollTop;
-    peers.hidden=!peerAgents.length;
-    peers.replaceChildren(...peerAgents.map(agent=>{
+    const focusedAgents=peerAgents.filter(agent=>{
+      const attention=peerData.get(agent.agent_id)?.attention;
+      return supportsFocus(agent) && attention?.state==='focused' && attention.focus && !attention.focus.unavailable;
+    });
+    peers.hidden=!focusedAgents.length;
+    peers.replaceChildren(...focusedAgents.map(agent=>{
       const row=document.createElement('div');row.className='wfpanel-agent';row.dataset.agentId=agent.agent_id;
       const data=peerData.get(agent.agent_id),attention=data?.attention,focus=attention?.focus;
-      const focused=attention?.state==='focused' && focus && !focus.unavailable;
-      const text=!supportsFocus(agent) ? 'No recorded focus' : !peerData.has(agent.agent_id) ? 'Loading…'
-        : !attention || focus?.unavailable ? 'Focus unavailable' : focused ? focus.label || attention.task?.label || 'Focused' : 'No focus set';
-      row.classList.toggle('wfpanel-agent-unfocused',!focused);
+      const text=focus.label || attention.task?.label || 'Focused';
       const label=agent.display_name || agent.name || 'Agent';
       row.innerHTML=identityAvatar('agent',label,agent);
       const summary=document.createElement('span');summary.className='wfpanel-agent-summary';

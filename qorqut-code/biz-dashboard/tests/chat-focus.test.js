@@ -122,7 +122,7 @@ browserTest('clicking focus, icon, board, or peer rows toggles; Enter and Space 
   }finally{await browser.close();}
 });
 
-browserTest('expanded board includes every active agent with explicit missing focus states',async()=>{
+browserTest('expanded board only shows agents with a focus and hides them when focus clears',async()=>{
   const {browser,page,errors}=await fixture();
   try {
     await page.evaluate(()=>{
@@ -130,16 +130,20 @@ browserTest('expanded board includes every active agent with explicit missing fo
       attentions.idle={state:'unfocused',focus:null,intent:'Hidden idle intent'};
       attentions.unavailable={state:'focused',focus:{unavailable:true}};mount();
     });
-    await page.waitForFunction(()=>document.querySelector('[data-agent-id="unavailable"] .wfpanel-agent-focus')?.textContent==='Focus unavailable');
-    assert.deepEqual(await page.locator('.wfpanel-agent').evaluateAll(nodes=>nodes.map(el=>el.dataset.agentId)),['atlas','idle','unavailable','learning']);
-    assert.deepEqual(await page.locator('.wfpanel-agent-focus').allTextContents(),['Verify sources','No focus set','Focus unavailable','No recorded focus']);
-    assert.deepEqual(await page.locator('.wfpanel-agent-name').allTextContents(),['atlas','idle','unavailable','learning']);
+    await page.waitForFunction(()=>document.querySelector('.wfpanel-agent-focus')?.textContent==='Verify sources' && focusReads.some(read=>read.agent_id==='unavailable') && activePeerReads===0);
+    assert.deepEqual(await page.locator('.wfpanel-agent').evaluateAll(nodes=>nodes.map(el=>el.dataset.agentId)),['atlas']);
+    assert.deepEqual(await page.locator('.wfpanel-agent-focus').allTextContents(),['Verify sources']);
+    assert.deepEqual(await page.locator('.wfpanel-agent-name').allTextContents(),['atlas']);
     assert.ok(!(await page.locator('.wfpanel').innerText()).includes('Compare the original documents'));
     assert.equal(await page.evaluate(()=>focusReads.some(read=>['retired','learning'].includes(read.agent_id))),false);
     await page.evaluate(()=>{attentions.idle={state:'focused',focus:{label:'New active focus'}};profiles=profiles.filter(agent=>agent.agent_id!=='atlas');});
     await page.clock.fastForward(12000);
     await page.waitForFunction(()=>document.querySelector('[data-agent-id="idle"] .wfpanel-agent-focus')?.textContent==='New active focus');
     assert.equal(await page.locator('.wfpanel-agent[data-agent-id="atlas"]').count(),0);
+    await page.evaluate(()=>{attentions.idle={state:'unfocused',focus:null};});
+    await page.clock.fastForward(12000);
+    await page.waitForFunction(()=>document.querySelectorAll('.wfpanel-agent').length===0);
+    assert.equal(await page.locator('.wfpanel-agents').isVisible(),false);
     assert.deepEqual(errors,[]);
   }finally{await browser.close();}
 });
@@ -300,7 +304,7 @@ browserTest('mobile hides the board and stops reads; desktop restores it without
     await page.locator('.gchat-composer textarea').fill('Keep my draft');
     await page.setViewportSize({width:700,height:700});
     assert.equal(await page.locator('.wfpanel').isVisible(),false);
-    assert.equal(await page.locator('.gchat-session .gchat-working-tag').isVisible(),true);
+    await page.locator('.gchat-session .gchat-working-tag').waitFor({state:'visible'});
     const reads=await page.evaluate(()=>focusReads.length);await page.clock.fastForward(24000);
     assert.equal(await page.evaluate(()=>focusReads.length),reads);
     assert.equal(await page.locator('.gchat-composer textarea').inputValue(),'Keep my draft');

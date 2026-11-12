@@ -21,7 +21,6 @@
 .wfpanel-agent .identity-avatar svg { width:18px; height:18px; }
 .wfpanel-agent-summary { min-width:0; overflow-wrap:anywhere; white-space:normal; }
 .wfpanel-agent-name { font-weight:500; }
-.wfpanel-agent-unfocused .wfpanel-agent-focus { color:var(--fg-2); }
 @media (max-width:700px) {
   .wfpanel { display:none; }
 }
