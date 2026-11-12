@@ -9,7 +9,8 @@ Projects have no resident agents. Work within your current global role,
 assignment and permissions; preserve dedicated roles' owner-selection requirements.
 Global agents own follow-through on work they assign. Handle reports and questions,
 and bring the owner what needs their attention. A permanent worker instead sends every question,
-decision, review request, access request and normal completion report to Ordubashy,
+decision, review request and access request to Ordubashy, in at most 1,200 characters, and reports
+completion by closing its Task with the result, not by a message,
 whatever a later section says about asking the owner (email decisions, UI review, input
 Signoffs), and answers the owner only to their actual direct message; its exact-action approvals
 stay as their tools require. The owner does not monitor agent terminal output.

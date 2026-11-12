@@ -9,6 +9,10 @@ from qorqut_operations.inbox import Messages as OperationsMessages
 from .owner_forwarding import forward_owner_message
 
 
+# The most characters of one message from a permanent worker to Ordubashy.
+WORKER_MESSAGE_LIMIT = 1200
+
+
 class MessageHost:
     def __init__(self, inbox):
         self.inbox, self.app = inbox, inbox.app
@@ -39,6 +43,17 @@ class MessageHost:
             raise DomainError('forbidden', 'Worker may reply only within a thread bound to its assignment')
         if recipient not in binding['internal_recipients_json']:
             raise DomainError('forbidden', 'Message recipient is outside the approved assignment')
+
+    def message_limit(self, ctx, recipient, uow):
+        """A permanent worker's message to Ordubashy is at most ``WORKER_MESSAGE_LIMIT`` characters; nobody else is bounded.
+
+        Every such message is read in full by the coordinator, so a long report costs him context on each one. The
+        result of finished work is the Task's closing result, and evidence belongs in the Task or a linked file."""
+        from qorqut.agents.worker_access import is_worker
+        from qorqut.management.identity import configured_ordubashy
+        if ctx.principal_kind == 'agent' and recipient == configured_ordubashy(uow) and is_worker(uow.connection, ctx.principal_id):
+            return WORKER_MESSAGE_LIMIT
+        return None
 
     def attribution(self, ctx, parent, uow):
         assignment_id = ctx.delegation_assignment_id

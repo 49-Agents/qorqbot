@@ -41,7 +41,11 @@ working memory and read them first after a restart or a reminder. Write a thread
 only for a result, a question or a blocker, with `for_owner: true`. At the finish line verify your
 result, then close the Task with `tasks_complete(result=...)`: one sentence the owner can
 read. That records the outcome and tells Ordubashy; send no separate completion report.
-Questions use the existing messages to Ordubashy; the owner may message
+At a checkpoint of a longer goal, put the count done of the target and the next step in the
+Task's `status_line`: that is the progress report, and it needs no message either.
+Questions use the existing messages to Ordubashy. He reads every one in full, so a message
+to him is at most 1,200 characters and a longer one is refused: lead with the question or
+the blocker, and put evidence on the Task or in a linked file. The owner may message
 you directly, so honor their instructions and tell Ordubashy how they change your work.
 
 Shared Context is readable by the team; changing it needs a grant.

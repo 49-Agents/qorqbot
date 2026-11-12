@@ -143,6 +143,14 @@ class Messages:
         if not recipient or recipient == ctx.principal_id:
             raise DomainError('validation_error', 'Choose another agent or provide a reply target')
         self.host.validate_recipient(ctx, recipient, parent, binding, uow)
+        # An optional host rule: the most characters this sender may send this recipient. Nothing is cut: a longer
+        # message is refused whole, so the sender shortens it and the recipient never reads half of one.
+        limit = getattr(self.host, 'message_limit', None)
+        limit = limit(ctx, recipient, uow) if callable(limit) else None
+        if limit and len(args['message']) > limit:
+            raise DomainError('validation_error', f'A message to this recipient is at most {limit} characters; this one has '
+                              f"{len(args['message'])}. Lead with the question, blocker or result and put the details on "
+                              'the Task (its result or a thread note) or in a linked file')
         peer = self.peer(ctx, recipient, uow, allow_owner=bool(parent))
         if args.get('delivery') == 'terminal':
             self.host.validate_terminal(ctx, recipient, args['message'], uow)

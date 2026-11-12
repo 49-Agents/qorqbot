@@ -45,6 +45,8 @@ from qorqut_operations.storage.files import FileApplier
 RECOVERY_WRITERS = ("native_chat", "inbox_nudges", "activity", "incidents", "terminal_control", "broadcast_dispatcher", "changes",
                     "context", "history")
 RECOVERY_REQUIRED = RECOVERY_WRITERS
+# How often the backend pass looks for workers whose sessions cannot take input.
+UNREACHABLE_PASS_SECONDS = 60.0
 # The runtime attribute behind a lifecycle step whose name differs from it.
 STEP_ATTRIBUTES = {"context": "context_services", "history": "history_observer"}
 
@@ -521,7 +523,7 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     runtime.native_chat = NativeChat.build(runtime)
     from qorqut.overseer.operations import OverseerOperations
     runtime.overseer = OverseerOperations(runtime).register()
-    from qorqut.native_chat.nudges import NudgeBackend, delivery_view, isolated
+    from qorqut.native_chat.nudges import NudgeBackend, delivery_view, isolated, paced
     # The shared reminder service is registered (its operations, legacy wrappers, delivery adapter and runtime.reminders /
     # application.reminders) before the nudge pass can call its reconcile; it needs only the application and inbox; owner delivery uses a selected extension.
     from qorqut.reminders.service import ReminderService
@@ -531,6 +533,11 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # agent. Without a Task service there are no snoozes to reconcile.
     tasks = getattr(domains, "tasks", None)
     from qorqut.overseer.due import reconcile as reconcile_due
+    # A worker whose session cannot take input leaves its assigned work unseen. Once a minute the pass reads the nudge
+    # attempts and sends Ordubashy one inbox event per worker that has been unreachable for a while; it touches no
+    # session and changes no worker.
+    from qorqut.agents import unreachable
+    unreachable_workers = paced(UNREACHABLE_PASS_SECONDS, lambda uow: unreachable.reconcile(uow))
 
     def reconcile_inbox(uow):
         # The one bounded inbox reconcile hook: the retained Task snoozes, the shared reminders' due boundaries and pending
@@ -542,6 +549,7 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
             isolated(uow, "Task snooze reconcile", lambda: tasks.reconcile_snoozes(uow))
         isolated(uow, "Reminder reconcile", lambda: runtime.reminders.reconcile(uow))
         isolated(uow, "Due extraction reconcile", lambda: reconcile_due(runtime, uow))
+        isolated(uow, "Unreachable worker reconcile", lambda: unreachable_workers(uow))
 
     runtime.inbox_nudges = NudgeBackend.build(runtime, inbox, reconcile=reconcile_inbox)
     from qorqut.agentic.inbox import attach_agentic_inbox
