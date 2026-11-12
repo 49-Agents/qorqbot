@@ -12,7 +12,7 @@ A release should provide:
   migration requirements and known limitations.
 - The exact corresponding source tag and required third-party source artifacts.
 - Separately versioned optional connector packages and their setup instructions.
-- Applicable license notices for the release.
+- Applicable license notices and the release's entry in `RELEASE-LICENSES.json`.
 
 Preview downloads and setup instructions are available at
 [qorqbot.com](https://qorqbot.com/) and

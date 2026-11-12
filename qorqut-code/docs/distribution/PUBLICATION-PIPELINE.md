@@ -87,5 +87,7 @@ qualification alone does not establish compatibility with old database formats.
 
 ## Publication decisions
 
+The application license is PolyForm Noncommercial 1.0.0, with a separate per-person
+commercial license from 49 Agents LLC.
 Finalize release dates, dependency obligations, source review and asset hosting. No command here uploads artifacts, pushes source, deploys the
 running app or changes repository visibility. Only the owner changes visibility.

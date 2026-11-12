@@ -88,7 +88,10 @@ its folder. This deletes its data. It does not uninstall your external tools.
 
 ## License and support
 
-Dependencies retain their own licenses. See the source release's
+First-party Qorqbot is source-available under the PolyForm Noncommercial License
+1.0.0, by 49 Agents LLC, in LICENSE. Personal and noncommercial use is free.
+Commercial use needs a per-person commercial license, free until 2027-01-01:
+https://qorqbot.com/commercial-license/. Dependencies retain their own licenses. See the source release's
 license scope and notices. A private candidate is not a published release.
 
 Source build/acceptance instructions are in RELEASE-RUNBOOK.md and PUBLICATION-PIPELINE.md.

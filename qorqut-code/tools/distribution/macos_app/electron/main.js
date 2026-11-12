@@ -385,7 +385,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     app.setAboutPanelOptions({
       applicationName: 'Qorqbot', applicationVersion: engine.bundledVersion,
-      copyright: '49 Agents LLC.',
+      copyright: 'Copyright 49 Agents LLC. PolyForm Noncommercial License 1.0.0.',
     });
     app.on('web-contents-created', (_event, contents) => guardNavigation(contents));
     createMainWindow();
