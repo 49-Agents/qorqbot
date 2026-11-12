@@ -213,18 +213,31 @@ class Attention:
         Runs inside the approved archive's own write. Each entry leaves the history record an ordinary removal does,
         a workflow working on the Task is detached and a focus on it is cleared. No inbox event is sent, because an
         archived project is not current work. The Tasks are retained; restoring the project does not re-add them."""
-        now = timestamp(self.clock)
         rows = uow.connection.execute('SELECT * FROM attention_memberships WHERE task_business_id=? ORDER BY agent_id,id',
                                       (business_id,)).fetchall()
+        return self.release(uow, rows, actor_id, 'Project archived')
+
+    def release_task(self, uow, business_id, task_id, created_at, actor_id):
+        """Take a done or cancelled Task off every Todo board, in the write that closed it; returns how many entries left.
+
+        A closed Task is no longer anybody's work, so no board keeps an entry for it. The agents holding one are told by
+        the Task's own event, which is addressed before this runs."""
+        rows = uow.connection.execute('SELECT * FROM attention_memberships WHERE task_business_id IS ? AND task_id=? '
+                                      'AND task_created_at=? ORDER BY agent_id,id', (business_id, task_id, created_at)).fetchall()
+        return self.release(uow, rows, actor_id, 'Task closed')
+
+    def release(self, uow, rows, actor_id, rationale):
+        """Remove board entries as an ordinary removal does: history record, workflow detached, focus on the Task cleared."""
+        now = timestamp(self.clock)
         for row in rows:
             agent = row['agent_id']
-            ref = {'type': 'task', 'id': row['task_id'], 'business_id': business_id}
+            ref = {'type': 'task', 'id': row['task_id'], 'business_id': row['task_business_id']}
             self.membership_event(uow, agent, row['id'], ref, row['task_created_at'], actor_id, 'removed', now,
-                                  rationale='Project archived')
+                                  rationale=rationale)
             uow.connection.execute('DELETE FROM attention_memberships WHERE id=?', (row['id'],))
             uow.connection.execute("UPDATE attention_workflows SET detached_at=?,updated_at=?,revision=revision+1 "
                 "WHERE agent_id=? AND detached_at IS NULL AND json_extract(work_task_json,'$.id')=? "
-                "AND json_extract(work_task_json,'$.business_id') IS ?", (now, now, agent, ref['id'], business_id))
+                "AND json_extract(work_task_json,'$.business_id') IS ?", (now, now, agent, ref['id'], ref['business_id']))
             if self.state(uow, agent)['work_task_json'] == ref:
                 self.clear_focus(uow, agent, 'membership_removed')
             uow.connection.execute('UPDATE agent_attention SET revision=revision+1,updated_at=? WHERE agent_id=?', (now, agent))

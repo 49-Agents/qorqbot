@@ -452,6 +452,16 @@ class AttentionBoard:
                  json.dumps(row['references']),row['position'],row['deferred_until'],row['created_by'],now,now,row['display_name'],row['blocker'],row['urgent']))
         uow.next_sequence('focus_board')
 
+    def release_task(self,business_id,task_id,uow):
+        # A Task that is done or cancelled leaves Focus in the write that closes it. Presenting the Task again restores the card.
+        row=uow.connection.execute('SELECT id FROM focus_cards WHERE source_key=? AND archived=0',
+            ('source:'+(business_id or 'global')+':task:'+task_id,)).fetchone()
+        if not row: return False
+        uow.connection.execute('UPDATE focus_cards SET archived=1,revision=revision+1,updated_at=? WHERE id=?',
+            (timestamp(self.legacy.inbox.clock),row[0]))
+        uow.next_sequence('focus_board')
+        return True
+
     def archive_resolved_signoffs(self,uow):
         # One-time cleanup for cards whose signoff was decided before release_signoff existed.
         rows=uow.connection.execute("SELECT f.id FROM focus_cards f JOIN signoffs s ON s.id=json_extract(f.source_json,'$.id') "

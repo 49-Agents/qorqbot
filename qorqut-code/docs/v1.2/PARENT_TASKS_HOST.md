@@ -9,8 +9,12 @@ kind, table, alias, redirect or compatibility route.
 * A **work group is an ordinary Task.** Its children are Tasks with `parent_id`. Anything else a group relates to (Materials,
   tables, uploads, assets, other Tasks, Signoffs) is an ordinary `concerns` relationship to the group Task. A
   resource can concern several groups and a group can have any number of resources. Hierarchy is never inferred from a link.
-* The parent is completed and reopened with the normal Task operations and permissions. Children are informational and
-  independent: completing, reopening, cancelling or snoozing a parent or a child changes nothing in the other.
+* The parent is completed and reopened with the normal Task operations and permissions. Reopening or snoozing a parent
+  or a child changes nothing in the other. Closing is where the two meet, so that no open work is left under a closed
+  parent (`qorqut_operations/tasks/lifecycle.py`): an agent cannot close a Task that has open work Tasks directly
+  beneath it, cannot put new work under a closed parent, and closes a whole group with
+  `tasks_complete {children: "close"}`, which closes every open work Task under the parent in the same write. A person
+  closing a Task in the dashboard is not stopped, and Stories, Customers and Email Tasks are never closed along.
 * Group text is the Task's own fields and its thread. `tasks_get` returns `parent_id`, `parent {id,title,status}` and
   `children`.
 

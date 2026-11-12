@@ -264,7 +264,8 @@ class Entries:
 
     def task_arguments(self, ctx, args):
         """The ``tasks_create`` arguments of a new entry: a Customer (person) unless another Task type is chosen."""
-        create = {"task_type": "customer", **args["create"]}
+        # A row is a record of its Table, so a second row with the same name is the Table's business, not a duplicate Task.
+        create = {"task_type": "customer", "allow_duplicate": True, **args["create"]}
         return {**create, **({"scope": "global"} if ctx.business_id is None else {})}
 
     def compose_task(self, ctx, builder, args, options, uow):

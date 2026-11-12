@@ -533,6 +533,26 @@ class ReminderService:
             raise DomainError("invalid_transition", "This reminder is already finished")
         return {"state": "cancelled", "current_occurrence_id": None, "snoozed_until": None, "defer_until": None, "close": "cancelled"}
 
+    def release_task(self, uow, business_id, task_id):
+        """Cancel the live reminders agents set for agents about a Task that has just closed; returns how many.
+
+        Such a reminder exists to come back to the work, and the work is over. A reminder addressed to a person is left
+        alone whoever created it: the owner may have asked for it for a reason the Task's state does not show."""
+        rows = uow.connection.execute(
+            "SELECT r.* FROM reminders r JOIN principals c ON c.id=r.creator_id JOIN principals t ON t.id=r.recipient_id "
+            f"WHERE r.state IN ({','.join('?' for _ in ACTIVE)}) AND c.kind='agent' AND t.kind='agent' "
+            "AND json_extract(r.linked_item_json,'$.type')='task' AND json_extract(r.linked_item_json,'$.id')=? "
+            "AND json_extract(r.linked_item_json,'$.business_id') IS ? ORDER BY r.id", (*ACTIVE, task_id, business_id)).fetchall()
+        stamp = timing.stamp(self.clock())
+        for row in rows:
+            row = dict(row)
+            changes = self.cancellation(row)
+            close = changes.pop("close")
+            if row["current_occurrence_id"]:
+                self.close_occurrence(uow, row["current_occurrence_id"], close, stamp)
+            self.save(uow, row, changes, stamp)
+        return len(rows)
+
     def insert(self, uow, row):
         columns = list(row)
         uow.connection.execute(f"INSERT INTO reminders({','.join(columns)}) VALUES({','.join('?' for _ in columns)})", list(row.values()))

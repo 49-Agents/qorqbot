@@ -16,7 +16,7 @@ import yaml
 from qorqut_operations.contracts import DomainError
 
 
-TASK_WRITES = frozenset({"tasks_create", "tasks_update", "tasks_assign", "tasks_complete", "tasks_comment"})
+TASK_WRITES = frozenset({"tasks_create", "tasks_update", "tasks_assign", "tasks_complete", "tasks_comment", "tasks_delegate"})
 # Card writes return the touched card's identity/revision; focus_reply keeps its
 # note-thread payload because the new note is the receipt. The legacy
 # focus_show/focus_clear/focus_browser_input trio always answers upgrade_required
@@ -63,7 +63,8 @@ SECTIONS_SCHEMA = {"type": "array", "minItems": 1, "maxItems": 20, "uniqueItems"
     "items": {"type": "string", "minLength": 1, "maxLength": 120},
     "description": instruction_text('mcp-presentation-context-only-return-exactly-these-sections-of')}
 TASK_FIELDS = ("id", "revision", "title", "status", "work_status", "input_needed", "input_requests", "input_version", "input_request_missing", "due", "follow_up", "snoozed_until", "snoozed", "assignee_ids", "blocked_by",
-    "unresolved_blockers", "blocks", "parent", "kind", "closed", "paused", "archived", "tags", "created_by", "updated_at")
+    "unresolved_blockers", "blocks", "parent", "kind", "closed", "paused", "archived", "tags", "created_by", "updated_at",
+    "worker_ids", "status_line", "next_step", "stalled")
 SIGNOFF_FIELDS = ("id", "review_business_id", "review_scope", "proposal_revision", "payload_hash", "status_revision",
     "state", "decision_state", "actionable", "execution_state", "category", "operation_name", "operation_version",
     "title", "proposer_principal_id", "proposer_agent_id", "proposer_display_name",

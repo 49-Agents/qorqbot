@@ -46,22 +46,32 @@ def dependency_followers(uow, business_id, task_id) -> set[str]:
         "AND d.from_type='task' AND d.to_type='task' AND d.role='blocked_by' AND d.to_id=?", (business_id, task_id))}
 
 
-def routes(uow, routing, business_id, task: Mapping, actor_id, *, responsibility: bool, targets: Iterable[str] = ()):
-    """``(required, optional)`` principal ids for an event about ``task``."""
+def change(before: Mapping | None, after: Mapping) -> dict:
+    """What an operation did to the Task's state and workers, for the host's routing: the stored state before (``None``
+    for a new Task) and after, and the workers recorded after it that were not recorded before."""
+    workers = lambda state: set(json.loads(state["row"].get("worker_ids_json") or "[]")) if state else set()
+    return {"from": before["row"]["status"] if before else None, "to": after["row"]["status"],
+            "new_workers": sorted(workers(after) - workers(before))}
+
+
+def routes(uow, routing, business_id, task: Mapping, actor_id, *, responsibility: bool, targets: Iterable[str] = (),
+           change: Mapping | None = None):
+    """``(required, optional)`` principal ids for an event about ``task``; ``change`` is passed on to the host's routing."""
     task_id = task["id"]
     required = set(targets) | dependency_followers(uow, business_id, task_id)
     if responsibility:
         required |= set(assigned(uow, business_id, task_id, agents_only=True))
-    host_required, host_optional = routing.routes(uow, business_id, task, actor_id)
+    host_required, host_optional = routing.routes(uow, business_id, task, actor_id, change)
     required |= set(host_required)
     optional = set(followers(uow, ThreadItem(business_id, "task", task_id))) | set(host_optional)
     return required, optional
 
 
 def announce(uow, routing, business_id, task: Mapping, actor_id, kinds, *, responsibility: bool, targets: Iterable[str] = (),
-             summary=None, messages: Iterable[str] = ()) -> int | None:
+             summary=None, messages: Iterable[str] = (), change: Mapping | None = None) -> int | None:
     """Emit the one event for an operation on a Task and bind the thread entries written with it."""
-    required, optional = routes(uow, routing, business_id, task, actor_id, responsibility=responsibility, targets=targets)
+    required, optional = routes(uow, routing, business_id, task, actor_id, responsibility=responsibility, targets=targets,
+                                change=change)
     event_id = emit_event(uow, business_id=business_id, source_type=SOURCE_TYPE, source_id=task["id"],
                           source_revision=task["revision"], actor_id=actor_id, event_type=",".join(kinds),
                           summary=summary or task["title"], required=required, optional=optional)
@@ -107,7 +117,7 @@ def _stored(row: Mapping, key: str) -> dict:
 
 
 # Typed attributes that get a sentence of their own; every other stored field is reported as ``Fields changed.``.
-TYPED_NAMED = frozenset({"task_type", "overview", "customer_state"})
+TYPED_NAMED = frozenset({"task_type", "overview", "customer_state", "status_line", "next_step"})
 
 
 def _typed(fields: Mapping) -> dict:
@@ -172,6 +182,9 @@ def detail_changes(before: Mapping, after: Mapping, names=None) -> list[tuple[st
         add("task_type", f"Type changed to {new_typed['task_type']}.")
     if (old_typed.get("overview") or "") != (new_typed.get("overview") or ""):
         add("overview", "Overview updated.")
+    for field, label in (("status_line", "Status line"), ("next_step", "Next step")):
+        if (old_typed.get(field) or "") != (new_typed.get(field) or ""):
+            add(field, f"{label}: {new_typed[field]}" if new_typed.get(field) else f"{label} cleared.")
     if (old_typed.get("customer_state") or "") != (new_typed.get("customer_state") or ""):
         add("customer_state", f"Customer state set to {new_typed['customer_state']}." if new_typed.get("customer_state")
             else "Customer state cleared.")
@@ -243,5 +256,5 @@ def assignment_targets(uow, before: Mapping | None, after: Mapping) -> set[str]:
     return agents
 
 
-__all__ = ["announce", "assigned", "assignment_targets", "blockers", "changed_details", "dependency_followers", "describe",
-           "detail_changes", "event_kinds", "principal_names", "record_change", "routes", "state", "workers"]
+__all__ = ["announce", "assigned", "assignment_targets", "blockers", "change", "changed_details", "dependency_followers",
+           "describe", "detail_changes", "event_kinds", "principal_names", "record_change", "routes", "state", "workers"]
