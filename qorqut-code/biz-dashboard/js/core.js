@@ -354,11 +354,12 @@ function loadSession(force = false) {
 }
 const evUrl = p => "/api" + p;
 // ---------------------------------------------------------------- notifications
-// One queue for every toast: centered at the top, up to NOTE_MAX on screen, the rest wait in
-// FIFO order. A note stays NOTE_MS (hovering holds it, a click dismisses it), then leaves and the
-// next one takes its slot. A backlog longer than NOTE_QUEUE_MAX folds its tail into one "N more" note so a
-// burst never floods the view. `notify({text, sub?, color?, ms?, reminder?, onClick?})`; `toast(text)` is the short form.
-const NOTE_MAX = 3, NOTE_MS = 4200, NOTE_QUEUE_MAX = 6;
+// One queue for every toast: bottom-right, newest at the bottom, up to NOTE_MAX on screen, the rest
+// wait in FIFO order. Each note expires after NOTE_MS, including its exit animation; hover, focus and
+// reply updates never extend that deadline. A click dismisses it early. A backlog longer than
+// NOTE_QUEUE_MAX folds its tail into one "N more" note so a burst never floods the corner.
+// `notify({text, sub?, color?, reminder?, onClick?, onDismiss?})`; `toast(text)` is the short form.
+const NOTE_MAX = 3, NOTE_MS = 5000, NOTE_EXIT_MS = 260, NOTE_QUEUE_MAX = 6;
 const _notes = { queue: [], live: 0, replies: new Map() };
 function notify(n) {
   if (typeof n === "string") n = { text: n };
@@ -399,35 +400,22 @@ function notePump() {
     el.innerHTML = n.reminder ? reminderToastHTML(n) : n.replyAgentId ? replyToastHTML(n) : `<div class="tx">${esc(n.text)}</div>${n.sub ? `<div class="tsub">${esc(n.sub)}</div>` : ""}`;
     box.appendChild(el);
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove("in")));
-    let t, gone = false, deadline = 0, remaining = n.ms || NOTE_MS, held = 0, dismissing = false;
-    const go = () => { if (gone) return; gone = true; clearTimeout(t); if (n.replyAgentId && _notes.replies.get(n.replyAgentId)?.el === el) _notes.replies.delete(n.replyAgentId); el.classList.add("out"); setTimeout(() => { el.remove(); _notes.live--; notePump(); }, 260); };
-    const arm = (ms = n.ms || NOTE_MS) => { clearTimeout(t); remaining = ms; deadline = Date.now() + ms; t = setTimeout(go, ms); };
-    if (n.replyAgentId || n.reminder) {
-      // Hover and keyboard focus each hold the card; the remaining time resumes once both end.
-      const hold = () => { if (held++ === 0) { remaining = Math.max(0, deadline - Date.now()); clearTimeout(t); } };
-      const release = () => { held = Math.max(0, held - 1); if (held === 0 && !gone && !dismissing) arm(remaining); };
-      el.addEventListener("mouseenter", hold); el.addEventListener("mouseleave", release);
-      el.addEventListener("focusin", hold); el.addEventListener("focusout", release);
-      if (n.replyAgentId) _notes.replies.set(n.replyAgentId, { el, update(next) {
-        Object.assign(n, next);
-        el.innerHTML = replyToastHTML(n);
-        remaining = n.ms || NOTE_MS;
-        if (held === 0) arm(remaining);
-      } });
-    } else {
-      el.addEventListener("mouseenter", () => clearTimeout(t));
-      el.addEventListener("mouseleave", () => arm());
-    }
+    let t, gone = false, dismissing = false;
+    const go = () => { if (gone) return; gone = true; clearTimeout(t); if (n.replyAgentId && _notes.replies.get(n.replyAgentId)?.el === el) _notes.replies.delete(n.replyAgentId); el.classList.add("out"); setTimeout(() => { el.remove(); _notes.live--; notePump(); }, NOTE_EXIT_MS); };
+    if (n.replyAgentId) _notes.replies.set(n.replyAgentId, { el, update(next) {
+      Object.assign(n, next);
+      el.innerHTML = replyToastHTML(n);
+    } });
     const activate=()=>{if(gone)return;go();if(n.onClick)Promise.resolve().then(()=>n.onClick()).catch(error=>toast(error.message));};
     el.addEventListener("click", activate);
     if (n.reminder && n.onDismiss) el.addEventListener("contextmenu", event => {
       event.preventDefault(); if (gone || dismissing) return;
-      dismissing = true; clearTimeout(t);
+      dismissing = true;
       Promise.resolve().then(() => n.onDismiss()).then(go).catch(error => { toast(error.message || 'Could not dismiss reminder.'); })
-        .finally(() => { dismissing = false; if (!gone && held === 0) arm(remaining); });
+        .finally(() => { dismissing = false; });
     });
     if(n.onClick){el.tabIndex=0;el.setAttribute('role','button');el.addEventListener('keydown',event=>{if(['Enter',' '].includes(event.key)){event.preventDefault();activate();}});}
-    arm();
+    t = setTimeout(go, NOTE_MS - NOTE_EXIT_MS);
   }
 }
 const toast = m => notify(m);
