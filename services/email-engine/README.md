@@ -59,7 +59,7 @@ required footer must already be the exact final nonblank line in approved text.
 Profiles remain disabled until their external authenticated sending path passes acceptance.
 All configured aliases for an actual external account share an atomic rolling
 24-hour allowance (default 250), with an additional installation-wide ceiling of
-150 across all shared senders and businesses. The lower available allowance wins. Unresolved reservations hold capacity until
+220 across all shared senders and businesses. The lower available allowance wins. Unresolved reservations hold capacity until
 reconciled. Queued sends resume in the engine before their exact approval deadline;
 Qorqut reads the existing receipt. See
 [shared senders](docs/CONFIGURATION.md#optional-features).
@@ -177,7 +177,7 @@ routes: idempotent send-intent submission, lookup, cancellation, and thread
 handoff. These credentials cannot use the read/send/admin routes, and legacy
 tokens cannot call `/integrations/*`. Submission always queues for the worker
 rather than dispatching synchronously, sharing the existing send ledger,
-capacity reservations (including the installation-wide 150 ceiling), and
+capacity reservations (including the installation-wide 220 ceiling), and
 shared-sender caps with direct send clients. A reply correlated to a sent
 cold-outreach intent cancels every other still-queued intent for that same
 contact before the worker's final send claim; ordinary conversational sends

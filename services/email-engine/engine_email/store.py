@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from .fastmail import internet_message_id
 
 
-SHARED_ROLLING_LIMIT = 150
+SHARED_ROLLING_LIMIT = 220
 
 
 class HandoffTargetNotFound(ValueError):
