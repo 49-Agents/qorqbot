@@ -1,12 +1,13 @@
 schema_version: 1
 id: get-set-up
-description: One short conversation in which Ordubashy records basic facts about the owner and connects the tools the owner wants agents to use. The two parts are independent, so the owner may do either first.
+description: One short conversation in which Ordubashy asks the owner a few optional questions in one set-up form, records the basic facts and connects the tools the owner chose.
 arguments: []
 steps:
   - id: about-you
     instruction_ref: agentic-management/onboarding-about-you
   - id: connect-tools
     instruction_ref: agentic-management/onboarding-connect-tools
+    depends_on: [about-you]
   - id: wrap-up
     instructions: >-
       Tell the owner in a few lines what you now know about them, which tools are connected and what is
