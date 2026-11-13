@@ -39,6 +39,22 @@ test('the tour names where extensions are, then shows the browser, then ends in 
   assert.match(step('chat'), /offline: 'He isn’t running yet/);
 });
 
+test('a first walkthrough types the hello and done sends it, only while the owner has never written to Ordubashy', () => {
+  assert.match(step('chat'), /typed: '“hi, help me get set up” is typed in below. Press done to send it/);
+  const hello = tour.slice(tour.indexOf('if (step.hello) {'), tour.indexOf('async function showStep'));
+  assert.match(hello, /online && !replay && !written/);
+  assert.match(hello, /entry\.speaker === 'user'/);
+  assert.match(hello, /item\.origin === 'owner'/);
+  assert.match(hello, /greet = assistant\.agent_id/);
+  // Done sends it only when the box still holds the hello; anything the owner typed instead is left for them.
+  assert.match(tour, /sendHello\(greet === assistant\.agent_id\)/);
+  const send = tour.slice(tour.indexOf('async function sendHello'), tour.indexOf('// Esc:'));
+  assert.match(send, /\[HELLO, ''\]\.includes\(input\.value\.trim\(\)\)/);
+  assert.match(send, /requestSubmit/);
+  // Leaving the step forgets the pending hello.
+  assert.match(tour, /const step = steps\[index\]; greet = null;/);
+});
+
 test('steps that point into the agent menu hold it open, and no step mentions the retired ? button', () => {
   for (const id of ['assistant', 'settings']) assert.match(step(id), /menu: true/);
   assert.match(tour, /if \(step\.menu\) holdMenu\(true\)/);
