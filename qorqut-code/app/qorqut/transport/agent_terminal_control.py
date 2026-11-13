@@ -14,6 +14,7 @@ from qorqut_operations.contracts import DomainError
 from qorqut.transport import terminal_composer
 
 SHELLS = frozenset({'bash','zsh','sh','fish'})
+DEV_ROLE = 'dev'
 # The fixed launcher of Dev and of a global worker per trusted profile runtime: the normal configured client, no arguments.
 LAUNCH_CLIENTS = {'claude-code':'claude', 'codex':'codex'}
 CLIENT_PROCESSES = {'codex':frozenset({'codex'}), 'claude':frozenset({'claude','claude.exe'})}
@@ -45,7 +46,7 @@ def _launch_client(row, role_id):
 
 def dev_client(row):
     """Dev's launcher from its trusted profile runtime; None for every other role."""
-    return _launch_client(row, roles.DEV_ROLE)
+    return _launch_client(row, DEV_ROLE)
 
 
 def worker_client(row):

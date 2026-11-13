@@ -6,7 +6,7 @@ from qorqut.inbox.defaults import legacy_inbox_skill
 from qorqut.agents import role_workflow
 from qorqut.agents import cleanup_workflow
 from qorqut.agents.operational_delegation import supports_durable_delegation_version
-from qorqut.agents.roles import GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE, RETIRED_ROLE_IDS
+from qorqut.agents.roles import GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE, SUPPORTED_GLOBAL_ROLES
 from qorqut.composition.locations import agent_workspace, business_code, business_hq
 
 from dataclasses import dataclass
@@ -681,8 +681,8 @@ def _prepare_agent_locked(resolver, principal: Principal, *, endpoint: str, vers
         raise DomainError("unsupported_runtime", "No installed agent CLI meets the supported preparation baseline", details=compatibility)
     config = resolver.resolve_agent_config(principal)
     data = config.to_dict()
-    if data["role"]["id"] in RETIRED_ROLE_IDS:
-        raise DomainError("retired_role", "This role is retired; its profiles may be read or deactivated but not prepared")
+    if data["role"]["id"] not in SUPPORTED_GLOBAL_ROLES:
+        raise DomainError("unsupported_role", "Only the supported global roles operate; this profile may be read or deactivated but not prepared")
     workspace = Path(data["workspace"])
     if any(path_has_symlink(workspace / path) for path in (".claude", ".claude/skills", ".codex", ".agents", ".agents/skills", ".qorqut", "notes", "work")):
         raise DomainError("projection_conflict", "Prepared project directories cannot follow symlinks")
