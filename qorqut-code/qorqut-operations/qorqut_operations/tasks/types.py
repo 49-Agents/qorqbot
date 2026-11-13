@@ -16,9 +16,9 @@ action. Both are single lines stored only while they hold something.
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 from copy import deepcopy
-import re
 import unicodedata
 
+from qorqut_operations import owner_text
 from qorqut_operations.contracts import DomainError
 
 TYPES = ("task", "story", "customer", "email")
@@ -38,7 +38,7 @@ CUSTOMER = ("customer_kind", "customer_state", "customer_profile")
 LINES = ("status_line", "next_step")
 # The owner reads the status line, so it names things in words. A record identifier in it is a sign that working detail
 # was pasted where a sentence belongs.
-IDENTIFIER = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
+IDENTIFIER = owner_text.RECORD_ID
 
 KIND_SCHEMA = {"anyOf": [{"enum": list(CUSTOMER_KINDS)}, {"type": "null"}],
                "description": instruction_text('types-person-or-company-for-a-customer-a-new')}
@@ -101,6 +101,12 @@ def apply_attributes(current, edits, states=()):
     for name in LINES:
         if isinstance(given.get(name), str):
             values[name] = normalize_state(given[name])
+    if values["status_line"] != attributes(current)["status_line"]:
+        # Checked when the line changes, so a Task whose older line predates the rule can still be written.
+        problem = owner_text.problem(values["status_line"])
+        if problem:
+            raise DomainError("validation_error", f"The status line is read by the owner, and {problem}: say where the work "
+                                                  "stands in words and put the detail in a working note")
     if values["task_type"] == "customer" and values["customer_kind"] is None and "customer_kind" not in given:
         values["customer_kind"] = "person"
     if "fields" in edits:

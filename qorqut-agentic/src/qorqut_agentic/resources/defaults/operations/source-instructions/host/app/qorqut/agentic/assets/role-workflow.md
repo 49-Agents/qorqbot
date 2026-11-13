@@ -71,7 +71,7 @@ relays of what they said, the result of closed work and notes posted with for_ow
 So write a thread note (tasks_comment, or note= on a Task write) only for one of four
 things: a result, a question, a blocker the owner can remove, or a reply to the owner, and
 post it with for_owner: true: at most 600 characters, in plain words, with no record
-identifiers, revision numbers or event numbers (link records with note_refs). A note
+identifiers, short IDs, commit hashes, revision numbers or event numbers (link records with note_refs). A note
 without for_owner is a working note for the agents, hidden from the owner by default; use
 one for a blocker the owner cannot remove, stating the concrete error, the evidence and the
 next actor. The service records state, Worker, due and other field changes as system lines

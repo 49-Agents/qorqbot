@@ -21,13 +21,13 @@ from qorqut_agentic.behavior.tool_help import text as instruction_text
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 import json
-import re
 
 from qorqut_operations.application.plans import IDENTITY, PAGE, page, page_position, schema
 from qorqut_operations.contracts import DomainError, new_id, utc_now
 from qorqut_operations.conversations import author, normalize_summary
 from qorqut_operations.discussion.follows import ThreadItem
 from qorqut_operations.global_agents import global_profile, is_coordinator
+from qorqut_operations import owner_text
 
 BODY = {"type": "string", "minLength": 1, "maxLength": 20000}
 RELAY_SOURCE = schema({"provider": {"enum": ["claude", "codex", "owner_conversation", "thread", "agent_message"]},
@@ -48,13 +48,12 @@ SELF = {"kind": "self"}
 NOTE_REF_LIMIT = 10
 OWNER_RELAYS = ("explicit_owner_statement", "owner_intent")
 OWNER_POST_LIMIT = 600
-RECORD_IDENTIFIER = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 FOR_OWNER = {"type": "boolean", "description": (
     "true: this note is for the owner to read: a result, a question, a blocker the owner can remove, or a reply to the "
-    f"owner. At most {OWNER_POST_LIMIT} characters, in plain words, with no record identifiers; link records with "
-    "note_refs and put detail in a linked file. false or omitted: a working note for the agents, hidden from the owner "
-    "by default. A note written straight after the owner's own message, and the result of tasks_complete, are shown to "
-    "the owner without it.")}
+    f"owner. At most {OWNER_POST_LIMIT} characters, in plain words, with no record identifiers, short IDs, commits or "
+    "revision numbers; link records with note_refs and put detail in a linked file. false or omitted: a working note for "
+    "the agents, hidden from the owner by default. A note written straight after the owner's own message, and the result "
+    "of tasks_complete, are shown to the owner without it when they read that way; otherwise they stay working notes.")}
 AUDIENCE = {"enum": ["owner", "all"], "description": (
     "owner: only what is for the owner (the owner's messages, owner relays and notes posted for the owner); the result "
     "also says how many working notes were left out. all (default): every note.")}
@@ -138,9 +137,15 @@ def owner_post(note: str) -> None:
         raise DomainError("validation_error",
                           f"A note for the owner is at most {OWNER_POST_LIMIT} characters: say the result, the question or the "
                           "blocker, and put the detail in a linked file or a working note")
-    if RECORD_IDENTIFIER.search(note):
+    if owner_text.problem(note):
         raise DomainError("validation_error",
-                          "A note for the owner names no record identifiers: link the record with note_refs instead")
+                          "A note for the owner names no record identifiers, short IDs, commits or revision numbers: name "
+                          "things in words and link the record with note_refs instead")
+
+
+def reads_as_owner_post(note: str) -> bool:
+    """Whether a note the owner would be shown without asking is written for them; one that is not stays a working note."""
+    return len(note) <= OWNER_POST_LIMIT and owner_text.problem(note) is None
 
 
 def replies_to_owner(uow, item: ThreadItem) -> bool:
@@ -204,7 +209,8 @@ def plan_comment(ctx, uow, builder, item: ThreadItem, *, note, summary, refs, re
         if for_owner:
             owner_post(note)
             attributed = {**attributed, "audience": "owner"}
-        elif for_owner is None and attributed["kind"] == "self" and (outcome or replies_to_owner(uow, item)):
+        elif (for_owner is None and attributed["kind"] == "self" and reads_as_owner_post(note)
+              and (outcome or replies_to_owner(uow, item))):
             attributed = {**attributed, "audience": "owner"}
     values = message_values(ctx, item, body=note, summary=summary, refs=refs, speaker=speaker, attributed=attributed, at=builder.at)
     builder.record("thread_messages", values["id"], None, values, label="comment", operation_name=operation_name)
