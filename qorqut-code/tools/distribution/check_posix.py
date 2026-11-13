@@ -18,6 +18,43 @@ import tarfile
 import time
 
 
+def owned_processes_report(root, output, label):
+    """Diagnostic only: record the processes the launcher counts as this installation's. Never raises, never changes a result."""
+    lines = ['label: ' + label, 'root: ' + str(root), 'time: ' + time.strftime('%Y-%m-%dT%H:%M:%S%z')]
+    try:
+        keep = sys.dont_write_bytecode
+        sys.dont_write_bytecode = True
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location('qorqbot_launcher_diagnostic', root / 'runtime/launch.py')
+            launcher = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(launcher)
+            owned = sorted(int(pid) for pid in launcher.installation_processes(root))
+            lines.append('launcher-owned pids: ' + (' '.join(map(str, owned)) or 'none'))
+        finally:
+            sys.dont_write_bytecode = keep
+    except BaseException as error:
+        owned = None
+        lines.append('launcher detection failed: ' + type(error).__name__ + ': ' + str(error)[:500])
+    try:
+        table = subprocess.run(['ps', '-axo', 'pid=,ppid=,etime=,command='], capture_output=True, text=True, timeout=20).stdout.splitlines()
+        lines.append('pid ppid elapsed command')
+        for row in table:
+            fields = row.split(None, 3)
+            if len(fields) < 4 or not fields[0].isdigit():
+                continue
+            if owned is not None and int(fields[0]) in owned:
+                lines.append(row.strip())
+            elif str(root) in fields[3]:
+                lines.append('(command mentions root, not launcher-owned) ' + row.strip())
+    except BaseException as error:
+        lines.append('ps failed: ' + type(error).__name__ + ': ' + str(error)[:500])
+    try:
+        (output / ('owned-processes-' + label + '.log')).write_text('\n'.join(lines) + '\n')
+    except BaseException:
+        pass
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--archive', type=Path, required=True)
@@ -49,6 +86,7 @@ def main():
         with (output / (label + '.log')).open('ab') as log:
             done = subprocess.run(list(map(str, argv)), env=env, cwd=root, stdout=log, stderr=subprocess.STDOUT, timeout=timeout)
         if done.returncode != expected:
+            owned_processes_report(root, output, label + '-failed')
             raise RuntimeError(f'{label} returned {done.returncode}; inspect its log')
         result['checks'].append(label)
     def records(phase):
@@ -87,6 +125,8 @@ def main():
         start('restart'); records('restart'); stop('restart-stop')
         command(['./qorqbot', 'update', archive, '--sha256', '0' * 64], 'bad-checksum-refused', expected=1)
         for phase in ('update', 'repeat-update'):
+            if phase == 'update':
+                owned_processes_report(root, output, 'before-update-install')
             command(['./qorqbot', 'update', archive, '--sha256', result['archive_sha256']], phase + '-install')
             start(phase); records(phase); stop(phase + '-stop')
         command(['./qorqbot', 'verify'], 'verify-after')
