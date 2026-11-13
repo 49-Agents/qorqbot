@@ -708,8 +708,9 @@ function mountChatView(host, options = {}) {
     if (notice?.activity) {
       const {nudgeCount, recipients = []} = notice.activity;
       const nudge = nudgeCount ? `${nudgeCount > 1 ? `${nudgeCount}× ` : ''}inbox nudge` : '';
-      const message = recipients.length ? `messaged ${recipients.map(bot => bot.name).join(', ')}` : '';
-      return `<span class="gchat-marker gchat-compact-activity">${esc([nudge, message].filter(Boolean).join(' · '))}</span>`;
+      const fallback = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true" focusable="false"><rect x="4" y="6" width="16" height="13" rx="4"/><path d="M12 3v3M8 12h.01M16 12h.01M9 16h6"/></svg>';
+      const icons = recipients.map(bot => `<span class="gchat-activity-recipient" role="img" aria-label="${esc(bot.name)}">${bot.glyphHtml || fallback}</span>`).join('');
+      return `<span class="gchat-marker gchat-compact-activity">${nudge ? `<span>${esc(nudge)}</span>` : ''}${nudge && recipients.length ? ' <span>·</span> ' : ''}${recipients.length ? `<span>messaged</span>${icons}` : ''}</span>`;
     }
     if (!notice?.label) return '';
     const bots = notice.agentMessage?.recipients;

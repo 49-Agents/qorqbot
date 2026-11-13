@@ -53,7 +53,9 @@
 .gchat-log > .gchat-msg.gchat-activity-marker { align-self: flex-start; align-items: flex-start; max-width: min(760px, 100%); margin-top: 3px; margin-bottom: 3px; }
 .gchat-log > .gchat-activity-marker + .gchat-msg { margin-top: 3px; }
 .gchat-notice.gchat-activity-marker .gchat-body:has(> .gchat-marker:only-child) { display: block; padding: 0; text-align: left; white-space: normal; font-size: 11px; line-height: 1.4; }
-.gchat-activity-marker .gchat-compact-activity { font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.gchat-activity-marker .gchat-compact-activity { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; max-width: 100%; font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.gchat-activity-recipient { display: inline-flex; flex: 0 0 16px; width: 16px; height: 16px; }
+.gchat-activity-recipient svg { display: block; width: 16px; height: 16px; }
 .gchat-pending.gchat-notice .gchat-state { text-align: center; }
 .gchat-partial .gchat-body { opacity: .8; }
 .gchat-body.md > :first-child { margin-top: 0; }
