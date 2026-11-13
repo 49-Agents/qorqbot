@@ -3,16 +3,19 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const {chromium} = require('playwright');
+let chromium;
+try { ({chromium} = require('playwright')); } catch (_) { /* Optional local browser dependency. */ }
+const executable = process.env.CHROME_PATH || chromium?.executablePath();
+const available = !!chromium && fs.existsSync(executable);
+const browserTest = (name, run) => test(name, {skip: !available && 'Local Playwright Chromium is unavailable'}, run);
 const root = path.join(__dirname, '..');
-const source = fs.readFileSync(path.join(root, 'js/global-chat.js'), 'utf8');
-const start = source.indexOf('  const presentEntry = entry =>');
-const end = source.indexOf('  const newestPosition', start);
-assert.ok(start >= 0 && end > start);
-const setup = source.slice(start, end);
-
-test('compact activity groups ordered transcript entries and renders safely at narrow widths', async () => {
-  const browser = await chromium.launch({headless: true, executablePath: process.env.CHROME_PATH || chromium.executablePath()});
+browserTest('compact activity groups ordered transcript entries and renders safely at narrow widths', async () => {
+  const source = fs.readFileSync(path.join(root, 'js/global-chat.js'), 'utf8');
+  const start = source.indexOf('  const presentEntry = entry =>');
+  const end = source.indexOf('  const newestPosition', start);
+  assert.ok(start >= 0 && end > start);
+  const setup = source.slice(start, end);
+  const browser = await chromium.launch({headless: true, executablePath: executable});
   try {
     const page = await browser.newPage({viewport: {width: 320, height: 600}});
     await page.setContent('<main id="chat" style="height:500px;width:270px"></main>');
