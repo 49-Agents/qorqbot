@@ -8,7 +8,6 @@ import difflib
 import json
 from pathlib import Path
 
-from qorqut.agents.roles import RETIRED_ROLE_IDS
 from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import (ChangePreview, ChangeSet, DomainError, ExpectedTarget, PreparedChange,
                                          PreviewResource, ResourceRef, TextPreview, canonical_bytes)
@@ -71,8 +70,6 @@ class CatalogOperations:
         if source is None or source[0] != kind:
             raise DomainError("not_found", "Authored source is not registered for this artifact kind")
         package = load_package(source[1], source[2], kind, self.catalog.registry)
-        if kind == "role" and package.id in RETIRED_ROLE_IDS:
-            raise DomainError("retired_role", "This role is retired; new role revisions cannot be published")
         if kind == "role" and "business" in package.manifest["scope_kinds"]:
             # Businesses own resources only; existing immutable business-role artifacts stay readable.
             raise DomainError("retired_role", "Business-scoped roles are retired; only global roles are published")
@@ -121,8 +118,6 @@ class CatalogOperations:
                     raise DomainError("artifact_conflict", "Published file effects are not fully verified")
         record = next(change for change in plan.changes if change.kind == "record")
         values = dict(record.values)
-        if values.get("kind") == "role" and values.get("artifact_id") in RETIRED_ROLE_IDS:
-            raise DomainError("retired_role", "This role is retired; stale publication plans cannot be applied")
         current = self.resolve_record(ctx, record.resource, uow)
         if current:
             if current["digest"] != values["digest"]:
@@ -133,5 +128,3 @@ class CatalogOperations:
 
     def validate_targets(self, ctx, plan, uow):
         record = next((change for change in plan.changes if change.kind == "record"), None)
-        if record and record.values.get("kind") == "role" and record.values.get("artifact_id") in RETIRED_ROLE_IDS:
-            raise DomainError("retired_role", "This role is retired; stale publication plans cannot be applied")

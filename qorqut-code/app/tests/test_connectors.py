@@ -62,7 +62,7 @@ class ConnectorsTest(unittest.TestCase):
     def test_browsing_is_not_a_connector(self):
         items = connectors.view(self.runtime, environ=self.environ, probe=FakeProbe({"available": True, "connectors": {}}))
         ids = [item["id"] for item in items["connectors"]]
-        self.assertEqual([item["id"] for item in items["connectors"] if item["tier"] == "recommended"], ["gmail"])
+        self.assertEqual([item["id"] for item in items["connectors"] if item["tier"] == "recommended"], ["gmail", "treg"])
         for hidden in ("browser", "chrome", "playwright"):
             self.assertNotIn(hidden, ids)
 
@@ -74,6 +74,18 @@ class ConnectorsTest(unittest.TestCase):
         self.assertEqual(gmail(checking)["status"], "checking")
         self.assertTrue(checking["checking"])
         self.assertEqual(gmail(missing), {**gmail(missing), "status": "unavailable", "reason": "claude_missing"})
+
+    def test_treg_follows_its_extension_and_never_waits_for_claude(self):
+        treg = lambda probe: next(item for item in connectors.view(self.runtime, environ=self.environ, probe=probe)["connectors"]
+                                  if item["id"] == "treg")
+        without_claude = FakeProbe({"available": False, "reason": "claude_missing"})
+        self.assertEqual(treg(without_claude)["status"], "not_installed")
+        extension = SimpleNamespace(id="treg", status=lambda: "not_set_up")
+        self.runtime.selection = SimpleNamespace(extensions=(SimpleNamespace(id="other"), extension))
+        self.assertEqual(treg(without_claude), {"id": "treg", "kind": "extension", "tier": "recommended",
+                                                "clients": ["claude-code", "codex"], "status": "not_set_up"})
+        extension.status = lambda: "connected"
+        self.assertEqual(treg(FakeProbe(None, True))["status"], "connected")
 
     def test_whatsapp_without_extension_is_coming_soon_on_mac(self):
         self.runtime.resolver.native_connections = {}
