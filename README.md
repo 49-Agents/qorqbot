@@ -91,3 +91,5 @@ home (not under `/mnt/c`) and run `./qorqbot`. Full steps:
 
 Add `--no-open` to start without opening the browser, or `--port 1050` to use
 another port. Later starts reuse the last port, so running agents keep their address.
+
+Licensed under the [PolyForm Noncommercial License 1.0.0](https://github.com/49-Agents/qorqbot/blob/main/LICENSE). Personal and noncommercial use is free. Commercial use needs a [commercial license](https://qorqbot.com/commercial-license/), per person and free until January 1, 2027. See [LICENSE-SCOPE.md](LICENSE-SCOPE.md) and [pricing](https://qorqbot.com/pricing/).

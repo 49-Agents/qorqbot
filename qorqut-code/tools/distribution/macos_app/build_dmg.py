@@ -125,7 +125,7 @@ def package_app(project, version, icns, work):
             'LSMinimumSystemVersion': '14.0',
             'LSArchitecturePriority': ['arm64'],
             'CFBundleDisplayName': 'Qorqbot',
-            'NSHumanReadableCopyright': '49 Agents LLC.',
+            'NSHumanReadableCopyright': 'Copyright 49 Agents LLC. PolyForm Noncommercial License 1.0.0.',
         }, handle)
     out = work / 'packaged'
     numeric = bundle_version(version)

@@ -3,7 +3,7 @@
 The dashboard includes xterm 5.3.0 in `js/xterm.js` and `css/xterm.css`.
 Both files match the corresponding files in the official npm tarball byte for
 byte. These MIT-licensed assets retain their original terms and are excluded
-from Qorqbot's application license terms. The additional notices embedded
+from Qorqbot's noncommercial license terms. The additional notices embedded
 in the CSS remain unchanged.
 
 Source package: https://registry.npmjs.org/xterm/-/xterm-5.3.0.tgz

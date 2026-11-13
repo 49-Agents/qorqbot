@@ -1,0 +1,20 @@
+{
+  "format": 2,
+  "licensor": "49 Agents LLC",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "commercial_license": {
+    "url": "https://qorqbot.com/commercial-license/",
+    "pricing": "https://qorqbot.com/pricing/",
+    "per": "person",
+    "free_until": "2027-01-01"
+  },
+  "releases": [
+    {
+      "version": "1.3.0",
+      "license": "PolyForm-Noncommercial-1.0.0",
+      "first_public_distribution_date": null,
+      "date_timezone": "America/La_Paz",
+      "commercial_license": "https://qorqbot.com/commercial-license/"
+    }
+  ]
+}
