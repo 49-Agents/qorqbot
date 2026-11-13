@@ -120,13 +120,16 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     if len(reminder) > 1000:
         raise DomainError("invalid_bootstrap", "Response style reminder exceeds its character budget")
     reminder_size = len(reminder) + 2 if reminder else 0
+    # Ordubashy's FIRST CONVERSATION line goes first: a CLI may show the model only the start of a long startup context.
+    first = response.get('first_conversation')
+    first = first.strip() if isinstance(first, str) and len(first) <= 1000 else ''
     skills = ''
     if registration.get('operational_intake_enabled'):
         from .always_skills import handle as skills_hook
         skills = skills_hook(hook, registration_path, runtime).get('hookSpecificOutput', {}).get('additionalContext', '')
     if (event == "UserPromptSubmit" and last_id == config_id and not response.get("refresh_required")
             and not recovery.read(registration,session_id)):
-        prompt_context = '\n\n'.join(filter(None, (skills, reminder)))
+        prompt_context = '\n\n'.join(filter(None, (first, skills, reminder)))
         if len(prompt_context) > BOOTSTRAP_BUDGET:
             raise DomainError("invalid_bootstrap", "Combined bootstrap exceeds its character budget")
         return ({"hookSpecificOutput": {"hookEventName": event, "additionalContext": prompt_context}} if prompt_context else {}), None, client
@@ -139,9 +142,9 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
         raise DomainError("invalid_bootstrap", "Mandatory bootstrap is missing or exceeds its character budget")
     configuration_hash = content_hash(context.encode())
     if isinstance(rules, str) and isinstance(facts, str):
-        context = '\n\n'.join(filter(None, (rules, skills, setup, facts)))
+        context = '\n\n'.join(filter(None, (first, rules, skills, setup, facts)))
     else:
-        context = '\n\n'.join(filter(None, (skills, setup, context)))
+        context = '\n\n'.join(filter(None, (first, skills, setup, context)))
     briefing = response.get("work_briefing", {}).get("rendered", "")
     if not isinstance(briefing, str):
         raise DomainError("invalid_bootstrap", "Work briefing must be text")

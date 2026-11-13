@@ -9,7 +9,7 @@ from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp, utc_clock, ref, require_revision
 from qorqut_operations.tasks.scope import task_namespace
 from qorqut.agents.global_scope import reaches_business
-from .identity import installation_owner, ordubashy_profile, require_coordinator
+from .identity import configured_ordubashy, installation_owner, ordubashy_profile, owner_has_written, require_coordinator
 from qorqut_operations.storage.repositories import decode_row
 from dataclasses import replace
 from datetime import datetime
@@ -25,6 +25,12 @@ MANAGED_INPUT_SQL = """s.category='input_request' AND s.state='pending'
  AND coalesce(json_extract(s.preview_json,'$.input.response_policy'),'owner_only')='management_allowed'
  AND EXISTS (SELECT 1 FROM management_routing r WHERE r.source_type='signoffs'
  AND r.source_id=s.id AND r.attention_destination='management' AND r.management_allowed=1)"""
+
+# Given to Ordubashy at startup and with each prompt while the owner has never written to him; ordubashy-core's
+# "Getting set up" describes the welcome.
+FIRST_CONVERSATION = ("FIRST CONVERSATION: the owner has just installed Qorqbot and has never written to you. Unless you "
+                      "have already welcomed them in this conversation, make your next reply the welcome that Getting set "
+                      "up describes, not a status report.")
 
 
 class ManagementService:
@@ -396,3 +402,13 @@ class ManagementService:
                 return '\n'.join(lines)
         except DomainError:
             return ''
+
+    def first_conversation(self, principal):
+        """FIRST_CONVERSATION for the configured Ordubashy while the owner has never written to him, else ''."""
+        try:
+            with self.app.database.read() as uow:
+                if configured_ordubashy(uow) != principal.id or owner_has_written(uow, principal.id):
+                    return ''
+        except DomainError:
+            return ''
+        return FIRST_CONVERSATION
