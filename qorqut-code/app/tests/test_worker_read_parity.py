@@ -1,6 +1,7 @@
 """A global worker reads what the configured Ordubashy's role reads; its writes do not change.
 
 Stubs over SQLite and a small registry of real descriptors, evaluated by the host's real policy rules."""
+import importlib.util
 import json
 import sqlite3
 from types import SimpleNamespace as NS
@@ -21,6 +22,8 @@ ORDUBASHY_REF = {'id': 'ordubashy', 'version': '1.0.0', 'digest': 'sha256:' + 'a
 WORKER_REF = {'id': 'global-worker', 'version': '1.0.0', 'digest': 'sha256:' + 'b' * 64}
 APPLIER_REF = {'id': 'learning-applier', 'version': '1.0.0', 'digest': 'sha256:' + 'c' * 64}
 SCOPES = ('business', 'global')
+# Fastmail is an optional extension: backend CI installs only core, the macOS and release checks add it.
+HAS_FASTMAIL = importlib.util.find_spec('qorqut_fastmail') is not None
 
 ORDUBASHY_DEFAULTS = {
     'tasks_get': 'allow', 'tasks_update': 'allow', 'actions_get': 'allow', 'actions_record': 'allow',
@@ -258,11 +261,18 @@ class PrivateAccountAccessTests(unittest.TestCase):
         return InvocationContext(Principal(agent, kind), global_capabilities=frozenset(capabilities))
 
     def checks(self):
-        from qorqut_fastmail.operations import account_authority
         from qorqut.calendar.operations import CalendarOperations
         calendar = CalendarOperations(NS(resolver=self.resolver))
-        return (('fastmail', lambda ctx, read: account_authority(ctx, self.uow, self.resolver, read=read), 'manage_fastmail'),
-                ('calendar', lambda ctx, read: calendar.access(ctx, self.uow, read=read), 'manage_calendar'))
+        checks = [('calendar', lambda ctx, read: calendar.access(ctx, self.uow, read=read), 'manage_calendar')]
+        if HAS_FASTMAIL:
+            from qorqut_fastmail.operations import account_authority
+            checks.append(('fastmail', lambda ctx, read: account_authority(ctx, self.uow, self.resolver, read=read),
+                           'manage_fastmail'))
+        return tuple(checks)
+
+    @unittest.skipUnless(HAS_FASTMAIL, 'the optional Fastmail extension is not installed')
+    def test_the_mail_handler_is_covered_when_installed(self):
+        self.assertIn('fastmail', [label for label, _, _ in self.checks()])
 
     def test_a_worker_reads_without_the_manage_grant_and_cannot_change(self):
         for label, check, capability in self.checks():
@@ -283,12 +293,15 @@ class PrivateAccountAccessTests(unittest.TestCase):
 
     def test_only_the_reads_declare_the_read_alternative(self):
         from qorqut.calendar.operations import CalendarOperations, READS as CALENDAR_READS
-        from qorqut_fastmail.operations import FastmailOperations, READS as MAIL_READS
         registry = OperationRegistry()
         CalendarOperations(NS(registry=registry)).register()
-        FastmailOperations(NS(programs=None), NS()).register(registry)
+        reads = set(CALENDAR_READS)
+        if HAS_FASTMAIL:
+            from qorqut_fastmail.operations import FastmailOperations, READS as MAIL_READS
+            FastmailOperations(NS(programs=None), NS()).register(registry)
+            reads |= set(MAIL_READS)
         for descriptor in registry.installed():
-            reading = descriptor.name in (*CALENDAR_READS, *MAIL_READS)
+            reading = descriptor.name in reads
             self.assertEqual(descriptor.global_read_capability_alternatives,
                              frozenset({'read_global_context'}) if reading else frozenset(), descriptor.name)
             self.assertEqual(descriptor.global_capability_selected({'read_global_context'}) is not None, reading, descriptor.name)
