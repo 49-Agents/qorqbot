@@ -7,7 +7,7 @@ const path = require('node:path');
 const source = name => fs.readFileSync(path.join(__dirname,'../js',name),'utf8');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
-test('calendar events join the queue an hour before they start and keep a stable discard key', async () => {
+test('calendar events join the queue an hour before they start, retire two hours after they end and keep a stable discard key', async () => {
   const calls = [], base = {connection_id:'conn',calendar_id:'cal',revision:'1',recurrence:[],attendees:[]};
   const events = [
     {...base,id:'soon',title:'Soon',start:'2026-11-11T03:30:00Z',end:'2026-11-11T04:00:00Z'},
@@ -35,6 +35,9 @@ test('calendar events join the queue an hour before they start and keep a stable
   assert.deepEqual(Array.from(result.items, row => [row.event.id, new Date(row.appear).toISOString()]), [
     ['earlier','2026-11-10T19:00:00.000Z'], ['holiday','2026-11-11T00:00:00.000Z'],
     ['soon','2026-11-11T02:30:00.000Z'], ['later','2026-11-11T04:00:00.000Z']]);
+  assert.deepEqual(Array.from(result.items, row => [row.event.id, new Date(row.retire).toISOString()]), [
+    ['earlier','2026-11-10T23:00:00.000Z'], ['holiday','2026-11-12T02:00:00.000Z'],
+    ['soon','2026-11-11T06:00:00.000Z'], ['later','2026-11-11T08:00:00.000Z']]);
   assert.equal(result.items.find(row => row.event.id === 'soon').key, 'calendar:2026-11-11:["conn","cal","soon","2026-11-11T03:30:00Z"]');
   assert.equal(result.items.find(row => row.event.id === 'holiday').key, 'calendar:2026-11-11:["conn","cal","holiday","2026-11-11"]');
   assert.match(result.items[0].label, /^Earlier · .*· Work$/);
@@ -44,8 +47,8 @@ test('calendar events join the queue an hour before they start and keep a stable
 function strip(options = {}) {
   const now = Date.now(), writes = [], toasts = [], opened = [], listeners = {}, calendarChanges = new Set();
   const event = id => ({id, title:id, start:new Date(now + (id === 'upcoming' ? 20 : -30) * 60000).toISOString(), end:'x'});
-  const row = (id, appearMinutes) => ({key:`calendar:2026-11-11:["c","cal","${id}","${id}"]`, appear:now + appearMinutes * 60000, event:event(id), label:`${id} label`});
-  const rows = [row('past', -90), row('upcoming', -40), row('hidden', 20)];
+  const row = (id, appearMinutes, retireMinutes = 120) => ({key:`calendar:2026-11-11:["c","cal","${id}","${id}"]`, appear:now + appearMinutes * 60000, retire:now + retireMinutes * 60000, event:event(id), label:`${id} label`});
+  const rows = [row('past', -90), row('upcoming', -40), row('hidden', 20), row('ended', -300, -1)];
   const context = {Date, Promise, Map, Set, URLSearchParams, AbortController, JSON, esc:value => String(value ?? '').replace(/"/g,'&quot;'), coreData:x => x,
     accessLost:() => false, document:{addEventListener(){}, hidden:false}, window:{addEventListener(){}}, T_VIEW_ICON:{calendar:'<svg></svg>'},
     api:async () => ({items:[]}), calendarChanges, remindersOwnerDue:async () => [], remVerifiedOwner:async () => 'owner', remAttempts:new Map(),
@@ -59,7 +62,7 @@ function strip(options = {}) {
   return {context, host, writes, toasts, opened, listeners, calendarChanges, rows, chip};
 }
 
-test('the strip shows only calendar events that have appeared, past ones included, and opens them', async () => {
+test('the strip shows calendar events that have appeared and not yet retired, past ones included, and opens them', async () => {
   const s = strip();
   const dispose = s.context.queue.mountSignoffs(s.host);
   await tick(); await tick();
@@ -68,6 +71,7 @@ test('the strip shows only calendar events that have appeared, past ones include
   assert.match(s.host.innerHTML, /data-calendar-key="[^"]*past[^"]*" data-calendar-state="past"/);
   assert.match(s.host.innerHTML, /data-calendar-key="[^"]*upcoming[^"]*" data-calendar-state="upcoming"/);
   assert.doesNotMatch(s.host.innerHTML, /hidden/);
+  assert.doesNotMatch(s.host.innerHTML, /ended/);
   assert.equal(s.calendarChanges.size, 1);
   const target = s.chip(s.rows[1].key);
   s.listeners.click({target, currentTarget:s.host});
