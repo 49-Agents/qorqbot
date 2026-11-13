@@ -1,7 +1,8 @@
 """The ``fastmail_*`` account operations: policy, validation and the durable job boundary around the engine's account API.
 
-Account mail has no Project. Every operation is Global, requires the ``manage_fastmail`` capability, and names the Fastmail
-account it means; sending and drafting name a real provider identity (``identity_id`` and the matching ``from_address``), which
+Account mail has no Project. Every operation is Global and names the Fastmail account it means. A mutation requires the
+``manage_fastmail`` capability; a read is also admitted with ``read_global_context`` (``READ_CAPABILITY``), so every global
+worker reads the owner's mail as Ordubashy does, while only a ``manage_fastmail`` grant changes it; sending and drafting name a real provider identity (``identity_id`` and the matching ``from_address``), which
 is checked against the account's own identity list before a job exists and again by the engine before anything is sent. An
 alias is simply an identity of the account: what an alias is for lives in the owner's Email Management instructions.
 
@@ -25,6 +26,8 @@ from qorqut_operations.application.registry import CatalogEntry
 from qorqut_operations.contracts import DomainError, FieldChange, PreviewResource, StructuredPreview, canonical_hash, plain
 
 CAPABILITY = "manage_fastmail"
+# Read-only alternative to CAPABILITY: reading mail needs no write grant. Mutations never accept it.
+READ_CAPABILITY = "read_global_context"
 PROGRAM = "fastmail.account_mutation"
 MAX_INLINE_ATTACHMENT_BASE64 = 1 * 1024 * 1024          # below the 2 MiB MCP request ceiling; no separate upload protocol
 MAX_RESULT_BYTES = 12 * 1024 * 1024
@@ -153,11 +156,17 @@ def forward_source(client, message_id):
     return {key: message.get(key) for key in ('id', 'from', 'subject', 'body', 'attachments')}
 
 
-def account_authority(ctx, uow, resolver):
-    """The one account gate: the installation owner, the configured ecosystem Ordubashy or an explicitly granted global worker."""
+def account_authority(ctx, uow, resolver, *, read=False):
+    """The one account gate: the installation owner, the configured ecosystem Ordubashy or an active global worker.
+
+    A mutation needs ``manage_fastmail``; a read (``read=True``) is also admitted with ``read_global_context``. The identity
+    rule is the same for both."""
     from qorqut.agents.worker_access import is_worker
-    if ctx.business_id is not None or ctx.home_business_id is not None or CAPABILITY not in ctx.global_capabilities:
-        raise DomainError("forbidden", "Fastmail requires the explicit Global account grant")
+    granted = CAPABILITY in ctx.global_capabilities or (read and READ_CAPABILITY in ctx.global_capabilities)
+    if ctx.business_id is not None or ctx.home_business_id is not None or not granted:
+        raise DomainError("forbidden", (f"Fastmail reads require {CAPABILITY} or {READ_CAPABILITY}" if read
+                                        else f"Fastmail changes require the explicit Global account grant {CAPABILITY}"),
+                          details={"denial_reason": "capability_not_granted", "missing_capability": CAPABILITY})
     installation = uow.repository("installation").get("service")
     if ctx.principal_kind == "human":
         if not installation or installation["owner_principal_id"] != ctx.principal_id:
@@ -174,7 +183,7 @@ def account_authority(ctx, uow, resolver):
     coordinator = profile.data["role"]["id"] == "ordubashy" and ManagementService._coordinator(uow) == ctx.principal_id
     if (profile.data["status"] != "active" or profile.scope.kind != "ecosystem"
             or not (coordinator or is_worker(uow.connection, ctx.principal_id))):
-        raise DomainError("forbidden", "Fastmail requires the configured ecosystem Ordubashy or an authorized global worker")
+        raise DomainError("forbidden", "Fastmail requires the configured ecosystem Ordubashy or an active global worker")
 
 
 def check_sender(identities, identity_id: str, from_address: str) -> dict:
@@ -212,8 +221,8 @@ class FastmailOperations:
         self.programs = runtime.programs
 
     # -- access ----------------------------------------------------------------------------------------------------
-    def access(self, ctx, uow):
-        account_authority(ctx, uow, self.runtime.resolver)
+    def access(self, ctx, uow, *, read=False):
+        account_authority(ctx, uow, self.runtime.resolver, read=read)
 
     def client(self):
         client = self.provider.client()
@@ -240,6 +249,7 @@ class FastmailOperations:
             registry.register(OperationDescriptor(
                 name, arguments, effect_kind="read", supports_signoff=False, scope_kinds={"global"},
                 resolve_namespace=lambda c, a: "global", global_capability=CAPABILITY, external_read=True, default_mode="allow",
+                global_read_capability_alternatives=frozenset({READ_CAPABILITY}),
                 description=instruction_text('operations-read-the-owner-s-fastmail-account-through-the') + text,
                 read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
         for name, (arguments, _, text) in MUTATIONS.items():
@@ -256,7 +266,7 @@ class FastmailOperations:
 
     # -- reads -----------------------------------------------------------------------------------------------------
     def read(self, op, ctx, args, uow):
-        self.access(ctx, uow)
+        self.access(ctx, uow, read=True)
         client = self.client()
         if op == "fastmail_capabilities_get":
             result = self.account(client)

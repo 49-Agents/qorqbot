@@ -12,6 +12,7 @@ from typing import Any, Protocol
 
 from qorqut_operations.business_lifecycle import active_business_ids, require_active_business
 from qorqut_operations.contracts import DomainError, InvocationContext, PolicyDecision, Principal, freeze, plain
+from qorqut_operations.application.registry import capability_not_granted
 from .rules import PolicyRules, resolve_operation_policy, validate_modes
 
 
@@ -183,7 +184,7 @@ class PolicyResolver:
             if resource.business_id and resource.business_id not in context.allowed_business_ids:
                 raise DomainError("forbidden", "Prepared resource is outside current scope")
         if descriptor.global_capability and descriptor.global_capability_selected(context.global_capabilities) is None:
-            raise DomainError("forbidden", "Global capability is not granted")
+            raise capability_not_granted(descriptor)
         if descriptor.owner_only:
             return PolicyDecision("deny", "owner_only")
         if context.principal_kind == "human":

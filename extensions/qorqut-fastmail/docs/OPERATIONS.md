@@ -15,8 +15,11 @@ engine is first used and never when the declaration is made, so a missing token 
 
 ## Access
 
-Every operation is Global-scope and needs the `manage_fastmail` Global grant. Beyond the grant the caller must be the installation
-owner, the configured ecosystem Ordubashy, or an authorized global worker; a generic ecosystem agent holding the grant is refused.
+Every operation is Global-scope. A read (the table below) needs `manage_fastmail` or `read_global_context`; every mutation needs
+the `manage_fastmail` Global grant. Workers read what Ordubashy reads: every active global worker holds `read_global_context`, so it
+reads the owner's mail with no setup, and only changing mail needs the grant. Beyond the capability the caller must be the
+installation owner, the configured ecosystem Ordubashy, or an active global worker; another ecosystem agent (Learning Applier) is
+refused whatever it holds. A refused call names the missing capability.
 Business-scoped callers are refused. Sending (`fastmail_send`, `fastmail_reply`, `fastmail_forward`) requires an authorized
 agent proposal and exact owner Signoff; an `allow` override cannot skip review, while `deny` still refuses it. The owner
 reviews through the existing Signoff route rather than invoking a direct send. Other mutations keep their `allow` default
@@ -33,7 +36,7 @@ and do not support Signoff. Reading, organizing mail and saving provider drafts 
 | `fastmail_message_get` | `message_id` | one message with its `expected_state` |
 | `fastmail_thread_get` | `thread_id`, `limit` (≤100), `position` | one page of a thread |
 | `fastmail_attachment_get` | `attachment_id`, `message_id`, `offset`, `limit` (≤5 MiB) | `content_base64`, `total`, `offset`, `next_offset`; follow until `next_offset == total` |
-| `fastmail_receipt_get` | `request_id` | `{request_id, receipt, job}`: the engine's receipt for a mutation (the request id is the queued job id), if it holds one, and the job's own `state`, `attempts`, `operation`, `error_code` and timestamps (never its arguments); `not_found` only when neither exists. This is how a queued, retrying or `external_unconfirmed` mutation is observed under the `manage_fastmail` grant alone |
+| `fastmail_receipt_get` | `request_id` | `{request_id, receipt, job}`: the engine's receipt for a mutation (the request id is the queued job id), if it holds one, and the job's own `state`, `attempts`, `operation`, `error_code` and timestamps (never its arguments); `not_found` only when neither exists. This is how a queued, retrying or `external_unconfirmed` mutation is observed without a routine grant |
 
 Results larger than 12 MiB are refused (`external_result_invalid`).
 

@@ -117,7 +117,7 @@ def register_operations(runtime, programs, authority, *, clock=None):
     runtime.registry.register(OperationDescriptor("jobs_get", schema({"job_id": UUID, "scope": {"enum": ["business", "global"]}}, ["job_id"]),
         effect_kind="read", supports_signoff=False, scope_kinds={"business", "global"},
         resolve_namespace=lambda c,a: "global" if a.get("scope") == "global" else "business:" + c.business_id,
-        global_capability="manage_global_routines",
+        global_capability="manage_global_routines", global_read_capability_alternatives=frozenset({"read_global_context"}),
         read=job_get, description=instruction_text('integration-inspect-a-scoped-background-job-the-initiating-agent')))
 
     runtime.background_operations = (routines, learnings)

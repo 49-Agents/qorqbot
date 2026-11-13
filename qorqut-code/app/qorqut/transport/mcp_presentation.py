@@ -641,7 +641,7 @@ def present(name, value, detail="compact", *, tool_names=None, sections=None, ar
                 found = requested & {tool["canonical_operation"], *tool.get("exposed_aliases", [])}
                 if found:
                     matched.update(found)
-                    selected.append(select(tool, ("canonical_operation", "exposed_aliases", "effective_mode", "available", "denial_reason")))
+                    selected.append(select(tool, ("canonical_operation", "exposed_aliases", "effective_mode", "available", "denial_reason", "missing_capability")))
             summary["tools"] = selected
             summary["unknown_tools"] = [item for item in tool_names if item not in matched]
         if detail == "context":

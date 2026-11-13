@@ -9,7 +9,7 @@ supplies the configured role and identity facts the evaluator passes in. It alte
 from __future__ import annotations
 
 from qorqut_operations.contracts import PolicyDecision
-from qorqut_operations.roles import ORDUBASHY_ROLE
+from qorqut_operations.roles import GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE
 
 GLOBAL_TABLE_ROLES = frozenset({ORDUBASHY_ROLE})
 GLOBAL_TABLE_OPERATIONS = frozenset({"tables_list", "tables_get", "tables_rows_list", "tables_history", "tables_create",
@@ -17,6 +17,11 @@ GLOBAL_TABLE_OPERATIONS = frozenset({"tables_list", "tables_get", "tables_rows_l
                                      # A CRM's memberships and a Table's discussion: Table-scoped, so Global uses the same rule.
                                      "crm_entries_list", "crm_entries_add", "crm_entries_update", "crm_entries_remove",
                                      "tables_thread_get", "tables_comment", "tables_follow"})
+# The reads among them. A global worker reads what the configured Ordubashy reads, Global tables included: its Global read
+# follows the same decision as its business one (its explicit override, else its effective role defaults, which carry its
+# read parity with Ordubashy's role). Every Global table write still needs an explicit grant.
+GLOBAL_TABLE_READS = frozenset({"tables_list", "tables_get", "tables_rows_list", "tables_history", "crm_entries_list",
+                                "tables_thread_get"})
 
 
 def global_tables(name, defaults, overrides, registry, *, role_id, scope, resolve):
@@ -36,6 +41,8 @@ def global_tables(name, defaults, overrides, registry, *, role_id, scope, resolv
             return PolicyDecision("deny", "global_table_grant_required")
         if name in overrides:
             return PolicyDecision(overrides[name], "agent_override")
+        if role_id == GLOBAL_WORKER_ROLE and name in GLOBAL_TABLE_READS:
+            return resolve(name, scope="business")
         return (PolicyDecision("allow", "global_table_role") if default_role
                 else PolicyDecision("deny", "global_table_grant_required"))
     if name == "tables_archive":

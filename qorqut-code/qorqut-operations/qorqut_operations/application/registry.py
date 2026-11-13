@@ -40,6 +40,17 @@ def check_schema_cached(schema) -> None:
             _CHECKED_SCHEMAS.popitem(last=False)
 
 
+def capability_not_granted(descriptor) -> DomainError:
+    """The Global capability refusal, naming what is missing: the primary capability, and for a plain read the
+    alternatives that would also admit the caller."""
+    alternatives = sorted(descriptor.global_read_capability_alternatives)
+    names = " or ".join((descriptor.global_capability, *alternatives))
+    return DomainError("forbidden", f"Global capability is not granted: {descriptor.name} requires {names}",
+                       details={"denial_reason": "capability_not_granted", "operation": descriptor.name,
+                                "missing_capability": descriptor.global_capability,
+                                "alternative_capabilities": alternatives})
+
+
 @dataclass(frozen=True)
 class CatalogEntry:
     name: str

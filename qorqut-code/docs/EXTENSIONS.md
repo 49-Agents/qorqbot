@@ -29,7 +29,7 @@ Installed distributions are selected once by the trusted installation configurat
 - **Visibility**: `GET /api/root/extensions` lists the selected extensions that ship pane assets; assets are served beneath
   `/extensions/<id>/assets/`. An absent extension yields ordinary not-found responses and no tables, tools or workers.
 - **Fastmail provider**: `qorqut_fastmail.extension:create` registers the `fastmail_*` account operations (Global scope, the
-  `manage_fastmail` grant), one durable mutation program and the `fastmail` CalDAV connection type for the generic
+  `manage_fastmail` grant for mutations; reads also accept `read_global_context`), one durable mutation program and the `fastmail` CalDAV connection type for the generic
   `calendar_*` operations (a `CalendarProvider`; core ships no calendar adapter, so a connection type no selected extension
   supplies is `provider_unavailable`). It owns no
   table, so the store fingerprint is the same with or without it. Other extensions find it by id through `runtime.extensions`
