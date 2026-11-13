@@ -256,33 +256,34 @@ function mountGlobalChat(pane, agent, options = {}) {
     ...(entry.speaker === 'notice' ? {notice: {label: globalChatNoticeLabel(entry.system), verified: !!entry.system?.verified, inputType: entry.system?.input_type || null,
       markerOnly: !!entry.system?.verified && globalChatMarkerOnly(entry.system.input_type)}} : {}),
   });
-  // A successful outgoing agent message: recipients come from the backend DTO, glyphs from the existing trusted renderer.
-  const agentMessageRecipient = recipient => {
-    const name = String(recipient?.display_name || 'Agent');
-    return {id: String(recipient?.agent_id || ''), name, glyphHtml: agentGlyph({...(recipient?.presentation || {}), agent_id: recipient?.agent_id, display_name: recipient?.display_name, role: recipient?.role}, 25)};
-  };
   const isAgentMessage = entry => entry.speaker === 'notice' && Array.isArray(entry.agent_message?.recipients);
-  // Adjacent outgoing-message entries share one row: first entry's key and position, distinct recipients in first-seen order.
-  // Recomputed from the per-conversation entry map on every render, so replay and older pages never double-count.
-  function groupAgentMessages(sorted) {
+  const isNudge = entry => entry.speaker === 'notice' && entry.system?.verified === true && entry.system.input_type === 'inbox_nudge';
+  // Rebuild contiguous runs from the ID-keyed, ordered transcript on every render.
+  function groupActivity(sorted) {
     const rows = [];
     for (const entry of sorted) {
       const last = rows[rows.length - 1];
-      if (!isAgentMessage(entry)) { rows.push(entry); continue; }
-      if (last?.group) { last.group.push(entry); continue; }
-      rows.push({group: [entry]});
+      if (!isNudge(entry) && !isAgentMessage(entry)) { rows.push(entry); continue; }
+      if (last?.group) last.group.push(entry);
+      else rows.push({group: [entry]});
     }
     return rows.map(row => {
       if (!row.group) return presentEntry(row);
       const first = row.group[0], seen = new Set(), recipients = [];
-      for (const entry of row.group) for (const raw of entry.agent_message.recipients) {
-        const recipient = agentMessageRecipient(raw), key = recipient.id || `name:${recipient.name}`;
-        if (!seen.has(key)) { seen.add(key); recipients.push(recipient); }
+      let nudgeCount = 0;
+      for (const entry of row.group) {
+        if (isNudge(entry)) nudgeCount++;
+        if (!isAgentMessage(entry)) continue;
+        for (const raw of entry.agent_message.recipients) {
+          const name = String(raw?.display_name || 'Agent'), id = String(raw?.agent_id || '');
+          const key = id || `name:${name}`;
+          if (!seen.has(key)) { seen.add(key); recipients.push({id, name}); }
+        }
       }
-      return {...presentEntry(first), text: '', notice: {label: 'Messaged', verified: true, inputType: null, markerOnly: true, agentMessage: {recipients}}};
+      return {...presentEntry(first), text: '', notice: {label: 'Activity', verified: true, markerOnly: true, activity: {nudgeCount, recipients}}};
     });
   }
-  const orderedEntries = () => groupAgentMessages([...entries.values()].sort((a, b) => a.position - b.position));
+  const orderedEntries = () => groupActivity([...entries.values()].sort((a, b) => a.position - b.position));
   const newestPosition = () => { let top = -1; for (const entry of entries.values()) top = Math.max(top, entry.position); return top; };
   const viewedKey = () => globalChatKey(conversation);
   // The live session's exact binding; a conversation is sendable only when it is the one displayed.
