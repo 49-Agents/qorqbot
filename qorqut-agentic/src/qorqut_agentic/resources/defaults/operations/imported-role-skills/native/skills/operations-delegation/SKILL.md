@@ -290,6 +290,7 @@ unrequested native subagent.
 Delegation gives a worker no account, mailbox or configuration authority,
 no standing email or external-send authority, no peer administration and no further
 delegation; the worker only intersects the parent agent's current policy. Email
-work stays with Ordubashy unless he grants Email Management to a worker. Only the parent agent that created a delegated assignment reads
+work stays with Ordubashy unless he grants Email Management to a worker; any permanent worker may read
+the owner's mail and calendars as he does, but changing or sending them needs that grant. Only the parent agent that created a delegated assignment reads
 or controls it, and it neither assigns work to another Global nor starts, stops or
 reconfigures another agent's session without the owner's instruction.
