@@ -20,7 +20,7 @@ class SessionBindingTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.root = Path(self.directory.name)
+        self.root = Path(self.directory.name).resolve()
         self.workspace = self.root / 'agent'
         self.local = self.workspace / '.qorqut'
         self.local.mkdir(parents=True)

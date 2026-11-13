@@ -46,7 +46,7 @@ class Fixture(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        root = Path(folder.name)
+        root = Path(folder.name).resolve()
         self.db = Database(root / 'operations.sqlite3', assembly=host_assembly(ChangeFeed())).initialize_target()
         self.addCleanup(self.db.close)
         self.owner, self.lead, self.worker = (str(uuid4()) for _ in range(3))

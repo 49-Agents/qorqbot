@@ -246,7 +246,7 @@ class DefaultsTest(unittest.TestCase):
 class UpgradeTest(unittest.TestCase):
     def test_exact_upgrade_is_read_only_on_inspect_and_idempotent_on_apply(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "store.sqlite3"
+            path = Path(directory).resolve() / "store.sqlite3"
             predecessor, target = defaults_upgrade.compositions()
             db = Database(path, assembly=predecessor).initialize_target()
             db.close()
@@ -263,7 +263,7 @@ class UpgradeTest(unittest.TestCase):
 
     def test_unknown_schema_is_refused_without_partial_ddl(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "store.sqlite3"
+            path = Path(directory).resolve() / "store.sqlite3"
             db = Database(path, assembly=defaults_upgrade.compositions()[0]).initialize_target()
             db.close()
             with sqlite3.connect(path, isolation_level=None) as connection:
@@ -274,7 +274,7 @@ class UpgradeTest(unittest.TestCase):
 
     def test_failure_after_ddl_rolls_back_schema_identity_and_table(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "store.sqlite3"
+            path = Path(directory).resolve() / "store.sqlite3"
             db = Database(path, assembly=defaults_upgrade.compositions()[0]).initialize_target()
             db.close()
             with sqlite3.connect(path, isolation_level=None) as connection:

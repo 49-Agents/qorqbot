@@ -80,7 +80,7 @@ class ActionEvidenceTests(unittest.TestCase):
     def setUp(self):
         self.temp = TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.db = Database(self.root / "state.sqlite", assembly=host_assembly(ChangeFeed())).initialize_target()
         self.addCleanup(self.db.close)
         self.owner, self.business, self.document = new_id(), new_id(), new_id()

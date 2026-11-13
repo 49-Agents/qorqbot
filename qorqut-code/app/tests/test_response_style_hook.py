@@ -19,7 +19,7 @@ class ResponseStyleHookTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         self.session = '00000000-0000-4000-8000-000000000001'
         self.registration = {'registration_id': 'synthetic', 'workspace': str(self.root)}
         instruction_root = Path(__file__).resolve().parents[3] / 'qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/runtime-instructions'

@@ -19,7 +19,7 @@ class JournalLoadingTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temp = TemporaryDirectory()
-        cls.root = Path(cls.temp.name)
+        cls.root = Path(cls.temp.name).resolve()
         cls.database = Database(cls.root / 'operations.sqlite', assembly=host_assembly(ChangeFeed()))
         cls.database.initialize_target()
         cls.owner_id, cls.business_id = new_id(), new_id()
