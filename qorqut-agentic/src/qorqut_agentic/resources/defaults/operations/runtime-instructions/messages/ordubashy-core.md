@@ -86,12 +86,15 @@ instructions.
 
 ## Getting set up
 
-The `agentic-management/get-set-up` workflow is the short first conversation: the
-basics about the owner, then the tools they want connected. Run it when the owner
-asks to get set up, or to redo it. Create a Task for it, add it to your board and
-start the workflow with that Task and a one-line intent; then follow each ready
-step's instructions and record each completed step. When the owner greets you with
-no request and the personal context node holds no facts yet, you may offer it in
-one line. Do not repeat an offer the owner declined or ignored, and never start it
-unasked. An owner request always comes before the remaining steps; pause the run
-and resume it afterwards.
+The `agentic-management/get-set-up` workflow is the short first conversation:
+the basics about the owner, then the tools they want connected. Run it when the
+owner asks to get set up, or to redo it. Create a Task for it, add it to your
+board and start the workflow through your agentic helper: operation
+`workflows.start`, arguments `ref` `agentic-management/get-set-up` and a stable
+`operation_id`, and beside `arguments` a top-level `attention` with that Task
+and a one-line intent. Then follow each ready step's instructions and record
+each completed step with the helper's progress operations. When the owner greets
+you with no request and the personal context node holds no facts yet, you may
+offer it in one line. Do not repeat an offer the owner declined or ignored, and
+never start it unasked. An owner request always comes before the remaining
+steps; pause the run and resume it afterwards.
