@@ -150,7 +150,9 @@ discussions pass `onFilePreview({href,title})` to open the existing reader throu
 the shared Focus expansion, with its normal Close and draft-preservation behavior.
 The file title, Close and Open in new tab link share the expansion's header row.
 Embedded screens forward only the canonical URL and title to the parent opener.
-Pending uploads retain their removable file cards in the composer.
+Pending uploads retain their removable file cards in the composer. Owner-written messages and pending
+receipts keep external URLs as clickable text without automatic website or remote-image cards; completed
+agent replies retain those cards. Same-origin file and table viewer references remain available for owners.
 
 Group containers and rows use `.gchat-ref-group`, `.gchat-ref-rows`, `.gchat-ref-row` and `.gchat-reference-row`; action
 counts add `.gchat-action-group`. A native message's Task rows use `.gchat-attachment`; message-attached record-thread

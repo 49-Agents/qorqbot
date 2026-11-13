@@ -196,13 +196,13 @@ function chatViewFileRow(target, label) {
   return row;
 }
 // Chips represent rendered links, never code samples. No document/image request happens until a chip is opened.
-function chatViewReferenceChips(body) {
+function chatViewReferenceChips(body, {includeExternalLinks = true} = {}) {
   const chips = document.createElement('div'), seen = new Set();
   chips.className = 'gchat-references';
   let run = null;
   for (const link of body.querySelectorAll('a.safe-link')) {
     const target = chatViewReferenceTarget(link.href);
-    if (!target || seen.has(target.url.href)) continue;
+    if (!target || (!includeExternalLinks && !target.viewer) || seen.has(target.url.href)) continue;
     seen.add(target.url.href);
     const website = !target.viewer && !target.image;
     const file = target.image || target.viewer && target.url.pathname === '/files/view';
@@ -252,7 +252,7 @@ function chatViewExtractTableLinks(body) {
 }
 
 function chatViewOwnerReferences(body) {
-  const chips = chatViewReferenceChips(body);
+  const chips = chatViewReferenceChips(body, {includeExternalLinks: false});
   let removed = false;
   // A copied attachment is shown once as its reference card. Its local path
   // stays in the native transcript, rather than cluttering the visible text.
