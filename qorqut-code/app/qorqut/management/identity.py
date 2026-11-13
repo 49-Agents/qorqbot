@@ -41,6 +41,16 @@ def configured_ordubashy(uow):
     return identity
 
 
+def owner_has_written(uow, agent_id):
+    """Whether the installation owner has ever sent this agent a message: in Chat, over Telegram, as a direct message or in
+    a private thread. None of these records can be deleted, so once true this stays true."""
+    return bool(uow.connection.execute(
+        """SELECT EXISTS(SELECT 1 FROM native_inputs WHERE agent_id=? AND origin='owner')
+            OR EXISTS(SELECT 1 FROM global_chat_messages WHERE agent_id=? AND role='owner')
+            OR EXISTS(SELECT 1 FROM owner_conversation_messages WHERE author_role='owner')""",
+        (agent_id, agent_id)).fetchone()[0])
+
+
 def private_participants(uow):
     """The exact pair allowed in a private conversation; never client-selected."""
     return installation_owner(uow), configured_ordubashy(uow)

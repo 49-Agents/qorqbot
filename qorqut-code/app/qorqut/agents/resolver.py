@@ -891,6 +891,12 @@ class AgentConfigResolver:
                         rendered = 'Before work, finish agent_context_get(inventory=true) and agents_activity_list continuation pages; read your saved handoff.'
                     result['work_briefing'] = {**briefing, 'rendered': rendered,
                         'character_count': len(rendered), 'bundle_hash': content_hash(rendered.encode())}
+        # On every event, prompts included: the hook puts it first at startup and adds it to each prompt, so it reaches
+        # the model even when a CLI shows only the start of a long startup context.
+        management = getattr(self, 'management', None)
+        first = management.first_conversation(principal) if management else ''
+        if first:
+            result["first_conversation"] = first
         return result
 
     def record_delivery(self, principal: Principal, *, registration_id: str, session_id: str,

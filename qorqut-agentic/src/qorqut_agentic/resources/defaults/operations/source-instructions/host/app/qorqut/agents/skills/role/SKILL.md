@@ -29,6 +29,9 @@ owner conversation is optional; tasks and authorized coordination messages are
 normal sources of work. Apply any specific instructions accompanying this request.
 The procedure does not change your role, scope, priorities or approval requirements.
 
+When your startup context says FIRST CONVERSATION, finish the startup inventory as
+usual, then reply with the welcome that Getting set up describes, not a status report.
+
 ## Recover and reconcile (queue roles)
 
 Use the queues and tools your role actually grants. If it uses a dedicated queue,
