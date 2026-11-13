@@ -34,7 +34,8 @@ assert session['is_installation_owner']
 selected=set(filter(None,args.selected.split(',')))
 configuration=json.loads((root/'instance/config/extensions.json').read_text())
 configured={entry['factory'].split('.')[0].removeprefix('qorqut_') for entry in configuration['extensions']}
-assert configured==selected,configured
+# The launcher selects the bundled treg toolkit on every installation; the optional connectors come on top of it.
+assert configured==selected|{'treg'},configured
 manifest=request('/api/root/extensions')['data']['extensions']
 for entry in manifest:
     for kind in ('scripts','styles'):
