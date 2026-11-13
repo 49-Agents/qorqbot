@@ -290,9 +290,12 @@ def read_proc(pid: int) -> tuple[int, list[str], str] | None:
         stat = Path(f'/proc/{pid}/stat').read_text()
         ppid = int(stat[stat.rindex(')') + 2:].split()[1])
         args = split_command_line(Path(f'/proc/{pid}/cmdline').read_bytes())
-        exe = os.readlink(f'/proc/{pid}/exe')
     except (OSError, ValueError):
         return None
+    try:
+        exe = os.readlink(f'/proc/{pid}/exe')
+    except OSError:
+        exe = ''  # not ours to inspect, for example the setuid sandbox helper; it still links the tree
     return ppid, args, exe
 
 
@@ -338,7 +341,8 @@ def wait_for_dashboard(home: Path, deadline: float, process: subprocess.Popen) -
     raise CheckError('The dashboard did not answer within 240 seconds; see window.log in the work folder')
 
 
-def check_process_tree(app_root: Path, unsandboxed: bool) -> int:
+def check_process_tree(app_root: Path, unsandboxed: bool) -> tuple[int, str]:
+    """The main process id and which Chromium sandbox the window runs under."""
     table = process_table()
     main = find_main(table, app_root)
     if main is None:
@@ -352,23 +356,46 @@ def check_process_tree(app_root: Path, unsandboxed: bool) -> int:
         mains_args = table[main][1]
         if '--no-sandbox' in mains_args or any('--no-sandbox' in args for args in tree.values()):
             raise CheckError('A process runs with --no-sandbox')
-    return main
+        renderers = [pid for pid, args in tree.items() if '--type=renderer' in args]
+        if not any(seccomp_filtered(pid) for pid in renderers):
+            raise CheckError('No renderer process runs under a seccomp filter; the sandbox is not on')
+    helper = any(args and args[0].endswith('/chrome-sandbox') for args in tree.values())
+    return main, 'not tested' if unsandboxed else 'setuid helper' if helper else 'user namespaces'
 
 
-def run_window_check(app_root: Path, work: Path, port: int, unsandboxed: bool, holder: list) -> list[str]:
+def seccomp_filtered(pid: int) -> bool:
+    """True when the kernel reports seccomp filter mode for the process, as Chromium's sandbox sets it."""
+    try:
+        status = Path(f'/proc/{pid}/status').read_text()
+    except OSError:
+        return False
+    return bool(re.search(r'^Seccomp:\s*2$', status, re.M))
+
+
+def run_window_check(app_root: Path, work: Path, port: int, unsandboxed: bool, holder: list,
+                     force_helper: bool = False) -> list[str]:
+    """Start the app under a virtual display, look at its processes, quit it.
+
+    force_helper turns Chromium's user-namespace sandbox off, so the window can only start
+    through the root-owned chrome-sandbox helper. That is the path an Ubuntu 24.04 desktop
+    takes, where unprivileged user namespaces are blocked; a runner may allow them."""
     if not shutil.which('xvfb-run'):
         raise CheckError('xvfb-run is not installed (package xvfb)')
     window_port = port + 30
     command = ['xvfb-run', '-a', str(app_root / 'Qorqbot')]
     if unsandboxed:
         command.append('--no-sandbox')
-    with open(work / 'window.log', 'wb') as log:
+    if force_helper:
+        command.append('--disable-namespace-sandbox')
+    with open(work / 'window.log', 'ab') as log:
         process = subprocess.Popen(command, env=base_env(work, 'w', window_port), cwd=work,
                                    stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     holder.append(process)
     home = work / 'w'
     shown_port = wait_for_dashboard(home, time.time() + 240, process)
-    main = check_process_tree(app_root, unsandboxed)
+    main, sandbox = check_process_tree(app_root, unsandboxed)
+    if force_helper and sandbox != 'setuid helper':
+        raise CheckError('With user namespaces off the window did not start under the chrome-sandbox helper')
     os.kill(main, signal.SIGTERM)
     deadline = time.time() + 90
     while time.time() < deadline and read_proc(main):
@@ -381,9 +408,17 @@ def run_window_check(app_root: Path, work: Path, port: int, unsandboxed: bool, h
                             env=base_env(work, 'w', window_port), capture_output=True, text=True, timeout=60)
     if 'Stopped' not in status.stdout + status.stderr:
         raise CheckError(f'qorqbot status did not say Stopped after quitting: {status.stdout.strip()}')
-    return ['app window starts (renderer and zygote processes running)',
-            'the server started by the app answers HTTP 200',
-            'quitting the app stops the server']
+    if force_helper:
+        return ['second launch starts from the installed folder and quitting stops the server',
+                'with user namespaces off the window starts under the root-owned chrome-sandbox helper, '
+                'renderer seccomp-filtered (the path Ubuntu 24.04 desktops take)']
+    checks = ['app window starts (renderer and zygote processes running)',
+              'the server started by the app answers HTTP 200',
+              'quitting the app stops the server']
+    if not unsandboxed:
+        checks.append(f'Chromium sandbox on ({sandbox}): no process runs with --no-sandbox '
+                      'and the renderer is seccomp-filtered')
+    return checks
 
 
 def ancestors_of_self() -> set[int]:
@@ -449,7 +484,7 @@ def check_installed(app_root: Path, archive: Path, work: Path, port: int, versio
                run_engine_check(app_root, work, version, sha256_of(archive), port)]
     checks += run_window_check(app_root, work, port, unsandboxed, holder)
     if not unsandboxed:
-        checks.append('Chromium sandbox on: no process runs with --no-sandbox')
+        checks += run_window_check(app_root, work, port, False, holder, force_helper=True)
     return checks
 
 

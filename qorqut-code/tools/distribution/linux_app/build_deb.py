@@ -77,7 +77,7 @@ Exec=/opt/Qorqbot/Qorqbot
 Icon=qorqbot
 Terminal=false
 Categories=Office;
-StartupWMClass=Qorqbot
+StartupWMClass=qorqbot
 '''
 
 

@@ -78,6 +78,8 @@ The automated check covers:
 - install by apt on a clean Ubuntu 24.04 runner
 - a fresh-home install, start, and the dashboard answering
 - the window process starting with the sandbox on, under a virtual display
+- a second launch with user namespaces turned off, so the window can only start
+  through the root-owned `chrome-sandbox` helper, as on an Ubuntu 24.04 desktop
 - stop on quit
 
 It does not cover:

@@ -105,7 +105,7 @@ class BuilderUnitTests(unittest.TestCase):
         lines = build_deb.DESKTOP_ENTRY.splitlines()
         self.assertEqual(lines[0], '[Desktop Entry]')
         for line in ('Type=Application', 'Name=Qorqbot', 'Exec=/opt/Qorqbot/Qorqbot', 'Icon=qorqbot',
-                     'Terminal=false', 'Categories=Office;', 'StartupWMClass=Qorqbot'):
+                     'Terminal=false', 'Categories=Office;', 'StartupWMClass=qorqbot'):
             self.assertIn(line, lines)
 
     @unittest.skipUnless(shutil.which('desktop-file-validate'), 'desktop-file-validate')
