@@ -1,4 +1,5 @@
-"""Ordubashy is told at startup when the owner has never written to him, so a new owner's first hello opens set-up."""
+"""Ordubashy is told when the owner has never written to him, so he welcomes them, and when their first message has
+arrived, so it starts set-up."""
 from contextlib import contextmanager
 import hashlib
 import json
@@ -12,7 +13,7 @@ from unittest import mock
 from qorqut_agentic.behavior.instructions import from_catalog
 from qorqut.bootstrap.claude_session import handle_hook
 from qorqut.management import service as service_module
-from qorqut.management.service import FIRST_CONVERSATION, ManagementService
+from qorqut.management.service import FIRST_CONVERSATION, FIRST_MESSAGE, ManagementService
 
 ORDUBASHY = "agent-ordubashy"
 
@@ -26,7 +27,7 @@ class FakeApp:
     def __init__(self):
         self.connection = sqlite3.connect(":memory:")
         self.connection.executescript("""
-            CREATE TABLE native_inputs (agent_id TEXT, origin TEXT, input_type TEXT);
+            CREATE TABLE native_inputs (agent_id TEXT, origin TEXT, input_type TEXT, source_key TEXT);
             CREATE TABLE global_chat_messages (agent_id TEXT, role TEXT);
             CREATE TABLE owner_conversation_messages (author_role TEXT);
         """)
@@ -55,24 +56,41 @@ class FirstConversationTests(unittest.TestCase):
         self.assertEqual(self.line("agent-learning-applier"), "")
 
     def test_system_inputs_are_not_the_owner_writing(self):
-        self.app.connection.execute("INSERT INTO native_inputs VALUES (?, 'system', 'inbox_nudge')", (ORDUBASHY,))
+        self.app.connection.execute("INSERT INTO native_inputs VALUES (?, 'system', 'inbox_nudge', 'n1')", (ORDUBASHY,))
         self.assertEqual(self.line(), FIRST_CONVERSATION)
 
-    def test_any_owner_message_ends_it(self):
-        writes = {
-            "chat": ("INSERT INTO native_inputs VALUES (?, 'owner', 'chat')", (ORDUBASHY,)),
-            "telegram": ("INSERT INTO native_inputs VALUES (?, 'owner', 'telegram')", (ORDUBASHY,)),
-            "earlier chat": ("INSERT INTO global_chat_messages VALUES (?, 'owner')", (ORDUBASHY,)),
-            "private thread": ("INSERT INTO owner_conversation_messages VALUES ('owner')", ()),
-        }
-        for name, (sql, values) in writes.items():
+    WRITES = {
+        "chat": ("INSERT INTO native_inputs VALUES (?, 'owner', 'chat', ?)", True),
+        "telegram": ("INSERT INTO native_inputs VALUES (?, 'owner', 'telegram', ?)", True),
+        "earlier chat": ("INSERT INTO global_chat_messages VALUES (?, 'owner')", False),
+        "private thread": ("INSERT INTO owner_conversation_messages VALUES ('owner')", None),
+    }
+
+    def write(self, name, key):
+        sql, keyed = self.WRITES[name]
+        self.app.connection.execute(sql, (ORDUBASHY, key) if keyed else (ORDUBASHY,) if keyed is False else ())
+
+    def test_the_first_owner_message_starts_set_up_and_the_second_ends_it(self):
+        for name in self.WRITES:
             with self.subTest(name):
                 self.setUp()
-                self.app.connection.execute(sql, values)
+                self.write(name, "m1")
+                self.assertEqual(self.line(), FIRST_MESSAGE)
+                self.write(name, "m2")
                 self.assertEqual(self.line(), "")
 
-    def test_an_owner_message_to_another_agent_does_not_end_it(self):
-        self.app.connection.execute("INSERT INTO native_inputs VALUES ('agent-other', 'owner', 'chat')")
+    def test_messages_from_different_channels_add_up(self):
+        self.write("chat", "m1")
+        self.write("private thread", None)
+        self.assertEqual(self.line(), "")
+
+    def test_a_retried_message_counts_once(self):
+        self.write("chat", "m1")
+        self.write("chat", "m1")
+        self.assertEqual(self.line(), FIRST_MESSAGE)
+
+    def test_an_owner_message_to_another_agent_does_not_count(self):
+        self.app.connection.execute("INSERT INTO native_inputs VALUES ('agent-other', 'owner', 'chat', 'm1')")
         self.assertEqual(self.line(), FIRST_CONVERSATION)
 
     def test_no_configured_ordubashy_tells_no_one(self):
@@ -122,6 +140,16 @@ class FirstConversationHookTests(unittest.TestCase):
         for runtime in ("claude-code", "codex"):
             with self.subTest(runtime=runtime):
                 self.assertTrue(self.deliver(runtime, "UserPromptSubmit").startswith(FIRST_CONVERSATION))
+
+    def test_the_first_message_line_comes_first_with_the_prompt(self):
+        receipt = self.root / ".qorqut/delivery" / (hashlib.sha256(self.session.encode()).hexdigest() + ".json")
+        receipt.parent.mkdir(parents=True)
+        receipt.write_text(json.dumps({**self.registration, "effective_config_id": "config-1"}))
+        self.response.pop("mandatory_context")
+        self.response["first_conversation"] = FIRST_MESSAGE
+        for runtime in ("claude-code", "codex"):
+            with self.subTest(runtime=runtime):
+                self.assertTrue(self.deliver(runtime, "UserPromptSubmit").startswith(FIRST_MESSAGE))
 
     def test_without_the_line_nothing_is_added(self):
         self.response.pop("first_conversation")

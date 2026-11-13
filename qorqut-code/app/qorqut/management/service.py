@@ -9,7 +9,7 @@ from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp, utc_clock, ref, require_revision
 from qorqut_operations.tasks.scope import task_namespace
 from qorqut.agents.global_scope import reaches_business
-from .identity import configured_ordubashy, installation_owner, ordubashy_profile, owner_has_written, require_coordinator
+from .identity import configured_ordubashy, installation_owner, ordubashy_profile, owner_messages, require_coordinator
 from qorqut_operations.storage.repositories import decode_row
 from dataclasses import replace
 from datetime import datetime
@@ -26,11 +26,13 @@ MANAGED_INPUT_SQL = """s.category='input_request' AND s.state='pending'
  AND EXISTS (SELECT 1 FROM management_routing r WHERE r.source_type='signoffs'
  AND r.source_id=s.id AND r.attention_destination='management' AND r.management_allowed=1)"""
 
-# Given to Ordubashy at startup and with each prompt while the owner has never written to him; ordubashy-core's
-# "Getting set up" describes the welcome.
+# Given to Ordubashy at startup and with each prompt while the owner has never written to him, then while the owner has
+# written to him once; ordubashy-core's "Getting set up" describes the welcome and the set-up start.
 FIRST_CONVERSATION = ("FIRST CONVERSATION: the owner has just installed Qorqbot and has never written to you. Unless you "
                       "have already welcomed them in this conversation, make your next reply the welcome that Getting set "
                       "up describes, not a status report.")
+FIRST_MESSAGE = ("FIRST MESSAGE: the owner has now sent you their first message. Unless a get-set-up run already exists, "
+                 "start the get-set-up workflow now as Getting set up describes, without asking whether they want it.")
 
 
 class ManagementService:
@@ -400,11 +402,13 @@ class ManagementService:
             return ''
 
     def first_conversation(self, principal):
-        """FIRST_CONVERSATION for the configured Ordubashy while the owner has never written to him, else ''."""
+        """For the configured Ordubashy: FIRST_CONVERSATION while the owner has never written to him, FIRST_MESSAGE once
+        their first message has arrived and until they write again, else ''."""
         try:
             with self.app.database.read() as uow:
-                if configured_ordubashy(uow) != principal.id or owner_has_written(uow, principal.id):
+                if configured_ordubashy(uow) != principal.id:
                     return ''
+                written = owner_messages(uow, principal.id)
         except DomainError:
             return ''
-        return FIRST_CONVERSATION
+        return (FIRST_CONVERSATION, FIRST_MESSAGE, '')[written]
