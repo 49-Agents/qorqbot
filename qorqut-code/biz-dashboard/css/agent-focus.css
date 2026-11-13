@@ -360,3 +360,15 @@
 /* Browser sessions read by name rather than by glyph alone. */
 .agbrowser .agbrowser-switch .agbrowser-seg.agbrowser-named{width:auto;gap:6px;padding:0 10px;font-size:12px}
 .agbrowser-seg .agbrowser-seg-name{white-space:nowrap}
+
+/* The signoff reader shares the Focus board rather than adding another card. */
+.agfocus-signoff-open .agfocus-surface-body{border:0;border-radius:0;background:transparent}
+.agfocus-signoff-open .agfocus-expansion-content{padding:0}
+.agfocus-signoff-open .agfocus-surface-title{display:none}
+.agfocus.agfocus-surface-open .agfocus-signoff-open .agfocus-close{padding:0 4px;border:0;background:transparent;color:var(--fg-2)}
+.agfocus.agfocus-surface-open .agfocus-signoff-open .agfocus-close:hover{background:transparent;color:var(--fg)}
+.agfocus-signoff-open:has(.sg-single) .agfocus-surface-body{overflow:hidden}
+
+.agfocus:not([data-attention-board]) .agfocus-dock:has(.rw-signoff-panel) .rw-body{border:0;border-radius:0;background:transparent}
+.agfocus .agfocus-dock:has(.rw-signoff-panel) .rw-head.rw-close-first .rw-close{padding:0 4px;background:transparent;color:var(--fg-2)}
+.agfocus .agfocus-dock:has(.rw-signoff-panel) .rw-head.rw-close-first .rw-close:hover{background:transparent;color:var(--fg)}

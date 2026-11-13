@@ -1230,12 +1230,12 @@ function rwTaskRelatedMount(host, record, task, ctx) {
 
 // ---------------------------------------------------------------- Signoff
 function rwSignoffDashboard(host, record, ctx) {
-  host.classList.add('record-panel', 'rw-signoff-panel');
+  host.classList.add('record-panel', 'rw-signoff-panel', 'sg-focus');
   const slug = record.biz || null;
   const view = sgCreateView({
     active: () => ctx.alive() && host.isConnected,
     body: () => host,
-    inline: true, execution: true, waitingOnly: false,
+    focusLayout: true, execution: true, waitingOnly: false,
     workspace: () => slug || 'scope:global',
     global: record.source.business_id == null,
     category: record.category,

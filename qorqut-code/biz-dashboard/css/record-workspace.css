@@ -216,3 +216,6 @@
 .task-activity-refs{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
 .task-progress-activity{margin-bottom:14px}.task-progress-activity>summary{cursor:pointer;font-size:12px;color:var(--fg-2)}
 @media(max-width:600px){.rw-activity{padding:12px}.task-activity-entry>summary{gap:6px}.task-activity-actor{max-width:20%}}
+
+/* The selected signoff owns the record reader's scroll frame. */
+.rw-dashboard.record-panel.rw-signoff-panel{display:flex;flex-direction:column;min-height:0;padding:0;overflow:hidden}
