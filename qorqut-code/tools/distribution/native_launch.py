@@ -438,7 +438,7 @@ def installation_processes(root):
     return found
 
 
-def stop_agent_browsers(root, timeout=30):
+def stop_agent_browsers(root, timeout=30, grace=5):
     """Close this installation's detached agent browsers before its runtime changes; the application starts them again.
 
     Only a browser supervisor is signalled, and only while it is one of this installation's processes with the exact
@@ -448,19 +448,34 @@ def stop_agent_browsers(root, timeout=30):
     if not records:
         return
     owned = set(installation_processes(root))
-    signalled = False
+
+    def running(pid, recorded):
+        current = identity(pid)
+        return bool(current) and current['boot'] + ':' + current['start'] == recorded
+
+    signalled = []
     for record in records:
         try:
             saved = read_json(record)
-            pid = saved['supervisor_pid']
-            current = identity(pid) if isinstance(pid, int) and pid in owned else None
-            if current and current['boot'] + ':' + current['start'] == saved['supervisor_identity']:
+            pid, recorded = saved['supervisor_pid'], saved['supervisor_identity']
+            if isinstance(pid, int) and pid in owned and running(pid, recorded):
                 os.kill(pid, signal.SIGTERM)
-                signalled = True
-        except (OSError, ValueError, KeyError, TypeError):
+                signalled.append((pid, recorded))
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError):
             continue
+    if not signalled:
+        return
+    # Each supervisor exits only after its Chrome has closed; Chrome's own helpers follow within moments.
     deadline = time.monotonic() + timeout
-    while signalled and time.monotonic() < deadline and installation_processes(root):
+    while signalled and time.monotonic() < deadline:
+        try:
+            signalled = [item for item in signalled if running(*item)]
+        except RuntimeError:
+            break
+        if signalled:
+            time.sleep(.2)
+    deadline = time.monotonic() + grace
+    while time.monotonic() < deadline and installation_processes(root):
         time.sleep(.5)
 
 
