@@ -85,3 +85,56 @@ test('task references with the same ID in different projects remain distinct', {
       ['/biz/project/operations/tasks_get', '/root/operations/tasks_get']);
   });
 });
+
+test('agent runs wrap inline and preserve reference order and mounted components', {skip: !available}, async () => {
+  await fixture(async page => {
+    await page.evaluate(() => {
+      window.a = reference('a', 'agent'); window.b = reference('b', 'agent');
+      window.c = reference('c', 'agent'); window.task = reference('task');
+      window.table = reference('table', 'table');
+      window.browserRef = {...reference('browser', 'browser'), viewer_url: 'https://example.com/'};
+      window.draw = refs => render({key: 'record', speaker: 'agent', text: 'Synthetic references', typedReferences: refs});
+      draw([a, b, task, table, c, browserRef]);
+      const host = document.querySelector('.gchat-typed');
+      window.saved = {a: host.children[0].children[0], b: host.children[0].children[1],
+        firstGroup: host.children[0], attachment: host.children[1], c: host.children[2].children[0],
+        browser: host.querySelector('iframe')};
+    });
+    assert.deepEqual(await page.locator('.gchat-typed > *').evaluateAll(els => els.map(el => el.className)),
+      ['gchat-agent-references', 'gchat-attachment', 'gchat-agent-references', 'gchat-browser-slot']);
+    assert.equal(await page.locator('[aria-label="Agent references"]').count(), 2);
+    assert.equal(await page.evaluate(() => saved.a.getBoundingClientRect().top === saved.b.getBoundingClientRect().top), true);
+    assert.deepEqual(await page.locator('.gchat-typed > .gchat-attachment > *').allTextContents(), ['Saved task', 'Saved table']);
+    if (process.env.CHAT_REFERENCE_SCREENSHOT_DIR) await page.locator('#chat').screenshot({path: path.join(process.env.CHAT_REFERENCE_SCREENSHOT_DIR, 'normal.png')});
+    await page.evaluate(() => draw([a, {...b, label: 'Renamed b'}, task, table, c, browserRef]));
+    assert.equal(await page.evaluate(() => saved.firstGroup === document.querySelector('.gchat-agent-references') && saved.b === saved.firstGroup.children[1] && saved.browser === document.querySelector('iframe')), true);
+    await page.evaluate(() => draw([b, a, task, table, {...c, available: false, label: 'Secret identity'}, browserRef]));
+    assert.deepEqual(await page.locator('.gchat-typed > *').evaluateAll(els => els.map(el => el.textContent.replace(/\s+/g, ' ').trim())),
+      ['Saved bSaved a', 'Saved taskSaved table', 'Unavailable reference', 'Saved browser ↗']);
+    assert.equal(await page.evaluate(() => {
+      const host = document.querySelector('.gchat-typed');
+      return host.children[0].children[0] === saved.b && host.children[0].children[1] === saved.a &&
+        host.children[1] === saved.attachment && host.children[2].children[0] !== saved.c &&
+        saved.browser === host.querySelector('iframe') && !saved.firstGroup.isConnected;
+    }), true);
+    await page.evaluate(() => draw([b, a, task, table, c, browserRef]));
+    assert.equal(await page.locator('.gchat-reference-unavailable').count(), 0);
+    await page.evaluate(() => draw([a, b, c, browserRef]));
+    assert.equal(await page.locator('.gchat-agent-references').count(), 1);
+    assert.equal(await page.locator('.gchat-attachment').count(), 0);
+    assert.equal(await page.evaluate(() => !saved.attachment.isConnected && saved.browser === document.querySelector('iframe')), true);
+    await page.evaluate(() => {
+      document.querySelector('#chat').style.width = '150px';
+      draw([a, b, {...c, label: 'A very long synthetic agent name that must truncate without overflow'}, browserRef]);
+    });
+    const geometry = await page.locator('.gchat-agent-references').evaluate(group => {
+      const children = [...group.children].map(el => el.getBoundingClientRect());
+      const bounds = group.getBoundingClientRect();
+      return {wraps: children.some(rect => rect.top > children[0].top), fits: children.every(rect => rect.right <= bounds.right + 0.5), noOverflow: group.scrollWidth <= group.clientWidth};
+    });
+    assert.deepEqual(geometry, {wraps: true, fits: true, noOverflow: true});
+    if (process.env.CHAT_REFERENCE_SCREENSHOT_DIR) await page.locator('#chat').screenshot({path: path.join(process.env.CHAT_REFERENCE_SCREENSHOT_DIR, 'narrow.png')});
+    await page.evaluate(() => draw([]));
+    assert.equal(await page.locator('.gchat-typed').count(), 0);
+  });
+});
