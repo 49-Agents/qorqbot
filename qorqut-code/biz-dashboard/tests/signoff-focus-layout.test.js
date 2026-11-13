@@ -3,11 +3,16 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {pathToFileURL}=require('node:url');
 const path=require('node:path');
-const {chromium}=require('playwright');
+const fs=require('node:fs');
+let chromium;
+try { ({chromium}=require('playwright')); } catch (_) { /* Optional local browser dependency. */ }
+const executable=process.env.CHROME_PATH || chromium?.executablePath();
+const available=!!chromium && fs.existsSync(executable);
+const browserTest=(name,run)=>test(name,{skip:!available && 'Local Playwright Chromium is unavailable'},run);
 const fixture=pathToFileURL(path.join(__dirname,'fixtures/signoff-focus-layout.html')).href;
 
-test('Focus signoff keeps its decision footer visible and preserves guarded decisions',async()=>{
-  const browser=await chromium.launch({headless:true,args:['--allow-file-access-from-files']});
+browserTest('Focus signoff keeps its decision footer visible and preserves guarded decisions',async()=>{
+  const browser=await chromium.launch({headless:true,executablePath:executable,args:['--allow-file-access-from-files']});
   try {
     const page=await browser.newPage({viewport:{width:800,height:700}}), errors=[];
     page.on('pageerror',error=>errors.push(error.message));
