@@ -5,6 +5,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'">
 <title>Qorqbot</title>
 <link rel="stylesheet" href="style.css">
+<script src="platform.js"></script>
 </head>
 <body>
 <main>
@@ -12,7 +13,7 @@
     <img src="mark.svg" alt="">
     <div>
       <h1 id="title">Starting Qorqbot</h1>
-      <p class="sub" id="subtitle">Qorqbot runs on this Mac. Nothing is sent anywhere during set-up.</p>
+      <p class="sub" id="subtitle"><span class="mac-only">Qorqbot runs on this Mac.</span><span class="linux-only">Qorqbot runs on this computer.</span> Nothing is sent anywhere during set-up.</p>
     </div>
   </div>
 
@@ -28,7 +29,7 @@
       <div class="actions spaced-bottom"><button data-action="open-homebrew">Open brew.sh</button></div>
     </div>
     <div id="checklist-command-block" hidden>
-      <p class="hint">Run this in Terminal:</p>
+      <p class="hint"><span class="mac-only">Run this in Terminal:</span><span class="linux-only">Run this in a terminal:</span></p>
       <pre id="checklist-command"></pre>
       <div class="actions">
         <button class="primary" data-action="copy-command">Copy Command</button>
@@ -36,7 +37,7 @@
       </div>
     </div>
     <h2 class="checklist-title">Needed to chat with an agent</h2>
-    <p class="hint">Install one or both and sign in once in Terminal. You can do this later; the walkthrough shows when.</p>
+    <p class="hint">Install one or both and sign in once in <span class="mac-only">Terminal</span><span class="linux-only">a terminal</span>. You can do this later; the walkthrough shows when.</p>
     <ol class="steps" id="checklist-agents"></ol>
     <p class="hint checking">This list updates by itself. Qorqbot starts as soon as everything needed to run it is installed.</p>
   </section>
@@ -73,7 +74,7 @@
     <details id="log-details"><summary>Progress log</summary><pre id="log"></pre></details>
   </section>
 
-  <p class="hint">Quit Qorqbot (&#8984;Q) to stop it. The <b>Server</b> menu can restart it, show logs or open your
+  <p class="hint">Quit Qorqbot (<span class="mac-only">&#8984;Q</span><span class="linux-only">Ctrl+Q</span>) to stop it. The <b>Server</b> menu can restart it, show logs or open your
     install folder. <a href="#" data-action="help">How Qorqbot works</a></p>
 </main>
 <script src="status.js"></script>

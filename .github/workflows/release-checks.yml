@@ -28,7 +28,7 @@ concurrency:
 jobs:
   linux:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -45,6 +45,9 @@ jobs:
           path: ~/.cache/qorqbot/wheels
           key: ${{ runner.os }}-${{ runner.arch }}-qorqbot-wheels-v1-${{ github.sha }}
           restore-keys: ${{ runner.os }}-${{ runner.arch }}-qorqbot-wheels-v1-
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
       - name: Install build dependencies
         run: python -m pip install packaging
       - name: Export, build and check the exact commit
@@ -113,6 +116,36 @@ jobs:
           done
           test "${#bundle_args[@]}" -gt 0
           python qorqut-code/tools/distribution/check_optional_extensions.py --archive "$RELEASE_WORK/package/qorqbot-${CHECK_VERSION}-ubuntu24-x86_64.tar.gz" "${bundle_args[@]}" --report-directory "$RELEASE_WORK/optional-acceptance"
+      - name: Test the desktop shell and build the Ubuntu package
+        env:
+          RELEASE_WORK: ${{ runner.temp }}/qorqbot-release
+        run: |
+          set -euo pipefail
+          # The engine tests need tmux on PATH; the window check needs a virtual display.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tmux xvfb xauth
+          npm ci --prefix qorqut-code/tools/distribution/macos_app/electron
+          npm test --prefix qorqut-code/tools/distribution/macos_app/electron
+          python -B -m unittest discover -s qorqut-code/tools/distribution/linux_app/tests
+          python qorqut-code/tools/distribution/linux_app/build_deb.py --archive "$RELEASE_WORK/package/qorqbot-${CHECK_VERSION}-ubuntu24-x86_64.tar.gz" --output "$RELEASE_WORK/desktop"
+      - name: Install and check the Ubuntu package
+        env:
+          RELEASE_WORK: ${{ runner.temp }}/qorqbot-release
+        run: |
+          set -euo pipefail
+          # A short work folder: the install path inside it must stay under the socket-path limit.
+          work="/tmp/qd-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          # The check keeps its work folder only when it fails; copy the logs to where evidence is collected.
+          save_logs() {
+            mkdir -p "$RELEASE_WORK/desktop-logs"
+            cp "$work"/*.log "$RELEASE_WORK/desktop-logs/" 2>/dev/null || true
+            for home in e w; do
+              cp "$work/$home/Qorqbot/launcher.log" "$RELEASE_WORK/desktop-logs/launcher-$home.log" 2>/dev/null || true
+            done
+          }
+          trap save_logs EXIT
+          sudo apt-get install -y --no-install-recommends "$RELEASE_WORK/desktop/Qorqbot-${CHECK_VERSION}-ubuntu24-x86_64.deb"
+          python qorqut-code/tools/distribution/linux_app/check_deb.py --deb "$RELEASE_WORK/desktop/Qorqbot-${CHECK_VERSION}-ubuntu24-x86_64.deb" --archive "$RELEASE_WORK/package/qorqbot-${CHECK_VERSION}-ubuntu24-x86_64.tar.gz" --report "$RELEASE_WORK/desktop-check.json" --work "$work"
       - name: Save qualification evidence, including failure logs
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -127,6 +160,7 @@ jobs:
             ${{ runner.temp }}/qorqbot-release/acceptance/*.log
             ${{ runner.temp }}/qorqbot-release/optional-acceptance/*.json
             ${{ runner.temp }}/qorqbot-release/optional-acceptance/*.log
+            ${{ runner.temp }}/qorqbot-release/desktop-logs/*.log
       - name: Save the checked downloads for reuse
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -139,4 +173,6 @@ jobs:
             ${{ runner.temp }}/qorqbot-release/package/*.tar.gz
             ${{ runner.temp }}/qorqbot-release/optional/bundles/*.tar.gz
             ${{ runner.temp }}/qorqbot-release/optional/whatsapp/*source.tar.gz
+            ${{ runner.temp }}/qorqbot-release/desktop/*.deb
+            ${{ runner.temp }}/qorqbot-release/desktop/*.sha256
       # Qualification never deploys, publishes a Release or changes repository settings.

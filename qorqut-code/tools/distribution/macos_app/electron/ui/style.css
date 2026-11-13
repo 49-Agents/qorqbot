@@ -55,3 +55,7 @@ ol.steps li .note { color: var(--muted); font-size: 12px; }
 ol.steps li a { font-size: 12px; margin-left: auto; }
 .spaced-bottom { margin-bottom: 12px; }
 .checking { margin: 4px 0 0; }
+
+/* Wording that differs per desktop; platform.js sets data-platform on <html>. */
+html[data-platform="linux"] .mac-only { display: none; }
+html[data-platform="darwin"] .linux-only { display: none; }

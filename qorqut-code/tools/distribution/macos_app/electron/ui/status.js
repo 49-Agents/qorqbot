@@ -23,12 +23,13 @@ function checkItem(status, text, note) {
 function render(state) {
   if (!state) return;
   $('title').textContent = state.title;
+  const computer = window.qorqbot.platform === 'linux' ? 'this computer' : 'this Mac';
   $('subtitle').textContent = {
     error: 'Nothing was changed that you need to undo.',
     stopped: 'Start it again whenever you like.',
     stopping: 'Waiting for the local server to finish.',
     setup: 'A few programs are missing. Install them and Qorqbot continues by itself.',
-  }[state.phase] || 'Qorqbot runs on this Mac. Nothing is sent anywhere during set-up.';
+  }[state.phase] || `Qorqbot runs on ${computer}. Nothing is sent anywhere during set-up.`;
 
   const steps = $('steps');
   steps.replaceChildren(...state.steps.map((item) => {
@@ -67,7 +68,7 @@ function render(state) {
       }
       return item;
     }));
-    $('homebrew-block').hidden = checklist.homebrew;
+    $('homebrew-block').hidden = !(checklist.packageManager && !checklist.packageManager.present);
     $('checklist-command-block').hidden = !checklist.command;
     $('checklist-command').textContent = checklist.command;
   }

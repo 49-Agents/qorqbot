@@ -1,12 +1,18 @@
 'use strict';
-// Qorqbot for Mac: one window that shows set-up/status, then the dashboard.
+// Qorqbot desktop app (macOS and Ubuntu): one window that shows set-up/status, then the dashboard.
 //
-// Lifecycle: the app being open means Qorqbot is running. Closing the window
-// hides it (Dock icon reopens it); Quit (Cmd+Q) stops the local server first.
+// Lifecycle: the app being open means Qorqbot is running. Quit (Cmd+Q on the
+// Mac, Ctrl+Q on Ubuntu) stops the local server first. Closing the window
+// hides it on the Mac (the Dock icon reopens it); on Ubuntu there is no Dock
+// to reopen it from, so closing the window quits. Every per-platform value
+// comes from engine.platform (platform.js).
 
 const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, shell } = require('electron');
 const path = require('node:path');
-const { Engine, AGENT_CLIS, HOMEBREW_URL, INSTALL_COMMAND } = require('./engine');
+const os = require('node:os');
+const { spawn } = require('node:child_process');
+const { Engine, AGENT_CLIS } = require('./engine');
+const { installCommand } = require('./platform');
 
 const STATUS_PAGE = path.join(__dirname, 'ui', 'status.html');
 const HELP_PAGE = path.join(__dirname, 'ui', 'help.html');
@@ -208,7 +214,9 @@ function createMainWindow() {
   mainWindow.on('close', (event) => {
     if (!quitting) {
       event.preventDefault();
-      mainWindow.hide();
+      // The before-quit flow shows "Stopping Qorqbot before quitting" in this window.
+      if (engine.platform.closeQuits) app.quit();
+      else mainWindow.hide();
     }
   });
   mainWindow.on('closed', () => { mainWindow = null; });
@@ -271,60 +279,92 @@ function rebuildMenu() {
   const statusLabel = busy ? 'Status: working…'
     : running ? `Status: running at ${engine.url}`
       : state.phase === 'error' ? 'Status: needs attention' : 'Status: stopped';
-  const template = [
-    {
-      label: 'Qorqbot',
-      submenu: [
-        { role: 'about', label: 'About Qorqbot' },
-        { label: 'Getting Started', click: showGuide },
-        { label: 'How Qorqbot Works', click: showHelp },
-        { type: 'separator' },
-        { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
-        { type: 'separator' },
-        { label: engine && !engine.ownsServer() && running ? 'Quit Qorqbot (server keeps running in Terminal)' : 'Quit Qorqbot (stops the server)', accelerator: 'Cmd+Q', click: () => app.quit() },
-      ],
-    },
-    { role: 'editMenu' },
-    {
-      label: 'View',
-      submenu: [
-        { label: 'Reload', accelerator: 'Cmd+R', click: (_item, window) => window && window.webContents.reload() },
-        { label: 'Open in Browser', accelerator: 'Cmd+Shift+B', enabled: running, click: () => openExternal(engine.url) },
-        { type: 'separator' },
-        { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
-        { role: 'toggleDevTools', label: 'Developer Tools' },
-      ],
-    },
-    {
-      label: 'Server',
-      submenu: [
-        { label: statusLabel, enabled: false },
-        { type: 'separator' },
-        running
-          ? { label: 'Stop Server', enabled: !busy, click: stopServer }
-          : { label: 'Start Server', enabled: !busy, click: boot },
-        { label: 'Restart Server', enabled: running && !busy, click: restartServer },
-        { type: 'separator' },
-        { label: 'Show Launcher Log', click: () => shell.openPath(engine.logFile) },
-        { label: 'Show Server Log', click: () => shell.openPath(engine.appLog) },
-        { label: 'Reveal Install Folder in Finder', click: () => shell.showItemInFolder(engine.root) },
-      ],
-    },
-    { role: 'windowMenu' },
-    {
-      role: 'help',
-      submenu: [
-        { label: 'Show Walkthrough', enabled: running && !busy, click: showWalkthrough },
-        { label: 'Getting Started', click: showGuide },
-        { label: 'How Qorqbot Works', click: showHelp },
-        { type: 'separator' },
-        { label: 'Install Terminal Command…', enabled: Boolean(engine && engine.isInstalled()) && !busy, click: installTerminalCommand },
-      ],
-    },
+  const mac = engine.platform.id === 'darwin';
+  const terminalName = mac ? 'Terminal' : 'the terminal';
+  const quitItem = {
+    label: engine && !engine.ownsServer() && running ? `Quit Qorqbot (server keeps running in ${terminalName})` : 'Quit Qorqbot (stops the server)',
+    accelerator: 'CmdOrCtrl+Q', click: () => app.quit(),
+  };
+  const gettingStarted = { label: 'Getting Started', click: showGuide };
+  const howItWorks = { label: 'How Qorqbot Works', click: showHelp };
+  const viewMenu = {
+    label: 'View',
+    submenu: [
+      { label: 'Reload', accelerator: 'CmdOrCtrl+R', click: (_item, window) => window && window.webContents.reload() },
+      { label: 'Open in Browser', accelerator: 'CmdOrCtrl+Shift+B', enabled: running, click: () => openExternal(engine.url) },
+      { type: 'separator' },
+      { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
+      { type: 'separator' },
+      { role: 'togglefullscreen' },
+      { role: 'toggleDevTools', label: 'Developer Tools' },
+    ],
+  };
+  const serverMenu = {
+    label: 'Server',
+    submenu: [
+      { label: statusLabel, enabled: false },
+      { type: 'separator' },
+      running
+        ? { label: 'Stop Server', enabled: !busy, click: stopServer }
+        : { label: 'Start Server', enabled: !busy, click: boot },
+      { label: 'Restart Server', enabled: running && !busy, click: restartServer },
+      { type: 'separator' },
+      { label: 'Show Launcher Log', click: () => shell.openPath(engine.logFile) },
+      { label: 'Show Server Log', click: () => shell.openPath(engine.appLog) },
+      { label: mac ? 'Reveal Install Folder in Finder' : 'Open Install Folder', click: () => shell.showItemInFolder(engine.root) },
+    ],
+  };
+  const helpItems = [
+    { label: 'Show Walkthrough', enabled: running && !busy, click: showWalkthrough },
+    gettingStarted,
+    howItWorks,
+    { type: 'separator' },
+    { label: 'Install Terminal Command…', enabled: Boolean(engine && engine.isInstalled()) && !busy, click: installTerminalCommand },
   ];
+  const template = mac
+    ? [
+      {
+        label: 'Qorqbot',
+        submenu: [
+          { role: 'about', label: 'About Qorqbot' },
+          gettingStarted,
+          howItWorks,
+          { type: 'separator' },
+          { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
+          { type: 'separator' },
+          quitItem,
+        ],
+      },
+      { role: 'editMenu' },
+      viewMenu,
+      serverMenu,
+      { role: 'windowMenu' },
+      { role: 'help', submenu: helpItems },
+    ]
+    : [
+      { label: 'File', submenu: [quitItem] },
+      { role: 'editMenu' },
+      viewMenu,
+      serverMenu,
+      { role: 'windowMenu' },
+      { role: 'help', submenu: [...helpItems, { type: 'separator' }, { role: 'about', label: 'About Qorqbot' }] },
+    ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+// Opens a terminal for the user to paste the install command into.
+async function openTerminal() {
+  const { terminal } = engine.platform;
+  if (terminal.app) return shell.openPath(terminal.app);
+  const env = await engine.environment();
+  for (const name of terminal.commands) {
+    const found = engine.which(name, env);
+    if (found) {
+      spawn(found, [], { cwd: os.homedir(), detached: true, stdio: 'ignore' }).unref();
+      return;
+    }
+  }
+  await dialog.showMessageBox(mainWindow, { type: 'info', message: 'No terminal program was found.', detail: 'Open a terminal yourself and run the command shown.' });
 }
 
 // ---------------------------------------------------------------- IPC (status and help pages only)
@@ -338,11 +378,11 @@ ipcMain.handle('qorqbot:action', async (event, action) => {
   if (!fromLocalPage(event)) return;
   switch (action) {
     case 'retry': case 'start': return boot();
-    case 'copy-command': return clipboard.writeText(state.phase === 'setup' ? state.checklist?.command || INSTALL_COMMAND
-      : state.error?.command || INSTALL_COMMAND);
-    case 'open-homebrew': return shell.openExternal(HOMEBREW_URL);
+    case 'copy-command': return clipboard.writeText(state.phase === 'setup' ? state.checklist?.command || installCommand(engine.platform)
+      : state.error?.command || installCommand(engine.platform));
+    case 'open-homebrew': return engine.platform.packageManager ? shell.openExternal(engine.platform.packageManager.url) : undefined;
     case 'copy-details': return clipboard.writeText([state.error?.message, state.error?.detail].filter(Boolean).join('\n\n'));
-    case 'open-terminal': return shell.openPath('/System/Applications/Utilities/Terminal.app');
+    case 'open-terminal': return openTerminal();
     case 'show-log': return shell.openPath(engine.logFile);
     case 'reveal-folder': return shell.showItemInFolder(engine.isInstalled() ? engine.root : engine.installParent);
     case 'help': return showHelp();
