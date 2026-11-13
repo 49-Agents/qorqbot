@@ -276,14 +276,6 @@ function agfocusMount(p) {
   p.focusSelected = null;
   const board = $('.agfocus', body);
   p.focusMount = board;
-  let todayCalendar;
-  if(p.workspaceScope === 'global' && p.workspaceRole === 'ordubashy') {
-    const excerpt=document.createElement('section');
-    // Launchers and open side chats sit above attention; the calendar excerpt follows both rows.
-    board.querySelector('.attention-queue').after(excerpt);
-    todayCalendar=calendarTodayMount(excerpt);
-    excerpt.classList.add('agfocus-calendar');
-  }
   const disposeQueue=agfocusQueueMount(p,board.querySelector('.attention-queue'));
   // Focus uses the shared record workspace. Its header owns Back, the type and
   // Chat icon tabs and the pill Close; a selected row fills the board below the control row.
@@ -324,7 +316,6 @@ function agfocusMount(p) {
   };
   document.addEventListener('keydown',escape);
   p.workspaceDispose=()=>{
-    todayCalendar?.dispose();
     disposeQueue();
     document.removeEventListener('reply-notifications-changed',repliesChanged);
     document.removeEventListener('keydown',escape);

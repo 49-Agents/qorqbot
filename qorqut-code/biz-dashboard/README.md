@@ -203,8 +203,12 @@ persistent cards over Tasks, Signoffs and URL references.
   every 30 seconds hidden. Checks: `tests/test_attention_queue_browser.js`,
   `tests/test_owner_attention_browser.js`, `tests/test_reply_notifications_browser.js`.
   The shared refresh rule is in [dashboard refresh coalescing](docs/PERFORMANCE_REFRESH.md).
-- Focus shows a compact queue of today's calendar events below the launcher/attention
-  row; it is hidden while a record or a surface is expanded (see [Calendar](#calendar)).
+- Calendar events join the attention strip beside due reminders: a timed event appears one
+  hour before it starts (an all-day event at the start of its day) and stays, past or not,
+  until the owner right-clicks it away. Discards are saved per owner on the server
+  (`POST /root/attention-queue` with `discarded`, kept 30 days) and never touch the provider
+  event. The browser reads a window from seven days back to two hours ahead (see
+  [Calendar](#calendar)). Check: `node --test tests/calendar-attention.test.js`.
 - Task state circles update optimistically (a dashed outline marks saving), serialize
   per task and reconcile on failure. Check: `node tests/test_task_state.js`.
 - Story and Email Task types show an icon in place of the state ball, with no
