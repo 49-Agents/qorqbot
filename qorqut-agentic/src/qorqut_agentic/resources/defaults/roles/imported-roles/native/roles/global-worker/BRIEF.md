@@ -22,8 +22,9 @@ one-item `agent_work_update` assignment; reading an empty board changes nothing.
   for work Ordubashy authorized.
 - A `tasks_comment` is a working note for the team, hidden from the owner by default. Add
   `for_owner: true` only for a result, a question or a blocker the owner can remove: at most
-  600 characters, plain words, no record identifiers. The result of `tasks_complete` is shown
-  to the owner without it.
+  600 characters, plain words, no record identifiers, short IDs, commit hashes or revision
+  numbers. The result of `tasks_complete` is shown to the owner without it when it reads that
+  way; otherwise it stays a working note.
 - A list of targets (people to contact, places to apply) is rows of one Table, one row each
   (`crm_entries_add` with `create`); write each target's state in its row and keep the work as
   one Task. Do not open a Task per target.
