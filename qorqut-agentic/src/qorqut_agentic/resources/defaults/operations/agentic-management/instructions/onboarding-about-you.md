@@ -25,8 +25,10 @@ question the personal context node already answers. Every question has
 
 1. `name`, no choices: "What should I call you?"
 2. `work`, no choices: "What do you do?", explained as "Your work or business
-   and your role, in a sentence."
-3. `help`, no choices: "What would you like help with first?"
+   and your role, in a sentence. Or drop your LinkedIn link, or anything else
+   that gives quick context."
+3. `todo`, no choices: "What's your todo list right now?", explained as "You can
+   paste it in."
 4. `tools`, multiple choice: "Which tools should I connect?", explained as
    "Email and calendar are a good start." Choices `email` (Email: Gmail, Outlook
    or similar), `calendar` (Calendar: Google Calendar or similar), `chat` (Chat:
@@ -58,6 +60,11 @@ anything was saved. If the base revision moved, rebuild the edit on the current
 revision. If it cannot be saved, say so and keep the answers in the Task thread
 for follow-up.
 
+A link the owner gives (LinkedIn or similar) is saved as given; do not open it
+during set-up. The todo list is work, not a personal fact: do not save it to the
+node. Post it as written to the set-up Task's thread and pass it on in the step
+output.
+
 Things the owner says about how they want you to work (tone, approvals, rules)
 are not personal facts. Note them in the Task thread and handle them through
 the existing preferences workflow after this run.
@@ -70,6 +77,7 @@ Complete the step with output:
 - `skipped`: what the owner chose not to answer
 - `edit`: the queue input ID of the edit and its outcome, or null when nothing changed
 - `tools`: the tools the owner chose, as written (an empty list when none)
+- `todo`: the owner's todo list as written, or null when they skipped it
 - `signoff`: the form's Signoff ID
 
 Then move to the next ready step without waiting to be asked.

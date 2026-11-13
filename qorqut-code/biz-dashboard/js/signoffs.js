@@ -477,7 +477,7 @@ function sgCreateView(options) {
       let group = [...fields.children].find(node => node.dataset.questionId === q.id);
       if (!group) {
         group = document.createElement('fieldset'); group.className = 'sg-question'; group.dataset.questionId = q.id;
-        const legend = document.createElement('legend'); legend.id = id; legend.textContent = `${index+1}. ${q.prompt} ${q.required ? '(required)' : '(optional)'}`;
+        const legend = document.createElement('legend'); legend.id = id; legend.textContent = `${q.prompt} ${q.required ? '(required)' : '(optional)'}`;
         const explanation = document.createElement('p'); explanation.className = 'sg-question-explanation'; explanation.innerHTML = q.explanation ? renderSafeLinks(q.explanation) : ''; explanation.hidden = !q.explanation;
         const guidance = document.createElement('p'); guidance.className = 'sg-notice';
         guidance.textContent = q.selection_mode === 'none' ? '' : q.selection_mode === 'single' ? 'Choose one option or write an answer.' : 'Choose any options or write an answer.';
