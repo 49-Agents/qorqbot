@@ -10,7 +10,7 @@ SKILL_DIRECTORIES = (".claude/skills/" + SKILL_NAME, ".agents/skills/" + SKILL_N
 
 SKILL = """---
 name: qorqut-qorqbot-guide
-description: Answer the owner's questions about Qorqbot itself - what it is, privacy, how to start an agent, where things are in the dashboard (Chat, Terminal, Focus, Todo, Signoffs, Calendar, Journal, Settings, connectors), projects, the walkthrough, the Mac app and the qorqbot command, and what to do when something does not work.
+description: Answer the owner's questions about Qorqbot itself - what it is, privacy, how to start an agent, where things are in the dashboard (Chat, Terminal, Focus, Todo, Signoffs, Calendar, Journal, Settings, extensions), projects, the walkthrough, the Mac app and the qorqbot command, and what to do when something does not work.
 ---
 
 # Qorqbot guide
@@ -37,7 +37,7 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
 - **Privacy:** Everything Qorqbot keeps stays on this computer. The owner signs in once with an emailed code; the
   account service learns only that email, personal or work use, and a daily heartbeat (installation ID, version,
   platform), never conversations, files, records or agent work. What the owner asks the agents goes to Claude or Codex under the owner's own account,
-  the same as using them directly. Connectors such as Gmail are signed in on the provider's own page; Qorqbot never
+  the same as using them directly. Websites are signed in by the owner on the site's own page; Qorqbot never
   sees or stores passwords.
 
 ## Starting an agent
@@ -56,7 +56,7 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
   review; other projects are not changed. It does not stop every prompt: a CLI can still ask the owner to trust a larger
   folder around the agent, such as the git repository the agent folders sit in. Qorqbot never trusts that for the owner;
   the owner reads the question and answers it in the terminal.
-- Qorqbot's setup for `claude` and `codex` (its settings, connectors and the opening role prompt) applies only when the
+- Qorqbot's setup for `claude` and `codex` (its settings, tools and the opening role prompt) applies only when the
   terminal is in the agent's own folder. After `cd` into another folder, or a subfolder of the agent's, they run as the
   plain commands.
 - Nothing starts by itself. If the session ends (`/exit`, closed CLI, computer restarted), Chat shows the agent as
@@ -116,8 +116,8 @@ Environment, Walkthrough and About & privacy; there is a search box at the top.
   - **Agent browser** is included with Qorqbot. It is prepared automatically for Ordubashy and permanent workers when Chrome and the browser tool are available. Settings shows readiness and offers Retry setup.
   - It is the default way agents use websites. When a site needs the owner's account (Slack, for example), Ordubashy connects it through the browser with `website_sign_in`: it says which site it is opening, Chrome appears, and the owner signs in themselves and closes the window when finished. Other agents ask Ordubashy to do this. Never ask for a password. The agent's browser is paused until that window closes.
   - Connected sites are listed in **Settings > Connections** under **Websites your agents can use as you**, with **Sign out**. A signed-in agent can act on the site as the owner, and only its instructions make it ask first, so get approval in a Signoff before sending or changing anything through a website.
-  - **Claude connectors** are optional direct connections, tucked away in Settings under that name. Any connector action that changes something is blocked by Qorqbot until the owner approves that exact content in a Signoff. If one is blocked, tell the owner in Chat, then repeat the identical call after approval.
-  - **Gmail** is the recommended email connection for Claude Code agents.
+  - **Extensions** are extra tools that run inside Qorqbot, so they work the same in Claude Code and Codex. They are
+    listed below the websites, each with its status: treg and WhatsApp.
   - **treg** is the recommended toolkit for outside data: one key that reaches thousands of lookup tools (search
     results, keywords and backlinks, companies and contacts, social profiles, web pages). It is a Qorqbot extension, so
     its tools arrive through Qorqbot's own tools and work in Claude Code and Codex alike, for Ordubashy and general
@@ -125,10 +125,13 @@ Environment, Walkthrough and About & privacy; there is a search box at the top.
     from a balance there. `treg_search` finds a tool and `treg_tool_get` shows its inputs and price; both are free and
     need no key. `treg_lookup` runs one lookup without approval, and Qorqbot caps what treg may charge for it ($0.10 by
     default). treg tools that change something (post, send, buy) are not available through Qorqbot.
-  - Also useful: Google Calendar, Google Drive, Notion, Slack and WhatsApp (not on Mac yet).
-  - Gmail, Calendar, Drive, Notion and Slack are claude.ai connectors: **Connect** opens claude.ai's connector
-    settings; sign in there with the same Claude account the agents use (the panel names it). They work in Claude Code,
-    not in Codex. Changes reach an agent the next time it starts.
+  - **WhatsApp** lets Ordubashy read the owner's chats; sending always needs approval. It is a separate extension
+    that is added to the installation itself (Windows with WSL, and Linux; not on Mac yet), then linked to the owner's
+    phone. It cannot be added from Settings or from a conversation.
+  - Email, calendar, documents and chat tools such as Gmail, Google Drive, Notion and Slack are used through the agent
+    browser. Settings does not list or set up connectors from the owner's Claude account. If a Claude Code agent has
+    one anyway, any connector action that changes something is blocked by Qorqbot until the owner approves that exact
+    content in a Signoff: tell the owner in Chat, then repeat the identical call after approval.
 - **Agents**: Claude Code and Codex status, **Trusted agent folders** (the consent described under Starting an agent)
   and **Testing mode** (shows Overseer).
 - **Appearance**: theme and text size. **Notifications**: desktop alerts for agent replies and Signoffs.
@@ -140,8 +143,7 @@ Environment, Walkthrough and About & privacy; there is a search box at the top.
 
 The **Calendar** tab shows events only once Google Calendar is connected. That is a one-time technical setup:
 `qorqbot calendar-connect` with the owner's own Google Cloud OAuth desktop client (the calendar guide in the Qorqbot
-repository describes it). It cannot be connected from Settings. The Google Calendar connector under Claude connectors
-is separate: it gives Claude Code agents access to the calendar, not the dashboard's Calendar tab.
+repository describes it). It cannot be connected from Settings.
 
 ## The walkthrough
 
@@ -170,8 +172,6 @@ Walkthrough**, or in the Mac app with **Help > Show Walkthrough**.
   moved with `cd`, return it to the agent's own folder; Qorqbot never changes folders or types commands for the owner.
 - **A message shows as not delivered or unconfirmed**: check the Terminal; if the CLI is showing a menu or dialog, finish
   it there, then resend from Chat.
-- **A Claude connector shows "Needs sign-in" or "Not connected"**: press **Sign in** / **Connect** in Settings, finish on
-  claude.ai, then **Check again**.
 - **The dashboard does not load**: in the Mac app use **Server > Restart Server**, or run `qorqbot status`.
 - Anything else: say what you see, and suggest the walkthrough or **Help > How Qorqbot Works** in the Mac app.
 """

@@ -63,7 +63,7 @@ const onboarding = (() => {
     {id: 'connect-overview', chapter: 'connect', title: 'two ways to reach your tools', wide: true, standalone: true,
       body: 'Both are optional.',
       instructions: ['<b>Agent browser:</b> built into Qorqbot and the default way agents use websites. Works with both Claude Code and Codex. To connect a site, ask Ordubashy, for example “connect my Slack”. It opens Chrome and you sign in yourself. Qorqbot never sees your password.',
-        '<b>Claude connectors:</b> direct connections such as Gmail. Only agents running in Claude Code can use them, through the same Claude account your agents use. Any change they make needs your approval first. They’re in Settings under Claude connectors.'],
+        '<b>Extensions:</b> extra tools that run inside Qorqbot and work with both Claude Code and Codex. Start with treg: one key gives your agents thousands of live data lookups, such as search results and company details. Add your key in Settings under Extensions.'],
       target: () => null},
     {id: 'browser-setup', chapter: 'connect', tab: 'settings', title: 'agent browser',
       body: 'It sets itself up. This card shows when it’s ready, or how to fix it if not. Websites Ordubashy connects for you are listed with it.',
@@ -326,7 +326,7 @@ const onboarding = (() => {
     if (step.tab === 'settings') {
       if (state.scope !== 'global' || state.globalTab !== 'settings' || !document.querySelector('.settingspane')) await selectGlobal('settings');
       if (!isCurrent(token)) return;
-      // Settings shows one section at a time; the connector steps live in Connections.
+      // Settings shows one section at a time; the browser step lives in Connections.
       if (typeof settingsShowSection === 'function') settingsShowSection('connections');
       await waitFor(() => visible(step.target()) && step.target(), 10000);
       // Instant, so the spotlight is placed on where the area ends up rather than mid-scroll.

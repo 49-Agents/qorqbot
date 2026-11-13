@@ -7,7 +7,7 @@ let chromium;
 try { ({chromium} = require('playwright')); } catch (_) { /* optional local browser test dependency */ }
 const available = !!chromium && fs.existsSync(chromium.executablePath());
 
-test('Connections renders browser readiness and keeps external services optional', {skip: !available && 'Playwright Chromium unavailable'}, async () => {
+test('Connections renders browser readiness and the extensions, with treg set up by a key', {skip: !available && 'Playwright Chromium unavailable'}, async () => {
   const browser = await chromium.launch({headless: true});
   try {
     const page = await browser.newPage({viewport: {width: 1120, height: 900}});
@@ -19,15 +19,22 @@ test('Connections renders browser readiness and keeps external services optional
       window.coreData = value => value;
       window.browserState = {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: false,
         agents: [{name: 'Ordubashy', state: 'missing', diagnostic: 'Preparing agent browser…'}]};
-      window.api = async url => url === '/root/browser-setup' ? window.browserState :
-        {checking: false, claude_account: {signed_in: true, method: 'claude.ai', email: 'owner@example.com'},
-          connectors: [{id: 'gmail', kind: 'claude', tier: 'recommended', status: 'not_added'},
-            {id: 'google_calendar', kind: 'claude', tier: 'suggested', status: 'not_added'}]};
+      window.tregStatus = 'not_set_up';
+      window.sent = [];
+      window.api = async url => url === '/root/browser-setup' ? window.browserState : url === '/root/browser-accounts' ? {agents: []} :
+        {platform: 'linux', clients: [],
+          connectors: [{id: 'treg', kind: 'extension', status: window.tregStatus}, {id: 'whatsapp', kind: 'extension', status: 'not_installed'}]};
       window.post = async (url, body) => {
+        window.sent.push({url, body});
         if (url === '/root/browser-setup' && body.action === 'retry') {
           window.browserState = {...window.browserState, ready: true,
             agents: [{name: 'Ordubashy', state: 'healthy', diagnostic: 'Ready.'}]};
           return window.browserState;
+        }
+        if (url === '/root/extensions/treg/key') {
+          if (body.key === 'refused-by-treg-0000') throw new Error('treg did not accept this key');
+          window.tregStatus = body.key === null ? 'not_set_up' : 'connected';
+          return {status: window.tregStatus};
         }
         return window.api(url);
       };
@@ -35,12 +42,27 @@ test('Connections renders browser readiness and keeps external services optional
     await page.addScriptTag({path: path.join(__dirname, '../js/connectors.js')});
     await page.evaluate(() => connectorsPanel.mount(document.querySelector('#panel'), {rows: true}));
     await assert.doesNotReject(() => page.locator('[data-cx-browser-status]').getByText('Setup needed').waitFor());
-    assert.equal(await page.locator('[data-cx-tier="recommended"] [data-cx-card]').count(), 1);
+    assert.deepEqual(await page.locator('[data-cx-list] [data-cx-card]').evaluateAll(cards => cards.map(card => card.dataset.cxCard)), ['treg', 'whatsapp']);
+    assert.equal(await page.locator('[data-cx-extensions]').isVisible(), true);
+    assert.equal(await page.locator('details.cx-direct, [data-cx-progress], [data-cx-refresh]').count(), 0);
+    assert.doesNotMatch(await page.locator('#panel').textContent(), /claude\.ai|Claude connectors|Gmail/);
     assert.equal(await page.locator('[data-cx-browser] [data-cx-action]').count(), 0);
     await page.locator('[data-cx-browser-retry]').click();
     await page.locator('[data-cx-browser-status]').getByText('Ready').waitFor();
-    assert.equal(await page.locator('[data-cx-direct]').evaluate(element => element.open), false);
-    assert.match(await page.locator('[data-cx-progress]').textContent(), /0 of 1/);
+    // The treg key: the field opens from Add key, a refused key stays in the open field with the reason, a good one connects.
+    const tregCard = page.locator('[data-cx-card="treg"]');
+    assert.equal(await tregCard.locator('[data-cx-key]').isVisible(), false);
+    await tregCard.getByRole('button', {name: 'Add key'}).click();
+    await tregCard.locator('input[name="key"]').fill('refused-by-treg-0000');
+    await tregCard.getByRole('button', {name: 'Save key'}).click();
+    await tregCard.locator('[data-cx-key-error]').getByText('treg did not accept this key').waitFor();
+    assert.equal(await tregCard.locator('.cx-status').textContent(), 'Not set up');
+    await tregCard.locator('input[name="key"]').fill('  made-up-treg-key-for-tests  ');
+    await tregCard.getByRole('button', {name: 'Save key'}).click();
+    await tregCard.locator('.cx-status').getByText('Connected').waitFor();
+    assert.deepEqual(await page.evaluate(() => window.sent.at(-1)), {url: '/root/extensions/treg/key', body: {key: 'made-up-treg-key-for-tests'}});
+    assert.equal(await tregCard.locator('input[name="key"]').inputValue(), '', 'a saved key is never shown again');
+    assert.equal(await page.locator('[data-cx-card="whatsapp"] [data-cx-action]').count(), 0);
     assert.equal(await page.locator('[data-cx-browser]').evaluate(element => element.scrollWidth <= element.clientWidth), true);
     if (process.env.CONNECTIONS_SCREENSHOT_DIR)
       await page.screenshot({path: path.join(process.env.CONNECTIONS_SCREENSHOT_DIR, 'connections-desktop.png'), fullPage: true});
@@ -64,7 +86,7 @@ test('website sign-ins are led by Ordubashy and Settings only lists and signs ou
       window.accounts = {agents: [{agent_id: 'a', name: 'Ordubashy', signing_in: 'github.com', sites: [{site: 'slack.com', session_saved: true}, {site: 'notion.so', session_saved: false}]}]};
       window.api = async url => url === '/root/browser-accounts' ? window.accounts : url === '/root/browser-setup'
         ? {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: true, agents: [{name: 'Ordubashy', state: 'healthy'}]}
-        : {checking: false, claude_account: {signed_in: true, method: 'claude.ai'}, connectors: [{id: 'gmail', kind: 'claude', tier: 'recommended', status: 'not_added'}]};
+        : {platform: 'linux', clients: [], connectors: [{id: 'treg', kind: 'extension', status: 'not_set_up'}]};
       window.post = async (url, body) => {
         window.sent.push(body);
         window.accounts = {agents: [{...window.accounts.agents[0], signing_in: null, sites: window.accounts.agents[0].sites.filter(item => item.site !== body.site)}]};

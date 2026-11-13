@@ -161,8 +161,9 @@ deletes the file, so new Codex launches return to native hook review. Without
 consent nothing changes and the `/hooks` review above still applies.
 
 Claude account connectors (Gmail, Calendar, Drive and others) belong to the
-owner's Claude account. Qorqbot only reads `claude mcp list` to show their
-status (`qorqut/connectors.py`). Business-scoped agents run Claude with
+owner's Claude account. Qorqbot does not list or set them up; when an agent
+has one, `qorqut/connector_gate.py` blocks its calls that change something
+until the owner approves them. Business-scoped agents run Claude with
 `dontAsk` and the prepared allow list, so a connector's tools reach Global
 agents such as Ordubashy first. Agents browse with Qorqbot's own browser
 control (`browser_turn`, docs/BROWSER-CONTROL.md), not with local connectors.

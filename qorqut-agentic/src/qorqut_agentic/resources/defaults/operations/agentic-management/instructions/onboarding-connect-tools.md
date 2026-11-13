@@ -33,11 +33,8 @@ Record the site as not connected with that reason and continue.
 
 Tell the owner plainly, once, and only for tools they asked about:
 
-- **Claude connectors** (such as Gmail or Google Calendar as direct
-  connections) are turned on by the owner in their Claude account; Settings
-  links to that page. Only agents running in Claude Code can use them. Mention
-  them only when you run in Claude Code and the owner prefers them to the
-  browser.
+- **Connectors in the owner's Claude account** are not part of Qorqbot and
+  are not shown in Settings. Do not suggest them; offer the agent browser.
 - **API keys and other secrets** are entered by the owner in Settings. Never
   ask for one in Chat, and do not repeat one that is pasted there.
 - **Telegram, WhatsApp and Fastmail** are optional parts of the installation

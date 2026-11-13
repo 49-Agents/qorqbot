@@ -456,19 +456,16 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
-            if parts == ["root", "connectors"] and request.method in {"GET", "POST"}:
+            if parts == ["root", "connectors"] and request.method == "GET":
                 if request.headers.get("authorization") is not None:
-                    raise DomainError("forbidden", "Connectors are for the owner's dashboard")
+                    raise DomainError("forbidden", "Extensions are listed for the owner's dashboard")
                 context, _ = self.context(actor)
                 with self.runtime.database.read() as uow:
                     owner = uow.repository("installation").get("service")
                 if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
-                    raise DomainError("forbidden", "Only the installation owner can change connectors")
-                from qorqut.connectors import owner_view as connectors_view
-                body = await read_json(request, limit=1024) if request.method == "POST" else None
-                if request.method == "POST" and not isinstance(body, dict):
-                    raise DomainError("validation_error", "A connector change must be an object")
-                data = await anyio.to_thread.run_sync(partial(connectors_view, self.runtime, body))
+                    raise DomainError("forbidden", "Only the installation owner can see the extensions")
+                from qorqut.connectors import view as connectors_view
+                data = await anyio.to_thread.run_sync(partial(connectors_view, self.runtime))
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
