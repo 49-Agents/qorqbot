@@ -35,7 +35,8 @@ question the personal context node already answers. Every question has
 
 Show it in Chat with `request_user_input` and the form's Signoff reference, with
 one short line such as "A few quick questions to get you set up, all optional."
-Do not repeat the questions in Chat. Then wait for the answer.
+That line is your whole reply: do not repeat the questions, and send no other
+message about the form. Then wait for the answer.
 
 When the form is answered, read the decision with `signoffs_get`. Use each
 answer's notes as written; the tools answer is its selected choices plus

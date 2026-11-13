@@ -146,7 +146,9 @@ request, the Task given as an object:
                    "intent": "Get the owner set up"}}
 
 Then follow each ready step's instructions and record each completed step with
-the helper's progress operations.
+the helper's progress operations. During set-up, write in Chat only what the
+owner needs to read: the form, your questions and the results. Never narrate
+the step you are on or what you are about to do.
 
 When your startup context says FIRST CONVERSATION, the owner has just installed
 Qorqbot and has never written to you, and your reply to the startup request is
