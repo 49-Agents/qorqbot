@@ -59,9 +59,15 @@ function sgEmailOutcomeHtml(s) {
 }
 function sgItemStatus(s, labels) {
   if (s.input?.kind === 'draft_review' && s.state === 'answered') return 'Draft returned';
+  if (sgIsAcknowledge(s) && s.state === 'answered') return 'Acknowledged';
   return s.category === "platform_action" ? sgPlatformStatus(s) : sgEmailStatus(s) ?? labels[s.state];
 }
 function sgIsDraftReview(s) { return s.category === 'input_request' && s.input?.kind === 'draft_review'; }
+// A report or document to read: one Acknowledge button and no answer. Comments go in the Signoff's private conversation.
+function sgIsAcknowledge(s) { return s.category === 'input_request' && s.input?.kind === 'acknowledge'; }
+function sgReportHtml(text) {
+  return typeof chatViewMarkdown === 'function' ? `<div class="sg-report">${chatViewMarkdown(text)}</div>` : sgInputExplanation(text);
+}
 function sgIsQuestionnaire(s) { return s.category === 'input_request' && s.input?.schema_version === 2; }
 function sgQuestionFormValid(s) {
   const f = s.input, qs = f?.questions;
@@ -698,7 +704,7 @@ function sgCreateView(options) {
     if (s.platform?.available === false) return '<p class="sg-notice">This action’s integration is no longer installed. This is saved history; execution is disabled.</p>'
       + (preview?.rationale ? `<div class="sg-rationale"><p>${renderSafeLinks(preview.rationale)}</p></div>` : '')
       + (Array.isArray(preview?.changes) ? sgChangesHtml(preview) : '');
-    if (s.input) return sgInputExplanation(s.input.explanation);
+    if (s.input) return sgIsAcknowledge(s) ? sgReportHtml(s.input.explanation) : sgInputExplanation(s.input.explanation);
     if (!preview || !Array.isArray(preview.changes)) return "";
     const effects = (preview.effects || []).map(effect => typeof effect === "string" ? effect : effect && effect.description).filter(effect => typeof effect === "string");
     const proposal = sgProposal(s, effects);
@@ -750,7 +756,7 @@ function sgCreateView(options) {
     const verified = sg.verified.get(s.id) === s.status_revision;
     const canReview = expected(s) && verified && completePreview(s) && owner() && !sg.error && !error && !s.superseded_by_id;
     if (!detail.querySelector(".sg-preview")) {
-      detail.innerHTML = `<div class="sg-detail-body"><div class="sg-detailnotice"></div><div class="sg-attention-meta"></div><div class="sg-email-context"></div><div class="sg-preview"></div><div class="sg-choices"></div><div class="sg-savedresponse"></div>${options.focusLayout ? '<div class="sg-focus-details"></div>' : ""}<div class="sg-work" aria-label="Related work"></div></div><div class="sg-detail-footer"><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div></div>`;
+      detail.innerHTML = `<div class="sg-detail-body"><div class="sg-detailnotice"></div><div class="sg-attention-meta"></div><div class="sg-email-context"></div><div class="sg-preview"></div><div class="sg-choices"></div><div class="sg-savedresponse"></div>${options.focusLayout ? '<div class="sg-focus-details"></div>' : ""}<div class="sg-work" aria-label="Related work"></div><div class="sg-comment" hidden></div></div><div class="sg-detail-footer"><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div></div>`;
       if (!options.global && !options.inline) workRelatedChips(detail.querySelector('.sg-work'),sg.slug,'signoffs',s.id);
     }
     // A question once tied to an email conversation keeps a historical note; the conversation itself is never fetched.
@@ -771,7 +777,7 @@ function sgCreateView(options) {
     const shownAttention = options.chatLayout ? chatAttention : attentionText;
     html(detail.querySelector('.sg-attention-meta'), shownAttention ? `<p class="sg-notice">${esc(shownAttention)}</p>` : '');
     if (options.focusLayout) {
-      const facts = [priorityText ? `<p class="sg-meta">${esc(priorityText)}</p>` : '', s.decision ? `<p class="sg-meta">Submitted ${esc(stamp(s.decision.at))}</p>` : ''].join('');
+      const facts = [priorityText ? `<p class="sg-meta">${esc(priorityText)}</p>` : '', s.decision && !sgIsAcknowledge(s) ? `<p class="sg-meta">Submitted ${esc(stamp(s.decision.at))}</p>` : ''].join('');
       html(detail.querySelector('.sg-focus-details'), facts ? `<details><summary>Details</summary>${facts}</details>` : '');
     }
     if(!messageEdits.has(s.id) || !detail.querySelector(".sg-message-editor"))html(detail.querySelector(".sg-preview"), sgEmailOutcomeHtml(s) + previewHtml(s));
@@ -807,11 +813,12 @@ function sgCreateView(options) {
           <span class="sg-choice-name">${esc(choice.label)}</span>${options.inline ? "" : `<span aria-hidden="true">—</span>
           <span class="sg-choice-explanation" title="${esc(choice.explanation)}">${esc(choice.explanation)}</span>`}</button>`;
       }).join("")}</div>` : "");
-    html(detail.querySelector(".sg-savedresponse"), s.decision ? `<p class="sg-response-notes">${esc(s.decision.message_id && !sgIsDraftReview(s) ? "" : (s.decision.notes ?? s.decision.feedback ?? ""))}</p>${options.focusLayout || options.chatLayout ? "" : `<p class="sg-meta">Submitted ${esc(stamp(s.decision.at))}</p>`}` : "");
+    html(detail.querySelector(".sg-savedresponse"), s.decision && sgIsAcknowledge(s) ? (options.chatLayout ? "" : `<p class="sg-meta">Acknowledged ${esc(stamp(s.decision.at))}</p>`)
+      : s.decision ? `<p class="sg-response-notes">${esc(s.decision.message_id && !sgIsDraftReview(s) ? "" : (s.decision.notes ?? s.decision.feedback ?? ""))}</p>${options.focusLayout || options.chatLayout ? "" : `<p class="sg-meta">Submitted ${esc(stamp(s.decision.at))}</p>`}` : "");
     const feedback = detail.querySelector(".sg-feedbackwrap");
     feedback.classList.toggle('sg-draft-feedback', sgIsDraftReview(s));
     const retainedFeedback = sgIsDraftReview(s) && reviewEdits.has(s.id) && s.state !== 'pending';
-    if (!sgIsQuestionnaire(s) && (s.state === "pending" || retainedFeedback) && completePreview(s) && owner() && !s.superseded_by_id && (!options.inline || s.input || rejectionNeedsMessage(s))) {
+    if (!sgIsQuestionnaire(s) && !sgIsAcknowledge(s) && (s.state === "pending" || retainedFeedback) && completePreview(s) && owner() && !s.superseded_by_id && (!options.inline || s.input || rejectionNeedsMessage(s))) {
       const requirement = s.input ? (s.input.notes_required ? "(required)" : "(optional)") : rejectionNeedsMessage(s) ? "(required to reject)" : "(optional)";
       if (!feedback.querySelector("textarea")) {
         const fieldId = `sg-feedback-${prefix}${esc(s.id)}`;
@@ -830,7 +837,7 @@ function sgCreateView(options) {
     const withFeedback = !s.input && !!draft(s).trim();
     const plainDecisionControls = s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id
       ? `<div class="sg-actions">${verified ? `<button type="button" class="sg-approve${withFeedback ? "" : " sg-primary-action"}" data-sg="approve"${disabled}>${SVG_CHECK}${withFeedback ? "Send and approve" : "Approve"}</button>` : ""}<button type="button" class="sg-reject${withFeedback ? " sg-primary-action" : ""}" data-sg="reject"${disabled}>${SVG_X}${withFeedback ? "Send and reject" : "Reject"}</button></div>` : "";
-    if (s.input) controls = s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id ? `<div class="sg-actions"><button type="button" class="sg-approve" data-sg="respond"${disabled || (reviewEdits.get(s.id)?.saving || reviewEdits.get(s.id)?.receipt || (reviewEdits.has(s.id) && reviewEdits.get(s.id).revision !== s.status_revision) ? ' disabled' : '')}>${sgIsQuestionnaire(s) ? 'Done' : sgIsDraftReview(s) ? 'Return draft' : 'Submit'}</button></div>` : "";
+    if (s.input) controls = s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id ? `<div class="sg-actions"><button type="button" class="sg-approve" data-sg="respond"${disabled || (reviewEdits.get(s.id)?.saving || reviewEdits.get(s.id)?.receipt || (reviewEdits.has(s.id) && reviewEdits.get(s.id).revision !== s.status_revision) ? ' disabled' : '')}>${sgIsQuestionnaire(s) ? 'Done' : sgIsDraftReview(s) ? 'Return draft' : sgIsAcknowledge(s) ? `${SVG_CHECK}Acknowledge` : 'Submit'}</button></div>` : "";
     else controls = plainDecisionControls;
     if (busy) controls += `<p class="sg-notice" role="status">${busy.unknown ? "The response was lost. Checking the saved decision..." : "Saving decision..."}</p>${busy.unknown ? `<button type="button" class="sg-command" data-sg="reconcile"${busy.checking ? " disabled" : ""}>Check decision</button>` : ""}`;
     if (verified && !owner()) controls += `<p class="sg-notice">Signoff review requires an owner session.</p>`;
@@ -858,13 +865,40 @@ function sgCreateView(options) {
       for (const cancel of area.querySelectorAll('[data-sg="cancel-message"],[data-sg="discard-draft"]')) cancel.textContent = 'Cancel';
       let status = area.querySelector('.sg-chat-status');
       if (!status) { status = document.createElement('span'); status.className = 'sg-chat-status'; (actions || area).prepend(status); }
-      status.textContent = editing ? 'Editing draft' : s.state === 'pending' ? 'Needs review' : sgItemStatus(s, labels);
+      status.textContent = editing ? 'Editing draft' : s.state !== 'pending' ? sgItemStatus(s, labels) : sgIsAcknowledge(s) ? 'To read' : 'Needs review';
       if (actions && !editing && canEditMessage(s) && !actions.querySelector('[data-sg="edit-message"]')) {
         const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'sg-edit';
         edit.dataset.sg = 'edit-message'; edit.textContent = 'Edit'; actions.append(edit);
       }
     }
+    paintComment(detail, s);
   }
+  // The comment box of something to read is the Signoff's private conversation with Ordubashy, apart from acknowledging.
+  // An inline card already sits in a conversation or beside its record's Chat tab, so it mounts none.
+  function paintComment(detail, s) {
+    const host = detail.querySelector('.sg-comment');
+    const business = s.review_business_id ?? null;
+    const biz = business == null ? null : (state.bizs || []).find(b => b.id === business || b.business_id === business)?.slug || null;
+    if (!sgIsAcknowledge(s) || options.inline || typeof conversationMount !== 'function' || !owner() || (business != null && !biz)) {
+      if (!host.hidden) { dropComment(host); host.replaceChildren(); host.hidden = true; }
+      return;
+    }
+    host.hidden = false;
+    const source = {type: 'signoff', id: s.id, ...(business == null ? {} : {business_id: business})};
+    const fresh = !host._conversation;
+    const comments = conversationMount(host, {...source, biz}, {privateSource: source, privateGlobal: true, inlineComposer: true, dismissOnOutside: false,
+      placeholder: 'Comment to Ordubashy…', ariaLabel: 'Comment on this report', sourceTitle: s.title || 'Report',
+      isVisible: () => active() && host.isConnected && !host.closest('[hidden]') && !document.hidden});
+    // Opened with the card so earlier comments and Ordubashy's replies are in view; reread at most every ten seconds
+    // as the card repaints, since the conversation does not poll by itself.
+    if (fresh) { comments?.expand?.(); host._sgRead = Date.now(); }
+    else if (Date.now() - (host._sgRead || 0) > 10000) { host._sgRead = Date.now(); void comments?.refresh?.({acknowledge: true}); }
+  }
+  function dropComment(host) {
+    host?._conversation?.dispose?.();
+    if (host) { delete host._conversation; delete host.dataset.conversation; }
+  }
+  function dropComments(root) { root?.querySelectorAll?.('.sg-comment').forEach(dropComment); }
   function render() {
     if (!active() || !sg.mount || !sg.mount.isConnected) return;
     const scroll = sg.mount.scrollTop;
@@ -881,13 +915,18 @@ function sgCreateView(options) {
     // The selected account-email Signoff stays visible after approval so its send outcome can be read; deselecting drops it.
     const retainedEmail = s => !options.execution && s.id === sg.selected && s.state !== "pending" && (s.outcome?.kind === "account_email" || sgIsDraftReview(s) || sgIsQuestionnaire(s));
     const urgentLocal = s => s.state === 'pending' && (s.attention?.urgent || s.attention?.blocking);
-    const groups = { urgent: sg.order.map(id=>sg.items.get(id)).filter(s=>s && urgentLocal(s)), waiting: sg.order.map(id => sg.items.get(id)).filter(s => s && !urgentLocal(s) && (s.state === "pending" || messageEdits.has(s.id) || retainedEmail(s))) };
+    // Something to read is not a decision: it has its own group, and stays there while selected after it is acknowledged.
+    const toRead = s => sgIsAcknowledge(s) && (s.state === 'pending' || (!options.execution && s.id === sg.selected && s.state === 'answered'));
+    const groups = { urgent: sg.order.map(id=>sg.items.get(id)).filter(s=>s && urgentLocal(s)), waiting: sg.order.map(id => sg.items.get(id)).filter(s => s && !urgentLocal(s) && !sgIsAcknowledge(s) && (s.state === "pending" || messageEdits.has(s.id) || retainedEmail(s))),
+      toread: sg.order.map(id => sg.items.get(id)).filter(s => s && !urgentLocal(s) && toRead(s)) };
     if (options.execution) groups.execution = sg.order.map(id => sg.items.get(id)).filter(s => s && s.state !== "pending" && !messageEdits.has(s.id));
     for (const name of Object.keys(groups)) {
       const container = sg.mount.querySelector(`.sg-${name}`);
       const content = container.querySelector(".sg-rows");
-      container.hidden = !sg.slug || (!sg.loaded && !sg.items.size) || (name === 'execution' && !groups[name].length);
+      container.hidden = !sg.slug || (!sg.loaded && !sg.items.size) || (['execution', 'toread'].includes(name) && !groups[name].length);
       html(container.querySelector(".sg-sectionempty"), !options.item && name === "waiting" && !groups[name].length ? `<p class="sg-empty">${attention.urgent.length ? "No other signoffs waiting." : "No signoffs waiting."}</p>` : "");
+      const heading = container.querySelector('h2');
+      if (name === 'toread' && heading) heading.hidden = !!options.inline;
       groups[name].forEach((s, index) => {
         let row = [...sg.mount.querySelectorAll(".sg-row")].find(node => node.dataset.id === s.id);
         if (!row) {
@@ -918,8 +957,9 @@ function sgCreateView(options) {
         }
         const appearance = {...(business?.agent_meta?.[agentName] || {}), ...(agent || {})};
         const proposerPortrait = identityAvatar(s.proposer_agent_id ? 'agent' : s.proposer_principal_id === owner() ? 'founder' : 'unknown', proposer, appearance, proposer + initiator, true);
-        html(row.querySelector(".sg-rowmeta"), options.inline ? `<span class="sg-inline-kind">${sgIsDraftReview(s) ? "Draft review" : "Signoff"}</span>${businessPortrait}` : `${businessPortrait}${proposerPortrait}`);
+        html(row.querySelector(".sg-rowmeta"), options.inline ? `<span class="sg-inline-kind">${sgIsDraftReview(s) ? "Draft review" : sgIsAcknowledge(s) ? "To read" : "Signoff"}</span>${businessPortrait}` : `${businessPortrait}${proposerPortrait}`);
         row.dataset.input = s.input ? "1" : "";
+        row.dataset.kind = sgIsAcknowledge(s) ? "acknowledge" : "";
         if (options.inline) {
           row.classList.add('sg-open');
           const icon = sgIsEmail(s) ? aicon('mail','currentColor',17)
@@ -933,7 +973,7 @@ function sgCreateView(options) {
         quick.hidden = !quickReview;
         detailPaint(row, s);
       });
-      [...content.children].forEach(row => { if (!groups[name].some(s => s.id === row.dataset.id)) row.remove(); });
+      [...content.children].forEach(row => { if (!groups[name].some(s => s.id === row.dataset.id)) { dropComments(row); row.remove(); } });
     }
     const foreign = [];
     const urgentSection = sg.mount.querySelector('.sg-urgent');
@@ -1197,7 +1237,9 @@ function sgCreateView(options) {
     if (sg.busy.has(key)) return;
     const body = { proposal_revision: s.proposal_revision, payload_hash: s.payload_hash, expected_status_revision: s.status_revision, idempotency_key: newRequestId() };
     if (action === "respond") {
-      if (sgIsQuestionnaire(s)) {
+      // Acknowledging says nothing: the body is the binding alone.
+      if (sgIsAcknowledge(s)) {}
+      else if (sgIsQuestionnaire(s)) {
         const draft = questionDraft(s);
         body.answers = sgQuestionAnswers(s, draft.answers);
         draft.errors = sgQuestionErrors(s, body.answers);
@@ -1282,7 +1324,8 @@ function sgCreateView(options) {
     body.classList.toggle("sg-inline", !!options.inline);
     body.classList.toggle("sg-chat", !!options.chatLayout);
     body.classList.toggle("sg-single", !!options.item);
-    body.innerHTML = `<div class="sg"><div class="sg-listnotice"></div><section class="sg-urgent"><h2>Urgent / blocking · All projects</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div><div class="sg-foreign"></div></section><section class="sg-waiting"><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>${options.execution ? '<section class="sg-execution"><h2>Execution and history</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>' : ""}<button type="button" class="sg-command sg-more" data-sg="more" hidden>Load more</button></div>`;
+    dropComments(body);
+    body.innerHTML = `<div class="sg"><div class="sg-listnotice"></div><section class="sg-urgent"><h2>Urgent / blocking · All projects</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div><div class="sg-foreign"></div></section><section class="sg-waiting"><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section><section class="sg-toread" hidden><h2>To read</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>${options.execution ? '<section class="sg-execution"><h2>Execution and history</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>' : ""}<button type="button" class="sg-command sg-more" data-sg="more" hidden>Load more</button></div>`;
     body.onclick = event => {
       if (event.target.matches('.sg-draft-editor')) return;
       if(event.target.matches('.sg-message-editor'))return;
@@ -1451,7 +1494,7 @@ function sgCreateView(options) {
       const textarea = row && row.querySelector(".sg-feedbackwrap .sg-feedback");
       if (selected && draftKey(selected) === key && textarea && textarea.value !== value) { textarea.value = value; if (selected.input && (options.inline || sgIsDraftReview(selected))) fitFeedback(textarea); }
     },
-    suspend() { readObserver?.disconnect();readTarget=null;readVisible=false;sg.generation++; sg.mount = null; sg.loading = false; sg.detailLoading = null; },
+    suspend() { dropComments(sg.mount);readObserver?.disconnect();readTarget=null;readVisible=false;sg.generation++; sg.mount = null; sg.loading = false; sg.detailLoading = null; },
     dispose() { clearInterval(ageTimer); this.suspend();window.removeEventListener('focus',markSelectedRead);document.removeEventListener('visibilitychange',markSelectedRead);window.removeEventListener('resize',resizeMessages); sgViews.delete(view); document.removeEventListener('click', outsideClick); document.removeEventListener('pointerdown', outsidePointer, true); },
     livePaint(slug, live) {
       if (slug !== workspace() || slug !== sg.slug || active() || !live || !Number.isInteger(live.signoffs_pending)) return;
