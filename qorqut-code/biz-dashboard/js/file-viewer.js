@@ -7,6 +7,26 @@ const API = "/api/root/files", PAGE = 20, VIEWER = "/files/view";
 const root = document.getElementById("fv"), toastBox = document.getElementById("fv-toast");
 const search = location.search, query = new URLSearchParams(search);
 
+// The Files pane embeds this same reader; its selector stays unchanged (the
+// fragment is presentation only). Follow the dashboard's device appearance.
+if (location.hash === '#explorer' && window.self !== window.top) {
+  try {
+    const parentRoot = window.parent.document.documentElement;
+    const syncTheme = () => {
+      const style = window.parent.getComputedStyle(parentRoot);
+      for (const name of ['bg', 'surface', 'elevated', 'line', 'line-2', 'hover', 'fg', 'fg-2', 'accent', 'accent-fg', 'sans', 'mono', 'ok', 'warn', 'danger']) {
+        document.documentElement.style.setProperty(`--${name}`, style.getPropertyValue(`--${name}`));
+      }
+      document.documentElement.style.colorScheme = parentRoot.dataset.theme === 'light' ? 'light' : 'dark';
+    };
+    syncTheme();
+    document.body.classList.add('fv-embedded');
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(parentRoot, {attributes:true, attributeFilter:['data-theme', 'style']});
+    window.addEventListener('pagehide', () => observer.disconnect(), {once:true});
+  } catch (_) { /* An unrelated embedding origin uses the standalone appearance. */ }
+}
+
 function h(tag, props, ...kids) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(props || {})) {

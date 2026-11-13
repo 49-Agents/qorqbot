@@ -37,15 +37,16 @@ def root_parts(root):
     return tuple(part for part in str(root).split("/") if part)
 
 
-def normalize_path(value, roots):
+def normalize_path(value, roots, *, directory=False):
     """An operations-root-relative POSIX path from an absolute path under ``roots`` or a relative path.
 
     ``roots`` are the accepted spellings of this instance's operations root, so a relative path keeps its first
     segment (``projects/<slug>/hq/...`` or ``agents/<agent>/...``). The
     result has no empty, ``.`` or ``..`` segments; traversal is rejected, never
-    resolved. Whether the file exists, or is a symlink, is not decided here.
+    resolved. With ``directory=True``, empty selects the root and trailing
+    slashes are accepted. Whether the path exists, or is a symlink, is not decided here.
     """
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str) or (not value.strip() and not (directory and value == "")):
         raise invalid("A file path is required")
     if len(value) > MAX_PATH_CHARS:
         raise invalid("The file path is too long")
@@ -69,9 +70,9 @@ def normalize_path(value, roots):
             raise invalid("The absolute path is outside the operations root")
     else:
         names = [part for part in parts if part and part != "."]
-    if not names:
+    if not names and not directory:
         raise invalid("A file path below the operations root is required")
-    if value.endswith("/"):
+    if value.endswith("/") and not directory:
         raise invalid("A file path, not a directory, is required")
     return "/".join(names)
 

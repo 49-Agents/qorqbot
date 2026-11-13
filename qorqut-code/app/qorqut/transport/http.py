@@ -819,7 +819,7 @@ class HTTPAPI:
             return failure(DomainError("internal_error", "The request failed; use its correlation ID for diagnosis"), request_id)
 
     async def files_route(self, request, actor, tail):
-        """The owner's file viewer reads: ``metadata``, ``content`` (preview), ``download`` and saved ``history``.
+        """The owner's file viewer reads directories, metadata, previews, downloads and saved history.
 
         Reached only after the Host/Origin checks, by the private tokenless owner dashboard, which acts as the
         installation owner. ``credential_kind`` only classifies a stored token (a revoked or another person's human
@@ -831,7 +831,7 @@ class HTTPAPI:
         """
         if request.headers.get("authorization") is not None:
             raise DomainError("forbidden", "The file viewer is for the owner's dashboard and takes no bearer credential")
-        if request.method != "GET" or len(tail) != 1 or tail[0] not in {"metadata", "content", "download", "history", "image"}:
+        if request.method != "GET" or len(tail) != 1 or tail[0] not in {"directory", "metadata", "content", "download", "history", "image"}:
             raise DomainError("not_found", "File endpoint is not registered")
         from qorqut.file_viewer import service as file_service
         from qorqut.file_viewer.paths import reject_bad_escapes
@@ -849,6 +849,9 @@ class HTTPAPI:
 
         def read():
             viewer = file_service.FileViewer(self.runtime, scope)
+            if action == "directory":
+                from qorqut.file_viewer.explorer import directory
+                return directory(viewer, items)
             if action == "history":
                 return viewer.history(*file_service.parse_history_query(items, viewer.roots))
             return getattr(viewer, action)(viewer.selector(items))
