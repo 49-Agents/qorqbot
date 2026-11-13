@@ -16,6 +16,7 @@ import errno
 import hashlib
 import os
 import stat
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from qorqut_operations.contracts import DomainError
@@ -79,6 +80,20 @@ def _open(parent, name, flags):
 
 def iso(timestamp):
     return datetime.fromtimestamp(timestamp, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+@contextmanager
+def open_directory(root, relative):
+    """Hold a normalized directory path open, refusing links at every component."""
+    parent = _open(None, root, _DIRECTORY)
+    try:
+        for name in relative.split("/") if relative else ():
+            child = _open(parent, name, _DIRECTORY)
+            os.close(parent)
+            parent = child
+        yield parent
+    finally:
+        os.close(parent)
 
 
 class OpenedFile:

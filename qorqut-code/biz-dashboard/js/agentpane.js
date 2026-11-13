@@ -125,7 +125,7 @@ const AGPAD_RETIRED_PANE_VIEWS = new Set(["business", "campaign_review", "status
 // Desktop remains Ordubashy's alone (core also enforces this on the binding).
 // Viewbox is offered to registered agents except Learning Applier (the owner-only board is keyed by agent id).
 function agentPaneViewAllowed(roleId, view) {
-  if (view === "timeline") return roleId === "ordubashy" && typeof testingModeEnabled === "function" && testingModeEnabled();
+  if (view === "files" || view === "timeline") return roleId === "ordubashy" && typeof testingModeEnabled === "function" && testingModeEnabled();
   return view !== "threads" && !(view === "journal" && roleId !== "ordubashy") && !AGPAD_RETIRED_PANE_VIEWS.has(view)
     && !(view === "viewbox" && roleId === "learning-applier");
 }
@@ -141,7 +141,7 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   if (roleId === "learning-applier") leading.push("changes");
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
-  return [...new Set([...leading, ...base, ...personal.filter(view => ['calendar', 'journal'].includes(view)), ...(agentId ? ["viewbox"] : []), ...trailing])]
+  return [...new Set([...leading, ...base, ...personal.filter(view => ['calendar', 'journal'].includes(view)), ...(roleId === "ordubashy" ? ["files"] : []), ...(agentId ? ["viewbox"] : []), ...trailing])]
     .filter(view => agentPaneViewAllowed(roleId, view));
 }
 // The agent workspace app's compact header keeps Viewbox beside Focus; an embedded page has no header to arrange.
@@ -202,8 +202,15 @@ function agpadWorkspaceViewsSync(p) {
   agpadSetView(p, views.includes(p.view) ? p.view : views[0]);
 }
 
+// Testing-only tabs follow changes from Settings and other browser tabs. If a
+// selected view becomes unavailable, the normal transition also disposes it.
+if (typeof testingModeSubscribe === 'function') testingModeSubscribe(() => {
+  if (_agpad?.workspaceRole === 'ordubashy') agpadWorkspaceViewsSync(_agpad);
+});
+
 function agpadWorkspaceMount(p, view) {
   if (!agentPaneViewAllowed(p.workspaceRole, view)) return;
+  if (view === "files") { agentFilesMount(p); return; }
   if (view === "attentionBoard" && (p.workspaceRole === "ordubashy" || p.workspaceRole === "global-worker")) { attentionBoardMount(p); return; }
   if (view === "timeline" && p.workspaceRole === "ordubashy") { agentTimelineMount(p); return; }
   if (view === "changes" && p.workspaceRole === "learning-applier") { overseerMount(p); return; }

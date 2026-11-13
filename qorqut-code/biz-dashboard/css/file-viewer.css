@@ -24,6 +24,14 @@ button { font: inherit; }
 :focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 
 .fv { max-width: 980px; margin: 0 auto; padding: 24px 20px 72px; }
+.fv-embedded { background: var(--surface); font-size: 13px; }
+.fv-embedded .fv { padding: 18px 16px 40px; }
+.fv-embedded .fv-title { flex-basis: 180px; }
+.fv-embedded .fv-title h1 { font-size: 17px; }
+.fv-embedded .fv-path { font-size: 10px; }
+.fv-embedded .fv-actions { gap: 5px; }
+.fv-embedded .fv-btn { font-size: 12px; min-height: 28px; }
+.fv-embedded .fv-text { font-size: 11px; }
 .fv-loading, .fv-muted { color: var(--fg-2); }
 
 /* Header */

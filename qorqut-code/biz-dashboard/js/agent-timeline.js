@@ -5,11 +5,6 @@ T_VIEW_LABEL.timeline = 'Timeline';
 T_VIEW_ICON.timeline = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M6 3v18M11 5h9M11 12h6M11 19h9"/><circle cx="6" cy="5" r="2"/><circle cx="6" cy="12" r="2"/><circle cx="6" cy="19" r="2"/></svg>';
 const AGENT_TIMELINE_CHEVRON = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 4 4 4-4 4"/></svg>';
 
-// Reconcile the mounted pane when Settings (or another tab) changes Testing mode.
-if (typeof testingModeSubscribe === 'function') testingModeSubscribe(() => {
-  if (_agpad?.workspaceRole === 'ordubashy') agpadWorkspaceViewsSync(_agpad);
-});
-
 function agentTimelineEvidence(key, value) {
   const href = safeLinkUrl(value);
   if (href) return `<a class="safe-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(value)}</a>`;

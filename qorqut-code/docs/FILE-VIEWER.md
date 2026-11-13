@@ -10,6 +10,8 @@ needed, and viewing writes nothing.
 | Link builder for agents and the owner | read operation `files_link` (`qorqut/domains/file_links.py`) |
 | Path and URL rules, no filesystem | `qorqut/file_viewer/paths.py` |
 | Descriptor-anchored file opening | `qorqut/file_viewer/files.py` |
+| Owner folder listings and project badges | `qorqut/file_viewer/explorer.py` |
+| Ordubashy Files tab | `biz-dashboard/js/agent-files.js`, `css/agent-files.css` |
 | Bounded previews (Markdown, text, CSV, HTML) | `qorqut/file_viewer/previews.py` |
 | One backend resolver (metadata, content, download, history) | `qorqut/file_viewer/service.py` |
 | Owner HTTP routes | `HTTPAPI.files_route` (`qorqut/transport/http.py`) |
@@ -85,10 +87,11 @@ process running as the same OS user is not a sandbox boundary.
 ## Routes
 
 All `GET`, all owner-only, all `Cache-Control: private, no-store` with `X-Content-Type-Options:
-nosniff`. A query uses the same selectors as the page.
+nosniff`. File queries use the same selectors as the page; directory queries are described below.
 
 | Route | Answer |
 |---|---|
+| `/api/root/files/directory` | One operations directory, with paged entries and available project metadata. |
 | `/api/root/files/metadata` | filename, root-relative `path`, size, mtime, preview kind, `binary`, optional `managed` (document id, scope, business name, `history_available`, `stable_url`), and the URLs to copy, content, download. Never an absolute host path. |
 | `/api/root/files/content` | A bounded preview (see below). |
 | `/api/root/files/download` | The bytes, always `application/octet-stream` with `Content-Disposition: attachment` (ASCII fallback plus RFC 5987 `filename*`; no quote, separator or line break can be carried). Current files stream from the opened descriptor. A saved version downloads its exact saved text as `name.vN.ext`. |
@@ -96,6 +99,30 @@ nosniff`. A query uses the same selectors as the page.
 
 Errors use the standard envelope. Codes: `not_found` (404), `validation_error`, `forbidden`,
 `not_a_regular_file` (422), `symlink_not_followed` (422), `file_unreadable`. Messages contain no host paths.
+
+## Operations tree
+
+Ordubashy's **Files** tab is available only while **Testing mode** is enabled. Turning Testing
+mode off removes the tab and closes an open explorer. The tab browses the actual operations folders.
+Expanding a folder lazily reads one directory; selecting a file embeds the existing reader, with preview/source, copy and download
+controls. The pane follows the dashboard appearance and stacks tree above preview in narrow panes.
+Search filters **loaded** folders and files. Refresh reloads expanded folders and project counts.
+
+`GET /api/root/files/directory` accepts `path` (empty or omitted means the operations root),
+`limit` (1–100, default 100), `hidden` (`0` or `1`, default `0`) and an optional `cursor` from
+the preceding page. Absolute paths must be under the operations root; trailing slashes are accepted
+only for directories. Unknown and duplicate query keys are rejected. Cursors bind to the folder
+and hidden-file setting. Results sort folders first, then names, and include `total`, `skipped`
+(unsupported names) and `next_cursor`. Paging reads the current directory, not a frozen snapshot;
+refresh after concurrent file changes. A directory exceeding 50,000 entries returns `directory_too_large`.
+Hidden files are omitted by default. Symlinks and special files are listed as unavailable and never opened.
+
+Project rows match active authorized registry records by folder slug. Their descriptions come from
+the current project record. Icon badges show nonarchived, unfinished records of type `task`, including
+snoozed tasks and all assignees, and pending owner-visible signoffs (excluding superseded, side-chat
+and management-routed inputs). Unknown/inactive folders have unavailable counts. Subprojects show
+`—` because project ancestry is not recorded. `hq`, `code` and agent folders remain physical folders;
+this explorer performs no layout migration. All reads use the existing tokenless owner-only boundary.
 
 ## Bounds and file safety
 
@@ -106,8 +133,8 @@ Errors use the standard envelope. Codes: `not_found` (404), `validation_error`, 
   else is `binary`: no preview, Download only.
 - CSV uses the stdlib parser and shows at most **200 rows and 50 columns** (400 characters per cell,
   500,000 characters overall). Every cell is plain text, so a formula is never evaluated or linked.
-- Only regular files open. Directories, devices, FIFOs and sockets are refused without being read
-  (`O_NONBLOCK`, opened-descriptor `fstat`). There is no listing or search.
+- Only regular files open in the reader. Devices, FIFOs and sockets are refused without being read
+  (`O_NONBLOCK`, opened-descriptor `fstat`). The separate directory endpoint lists metadata only.
 - **Symlink policy: symlinks are not followed.** Every directory component is opened
   `O_NOFOLLOW|O_DIRECTORY` from the root descriptor, and the final component is checked with
   `lstat` and opened `O_NOFOLLOW`. A symlink anywhere in the path (inside or outside the root) is
