@@ -317,15 +317,21 @@ browserTest('resizing preserves expansion, persists the height, and resets indep
   try {
     await page.evaluate(()=>{const saved=new Map();Object.defineProperty(window,'localStorage',{value:{getItem:key=>saved.get(key) || null,setItem:(key,value)=>saved.set(key,String(value)),removeItem:key=>saved.delete(key)},configurable:true});});
     const panel=page.locator('.wfpanel'),grip=page.getByRole('separator',{name:'Resize focus board height'});
+    await grip.focus();await page.keyboard.press('ArrowUp');
     const before=await panel.boundingBox(),handle=await grip.boundingBox();
     await page.mouse.move(handle.x+handle.width/2,handle.y+5);await page.mouse.down();
-    await page.mouse.move(handle.x+handle.width/2+80,handle.y-85,{steps:5});await page.mouse.up();
-    const grown=await panel.boundingBox();assert.ok(grown.height>before.height+70);assert.equal(grown.width,before.width);
+    await page.mouse.move(handle.x+handle.width/2+1,handle.y+5);
+    assert.ok(Math.abs((await panel.boundingBox()).height-before.height)<1);
+    await page.mouse.move(handle.x+handle.width/2+80,handle.y-80,{steps:5});await page.mouse.up();
+    const grown=await panel.boundingBox();assert.ok(Math.abs(grown.height-before.height-85)<1);assert.equal(grown.width,before.width);
+    assert.ok(Math.abs(Number(await grip.getAttribute('aria-valuenow'))-grown.height)<1);
     assert.equal(await page.locator('.wfpanel-head').getAttribute('aria-expanded'),'true');
     const saved=await page.evaluate(()=>Number(localStorage.getItem('chat-focus-height')));assert.ok(saved>before.height);
     await page.evaluate(()=>mount());await page.waitForFunction(()=>document.querySelector('.gchat-focus-label').textContent==='Coordinate launch');
-    assert.ok(Math.abs((await panel.boundingBox()).height-saved)<1);
-    await grip.focus();await page.keyboard.press('ArrowDown');assert.ok((await panel.boundingBox()).height<saved-20);
+    assert.ok(Math.abs((await panel.boundingBox()).height-saved*.9)<1);
+    await grip.focus();await page.keyboard.press('ArrowDown');assert.ok(Math.abs((await panel.boundingBox()).height-(saved-24)*.9)<1);
+    await page.keyboard.press('Home');assert.ok(Math.abs((await panel.boundingBox()).height-Number(await grip.getAttribute('aria-valuemin')))<1);
+    await page.keyboard.press('End');assert.ok(Math.abs((await panel.boundingBox()).height-Number(await grip.getAttribute('aria-valuemax')))<1);
     await page.locator('.gchat-focus-label').click();assert.equal(await grip.isVisible(),false);
     await page.locator('.gchat-focus-label').click();assert.equal(await grip.isVisible(),true);
     await grip.dblclick();assert.equal(await page.evaluate(()=>localStorage.getItem('chat-focus-height')),null);

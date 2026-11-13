@@ -21,22 +21,23 @@ function chatFocusPanelMount(composer, agentId, {agent, visible, onChange, worki
   resize.title='Drag to resize the focus board. Double-click to reset.';panel.prepend(resize);
   const heightKey='chat-focus-height';let requestedHeight=null,drag=null;
   try {const saved=Number(localStorage.getItem(heightKey));if(Number.isFinite(saved) && saved>0)requestedHeight=saved;}catch(_){}
-  const limits=()=>{const max=Math.max(80,Math.min(600,panel.parentElement.getBoundingClientRect().height*.65));return {min:Math.min(120,max),max};};
+  const scale=()=>{const value=parseFloat(getComputedStyle(panel).zoom);return Number.isFinite(value) && value>0 ? value : 1;};
+  const limits=()=>{const max=Math.max(80,Math.min(600,panel.parentElement.getBoundingClientRect().height / scale()*.65));return {min:Math.min(120,max),max};};
   const applyHeight=()=>{
     const {min,max}=limits();
-    if(requestedHeight!==null){panel.style.setProperty('--wfpanel-height',Math.min(max,Math.max(min,requestedHeight))+'px');panel.style.setProperty('--wfpanel-max-height','min(65%,600px)');}
+    if(requestedHeight!==null){panel.style.setProperty('--wfpanel-height',Math.min(max,Math.max(min,requestedHeight))+'px');panel.style.setProperty('--wfpanel-max-height',max+'px');}
     else {panel.style.removeProperty('--wfpanel-height');panel.style.removeProperty('--wfpanel-max-height');}
-    resize.setAttribute('aria-valuemin',String(Math.round(min)));resize.setAttribute('aria-valuemax',String(Math.round(max)));
+    resize.setAttribute('aria-valuemin',String(Math.round(min*scale())));resize.setAttribute('aria-valuemax',String(Math.round(max*scale())));
     resize.setAttribute('aria-valuenow',String(Math.round(panel.getBoundingClientRect().height)));
   };
   const saveHeight=()=>{try{if(requestedHeight===null)localStorage.removeItem(heightKey);else localStorage.setItem(heightKey,String(requestedHeight));}catch(_){}};
   const setHeight=value=>{const {min,max}=limits();requestedHeight=Math.min(max,Math.max(min,value));applyHeight();onChange();};
   resize.onpointerdown=event=>{
     if(event.button!==0 || !event.isPrimary)return;
-    event.preventDefault();drag={id:event.pointerId,y:event.clientY,height:panel.getBoundingClientRect().height};
+    event.preventDefault();drag={id:event.pointerId,y:event.clientY,height:panel.getBoundingClientRect().height / scale()};
     resize.setPointerCapture(event.pointerId);panel.classList.add('wfpanel-resizing');
   };
-  resize.onpointermove=event=>{if(drag?.id===event.pointerId)setHeight(drag.height+drag.y-event.clientY);};
+  resize.onpointermove=event=>{if(drag?.id===event.pointerId)setHeight(drag.height+(drag.y-event.clientY) / scale());};
   const finishResize=event=>{
     if(drag?.id!==event.pointerId)return;
     drag=null;panel.classList.remove('wfpanel-resizing');if(resize.hasPointerCapture(event.pointerId))resize.releasePointerCapture(event.pointerId);saveHeight();
@@ -45,7 +46,7 @@ function chatFocusPanelMount(composer, agentId, {agent, visible, onChange, worki
   resize.ondblclick=()=>{requestedHeight=null;applyHeight();saveHeight();onChange();};
   resize.onkeydown=event=>{
     if(!['ArrowUp','ArrowDown','Home','End'].includes(event.key))return;
-    event.preventDefault();const {min,max}=limits(),height=panel.getBoundingClientRect().height;
+    event.preventDefault();const {min,max}=limits(),height=panel.getBoundingClientRect().height / scale();
     setHeight(event.key==='Home'?min:event.key==='End'?max:height+(event.key==='ArrowUp'?24:-24));saveHeight();
   };
   const sizeObserver=new ResizeObserver(applyHeight);sizeObserver.observe(panel.parentElement);applyHeight();
