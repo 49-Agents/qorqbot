@@ -27,7 +27,7 @@ from qorqut_agentic.behavior import instructions as runtime_instructions
 from qorqut.catalog.packages import content_hash, files_digest, relative_path
 from qorqut_operations.contracts import DomainError, Principal, new_id, utc_now
 from qorqut_operations.storage import safe_io
-from .client import auth_headers, path_has_symlink, service_url
+from .client import STARTUP_INSTRUCTIONS, auth_headers, path_has_symlink, service_url
 from . import email_guidance
 from .tool_permissions import (VERSION as TOOL_CONFIGURATION_VERSION, fingerprint as tool_fingerprint,
                                permissions as tool_permissions, preparation_lock)
@@ -779,6 +779,11 @@ def _prepare_agent_locked(resolver, principal: Principal, *, endpoint: str, vers
     for name, body in projection.files.items():
         _write_file(workspace / name, body, private=name.startswith(".qorqut/") or name == ".claude/settings.local.json",
                     executable=name == ".qorqut/agentic")
+    # The first copy of the instructions CLAUDE.md imports, so the first session has them. Not a tracked projection
+    # file: the session hook rewrites it whenever the instructions change.
+    managed_instructions = data["mandatory_context"].get("instructions")
+    if isinstance(managed_instructions, str):
+        _write_file(workspace / STARTUP_INSTRUCTIONS, managed_instructions.encode(), private=True)
     _write_file(workspace / ".qorqut/credential", (token + "\n").encode(), private=True)
     ignore = workspace / ".gitignore"
     try:

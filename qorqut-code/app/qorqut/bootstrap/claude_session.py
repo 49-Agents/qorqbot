@@ -14,13 +14,35 @@ from typing import Callable
 from qorqut.catalog.packages import content_hash
 from qorqut_operations.contracts import DomainError, utc_now
 from qorqut.agents.context import MAX_CONTEXT_CHARACTERS
-from .client import (BOOTSTRAP_TIMEOUT, REQUEST_TIMEOUT, BootstrapClient,
-                     load_registration, path_has_symlink, write_json_private)
+from .client import (BOOTSTRAP_TIMEOUT, REQUEST_TIMEOUT, STARTUP_INSTRUCTIONS, BootstrapClient,
+                     load_registration, path_has_symlink, write_json_private, write_text_private)
 from .transcript_snapshot import run as snapshot_transcript
 from .environment import bootstrap_environment_context
 from qorqut_agentic.behavior.instructions import BOOTSTRAP_BUDGET, from_prepared, bootstrap_failure
 
 LIFECYCLE_EVENTS = frozenset({"startup", "resume", "clear", "compact", "fork"})
+
+# Claude Code saves hook output longer than 10,000 characters to a file and shows the model only its first 2,000.
+CLAUDE_HOOK_LIMIT = 9_500
+STARTUP_CONTEXT = ".qorqut/startup-context.md"
+INSTRUCTIONS_CHANGED = (f"Your managed instructions changed after this session loaded them. Read {STARTUP_INSTRUCTIONS} "
+                        "in full before acting; it replaces the copy in your project instructions.")
+CONTEXT_IN_FILE = ("This session's startup context ({size} characters: your identity, projects, Context Home, open work "
+                   f"and environment) is in {STARTUP_CONTEXT}. Read it in full before acting.")
+
+
+def keep_instructions(workspace: Path, rules: str) -> str:
+    """Write the managed instructions where CLAUDE.md imports them. Claude Code loaded that file before this hook ran,
+    so when it held anything else, return the notice that tells the model to read the current copy."""
+    path = workspace / STARTUP_INSTRUCTIONS
+    try:
+        loaded = path.read_text() if not path_has_symlink(path) and path.is_file() else None
+    except (OSError, UnicodeDecodeError):
+        loaded = None
+    if loaded == rules:
+        return ""
+    write_text_private(path, rules)
+    return INSTRUCTIONS_CHANGED
 
 
 def prepare_with_retry(client, body):
@@ -141,8 +163,13 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     if not isinstance(context, str) or not context.strip() or len(context) > MAX_CONTEXT_CHARACTERS:
         raise DomainError("invalid_bootstrap", "Mandatory bootstrap is missing or exceeds its character budget")
     configuration_hash = content_hash(context.encode())
+    workspace = Path(registration["workspace"])
+    notice = ""
     if isinstance(rules, str) and isinstance(facts, str):
-        context = '\n\n'.join(filter(None, (first, rules, skills, setup, facts)))
+        if runtime == "claude-code":
+            # Claude Code reads the instructions through CLAUDE.md's import of STARTUP_INSTRUCTIONS.
+            notice, rules = keep_instructions(workspace, rules), ""
+        context = '\n\n'.join(filter(None, (first, notice, rules, skills, setup, facts)))
     else:
         context = '\n\n'.join(filter(None, (first, skills, setup, context)))
     briefing = response.get("work_briefing", {}).get("rendered", "")
@@ -165,6 +192,10 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
         context += "\n\n" + reminder
     if len(context) > BOOTSTRAP_BUDGET:
         raise DomainError("invalid_bootstrap", "Combined bootstrap exceeds its character budget")
+    if runtime == "claude-code" and len(context) > CLAUDE_HOOK_LIMIT:
+        # Too long for Claude Code to show: the whole context goes to a file, and the lines that must be read now stay.
+        write_text_private(workspace / STARTUP_CONTEXT, context)
+        context = '\n\n'.join(filter(None, (first, notice, setup, CONTEXT_IN_FILE.format(size=len(context)), reminder)))
     output = {"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}}
     if event == "SessionStart" and runtime == "claude-code":
         output["hookSpecificOutput"]["reloadSkills"] = bool(response.get("reload_skills", True))
