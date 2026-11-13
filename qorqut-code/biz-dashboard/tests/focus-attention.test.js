@@ -90,14 +90,17 @@ test('Focus signoff host guards drafts and writes and keeps cancellation confirm
     sgCreateView(options){viewOptions=options;return {paint(){},dispose(){disposed=true;},hasUnsaved:()=>dirty,hasPendingWrite:()=>pending};}};
   vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/signoff-attention.js'),'utf8'),context);
   await context.window.sgFocusOpen('Signoff',{workspace:()=> 'project'});
-  const host=new Node(),dispose=spec.mount(host,{isCurrent:()=>true,setBeforeLeave(fn){guard=fn;}});
+  const classes=new Set(),surface={classList:{add:name=>classes.add(name),remove:name=>classes.delete(name)}};
+  const host=new Node(); host.closest=selector=>selector==='.agfocus-surface'?surface:null;
+  const dispose=spec.mount(host,{isCurrent:()=>true,setBeforeLeave(fn){guard=fn;}});
+  assert.equal(classes.has('agfocus-signoff-open'),true);
   assert.equal(host.children[2].className,'sg-focus');assert.equal(viewOptions.focusLayout,true);
   dirty=true; assert.equal(await guard(),false); dirty=false;
   pending=true; assert.equal(await guard(),false); pending=false; assert.equal(await guard(),true);
   const answer=viewOptions.confirmExecutionCancel(); assert.equal(await guard(),false);
   host.children[1].children[1].onclick(); assert.equal(await answer,false);
   const answer2=viewOptions.confirmExecutionCancel(); host.children[1].children[2].onclick(); assert.equal(await answer2,true);
-  dispose(); assert.equal(disposed,true);
+  dispose(); assert.equal(disposed,true); assert.equal(classes.has('agfocus-signoff-open'),false);
 });
 
 test('attention overflow opens without acknowledging unrelated unread entries', async () => {
