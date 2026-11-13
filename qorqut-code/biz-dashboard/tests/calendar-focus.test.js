@@ -178,17 +178,13 @@ test('slow read can close and cannot repaint after disposal', async () => {
   assert.equal(h.session.isCurrent(),false); assert.match(h.session.host.html,/Loading event/);
 });
 
-test('invalidation notifies mounted listeners and prevents stale reads from repopulating cache', async () => {
-  const h=harness(); let resolveList, listenerCalls=0, callbackCalls=0;
-  h.context.calendars=[h.calendar];
-  h.context.post = (url) => { assert.match(url,/calendar_events_list$/); return new Promise(resolve => { resolveList=resolve; }); };
+test('invalidation notifies mounted listeners and runs the refresh callback', async () => {
+  const h=harness(); let listenerCalls=0, callbackCalls=0;
   h.context.onChange=()=>{listenerCalls++;}; h.context.onRefresh=()=>{callbackCalls++;};
-  h.run("calendarDirectory = {at:Date.now(),data:{calendars,errors:[],configured:true}}; calendarChanges.add(onChange)");
-  const read=h.run('calendarTodayLoad()'); await h.flush();
-  h.run('calendarTodayShared = {old:true}; calendarChanged(onRefresh)');
-  assert.equal(listenerCalls,1); assert.equal(callbackCalls,1); assert.equal(h.run('calendarTodayShared'),null);
-  resolveList({events:[],next_cursor:null}); await read;
-  assert.equal(h.run('calendarTodayShared'),null);
+  h.run('calendarChanges.add(onChange)');
+  const before=h.run('calendarWriteGeneration');
+  h.run('calendarChanged(onRefresh)');
+  assert.equal(listenerCalls,1); assert.equal(callbackCalls,1); assert.equal(h.run('calendarWriteGeneration'),before+1);
   h.run('calendarChanges.delete(onChange); calendarChanged(onRefresh)');
   assert.equal(listenerCalls,1); assert.equal(callbackCalls,2);
 });
@@ -199,7 +195,7 @@ test('isolated successful writes invalidate and notify through each UI path', as
     const h=harness(); h.context.event=h.occurrence; h.context.calendars=[h.calendar];
     let notifications=0, callbacks=0;
     h.context.notify=()=>{notifications++;}; h.context.refresh=()=>{callbacks++;};
-    h.run("calendarChanges.add(notify); calendarTodayShared = {old:true}");
+    h.run("calendarChanges.add(notify)");
     h.success(operation);
     if (operation === 'calendar_event_create') {
       await h.run('calendarEdit(null, calendars, refresh)'); await h.flush();
@@ -215,7 +211,7 @@ test('isolated successful writes invalidate and notify through each UI path', as
     assert.match(h.calls.at(-1).url,new RegExp(operation+'$'));
     assert.equal(h.calls.at(-1).args.connection_id,'conn'); assert.equal(h.calls.at(-1).args.calendar_id,'cal');
     if (operation !== 'calendar_event_create') assert.equal(h.calls.at(-1).args.event_id,'occ');
-    assert.equal(notifications,1); assert.equal(callbacks,1); assert.equal(h.run('calendarTodayShared'),null); assert.equal(h.session.isCurrent(),false);
+    assert.equal(notifications,1); assert.equal(callbacks,1); assert.equal(h.session.isCurrent(),false);
   }
 });
 

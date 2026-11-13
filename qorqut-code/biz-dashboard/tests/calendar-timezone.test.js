@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-function harness(zone = 'UTC', now = '2026-11-11T02:54:00Z') {
+function harness(zone = 'UTC', now = '2026-11-11T02:54:00Z', events = []) {
   const calls = [];
   class Clock extends Date {
     constructor(...args) { super(...(args.length ? args : [now])); }
@@ -15,7 +15,7 @@ function harness(zone = 'UTC', now = '2026-11-11T02:54:00Z') {
       calls.push({url,args});
       if (url.endsWith('calendar_calendars_list')) return {configured:true,errors:[],calendars:[{connection_id:'conn',id:'cal',name:'Work'}]};
       assert.ok(url.endsWith('calendar_events_list'));
-      return {events:[],next_cursor:null};
+      return {events,next_cursor:null};
     }});
   for (const file of ['san-juan-time','global-calendar']) vm.runInContext(fs.readFileSync(path.join(__dirname,`../js/${file}.js`),'utf8'),context);
   const run = code => vm.runInContext(code,context);
@@ -69,20 +69,23 @@ test('all-day dates and month navigation do not shift with timezone offsets', ()
   }
 });
 
-test('today queries cover app-local dates, including 23- and 25-hour DST days', async () => {
-  for (const [zone,now,key,start,end] of [
-    ['UTC','2026-11-11T02:54:00Z','2026-11-11','2026-11-11T00:00:00.000Z','2026-11-12T00:00:00.000Z'],
-    ['Asia/Kathmandu','2026-11-10T22:00:00Z','2026-11-11','2026-11-10T18:15:00.000Z','2026-11-11T18:15:00.000Z'],
-    ['America/New_York','2026-03-08T12:00:00Z','2026-03-08','2026-03-08T05:00:00.000Z','2026-03-09T04:00:00.000Z'],
-    ['America/New_York','2026-11-01T12:00:00Z','2026-11-01','2026-11-01T04:00:00.000Z','2026-11-02T05:00:00.000Z'],
-    ['America/Santiago','2026-09-06T12:00:00Z','2026-09-06','2026-09-06T04:00:00.000Z','2026-09-07T03:00:00.000Z'],
+test('queue reads a fixed instant window and places all-day events at the app-local day start, including 23- and 25-hour DST days', async () => {
+  for (const [zone,now,day,appear] of [
+    ['UTC','2026-11-11T02:54:00Z','2026-11-11','2026-11-11T00:00:00.000Z'],
+    ['Asia/Kathmandu','2026-11-10T22:00:00Z','2026-11-11','2026-11-10T18:15:00.000Z'],
+    ['America/New_York','2026-03-08T12:00:00Z','2026-03-08','2026-03-08T05:00:00.000Z'],
+    ['America/New_York','2026-11-01T12:00:00Z','2026-11-01','2026-11-01T04:00:00.000Z'],
+    ['America/Santiago','2026-09-06T12:00:00Z','2026-09-06','2026-09-06T04:00:00.000Z'],
   ]) {
-    const h = harness(zone,now), data = await h.run('calendarTodayLoad()');
+    const events = [], h = harness(zone,now,events);
+    events.push({connection_id:'conn',calendar_id:'cal',id:'day',title:'Day',start:day,end:h.run(`calendarAddDays('${day}',1)`),attendees:[],recurrence:[]});
+    const data = await h.run(`calendarQueueLoad(${Date.parse(now)})`);
     const query = h.calls.find(call=>call.url.endsWith('calendar_events_list')).args;
-    assert.equal(data.key,key);
-    assert.equal(data.zone,zone);
-    assert.equal(query.start,start);
-    assert.equal(query.end,end);
+    assert.equal(query.start,new Date(Date.parse(now)-7*86400000).toISOString());
+    assert.equal(query.end,new Date(Date.parse(now)+2*3600000).toISOString());
+    assert.equal(data.items.length,1);
+    assert.equal(new Date(data.items[0].appear).toISOString(),appear);
+    assert.ok(data.items[0].key.startsWith(`calendar:${day}:`));
   }
 });
 
