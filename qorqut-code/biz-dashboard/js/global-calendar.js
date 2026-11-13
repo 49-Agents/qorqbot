@@ -452,12 +452,18 @@ function calendarPaintGrid(page, dates, allEvents, eventButton, hourHeight = 64)
 }
 
 // Calendar events for the shared attention strip, read from a week back to two hours ahead. An event joins the strip one
-// hour before it starts (an all-day event at the start of its day) and stays, past or not, until the owner discards it.
-// The strip filters on `appear`, so one read serves every repaint. Provider events are never changed by discarding.
+// hour before it starts (an all-day event at the start of its day) and leaves it two hours after it ends (an all-day event
+// two hours after its last day), or earlier when the owner discards it. The strip filters on `appear` and `retire`, so one
+// read serves every repaint. Provider events are never changed by discarding.
 const CALENDAR_QUEUE_LEAD_MS = 3600000, CALENDAR_QUEUE_BACK_MS = 7 * 86400000, CALENDAR_QUEUE_AHEAD_MS = 2 * 3600000;
+const CALENDAR_QUEUE_RETIRE_MS = 2 * 3600000;
 // The key leads with the event's date in the app zone so the server can retire old discards without reading a provider.
 const calendarQueueKey = event => `calendar:${event.start.length === 10 ? event.start : calendarDateString(new Date(event.start))}:${JSON.stringify([event.connection_id,event.calendar_id,event.id,event.start])}`;
 const calendarQueueAppears = event => event.start.length === 10 ? +calendarDayStart(event.start) : +new Date(event.start) - CALENDAR_QUEUE_LEAD_MS;
+// An all-day event's end is the exclusive day after it; an event without an end retires from its start.
+const calendarQueueRetires = event => CALENDAR_QUEUE_RETIRE_MS + (event.start.length === 10
+  ? +calendarDayStart(typeof event.end === 'string' && event.end.length === 10 ? event.end : calendarAddDays(event.start,1))
+  : +new Date(typeof event.end === 'string' ? event.end : event.start));
 async function calendarQueueLoad(now = Date.now()) {
   const start = new Date(now - CALENDAR_QUEUE_BACK_MS).toISOString(), end = new Date(now + CALENDAR_QUEUE_AHEAD_MS).toISOString();
   const result = await calendarDirectoryLoad();
@@ -480,7 +486,7 @@ async function calendarQueueLoad(now = Date.now()) {
     const appear = calendarQueueAppears(event);
     if (!Number.isFinite(appear)) continue;
     const key = calendarQueueKey(event), calendar = calendars.find(c => c.id === event.calendar_id && c.connection_id === event.connection_id);
-    rows.set(key, {key, event, appear, label:`${event.title || 'Untitled event'} · ${calendarEventWhen(event)}${calendar?.name ? ' · ' + calendar.name : ''}`});
+    rows.set(key, {key, event, appear, retire:calendarQueueRetires(event), label:`${event.title || 'Untitled event'} · ${calendarEventWhen(event)}${calendar?.name ? ' · ' + calendar.name : ''}`});
   }
   const items = [...rows.values()].sort((a,b) => a.appear - b.appear || a.key.localeCompare(b.key));
   return {items, calendars, configured:result.configured, errors};

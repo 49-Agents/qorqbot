@@ -3,7 +3,8 @@ const attentionQueue=(()=>{
   const visibleLimit=6;
   let items=[],loading=false,error='',timer,loadPromise=null,loadAgain=false,generation=0,saving=0,refreshAfterSave=false,writes=Promise.resolve();
   let queueRows=[],sideChats=[];
-  // Calendar events join the strip an hour before they start and stay until the owner discards them (saved on the server).
+  // Calendar events join the strip an hour before they start and leave it two hours after they end, or when the owner discards
+  // them (saved on the server). The minute signoff refresh repaints, so a chip leaves within a minute of its retire time.
   let calendarRows=[],calendarCalendars=[],calendarError='',discardedKeys=new Set();
   const pendingDiscards=new Set();
   const mounts=new Set(),lists=new Set(),acknowledged=new Set(),signoffMounts=new Map();
@@ -75,13 +76,13 @@ const attentionQueue=(()=>{
   const reminderUnread=r=>queueRows.some(item=>item.id===reminderKey(r) && unseen(item));
   function acceptQueue(data){queueRows=data.items || [];items=distinctDestinations(queueRows);sideChats=data.side_chats || [];discardedKeys=new Set(data.discarded || []);}
   const calendarIcon=()=>typeof T_VIEW_ICON==='object' ? T_VIEW_ICON.calendar || '' : '';
-  const calendarVisible=()=>{const now=Date.now();return calendarRows.filter(row=>row.appear<=now && !discardedKeys.has(row.key) && !pendingDiscards.has(row.key));};
+  const calendarVisible=()=>{const now=Date.now();return calendarRows.filter(row=>row.appear<=now && !(row.retire<=now) && !discardedKeys.has(row.key) && !pendingDiscards.has(row.key));};
   function paintSignoffs(){
     for(const [host,mount] of signoffMounts){
       if(!host.isConnected){signoffMounts.delete(host);continue;}
       // Open side chats stay at the left in last-message order, including chats already read.
       const chats=sideChats.map(s=>`<button type="button" class="focus-signoff-chip focus-side-chat-chip" data-side-chat-key="${esc(s.id)}" data-unread="${!!s.unread}" aria-label="${esc(s.title)}${s.unread?' · Unread':''}" title="${esc(s.title+'\n'+s.preview)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="${signoffPaths.message}"/></svg></button>`).join('');
-      // Due reminders and calendar events share one run, oldest first; a calendar chip stays until it is discarded.
+      // Due reminders and calendar events share one run, oldest first; a calendar chip stays until two hours after its end or a discard.
       const now=Date.now();
       const bells=dueReminders.map(r=>{const unread=reminderUnread(r);return {at:Date.parse(r.due_at || r.at) || 0,html:`<button type="button" class="focus-signoff-chip focus-reminder-chip" data-reminder-key="${esc(r.reminder_id)}" data-reminder-state="due" data-unread="${unread}" aria-label="${esc('Reminder due: '+r.text)}${unread?' · Unread':''}" title="${esc(r.text)}">${reminderIcon}</button>`};});
       const events=calendarVisible().map(row=>({at:row.appear,html:`<button type="button" class="focus-signoff-chip focus-calendar-chip" data-calendar-key="${esc(row.key)}" data-calendar-state="${row.appear+(row.event.start.length===10?0:3600000)<=now?'past':'upcoming'}" aria-label="${esc('Calendar: '+row.label)}" title="${esc(row.label+'\nRight-click to discard')}">${calendarIcon()}</button>`}));
