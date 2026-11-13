@@ -93,6 +93,15 @@ class ManagementService:
     def _owner(uow):
         return installation_owner(uow)
 
+    @staticmethod
+    def _worker_reads_for(ctx, uow):
+        """The configured coordinator whose intake an active global worker caller reads, or None for anyone else."""
+        from qorqut.agents.worker_access import is_worker
+        from .identity import configured_ordubashy
+        if ctx.principal_kind != 'agent' or not is_worker(uow.connection, ctx.principal_id):
+            return None
+        return configured_ordubashy(uow)
+
     def coordinator_dto(self, uow):
         installation = uow.repository('installation').get('service')
         identity = installation and installation['management_coordinator_id']
@@ -307,7 +316,9 @@ class ManagementService:
                 result['resolved_by'] = row['updated_by'] if row['disposition']!='pending' else None
         return result
 
-    def _authorized(self, ctx, row, args, uow):
+    def _authorized(self, ctx, row, args, uow, *, read=False):
+        """Whether the caller may see this intake. ``read`` (management_list/get only) also admits an active global worker
+        to what the configured coordinator sees: workers read what Ordubashy reads. Resolving never passes it."""
         self._scope(ctx, row['business_id'], uow)
         if row['source_type']=='signoffs':
             selected = replace(ctx,business_id=row['business_id'],review_business_id=row['business_id'])
@@ -315,6 +326,8 @@ class ManagementService:
             self.app.authorize(selected,descriptor,(),uow,
                 namespace='business:'+row['business_id'] if row['business_id'] else 'global')
         if ctx.principal_id == row['coordinator_id']:
+            return True
+        if read and row['coordinator_id'] and row['coordinator_id'] == self._worker_reads_for(ctx, uow):
             return True
         if ctx.principal_kind == 'human' and (ctx.principal_id == self._owner(uow) or row['business_id'] and uow.connection.execute('SELECT 1 FROM business_memberships WHERE business_id=? AND principal_id=? AND active=1 AND is_owner=1', (row['business_id'], ctx.principal_id)).fetchone()):
             return True
@@ -335,8 +348,9 @@ class ManagementService:
             business_clause = 'r.business_id IN ('+','.join('?' for _ in scopes)+')' if scopes else '0'
             clauses.append('(r.business_id IS NULL OR '+business_clause+')'); params.extend(scopes)
         if ctx.principal_kind=='agent':
-            clauses.append('(r.coordinator_id=? OR s.proposer_principal_id=? OR m.current_sender_id=?)')
-            params.extend([ctx.principal_id]*3)
+            coordinator = self._worker_reads_for(ctx, uow)
+            clauses.append('(r.coordinator_id IN (?,?) OR s.proposer_principal_id=? OR m.current_sender_id=?)')
+            params.extend([ctx.principal_id, coordinator or ctx.principal_id, ctx.principal_id, ctx.principal_id])
         destination = args.get('attention_destination')
         if not destination and ctx.principal_kind=='human' and not args.get('all_items'):
             destination='owner'
@@ -359,7 +373,7 @@ class ManagementService:
             ' ORDER BY r.updated_at DESC,r.id DESC LIMIT ?',[*params,limit+1]).fetchall()
         for row in candidates[:limit]:
             try:
-                authorized = self._authorized(ctx, row, args, uow)
+                authorized = self._authorized(ctx, row, args, uow, read=True)
             except DomainError:
                 authorized = False
             if not authorized:
@@ -373,7 +387,7 @@ class ManagementService:
     def get(self, ctx, args, options, uow):
         ctx = self.app.current_context(ctx, uow)
         row = uow.connection.execute('SELECT * FROM management_routing WHERE id=?', (args['routing_id'],)).fetchone()
-        if not row or not self._authorized(ctx, row, args, uow):
+        if not row or not self._authorized(ctx, row, args, uow, read=True):
             raise DomainError('not_found', 'Management intake is unavailable')
         return {'routing': self._view(row, uow), 'coordinator': self.coordinator_dto(uow)}
 

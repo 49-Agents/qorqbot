@@ -72,4 +72,4 @@ The connection is an entry of the `connections` object, keyed by the name you ch
   `revision_conflict`, `provider_unavailable`, `calendar_provider_error`). A failure is not proof that a timed-out change did not
   happen: read the event before sending a new request.
 
-The same owner and `manage_calendar` grants apply as for any provider; nothing here widens calendar access.
+The same rules apply as for any provider (reads accept `manage_calendar` or `read_global_context`, changes need `manage_calendar`); nothing here widens calendar access.

@@ -179,8 +179,9 @@ older jobs whose immutable saved definitions omit presentation scope.
 - `learnings_list`: `{items, counts, next_cursor}`; `learnings_get`: `{item, cores}`.
 - Owner learning review/edit: `{item}`; extraction: `{job_id, state}`.
 - `jobs_get`: `{job}`, selected business by default. Global jobs require explicit
-  `scope: "global"` and global routine rights. The optional Fastmail provider's mutation jobs are observed through its
-  own `fastmail_receipt_get`, which needs only the `manage_fastmail` account grant.
+  `scope: "global"` and `manage_global_routines` or `read_global_context` (the routine reads accept either; routine
+  changes need the routine grant). The optional Fastmail provider's mutation jobs are observed through its
+  own `fastmail_receipt_get`, a mail read.
 - `background.status(business_id)` returns scoped current/recent jobs and invalid
   definitions. It is an internal already-authorized adapter port.
 

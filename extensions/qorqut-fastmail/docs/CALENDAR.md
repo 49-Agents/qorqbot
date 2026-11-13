@@ -28,5 +28,7 @@ Fastmail user or mailbox is needed for each business address.
 
 ## Behavior
 
-Fastmail tools edit a recurring series as a whole resource (single-occurrence changes are a Google capability). The same owner and
-`manage_calendar` grants apply as for Google; the Fastmail mail operations' `manage_fastmail` grant does not confer calendar access.
+Fastmail tools edit a recurring series as a whole resource (single-occurrence changes are a Google capability). The same rules
+apply as for Google: calendar reads need `manage_calendar` or `read_global_context` (so every active global worker reads the
+calendars as Ordubashy does), and every calendar change needs `manage_calendar`. The Fastmail mail operations' `manage_fastmail`
+grant does not confer calendar access.

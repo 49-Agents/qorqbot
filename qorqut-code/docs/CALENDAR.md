@@ -73,10 +73,13 @@ extension):
 
 ## Use the tools
 
-All operations are Global. The owner has the calendar capability; the configured
-ecosystem Ordubashy additionally needs `manage_calendar` in its profile and the
-companion Ordubashy 1.57.1 role's tool grants. Other roles and delegated workers
-do not gain private calendar access from email permissions. Publish/adopt the
+All operations are Global. The owner has the calendar capability. Workers read what
+Ordubashy reads: the three reads (`calendar_calendars_list`, `calendar_events_list`,
+`calendar_event_get`) accept `manage_calendar` or `read_global_context`, so the configured
+Ordubashy and every active global worker read the calendars, and only a change needs
+`manage_calendar` in the profile (plus the Ordubashy role's tool grants for Ordubashy).
+Other roles stay refused by the handler whatever they hold, and email permissions confer
+no calendar access. Publish/adopt the
 role, add the one capability and refresh preparation through supported APIs
 after the matching core release. Source changes alone do not activate grants.
 

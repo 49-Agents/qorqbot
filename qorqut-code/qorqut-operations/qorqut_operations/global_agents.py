@@ -81,6 +81,13 @@ def is_global_agent(connection, agent_id) -> bool:
     return global_profile(connection, agent_id) is not None
 
 
+def is_global_worker(connection, agent_id) -> bool:
+    """True for a current global holding the repeatable worker role. Workers read what Ordubashy reads; this predicate
+    admits them to read paths only, never to a write."""
+    found = global_profile(connection, agent_id)
+    return found is not None and found["profile"]["role"]["id"] == GLOBAL_WORKER_ROLE
+
+
 def is_coordinator(connection, principal_id) -> bool:
     profile = global_profile(connection, principal_id)
     installation = connection.execute("SELECT management_coordinator_id FROM installation WHERE id='service'").fetchone()

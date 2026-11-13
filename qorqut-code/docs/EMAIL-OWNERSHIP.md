@@ -64,7 +64,8 @@ Old records that point at mail stay readable as data and are never resolved agai
 ## Deliberately retained names
 
 These are historical or neutral vocabulary, not behavior: the `manage_fastmail` Global capability string (it gates the
-provider's operations, and is granted explicitly) and the `email_message`
+provider's mutations and is granted explicitly; reads also accept `read_global_context`, so workers read mail as Ordubashy does)
+and the `email_message`
 document kind with the context/email versioning exclusion.
 
 ## Legacy installations

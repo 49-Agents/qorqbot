@@ -189,12 +189,18 @@ class RecordsHealth:
         return self
 
     @staticmethod
-    def allowed(ctx, uow):
-        if ctx.principal_id not in {installation_owner(uow), configured_ordubashy(uow)} - {None}:
-            raise DomainError("forbidden", "Record health is read and reconciled by the owner or the coordinator")
+    def allowed(ctx, uow, *, read=False):
+        """The owner and the coordinator read and reconcile; an active global worker may also read (``read``)."""
+        if ctx.principal_id in {installation_owner(uow), configured_ordubashy(uow)} - {None}:
+            return
+        from qorqut.agents.worker_access import is_worker
+        if read and ctx.principal_kind == "agent" and is_worker(uow.connection, ctx.principal_id):
+            return
+        raise DomainError("forbidden", "Record health is read and reconciled by the owner or the coordinator"
+                          + ("; an active global worker may read it" if read else ""))
 
     def read(self, ctx, args, options, uow):
-        self.allowed(ctx, uow)
+        self.allowed(ctx, uow, read=True)
         return {**disagreements(uow.connection, self.clock()), "repairs": repair_summary(repairs(uow.connection))}
 
     def prepare(self, ctx, args, options, uow):

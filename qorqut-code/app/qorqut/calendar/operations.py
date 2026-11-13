@@ -14,6 +14,9 @@ from qorqut_operations.application.plans import PlanBuilder, schema
 from qorqut.agents.worker_access import is_worker
 
 CAPABILITY = "manage_calendar"
+# Read-only alternative to CAPABILITY: every global worker reads the private calendars as Ordubashy does; changing an
+# event still needs manage_calendar.
+READ_CAPABILITY = "read_global_context"
 READS = ("calendar_calendars_list", "calendar_events_list", "calendar_event_get")
 WRITES = ("calendar_event_create", "calendar_event_update", "calendar_event_delete", "calendar_event_respond")
 TEXT = {"type": "string", "maxLength": 4000}
@@ -60,9 +63,14 @@ class CalendarOperations:
         self.outcomes = {}
         self.lock = threading.Lock()
 
-    def access(self, ctx, uow):
-        if ctx.business_id or ctx.home_business_id or CAPABILITY not in ctx.global_capabilities:
-            raise DomainError("forbidden", "Calendar tools require the Global calendar grant")
+    def access(self, ctx, uow, *, read=False):
+        """The owner, the configured Ordubashy or an active global worker. A change needs manage_calendar; a read
+        (``read=True``) is also admitted with read_global_context."""
+        granted = CAPABILITY in ctx.global_capabilities or (read and READ_CAPABILITY in ctx.global_capabilities)
+        if ctx.business_id or ctx.home_business_id or not granted:
+            raise DomainError("forbidden", "Calendar reads require manage_calendar or read_global_context" if read
+                              else "Calendar changes require the Global calendar grant manage_calendar",
+                              details={"denial_reason": "capability_not_granted", "missing_capability": CAPABILITY})
         installation = uow.repository("installation").get("service") or {}
         if ctx.principal_kind == "human" and installation.get("owner_principal_id") == ctx.principal_id:
             return
@@ -73,7 +81,7 @@ class CalendarOperations:
             if (profile.data["status"] == "active" and profile.scope.kind == "ecosystem"
                     and (coordinator or is_worker(uow.connection, ctx.principal_id))):
                 return
-        raise DomainError("forbidden", "Private calendars belong to the owner, configured Ordubashy and granted global workers")
+        raise DomainError("forbidden", "Private calendars belong to the owner, configured Ordubashy and active global workers")
 
     def register(self):
         descriptions = {
@@ -91,6 +99,7 @@ class CalendarOperations:
                           description=descriptions[name])
             if name in READS:
                 descriptor = OperationDescriptor(name, SCHEMAS[name], effect_kind="read", external_read=True,
+                    global_read_capability_alternatives=frozenset({READ_CAPABILITY}),
                     read=lambda c, a, o, u, op=name: self.read(c, a, u, op), **common)
             else:
                 descriptor = OperationDescriptor(name, SCHEMAS[name], effect_kind="compound",
@@ -130,7 +139,7 @@ class CalendarOperations:
         return provider(connection_id, config, transport=self.transport)
 
     def read(self, ctx, args, uow, operation):
-        self.access(ctx, uow)
+        self.access(ctx, uow, read=True)
         if operation == READS[0]:
             calendars, errors = [], []
             for identity in self.config():

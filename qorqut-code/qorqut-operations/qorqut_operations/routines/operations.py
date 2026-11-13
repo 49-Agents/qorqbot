@@ -272,8 +272,11 @@ class RoutineOperations:
             ("routines_preview", {"schedule": {"type": "string", "maxLength": 100}, "timezone": {"type": "string", "maxLength": 100},
                                   "after": {"type": "string", "format": "date-time"}}, self.preview)):
             required = ["routine_id"] if name == "routines_get" else (["schedule", "timezone"] if name == "routines_preview" else [])
+            # Reading routines needs no routine grant in the Global namespace either: any Global reader (every global
+            # worker holds read_global_context) is admitted to these reads; changing a routine still needs the grant.
             descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties}, required), effect_kind="read",
-                supports_signoff=False, read=handler, **common))
+                supports_signoff=False, read=handler, global_read_capability_alternatives=frozenset({"read_global_context"}),
+                **common))
         for name in ("routines_create", "routines_update", "routines_pause", "routines_resume", "routines_delete", "routines_run", "routines_stop"):
             properties, required = {**SCOPE}, []
             if name != "routines_create":

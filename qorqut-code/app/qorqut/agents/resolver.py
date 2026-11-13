@@ -31,7 +31,8 @@ from . import cleanup_workflow
 from .context import MAX_CONTEXT_CHARACTERS, ContextSource, compose_context
 from .global_scope import with_effective_scope
 from .models import AgentProfile, EffectiveAgentConfig, RETIRED_ROLE_IDS
-from .roles import RETIRED_PLUGIN_IDS, SUPPORTED_GLOBAL_ROLES
+from .read_parity import CURRENT, ParityDefaults, configured_coordinator_role, role_defaults, worker_parity_defaults
+from .roles import GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE, RETIRED_PLUGIN_IDS, SUPPORTED_GLOBAL_ROLES
 
 PROFILE_CACHE_LIMIT = 128
 FINGERPRINT_CACHE_LIMIT = 256
@@ -39,6 +40,9 @@ FINGERPRINT_CACHE_LIMIT = 256
 BOOTSTRAP_KEYS = frozenset({"foundation", "ecosystem-agent", "ecosystem"})
 # Private account capabilities: an operation declaring one is available only to a profile holding it.
 EXPLICIT_CAPABILITY_OPERATIONS = frozenset({"manage_calendar"})
+# Roles whose private-account reads (mail, calendar) accept the read alternative ``read_global_context``; the handlers
+# also admit only the configured Ordubashy and active global workers among agents.
+PRIVATE_ACCOUNT_READERS = frozenset({GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE})
 # Repair-ticket removal, phase 1: these readers stay installed and keep their internal standing grant because
 # surviving Task, Signoff and Project references resolve through them, but they are not agent tools. This one
 # definition filters effective configuration, briefings, generated native permissions and the MCP inventory;
@@ -46,10 +50,14 @@ EXPLICIT_CAPABILITY_OPERATIONS = frozenset({"manage_calendar"})
 INTERNAL_ONLY_OPERATIONS = frozenset({"dev_tickets_get"})
 
 
-def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, packages=()) -> list[dict]:
+def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, packages=(),
+                          parity: ParityDefaults | None = None) -> list[dict]:
+    """Every operation's effective mode for ``profile``. ``parity`` is the profile's read-parity defaults
+    (``AgentConfigResolver.parity_defaults``); without it only the pinned role's own defaults apply."""
     from qorqut.composition.policy import GLOBAL_DISCOVERY_OPERATIONS, resolve_operation_policy
     overrides = profile.data["tool_policy"]["overrides"]
-    defaults = role.manifest["default_tool_policy"]
+    defaults = parity.defaults if parity is not None else role.manifest["default_tool_policy"]
+    added = parity.added if parity is not None else frozenset()
     granted = {item["id"] for item in profile.data["plugins"]}
     # Hidden declarations stay callable through the policy resolver's full
     # declared set; discovery, briefings and generated permissions omit them.
@@ -72,6 +80,8 @@ def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, pa
         mode = decision.mode
         if decision.provenance == "agent_override":
             source = {"kind": "profile_override", "profile_revision": profile.revision}
+        elif decision.provenance == "role_default" and metadata.name in added:
+            source = {"kind": "worker_read_parity"}
         elif decision.provenance == "role_default":
             source = {"kind": "role_default", "role": role.ref}
         elif decision.provenance == "core_default" or decision.provenance.startswith("global_table_"):
@@ -85,14 +95,25 @@ def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, pa
         requirement = descriptor.plugin_requirement if descriptor else None
         if requirement and (requirement not in granted or metadata.name not in visible.get(requirement, ())):
             continue
-        if (descriptor and descriptor.global_capability in (EXPLICIT_CAPABILITY_OPERATIONS | getattr(registry, "extension_global_capabilities", frozenset()))
-                and descriptor.global_capability not in profile.scope.global_capabilities):
+        # The Global capability gate exactly as the engine applies it: the primary capability, or for a plain read one of
+        # its declared read alternatives (``global_capability_selected``).
+        private = descriptor is not None and descriptor.global_capability in (
+            EXPLICIT_CAPABILITY_OPERATIONS | getattr(registry, "extension_global_capabilities", frozenset()))
+        selected = (descriptor.global_capability_selected(profile.scope.global_capabilities)
+                    if descriptor and descriptor.global_capability else None)
+        if private and selected != descriptor.global_capability and profile.data["role"]["id"] not in PRIVATE_ACCOUNT_READERS:
+            # A private-account read's alternative admits only the identities its handler admits (Ordubashy and workers).
+            selected = None
+        missing = descriptor.global_capability if descriptor and descriptor.global_capability and selected is None else None
+        explicit = private and missing is not None
+        if explicit:
             # Central defaults never grant alone: private account tools (calendar, an optional mail provider) need
             # the explicit Global capability on the profile, whatever role default or provider default names them.
             mode = "deny"
-        if (descriptor and descriptor.global_capability == "manage_delegated_assignments"
-                and "manage_delegated_assignments" not in profile.scope.global_capabilities):
-            denial = "capability_not_granted"
+        # The engine refuses a Global-only operation without its capability, and these administrative ones in every
+        # scope; discovery must not offer them, and names the capability instead of reporting a policy denial.
+        unreachable = missing is not None and (explicit or descriptor.scope_kinds == {"global"}
+                                               or missing in {"manage_ecosystem_agents", "manage_delegated_assignments"})
         denial = None
         if metadata.owner_only:
             mode, denial = "deny", "owner_only"
@@ -100,11 +121,10 @@ def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, pa
             denial = "not_exposed_to_agent"
         elif descriptor is None:
             denial = "operation_unavailable"
+        elif unreachable:
+            denial = "capability_not_granted"
         elif mode == "deny":
             denial = "policy_denied"
-        elif descriptor.global_capability == "manage_ecosystem_agents" and "manage_ecosystem_agents" not in profile.scope.global_capabilities:
-            # The engine refuses these without the capability; discovery must not offer them.
-            denial = "capability_not_granted"
         aliases = [alias for alias in descriptor.aliases
                    if registry.required_plugin_for(alias) in (None, *granted)] if descriptor else []
         row = {"canonical_operation": metadata.name, "exposed_aliases": aliases,
@@ -115,6 +135,8 @@ def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, pa
             row["scope_modes"] = modes
         if denial:
             row["denial_reason"] = denial
+        if denial == "capability_not_granted":
+            row["missing_capability"] = missing
         tools.append(row)
     return tools
 
@@ -315,9 +337,22 @@ class AgentConfigResolver:
         """The agent's current profile overrides and pinned role defaults, read in the caller's transaction."""
         profile, _ = self.profile(context.principal, connection=uow.connection)
         role = self.catalog.get("role", plain(profile.data["role"]), connection=uow.connection)
-        return AgentPolicyBasis(defaults=role.manifest["default_tool_policy"],
+        return AgentPolicyBasis(defaults=self.parity_defaults(profile, role, uow.connection).defaults,
                                 overrides=profile.data["tool_policy"]["overrides"],
                                 role=profile.data["role"], revision=profile.revision)
+
+    def parity_defaults(self, profile: AgentProfile, role, connection, *, coordinator_role=CURRENT) -> ParityDefaults:
+        """The profile's effective role defaults: a global worker also reads what the configured Ordubashy's role reads.
+
+        The one source for discovery, orientation and call-time enforcement (``read_parity``). ``coordinator_role`` is
+        the Ordubashy role pin to mirror; by default the configured Ordubashy's current pin is read on ``connection``."""
+        defaults = role.manifest["default_tool_policy"]
+        role_id = profile.data["role"]["id"]
+        if role_id != GLOBAL_WORKER_ROLE:
+            return ParityDefaults(defaults, frozenset(), frozenset())
+        ref = configured_coordinator_role(connection) if coordinator_role is CURRENT else coordinator_role
+        return worker_parity_defaults(role_id, defaults, profile.data["tool_policy"]["overrides"],
+                                      role_defaults(self.catalog, ref, connection), self.registry)
 
     def plugin_declares(self, context: InvocationContext, basis: AgentPolicyBasis, descriptor, uow) -> bool:
         """The profile holds the descriptor's plugin grant and that pinned plugin package declares this tool."""
@@ -416,17 +451,18 @@ class AgentConfigResolver:
                 if artifact is None:
                     raise DomainError("missing_artifact", f"Missing pinned {kind}: {ref['id']}@{ref['version']}")
                 artifacts.append(dict(artifact))
-            installed_reads = {item.name for item in self.registry.installed()
-                               if "mcp" in item.exposure and not item.owner_only}
-
-            def allowed(reads):
-                if not reads <= installed_reads:
-                    return False
-                from qorqut.composition.policy import resolve_operation_policy
-                role = self.catalog.get("role", profile.data["role"], connection=connection)
-                return all(resolve_operation_policy(
-                    name, role.manifest["default_tool_policy"], profile.data["tool_policy"]["overrides"],
-                    self.registry, role_id=role.id).mode == "allow" for name in reads)
+            # A worker's read parity mirrors the configured Ordubashy's pinned role, so that pin is part of what the
+            # worker's configuration depends on: it is hashed and signed with the worker's own artifacts, and composition
+            # reads exactly this pin. Without a configured Ordubashy (or its artifact) nothing is mirrored.
+            parity_role = None
+            if profile.data["role"]["id"] == GLOBAL_WORKER_ROLE:
+                ref = configured_coordinator_role(connection)
+                artifact = ref and connection.execute(
+                    "SELECT * FROM artifacts WHERE kind='role' AND artifact_id=? AND version=? AND digest=?",
+                    (ref["id"], ref["version"], ref["digest"])).fetchone()
+                if artifact is not None:
+                    parity_role = plain(ref)
+                    artifacts.append(dict(artifact))
 
         selected_docs, signatures = {}, []
         # Only global agents run; the retired business-agent instruction source is never required.
@@ -483,7 +519,7 @@ class AgentConfigResolver:
         fingerprint, cache_key = self._remembered_hashes(inputs, hashes)
         return {"profile": profile, "row": row, "business": selected, "businesses": businesses,
                 "documents": selected_docs, "owner_name": ", ".join(owner_names) or "Owner",
-                "agentic_catalog_revision": agentic_revision,
+                "agentic_catalog_revision": agentic_revision, "parity_role": parity_role,
                 "registration": dict(registration) if registration else None, "fingerprint": fingerprint,
                 "cache_key": cache_key}
 
@@ -665,7 +701,9 @@ class AgentConfigResolver:
         native_guidance_digest = self.native_guidance_digest(profile.to_dict())
         config_id = "sha256:" + canonical_hash({"fingerprint": snapshot["fingerprint"],
                                                "native_guidance_digest": native_guidance_digest})
-        tools = effective_tool_policy(profile, role, self.registry, packages=packages)
+        with self.database.read() as uow:
+            parity = self.parity_defaults(profile, role, uow.connection, coordinator_role=snapshot.get("parity_role"))
+        tools = effective_tool_policy(profile, role, self.registry, packages=packages, parity=parity)
         tools = view.tool_instructions().metadata(tools)
         mandatory = compose_context(profile, role, sources, effective_config_id=config_id,
             workspace=snapshot["row"]["workspace"], business=snapshot["business"],

@@ -12,7 +12,7 @@ from qorqut_operations.global_agents import effective_business_ids, global_profi
 from qorqut_operations.storage.directory_layout import ACTION as DIRECTORY_ACTION
 from qorqut_operations.storage.receipts import ApplyReceipts, IdempotencyReceipts
 from .delegation import authorize_delegation, creation_groups
-from .registry import OperationRegistry
+from .registry import OperationRegistry, capability_not_granted
 from .review import ReviewScopeException, review_scope
 
 
@@ -163,7 +163,7 @@ class Application:
             if "global" not in descriptor.scope_kinds or not descriptor.global_capability:
                 raise DomainError("forbidden", "Operation has no registered global capability")
             if descriptor.global_capability_selected(context.global_capabilities) is None:
-                raise DomainError("forbidden", "Global capability is not granted")
+                raise capability_not_granted(descriptor)
         elif namespace.startswith("business:"):
             if "business" not in descriptor.scope_kinds:
                 raise DomainError("forbidden", "Operation target differs from the selected project")

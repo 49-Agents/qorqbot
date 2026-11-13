@@ -164,7 +164,8 @@ class AgentOperations:
     def _grants(self, profile, uow):
         """Rank of every available core tool mode of a profile, per operation and Global table scope.
 
-        No packages are passed, so plugin-provided tools are left out of the comparison."""
+        No packages are passed, so plugin-provided tools are left out of the comparison. Worker read parity is left out
+        too: those reads mirror the configured Ordubashy's role and are no manager's grant, so they never count as excess."""
         role = self.resolver.catalog.get("role", plain(profile.data["role"]), connection=uow.connection)
         return {(row["canonical_operation"], scope): MODE_RANK[mode]
                 for row in effective_tool_policy(profile, role, self.resolver.registry) if row["available"]
@@ -316,9 +317,40 @@ class AgentOperations:
         if row["status"] == "retired":
             raise DomainError("inactive_agent", "Retired archival records have no active permission configuration")
         profile = AgentProfile.from_dict(json.loads(row["profile_json"]), self.resolver.registry, stored=True)
-        role = self.resolver.catalog.get("role", profile.data["role"], connection=uow.connection)
         return {"agent_id": identity, "profile_revision": profile.revision,
-                "overrides": plain(profile.data["tool_policy"]["overrides"]), "tools": effective_tool_policy(profile, role, self.resolver.registry)}
+                "overrides": plain(profile.data["tool_policy"]["overrides"]), "tools": self._effective_tools(profile, uow)}
+
+    def _effective_tools(self, profile, uow):
+        """The profile's core tool rows as discovery reports them, worker read parity included."""
+        role = self.resolver.catalog.get("role", plain(profile.data["role"]), connection=uow.connection)
+        return effective_tool_policy(profile, role, self.resolver.registry,
+                                     parity=self.resolver.parity_defaults(profile, role, uow.connection))
+
+    def _inert_overrides(self, profile, effective):
+        """Saved ``allow``/``signoff`` overrides that cannot take effect, each naming the missing capability or plugin.
+
+        An override never lifts the Global capability or plugin gate; the update is still accepted, and this notice tells
+        the manager what the profile lacks instead of leaving the override silently without effect."""
+        rows = {row["canonical_operation"]: row for row in effective.to_dict()["tools"]}
+        granted = {item["id"] for item in profile.data["plugins"]}
+        notices = []
+        for name, mode in sorted(profile.data["tool_policy"]["overrides"].items()):
+            if mode == "deny":
+                continue
+            try:
+                descriptor = self.resolver.registry.get(name)
+            except DomainError:
+                continue
+            row = rows.get(name)
+            if descriptor.plugin_requirement and descriptor.plugin_requirement not in granted:
+                notices.append({"operation": name, "override": mode, "missing_plugin": descriptor.plugin_requirement,
+                                "message": f"The {mode} override on {name} has no effect: the profile lacks the "
+                                           f"{descriptor.plugin_requirement} plugin"})
+            elif row is not None and row.get("denial_reason") == "capability_not_granted":
+                notices.append({"operation": name, "override": mode, "missing_capability": row["missing_capability"],
+                                "message": f"The {mode} override on {name} has no effect: the profile lacks the "
+                                           f"{row['missing_capability']} Global capability"})
+        return notices
 
     def resolve_name(self, ctx, resource, uow):
         try:
@@ -454,6 +486,9 @@ class AgentOperations:
         for document in documents:
             expected.append(ExpectedTarget(ResourceRef("documents", document["id"], document["business_id"], document["namespace"]), revision=document["revision"], content_hash=document["content_hash"]))
         result = {"agent_id": identity, "profile_revision": profile.revision, "overrides": plain(profile.data["tool_policy"]["overrides"]), "effective_config_id": effective.effective_config_id if effective else None}
+        inert = self._inert_overrides(profile, effective) if effective else []
+        if inert:
+            result["inert_overrides"] = inert
         resource = ResourceRef("agent_profiles", identity, business_id, namespace)
         profile_values = {"profile": profile.to_dict(), "workspace": str(workspace), "result": result}
         if default_selection:
@@ -517,7 +552,7 @@ class AgentOperations:
             changes.append(PreparedChange("record", resource, "profile_effect", {"field": field, "before": prior, "after": after}, operation_name=child))
         preview_resource = PreviewResource("agent_profiles", identity, profile.data["display_name"])
         fields = [FieldChange(key, old_data.get(key), value) for key, value in profile.to_dict().items() if old_data.get(key) != value]
-        fields.append(FieldChange("effective_permissions", effective_tool_policy(before, self.resolver.catalog.get("role", before.data["role"]), self.resolver.registry) if before else None, effective.to_dict()["tools"] if effective else None))
+        fields.append(FieldChange("effective_permissions", self._effective_tools(before, uow) if before else None, effective.to_dict()["tools"] if effective else None))
         if profile.data["status"] != "active":
             fields.append(FieldChange("credentials", "active scoped credentials", "revoked; history and documents preserved"))
         previews = [StructuredPreview(preview_resource, tuple(fields))]
