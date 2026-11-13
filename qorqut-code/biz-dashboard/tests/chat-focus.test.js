@@ -66,7 +66,7 @@ async function fixture(width=900) {
   return {browser,page,errors};
 }
 
-browserTest('focus board stays above the composer and never loads a Todo list',async()=>{
+browserTest('focus strip is the top of the composer and never loads a Todo list',async()=>{
   const {browser,page,errors}=await fixture();
   try {
     assert.equal(await page.locator('.gchat-focus-intent').innerText(),'Check the remaining tasks.');
@@ -74,8 +74,11 @@ browserTest('focus board stays above the composer and never loads a Todo list',a
     assert.equal(await page.locator('.gchat-focus-label').evaluate(el=>getComputedStyle(el).fontSize),'14px');
     assert.equal(await page.locator('.wfpanel ol,.wfpanel-step,.wfpanel-list-heading').count(),0);
     assert.ok(!(await page.locator('.wfpanel').innerText()).includes('Todo'));
-    const focus=await page.locator('.wfpanel').boundingBox(),feed=await page.locator('.gchat-scroll').boundingBox(),composer=await page.locator('.gchat-composer').boundingBox();
-    assert.ok(feed.y+feed.height<=focus.y && focus.y+focus.height<=composer.y);
+    // One box: the strip is inside the composer form, above the text field, below the feed.
+    assert.equal(await page.locator('.gchat-composer > .wfpanel').count(),1);
+    const focus=await page.locator('.wfpanel').boundingBox(),feed=await page.locator('.gchat-scroll').boundingBox(),composer=await page.locator('.gchat-composer').boundingBox(),input=await page.locator('.gchat-composer textarea').boundingBox();
+    assert.ok(feed.y+feed.height<=composer.y && Math.abs(focus.y-composer.y)<=1.5 && focus.y+focus.height<=input.y);
+    assert.ok(focus.x<=composer.x+1.5 && focus.x+focus.width>=composer.x+composer.width-1.5);
     assert.ok(feed.height>200);
     const label=await page.locator('.gchat-focus-label').boundingBox(),dots=await page.locator('.gchat-working-dots').boundingBox();
     assert.ok(Math.abs(dots.y+dots.height/2-(label.y+label.height/2))<1);
@@ -312,30 +315,30 @@ browserTest('mobile hides the board and stops reads; desktop restores it without
   }finally{await browser.close();}
 });
 
-browserTest('resizing preserves expansion, persists the height, and resets independently of clicks',async()=>{
+browserTest('the strip has no resize grip and its marks centre on their text line',async()=>{
   const {browser,page,errors}=await fixture();
   try {
-    await page.evaluate(()=>{const saved=new Map();Object.defineProperty(window,'localStorage',{value:{getItem:key=>saved.get(key) || null,setItem:(key,value)=>saved.set(key,String(value)),removeItem:key=>saved.delete(key)},configurable:true});});
-    const panel=page.locator('.wfpanel'),grip=page.getByRole('separator',{name:'Resize focus board height'});
-    await grip.focus();await page.keyboard.press('ArrowUp');
-    const before=await panel.boundingBox(),handle=await grip.boundingBox();
-    await page.mouse.move(handle.x+handle.width/2,handle.y+5);await page.mouse.down();
-    await page.mouse.move(handle.x+handle.width/2+1,handle.y+5);
-    assert.ok(Math.abs((await panel.boundingBox()).height-before.height)<1);
-    await page.mouse.move(handle.x+handle.width/2+80,handle.y-80,{steps:5});await page.mouse.up();
-    const grown=await panel.boundingBox();assert.ok(Math.abs(grown.height-before.height-85)<1);assert.equal(grown.width,before.width);
-    assert.ok(Math.abs(Number(await grip.getAttribute('aria-valuenow'))-grown.height)<1);
-    assert.equal(await page.locator('.wfpanel-head').getAttribute('aria-expanded'),'true');
-    const saved=await page.evaluate(()=>Number(localStorage.getItem('chat-focus-height')));assert.ok(saved>before.height);
-    await page.evaluate(()=>mount());await page.waitForFunction(()=>document.querySelector('.gchat-focus-label').textContent==='Coordinate launch');
-    assert.ok(Math.abs((await panel.boundingBox()).height-saved*.9)<1);
-    await grip.focus();await page.keyboard.press('ArrowDown');assert.ok(Math.abs((await panel.boundingBox()).height-(saved-24)*.9)<1);
-    await page.keyboard.press('Home');assert.ok(Math.abs((await panel.boundingBox()).height-Number(await grip.getAttribute('aria-valuemin')))<1);
-    await page.keyboard.press('End');assert.ok(Math.abs((await panel.boundingBox()).height-Number(await grip.getAttribute('aria-valuemax')))<1);
-    await page.locator('.gchat-focus-label').click();assert.equal(await grip.isVisible(),false);
-    await page.locator('.gchat-focus-label').click();assert.equal(await grip.isVisible(),true);
-    await grip.dblclick();assert.equal(await page.evaluate(()=>localStorage.getItem('chat-focus-height')),null);
-    assert.equal(await page.locator('.wfpanel-head').getAttribute('aria-expanded'),'true');
+    await page.evaluate(()=>{profiles.push(profile('atlas'));mount();});
+    await page.waitForFunction(()=>document.querySelector('.wfpanel-agent-focus')?.textContent==='Verify sources');
+    assert.equal(await page.locator('[role=separator],.wfpanel-resize').count(),0);
+    // The centre of a text is the middle of its capitals where the browser trims text to them, else its line box.
+    const offsets=await page.evaluate(()=>{
+      const mid=el=>{const r=el.getBoundingClientRect();return r.top+r.height/2;};
+      const label=document.querySelector('.gchat-focus-label'),summary=document.querySelector('.wfpanel-agent-summary');
+      const marks={avatar:'.wfpanel-focus-icon .identity-avatar',dots:'.wfpanel-context-row .gchat-working-dots',arrow:'.wfpanel-chevron svg'};
+      const out=Object.fromEntries(Object.entries(marks).map(([name,q])=>[name,mid(document.querySelector(q))-mid(label)]));
+      out.peer=mid(document.querySelector('.wfpanel-agent .identity-avatar'))-mid(summary);
+      return out;
+    });
+    for(const [name,offset] of Object.entries(offsets))assert.ok(Math.abs(offset)<0.6,name+' is '+offset+'px off its text');
+    // A focus that wraps keeps the marks on its first line.
+    await page.evaluate(()=>{document.querySelector('.gchat-focus-label').textContent='A focus long enough to wrap onto a second line. '.repeat(6);});
+    const first=await page.evaluate(()=>{
+      const label=document.querySelector('.gchat-focus-label'),range=document.createRange();range.selectNodeContents(label);
+      const line=range.getClientRects()[0],avatar=document.querySelector('.wfpanel-focus-icon .identity-avatar').getBoundingClientRect();
+      return {lines:label.getClientRects()[0].height>30,inside:avatar.top+avatar.height/2>line.top && avatar.top+avatar.height/2<line.bottom};
+    });
+    assert.deepEqual(first,{lines:true,inside:true});
     assert.deepEqual(errors,[]);
   }finally{await browser.close();}
 });
