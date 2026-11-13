@@ -27,8 +27,9 @@ CLAUDE_HOOK_LIMIT = 9_500
 STARTUP_CONTEXT = ".qorqut/startup-context.md"
 INSTRUCTIONS_CHANGED = (f"Your managed instructions changed after this session loaded them. Read {STARTUP_INSTRUCTIONS} "
                         "in full before acting; it replaces the copy in your project instructions.")
-CONTEXT_IN_FILE = ("This session's startup context ({size} characters: your identity, projects, Context Home, open work "
-                   f"and environment) is in {STARTUP_CONTEXT}. Read it in full before acting.")
+CONTEXT_IN_FILE = ("This session's startup context ({lines} lines: your identity, projects, Context Home, open work, "
+                   f"environment and the guides for your tools) is in {STARTUP_CONTEXT}. Before acting, read the whole "
+                   "file with one Read call and no limit or offset; a partial read leaves out rules you must follow.")
 
 
 def keep_instructions(workspace: Path, rules: str) -> str:
@@ -195,7 +196,7 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     if runtime == "claude-code" and len(context) > CLAUDE_HOOK_LIMIT:
         # Too long for Claude Code to show: the whole context goes to a file, and the lines that must be read now stay.
         write_text_private(workspace / STARTUP_CONTEXT, context)
-        context = '\n\n'.join(filter(None, (first, notice, setup, CONTEXT_IN_FILE.format(size=len(context)), reminder)))
+        context = '\n\n'.join(filter(None, (first, notice, setup, CONTEXT_IN_FILE.format(lines=context.count('\n') + 1), reminder)))
     output = {"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}}
     if event == "SessionStart" and runtime == "claude-code":
         output["hookSpecificOutput"]["reloadSkills"] = bool(response.get("reload_skills", True))
