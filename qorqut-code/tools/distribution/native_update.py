@@ -157,6 +157,7 @@ def main(argv=None):
             launcher.require_completed_extension_installs(runtime)
             env = launcher.environment(root, instance / 'home')
             launcher.require_stopped_terminals(root, env)
+            launcher.stop_agent_browsers(root)
             if runtime_processes(runtime):
                 raise ValueError('Stop this installation’s remaining browsers and helper processes before updating')
             config = launcher.read_json(instance / 'config/extensions.json')

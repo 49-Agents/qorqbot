@@ -20,7 +20,7 @@ class SessionBindingTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.root = Path(self.directory.name)
+        self.root = Path(self.directory.name).resolve()
         self.workspace = self.root / 'agent'
         self.local = self.workspace / '.qorqut'
         self.local.mkdir(parents=True)
@@ -37,6 +37,10 @@ class SessionBindingTests(unittest.TestCase):
         proc = self.root / 'proc' / '42'
         proc.mkdir(parents=True)
         (proc / 'cmdline').write_bytes(b'codex\0')
+        # macOS has no /proc: there the bridge asks the process inspector for the same command line.
+        inspected = patch('qorqut.process_info.cmdline', return_value=['codex'])
+        inspected.start()
+        self.addCleanup(inspected.stop)
         self.bridge = BridgeBinding(self.registration,
             ancestor=lambda runtime: {'pid': 42, 'started': '99'} if runtime == 'codex' else None,
             proc=proc.parent)

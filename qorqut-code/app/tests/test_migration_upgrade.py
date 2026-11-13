@@ -62,7 +62,7 @@ class UpgradeTests(unittest.TestCase):
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        self.path = Path(directory.name) / 'operations.sqlite3'
+        self.path = Path(directory.name).resolve() / 'operations.sqlite3'
         self.extensions = ExtensionSet((SyntheticExtension(),))
         self.states = upgrade.chain(self.extensions)
         self.connection = self.store(BASE)

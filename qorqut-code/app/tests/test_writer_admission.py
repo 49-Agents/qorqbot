@@ -6,6 +6,7 @@ about SQLite's lock, so nothing less would prove them.
 """
 from pathlib import Path
 import sqlite3
+import sys
 import tempfile
 import threading
 import time
@@ -383,6 +384,14 @@ class WriterQueueTests(StoreCase):
         holder = threading.Thread(target=hold)
         holder.start()
         self.assertTrue(entered.wait(WAIT))
+        statements, acquire = [], self.db._acquire
+
+        def traced():
+            connection = acquire()
+            connection.set_trace_callback(statements.append)
+            return connection
+
+        self.db._acquire = traced
         threading.Timer(self.busy_timeout / 2, release.set).start()
         started = time.monotonic()
         with self.assertRaises(DomainError) as raised:
@@ -391,8 +400,12 @@ class WriterQueueTests(StoreCase):
         waited = time.monotonic() - started
         self.assertEqual(raised.exception.code, "busy")
         # Half the timeout went on the queue, so only the other half may go on SQLite's lock: not a second full one.
+        budgets = [int(text.rsplit("=", 1)[1]) for text in statements if text.startswith("PRAGMA busy_timeout")]
+        self.assertTrue(budgets)
+        self.assertLessEqual(budgets[0], self.busy_timeout * 1000 * 0.6)
         self.assertGreaterEqual(waited, self.busy_timeout * 0.9)
-        self.assertLess(waited, self.busy_timeout * 1.6)
+        if sys.platform == "linux":  # elsewhere SQLite's short sleeps can overrun, so only the budget above is exact
+            self.assertLess(waited, self.busy_timeout * 1.6)
         holder.join(WAIT)
         elsewhere.execute("ROLLBACK")
 

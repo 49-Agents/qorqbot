@@ -371,6 +371,7 @@ def install(root, archive, expected, *, config=None, resume=False):
             # macOS process inspection uses the verified app environment's
             # psutil library. A fresh download has no such environment yet.
             launcher.prepare(root, env)
+            launcher.stop_agent_browsers(root)
             if installation_processes(root):
                 raise ValueError('Stop this installation’s remaining browsers and helper processes before installing an extension')
             launcher.initialize(root, env)
