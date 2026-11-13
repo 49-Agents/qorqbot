@@ -94,7 +94,7 @@ const accountGate = (() => {
     const section = card(`<h2 id="account-gate-title">check your email</h2>
       <p>We sent a code to <b>${esc(email)}</b>. It expires in 10 minutes.</p>
       <form class="account-gate-form" data-account-code novalidate>
-        <input name="code" autocomplete="one-time-code" inputmode="text" maxlength="9" placeholder="XXXX-XXXX" required aria-label="sign-in code" class="account-gate-code">
+        <input name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="9" placeholder="123456" required aria-label="sign-in code" class="account-gate-code">
         <fieldset class="account-gate-use"><legend>How will you use Qorqbot?</legend>
           <div class="account-gate-choice"><label><input type="radio" name="use" value="personal" checked>Personal</label>
           <label><input type="radio" name="use" value="work">For work</label></div>
