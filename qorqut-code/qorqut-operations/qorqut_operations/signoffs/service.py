@@ -22,7 +22,7 @@ from qorqut_operations.storage.locks import LockPaths
 from qorqut_operations.storage.receipts import ApplyReceipts, IdempotencyReceipts
 from qorqut_operations.storage.repositories import decode_row
 from qorqut_operations.storage.specs import TableSpec
-from .inputs import InputRequests, validate_response
+from .inputs import ACKNOWLEDGE_SQL, InputRequests, acknowledges, validate_response
 from . import questions
 from .drafts import SCHEMA as DRAFT_SCHEMA, DraftReviews, is_draft, validate_values
 from .notes import SignoffNotes, eligible
@@ -225,6 +225,8 @@ class SignoffService:
                                   if row["category"]=="input_request" and self.ports.email is not ABSENT else None)
         value["category"] = row["category"]
         value["input"] = row["preview_json"].get("input")
+        if value["input"]:
+            value["input_kind"] = value["input"].get("kind")
         attention = uow.connection.execute("SELECT * FROM signoff_attention WHERE signoff_id=?", (row["id"],)).fetchone()
         value["attention"] = dict(attention) if attention else {"notify": False, "urgent": False, "blocking": False}
         if attention and attention["priority_updated_by"]:
@@ -232,6 +234,9 @@ class SignoffService:
             value['attention']['priority_updated_by_name'] = actor['display_name'] if actor else None
         decision = (row["decision_json"] or {}).get("kind")
         value["decision_state"] = {"approve": "approved", "reject": "rejected", "respond": "answered"}.get(decision, "unknown" if row["legacy_evidence_json"] is not None else "pending")
+        if decision == "respond" and acknowledges(value["input"]):
+            # Read, not answered: an acknowledgement says nothing and approves nothing.
+            value["decision_state"] = "acknowledged"
         value["actionable"] = row["category"] != "side_chat" and row["state"] == "pending" and not row["superseded_by_id"]
         value["execution_state"] = self.ports.execution.execution_state(row, uow)
         if row["category"] == "platform_action":
@@ -331,6 +336,9 @@ class SignoffService:
         counts = dict.fromkeys(STATES, 0)
         for row in uow.connection.execute(f"SELECT s.state, COUNT(*) n FROM signoffs s WHERE {clause} GROUP BY s.state", params):
             counts[row["state"]] = row["n"]
+        # Pending read-and-acknowledge requests inside ``counts["pending"]``: something to read, not a decision to make.
+        to_read = uow.connection.execute(f"SELECT COUNT(*) FROM signoffs s WHERE {clause} AND s.state='pending' "
+            f"AND s.superseded_by_id IS NULL AND {ACKNOWLEDGE_SQL}", params).fetchone()[0]
         filters = {key: arguments[key] for key in ("states", "proposer_principal_id", "initiated_by_principal_id", "category", "execution_states", "responded", "include_managed") if key in arguments}
         if "states" in filters:
             filters["states"] = sorted(filters["states"])
@@ -375,7 +383,7 @@ class SignoffService:
                                                          last["created_at"], last["id"]])
         return {"review_scope": {"kind": "business", "business_id": context.business_id} if context.business_id else {"kind": "global"},
                 "review_business_id": context.business_id, "items": [self._dto(row, uow, detail=False) for row in rows],
-                "counts": counts, "next_cursor": next_cursor, "updated_cursor": updated_cursor, "has_more": has_more}
+                "counts": counts, "to_read": to_read, "next_cursor": next_cursor, "updated_cursor": updated_cursor, "has_more": has_more}
 
     def recent_outcomes(self, context, uow, *, since, limit):
         """Newest decided proposals updated since a time, with signoffs_list visibility."""

@@ -66,7 +66,7 @@ TASK_FIELDS = ("id", "revision", "title", "status", "work_status", "input_needed
     "unresolved_blockers", "blocks", "parent", "kind", "closed", "paused", "archived", "tags", "created_by", "updated_at",
     "worker_ids", "status_line", "next_step", "stalled")
 SIGNOFF_FIELDS = ("id", "review_business_id", "review_scope", "proposal_revision", "payload_hash", "status_revision",
-    "state", "decision_state", "actionable", "execution_state", "category", "operation_name", "operation_version",
+    "state", "decision_state", "actionable", "execution_state", "category", "input_kind", "operation_name", "operation_version",
     "title", "proposer_principal_id", "proposer_agent_id", "proposer_display_name",
     "initiated_by_principal_id", "initiated_by_display_name", "attention", "job_id",
     "created_at", "updated_at", "updated_sequence", "supersedes_id", "superseded_by_id", "legacy_review_routing")
@@ -76,7 +76,7 @@ FOCUS_ITEM_FIELDS = ("id", "revision", "archived", "unavailable")
 # columns; duplicated identity spellings, per-row attribution and echoed parent IDs
 # are read through the full-detail escape hatch or the record's own read tool.
 SIGNOFF_INDEX_FIELDS = ("id", "review_scope", "proposal_revision", "status_revision", "state",
-    "decision_state", "actionable", "execution_state", "category", "operation_name", "title",
+    "decision_state", "actionable", "execution_state", "category", "input_kind", "operation_name", "title",
     "proposer_agent_id", "proposer_display_name", "initiated_by_display_name",
     "attention", "job_id", "outcome", "created_at", "updated_at", "supersedes_id", "superseded_by_id")
 INBOX_EVENT_FIELDS = ("id", "source_type", "source_id", "event_type", "summary", "created_at",

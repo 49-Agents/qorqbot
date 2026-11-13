@@ -128,6 +128,35 @@ aware `deadline`. Urgent/blocking requires a reason. Deadline is explanatory
 metadata; it does not silently escalate priority. Omitting attention on a
 repeat input creation preserves the existing settings.
 
+### Read and acknowledge
+
+`form.kind: acknowledge` is an input request that asks nothing. Ordubashy uses it
+to put a report or document in front of the owner and to record that they read it;
+the daily report is one. The engine enforces what makes it different:
+
+- Only the active ecosystem Ordubashy may create one. Workers and the owner are refused.
+- `selection_mode` is `none`, with no choices, no required notes and no draft fields;
+  `response_policy` is always `owner_only`, so it is never routed to management.
+- It is never a dependency: `source` is refused at creation and `signoffs_source_link`
+  refuses it, so no Task or record shows Needs your input because of it.
+- `urgent` and `blocking` are refused. `notify` defaults to true and produces one
+  individual delivery when the item is posted. It is not repeated and is not part of
+  the daily summary. An owner snooze delivers it once more when the snooze ends.
+- The response is empty. `respond` refuses notes and choices; the item becomes
+  `answered` and reads as `decision_state: acknowledged`. The proposer receives the
+  usual `response_submitted` event.
+- Creating one with the `request_key` of a pending one and different content cancels
+  the pending one and creates the new one in the same transaction; the new preview
+  records `replaces_id`. Questions and draft reviews keep `request_conflict`.
+
+The explanation (up to 8000 characters) is rendered as Markdown in the dashboard. A
+longer document is a file linked from that text. The owner's comments are the
+Signoff's private conversation with Ordubashy, which is independent of
+acknowledging. Read models count these apart from decisions: `GET /api/me/attention`
+and `dashboard_summary_get` report `to_read` and leave them out of `signoffs` and
+`total`; `signoffs_list` adds a `to_read` count beside `counts`, and every Signoff
+row carries `input_kind`.
+
 ## Responses and history
 
 The owner posts to `/api/biz/<slug>/signoffs/<id>/respond` or

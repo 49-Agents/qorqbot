@@ -76,8 +76,9 @@ def form_of(row):
     if row["category"] != "input_request":
         return "action"
     form = (row["preview_json"] or {}).get("input") or {}
-    if form.get('kind') == 'draft_review' or is_questionnaire(form):
-        return 'input'  # Telegram can comment; edited fields must be returned in the dashboard.
+    if form.get('kind') in ('draft_review', 'acknowledge') or is_questionnaire(form):
+        # Telegram can comment; edited fields are returned, and something to read is acknowledged, in the dashboard.
+        return 'input'
     ids = sorted(choice["id"] for choice in form.get("choices", []))
     if form.get("selection_mode") == "single" and ids == ["no", "yes"] and not form.get("notes_required"):
         return "binary_input"
@@ -192,7 +193,8 @@ class SignoffBridge:
             attention = dto.get("attention") or {}
             draft_review = (dto.get('input') or {}).get('kind') == 'draft_review'
             grouped = is_questionnaire(dto.get('input'))
-            head = [f"{'Draft review' if draft_review else KINDS.get(dto['category'], 'Approval')}: {dto['title']}",
+            reading = (dto.get('input') or {}).get('kind') == 'acknowledge'
+            head = [f"{'Draft review' if draft_review else 'To read' if reading else KINDS.get(dto['category'], 'Approval')}: {dto['title']}",
                     f"{dto.get('business_name') or 'Global'} · requested by {dto.get('proposer_display_name') or 'an agent'}"]
             tail = []
             if attention.get("reason"):
@@ -202,7 +204,8 @@ class SignoffBridge:
             needs_choice = bool(((dto.get("preview") or {}).get("input") or {}).get("selection_required"))
             help_text = (f"Answer all {len(dto['input']['questions'])} questions together in the dashboard. Replies add comments; reactions do not submit answers."
                          if grouped else 'Edit and return the draft in the dashboard. Replies add comments; reactions do not return the draft.'
-                         if draft_review else CHOICE_HELP[form] if needs_choice and form in CHOICE_HELP else HELP[form])
+                         if draft_review else 'Acknowledge it in the dashboard. Replies add comments; reactions do not acknowledge.'
+                         if reading else CHOICE_HELP[form] if needs_choice and form in CHOICE_HELP else HELP[form])
             tail += [help_text, f"Open the Signoffs view: {url}"]
             if budget.truncated:
                 tail.append(f"Truncated: the complete text is in the Signoffs view: {url}")
@@ -526,9 +529,11 @@ class SignoffBridge:
         if post["input_form"] == "input":
             draft_review = row['preview_json'].get('input', {}).get('kind') == 'draft_review'
             grouped = is_questionnaire(row['preview_json'].get('input'))
+            reading = row['preview_json'].get('input', {}).get('kind') == 'acknowledge'
             text = ('Answer these questions together in the dashboard; a reaction does not submit them. '
                     if grouped else 'Edit and return this draft in the dashboard; a reaction does not return it. '
-                    if draft_review else 'This request needs a written answer, so a reaction cannot answer it. Reply to its post, or answer it in the dashboard: ')
+                    if draft_review else 'Acknowledge this in the dashboard; a reaction does not acknowledge it. '
+                    if reading else 'This request needs a written answer, so a reaction cannot answer it. Reply to its post, or answer it in the dashboard: ')
             self._notice(uow, item["update_id"], "form", text + self._record_link(uow, row))
             return ignored("reaction_not_supported")
         up = thumbs[0] == UP
@@ -612,7 +617,7 @@ class SignoffBridge:
     def answers_alone(row, text):
         """Whether the written text alone is a valid response to this input request (never guessing a choice)."""
         form = row["preview_json"]["input"]
-        if is_questionnaire(form) or form.get('kind') == 'draft_review' or form.get("selection_required"):
+        if is_questionnaire(form) or form.get('kind') in ('draft_review', 'acknowledge') or form.get("selection_required"):
             return False
         try:
             validate_response(form, text, [])

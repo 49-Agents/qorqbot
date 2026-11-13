@@ -121,7 +121,9 @@ def queue(runtime, ctx, change=None):
         candidates.append({'id': signoff_key(row), 'kind': 'signoff', 'signoff_id': row['id'],
             'title': row['title'], 'text': row['title'], 'category': row['category'],
             'business_id': row['review_business_id'], 'biz': row['business_slug'],
-            'created_at': row['created_at']})
+            'created_at': row['created_at'],
+            # Something to read and acknowledge, not a decision.
+            **({'to_read': True} if row.get('input_kind') == 'acknowledge' else {})})
     # Only acknowledge exact versions the owner could see; a newer reply remains new.
     allowed = {item['id'] for item in candidates}
     seen = viewed(runtime.paths.runtime, ctx.principal_id, [x for x in (change or {}).get('viewed', []) if x in allowed])
