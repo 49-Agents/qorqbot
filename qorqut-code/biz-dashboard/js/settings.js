@@ -310,6 +310,7 @@ async function paintAbout(pane) {
     event.target.disabled = true;
     try { await accountGate.send('logout', {}); } catch (_) { /* Repainted below either way. */ }
     paintAbout(pane);
+    accountGate.enforce();
   });
   host.querySelector('[data-account-signin]')?.addEventListener('click', () => accountGate.signIn());
   host.querySelectorAll('[data-copy]').forEach(button => button.addEventListener('click', async () => {

@@ -57,7 +57,6 @@ class AccountTests(unittest.TestCase):
         self.service = FakeService()
         self.addCleanup(self.service.close)
         self.env = {"QORQBOT_ACCOUNT_API": self.service.url}
-        account._deferred.clear()
         account._release_cache.clear()
         account._heartbeat_started.clear()
         # The background refresh is exercised directly; keep owner_view from starting threads against other tests.
@@ -109,7 +108,7 @@ class AccountTests(unittest.TestCase):
         self.assertTrue(account.required({"QORQUT_FOLDER_ROOT": str(released)}))
         self.assertFalse(account.required({"QORQUT_FOLDER_ROOT": str(released), "QORQBOT_ACCOUNT": "off"}))
 
-    def test_unreachable_service_allows_continuing_until_the_process_stops(self):
+    def test_unreachable_service_leaves_sign_in_required(self):
         env = {"QORQBOT_ACCOUNT_API": "http://127.0.0.1:9", "QORQBOT_ACCOUNT": "on"}
         with self.assertRaises(DomainError) as raised:
             account.start(self.runtime, {"email": "sam@example.com"}, env)
@@ -118,10 +117,10 @@ class AccountTests(unittest.TestCase):
         with self.assertRaises(DomainError) as raised:
             account.start(self.runtime, {"email": "sam@example.com"}, self.env)
         self.assertEqual(raised.exception.code, "provider_unavailable")
-        self.assertTrue(account.owner_view(self.runtime, env)["required"])
-        self.assertFalse(account.defer(self.runtime, env)["required"])
-        account._deferred.clear()   # a new process
-        self.assertTrue(account.owner_view(self.runtime, env)["required"])
+        view = account.owner_view(self.runtime, env)
+        self.assertTrue(view["required"])
+        self.assertNotIn("deferred", view)
+        self.assertFalse(hasattr(account, "defer"))
 
     def test_a_refused_code_keeps_the_service_message(self):
         self.service.replies["/v1/auth/email/verify"] = (400, {"error": "invalid_code", "message": "That code is wrong."})

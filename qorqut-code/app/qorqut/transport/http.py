@@ -398,8 +398,7 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
-            account_routes = {("GET", ()), ("POST", ("start",)), ("POST", ("verify",)), ("POST", ("defer",)),
-                              ("POST", ("logout",))}
+            account_routes = {("GET", ()), ("POST", ("start",)), ("POST", ("verify",)), ("POST", ("logout",))}
             if parts[:2] == ["root", "account"] and (request.method, tuple(parts[2:])) in account_routes:
                 # The owner's Qorqbot sign-in (``qorqut/account.py``). The local server calls the account service, so the
                 # session token never reaches the browser, an agent or ``.env``.
@@ -421,7 +420,6 @@ class HTTPAPI:
                         raise DomainError("validation_error", "An account request must be an object")
                     call = {"start": partial(account.start, runtime_directory, body),
                             "verify": partial(account.verify, runtime_directory, body),
-                            "defer": partial(account.defer, runtime_directory),
                             "logout": partial(account.logout, runtime_directory)}[action]
                 data = await anyio.to_thread.run_sync(call)
                 result = response(OperationResult.ok(data, request_id=request_id))

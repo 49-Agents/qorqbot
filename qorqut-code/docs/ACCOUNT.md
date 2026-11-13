@@ -28,9 +28,13 @@ Nothing else is sent: no conversations, prompts, files, records, agent names or 
 ## Behaviour
 
 - **Gate.** The dashboard shows the sign-in screen before the walkthrough until the owner signs in.
-- **Unreachable service.** When the service can't be reached (network failure or 5xx), the owner may "continue for
-  now". That lasts until the server process stops, so the screen comes back on the next start. A refusal (wrong or
-  expired code, rate limit) is shown and does not unlock the dashboard.
+- **No way past it.** The screen stays until the owner signs in. When the service can't be reached (network failure
+  or 5xx) the owner can only try again. A refusal (wrong or expired code, rate limit) is shown and does not unlock
+  the dashboard. Signing out in Settings brings the screen back at once.
+- **Offline after sign-in.** The saved token is not checked on every start, so an owner who has signed in keeps
+  working without a connection.
+- **What the block is.** It is the dashboard that is blocked. The local server and the code are on the owner's
+  computer, so this is a requirement of the license and the product, not a technical lock.
 - **Revoked token.** A heartbeat refused with 401 signs the installation out locally.
 - **Updates.** When the latest release is newer than the installed version, the dashboard shows a one-line notice
   and Settings > About links to the download page. Nothing is downloaded or applied automatically; updating is still

@@ -11,9 +11,9 @@ Qorqbot asks the owner to sign in once per installation with an emailed one-time
 It never receives conversations, files, prompts, records or anything agents do. The session token is kept in
 ``<runtime>/account.json`` (mode 0600), never in ``.env``, which agent terminals receive, and never in the browser.
 
-When the service cannot be reached the owner may continue without signing in; the choice lasts until this process
-stops, so the sign-in screen comes back on the next start. ``QORQBOT_ACCOUNT=off`` turns the sign-in requirement off
-for development and test installations.
+Where sign-in is required there is no way past it: when the service cannot be reached the owner can only try again.
+An owner who has already signed in keeps working offline, because the saved token is not checked on every start.
+``QORQBOT_ACCOUNT=off`` turns the sign-in requirement off for development and test installations.
 """
 from __future__ import annotations
 
@@ -42,7 +42,6 @@ EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,255}\.[^@\s]{2,63}$")
 USES = {"personal", "work"}
 
 _lock = threading.Lock()
-_deferred: set[str] = set()      # runtime directories whose owner chose "sign in later" in this process
 _release_cache: dict = {}        # {"checked": monotonic, "latest": {...} | None}
 _heartbeat_started: dict = {}    # runtime directory -> monotonic time of the last background heartbeat attempt
 
@@ -160,8 +159,7 @@ def owner_view(runtime_directory, environ=None) -> dict:
     saved = _read(runtime_directory)
     view = _public(saved)
     view.update({
-        "required": required(environ) and not view["signed_in"] and str(runtime_directory) not in _deferred,
-        "deferred": str(runtime_directory) in _deferred,
+        "required": required(environ) and not view["signed_in"],
         "license": {"commercial_free_until": COMMERCIAL_FREE_UNTIL,
                     "commercial": bool(view["account"] and view["account"].get("use") == "work")},
         "update": update_view(environ),
@@ -215,13 +213,6 @@ def verify(runtime_directory, body, environ=None) -> dict:
         saved.update({"token": reply["token"], "account": reply["account"], "signed_in_at": utc_now(),
                       "heartbeat_at": time.time()})
         _write(runtime_directory, saved)
-    _deferred.discard(str(runtime_directory))
-    return owner_view(runtime_directory, environ)
-
-
-def defer(runtime_directory, environ=None) -> dict:
-    """Continue without signing in until this process stops, for when the service cannot be reached."""
-    _deferred.add(str(runtime_directory))
     return owner_view(runtime_directory, environ)
 
 

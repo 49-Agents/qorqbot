@@ -1,6 +1,7 @@
 // The owner's Qorqbot sign-in, before the walkthrough: email, then the emailed code and how they use Qorqbot.
 // The local server talks to the account service and keeps the token (qorqut/account.py); this page never sees it.
-// When the service cannot be reached the owner may continue for now; the screen returns on the next start.
+// Where sign-in is required there is no way past this screen: when the service cannot be reached the owner can only
+// try again. Opened from Settings on an installation that does not require it, the card can be cancelled.
 // Also paints the one-line "new version" notice from the same /root/account read, checked again every six hours.
 // `accountGate.updateMessage` is pure (tested with node --test).
 const accountGate = (() => {
@@ -8,7 +9,7 @@ const accountGate = (() => {
   const PRIVACY_URL = 'https://qorqbot.com/privacy/';
   const UPDATE_DISMISSED = 'qorqbot:update-notice-dismissed';
   const RECHECK = 6 * 3600 * 1000, FIRST_RECHECK = 15000;
-  let root = null, email = '', marketing = false, resolveGate = null;
+  let root = null, email = '', marketing = false, resolveGate = null, optional = false;
 
   function updateMessage(view) {
     const update = view && view.update;
@@ -65,10 +66,12 @@ const accountGate = (() => {
         <input type="email" name="email" autocomplete="email" placeholder="you@example.com" required value="${esc(email)}" aria-label="email">
         <label class="account-gate-check"><input type="checkbox" name="marketing" ${marketing ? 'checked' : ''}> Send me occasional product news</label>
         <p class="account-gate-error" data-account-error role="alert"></p>
-        <div class="onboarding-welcome-actions"><button type="submit">send code</button></div>
+        <div class="onboarding-welcome-actions">${optional ? '<button type="button" class="ghost" data-account-cancel>not now</button>' : ''}<button type="submit">send code</button></div>
       </form>${privacyNote}`);
-    const form = section.querySelector('form'), input = form.email, button = form.querySelector('button');
+    const form = section.querySelector('form'), input = form.email, button = form.querySelector('button[type=submit]');
     input.focus();
+    const cancel = section.querySelector('[data-account-cancel]');
+    if (cancel) cancel.onclick = () => finish(null);
     form.onsubmit = async event => {
       event.preventDefault();
       email = input.value.trim(); marketing = form.marketing.checked;
@@ -119,24 +122,21 @@ const accountGate = (() => {
 
   function offlineStep() {
     const section = card(`<h2 id="account-gate-title">can’t reach the sign-in service</h2>
-      <p>Check your internet connection and try again. You can also continue now and sign in the next time you start Qorqbot.</p>
-      <p class="account-gate-error" data-account-error role="alert"></p>
-      <div class="onboarding-welcome-actions"><button type="button" class="ghost" data-account-later>continue for now</button><button type="button" data-account-retry>try again</button></div>`);
-    section.querySelector('[data-account-retry]').onclick = emailStep;
-    section.querySelector('[data-account-later]').onclick = async () => {
-      try { finish(await send('defer', {})); } catch (error) { showError(section, error); }
-    };
+      <p>Qorqbot opens once you have signed in. Check your internet connection and try again.</p>
+      <div class="onboarding-welcome-actions"><button type="button" data-account-retry>try again</button></div>`);
+    const retry = section.querySelector('[data-account-retry]');
+    retry.onclick = emailStep; retry.focus();
   }
 
   function finish(view) {
-    root?.remove(); root = null;
-    if (typeof settingsAccountRefresh === 'function') settingsAccountRefresh(view);
+    root?.remove(); root = null; optional = false;
+    if (view && typeof settingsAccountRefresh === 'function') settingsAccountRefresh(view);
     const done = resolveGate; resolveGate = null;
     if (done) done(view);
   }
 
-  // Resolves once the owner may use the dashboard: already signed in, signed in now, continuing for now, sign-in not
-  // required, or not the owner (agents' embedded views never reach here).
+  // Resolves once the owner may use the dashboard: already signed in, signed in now, sign-in not required, or not
+  // the owner (agents' embedded views never reach here).
   async function boot() {
     let view;
     try { view = await read(); } catch (_) { return null; }
@@ -148,8 +148,19 @@ const accountGate = (() => {
     if (!view.required) return view;
     return new Promise(resolve => { resolveGate = resolve; emailStep(); });
   }
-  // Settings' "Sign in" after the owner continued without signing in.
-  function signIn() { resolveGate = null; emailStep(); }
-  return {boot, read, send, signIn, updateMessage, paintUpdate, LICENSE_URL, PRIVACY_URL};
+  // From Settings: "Sign in" where sign-in is not required (the card can be cancelled), and after "Sign out" where
+  // it is (the screen returns at once and stays).
+  async function signIn() {
+    let view = null;
+    try { view = await read(); } catch (_) { /* Treated as required. */ }
+    if (view && view.signed_in) return;
+    optional = !!view && !view.required; resolveGate = null; emailStep();
+  }
+  async function enforce() {
+    let view;
+    try { view = await read(); } catch (_) { return; }
+    if (view.required && !root) { optional = false; resolveGate = null; emailStep(); }
+  }
+  return {boot, read, send, signIn, enforce, updateMessage, paintUpdate, LICENSE_URL, PRIVACY_URL};
 })();
 if (typeof module !== 'undefined') module.exports = accountGate;
