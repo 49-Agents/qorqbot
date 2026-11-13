@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from qorqut_operations.contracts import DomainError, canonical_hash, new_id
 from qorqut_operations.storage.repositories import decode_row
+from .inputs import ACKNOWLEDGE_SQL, acknowledges
 from .ports import ABSENT
 
 EASTERN = ZoneInfo('America/New_York')
@@ -65,10 +66,13 @@ class SignoffNotifications:
             counts = []
             now = stamp(instant(self.service.clock()))
             for business in businesses:
-                pending = [r for r in rows if r['review_business_id'] == business['id']]
+                scoped = [r for r in rows if r['review_business_id'] == business['id']]
+                # Something to read is not a decision: it has its own count and is in neither ``signoffs`` nor ``total``.
+                pending = [r for r in scoped if not acknowledges(r['input'])]
                 tasks = self.service.ports.tasks.open_assigned_count(uow, business['id'], context.principal_id, now)
                 urgent = sum(bool(r['attention']['urgent'] or r['attention']['blocking']) for r in pending)
-                counts.append({**business, 'signoffs': len(pending), 'tasks': tasks, 'total': len(pending)+tasks, 'urgent': urgent})
+                counts.append({**business, 'signoffs': len(pending), 'tasks': tasks, 'total': len(pending)+tasks, 'urgent': urgent,
+                               'to_read': len(scoped) - len(pending)})
             return {'businesses': counts, 'urgent': [r for r in rows if r['attention']['urgent'] or r['attention']['blocking']]}
 
     def _deliver(self, owner, kind, rows, key, now, uow):
@@ -90,12 +94,13 @@ class SignoffNotifications:
         """
         with self.database.read() as uow:
             try:
-                for a in uow.connection.execute("""SELECT a.urgent,a.blocking,a.next_notify_at,a.snoozed_until
+                for a in uow.connection.execute(f"""SELECT a.urgent,a.blocking,a.next_notify_at,a.snoozed_until,
+                        {ACKNOWLEDGE_SQL} AS once
                         FROM signoff_attention a JOIN signoffs s ON s.id=a.signoff_id
                         WHERE a.notify=1 AND s.state='pending' AND s.superseded_by_id IS NULL"""):
                     if a['snoozed_until'] and instant(a['snoozed_until']) > current:
                         continue
-                    if (a['urgent'] or a['blocking']) and a['next_notify_at'] and instant(a['next_notify_at']) <= current:
+                    if (a['urgent'] or a['blocking'] or a['once']) and a['next_notify_at'] and instant(a['next_notify_at']) <= current:
                         return True
             except (ValueError, TypeError, AttributeError):
                 return True
@@ -121,7 +126,7 @@ class SignoffNotifications:
         with self.database.transaction(operation="signoffs_notification_tick") as uow:
             self.service.app.ensure_writes_open(uow)
             owners = [r[0] for r in uow.connection.execute(ACTIVE_OWNERS_SQL)]
-            due = set()
+            due, once = set(), set()
             for owner in owners:
                 context = self.service.app.policy.context_for(owner, business_id=None, review_business_id=None, uow=uow)
                 _, _, rows = self._rows(context, uow)
@@ -130,11 +135,12 @@ class SignoffNotifications:
                     a = row['attention']
                     if not a['notify'] or (a.get('snoozed_until') and instant(a['snoozed_until']) > current):
                         continue
-                    if a['urgent'] or a['blocking']:
+                    if a['urgent'] or a['blocking'] or acknowledges(row['input']):
                         if a.get('next_notify_at') and instant(a['next_notify_at']) <= current:
                             key = canonical_hash({'owner': owner, 'id': row['id'], 'due': a['next_notify_at']})
                             self._deliver(owner,'individual',[row],key,now,uow)
-                            due.add(row['id'])
+                            # Something to read is announced once and never joins the daily summary.
+                            (once if acknowledges(row['input']) else due).add(row['id'])
                     else:
                         ordinary.append(row)
                 if eastern.hour >= 8:
@@ -146,6 +152,8 @@ class SignoffNotifications:
                         uow.connection.execute('INSERT INTO signoff_notification_schedule(owner_id,last_summary_date) VALUES(?,?) ON CONFLICT(owner_id) DO UPDATE SET last_summary_date=excluded.last_summary_date', (owner,date))
             for identity in due:
                 uow.connection.execute('UPDATE signoff_attention SET next_notify_at=?,updated_at=? WHERE signoff_id=?', (stamp(current+timedelta(hours=1)),now,identity))
+            for identity in once:
+                uow.connection.execute('UPDATE signoff_attention SET next_notify_at=NULL,updated_at=? WHERE signoff_id=?', (now,identity))
 
     def deliveries(self, context, *, all_items=False):
         with self.database.read() as uow:
@@ -160,7 +168,8 @@ class SignoffNotifications:
         deliveries = []
         for raw in uow.connection.execute('SELECT * FROM signoff_notifications WHERE owner_id=? AND dismissed_at IS NULL ORDER BY created_at,id', (context.principal_id,)):
             items = [visible[i] for i in json.loads(raw['signoff_ids_json']) if i in visible]
-            items = [r for r in items if bool(r['attention']['urgent'] or r['attention']['blocking']) == (raw['kind']=='individual')]
+            items = [r for r in items if bool(r['attention']['urgent'] or r['attention']['blocking'] or acknowledges(r['input']))
+                     == (raw['kind']=='individual')]
             if items:
                 deliveries.append({'id':raw['id'], 'kind':raw['kind'], 'created_at':raw['created_at'], 'items':items})
         return {'items':deliveries}

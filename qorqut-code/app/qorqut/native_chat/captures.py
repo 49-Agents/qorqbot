@@ -29,7 +29,7 @@ from qorqut_operations.contracts import utc_now
 from qorqut.native_archive import CaptureBinding, CaptureError, FinalCaptureEvidence, TranscriptArchive
 
 from . import store
-from .projection import Lineage, Projector, ProjectorState, PROVENANCE_VERSION
+from .projection import Lineage, Projector, ProjectorState, PROVENANCE_VERSION, SPEAKER_USER
 from .reader import proven_type
 from .delivery_reconciliation import DeliveryReconciler
 
@@ -80,6 +80,38 @@ def _record_time(text: str | None, fallback: str) -> str:
         except ValueError:
             pass
     return fallback
+
+
+def _turn_time(text: str | None, fallback: str) -> str:
+    """The record's own time in the stored UTC form, so turns of every provider sort and compare as text; otherwise ``fallback``."""
+    try:
+        value = datetime.fromisoformat(text.replace("Z", "+00:00")) if isinstance(text, str) else None
+    except ValueError:
+        value = None
+    if value is None or value.tzinfo is None:
+        return fallback
+    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+@dataclass(frozen=True)
+class _Turn:
+    """What the index keeps of one native user turn: its identity and position, never its text."""
+
+    identity_kind: str
+    key: str
+    offset: int
+    length: int
+    timestamp: str | None
+    digest: str
+    chars: int
+
+
+def _user_turns(entries) -> list[_Turn]:
+    """The entries that are text a person typed to the agent. System inputs are notices, tool results and harness records
+    never become user entries, and a slash command asks the agent nothing."""
+    return [_Turn(entry.identity_kind, entry.key, entry.offset, entry.length, entry.timestamp, store.text_digest(entry.text),
+                  len(entry.text))
+            for entry in entries if entry.speaker == SPEAKER_USER and not entry.command and not entry.partial]
 
 
 class Indexer:
@@ -193,7 +225,7 @@ class Indexer:
             return
         projector = Projector(session["provider"], session["conversation_id"],
                               ProjectorState.load(saved), self._resolver(session))
-        completions, consumed, count = [], start, 0
+        completions, turns, consumed, count = [], [], start, 0
         if start < receipt.record_boundary:
             with archive.iter_records(receipt, offset=start) as records:
                 for record in records:
@@ -202,6 +234,7 @@ class Indexer:
                     outcome = projector.feed(record)
                     if outcome.completion:
                         completions.append(outcome.completion)
+                    turns.extend(_user_turns(outcome.entries))
                     consumed = record.end
                     count += 1
                     if count >= BATCH_RECORDS or consumed - start >= BATCH_BYTES:
@@ -212,7 +245,7 @@ class Indexer:
         # A conversation resumed by a later binding is already finalized on its capture row; the binding's own end still has to be
         # recorded once.
         unmarked = finalized and session.get("final_captured_at") is None
-        if not completions and not unmarked and not store.capture_changes(
+        if not completions and not turns and not unmarked and not store.capture_changes(
                 capture, **self._proposal(capture, session, receipt, consumed, state, finalized)):
             # Nothing to record: the row already holds exactly the state this step would write.
             result.finalized = finalized
@@ -247,6 +280,11 @@ class Indexer:
                                                   + completion.key).encode()).hexdigest()
                             record_attention_activity(uow, session['agent_id'], 'agent_activity', stamp.isoformat(),
                                 'native-reply:' + key, attention=self.runtime.application.ordubashy_attention)
+            for turn in turns:
+                # A pointer and a time only. It notifies nobody and moves no counter: the turn is the owner's own text.
+                store.insert_owner_turn(conn, lineage=lineage, kind=turn.identity_kind, key=turn.key, session_id=session["id"],
+                                        receipt_id=receipt.receipt_id, offset=turn.offset, length=turn.length,
+                                        occurred_at=_turn_time(turn.timestamp, now), digest=turn.digest, chars=turn.chars)
             grew = receipt.sequence != fresh["receipt_sequence"] or consumed != start
             changes = store.capture_changes(fresh, **self._proposal(fresh, session, receipt, consumed, state, finalized))
             if changes:

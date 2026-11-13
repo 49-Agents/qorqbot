@@ -1,4 +1,9 @@
-"""Typed owner input requests; answering never authorizes a prepared effect."""
+"""Typed owner input requests; answering never authorizes a prepared effect.
+
+One kind asks for nothing: ``acknowledge`` puts a report or document in front of the owner and records that they read
+it. Only the coordinator creates one, it never blocks a Task, it notifies once, and its response carries no text or
+choice; the owner's comments go in the Signoff's private conversation.
+"""
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 from dataclasses import replace
@@ -15,6 +20,9 @@ from . import questions
 from .questions import TEXT, CHOICE
 
 MANAGEMENT_UNAVAILABLE = "The management domain is not installed"
+ACKNOWLEDGE = "acknowledge"
+# Over alias ``s``: a pending or decided read-and-acknowledge request. Only input requests carry ``$.input``.
+ACKNOWLEDGE_SQL = "(s.category='input_request' AND json_extract(s.preview_json,'$.input.kind')='acknowledge')"
 
 ATTENTION = schema({"notify": {"type": "boolean"}, "urgent": {"type": "boolean"},
     "blocking": {"type": "boolean"}, "reason": {"type": "string", "maxLength": 2000},
@@ -23,7 +31,7 @@ DRAFT_FIELD = schema({"id": {"type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-
     "label": {**TEXT, "maxLength": 100}, "value": {"type": "string", "maxLength": 16000},
     "multiline": {"type": "boolean"}, "required": {"type": "boolean"}}, ("id", "label", "value"))
 LEGACY_FORM = schema({"title": {**TEXT, "maxLength": 200}, "explanation": TEXT,
-    "kind": {"enum": ["question", "request", "draft_review"]}, "selection_mode": {"enum": ["none", "single", "multiple"]},
+    "kind": {"enum": ["question", "request", "draft_review", ACKNOWLEDGE]}, "selection_mode": {"enum": ["none", "single", "multiple"]},
     "response_policy": {"enum": ["management_allowed", "owner_only"]},
     "choices": {"type": "array", "items": CHOICE, "maxItems": 26},
     "selection_required": {"type": "boolean"}, "notes_required": {"type": "boolean"},
@@ -34,8 +42,15 @@ FORM = {"oneOf": [LEGACY_FORM, questions.FORM]}
 SCOPE = {"scope": {"enum": ["business", "global"]}}
 
 
-def normalize_attention(values):
-    result = {"notify": False, "urgent": False, "blocking": False, "reason": "", "deadline": None, **values}
+def acknowledges(form):
+    """Whether an input form (``preview_json.input`` or a DTO's ``input``) is a read-and-acknowledge request."""
+    return isinstance(form, dict) and form.get('kind') == ACKNOWLEDGE
+
+
+def normalize_attention(values, *, acknowledge=False):
+    result = {"notify": acknowledge, "urgent": False, "blocking": False, "reason": "", "deadline": None, **values}
+    if acknowledge and (result['urgent'] or result['blocking']):
+        raise DomainError('validation_error', 'A read-and-acknowledge request is never urgent or blocking; ask a question when work waits on the owner')
     if (result['urgent'] or result['blocking']) and not result['reason'].strip():
         raise DomainError('validation_error', 'Urgent or blocking signoffs require a reason')
     if result['deadline']:
@@ -52,6 +67,10 @@ def validate_form(form):
         raise DomainError('validation_error', 'Choice IDs must be unique')
     if (mode == 'none' and (choices or form['selection_required'])) or (mode != 'none' and len(choices) < 2):
         raise DomainError('validation_error', 'Selection mode and choices disagree')
+    if form['kind'] == ACKNOWLEDGE:
+        if mode != 'none' or form['notes_required']:
+            raise DomainError('validation_error', 'A read-and-acknowledge request takes no choices and no written answer')
+        form['response_policy'] = 'owner_only'
     if form['kind'] == 'draft_review':
         if not form.get('draft_fields'):
             raise DomainError('validation_error', 'Draft review requires editable fields')
@@ -75,6 +94,8 @@ def validate_response(form, notes, selected):
         raise DomainError('validation_error', 'Notes must contain at most 8000 characters')
     if not isinstance(selected, list) or any(not isinstance(x, str) for x in selected) or len(selected) != len(set(selected)):
         raise DomainError('validation_error', 'Selected choices must be unique IDs')
+    if acknowledges(form) and (selected or notes.strip()):
+        raise DomainError('validation_error', 'Acknowledging takes no answer; write comments in the Signoff conversation')
     choices = {c['id'] for c in form['choices']}
     if set(selected) - choices or (form['selection_mode'] == 'single' and len(selected) > 1):
         raise DomainError('validation_error', 'Select only choices belonging to this question')
@@ -130,6 +151,12 @@ class InputRequests:
             namespace='business:' + ctx.business_id if ctx.business_id else 'global', affected_scope=scope)
         if name == 'signoffs_input_create':
             form = validate_form({'response_policy': 'owner_only', **args['form']} if 'source' in args else args['form'])
+            acknowledge = acknowledges(form)
+            if acknowledge:
+                if not self.is_ordubashy(ctx, uow):
+                    raise DomainError('forbidden', 'Only Ordubashy posts read-and-acknowledge requests; hand the document to Ordubashy')
+                if 'source' in args:
+                    raise DomainError('validation_error', 'A read-and-acknowledge request cannot be what a Task or record waits on')
             if 'source' in args:
                 self.service.sources.check_source(ctx, args['source'], uow)
                 if form['response_policy'] != 'owner_only':
@@ -140,21 +167,38 @@ class InputRequests:
                         or previous['review_business_id'] != ctx.business_id
                         or previous['preview_json'].get('input', {}).get('kind') != 'draft_review'):
                     raise DomainError('validation_error', 'Previous review must be an answered draft review by the same proposer in this scope')
-            attention = normalize_attention(args.get('attention', {}))
+            attention = normalize_attention(args.get('attention', {}), acknowledge=acknowledge)
             row = decode_row(uow.connection.execute("SELECT * FROM signoffs WHERE proposer_principal_id=? AND review_business_id IS ? AND request_key=? AND state='pending' AND superseded_by_id IS NULL",
                 (ctx.principal_id, ctx.business_id, args['request_key'])).fetchone())
+            replaced = None
             if row and row['preview_json'].get('input') != form:
-                raise DomainError('request_conflict', 'This request key already has a different pending question; withdraw it before replacing')
+                # A new report under the same key takes the place of the one the owner has not acknowledged yet.
+                if not acknowledge or not acknowledges(row['preview_json'].get('input')):
+                    raise DomainError('request_conflict', 'This request key already has a different pending question; withdraw it before replacing')
+                replaced, row = row, None
             identity = row['id'] if row else new_id()
-            builder.record('signoffs', identity, row, {'form': form, 'request_key': args['request_key'], **({'attention': attention} if not row or 'attention' in args else {})}, action='input_create')
+            builder.record('signoffs', identity, row, {'form': form, 'request_key': args['request_key'],
+                **({'attention': attention} if not row or 'attention' in args else {}),
+                **({'replaces_id': replaced['id']} if replaced else {})}, action='input_create')
+            if replaced:
+                builder.record('signoffs', replaced['id'], replaced, {'state': 'cancelled'}, action='input_replace')
         else:
             row = self.service._row(ctx, args['signoff_id'], uow)
             self.authorize_update(ctx, row, name, uow)
             if name == 'signoffs_input_cancel' and row['category'] != 'input_request':
                 raise DomainError('invalid_transition', 'This operation only withdraws input requests')
-            values = {'attention': normalize_attention(args['attention'])} if name == 'signoffs_attention_set' else {}
+            values = ({'attention': normalize_attention(args['attention'], acknowledge=acknowledges(row['preview_json'].get('input')))}
+                      if name == 'signoffs_attention_set' else {})
             builder.record('signoffs', row['id'], row, values, action='attention_set' if values else 'input_cancel')
         return builder.build()
+
+    def is_ordubashy(self, ctx, uow):
+        """Whether the caller is the active ecosystem coordinator (Ordubashy)."""
+        if ctx.principal_kind != 'agent':
+            return False
+        profile = uow.repository('agent_profiles', business_id=None).get(ctx.principal_id)
+        return bool(profile and profile['status'] == 'active' and profile['profile_json']['role']['id'] == 'ordubashy'
+                    and profile['profile_json']['scope']['kind'] == 'ecosystem')
 
     def authorize_update(self, ctx, row, name, uow):
         if row['category'] == 'side_chat':
@@ -162,26 +206,24 @@ class InputRequests:
         if ctx.principal_kind == 'human':
             self.service._context(ctx, uow, owner=True)
         elif row['proposer_principal_id'] != ctx.principal_id:
-            profile = uow.repository('agent_profiles', business_id=None).get(ctx.principal_id)
             proposer = uow.repository('principals').get(row['proposer_principal_id'])
-            delegated = (name == 'signoffs_attention_set' and ctx.principal_kind == 'agent'
-                and profile and profile['status'] == 'active'
-                and profile['profile_json']['role']['id'] == 'ordubashy'
-                and profile['profile_json']['scope']['kind'] == 'ecosystem'
+            delegated = (name == 'signoffs_attention_set' and self.is_ordubashy(ctx, uow)
                 and proposer and proposer['kind'] == 'agent')
             if not delegated:
                 raise DomainError('forbidden', 'Only the proposer or authorized Ordubashy can update this signoff attention')
         if row['state'] != 'pending' or row['superseded_by_id']:
             raise DomainError('invalid_transition', 'Only pending signoffs can be updated')
 
-    def attention(self, identity, values, uow, *, actor_id=None):
+    def attention(self, identity, values, uow, *, actor_id=None, once=False):
+        """Store a Signoff's alert. ``once`` is a read-and-acknowledge request: it is delivered a single time when it
+        starts notifying, where an urgent or blocking one repeats."""
         now = self.service.clock()
         # Editing an unchanged alert does not reset its reminder timer or owner snooze.
         old = uow.connection.execute('SELECT * FROM signoff_attention WHERE signoff_id=?', (identity,)).fetchone()
         if old and all(old[key] == (int(value) if isinstance(value, bool) else value) for key,value in values.items()):
             return False
-        immediate = values['notify'] and (values['urgent'] or values['blocking'])
-        was_immediate = old and old['notify'] and (old['urgent'] or old['blocking'])
+        immediate = values['notify'] and (once or values['urgent'] or values['blocking'])
+        was_immediate = old and old['notify'] and (once or old['urgent'] or old['blocking'])
         next_at = old['next_notify_at'] if was_immediate and immediate else now if immediate else None
         uow.connection.execute('''INSERT INTO signoff_attention(signoff_id,notify,urgent,blocking,reason,deadline,next_notify_at,updated_at)
             VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(signoff_id) DO UPDATE SET notify=excluded.notify,
@@ -204,13 +246,21 @@ class InputRequests:
         existed = row is not None
         if change.action == 'input_create' and not row:
             form = values['form']
+            replaces = values.get('replaces_id')
+            if replaces:
+                # Withdraw the unacknowledged one first; one already acknowledged in the meantime is left as it is.
+                old = repo.get(replaces)
+                if (old and old['state'] == 'pending' and not old['superseded_by_id']
+                        and old['proposer_principal_id'] == ctx.principal_id and acknowledges(old['preview_json'].get('input'))):
+                    self.service._update(old, {'state': 'cancelled'}, uow)
             row = repo.insert({'id': identity, 'category': 'input_request', 'request_key': values['request_key'],
                 'review_scope_kind': 'business' if change.resource.business_id else 'global',
                 'proposer_principal_id': ctx.principal_id, 'proposer_agent_id': ctx.agent_id,
                 'initiated_by_principal_id': ctx.initiated_by_principal_id,
                 'operation_name': plan.operation_name, 'operation_version': 1, 'proposal_revision': 1,
                 'payload_hash': plan.payload_hash, 'change_set': plan.canonical,
-                'preview_json': {'title': form['title'], 'explanation': form['explanation'], 'input': form},
+                'preview_json': {'title': form['title'], 'explanation': form['explanation'], 'input': form,
+                                 **({'replaces_id': replaces} if replaces else {})},
                 'expected_targets_json': [], 'policy_binding_json': plain(plan.policy_binding),
                 'affected_scope_json': plain(plan.affected_scope), 'state': 'pending',
                 'updated_sequence': uow.next_sequence('signoffs'), 'created_at': self.service.clock()})
@@ -219,7 +269,8 @@ class InputRequests:
         elif change.action == 'input_cancel':
             row = self.service._update(row, {'state': 'cancelled'}, uow)
         if 'attention' in values:
-            changed = self.attention(identity, values['attention'], uow, actor_id=ctx.principal_id)
+            changed = self.attention(identity, values['attention'], uow, actor_id=ctx.principal_id,
+                                     once=acknowledges(row['preview_json'].get('input')))
             if existed and changed:
                 row = self.service._update(row, {}, uow)
         result = {'signoff': self.service._dto(row, uow)}

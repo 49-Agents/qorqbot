@@ -50,9 +50,12 @@ function sgAttentionPaint() {
   const b = sgAttention.businesses.find(b => b.slug === (state.scope === 'global' ? null : state.biz));
   const count = state.scope === 'global' ? sgAttention.businesses.reduce((sum, row) => sum + (row.signoffs || 0), 0) : b?.signoffs ?? 0;
   const scopeUrgent = state.scope === 'global' ? urgent : !!b?.urgent;
+  // Reports to read are not decisions: they show a quiet count only when nothing is waiting for a decision.
+  const toRead = state.scope === 'global' ? sgAttention.businesses.reduce((sum, row) => sum + (row.to_read || 0), 0) : b?.to_read ?? 0;
   const tab = document.querySelector('#taskspanel .ttab[data-v="signoffs"]');
   if (tab) {
     tab.querySelector('.sg-signoff-count')?.remove();
+    if (!count && toRead) tab.insertAdjacentHTML('beforeend', `<span class="sg-signoff-count to-read" aria-label="${toRead} to read">${toRead}</span>`);
     if (count) tab.insertAdjacentHTML('beforeend', `<span class="sg-signoff-count${scopeUrgent ? ' urgent' : ''}" aria-label="${count} waiting signoffs${scopeUrgent ? ', urgent or blocking signoffs' : ''}">${count}</span>`);
   }
   let host = document.querySelector('#sg-toast-host');
@@ -135,11 +138,13 @@ function sgAttentionPaint() {
   if (host._identity===identity && host.children.length) return;
   host._identity=identity; host.dataset.delivery=delivery.id;
   const row=delivery.items[0], individual=delivery.kind==='individual';
+  // Something to read is announced as that, never as an approval.
+  const reading=individual && row.input?.kind==='acknowledge', heading=reading?'To read':'Approval needed';
   const title=individual ? row.title : `${delivery.items.length} signoffs need your response`;
   if(typeof desktopNotify!=='undefined')desktopNotify.send({kind:'signoffs',title:individual?row.title:'Waiting on you',
-    body:individual?(row.attention?.reason||row.business_name||''):`${delivery.items.length} signoffs need your response`,tag:'signoff:'+delivery.id});
+    body:reading?(row.attention?.reason||'To read and acknowledge'):individual?(row.attention?.reason||row.business_name||''):`${delivery.items.length} signoffs need your response`,tag:'signoff:'+delivery.id});
   // Share the reply notification card styling; signoff delivery and decision behavior stay independent.
-  host.innerHTML=`<div class="toast reply-toast sg-toast" role="button" tabindex="0" aria-keyshortcuts="Shift+F10" aria-label="Approval needed: ${esc(title)}. Press Shift+F10 for dismiss and snooze options."><span class="reply-icon" aria-hidden="true">${SG_CLIPBOARD}</span><span class="reply-copy"><span class="reply-name">Approval needed</span><span class="reply-preview">${esc(title)}</span></span></div>`;
+  host.innerHTML=`<div class="toast reply-toast sg-toast" role="button" tabindex="0" aria-keyshortcuts="Shift+F10" aria-label="${heading}: ${esc(title)}. Press Shift+F10 for dismiss and snooze options."><span class="reply-icon" aria-hidden="true">${SG_CLIPBOARD}</span><span class="reply-copy"><span class="reply-name">${heading}</span><span class="reply-preview">${esc(title)}</span></span></div>`;
 }
 window.sgAttentionRefresh = async () => {
   if (sgAttention.loading) return;

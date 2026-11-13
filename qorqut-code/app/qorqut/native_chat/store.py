@@ -6,6 +6,7 @@ rows, the transitions and the counters once. Nothing here starts a process, read
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 import hashlib
 import json
 
@@ -286,6 +287,21 @@ def input_by_key(conn, agent_id: str, source_key: str):
     return dict(row) if row else None
 
 
+def text_digest(text: str) -> str:
+    """The identity of one typed text. It lets a native user turn be matched to the input that typed it after the input's
+    own text is scrubbed. Surrounding whitespace is left out: a client may trim what it submits."""
+    return hashlib.sha256(text.strip().encode()).hexdigest()
+
+
+def _input_metadata(request) -> dict:
+    """The producer's metadata plus, for an owner input that is not private, the digest of the text that will be typed. A
+    private payload keeps the rule of ``request_hash``: nothing derived from its text is stored."""
+    metadata = dict(request.metadata)
+    if request.origin == ORIGIN_OWNER and not request.sensitive:
+        metadata["text_sha256"] = text_digest(request.text)
+    return metadata
+
+
 def insert_input(conn, session: dict, request, digest: str, *, state: str, marker: str | None = None, reason: str | None = None,
                  attempt: int = 1) -> dict:
     ensure_counters(conn, request.agent_id)
@@ -298,7 +314,7 @@ def insert_input(conn, session: dict, request, digest: str, *, state: str, marke
                  "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                  (identity, request.agent_id, session["id"], request.origin, request.input_type, request.source_key, attempt, digest,
                   request.principal_id, body, 1 if request.sensitive else 0, 1 if request.steer else 0, marker,
-                  json.dumps(dict(request.metadata), separators=(",", ":"), sort_keys=True), state, reason, sequence, now, now))
+                  json.dumps(_input_metadata(request), separators=(",", ":"), sort_keys=True), state, reason, sequence, now, now))
     record_input_event(conn, identity, state, reason, {})
     bump(conn, request.agent_id)
     return get_input(conn, identity)
@@ -478,6 +494,50 @@ def insert_reply(conn, *, lineage: Lineage, kind: str, key: str, session_id: str
                   1 if user_work else 0))
     bump(conn, lineage.agent_id)
     return dict(conn.execute("SELECT * FROM native_replies WHERE id=?", (identity,)).fetchone())
+
+
+# ----- native user turns ----------------------------------------------------------------------------------------------
+
+# How long after a private input settled a turn it cannot be told apart from is still withheld.
+PRIVATE_MARGIN_SECONDS = 120
+_DELIVERED = (STATE_SUBMITTING, STATE_SUBMITTED, STATE_UNCERTAIN)
+_CONVERSATION_INPUTS = ("FROM native_inputs i JOIN native_sessions s ON s.id=i.session_id WHERE i.agent_id=? AND s.provider=? "
+                        "AND s.conversation_id=? AND i.origin='owner' AND i.state IN (?,?,?) AND i.created_at<=? ")
+
+
+def insert_owner_turn(conn, *, lineage: Lineage, kind: str, key: str, session_id: str | None, receipt_id: str, offset: int,
+                      length: int, occurred_at: str, digest: str, chars: int):
+    """One pointer per native user turn of one conversation lineage: where the turn's record starts in the archive payload and
+    when it was written. Returns the row, or ``None`` when that turn is already indexed. The text is never stored.
+
+    ``via`` is the type of the delivered owner input that typed this exact text into this conversation (the oldest one not yet
+    matched), or ``typed`` when there is none: text entered in the agent's own terminal, or an input whose typed form differed.
+    A turn with no match that falls while a private input was being delivered may be that input, whose text must never be read
+    back, so it is stored ``redacted`` and without its length."""
+    identity = lineage.turn_id(kind, key)
+    if conn.execute("SELECT 1 FROM native_owner_turns WHERE id=?", (identity,)).fetchone():
+        return None
+    scope = (lineage.agent_id, lineage.provider, lineage.conversation_id, *_DELIVERED, occurred_at)
+    source = conn.execute(
+        "SELECT i.id,i.input_type " + _CONVERSATION_INPUTS + "AND i.sensitive=0 AND json_extract(i.metadata_json,'$.text_sha256')=? "
+        "AND NOT EXISTS (SELECT 1 FROM native_owner_turns t WHERE t.input_id=i.id) ORDER BY i.sequence LIMIT 1",
+        (*scope, digest)).fetchone()
+    redacted = False
+    if source is None:
+        earliest = (_moment(occurred_at) - timedelta(seconds=PRIVATE_MARGIN_SECONDS)).isoformat(timespec="microseconds").replace("+00:00", "Z")
+        redacted = conn.execute("SELECT 1 " + _CONVERSATION_INPUTS + "AND i.sensitive=1 AND COALESCE(i.settled_at,i.updated_at)>=? LIMIT 1",
+                                (*scope, earliest)).fetchone() is not None
+    conn.execute("INSERT INTO native_owner_turns(id,agent_id,provider,conversation_id,archive_id,identity_kind,identity_key,session_id,"
+                 "receipt_id,raw_offset,raw_length,occurred_at,indexed_at,chars,input_id,via,redacted) "
+                 "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                 (identity, lineage.agent_id, lineage.provider, lineage.conversation_id, lineage.archive_id, kind, key, session_id,
+                  receipt_id, offset, length, occurred_at, utc_now(), 0 if redacted else chars, source["id"] if source else None,
+                  source["input_type"] if source else "typed", 1 if redacted else 0))
+    return dict(conn.execute("SELECT * FROM native_owner_turns WHERE id=?", (identity,)).fetchone())
+
+
+def _moment(stamp: str) -> datetime:
+    return datetime.fromisoformat(stamp.replace("Z", "+00:00"))
 
 
 def reply_by_sequence(conn, agent_id: str, sequence: int):
