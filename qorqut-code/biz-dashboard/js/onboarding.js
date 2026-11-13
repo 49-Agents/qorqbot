@@ -79,6 +79,8 @@ const onboarding = (() => {
   let saved = null, writes = Promise.resolve(), observer = null, resize = null, frame = 0, previousFocus = null;
   let targetDescription = null, welcome = false, booted = false, savedInert = false, skippedConsent = false, stepTargetReady = false;
   // Taking a finished walkthrough again (from Settings or the menu) never changes its saved progress.
+  // Set once a step's action opened a list in the workspace (the signoffs step), so the tour closes it when it moves on.
+  let openedList = false;
   let replay = false;
   const holdMenu = hold => { if (typeof globalAgentNavHold === 'function') globalAgentNavHold(hold); };
   const visible = el => !!el?.isConnected && !!el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
@@ -291,7 +293,8 @@ const onboarding = (() => {
       else if (x-gap-cw >= edge) { cx=x-gap-cw; cy=y; }
       else if (bottom+gap+ch <= h-edge) { cx=x; cy=bottom+gap; }
       else if (y-gap-ch >= edge) { cx=x; cy=y-gap-ch; }
-      else { cx=(w-cw)/2; cy=(y+bottom)/2 > h/2 ? edge : h-ch-edge; }
+      // Nothing fits beside, below or above: the card covers the end of the highlight, so its start (usually a heading) stays readable.
+      else { cx=right-cw; cy=h-ch-edge; }
     }
     Object.assign(card.style, {left: px(clampX(cx)), top: px(clampY(cy))});
   }
@@ -374,6 +377,7 @@ const onboarding = (() => {
       await card.animate([{opacity: 1}, {opacity: 0}], {duration: 120, easing: 'ease-out'}).finished.catch(() => {});
       if (!isCurrent(token)) return;
     }
+    if (openedList) { const close = document.querySelector('#agpad [data-surface-close]'); if (visible(close)) close.click(); openedList = false; }
     index = Math.max(0, Math.min(next, steps.length-1)); const step = steps[index];
     if (!step.menu) holdMenu(false);
     card.style.opacity = '0';
@@ -410,6 +414,7 @@ const onboarding = (() => {
       const button = event.currentTarget; button.disabled = true;
       try {
         const result = await step.run();
+        openedList = true;
         if (!isCurrent(token)) return;
         notice(result || 'Opened. Continue when you’re ready.');
       } catch (_) { if (isCurrent(token)) notice('This view couldn’t open. You can continue or try again.'); }
