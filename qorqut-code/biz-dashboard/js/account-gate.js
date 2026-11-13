@@ -9,7 +9,7 @@ const accountGate = (() => {
   const PRIVACY_URL = 'https://qorqbot.com/privacy/';
   const UPDATE_DISMISSED = 'qorqbot:update-notice-dismissed';
   const RECHECK = 6 * 3600 * 1000, FIRST_RECHECK = 15000;
-  let root = null, email = '', marketing = false, resolveGate = null, optional = false;
+  let root = null, email = '', marketing = false, resolveGate = null, optional = false, blocked = [];
 
   function updateMessage(view) {
     const update = view && view.update;
@@ -45,18 +45,26 @@ const accountGate = (() => {
       root.className = 'account-gate';
       root.innerHTML = '<section class="onboarding-card account-gate-card" role="dialog" aria-modal="true" aria-labelledby="account-gate-title"></section>';
       document.body.append(root);
+      // Nothing behind the screen can be reached, by mouse or keyboard, until it is gone.
+      blocked = [...document.body.children].filter(el => el !== root && !el.inert);
+      blocked.forEach(el => { el.inert = true; });
     }
     const section = root.querySelector('section');
     section.innerHTML = html;
     // A message about the last attempt goes away once the owner types again.
-    section.oninput = () => { const line = section.querySelector('[data-account-error]'); if (line) line.textContent = ''; };
+    section.oninput = () => { section.querySelectorAll('[data-account-error], [data-account-note]').forEach(line => { line.textContent = ''; }); };
     return section;
   }
-  const privacyNote = `<p class="onboarding-private"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.2 2.2 4.3-4.6"/></svg><span><b>Your work stays here.</b> Qorqbot only learns your email and that Qorqbot is in use. Never your conversations, files or what your agents do. <a href="${PRIVACY_URL}" target="_blank" rel="noopener noreferrer">Privacy</a></span></p>`;
   function showError(section, error) {
+    const note = section.querySelector('[data-account-note]'); if (note) note.textContent = '';
     const line = section.querySelector('[data-account-error]');
     if (line) line.textContent = error?.message || 'That did not work. Try again.';
   }
+  function showNote(section, text) {
+    const line = section.querySelector('[data-account-error]'); if (line) line.textContent = '';
+    const note = section.querySelector('[data-account-note]'); if (note) note.textContent = text;
+  }
+  const privacyLink = `<a class="account-gate-privacy" href="${PRIVACY_URL}" target="_blank" rel="noopener noreferrer">Privacy</a>`;
   function busy(button, on, label) { button.disabled = on; if (label) button.textContent = on ? '…' : label; }
 
   function emailStep() {
@@ -66,8 +74,8 @@ const accountGate = (() => {
         <input type="email" name="email" autocomplete="email" placeholder="you@example.com" required value="${esc(email)}" aria-label="email">
         <label class="account-gate-check"><input type="checkbox" name="marketing" ${marketing ? 'checked' : ''}> Send me occasional product news</label>
         <p class="account-gate-error" data-account-error role="alert"></p>
-        <div class="onboarding-welcome-actions">${optional ? '<button type="button" class="ghost" data-account-cancel>not now</button>' : ''}<button type="submit">send code</button></div>
-      </form>${privacyNote}`);
+        <div class="onboarding-welcome-actions">${privacyLink}${optional ? '<button type="button" class="ghost" data-account-cancel>not now</button>' : ''}<button type="submit">send code</button></div>
+      </form>`);
     const form = section.querySelector('form'), input = form.email, button = form.querySelector('button[type=submit]');
     input.focus();
     const cancel = section.querySelector('[data-account-cancel]');
@@ -88,12 +96,13 @@ const accountGate = (() => {
       <form class="account-gate-form" data-account-code novalidate>
         <input name="code" autocomplete="one-time-code" inputmode="text" maxlength="9" placeholder="XXXX-XXXX" required aria-label="sign-in code" class="account-gate-code">
         <fieldset class="account-gate-use"><legend>How will you use Qorqbot?</legend>
-          <label><input type="radio" name="use" value="personal" checked> Personal</label>
-          <label><input type="radio" name="use" value="work"> For work</label>
+          <div class="account-gate-choice"><label><input type="radio" name="use" value="personal" checked>Personal</label>
+          <label><input type="radio" name="use" value="work">For work</label></div>
         </fieldset>
         <input name="company" autocomplete="organization" placeholder="Company name" aria-label="company name" hidden>
         <p class="onboarding-hint" data-account-work hidden>Work use needs a commercial license, free until January 1, 2027. <a href="${LICENSE_URL}" target="_blank" rel="noopener noreferrer">License</a></p>
         <p class="account-gate-error" data-account-error role="alert"></p>
+        <p class="account-gate-note" data-account-note role="status"></p>
         <div class="onboarding-welcome-actions"><button type="button" class="ghost" data-account-back>back</button><button type="button" class="ghost" data-account-resend>send again</button><button type="submit">sign in</button></div>
       </form>`);
     const form = section.querySelector('form'), button = form.querySelector('button[type=submit]');
@@ -105,7 +114,7 @@ const accountGate = (() => {
     form.code.focus();
     section.querySelector('[data-account-back]').onclick = emailStep;
     section.querySelector('[data-account-resend]').onclick = async () => {
-      try { await send('start', {email}); showError(section, {message: 'A new code is on its way.'}); }
+      try { await send('start', {email}); showNote(section, 'A new code is on its way.'); }
       catch (error) { unreachable(error) ? offlineStep() : showError(section, error); }
     };
     form.onsubmit = async event => {
@@ -130,6 +139,7 @@ const accountGate = (() => {
 
   function finish(view) {
     root?.remove(); root = null; optional = false;
+    blocked.forEach(el => { el.inert = false; }); blocked = [];
     if (view && typeof settingsAccountRefresh === 'function') settingsAccountRefresh(view);
     const done = resolveGate; resolveGate = null;
     if (done) done(view);

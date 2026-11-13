@@ -12,7 +12,7 @@
     <img src="mark.svg" alt="">
     <div>
       <h1>Getting started</h1>
-      <p class="sub">Talk to your first agent in four steps</p>
+      <p class="sub">From the first launch to your first conversation with Ordubashy</p>
     </div>
   </div>
 
@@ -21,7 +21,7 @@
     <p>Qorqbot does not run an AI model itself. Each agent is a coding CLI that you have installed and signed in to,
       running inside that agent's own terminal on this Mac. Qorqbot gives the agent its instructions and tools, and
       the dashboard's chat sends your messages to that running session.</p>
-    <p>No session running means no chat. When an agent is offline, its chat offers a <b>Start</b> button.</p>
+    <p>No session running means no chat. When an agent is offline, its chat says how to start it.</p>
   </div>
 
   <h2>1. Install an agent CLI once</h2>
@@ -35,36 +35,44 @@
     <p class="hint spaced">You can mix them: start one agent with Claude Code and another with Codex.</p>
   </div>
 
-  <h2>2. Open Ordubashy</h2>
+  <h2>2. Sign in to Qorqbot</h2>
   <div class="card">
-    <p>In the dashboard, go to <b>Global &rsaquo; Agents</b> and select <b>Ordubashy</b>, your lead agent. Its chat opens.</p>
+    <p>The first time the dashboard opens, enter your email. Qorqbot sends you a code; type it in and say whether you
+      use Qorqbot personally or for work. You do this once on this Mac.</p>
+    <p class="hint spaced">Qorqbot's servers learn only your email and that Qorqbot is in use, never your
+      conversations, files or what your agents do.</p>
   </div>
 
-  <h2>3. Start him in his terminal</h2>
+  <h2>3. Follow the walkthrough</h2>
   <div class="card">
-    <p>Click <b>&gt;_</b> above the chat to open Ordubashy's own terminal. Type <code>claude</code> or
-      <code>codex</code> and press Return, whichever you are signed in to. He connects to the chat by himself.
-      This is how you start him every time.</p>
-    <p>The walkthrough first asks once to trust Qorqbot's own agent folders. Allow it, and Claude Code and Codex open
-      straight into the session without asking. Your other projects are not changed, and you can turn this off in
-      <b>Settings</b>. If you don't allow it, Claude asks whether to trust the folder (press the down arrow, then Return
-      on "Yes, I trust this folder") and Codex asks you to review its hooks.</p>
-    <p class="hint spaced">The chat also has a <b>Start Ordubashy</b> button that types the command for you. A session
-      started in Terminal.app is not his session and the chat will not connect to it.</p>
+    <p>It starts by itself after you sign in. It first asks once to trust Qorqbot's own agent folders. Allow it, and
+      Claude Code and Codex open straight into the session without asking. Your other projects are not changed, and you
+      can turn this off in <b>Settings</b>. If you don't allow it, Claude asks whether to trust the folder (press the
+      down arrow, then Return on "Yes, I trust this folder") and Codex asks you to review its hooks.</p>
+    <p>Then you start Ordubashy in his own terminal: type <code>claude</code> or <code>codex</code> and press Return,
+      whichever you are signed in to. He connects to the chat by himself. The tour then shows you around the workspace,
+      projects, signoffs and Settings.</p>
   </div>
 
   <h2>4. Say hello</h2>
   <div class="card">
-    <p>The status shows <b>Connecting…</b> for a moment, then the message box unlocks. Messages you send go into
-      Ordubashy's running session and his replies appear in the chat.</p>
-    <p>If the session ends, the chat goes offline. Start him again in his terminal.</p>
+    <p>The walkthrough ends in Ordubashy's chat. Type <b>hi, help me get set up</b> and send it. He asks a few quick
+      questions about you, keeps the answers on this Mac, then connects the tools you want him to use, such as the
+      websites you sign in to through his browser.</p>
   </div>
 
-  <h2>The walkthrough</h2>
+  <h2>Starting him again</h2>
   <div class="card">
-    <p>The dashboard offers a walkthrough the first time it opens. It does steps 2 to 4 with you, then tours the
-      workspace, projects and signoffs chapter by chapter. Skipped or finished, you can always take it again: click the <b>?</b> button at the bottom left of the dashboard,
-      or choose <b>Help &rsaquo; Show Walkthrough</b>.</p>
+    <p>Point at the mark at the top left of the dashboard. Its menu lists your agents, then <b>Walkthrough</b>,
+      <b>Terminal</b> and <b>Settings</b>. Choose <b>Ordubashy</b>, click <b>&gt;_</b> above the chat to open his own
+      terminal, and type <code>claude</code> or <code>codex</code>. Do this after every restart.</p>
+    <p class="hint spaced">A session started in Terminal.app is not his session and the chat will not connect to it.</p>
+  </div>
+
+  <h2>The walkthrough again</h2>
+  <div class="card">
+    <p>Skipped or finished, you can take it again, whole or one chapter: choose <b>Walkthrough</b> in that menu or in
+      <b>Settings</b>, or <b>Help &rsaquo; Show Walkthrough</b>.</p>
   </div>
 
   <h2>Use it in your browser</h2>

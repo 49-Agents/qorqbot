@@ -19,3 +19,12 @@ test('the license and privacy links point at the website pages', () => {
   assert.strictEqual(gate.LICENSE_URL, 'https://qorqbot.com/license/');
   assert.strictEqual(gate.PRIVACY_URL, 'https://qorqbot.com/privacy/');
 });
+
+test('the sign-in screen blocks the page behind it and reports a resent code as a status, not an error', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '../js/account-gate.js'), 'utf8');
+  assert.match(source, /blocked = \[\.\.\.document\.body\.children\]\.filter\(el => el !== root && !el\.inert\)/);
+  assert.match(source, /blocked\.forEach\(el => \{ el\.inert = false; \}\)/);
+  assert.match(source, /<p class="account-gate-note" data-account-note role="status">/);
+  assert.match(source, /showNote\(section, 'A new code is on its way\.'\)/);
+  assert.ok(!source.includes("showError(section, {message: 'A new code"));
+});

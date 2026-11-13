@@ -250,7 +250,7 @@ async function showWalkthrough() {
     "typeof onboarding !== 'undefined' && typeof onboarding.open === 'function' ? (onboarding.open(), true) : false",
   ).catch(() => false);
   if (!opened) {
-    await dialog.showMessageBox(mainWindow, { type: 'info', message: 'The walkthrough is not available on this page.', detail: 'Open Global > Agents and choose the ? button under your agents.' });
+    await dialog.showMessageBox(mainWindow, { type: 'info', message: 'The walkthrough is not available on this page.', detail: 'Choose it again once the dashboard has finished loading, or open Walkthrough in Settings.' });
   }
 }
 

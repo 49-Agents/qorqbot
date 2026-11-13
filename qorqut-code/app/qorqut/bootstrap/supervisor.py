@@ -46,14 +46,18 @@ def local_probe(script, arguments):
 
 
 def register(registration_path, native, response):
-    config = installation_config()
-    if config is None or response.get('inbox_generation') is None:
+    if response.get('inbox_generation') is None:
         return False
+    config = installation_config()
     registration = load_registration(registration_path)
     binding = {'registration_id':registration['registration_id'],'session_id':native['session_id'],
         'generation':response['inbox_generation'],'owner':native['owner'],'runtime':native['runtime'],
         'host':native.get('host',socket.gethostname()),'registration_path':str(registration_path),'desired_state':response.get('inbox_desired_state','running')}
     write_json_private(Path(registration['workspace'])/'.qorqut/session-binding.json',binding)
+    # A folder or desktop installation has no installation configuration and no supervisor: the receipt in the agent's own
+    # folder is its whole binding, and its MCP bridge reads it there. A server installation also records it for its supervisor.
+    if config is None:
+        return True
     root = Path(config['root'])
     # Preserve cached command paths against native process start, independent
     # of configuration rewrites. Observation-based migration releases them.

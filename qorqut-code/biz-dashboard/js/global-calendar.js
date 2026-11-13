@@ -1,4 +1,6 @@
 // One time grid over provider calendars; events stay in the provider.
+// How Google Calendar gets connected (also linked from the walkthrough's Calendar step).
+const CALENDAR_GUIDE_URL = 'https://github.com/49-Agents/qorqbot/blob/main/qorqut-code/extensions/google-calendar/docs/CALENDAR.md';
 const calendarZone = () => SJ_ZONE;
 // Navigation and all-day events use literal dates; only timed events are converted to the app zone.
 const calendarDateString = date => typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : sjDate(date);
@@ -356,11 +358,13 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
     observer.observe(host);
 
     const status = $('.calendar-status',page), allEvents = [], failures = new Map();
-    let calendars = [], loading = true, fixedMessage = '';
+    let calendars = [], loading = true, fixedMessage = '', unconnected = false;
     const eventButton = (event,allDay) => calendarEventButton(event,calendars,reload,allDay);
     const paint = () => {
       if (!current()) return;
       status.textContent = fixedMessage || [...failures.values(),calendarStatusNotice()].filter(Boolean).join(' · ') || (loading ? 'Loading events…' : '');
+      // No calendar yet: say how one gets connected, since nothing in the app can do it.
+      if (unconnected && fixedMessage) status.insertAdjacentHTML('beforeend', ` <a href="${CALENDAR_GUIDE_URL}" target="_blank" rel="noopener noreferrer">Calendar guide</a>`);
       calendarPaintGrid(page,dates,allEvents,eventButton);
     };
     repaint = paint;
@@ -372,7 +376,7 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
       calendars = result.calendars;
       result.errors.forEach(e => failures.set(e.connection_id,`${e.connection_id}: ${e.message}`));
       $('.calendar-sources > div',page).innerHTML = calendars.map(calendar => `<div class="calendar-source"><span class="calendar-dot"></span><span>${esc(calendar.name)} · ${esc(calendar.provider_name || calendar.provider)}</span></div>`).join('');
-      if (!result.configured) { fixedMessage = 'Connect a calendar to get started.'; paint(); return; }
+      if (!result.configured) { fixedMessage = 'No calendar connected yet. Connecting Google Calendar is a one-time technical setup for now.'; unconnected = true; paint(); return; }
       $('[data-calendar-add]',page).disabled = !calendars.some(c => c.writable);
       $('[data-calendar-add]',page).onclick = e => calendarEdit(null,calendars,reload,calendarDate,e.currentTarget);
       await Promise.all(calendars.map(async calendar => {

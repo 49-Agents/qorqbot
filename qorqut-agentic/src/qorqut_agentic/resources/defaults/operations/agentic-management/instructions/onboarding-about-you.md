@@ -23,7 +23,8 @@ one reply:
 1. What should I call you?
 2. What do you do? Your work or business and your role, in a sentence or two.
 3. Where are you based, and which language should we work in?
-4. Which email address and links (website, LinkedIn or similar) should I know?
+4. Which links should I know (website, LinkedIn or similar), and which email address
+   should I use for you?
 5. What do you most want help with right now?
 
 Every question is optional. If the owner skips one, leave it and do not ask

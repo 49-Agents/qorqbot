@@ -23,7 +23,7 @@ const agentStart = (() => {
           <div class="ferr" role="alert" hidden></div>`,
         onClose: () => finish(null),
         actions: [
-          {label: 'Not now', onClick: close => close()},
+          {label: 'Not now', quiet: true, onClick: close => close()},
           {label: 'Allow', primary: true, onClick: async (close, el) => {
             const error = el.querySelector('.ferr');
             try { const view = await grant(); finish(view); close(); }
