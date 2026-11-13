@@ -705,6 +705,12 @@ function mountChatView(host, options = {}) {
     ? `<div class="gchat-author">${entry.author.avatarHtml ? `<span class="gchat-avatar" aria-hidden="true">${entry.author.avatarHtml}</span>` : ''}<small class="gchat-author-name${entry.showAuthorName === false ? ' gchat-author-name-hidden' : ''}">${esc(entry.author.name || '')}</small></div>` : '';
   const titleHtml = entry => entry.title ? `<strong class="gchat-title">${esc(entry.title)}</strong>` : '';
   const markerHtml = notice => {
+    if (notice?.activity) {
+      const {nudgeCount, recipients = []} = notice.activity;
+      const nudge = nudgeCount ? `${nudgeCount > 1 ? `${nudgeCount}× ` : ''}inbox nudge` : '';
+      const message = recipients.length ? `messaged ${recipients.map(bot => bot.name).join(', ')}` : '';
+      return `<span class="gchat-marker gchat-compact-activity">${esc([nudge, message].filter(Boolean).join(' · '))}</span>`;
+    }
     if (!notice?.label) return '';
     const bots = notice.agentMessage?.recipients;
     if (!bots) return `<span class="gchat-marker">${esc(notice.label)}</span>`;
@@ -933,6 +939,7 @@ function mountChatView(host, options = {}) {
     node.className = entry.activity ? 'gchat-msg gchat-activity-note' : entry.referenceOnly
       ? `gchat-msg gchat-reference-only${referenceRows && entry.referenceRow ? ' gchat-reference-row' : ''}`
       : `gchat-msg gchat-${speaker}${entry.recorder === 'agent' ? ' gchat-recorded-by-agent' : ''}`;
+    node.classList.toggle('gchat-activity-marker', !!entry.notice?.activity);
     node.dataset.id = entry.key;
     if (entry.position != null) node.dataset.position = String(entry.position); else delete node.dataset.position;
     node._entry = entry;

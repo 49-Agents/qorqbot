@@ -1,0 +1,50 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../app.css">
+<link rel="stylesheet" href="../../css/agent-focus.css">
+<link rel="stylesheet" href="../../css/signoffs.css">
+<style>body{margin:0;padding:16px;width:560px;background:var(--bg)}.ref{margin-bottom:14px}</style>
+<div class="agpad"><div class="tbody"><div class="agfocus agfocus-surface-open" style="height:500px;width:560px;display:flex;flex-direction:column"><section class="agfocus-surface"><div class="agfocus-surface-bar"><button class="agfocus-close" aria-label="Close">× Close</button><span class="agfocus-surface-title">Signoffs</span></div><div class="agfocus-surface-body"><div class="agfocus-expansion-content"></div></div></section></div></div></div>
+<pre id="out" hidden></pre>
+<script src="../../js/safe-links.js"></script>
+<script>
+// Stubs for the dashboard globals the real Signoff renderer expects; signoffs.js and fastmail.js are the real files.
+const state = {agents: [], biz: 'demo', bizs: [{id: 'b1', slug: 'demo', name: 'Demo'}], session: null};
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const sjDateTime = d => String(d), aicon = () => '', newRequestId = () => 'req';
+const coreData = r => r.data;
+const calls=[]; let resolveWrite, resolveRead, holdRead=false;
+const post = (url,body) => { calls.push({url,body}); return new Promise(resolve=>{resolveWrite=()=>{const parts=url.split('/'), id=parts.at(-2), action=parts.at(-1); const signoff={...items[id], state:action==='approve'?'approved':'rejected',status_revision:2,decision:{at:new Date().toISOString(),feedback:body.feedback}};items[id]=signoff; resolve({status:'ok',data:{signoff}});};}); };
+const longBody = Array.from({length: 12}, (_, i) => `Line ${i + 1} of the proposed email body.`).join('\n');
+const email = (id, body) => ({id, state: 'pending', category: 'operation', operation_name: 'fastmail_send', review_business_id: 'b1', status_revision: 1, proposal_revision: 1,
+  payload_hash: 'h' + id, actionable: true, title: 'Send email to Ada', editable_fields: ['subject', 'body'], created_at: new Date(Date.now()-86400000).toISOString(), updated_at: new Date(Date.now()-300000).toISOString(),
+  attention: {blocking:true, reason:'You requested to edit this message before it is sent.', priority_updated_by_name:'Ordubashy'},
+  preview: {rationale: 'Because.', effects: ['Sends 1 message to ada@example.com', 'Records the send'], changes: [{kind: 'structured', resource: {resource_type: 'fastmail_account'}, fields: [
+    {path: 'from_address', after: 'me@example.com'}, {path: 'to', after: ['ada@example.com']}, {path: 'subject', after: 'Quarterly plan'}, {path: 'body', after: body},
+    {path: 'attachments', after: [{filename: 'plan.pdf'}]}]}]}});
+const action = id => ({id, state: 'pending', category: 'operation', operation_name: 'generic_change', review_business_id: 'b1', status_revision: 1, proposal_revision: 1,
+  payload_hash: 'h' + id, actionable: true, title: 'Archive the old project', rejection_requires_message: true, created_at: new Date().toISOString(),
+  preview: {rationale: 'Cleanup.', effects: ['Archives the project'], changes: [{kind: 'text', resource: 'Project', diff: '-old\n+new', before: 'old', after: 'new'}]}});
+const question = id => ({id, state: 'pending', category: 'input', operation_name: 'input_request', review_business_id: 'b1', status_revision: 1, proposal_revision: 1,
+  payload_hash: 'h' + id, actionable: true, title: 'Which launch date?', created_at: new Date().toISOString(),
+  input: {explanation: 'Pick one.', selection_mode: 'none', notes_required: true, choices: []}, preview: {changes: []}});
+const items = {long: email('long', longBody), short: email('short', 'Hi Ada,\nThanks.'), action: action('action'), small: action('small'), question: question('question')};
+const api = async url => { if(url==='/session')return {status:'ok',data:{principal_kind:'human',is_owner:true,principal_id:'o1'}}; if(holdRead)await new Promise(resolve=>resolveRead=resolve); return {status:'ok',data:{signoff:items[decodeURIComponent(url.split('/').pop())]}}; };
+const globalAgentProfile = () => null, globalAgentProfiles = [1], identityAvatar = () => '', RW_CHAT_ICON = '', SVG_X = '', SVG_CHECK = '', T_VIEW_ICON = {signoffs: ''};
+const taskBusinessLabel = () => 'Demo', businessPortraitHtml = () => '';
+</script>
+<script src="../../js/signoffs.js"></script>
+<script src="../../../../extensions/qorqut-fastmail/qorqut_fastmail/assets/fastmail.js"></script>
+<script>
+const embeddedAgentPane=true;
+let leave, dispose;
+window.focusExpansion={open({title,mount}){if(dispose)dispose(); const host=document.querySelector('.agfocus-expansion-content');host.replaceChildren();const shell=host.closest('.agfocus-surface');shell.setAttribute('aria-label',title);shell.querySelector('.agfocus-surface-title').textContent=title; const session={isCurrent:()=>true,setBeforeLeave(fn){leave=fn}};dispose=mount(host,session);return session;}};
+document.querySelector('.agfocus-close').onclick=async()=>{if(leave && !await leave())return;dispose?.();dispose=null;leave=null;};
+const workRelatedChips=()=>{}, toast=()=>{};
+</script><script src="../../js/signoff-attention.js"></script><script>
+items.long.preview.changes[0].fields.find(f=>f.path==='body').after=Array.from({length:80},(_,i)=>'Long synthetic email '+i).join('\n');
+items.action.preview.rationale='Long synthetic text '.repeat(500);
+window.openItem=id=>{return sgFocusOpen('Signoffs',{workspace:()=> 'demo',global:true,execution:true,item:()=>({id,businessId:'b1'})});};
+</script><script>
+window.testHarness={calls,holdRead(){holdRead=true},releaseRead(){holdRead=false;resolveRead?.()},releaseWrite(){resolveWrite?.()},openGeneric(){dispose?.();dispose=null;leave=null;const shell=document.querySelector('.agfocus-surface');shell.setAttribute('aria-label','Reminder');shell.querySelector('.agfocus-surface-title').textContent='Reminder';document.querySelector('.agfocus-expansion-content').replaceChildren(document.createTextNode('Reminder'));}};
+</script>

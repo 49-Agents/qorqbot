@@ -335,3 +335,29 @@
 .side-chat-footer{display:flex;align-items:center;justify-content:flex-end;flex:none;gap:12px;margin-top:12px}
 
 .agfocus-expansion-content:has(> .side-chat-thread){overflow:hidden}
+
+/* Decision messages stay on one visual line even when a saved draft contains newlines. */
+.sg .sg-detail-footer{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
+.sg .sg-detail-footer .sg-feedbackwrap{flex:1 1 180px;min-width:0;margin:0}
+.sg .sg-detail-footer .sg-actionarea{flex:0 1 auto;margin-left:auto}
+.sg .sg-detail-footer .sg-actions{margin:0}
+.sg .sg-detail-footer .sg-feedback.sg-decision-feedback{box-sizing:border-box;height:36px;min-height:36px;max-height:36px;resize:none;overflow:auto;white-space:pre;padding:7px 10px;line-height:20px}
+.sg .sg-actions .sg-approve.sg-primary-action,.sg .sg-actions .sg-reject.sg-primary-action,
+.sg-chat .sg .sg-actions .sg-approve.sg-primary-action,.sg-chat .sg .sg-actions .sg-reject.sg-primary-action{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.sg-chat .sg .sg-actions .sg-approve:not(.sg-primary-action)[data-sg="approve"]{background:none;border-color:transparent;color:var(--fg-2)}
+.sg-chat .sg .sg-actions .sg-reject:not(.sg-primary-action)[data-sg="reject"]{background:none;border-color:transparent;color:var(--fg-2)}
+
+/* A selected Focus signoff has one scrolling body and a persistent footer. */
+.sg-focus.sg-single,.sg-focus.sg-single > .sg,.sg-focus.sg-single .sg-rows,
+.sg-focus.sg-single .sg-row:has(.sg-detail:not([hidden])),.sg-focus.sg-single .sg-detail:not([hidden]){display:flex;flex-direction:column;flex:1;min-height:0;min-width:0}
+.sg-focus.sg-single > .sg{padding:0}
+.sg-focus.sg-single .sg > section:not([hidden]):has(.sg-detail:not([hidden])){display:flex;flex-direction:column;flex:1;min-height:0}
+.sg-focus.sg-single .sg-rowhead{flex:none;padding-left:8px;padding-right:12px}
+.sg-focus.sg-single .sg-detail:not([hidden]){padding:0}
+.sg-focus.sg-single .sg-detail-body{flex:1;min-height:0;overflow:auto;padding:0 12px 0 8px}
+.sg-focus.sg-single .sg-detail-footer{flex:none;padding:10px 12px 10px 8px;background:var(--bg);z-index:1}
+.sg-focus .sg-detail-body > * + *{margin-top:20px}
+.sg-focus .sg-detail-body > :empty,.sg-focus .sg-detail-body > [hidden]{display:none}
+.sg-focus .sg-detail-body > .sg-attention-meta:not(:empty){margin-top:4px}
+.sg-focus.sg-single .sg-urgent:not([hidden]) + .sg-waiting{margin-top:0}
+.sg-focus.sg-single .sg-detail > .sg-detail-footer{margin-top:0}

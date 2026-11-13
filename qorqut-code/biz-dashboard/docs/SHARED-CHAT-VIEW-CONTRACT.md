@@ -159,14 +159,13 @@ Signoff card through `sgChatMount(ref, host, options)` (js/signoffs.js), which n
 a thread omits the card's nested channel composer when its channel is the enclosing thread (`omitConversationFor`).
 
 `notice` is supplied only from controller metadata, never inferred from text.
-An outgoing agent message adds `notice.agentMessage: {recipients: [{id, name, glyphHtml}]}` with
-`label: 'Messaged'` and `markerOnly: true`. The view draws `Messaged [recipient glyphs] N Bots`
-(omitting the count for a single recipient) inline in the notice body: glyphs overlap slightly, names are escaped into
-`title`/`aria-label`, and `glyphHtml` is only the locally generated agent glyph. The native controller
-projects the backend `agent_message` DTO and merges adjacent entries into one row (first key and
-position, distinct recipients in first-seen order); the view neither groups nor adds clicks.
-All notices share one style: centered, muted, no bubble, border or badge frame; unverified notices
-keep their label in the danger colour.
+Native Chat combines contiguous verified inbox nudges and trusted outgoing agent messages into
+`notice.activity: {nudgeCount, recipients: [{id, name}]}` with `markerOnly: true`. The first entry
+supplies the key and position; each render recomputes counts and first-seen distinct recipients from
+the ordered ID-keyed transcript. Other entries break a run. The shared view displays escaped names
+in a compact left-aligned row without navigation. Legacy `notice.agentMessage` markers remain supported;
+their `glyphHtml` must be locally generated. Other notices retain their centered style, and unverified
+notices keep their label in the danger colour.
 `verified` and `inputType` are native controller provenance; ordinary thread system
 notes omit these fields and retain their body. A controller may supply a plain
 notice label, but that never becomes verified. The native label

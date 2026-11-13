@@ -431,7 +431,7 @@ function sgCreateView(options) {
     }
   };
   if (compactEmail) document.addEventListener('pointerdown', outsidePointer, true);
-  const resizeMessages=()=>{if(!active())return;sg.mount?.querySelectorAll('.sg-message-editor').forEach(fitMessage);if(options.inline)sg.mount?.querySelectorAll('.sg-feedback').forEach(fitFeedback);else sg.mount?.querySelectorAll('.sg-draft-feedback .sg-feedback, .sg-question-notes').forEach(fitFeedback);};
+  const resizeMessages=()=>{if(!active())return;sg.mount?.querySelectorAll('.sg-message-editor').forEach(fitMessage);if(options.inline)sg.mount?.querySelectorAll('.sg-feedback:not(.sg-decision-feedback)').forEach(fitFeedback);else sg.mount?.querySelectorAll('.sg-draft-feedback .sg-feedback, .sg-question-notes').forEach(fitFeedback);};
   window.addEventListener('resize',resizeMessages);
   const canEditMessage = s => expected(s) && completePreview(s) && sgMessageValues(s) && Object.keys(sgMessageValues(s)).some(key=>s.editable_fields?.includes(key))
     && s.state === 'pending' && !s.superseded_by_id && owner() && !sg.error && !sg.detailErrors.has(s.id)
@@ -703,9 +703,7 @@ function sgCreateView(options) {
     const effects = (preview.effects || []).map(effect => typeof effect === "string" ? effect : effect && effect.description).filter(effect => typeof effect === "string");
     const proposal = sgProposal(s, effects);
     const content = proposal ? proposal.html + (proposal.ok ? sgChangesHtml({ ...preview, changes: preview.changes.filter(c => !(c && c.resource && (proposal.hiddenResources || []).includes(c.resource.resource_type))) }) : "") : sgChangesHtml(preview);
-    const shownEffects = proposal && proposal.ok && Array.isArray(proposal.effects) ? proposal.effects : effects;
-    return `${s.legacy_review_routing ? '<p class="sg-notice">Created under previous review routing.</p>' : ""}${preview.rationale ? `<div class="sg-rationale${proposal ? " sg-message-rationale" : ""}"><h3>${s.proposer_agent_id ? "Agent's explanation" : "Proposer's explanation"}</h3><p>${renderSafeLinks(preview.rationale)}</p></div>` : ""}${content}
-      ${shownEffects.length ? `<div class="sg-effects"><h3>Effects</h3><ul>${shownEffects.map(effect => `<li>${esc(effect)}</li>`).join("")}</ul></div>` : ""}`;
+    return `${s.legacy_review_routing ? '<p class="sg-notice">Created under previous review routing.</p>' : ""}${preview.rationale ? `<div class="sg-rationale${proposal ? " sg-message-rationale" : ""}"><h3>${s.proposer_agent_id ? "Agent's explanation" : "Proposer's explanation"}</h3><p>${renderSafeLinks(preview.rationale)}</p></div>` : ""}${content}`;
   }
   function completePreview(s) {
     if (s.input && Object.hasOwn(s.input, 'schema_version')) return !!s.preview && sgQuestionFormValid(s)
@@ -752,7 +750,7 @@ function sgCreateView(options) {
     const verified = sg.verified.get(s.id) === s.status_revision;
     const canReview = expected(s) && verified && completePreview(s) && owner() && !sg.error && !error && !s.superseded_by_id;
     if (!detail.querySelector(".sg-preview")) {
-      detail.innerHTML = `<div class="sg-detailnotice"></div><div class="sg-attention-meta"></div><div class="sg-email-context"></div><div class="sg-preview"></div><div class="sg-choices"></div><div class="sg-savedresponse"></div><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div>${options.focusLayout ? '<div class="sg-focus-details"></div>' : ""}<div class="sg-work" aria-label="Related work"></div>`;
+      detail.innerHTML = `<div class="sg-detail-body"><div class="sg-detailnotice"></div><div class="sg-attention-meta"></div><div class="sg-email-context"></div><div class="sg-preview"></div><div class="sg-choices"></div><div class="sg-savedresponse"></div>${options.focusLayout ? '<div class="sg-focus-details"></div>' : ""}<div class="sg-work" aria-label="Related work"></div></div><div class="sg-detail-footer"><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div></div>`;
       if (!options.global && !options.inline) workRelatedChips(detail.querySelector('.sg-work'),sg.slug,'signoffs',s.id);
     }
     // A question once tied to an email conversation keeps a historical note; the conversation itself is never fetched.
@@ -818,20 +816,20 @@ function sgCreateView(options) {
       if (!feedback.querySelector("textarea")) {
         const fieldId = `sg-feedback-${prefix}${esc(s.id)}`;
         // Inline action cards drop the visible label: the one-line field is named by aria-label and placeholder. Questions keep "Answer".
-        const unlabeled = (options.inline && !s.input) || sgIsDraftReview(s);
+        const unlabeled = !s.input || sgIsDraftReview(s);
         const placeholder = sgIsDraftReview(s) ? "Add feedback…" : rejectionNeedsMessage(s) ? "Add a reason to reject…" : "Add a note…";
-        feedback.innerHTML = `${unlabeled ? "" : `<label class="sg-label" for="${fieldId}">${sgIsDraftReview(s) ? "Feedback" : s.input ? "Answer" : "Message to send with decision"} ${requirement}</label>`}<textarea id="${fieldId}" class="sg-feedback" rows="${options.inline || sgIsDraftReview(s) ? 1 : 3}" spellcheck="true"${unlabeled ? ` aria-label="${sgIsDraftReview(s) ? "Feedback" : "Message to send with decision"} ${requirement}" placeholder="${placeholder}"` : ""}></textarea>`;
+        feedback.innerHTML = `${unlabeled ? "" : `<label class="sg-label" for="${fieldId}">${sgIsDraftReview(s) ? "Feedback" : s.input ? "Answer" : "Message to send with decision"} ${requirement}</label>`}<textarea id="${fieldId}" class="sg-feedback${!s.input ? " sg-decision-feedback" : ""}" rows="${!s.input || options.inline || sgIsDraftReview(s) ? 1 : 3}"${!s.input ? ' wrap="off"' : ""} spellcheck="true"${unlabeled ? ` aria-label="${sgIsDraftReview(s) ? "Feedback" : "Message to send with decision"} ${requirement}" placeholder="${placeholder}"` : ""}></textarea>`;
         feedback.querySelector("textarea").value = draft(s);
       }
       feedback.querySelector("textarea").disabled = !retainedFeedback && (!!busy || !canReview);
       feedback.querySelector("textarea").readOnly = retainedFeedback;
-      if (options.inline || sgIsDraftReview(s)) fitFeedback(feedback.querySelector("textarea"));
+      if (s.input && (options.inline || sgIsDraftReview(s))) fitFeedback(feedback.querySelector("textarea"));
     } else feedback.innerHTML = "";
     const disabled = !canReview || !!busy ? " disabled" : "";
     let controls = "";
     const withFeedback = !s.input && !!draft(s).trim();
     const plainDecisionControls = s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id
-      ? `<div class="sg-actions">${verified ? `<button type="button" class="sg-approve" data-sg="approve"${disabled}>${SVG_CHECK}${withFeedback ? "Send and approve" : "Approve"}</button>` : ""}<button type="button" class="sg-reject" data-sg="reject"${disabled}>${SVG_X}${withFeedback ? "Send and reject" : "Reject"}</button></div>` : "";
+      ? `<div class="sg-actions">${verified ? `<button type="button" class="sg-approve${withFeedback ? "" : " sg-primary-action"}" data-sg="approve"${disabled}>${SVG_CHECK}${withFeedback ? "Send and approve" : "Approve"}</button>` : ""}<button type="button" class="sg-reject${withFeedback ? " sg-primary-action" : ""}" data-sg="reject"${disabled}>${SVG_X}${withFeedback ? "Send and reject" : "Reject"}</button></div>` : "";
     if (s.input) controls = s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id ? `<div class="sg-actions"><button type="button" class="sg-approve" data-sg="respond"${disabled || (reviewEdits.get(s.id)?.saving || reviewEdits.get(s.id)?.receipt || (reviewEdits.has(s.id) && reviewEdits.get(s.id).revision !== s.status_revision) ? ' disabled' : '')}>${sgIsQuestionnaire(s) ? 'Done' : sgIsDraftReview(s) ? 'Return draft' : 'Submit'}</button></div>` : "";
     else controls = plainDecisionControls;
     if (busy) controls += `<p class="sg-notice" role="status">${busy.unknown ? "The response was lost. Checking the saved decision..." : "Saving decision..."}</p>${busy.unknown ? `<button type="button" class="sg-command" data-sg="reconcile"${busy.checking ? " disabled" : ""}>Check decision</button>` : ""}`;
@@ -1283,6 +1281,7 @@ function sgCreateView(options) {
     body.classList.add("sg-body");
     body.classList.toggle("sg-inline", !!options.inline);
     body.classList.toggle("sg-chat", !!options.chatLayout);
+    body.classList.toggle("sg-single", !!options.item);
     body.innerHTML = `<div class="sg"><div class="sg-listnotice"></div><section class="sg-urgent"><h2>Urgent / blocking · All projects</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div><div class="sg-foreign"></div></section><section class="sg-waiting"><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>${options.execution ? '<section class="sg-execution"><h2>Execution and history</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>' : ""}<button type="button" class="sg-command sg-more" data-sg="more" hidden>Load more</button></div>`;
     body.onclick = event => {
       if (event.target.matches('.sg-draft-editor')) return;
@@ -1408,7 +1407,7 @@ function sgCreateView(options) {
         if(edit && !edit.saving && !edit.receipt){edit.values[event.target.dataset.sgEditField]=event.target.value;edit.error='';fitMessage(event.target);}
         return;
       }
-      if (event.target.matches(".sg-feedback")) { const s = sg.items.get(sg.selected); if (s) { saveDraft(draftKey(s), event.target.value); if (options.inline || sgIsDraftReview(s)) fitFeedback(event.target); render(); } } };
+      if (event.target.matches(".sg-feedback")) { const s = sg.items.get(sg.selected); if (s) { saveDraft(draftKey(s), event.target.value); if (s.input && (options.inline || sgIsDraftReview(s))) fitFeedback(event.target); render(); } } };
     render(); refresh();
   }
   function businessChanged() {
@@ -1450,7 +1449,7 @@ function sgCreateView(options) {
       const selected = sg.items.get(sg.selected);
       const row = sg.mount && [...sg.mount.querySelectorAll(".sg-row")].find(row => row.dataset.id === sg.selected);
       const textarea = row && row.querySelector(".sg-feedbackwrap .sg-feedback");
-      if (selected && draftKey(selected) === key && textarea && textarea.value !== value) { textarea.value = value; if (options.inline || sgIsDraftReview(selected)) fitFeedback(textarea); }
+      if (selected && draftKey(selected) === key && textarea && textarea.value !== value) { textarea.value = value; if (selected.input && (options.inline || sgIsDraftReview(selected))) fitFeedback(textarea); }
     },
     suspend() { readObserver?.disconnect();readTarget=null;readVisible=false;sg.generation++; sg.mount = null; sg.loading = false; sg.detailLoading = null; },
     dispose() { clearInterval(ageTimer); this.suspend();window.removeEventListener('focus',markSelectedRead);document.removeEventListener('visibilitychange',markSelectedRead);window.removeEventListener('resize',resizeMessages); sgViews.delete(view); document.removeEventListener('click', outsideClick); document.removeEventListener('pointerdown', outsidePointer, true); },

@@ -7,6 +7,8 @@ window.sgAttentionBadge = slug => {
 // Mount the existing signoff renderer in the shared Focus surface.
 window.sgFocusOpen = (title, options, afterClose) => window.focusExpansion.open({title, mount(host, session) {
   let view, confirmation = null;
+  const surface = host.closest('.agfocus-surface');
+  surface?.classList.add('agfocus-signoff-open');
   const notice = document.createElement('p'); notice.className='sg-notice'; notice.setAttribute('role','status'); notice.hidden=true;
   const prompt = document.createElement('div'); prompt.className='sg-focus-confirm'; prompt.hidden=true;
   const body = document.createElement('div'); body.className='sg-focus';
@@ -29,7 +31,7 @@ window.sgFocusOpen = (title, options, afterClose) => window.focusExpansion.open(
     return true;
   });
   view.paint();
-  return ()=>{finish(false);view.dispose();afterClose?.();};
+  return ()=>{finish(false);view.dispose();surface?.classList.remove('agfocus-signoff-open');afterClose?.();};
 }});
 const SG_CLIPBOARD = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#eee" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg>';
 window.sgAttentionNavigate = async (slug, id) => {
