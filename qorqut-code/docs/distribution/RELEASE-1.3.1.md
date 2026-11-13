@@ -45,10 +45,10 @@ until 2027-01-01; see [the license scope](../../LICENSE-SCOPE.md).
   app's Gatekeeper/Open Anyway flow, a separate macOS user account or
   interactive agent sign-in. The DMG is ad-hoc signed, not notarized.
 - Updates are manual (`./qorqbot update ARCHIVE --sha256 HASH`) and refuse changed
-  database schemas, running terminals and installations with separately
-  installed connectors. 1.3.1 keeps the database schema of 1.3.0, so a stopped
-  1.3.0 installation can be updated in place and keeps its data; the launcher
-  then creates the Context store once if the installation has none. No migration
-  from any other download is provided.
+  database schemas or managed instruction contents, running terminals and
+  installations with separately installed connectors. 1.3.1 changes Ordubashy's
+  managed instructions, so the updater refuses a 1.3.0 installation and leaves
+  it on 1.3.0 with its data. Install 1.3.1 as a fresh installation; no migration
+  from another download is provided.
 - Optional connector bundles are separate downloads and are not part of this
   release unless rebuilt and checked against its final archive.
