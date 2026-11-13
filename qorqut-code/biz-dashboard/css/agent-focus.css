@@ -215,6 +215,7 @@
 .attention-queue .attention-label { display:none; }
 .agfocus .attention-queue .attention-chip,.attention-queue .attention-chip { flex:0 1 54px; width:54px; height:51px; min-height:51px; padding:7px 0; justify-content:center; }
 .attention-queue .attention-chip+.attention-chip { margin-left:0; }
+.attention-queue .attention-chip:not(.agfocus-surface-chip) { zoom:.9; }
 
 /* Focus strip for agents with Focus: fixed Browser/Desktop launchers, then pending Signoffs scrolling sideways. */
 .agfocus-surfaces .agfocus-surface-chip{flex:none}
@@ -228,6 +229,7 @@
 .focus-signoff-queue{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 14px;min-width:0}
 .focus-signoff-queue[hidden]{display:none}
 .agfocus .focus-signoff-queue .focus-signoff-chip{display:flex;align-items:center;justify-content:center;flex:none;width:40px;max-width:100%;min-height:40px;margin:0;padding:8px;border:0;border-radius:5px;background:var(--hover);color:var(--fg-2);font-size:11px;text-align:left}
+.agfocus .focus-signoff-queue .focus-signoff-chip{zoom:.9}
 .focus-signoff-chip .attention-signoff{width:18px;height:18px;border:0;border-radius:0}
 .focus-signoff-chip svg{width:18px;height:18px}
 .focus-signoff-chip{position:relative}
@@ -238,6 +240,12 @@
 .agfocus-surfaces:has(> .focus-signoff-queue[hidden]) .agfocus-divider{display:none}
 .agfocus-fixed{display:flex;align-items:center;gap:6px;flex:none}
 .agfocus-divider{flex:none;align-self:center;width:1px;height:30px;margin:0 2px;background:var(--line-2);pointer-events:none}
+
+/* Independent upper side-chat and lower attention queues. */
+.attention-queue.agfocus-queues{height:auto;min-height:0;flex-direction:column;align-items:stretch;gap:8px}
+.agfocus-queues .agfocus-surfaces{flex:none;width:100%;box-sizing:border-box}
+.agfocus-queues .agfocus-side-chat-queue{flex:1;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+.agfocus-queues .agfocus-attention-row{flex:none;box-sizing:border-box;width:100%;flex-wrap:nowrap;margin:0;overflow-x:auto;overflow-y:hidden}
 
 /* Browser, Desktop or a Viewbox item replaces the board below the launcher row and fills its height. */
 .agfocus-surface[hidden]{display:none}
