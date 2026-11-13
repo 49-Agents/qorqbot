@@ -64,7 +64,7 @@ class AttentionBoard:
 
     def register(self):
         from qorqut.domains.tasks import NOTE_REFS
-        common=dict(supports_signoff=False,scope_kinds=frozenset({'global'}),
+        common=dict(supports_signoff=False,scope_kinds=frozenset({'global'}),exposure=frozenset({'dashboard'}),
             global_capability='read_global_context',resolve_namespace=lambda c,a:'global')
         self.app.registry.register(OperationDescriptor('focus_get',schema({'scope':{'const':'global'},
             'item_id':ID,'include_archived':{'type':'boolean'},'include_deferred':{'type':'boolean'},

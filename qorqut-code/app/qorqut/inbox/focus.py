@@ -30,7 +30,7 @@ class FocusService:
         self.desktop_url = lambda: None
 
     def register(self):
-        common = dict(supports_signoff=False, scope_kinds=frozenset({'global'}),
+        common = dict(supports_signoff=False, scope_kinds=frozenset({'global'}), exposure=frozenset({'dashboard'}),
             global_capability='read_global_context', resolve_namespace=lambda c, a: 'global')
         shared = {'scope': {'const': 'global'}, 'consumer_id': UUID,
             'expected_focus_revision': {'type': 'integer', 'minimum': 0}}
