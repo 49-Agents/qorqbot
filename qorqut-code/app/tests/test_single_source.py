@@ -308,7 +308,10 @@ class TargetListTests(Fixture):
             self.attention.enter(uow, self.worker, self.ref(stray), stray['created_at'], self.worker, STAMP)
         carded = self.task(self.lead, 'Card with its own text', worker_ids=[self.lead])
         self.card(carded, 'Waiting on the notary')
-        self.assertEqual(self.invoke(self.worker, 'records_health', {}).error['code'], 'forbidden')
+        # A worker reads what Ordubashy reads, and reconciling still belongs to the owner and the coordinator.
+        self.ok(self.invoke(self.worker, 'records_health', {}))
+        refused = self.invoke(self.worker, 'records_reconcile', {}).error
+        self.assertIn(refused['code'], {'forbidden', 'policy_denied'})
         report = self.ok(self.invoke(self.owner, 'records_health', {}))
         self.assertEqual({name: check['count'] for name, check in report['checks'].items() if check['count']},
                          {'todo_on_closed_task': 1, 'crm_record_typed_as_work': 1})

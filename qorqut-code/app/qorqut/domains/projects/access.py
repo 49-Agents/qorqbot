@@ -67,17 +67,25 @@ def selected_scope(ctx, args, project_id, uow):
     return replace(ctx, business_id=project_id, review_business_id=project_id)
 
 
-def role(ctx, uow) -> str:
-    """The owner or the exact configured active Ordubashy; every Project record operation requires one of them."""
+def role(ctx, uow, *, read=False) -> str:
+    """The owner or the exact configured active Ordubashy; every Project record operation requires one of them.
+
+    With ``read`` (only the ``project_*`` read handlers pass it) an active global worker is admitted too, as
+    ``"worker"``: workers read what Ordubashy reads. Reference resolution, links and the private thread never pass it."""
     owner, coordinator = private_participants(uow)
     if ctx.principal_kind == "human" and owner and ctx.principal_id == owner:
         return "owner"
     if ctx.principal_kind == "agent" and coordinator and ctx.principal_id == coordinator:
         return "ordubashy"
-    raise DomainError("forbidden", "Project records belong to the installation owner and the configured Ordubashy")
+    if read and ctx.principal_kind == "agent":
+        from qorqut.agents.worker_access import is_worker
+        if is_worker(uow.connection, ctx.principal_id):
+            return "worker"
+    raise DomainError("forbidden", "Project records belong to the installation owner and the configured Ordubashy"
+                      + ("; an active global worker may read them" if read else ""))
 
 
-def guard(ctx, application, uow, *, project_id, operation="project_record_get", include_archived=False):
+def guard(ctx, application, uow, *, project_id, operation="project_record_get", include_archived=False, read=False):
     """The one nonrecursive Project read guard: identity, current reach, archive state and policy.
 
     Every surface that names a Project (the neutral item resolver, Focus and private-thread sources, directory labels,
@@ -86,7 +94,7 @@ def guard(ctx, application, uow, *, project_id, operation="project_record_get", 
     the ordinary policy of the named read. No label, summary, count or card is produced before it succeeds.
     """
     current = application.current_context(ctx, uow)
-    role(current, uow)
+    role(current, uow, read=read)
     row = business_row(current, project_id, uow, include_archived=include_archived)
     selected = replace(current, business_id=project_id, review_business_id=project_id)
     application.authorize(selected, application.registry.get(operation), (), uow, namespace="business:" + project_id)
@@ -100,8 +108,10 @@ def allow(ctx, args, application, uow, *, project_id, operation, include_archive
     a direct invocation and a replayed receipt land here, and a business route must agree with ``project_id``."""
     current = application.current_context(ctx, uow)
     selected = selected_scope(current, args, project_id, uow)
+    # A project_* read handler also admits an active global worker; a link or unlink never does.
+    read = application.registry.get(operation).effect_kind == "read"
     selected, row = guard(selected, application, uow, project_id=project_id, operation=operation,
-                          include_archived=include_archived)
+                          include_archived=include_archived, read=read)
     return selected, row
 
 

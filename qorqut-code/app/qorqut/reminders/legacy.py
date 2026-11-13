@@ -56,10 +56,14 @@ class LegacyReminders:
 
     # ----- owner_reminder -----------------------------------------------------------------------------------------
 
-    def manager(self, ctx, uow, operation):
+    def manager(self, ctx, uow, operation, *, read=False):
+        """The owner and the configured Ordubashy manage owner reminders; an active global worker may also read them."""
         access = self.service.caller(ctx, uow)
         if not access.manager:
-            raise DomainError("forbidden", "Only the owner and the configured Ordubashy may manage owner reminders")
+            from qorqut.agents.worker_access import is_worker
+            if not (read and access.kind == "agent" and is_worker(uow.connection, access.ctx.principal_id)):
+                raise DomainError("forbidden", "Only the owner and the configured Ordubashy may manage owner reminders"
+                                  + ("; an active global worker may read them" if read else ""))
         # The wrapper never sidesteps the shared operation's own policy decision, an explicit deny included.
         self.service.authorize_operation(access.ctx, operation, uow)
         owner = installation_owner(uow)
@@ -124,7 +128,7 @@ class LegacyReminders:
 
     def read(self, ctx, args, options, uow):
         """Bounded, stable read of the owner's reminders in exactly one scope; never touches delivery state."""
-        access, owner = self.manager(ctx, uow, shared.LIST)
+        access, owner = self.manager(ctx, uow, shared.LIST, read=True)
         ctx = access.ctx
         namespace = self.read_namespace(ctx, args)
         if args.get("scope") == "global" and ctx.business_id is not None:

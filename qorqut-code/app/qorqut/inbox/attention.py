@@ -88,14 +88,17 @@ class AttentionBoard:
         self.app.attention = self
         return self
 
-    def context(self,ctx,uow):
+    def context(self,ctx,uow,*,read=False):
+        """The owner and the configured Ordubashy curate Focus; an active global worker may also read it (``read``)."""
         ctx=self.app.current_context(replace(ctx,business_id=None,review_business_id=None),uow)
         installation=uow.repository('installation').get('service')
         if ctx.principal_kind=='human' and installation and ctx.principal_id==installation['owner_principal_id']: return ctx
         from qorqut.agents.global_peers import global_peer
-        if ctx.principal_kind!='agent' or not global_peer(uow,ctx.principal_id):
-            raise DomainError('forbidden','Focus curation requires a granted global peer or installation owner')
-        return ctx
+        if ctx.principal_kind=='agent' and global_peer(uow,ctx.principal_id): return ctx
+        from qorqut.agents.worker_access import is_worker
+        if read and ctx.principal_kind=='agent' and is_worker(uow.connection,ctx.principal_id): return ctx
+        raise DomainError('forbidden','Focus curation requires a granted global peer or installation owner'
+            +('; an active global worker may read it' if read else ''))
 
     def participants(self,ctx,uow):
         installation=uow.repository('installation').get('service')
@@ -214,7 +217,7 @@ class AttentionBoard:
                 'items':[self.projection(ctx,row,uow,private) for row in rows]}
 
     def read(self,ctx,args,uow):
-        ctx=self.context(ctx,uow)
+        ctx=self.context(ctx,uow,read=True)
         revision=uow.connection.execute("SELECT value FROM change_sequences WHERE name='focus_board'").fetchone()[0]
         if args.get('item_id'):
             row=self.row(args['item_id'],uow);value=self.projection(ctx,row,uow)

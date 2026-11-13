@@ -15,7 +15,7 @@ from qorqut_operations.application.plans import PAGE, page, schema, timestamp
 from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.global_agents import effective_business_ids, is_global_agent
-from qorqut_operations.roles import ORDUBASHY_ROLE
+from qorqut_operations.roles import GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE
 from qorqut_operations.tags.catalog import labels_by_item
 from qorqut_operations.tasks.models import snooze_view
 from qorqut_operations.tasks.scope import task_context
@@ -63,8 +63,9 @@ class TaskOverview:
         ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
         profile = uow.repository("agent_profiles", business_id=None).get(ctx.principal_id)
         if (ctx.principal_kind != "agent" or not profile or not is_global_agent(uow.connection, ctx.principal_id)
-                or profile["profile_json"]["role"]["id"] != ORDUBASHY_ROLE):
-            raise DomainError("forbidden", "Task overview requires an active ecosystem Ordubashy")
+                or profile["profile_json"]["role"]["id"] not in (ORDUBASHY_ROLE, GLOBAL_WORKER_ROLE)):
+            # Workers read what Ordubashy reads; the overview is a read, and each Task in it is still authorized below.
+            raise DomainError("forbidden", "Task overview requires an active ecosystem Ordubashy or global worker")
         ctx = task_context(ctx, {"scope": "global"}, uow)
         installation = uow.repository("installation").get("service")
         owner = uow.repository("principals").get(installation["owner_principal_id"]) if installation else None

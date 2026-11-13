@@ -118,6 +118,20 @@ class ParityHelperTests(unittest.TestCase):
             result = self.parity(role=role)
             self.assertEqual((dict(result.defaults), result.added), (WORKER_DEFAULTS, frozenset()), role)
 
+    def test_a_read_the_role_reaches_through_a_host_rule_is_mirrored(self):
+        # owner_reminders_list follows the owner_reminder grant; Ordubashy's role names only the write.
+        self.registry.register(OperationDescriptor('owner_reminders_list', {'type': 'object'}, effect_kind='read',
+            supports_signoff=False, read=lambda *a: {}, scope_kinds={'business', 'global'},
+            global_capability='read_global_context'))
+        self.registry.register(OperationDescriptor('owner_reminder', {'type': 'object'}, effect_kind='records',
+            prepare=lambda *a: None, apply=lambda *a: None, scope_kinds={'business', 'global'},
+            global_capability='read_global_context'))
+        result = self.parity(ordubashy={**ORDUBASHY_DEFAULTS, 'owner_reminder': 'allow'})
+        self.assertIn('owner_reminders_list', result.added)
+        self.assertEqual(modes(self.registry, result.defaults, {}, 'owner_reminders_list'), ('allow', 'allow'))
+        self.assertEqual(modes(self.registry, result.defaults, {}, 'owner_reminder'), ('deny', 'deny'))
+        self.assertNotIn('agent_terminal_status', result.added)
+
     def test_global_table_reads_follow_the_business_decision_for_a_worker_only(self):
         result = self.parity()
         self.assertEqual(modes(self.registry, result.defaults, {}, 'tables_get'), ('allow', 'allow'))
@@ -279,6 +293,106 @@ class PrivateAccountAccessTests(unittest.TestCase):
                              frozenset({'read_global_context'}) if reading else frozenset(), descriptor.name)
             self.assertEqual(descriptor.global_capability_selected({'read_global_context'}) is not None, reading, descriptor.name)
 
+
+
+class HandlerReadPathTests(unittest.TestCase):
+    """Handler identity gates shared by a read and a write admit an active worker on the read path only."""
+
+    def setUp(self):
+        patch('qorqut.agents.worker_access.is_worker', lambda connection, agent: agent == WORKER).start()
+        self.addCleanup(patch.stopall)
+        self.installation = {'owner_principal_id': OWNER, 'management_coordinator_id': ORDUBASHY}
+        self.uow = NS(connection=None, repository=lambda name, **kw: NS(get=lambda key: self.installation))
+
+    @staticmethod
+    def ctx(agent, kind='agent'):
+        return InvocationContext(Principal(agent, kind), global_capabilities=frozenset({'read_global_context'}))
+
+    def assert_read_only(self, check, label):
+        check(self.ctx(WORKER), True)
+        with self.assertRaises(DomainError, msg=label):
+            check(self.ctx(WORKER), False)
+        with self.assertRaises(DomainError, msg=label):
+            check(self.ctx(APPLIER), True)
+        check(self.ctx(ORDUBASHY), False)
+
+    def test_journal(self):
+        from qorqut_operations.documents.journal import JournalOperations
+        patch('qorqut_operations.documents.journal.is_global_worker', lambda connection, agent: agent == WORKER).start()
+        journal = JournalOperations(None, lambda uow: ORDUBASHY)
+        self.assert_read_only(lambda ctx, read: (journal._reader if read else journal._coordinator)(ctx, self.uow), 'journal')
+
+    def test_task_overview(self):
+        from qorqut_operations.tasks.overview import TaskOverview
+        roles = {ORDUBASHY: 'ordubashy', WORKER: 'global-worker', APPLIER: 'learning-applier'}
+        uow = NS(connection=None, repository=lambda name, **kw: NS(
+            get=lambda key: {'profile_json': {'role': {'id': roles[key]}}}))
+        overview = TaskOverview(None, NS(current_context=lambda ctx, uow: ctx))
+        passed = DomainError('passed', 'role check passed')
+
+        def refuse(*args, **kwargs):
+            raise passed
+        patch('qorqut_operations.tasks.overview.is_global_agent', lambda connection, agent: True).start()
+        patch('qorqut_operations.tasks.overview.task_context', refuse).start()
+        for agent, admitted in ((WORKER, True), (ORDUBASHY, True), (APPLIER, False)):
+            with self.assertRaises(DomainError) as raised:
+                overview.read(self.ctx(agent), {}, None, uow)
+            self.assertEqual(raised.exception.code, 'passed' if admitted else 'forbidden', agent)
+
+    def test_focus(self):
+        from qorqut.inbox.attention import AttentionBoard
+        patch('qorqut.agents.global_peers.global_peer', lambda uow, agent: agent == ORDUBASHY).start()
+        board = AttentionBoard.__new__(AttentionBoard)
+        board.app = NS(current_context=lambda ctx, uow: ctx)
+        self.assert_read_only(lambda ctx, read: board.context(ctx, self.uow, read=read), 'focus')
+
+    def test_records_health(self):
+        from qorqut.domains.records_health import RecordsHealth
+        patch('qorqut.domains.records_health.installation_owner', lambda uow: OWNER).start()
+        patch('qorqut.domains.records_health.configured_ordubashy', lambda uow: ORDUBASHY).start()
+        self.assert_read_only(lambda ctx, read: RecordsHealth.allowed(ctx, self.uow, read=read), 'records_health')
+
+    def test_owner_reminders(self):
+        from qorqut.reminders.legacy import LegacyReminders
+        from qorqut.reminders.service import Access
+        patch('qorqut.reminders.legacy.installation_owner', lambda uow: OWNER).start()
+        reminders = LegacyReminders.__new__(LegacyReminders)
+        reminders.service = NS(caller=lambda ctx, uow: Access(ctx, 'coordinator' if ctx.principal_id == ORDUBASHY else 'agent'),
+                               authorize_operation=lambda ctx, operation, uow: None)
+        self.assert_read_only(lambda ctx, read: reminders.manager(ctx, self.uow, 'reminders_list', read=read), 'reminders')
+
+    def test_project_records(self):
+        from qorqut.domains.projects import access
+        patch('qorqut.domains.projects.access.private_participants', lambda uow: (OWNER, ORDUBASHY)).start()
+        self.assert_read_only(lambda ctx, read: access.role(ctx, self.uow, read=read), 'projects')
+        self.assertEqual(access.role(self.ctx(WORKER), self.uow, read=True), 'worker')
+
+    def test_project_handlers_admit_a_worker_only_on_reads(self):
+        from qorqut.domains.projects import access
+        PROJECT, seen = '00000000-0000-4000-8000-00000000000a', {}
+        patch('qorqut.domains.projects.access.guard',
+              lambda ctx, app, uow, **kw: (seen.__setitem__(kw['operation'], kw['read']), (ctx, None))[1]).start()
+        kinds = {'project_record_get': 'read', 'project_items_list': 'read', 'project_items_link': 'records',
+                 'project_items_unlink': 'records'}
+        application = NS(current_context=lambda ctx, uow: ctx, registry=NS(get=lambda name: NS(effect_kind=kinds[name])))
+        for name in kinds:
+            access.allow(self.ctx(WORKER), {'project_id': PROJECT}, application, self.uow, project_id=PROJECT, operation=name)
+        self.assertEqual(seen, {'project_record_get': True, 'project_items_list': True, 'project_items_link': False,
+                                'project_items_unlink': False})
+
+    def test_management_intake(self):
+        from qorqut.management.service import ManagementService
+        patch('qorqut.management.identity.configured_ordubashy', lambda uow: ORDUBASHY).start()
+        service = ManagementService.__new__(ManagementService)
+        service._scope = lambda ctx, business_id, uow: None
+        patch.object(ManagementService, '_owner', staticmethod(lambda uow: OWNER)).start()
+        sender = NS(fetchone=lambda: ('00000000-0000-4000-8000-000000000009',))
+        uow = NS(connection=NS(execute=lambda *a: sender))
+        row = {'business_id': None, 'source_type': 'agent_messages', 'source_id': 'm', 'coordinator_id': ORDUBASHY}
+        self.assertTrue(service._authorized(self.ctx(WORKER), row, {}, uow, read=True))
+        self.assertFalse(service._authorized(self.ctx(WORKER), row, {}, uow))  # resolving stays with the coordinator
+        self.assertFalse(service._authorized(self.ctx(APPLIER), row, {}, uow, read=True))
+        self.assertFalse(service._authorized(self.ctx(WORKER), {**row, 'coordinator_id': APPLIER}, {}, uow, read=True))
 
 if __name__ == '__main__':
     unittest.main()

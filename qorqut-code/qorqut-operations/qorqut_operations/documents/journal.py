@@ -10,6 +10,7 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PAGE, PlanBuilder, page, schema
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.discussion.threads import RELAY, attribution
+from qorqut_operations.global_agents import is_global_worker
 from .journal_access import JOURNAL_KINDS, entries, require_writer
 
 
@@ -58,6 +59,15 @@ class JournalOperations:
                 or ctx.home_business_id is not None or ctx.business_id is not None
                 or ctx.delegation_assignment_id):
             raise DomainError("forbidden", "Journal management belongs to the configured Global Ordubashy")
+
+    def _reader(self, ctx, uow):
+        """Reading the journal: the configured Ordubashy or an active global worker (workers read what Ordubashy reads).
+        Writing it stays with Ordubashy (``_coordinator``)."""
+        if (ctx.principal_kind == "agent" and ctx.home_business_id is None and ctx.business_id is None
+                and not ctx.delegation_assignment_id
+                and (ctx.principal_id == self._coordinator_id(uow) or is_global_worker(uow.connection, ctx.principal_id))):
+            return
+        raise DomainError("forbidden", "The journal is read by the configured Global Ordubashy and global workers")
 
     def writer(self, ctx, args, operation, uow):
         self._coordinator(ctx, uow)
@@ -115,7 +125,7 @@ class JournalOperations:
         return row
 
     def read_list(self, ctx, args, uow):
-        self._coordinator(ctx, uow)
+        self._reader(ctx, uow)
         found = [row for row in entries(uow)
                  if row["metadata_json"].get("ordubashy_visible", True) is True
                  and (not row["business_id"] or row["business_id"] in ctx.allowed_business_ids)]
@@ -129,7 +139,7 @@ class JournalOperations:
                 "instruction": instruction_text('journal-list-next-step')}
 
     def read_entry(self, ctx, args, uow):
-        self._coordinator(ctx, uow)
+        self._reader(ctx, uow)
         row = self._entry(ctx, args["document_id"], uow)
         view = self.store.view(row, uow)
         metadata = view["metadata"]

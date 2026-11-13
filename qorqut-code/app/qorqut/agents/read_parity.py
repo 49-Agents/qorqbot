@@ -4,7 +4,8 @@ An active global worker starts from its own pinned role defaults. Every operatio
 role allows by default, that the worker role does not name, that is a plain read (``effect_kind == "read"``) and that
 is not owner-only, is added to those defaults as ``allow``. Nothing else changes:
 
-* only the Ordubashy *role* is mirrored, never Ordubashy's own profile overrides;
+* only the Ordubashy *role* is mirrored, never Ordubashy's own profile overrides; a read the role reaches through a host
+  rule (a read that follows a grant the role holds) counts as one the role allows;
 * writes are never added. Some host rules decide a non-read operation from a read grant (following an Action or a
   Table follows its read grant); every such operation keeps the mode it had before, pinned as a worker default, so a
   read added here never admits a worker to anything else;
@@ -32,8 +33,10 @@ from .roles import GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE
 # - request_user_input asks the owner directly (a role rule already keeps it to Ordubashy and Learning Applier);
 # - owner_conversation_get is the private owner <-> Ordubashy conversation, pending an owner decision;
 # - attention_workflow_context signs a workflow binding for Ordubashy's own native session; it is session machinery,
-#   not a data read, and its handler admits only the configured Ordubashy.
-PARITY_EXCLUDED = frozenset({"environment_get", "request_user_input", "owner_conversation_get", "attention_workflow_context"})
+#   not a data read, and its handler admits only the configured Ordubashy;
+# - agent_terminal_status is terminal control, which stays with Ordubashy (role rule and plugin).
+PARITY_EXCLUDED = frozenset({"environment_get", "request_user_input", "owner_conversation_get", "attention_workflow_context",
+                             "agent_terminal_status"})
 SCOPES = ("business", "global")
 CURRENT = object()  # "read the configured Ordubashy's current role pin"
 CACHE_LIMIT = 64
@@ -76,15 +79,30 @@ def role_defaults(catalog, ref, connection) -> Mapping[str, str] | None:
 
 
 def parity_reads(worker_defaults: Mapping[str, str], ordubashy_defaults: Mapping[str, str], registry) -> frozenset[str]:
-    """The reads Ordubashy's role allows that the worker role does not name."""
-    added = set()
-    for name, mode in ordubashy_defaults.items():
-        if mode != "allow" or name in worker_defaults or name in PARITY_EXCLUDED or not registry.known(name):
-            continue
+    """The reads Ordubashy's role allows that the worker role does not name.
+
+    A read the role names as ``allow`` counts, and so does one the role reaches through a host rule in both namespaces
+    (``owner_reminders_list`` follows the ``owner_reminder`` grant) where the worker role does not already allow it."""
+    from qorqut.composition.policy import resolve_operation_policy
+
+    def eligible(name):
+        if name in worker_defaults or name in PARITY_EXCLUDED or not registry.known(name):
+            return False
         if registry.canonical_name(name) != name:
-            continue
+            return False
         metadata = registry.metadata(name)
-        if metadata.effect_kind == "read" and not metadata.owner_only:
+        return metadata.effect_kind == "read" and not metadata.owner_only
+
+    def allowed(name, defaults, role_id):
+        return all(resolve_operation_policy(name, defaults, {}, registry, role_id=role_id, scope=scope).mode == "allow"
+                   for scope in SCOPES)
+
+    added = {name for name, mode in ordubashy_defaults.items() if mode == "allow" and eligible(name)}
+    for metadata in registry.entries():
+        name = metadata.name
+        if (name not in added and name not in ordubashy_defaults and eligible(name)
+                and allowed(name, ordubashy_defaults, ORDUBASHY_ROLE)
+                and not allowed(name, worker_defaults, GLOBAL_WORKER_ROLE)):
             added.add(name)
     return frozenset(added)
 
