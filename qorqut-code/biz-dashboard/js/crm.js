@@ -70,14 +70,6 @@ function crmOpenRecord(entry, {onClosed = null} = {}) {
     }});
   return dialog;
 }
-// Pinning is presentation only: it presents the actual Task on Focus and changes nothing about the Table or the Task.
-async function crmPinRecord(ref) {
-  await crmCall(null, 'focus_present', {source: {type: 'task', id: ref.id, business_id: ref.business_id ?? null}, idempotency_key: newRequestId()});
-}
-async function crmPinTable(table) {
-  await crmCall(null, 'focus_present', {source: {type: 'table', id: table.id, business_id: table.business_id ?? null}, idempotency_key: newRequestId()});
-}
-
 // ---------------------------------------------------------------- Table team thread
 // The shared team discussion of a Table. It is never the owner's private conversation: that keeps its own tab and
 // draft. The draft below is keyed by Table scope so it survives a re-render, and a failed send keeps it.

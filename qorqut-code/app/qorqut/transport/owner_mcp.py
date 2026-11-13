@@ -74,19 +74,6 @@ class OwnerSessionCaller:
             raise DomainError("forbidden", "Owner sessions cannot select Global operational scope")
         if canonical_name == "agents_message_recipients" and args.get("all_businesses"):
             raise DomainError("forbidden", "Owner-session recipients are limited to the bound project")
-        if canonical_name == "tasks_create" and "focus" in args:
-            def in_business(value):
-                if isinstance(value, dict):
-                    if value.get("scope") == "global":
-                        return False
-                    if "business_id" in value and value["business_id"] not in (None, actor.business_id):
-                        return False
-                    return all(in_business(item) for item in value.values())
-                if isinstance(value, list):
-                    return all(in_business(item) for item in value)
-                return True
-            if not in_business(args["focus"]):
-                raise DomainError("forbidden", "Task focus must remain inside the owner-session project")
 
     def validate_options(self, actor, canonical_name, options):
         for value in (options.business_id, options.review_business_id):

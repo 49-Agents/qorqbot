@@ -357,45 +357,6 @@
     },
     {
       "source_repository": "agent-roles",
-      "source_commit": "c367375ba43aea84a333067377c4e9654f3f9e99",
-      "source_path": "skills/owner-focus/SKILL.md",
-      "defaults_path": "operations/imported-role-skills/native/skills/owner-focus/SKILL.md",
-      "source_sha256": "035742b18aebdc7a0b141957b6232abf42c970b66f08c3769183848f9d3e9ddf",
-      "defaults_sha256": "fd0850d26ed993be6c23adeab9f5ceb7ffe61fe781add1aa19a57f007a34c48a",
-      "old_ref": "imported-roles/asset-b200e2018e7701f089c9",
-      "new_ref": "imported-role-skills/asset-b200e2018e7701f089c9",
-      "transformation": "Retain corrected private record channels and source kinds, relay and acknowledgement rules alongside current Pinned and Attention separation. Apply the same narrow completion-guidance correction: replace the obsolete whole-board completion-hook snapshot with targeted updates of affected Focus cards.",
-      "previous_sources": [
-        {
-          "source_repository": "agent-roles",
-          "source_commit": "ecfb8cc1101e4202aab27b56bfacf853b733072c",
-          "source_path": "skills/owner-focus/SKILL.md",
-          "source_sha256": "4b0d129d86e1891971013cba9375afb3f7b86cef44462d26efafd46235ebf422",
-          "defaults_sha256": "6cff7b8ef0d44b38969447366eeeda2dc989c63a2edc84626e413cd904023883",
-          "transformation": "Correct the private record channel and source kinds to owner and Ordubashy while preserving relay and acknowledgement rules."
-        },
-        {
-          "source_repository": "agent-roles",
-          "source_commit": "58939c7f56d1ff4c8332248fdc8501f431a80f1a",
-          "source_path": "skills/owner-focus/SKILL.md",
-          "source_sha256": "c1fc51a047ea7ef8d0a6960f45c84aac86773f1dc367a8318772bf3c12ba02f2",
-          "defaults_sha256": "496145d1dcfd6028d0442986c0dabf11e61f4e8286e3ca693503b7698f43d756",
-          "transformation": "Retain corrected private record channels and source kinds, relay and acknowledgement rules alongside current Pinned and Attention separation."
-        }
-      ]
-    },
-    {
-      "source_repository": "agent-roles",
-      "source_commit": "ecfb8cc1101e4202aab27b56bfacf853b733072c",
-      "source_path": "skills/owner-focus/references/browser-input.md",
-      "defaults_path": "operations/imported-role-skills/native/skills/owner-focus/references/browser-input.md",
-      "source_sha256": "14eeb31fb87cd2550b66a51e4a3483a68eabd27edf3777e5966332cae41fc425",
-      "defaults_sha256": "14eeb31fb87cd2550b66a51e4a3483a68eabd27edf3777e5966332cae41fc425",
-      "old_ref": null,
-      "new_ref": null
-    },
-    {
-      "source_repository": "agent-roles",
       "source_commit": "660282bd36a7d565b841d95996a1c1d816606f34",
       "source_path": "skills/owner-input/SKILL.md",
       "defaults_path": "operations/imported-role-skills/native/skills/owner-input/SKILL.md",
@@ -698,11 +659,6 @@
             "id": "business-operations",
             "from": "skills/business-operations/SKILL.md",
             "to": "operations/imported-role-skills/native/skills/business-operations/SKILL.md"
-          },
-          {
-            "id": "owner-focus",
-            "from": "skills/owner-focus/SKILL.md",
-            "to": "operations/imported-role-skills/native/skills/owner-focus/SKILL.md"
           },
           {
             "id": "browser-control",

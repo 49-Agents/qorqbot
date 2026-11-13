@@ -1,4 +1,4 @@
-"""The host's side of the engine's Tasks: who may be assigned, Focus, incident links, note references, routing.
+"""The host's side of the engine's Tasks: who may be assigned, incident links, note references, routing.
 
 The Task flow itself (states, fields, parents, dependencies, tags, discussion, follows, events, snooze) is the Operations
 engine's ``TaskOperations``. Each class here answers one typed ``TaskPorts`` part with the retained v1 host rule; none
@@ -19,7 +19,6 @@ from qorqut_operations.tasks.scope import task_namespace
 from qorqut.agents.contact import owner_directed_target
 from qorqut.agents.roles import LEARNING_APPLIER_ROLE
 from qorqut.domains.dev_tickets import DevTickets
-from qorqut.inbox import attention
 from qorqut.inbox.owner_tasks import ordubashies, tasks as owner_task_rows
 from qorqut.management.identity import configured_ordubashy
 from qorqut_operations.inbox.related import subscribers as related_subscribers
@@ -68,21 +67,6 @@ class HostAssignees:
     def worker_excluded(self, ctx, identity, uow):
         profile = uow.repository("agent_profiles", business_id=None).get(identity)
         return bool(profile and (profile.get("profile_json") or {}).get("role", {}).get("id") == LEARNING_APPLIER_ROLE)
-
-
-class HostFocus:
-    """Owner Focus presentation of a newly created Task (the attention board, installed on the application)."""
-
-    schema = attention.FIELDS
-
-    def __init__(self, application):
-        self.application = application
-
-    def creation_access(self, ctx, focus, uow):
-        attention.creation_access(self.application, ctx, focus, uow)
-
-    def present_created(self, ctx, focus, item, uow):
-        attention.present_created(self.application, ctx, focus, item, uow)
 
 
 class HostIncidents:
@@ -237,10 +221,10 @@ class HostRouting:
 
 
 def task_ports(application, derivations=()) -> TaskPorts:
-    return TaskPorts(assignees=HostAssignees(), focus=HostFocus(application), incidents=HostIncidents(),
+    return TaskPorts(assignees=HostAssignees(), incidents=HostIncidents(),
                      references=HostNoteReferences(application, derivations), routing=HostRouting(),
                      boards=HostBoards(application))
 
 
-__all__ = ["HostAssignees", "HostBoards", "HostFocus", "HostIncidents", "HostNoteReferences", "HostRouting", "NOTE_REFS",
+__all__ = ["HostAssignees", "HostBoards", "HostIncidents", "HostNoteReferences", "HostRouting", "NOTE_REFS",
            "NOTE_REF_TYPES", "email_reference", "task_ports"]

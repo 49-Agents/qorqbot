@@ -17,9 +17,10 @@ height, and shows exactly one full-width pane:
   the private conversation. All rows start collapsed.
 
 The Focus header leads with a pill Close (the same control a Browser/Desktop surface
-carries; there is no back-to-Pinned control), then Back, the canonical title, the
-record-type icon tab, the Chat icon tab (only when the source has a private thread),
-and an Activity icon tab for task-backed records.
+carries), then Back, the canonical title, a pin button (only when the source has a
+private thread; it pins that thread to Focus's launcher row), the record-type icon tab,
+the Chat icon tab (only when the source has a private thread), and an Activity icon tab
+for task-backed records.
 Elsewhere the workspace keeps Close as its trailing icon. A record with no thread (an
 email reading, table, document or generic reference) opens its reader directly and has
 no Chat tab. Related records open in the same workspace on a bounded stack (20 entries), so Back
@@ -175,7 +176,7 @@ composer per record. Approve/Reject/Respond remain the canonical controls.
 
 - the Project's **real name** (a Focus display-name override never renames it), summary,
   archived marker and a Link-existing-item action. A rename from the authoritative
-  `project_record_get` updates the workspace header, Focus card and Threads row without
+  `project_record_get` updates the workspace header and Threads row without
   changing the source identity;
 - sections Work, Signoffs, Actions, Documents, Tables, Automation, Other, lazily loaded
   and independently paged (25 rows per read) with `project_items_list`;
@@ -195,24 +196,12 @@ idempotency key shared by an uncertain retry. `project_items_unlink` sends `link
 `material`/`person`/`topic` (the existing neutral resolver), not a fabricated `document`
 kind; "Document" is only a presentation label for the Documents section.
 
-A Project is **pinned on Focus only explicitly** via Add to Focus → Existing Project,
-which sends `focus_present` with `{scope:"global", source:{type:"project", id,
-business_id}}`. Reading a Project or its inventory never pins it.
-
-Project expansion on the Focus board is separate: its chevron lazily reads
-`project_items_list` with `section:"work"`, `root_tasks_only:true` and 25 rows per page.
-Expansion is collapsed by default and never triggered by selecting the Project. Derived
-rows carry their target's own scope, deduplicate by `type + scope + id`, and open the
-target record; they are not Focus cards and cannot be pinned, moved or snoozed. Archived
-derived work follows the board's Archived filter, and the project expansion does not
-poll.
-
 ### Readers
 
 A Focus Reference resolves its current target through the authorized `focus_get` when
 its cached DTO has no URL, then keeps the sandboxed frame reader and both tabs (Chat and
 dashboard) when the reference has a private thread. Entering a Reference through a chat
-reference (not only a Focus card) uses the same authorized DTO to derive `can_thread`;
+reference uses the same authorized DTO to derive `can_thread`;
 the existing private Chat tab/binding is retained rather than forced off.
 
 Project inventory items use the authorized `project_item_get` read model. Its
@@ -315,7 +304,6 @@ All calls are synthetic-tested; the UI never invents data.
 | `dev_tickets_list` | Existing owner-only root read narrowed to one standalone Dev report (`ticket_id`, `status:"all"`, `details:true`); no queue UI or writes |
 | `project_items_link` | Explicit association, idempotency key |
 | `project_items_unlink` | Explicit association removal, link id + expected revision |
-| `focus_present` | Explicit Project pin with the canonical Project source |
 
 Routine history and job detail use the existing `routines_runs` (`{items,
 next_cursor}`) and `jobs_get` (`{job, details_available}`) reads with the routine/job's

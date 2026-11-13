@@ -155,7 +155,7 @@ signoff, notes, or working memory. Do not bypass two-factor authentication.
 After the owner's response, verify that access works before resuming; the response
 is not permission for an otherwise protected action.
 
-Review the existing Focus board and relevant parent Task context during owner-attention
+Review relevant parent Task context during owner-attention
 triage. parent Tasks include continuing product/repository work, client relationships,
 contracts and projects. Reuse existing context, carry explicit links
 per work item and keep situation/next step concise. Child tasks, substories and

@@ -107,7 +107,7 @@ class ActionEvidenceTests(unittest.TestCase):
         lookup = NS(resource=noop, resolve=noop, relationship_item=noop, fingerprint=noop)
         items = ItemResolver(self.app, [ItemContribution("test", ("task",), lookup)], candidates=NS(candidates=lambda *_: []))
         ports = TaskPorts(assignees=NS(protect=noop, owner_directed=lambda *_: False, worker_excluded=lambda *_: False),
-            focus=NS(schema={}, creation_access=noop, present_created=noop), incidents=NS(link_task=noop),
+            incidents=NS(link_task=noop),
             references=NS(types=(), host_types=(), resolve=noop, derived=noop),
             routing=NS(routes=lambda *_: ((), ()), snooze_routes=lambda *_: ()))
         self.tasks = TaskOperations(self.app, items, ports)

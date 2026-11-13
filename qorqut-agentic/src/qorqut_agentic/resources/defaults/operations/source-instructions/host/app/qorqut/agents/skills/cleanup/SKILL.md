@@ -1,6 +1,6 @@
 ---
 name: qorqut-cleanup
-description: Reconcile this prepared agent’s operational work when the user asks to clean up its inbox, commitments, tasks, subscriptions, Focus, or current activity. This does not clean files, caches, or Git state.
+description: Reconcile this prepared agent’s operational work when the user asks to clean up its inbox, commitments, tasks, subscriptions, or current activity. This does not clean files, caches, or Git state.
 ---
 
 # Clean up operational work
@@ -41,7 +41,7 @@ what remains, and how to continue from verified cursors or unresolved IDs.
    reconcile history and receipts before retrying. No external sends, financial
    commitments, Signoff decisions, or redundant all-clear messages.
 
-## Retire subscriptions and tidy Focus
+## Retire subscriptions
 
 4. List authorized inbox subscriptions after reconciling messages. Remove only
    obsolete manual follows with the exact `subscription_id`, when the source is
@@ -51,15 +51,7 @@ what remains, and how to continue from verified cursors or unresolved IDs.
    removed; a manual-plus-automatic row loses only its manual follow. Never
    unassign work or change automatic-follow policy to empty the list. The list
    has no pagination; do not invent cursors. Retain ambiguity and report it.
-5. If you have Focus authority, read selected cards with `focus_get` summary
-   for explicit card-only edits; read conversations and full source evidence
-   when needed to decide whether work is resolved. Archive clearly resolved cards with
-   `focus_set_archived`, or correct stale
-   status/blocker text using current revisions. Keep real decisions and waiting
-   work. Respect owner intent, holds and deferrals through documented fields;
-   do not invent a pin field. Archiving is not deletion or source completion. If
-   Focus access is unavailable, skip this section and report the coverage limit.
-6. Ordubashy reconciles Todo and its item threads; do not create or clear a second session work list. A closed Task leaves Todo by itself; never take blocked work off a board as cleanup. The remaining session-list procedure is for other agents only. Read `agents_activity_list(session_id=your_native_session_id)` in the
+5. Ordubashy reconciles Todo and its item threads; do not create or clear a second session work list. A closed Task leaves Todo by itself; never take blocked work off a board as cleanup. The remaining session-list procedure is for other agents only. Read `agents_activity_list(session_id=your_native_session_id)` in the
    intended authorized scope for `work_revision` and parallel `item_keys`.
    Remove resolved items using `agent_work_update(patch=[{action:"remove",
    item_key:...}], expected_work_revision=...)`; preserve unrelated and unreadable

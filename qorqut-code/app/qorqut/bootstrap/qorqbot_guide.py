@@ -78,9 +78,9 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
     in Claude Code, `/model sonnet` with a name just switches the model. An agent running in the shared Codex app cannot
     run Codex commands from Chat (Chat says so and sends nothing); run them in the agent's Terminal.
 - **Ordubashy's right-hand pane** has tabs:
-  - **Focus**: what needs the owner in one place. Signoffs waiting on the owner, due reminders and calendar alerts show
-    as chips across the top; below are side chats and the tasks and records the owner has pinned. It does not show
-    calendar events.
+  - **Focus**: what needs the owner in one place. The top row holds side chats and the threads the owner pinned;
+    Signoffs waiting on the owner, due reminders and calendar alerts show as chips below it; the rest is the owner's
+    personal notes, which agents cannot read or write. It does not show calendar events.
   - **Todo**: the work on Ordubashy's board, the owner's and the agents'. The person icon shows only the owner's tasks.
   - **Calendar**: day, 3-day and week views, **Add event**, **My calendars**. It shows events only once Google Calendar
     is connected (see Calendar below).
@@ -99,7 +99,6 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
   **Submit**.
 - **Reminders**: ask an agent to remind you, once or repeating. Due reminders show as bell chips at the top of Focus.
 - **Tasks** live in projects. Click the status circle to change a task's state, or the row to open it.
-- **Tables and CRM** open from pinned cards in Focus.
 
 ## Projects
 

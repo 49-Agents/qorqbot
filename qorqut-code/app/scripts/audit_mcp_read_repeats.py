@@ -17,7 +17,7 @@ if __package__ in {None, ""}:
 from scripts.audit_mcp_context import envelopes, json_objects, text_content
 from scripts.measure_mcp_tool_read_efficiency import tokens
 
-READS = frozenset({"focus_get", "agents_activity_list", "agent_config_get", "tasks_get",
+READS = frozenset({"agents_activity_list", "agent_config_get", "tasks_get",
                   "tasks_list", "tasks_overview", "tasks_notes_list", "inbox_list",
                   "agents_messages_list", "signoffs_list", "signoffs_get"})
 PREFIX = "mcp__qorqut__"

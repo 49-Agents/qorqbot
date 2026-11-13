@@ -1,16 +1,16 @@
-"""Owner-only personal text blocks on the Focus board, kept outside Focus cards, tasks and every agent's context.
+"""Owner-only personal notes on the Focus tab, kept outside tasks and every agent's context.
 
-A block is free plain text (a heading, a note, blank spacing) that the installation owner places among the shared Focus cards of
-one agent's pane. It is a dashboard layout preference: it creates no card, task, Signoff, message or notification, changes no
-Focus revision and is read by no agent or model. Each owner's layouts live in one private, bounded file under the runtime's
-dashboard-preferences directory, outside versioned releases, the operational database and Git history; each agent has its own
-independent layout and revision inside it.
+The dashboard shows one plain text area per agent pane and saves it as a single block. Older layouts may still hold several
+blocks (they were once placed among Focus cards); the dashboard reads those as one text and saves them back as one block. The
+notes are a dashboard preference: they create no card, task, Signoff, message or notification and are read by no agent or
+model. Each owner's layouts live in one private, bounded file under the runtime's dashboard-preferences directory, outside
+versioned releases, the operational database and Git history; each agent has its own independent layout and revision inside it.
+A layout that was never saved reads as revision 0 with no blocks, which the dashboard shows as a first-start sample text.
 
 Every save names the revision it was based on. A save whose blocks equal the stored ones succeeds unchanged whatever revision it
 names, so a retry after a lost response is harmless; any other stale save is a ``revision_conflict`` and writes nothing. A
-block's ``before_id`` and ``after_id`` are root Focus card IDs. They are never checked against the board, so a card that is
-archived, postponed, removed or on another page never deletes a note; ``card_ids`` (computed on every read, never stored) tells
-the client which anchors are still on the board under the requested filters.
+block's ``before_id`` and ``after_id`` are kept for older layouts and never checked; ``card_ids`` (computed on every read,
+never stored) still lists the stored Focus card IDs for compatibility.
 """
 import fcntl
 import hashlib
@@ -32,7 +32,7 @@ from qorqut.management.identity import is_active_installation_owner
 logger = logging.getLogger(__name__)
 
 MAX_BLOCKS = 200
-MAX_TEXT = 8000
+MAX_TEXT = 100000
 MAX_REQUEST_BYTES = 1024 * 1024
 MAX_AGENTS = 100
 MAX_STORE_BYTES = 32 * 1024 * 1024

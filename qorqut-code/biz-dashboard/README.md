@@ -173,31 +173,29 @@ rollback contract is in the host's [`docs/INSTALLATION.md`](../docs/INSTALLATION
 
 ## Focus, attention and conversations
 
-Focus is the first tab of Ordubashy's pane: a compact, owner-ordered board of
-persistent cards over Tasks, Signoffs and URL references.
+Focus is the first tab of Ordubashy's pane. Below the launcher row it is the owner's
+own notes: one plain text area (`js/focus-text.js`), saved per agent pane through
+`/root/agents/<id>/focus-layout` with revision checks. Until the owner saves anything it
+shows "Your notes here"; after that it keeps exactly what they left, even empty. No agent
+reads or writes the notes, and agents cannot place anything on Focus. Check:
+`node --test tests/focus-notes.test.js`.
 
-- Rows lead with a status circle or type marker, a project chip (a globe for Global),
-  the title and a snooze control. The owner alone orders rows (drag by the marker or
-  Alt+Up/Down) with revision checks and a frozen idempotency key; server order stays
-  authoritative. Archived and Postponed are filters beside the refresh icon, and nested
-  child Tasks follow the Archived toggle at every depth.
-- Snooze presets are 1h, 3h, Tomorrow, Day after tomorrow, Saturday, Monday, In a
-  week and In 2 weeks; hour choices are elapsed time and calendar choices are 6 AM
-  San Juan time. Check: `node tests/test_focus_snooze_presets.js`.
-- Clicking a row expands that record in the board, under the persistent launcher row,
-  and fills the board's height; Ctrl/Cmd+click opens the source in a new tab. Its
-  header leads with a pill Close (there is no back-to-Pinned control), and Chat is the
-  fresh-selection default; the record-type icon tab shows that record's full-width
-  dashboard, Back restores a prior record's tab and edits, and Escape closes. The agent
-  Chat beside the pane keeps running while a record is open. There is no worker, peer or
-  agent-discussion channel.
+- Threads open as a record in the board, under the launcher row, and fill the board's
+  height. The header leads with a pill Close, and Chat is the fresh-selection default;
+  the record-type icon tab shows that record's full-width dashboard, Back restores a
+  prior record's tab and edits, and Escape closes. The agent Chat beside the pane keeps
+  running while a record is open. Thread messages render like the main Chat: no box,
+  no avatars, the same size, and sender names only when more than one agent replied.
   Reads and sends use `owner_conversation_get`, `owner_conversation_send` and
   `owner_conversation_mark_read`; only a visible Chat selection/load through the latest
   sequence acknowledges it. Source-keyed drafts survive closing and reopening the record. See
-  [the record workspace](docs/RECORD-WORKSPACE.md). Checks:
-  `tests/test_private_channels_browser.js`, `tests/test_record_workspace_browser.js`,
-  `tests/test_focus_conversations_browser.js`.
-- The launcher row includes open side chats; a separate row below it holds pending
+  [the record workspace](docs/RECORD-WORKSPACE.md).
+- The pin button in a thread's header pins that thread to the launcher row, after the
+  open side chats; the chip shows unread replies, opens the thread, and a right-click
+  unpins it. Pins are owner-only presentation saved per owner (`GET/POST
+  /api/root/thread-pins`, at most 50). Checks: `node --test tests/side-chat-focus.test.js`,
+  `python -m unittest tests.test_thread_pins` (from `app/`).
+- The launcher row includes open side chats and pinned threads; a separate row below it holds pending
   Signoffs, due reminders and recovery actions (`/root/attention-queue`). Reply
   notifications poll `/root/reply-notifications` every 10 seconds while visible and
   every 30 seconds hidden. Checks: `tests/test_attention_queue_browser.js`,
@@ -223,7 +221,7 @@ persistent cards over Tasks, Signoffs and URL references.
   dashboards use one Save/Discard guard for Close, Back, stack eviction and a fresh root
   selection; failed saves keep their retry UI. A Project dashboard lists every inventory
   section, filters Closed/Archived separately, revalidates the visible section, links/
-  unlinks only explicit associations and pins on Focus only when the owner adds it.
+  unlinks only explicit associations.
   Canonical Action/document/table readers and Project per-family envelopes stay in the
   pane. Reminders open as a safe text/schedule/state reader; automation items are routines
   whose runs page through the scoped `routines_runs`, with job detail only through
@@ -232,7 +230,7 @@ persistent cards over Tasks, Signoffs and URL references.
   `tests/test_global_tasks_browser.js`, `tests/test_business_tasks_browser.js`,
   `tests/test_task_links_browser.js`, `tests/test_record_panels_browser.js`,
   `tests/test_record_panels_focus_browser.js`.
-- Focus snooze, Task snoozing (Active/Snoozed/All), assignees and dependencies use
+- Task snoozing (Active/Snoozed/All), assignees and dependencies use
   anchored popovers. Check: `node tests/test_task_controls_browser.js`.
 
 ### Chat

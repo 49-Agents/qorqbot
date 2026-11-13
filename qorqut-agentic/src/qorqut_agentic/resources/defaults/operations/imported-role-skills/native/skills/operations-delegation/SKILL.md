@@ -22,8 +22,7 @@ They do not get authority from being assigned a task or receiving a message.
 ## Selected assignments
 
 A saved assignment may cover a short isolated chore as well as continuing work. Batch
-related microsteps into one outcome; use one writer for overlapping records or Focus
-ordering. Selecting one does not change anyone's responsibility or expand authority for
+related microsteps into one outcome; use one writer for overlapping records. Selecting one does not change anyone's responsibility or expand authority for
 a task.
 
 Use a native Codex subagent only when the owner explicitly requests a
@@ -175,8 +174,7 @@ internal recipients if supported, constraints, explicit stop/wake conditions,
 success evidence, retry/action/turn/time budgets, and escalation rules. Grant
 only installed operations necessary for the plan. Do not include batch,
 Signoff, owner-only, platform-action, grant-management, or external-send
-operations. Avoid overlapping writers; serialize Focus ordering and shared
-record updates.
+operations. Avoid overlapping writers; serialize shared record updates.
 
 If native spawning reports `Unknown model`, report the stale startup model catalog
 and request its refresh; do not substitute another model.
@@ -225,12 +223,6 @@ assignees unless the plan explicitly changes them. Keep Global tasks in Global
 and project tasks in their owning project. Verify task IDs and revisions. Filing
 is not proof of work completion. Record a technical blocker's concrete error and
 evidence on the existing task, with who acts next.
-
-**Focus maintenance.** Read each card and its canonical source. Apply only the
-approved names, action text, status and ordering. Archive only under explicit
-criteria when no owner action or review remains. One writer owns ordering.
-Focus visibility never completes a task or decides a Signoff. Return ambiguous
-priorities to the parent agent.
 
 **Notifications.** The parent agent remains the sole consumer of its own agent inbox and owns the
 delivery ledger. When the compatible dispatcher is active, it routes only an

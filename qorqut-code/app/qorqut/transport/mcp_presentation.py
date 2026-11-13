@@ -17,22 +17,17 @@ from qorqut_operations.contracts import DomainError
 
 
 TASK_WRITES = frozenset({"tasks_create", "tasks_update", "tasks_assign", "tasks_complete", "tasks_comment", "tasks_delegate"})
-# Card writes return the touched card's identity/revision; focus_reply keeps its
-# note-thread payload because the new note is the receipt. The legacy
-# focus_show/focus_clear/focus_browser_input trio always answers upgrade_required
-# and is deliberately not projected.
-FOCUS_CARD_WRITES = frozenset({"focus_present", "focus_edit", "focus_move", "focus_set_archived"})
 SIGNOFF_COMPLETION_WRITES = frozenset({
     "signoffs_reject", "signoffs_input_cancel", "signoffs_input_answer_delegated"})
-RECEIPT_WRITES = frozenset({"agents_message_send", "signoffs_input_create"}) | FOCUS_CARD_WRITES
+RECEIPT_WRITES = frozenset({"agents_message_send", "signoffs_input_create"})
 INDEX_READS = frozenset({"signoffs_list", "signoffs_get", "inbox_list", "agents_activity_list",
     "agents_messages_list", "agents_message_recipients", "broadcast_recipients", "tables_rows_list",
     "tasks_get", "tasks_notes_list", "operations_describe"})
 # Already-lean reads gain default elision and the full-detail escape hatch only.
-ELIDE_ONLY_READS = frozenset({"tasks_overview", "focus_get", "assignees_list", "tables_list"})
+ELIDE_ONLY_READS = frozenset({"tasks_overview", "assignees_list", "tables_list"})
 COMPACT_OPERATIONS = (TASK_WRITES | RECEIPT_WRITES | INDEX_READS | SIGNOFF_COMPLETION_WRITES
     | ELIDE_ONLY_READS | {"tasks_list", "tables_rows_write", "agent_config_get"})
-SUMMARY_OPERATIONS = frozenset({"focus_get", "agents_activity_list"})
+SUMMARY_OPERATIONS = frozenset({"agents_activity_list"})
 DETAIL_SCHEMA = {"enum": ["compact", "full", "text"], "default": "compact",
     "description": instruction_text('mcp-presentation-compact-receipt-index-by-default-platform-defaults')}
 SUMMARY_DETAIL_SCHEMA = {"enum": ["compact", "summary", "full", "text"], "default": "compact",
@@ -71,7 +66,6 @@ SIGNOFF_FIELDS = ("id", "review_business_id", "review_scope", "proposal_revision
     "initiated_by_principal_id", "initiated_by_display_name", "attention", "job_id",
     "created_at", "updated_at", "updated_sequence", "supersedes_id", "superseded_by_id", "legacy_review_routing")
 MESSAGE_RECEIPT_FIELDS = ("id", "event_id", "thread_id", "created_at", "recipient_id", "recipient_name", "terminal_delivery")
-FOCUS_ITEM_FIELDS = ("id", "revision", "archived", "unavailable")
 # Index rows keep identities/revisions the agent passes back and the human-readable
 # columns; duplicated identity spellings, per-row attribution and echoed parent IDs
 # are read through the full-detail escape hatch or the record's own read tool.
@@ -192,8 +186,6 @@ def split_detail(name, arguments):
                else DETAIL_SCHEMA["enum"])
     if detail not in choices:
         raise DomainError("validation_error", "response_detail must be " + ", ".join(choices))
-    if name == "focus_get" and detail == "summary" and arguments.get("conversation"):
-        raise DomainError("validation_error", "response_detail=summary does not include conversations; omit conversation or use compact/full")
     return arguments, detail
 
 
@@ -316,8 +308,6 @@ def description(name):
         return instruction_text('mcp-presentation-returns-a-delivery-receipt-message-thread-event')
     if name == "signoffs_input_create":
         return instruction_text('mcp-presentation-returns-the-created-signoff-s-status-index')
-    if name in FOCUS_CARD_WRITES:
-        return instruction_text('mcp-presentation-returns-a-compact-focus-receipt-with-revisions')
     if name in SUMMARY_OPERATIONS:
         return instruction_text('mcp-presentation-compact-index-by-default-response-detail-summary')
     if name == "tasks_get":
@@ -327,44 +317,6 @@ def description(name):
     if name in INDEX_READS or name in ELIDE_ONLY_READS:
         return instruction_text('mcp-presentation-compact-index-omitted-fields-are-empty-or')
     return ""
-
-
-def _focus_summary_item(item):
-    """Project one board card without conflating a source and a Reference."""
-    if not isinstance(item, dict):
-        return item
-    # Domain redaction deliberately withholds the type and scope. Do not turn
-    # an inaccessible card into an apparently Global Reference.
-    if item.get("unavailable"):
-        return select(item, ("id", "revision", "archived", "unavailable"))
-    source = item.get("source")
-    context = item.get("context")
-    binding = source or context or {}
-    business_id = binding.get("business_id") if isinstance(binding, dict) else None
-    result = select(item, ("id", "revision", "position", "archived", "unavailable",
-        "display_name", "label", "reason", "requested_response", "blocker", "urgent",
-        "deferred_until", "private_unread", "private_message_count"))
-    result["title"] = item.get("display_name") or item.get("label") or (
-        item.get("reference", {}).get("title") if isinstance(item.get("reference"), dict) else "")
-    result.pop("display_name", None)
-    result.pop("label", None)
-    result["card_kind"] = "source" if isinstance(source, dict) else "reference"
-    result["scope"] = {"kind": "global" if business_id is None else "business",
-                        "business_id": business_id}
-    if item.get("context_business_slug"):
-        result["scope"]["business_slug"] = item["context_business_slug"]
-    if isinstance(source, dict):
-        result["source"] = source
-        result["source_state"] = item.get("state")
-        result["source_revision"] = item.get("source_revision")
-    else:
-        # Keep the opening target and conversation context as separate typed
-        # objects. The target is deliberately not replaced with context.
-        result["reference"] = select(item.get("reference", {}), ("key", "title", "target"))
-        if isinstance(context, dict):
-            result["context"] = context
-            result["context_revision"] = item.get("source_revision")
-    return result
 
 
 def _signoff_completion(signoff):
@@ -515,7 +467,7 @@ def _preserved_keys(name, detail):
         preserved.update({"error", "apply_result"})
     if name == "agents_activity_list":
         preserved.update({"items", "item_keys"})
-    if detail == "summary" and name in {"focus_get", "agents_activity_list"}:
+    if detail == "summary" and name == "agents_activity_list":
         preserved.update({"items", "checkpoint_findings", "context", "reference", "scope"})
         preserved.update({"next_cursor", "next_offset", "has_more"})
         preserved.add("business_id")
@@ -527,9 +479,6 @@ def _preserved_keys(name, detail):
 def present(name, value, detail="compact", *, tool_names=None, sections=None, arguments=None):
     if detail == "full" or name not in COMPACT_OPERATIONS or value.get("status") != "ok":
         return value
-    if detail == "summary" and name == "focus_get":
-        if arguments and arguments.get("conversation"):
-            raise DomainError("validation_error", "response_detail=summary does not include conversations; omit conversation or use compact/full")
     original = value.get("data")
     if not isinstance(original, dict):
         return value
@@ -558,16 +507,7 @@ def present(name, value, detail="compact", *, tool_names=None, sections=None, ar
 
     data = dict(original)
     if detail == "summary":
-        if name == "focus_get":
-            if isinstance(data.get("item"), dict):
-                data["item"] = _focus_summary_item(data["item"])
-            if isinstance(data.get("items"), list):
-                data["items"] = [_focus_summary_item(item) for item in data["items"]]
-            data.pop("browser", None)
-            data.pop("desktop_control_url", None)
-            data["not_included"] = ["expanded source representations", "supporting references",
-                                     "browser configuration", "desktop-control URLs"]
-        elif name == "agents_activity_list":
+        if name == "agents_activity_list":
             data = _activity_summary(data)
         elif name == "agent_config_get" and isinstance(data.get("effective_config"), dict):
             data["effective_config"] = _config_summary(data["effective_config"])
@@ -619,8 +559,6 @@ def present(name, value, detail="compact", *, tool_names=None, sections=None, ar
         data["message"] = select(data["message"], MESSAGE_RECEIPT_FIELDS)
     elif name == "signoffs_input_create" and isinstance(data.get("signoff"), dict):
         data["signoff"] = select(data["signoff"], SIGNOFF_FIELDS)
-    elif name in FOCUS_CARD_WRITES and isinstance(data.get("item"), dict):
-        data["item"] = select(data["item"], FOCUS_ITEM_FIELDS)
     elif name == "tables_rows_write" and isinstance(data.get("rows"), list):
         data["rows"] = [select(row, ("id", "table_id", "revision", "created_by", "updated_by")) for row in data["rows"]]
         if isinstance(data.get("table"), dict):

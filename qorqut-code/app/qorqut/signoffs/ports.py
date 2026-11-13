@@ -20,7 +20,6 @@ from qorqut_operations.storage.assembly import AssemblyError
 from qorqut.domains.tasks import ACTIVE_SQL
 from qorqut_operations.tasks import CLOSED_STATES
 from qorqut_operations.tasks.scope import task_namespace
-from qorqut.inbox.attention import FIELDS as FOCUS_FIELDS, creation_access, present_created
 from qorqut.management.identity import configured_ordubashy
 from qorqut.management.service import MANAGED_INPUT_SQL
 from .execution import EXECUTION_STATES, execution_sql, execution_state
@@ -138,21 +137,10 @@ class HostManagement:
 
 
 class HostFocus:
-    """Owner Focus attention (v1 ``inbox.attention``): the ``focus`` argument schema, Focus access and presentation
-    of a created input request, and release of a Signoff's card when it stops awaiting a decision."""
-
-    fields = FOCUS_FIELDS
+    """Owner Focus attention (v1 ``inbox.attention``): release of a Signoff's card when it stops awaiting a decision."""
 
     def __init__(self, domains):
         self.domains = domains
-
-    @staticmethod
-    def creation_access(application, context, focus, uow):
-        creation_access(application, context, focus, uow)
-
-    @staticmethod
-    def present_created(application, context, focus, source, uow):
-        present_created(application, context, focus, source, uow)
 
     def release_signoff(self, row, updated, uow):
         self.domains.focus_board.release_signoff(row, updated, uow)

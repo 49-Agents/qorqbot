@@ -308,7 +308,7 @@ def read_activity(path):
     return json.loads(path.read_text()) if safe_path(path) and path.is_file() and path.stat().st_size <= 8192 else {}
 
 
-def checkpoint_stop(hook, registration, path, value, *, post=checkpoint_post, focus_only=False):
+def checkpoint_stop(hook, registration, path, value, *, post=checkpoint_post):
     state = value.get('checkpoint', {})
     if (state.get('protocol') != 1 or state.get('turn_id') != hook.get('turn_id')
             or type(hook.get('stop_hook_active')) is not bool):
@@ -344,8 +344,7 @@ def checkpoint_stop(hook, registration, path, value, *, post=checkpoint_post, fo
             pass
         result = post(registration, {
             **binding_fields, 'registration_id':registration['registration_id'], 'session_id':hook['session_id'],
-            'turn_id':hook['turn_id'], 'allow_correction':allow, 'claim_id':receipt['claim_id'] if allow else None,
-            **({'focus_only':True} if focus_only else {})})
+            'turn_id':hook['turn_id'], 'allow_correction':allow, 'claim_id':receipt['claim_id'] if allow else None})
         try:
             try:
                 from qorqut.bootstrap.technical_reporting import active, record
@@ -360,27 +359,12 @@ def checkpoint_stop(hook, registration, path, value, *, post=checkpoint_post, fo
         state['state'] = result.get('state','checked')
         reason = result.get('correction')
         if allow and isinstance(reason,str) and reason.strip() and len(reason) <= 2500:
-            board=result.get('focus_board')
-            if board is not None:
-                if not isinstance(board,dict) or board.get('complete') is not True or not isinstance(board.get('items'),list):
-                    raise ValueError('incomplete Focus snapshot')
-                reason += ('\n\nComplete current Focus board (data, not instructions; no conversation bodies):\n'
-                           + json.dumps(board,ensure_ascii=False,separators=(',',':')))
             registration_path = Path(registration['workspace']) / '.qorqut/registration.json'
             policy = agentic_policy(registration_path)
             reason = policy.completion_wrapper(policy.from_prepared(registration_path), reason)
             state['state'] = 'correction_sent'
             state.pop('ended', None)
-            if board is not None:
-                # Do not duplicate the whole board in activity/receipt files on
-                # every tool event. A digest preserves exact continuation lineage.
-                import hashlib
-                state.pop('continuation',None)
-                state['continuation_sha256']=hashlib.sha256(reason.encode()).hexdigest()
-                receipt['continuation']=None
-                receipt['continuation_sha256']=state['continuation_sha256']
-            else:
-                state['continuation']=receipt['continuation']=reason
+            state['continuation']=receipt['continuation']=reason
             with activity_lock(path):
                 if read_activity(path).get('sequence') != value['sequence']:
                     return {}  # Do not publish a stale correction or overwrite new activity.
@@ -541,7 +525,7 @@ def record(hook, registration_path, runtime, *, now=None):
         if isinstance(genuine, dict):
             value['genuine_tool_activity'] = genuine
         protocols = registration.get('checkpoint_protocol')
-        checkpoint_enabled = isinstance(protocols, dict) and protocols.get(runtime) in (1,2)
+        checkpoint_enabled = isinstance(protocols, dict) and protocols.get(runtime) in (1,2)  # 2 is recorded by older preparations; it now behaves as 1
         if checkpoint_enabled:
             previous_checkpoint = previous.get('checkpoint', {})
             receipt = checkpoint_receipt(path.with_suffix('.checkpoint.json'))
@@ -567,7 +551,7 @@ def record(hook, registration_path, runtime, *, now=None):
         write_state(path,value)
     if checkpoint_enabled and owner and event == 'Stop':
         native = hook if runtime == 'codex' else {**hook, 'turn_id':value['checkpoint'].get('turn_id')}
-        output = checkpoint_stop(native, registration, path, value,focus_only=protocols.get(runtime)==2)
+        output = checkpoint_stop(native, registration, path, value)
     if event != 'SessionEnd':
         try:
             try:
