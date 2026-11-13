@@ -312,7 +312,7 @@ def _license_fields(reply) -> dict | None:
     return {"commercial_free_until": free if isinstance(free, str) and DATE.match(free) else None,
             "paid": license["paid"] if isinstance(license.get("paid"), bool) else None,
             "paid_until": until if isinstance(until, str) and ISO_DATE.match(until) else None,
-            "price": price if price in PRICES else None,
+            "price": price if isinstance(price, str) and price in PRICES else None,
             "status": status if isinstance(status, str) and re.fullmatch(r"[A-Za-z0-9_ -]{1,40}", status) else None}
 
 

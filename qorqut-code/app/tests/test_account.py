@@ -231,6 +231,16 @@ class AccountTests(unittest.TestCase):
         license = account.owner_view(self.runtime, self.env)["license"]
         self.assertEqual((license["known"], license["paid"], license["price"]), (True, True, "monthly"))
 
+    def test_malformed_price_objects_do_not_break_licence_refresh(self):
+        self.sign_in()
+        for price in ([], {}, ["monthly"]):
+            with self.subTest(price=price):
+                self.service.replies["/v1/me"] = (200, {"license": {"paid": True, "price": price}})
+                self.assertTrue(account.refresh_license(self.runtime, self.env))
+                license = account.owner_view(self.runtime, self.env)["license"]
+                self.assertTrue(license["paid"])
+                self.assertIsNone(license["price"])
+
     def test_offline_or_failing_service_keeps_the_last_licence_and_the_session(self):
         self.sign_in()
         self.service.replies["/v1/me"] = (200, {"license": {"paid": True, "price": "monthly"}})
