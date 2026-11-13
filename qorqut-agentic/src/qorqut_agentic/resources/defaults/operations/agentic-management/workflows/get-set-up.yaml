@@ -10,8 +10,8 @@ steps:
   - id: wrap-up
     instructions: >-
       Tell the owner in a few lines what you now know about them, which tools are connected and what is
-      still open, and where to see each (the personal context node in Context, the agent browser card in
-      Settings). Report only what the two earlier steps actually saved or confirmed. Ask what they would
-      like to start with. Complete this step with an open_items output listing what is still open (an
+      still open. Report only what the two earlier steps actually saved or confirmed. Say that they can ask
+      you anytime to show or change what you saved about them, and that connected websites are listed in
+      Settings under Connections. Ask what they would like to start with. Complete this step with an open_items output listing what is still open (an
       empty list when nothing is), then complete the Task behind this run.
     depends_on: [about-you, connect-tools]

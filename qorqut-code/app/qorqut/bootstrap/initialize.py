@@ -24,7 +24,10 @@ Last, ``bootstrap.history_repository`` provisions the private Git repository at 
 history publishers need: the neutral branch ``qorqut-instance`` holding ONE empty-tree bootstrap commit, no remote, no hooks, no
 signing, and no instance content scanned or staged. It happens only here, only for the repository this command newly creates, and
 never on startup, construction or read; the publishers' own refs and indexes are untouched. A failure there is a failure after the
-first write like any other: the incomplete instance stays, with no receipt."""
+first write like any other: the incomplete instance stays, with no receipt.
+
+Likewise ``bootstrap.context_repository`` explicitly creates the Context repository and runtime (no initial categories, with the
+personal context node) and the receipt records its path and revision."""
 
 from __future__ import annotations
 
@@ -333,12 +336,16 @@ def initialize(prepared_root, instance_root, *, owner_name="Owner", extensions_c
         from qorqut.agentic.provisioning import apply as provision_private_roots
         provision_private_roots(paths)
         history = provision_history_repository(paths.operations)     # the one explicit creation of the operations-root repository
+        from qorqut.bootstrap.context_repository import provision_context_repository
+        context_store = provision_context_repository(paths)           # explicit: reads and startup never create the Context store
         _make_private(instance)
         record = {"format": 1, "state": "initialized", "initialized_at": utc_now(), "owner_name": owner_name.strip(), **created,
                   "agentic_layer": agentic,
                   "extensions": list(selection.ids), "instance_root": str(instance), "workspace": str(workspace),
                   "history_repository": {"path": str(history.path), "created": history.created, "branch": history.branch,
                                          "bootstrap_commit": history.commit},
+                  "context_repository": {"path": str(context_store.path), "runtime": str(context_store.runtime),
+                                         "created": context_store.created, "revision": context_store.revision},
                   "components": {name: str(location) for name, location in components.items()},
                   "files": {"extensions_config": str(config / "extensions.json"), "token_file": str(config / "owner-token"),
                             "database": str(paths.database)},

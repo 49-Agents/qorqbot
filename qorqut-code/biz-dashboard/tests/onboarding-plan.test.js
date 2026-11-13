@@ -179,7 +179,7 @@ test('refused agent navigation stops before changing views or waiting for a targ
 test('a failed step never highlights a previously visible target', () => {
   const vm = require('node:vm');
   const source = fs.readFileSync(path.join(__dirname, '../js/onboarding.js'), 'utf8');
-  const position = source.slice(source.indexOf('  function position()'), source.indexOf('    const w = document.documentElement.clientWidth',source.indexOf('  function position()'))) + '\n}';
+  const position = source.slice(source.indexOf('  function position()'), source.indexOf('    // Text size zooms the whole page',source.indexOf('  function position()'))) + '\n}';
   let described, queried=0;const ctx={root:{classList:{toggle(){}}},welcome:false,steps:[{target(){queried++;return {};}}],index:0,
     stepTargetReady:false,appDialog:()=>false,visible:()=>true,describeTarget:value=>{described=value}};
   vm.createContext(ctx);vm.runInContext(position+'\nthis.position=position;',ctx);ctx.position();

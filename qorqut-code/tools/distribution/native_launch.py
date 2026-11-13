@@ -510,6 +510,7 @@ def initialize(root, env):
         record = read_json(receipt)
         if record.get('state') != 'initialized' or record.get('instance_root') != str(instance):
             raise RuntimeError('The existing instance is incomplete or belongs to a different folder')
+        ensure_context_repository(root, env, record)
         return record
     if instance.exists() and any(instance.iterdir()):
         raise RuntimeError('The instance folder is not empty and has no successful initialization receipt; nothing was replaced')
@@ -517,6 +518,17 @@ def initialize(root, env):
          '--prepared-root', runtime, '--instance-root', instance], env=env, cwd=root)
     (instance / 'config/operational-timezone').write_text(env['QORQUT_TIMEZONE'] + '\n')
     return read_json(receipt)
+
+
+def ensure_context_repository(root, env, record):
+    """An installation initialized before the Context store was provisioned gets it created once; an existing store is never touched."""
+    instance = root / 'instance'
+    if (instance / 'operations/context-graph').exists():
+        return
+    command = [root / 'runtime/venv/bin/python', '-I', '-B', '-m', 'qorqut.bootstrap.context_repository', '--instance-root', instance]
+    for name, location in record['components'].items():
+        command.extend(['--component', f'{name}={location}'])
+    run(command, env=env, cwd=root)
 
 
 def identity(pid):

@@ -1,5 +1,7 @@
 /* Connectors panel (js/connectors.js): Settings and the walkthrough's "connect your tools" chapter. */
 .cx-panel { display: flex; flex-direction: column; gap: 14px; margin-bottom: 30px; padding-bottom: 28px; border-bottom: 1px solid var(--line-2); }
+/* The agent browser card and its signed-in websites, shown (and pointed at by the walkthrough) as one area. */
+.cx-browser-area { display: flex; flex-direction: column; gap: 14px; }
 .cx-browser { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 22px;
   border: 1px solid rgba(107,170,130,.38); border-radius: var(--r-lg);
   background: linear-gradient(125deg, rgba(107,170,130,.14), var(--elevated)); }

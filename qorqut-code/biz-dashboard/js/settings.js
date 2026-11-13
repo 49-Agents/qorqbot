@@ -53,7 +53,7 @@ async function renderSettings(c) {
         control: `<label class="set-switch" for="set-testing-toggle"><input type="checkbox" id="set-testing-toggle" role="switch" aria-label="Testing mode" disabled><span class="set-switch-track" aria-hidden="true"></span><span class="set-switch-label" id="set-testing-state">Loading…</span></label>`,
         attrs: 'data-testing-mode'}) : ''}
       ${settingsRow({label: 'Starting an agent', keywords: 'start launch terminal claude codex restart',
-        help: 'Open the agent, click <b>&gt;_</b> above its Chat and type <code>claude</code> or <code>codex</code>. Chat’s <b>Start</b> button does the same. Agents never start by themselves.'})}</div>`,
+        help: 'Choose the agent in the menu at the top left, click <b>&gt;_</b> above its Chat and type <code>claude</code> or <code>codex</code>. Agents never start by themselves.'})}</div>`,
     appearance: `<div class="st-rows">${settingsRow({label: 'Theme', keywords: 'dark light system mode color colour', help: 'System follows your computer’s light or dark setting.',
         control: settingsChoice('theme', [['dark', 'Dark'], ['light', 'Light'], ['system', 'System']], look.theme)})}
       ${settingsRow({label: 'Text size', keywords: 'font zoom bigger smaller scale', help: 'Scales the whole dashboard.',

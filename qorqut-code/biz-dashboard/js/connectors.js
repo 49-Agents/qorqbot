@@ -145,7 +145,7 @@ const connectorsPanel = (() => {
     const root = document.createElement('div');
     root.className = 'cx-panel' + (options.rows ? ' cx-panel-rows' : '');
     root.innerHTML = `${options.compact ? '' : PRIVACY}
-      <div class="cx-browser" data-cx-browser aria-live="polite"><div class="cx-browser-copy"><span class="cx-eyebrow">Included with Qorqbot</span>
+      <div class="cx-browser-area" data-cx-browser-area><div class="cx-browser" data-cx-browser aria-live="polite"><div class="cx-browser-copy"><span class="cx-eyebrow">Included with Qorqbot</span>
         <h3>Agent browser <span class="cx-status" data-cx-browser-status>Checking…</span></h3>
         <p>Your agents use their own private browser to work on websites for you. It sets itself up.</p>
         <p class="cx-browser-detail" data-cx-browser-detail>Checking browser readiness…</p></div>
@@ -158,7 +158,7 @@ const connectorsPanel = (() => {
         <p class="cx-error" data-cx-accounts-error role="alert" hidden></p>
         <div class="cx-rows" data-cx-accounts-list hidden></div>
         <p class="cx-accounts-limit">A signed-in agent can act on that website as you, including sending messages. Only its instructions tell it to ask you first, and Qorqbot can’t block those actions in code. Claude connectors below do require your approval.</p>
-      </section>
+      </section></div>
       <p class="cx-error" data-cx-error role="alert" hidden></p>
       <details class="cx-direct" data-cx-direct><summary>Claude connectors <span class="cx-direct-count" data-cx-direct-count></span></summary>
       <div class="cx-head"><div>${options.rows ? '' : '<h2>Optional connections</h2>'}<p>Direct connections for agents running in Claude Code. Connect opens claude.ai, where you allow access on the service’s own page.</p></div>

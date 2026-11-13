@@ -27,9 +27,28 @@ test('the overview covers who each path works for and the same-account rule', ()
   assert.match(text, /same Claude account/);
 });
 
-test('the tour ends at the browser and points to the hidden connectors', () => {
+test('the tour points to the hidden connectors, then the browser, then ends in Chat with the first message', () => {
   for (const removed of ["{id: 'connectors'", "{id: 'connect-more'"]) assert.ok(!tour.includes(removed), removed);
   assert.match(step('connect-overview'), /Settings under Claude connectors/);
+  assert.ok(tour.indexOf("{id: 'browser-setup'") < tour.indexOf("{id: 'chat'"));
+  const ids = [...tour.matchAll(/\{id: '([a-z-]+)'/g)].map(match => match[1]);
+  assert.equal(ids.at(-1), 'chat');
+  assert.match(step('chat'), /hi, help me get set up/);
+  assert.match(step('chat'), /offline: 'He isn’t running yet/);
+});
+
+test('steps that point into the agent menu hold it open, and no step mentions the retired ? button', () => {
+  for (const id of ['assistant', 'settings']) assert.match(step(id), /menu: true/);
+  assert.match(tour, /if \(step\.menu\) holdMenu\(true\)/);
+  assert.match(read('js/global-agents.js'), /function globalAgentNavHold\(hold\)/);
+  for (const file of ['js/onboarding.js', 'js/settings.js', 'js/global-agents.js']) assert.ok(!/\? button|bottom left/.test(read(file)), file);
+});
+
+test('the browser step points at the browser card together with its signed-in websites', () => {
+  const panel = read('js/connectors.js');
+  assert.match(tour, /target: \(\) => document\.querySelector\('\[data-cx-browser-area\]'\)/);
+  const area = panel.indexOf('data-cx-browser-area');
+  assert.ok(area >= 0 && area < panel.indexOf('data-cx-browser ') && panel.indexOf('data-cx-accounts') < panel.indexOf('</section></div>'));
 });
 
 test('Claude connectors are collapsed by default and Connect is explained inside', () => {

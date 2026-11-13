@@ -107,7 +107,8 @@ function wireGlobalAgentNavOverlay(root) {
   let closeTimer;
   const inside=target=>target instanceof Node && (trigger.contains(target) || nav.contains(target));
   const open=()=>{clearTimeout(closeTimer);if(!nav.matches(':popover-open'))nav.showPopover();trigger.setAttribute('aria-expanded','true');};
-  const close=()=>{clearTimeout(closeTimer);if(nav.matches(':popover-open'))nav.hidePopover();trigger.setAttribute('aria-expanded','false');};
+  // While the walkthrough points at something in the menu (globalAgentNavHold), leaving it does not close it.
+  const close=()=>{clearTimeout(closeTimer);if(nav.dataset.held!==undefined)return;if(nav.matches(':popover-open'))nav.hidePopover();trigger.setAttribute('aria-expanded','false');};
   let keyboard=false;
   for(const host of [trigger,nav,timeline.panel]) {
     host.onpointerenter=event=>{if(event.pointerType!=='touch'){keyboard=false;open();}};
@@ -126,6 +127,26 @@ function wireGlobalAgentNavOverlay(root) {
     if(opened){timeline.open();void focus.open();}else {clearTimeout(closeTimer);timeline.close();focus.close();}
   });
   return timeline;
+}
+// The walkthrough holds the agent menu open while a step points at a button inside it. A held menu is a manual popover, so a
+// click elsewhere (the walkthrough's own buttons) does not dismiss it; releasing restores the usual hover menu.
+function globalAgentNavHold(hold) {
+  const nav=document.querySelector('#global-agent-navigation'), trigger=document.querySelector('[data-agent-nav-trigger]');
+  if(!nav) return false;
+  if(hold){
+    if(nav.dataset.held===undefined){
+      if(nav.matches(':popover-open'))nav.hidePopover();
+      nav.dataset.held='';nav.popover='manual';
+    }
+    if(!nav.matches(':popover-open'))nav.showPopover();
+    trigger?.setAttribute('aria-expanded','true');
+    return true;
+  }
+  if(nav.dataset.held===undefined) return false;
+  delete nav.dataset.held;
+  if(nav.matches(':popover-open'))nav.hidePopover();
+  nav.popover='auto';trigger?.setAttribute('aria-expanded','false');
+  return true;
 }
 // Retired profiles and archival records never reach the list.
 const globalActiveProfile = agent => !!agent && typeof agent.agent_id === 'string' && !agent.archival_record && (agent.status === undefined || agent.status === 'active');
