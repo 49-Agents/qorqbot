@@ -104,3 +104,20 @@ jobs:
     uses: ./.github/workflows/release-checks.yml
     with:
       connectors: ${{ needs.changes.outputs.connector_selection }}
+
+  checks-passed:
+    # The one check the branch rules require. A job that calls another workflow is
+    # reported under a different name when it runs, so its own name cannot be required.
+    needs: [changes, backend, dashboard, distribution]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: No selected check failed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "changes, backend, dashboard, distribution: $RESULTS"
+          case " $RESULTS " in
+            *" failure "*|*" cancelled "*) exit 1 ;;
+          esac
