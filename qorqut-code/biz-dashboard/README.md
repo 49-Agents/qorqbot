@@ -191,16 +191,20 @@ shows "Your notes here"; after that it keeps exactly what they left, even empty.
 reads or writes the notes, and agents cannot place anything on Focus. Check:
 `node --test tests/focus-notes.test.js`.
 
-- Threads open as a record in the board, under the launcher row, and fill the board's
-  height. The header leads with a pill Close, and Chat is the fresh-selection default;
-  the record-type icon tab shows that record's full-width dashboard, Back restores a
-  prior record's tab and edits, and Escape closes. The agent Chat beside the pane keeps
-  running while a record is open. Thread messages render like the main Chat: no box,
-  no avatars, the same size, and sender names only when more than one agent replied.
+- A thread opens in the Chat area on the left, under a header with "‹ Chat" and the
+  thread's title; the record's details fill the board on the right, under the launcher
+  row, with a pill Close. "‹ Chat" or Close hands the left side back to the main Chat,
+  draft and all. The record-type icon tab shows that record's full-width dashboard, Back
+  restores a prior record's tab and edits, and Escape closes. Side chats open on the left
+  the same way, with Focus left as it was on the right; their header holds the rename
+  and Close side chat. Where Focus runs without that Chat area beside it, threads and side
+  chats stay in the board. Thread messages render like the main Chat: no box, no avatars,
+  the same size, and sender names only when more than one agent replied. Task threads
+  and side chats take attached files.
   Reads and sends use `owner_conversation_get`, `owner_conversation_send` and
   `owner_conversation_mark_read`; only a visible Chat selection/load through the latest
   sequence acknowledges it. Source-keyed drafts survive closing and reopening the record. See
-  [the record workspace](docs/RECORD-WORKSPACE.md).
+  [the record workspace](docs/RECORD-WORKSPACE.md). Check: `node --test tests/chat-takeover.test.js`.
 - The pin button in a thread's header pins that thread to the launcher row, after the
   open side chats; the chip shows unread replies, opens the thread, and a right-click
   unpins it. Pins are owner-only presentation saved per owner (`GET/POST

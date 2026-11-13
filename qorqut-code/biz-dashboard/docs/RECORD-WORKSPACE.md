@@ -20,7 +20,10 @@ The Focus header leads with a pill Close (the same control a Browser/Desktop sur
 carries), then Back, the canonical title, a pin button (only when the source has a
 private thread; it pins that thread to Focus's launcher row), the record-type icon tab,
 the Chat icon tab (only when the source has a private thread), and an Activity icon tab
-for task-backed records.
+for task-backed records. When the main Chat sits beside Focus, a record with a private
+thread opens paired instead: its thread takes over that Chat area (with "‹ Chat" and the
+title above it), the workspace shows the dashboard with no Chat tab, and closing either
+side closes both.
 Elsewhere the workspace keeps Close as its trailing icon. A record with no thread (an
 email reading, table, document or generic reference) opens its reader directly and has
 no Chat tab. Related records open in the same workspace on a bounded stack (20 entries), so Back
