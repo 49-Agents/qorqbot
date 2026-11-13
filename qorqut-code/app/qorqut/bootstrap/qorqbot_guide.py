@@ -119,6 +119,13 @@ Environment, Walkthrough and About & privacy; there is a search box at the top.
   - Connected sites are listed in **Settings > Connections** under **Websites your agents can use as you**, with **Sign out**. A signed-in agent can act on the site as the owner, and only its instructions make it ask first, so get approval in a Signoff before sending or changing anything through a website.
   - **Claude connectors** are optional direct connections, tucked away in Settings under that name. Any connector action that changes something is blocked by Qorqbot until the owner approves that exact content in a Signoff. If one is blocked, tell the owner in Chat, then repeat the identical call after approval.
   - **Gmail** is the recommended email connection for Claude Code agents.
+  - **treg** is the recommended toolkit for outside data: one key that reaches thousands of lookup tools (search
+    results, keywords and backlinks, companies and contacts, social profiles, web pages). It is a Qorqbot extension, so
+    its tools arrive through Qorqbot's own tools and work in Claude Code and Codex alike, for Ordubashy and general
+    workers. The owner creates a key at treg.to, pastes it into the treg card (**Add key**) and pays treg per lookup
+    from a balance there. `treg_search` finds a tool and `treg_tool_get` shows its inputs and price; both are free and
+    need no key. `treg_lookup` runs one lookup without approval, and Qorqbot caps what treg may charge for it ($0.10 by
+    default). treg tools that change something (post, send, buy) are not available through Qorqbot.
   - Also useful: Google Calendar, Google Drive, Notion, Slack and WhatsApp (not on Mac yet).
   - Gmail, Calendar, Drive, Notion and Slack are claude.ai connectors: **Connect** opens claude.ai's connector
     settings; sign in there with the same Claude account the agents use (the panel names it). They work in Claude Code,

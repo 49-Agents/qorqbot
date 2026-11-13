@@ -1,11 +1,13 @@
 """Connectors the owner sets up for their agents: what each one is and whether it is ready.
 
-Qorqbot itself never contacts these services and keeps no copy of their data. There are two kinds:
+The core never contacts these services and keeps no copy of their data; an extension makes its own requests (treg's are
+described in ``qorqut_treg``). There are two kinds:
 
 * ``claude`` - a connector of the owner's Claude account (Gmail, Google Calendar, Google Drive, Notion, Slack). The owner
   signs in on claude.ai; Claude Code then offers it to every Claude session, including Qorqbot's agents. Qorqbot only
   reads ``claude mcp list`` to show whether it is connected.
-* ``extension`` - a Qorqbot extension (WhatsApp), set up through that extension.
+* ``extension`` - a Qorqbot extension (treg, WhatsApp), set up through that extension. Its tools reach the agents through
+  Qorqbot, so they work for every agent client.
 """
 import json
 import os
@@ -24,6 +26,7 @@ PROBE_TIMEOUT = 90
 PROBE_FRESH_FOR = 60
 CATALOG = (
     {"id": "gmail", "kind": "claude", "tier": "recommended", "clients": ["claude-code"], "claude_name": "Gmail"},
+    {"id": "treg", "kind": "extension", "tier": "recommended", "clients": ["claude-code", "codex"]},
     {"id": "google_calendar", "kind": "claude", "tier": "suggested", "clients": ["claude-code"],
      "claude_name": "Google Calendar"},
     {"id": "google_drive", "kind": "claude", "tier": "suggested", "clients": ["claude-code"], "claude_name": "Google Drive"},
@@ -149,6 +152,13 @@ def _probe_environment(environ=None):
     return base
 
 
+def _treg_status(runtime) -> dict:
+    """Whether the treg extension is part of this install and the owner has saved a key. No key is read here."""
+    selected = getattr(getattr(runtime, "selection", None), "extensions", ())
+    extension = next((item for item in selected if item.id == "treg"), None)
+    return {"status": "not_installed" if extension is None else extension.status()}
+
+
 def _whatsapp_status(runtime, platform="linux") -> dict:
     connections = getattr(getattr(runtime, "resolver", None), "native_connections", None) or {}
     if "whatsapp" not in connections:
@@ -183,7 +193,9 @@ def view(runtime, *, refresh=False, environ=None, probe=None) -> dict:
     items = []
     for entry in CATALOG:
         item = {key: value for key, value in entry.items() if key != "claude_name"}
-        if entry["kind"] == "extension":
+        if entry["id"] == "treg":
+            item.update(_treg_status(runtime))
+        elif entry["kind"] == "extension":
             item.update(_whatsapp_status(runtime, platform))
         elif result is None:
             item["status"] = "checking"

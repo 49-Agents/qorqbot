@@ -531,6 +531,24 @@ def ensure_context_repository(root, env, record):
     run(command, env=env, cwd=root)
 
 
+TREG_FACTORY = 'qorqut_treg.extension:create'
+
+
+def select_treg(root):
+    """The treg toolkit ships in the runtime and belongs to every installation, new or updated. Selecting it adds its
+    tools only; it contacts nothing and stays idle until the owner adds a treg key in the dashboard."""
+    receipt = root / 'runtime/PREPARATION-RECEIPT.json'
+    if not receipt.exists() or not (read_json(receipt).get('selection') or {}).get('treg'):
+        return False
+    config = root / 'instance/config/extensions.json'
+    selected = read_json(config)
+    if any(item.get('factory') == TREG_FACTORY for item in selected['extensions']):
+        return False
+    selected['extensions'].append({'factory': TREG_FACTORY, 'config': {}})
+    save_json(config, selected)
+    return True
+
+
 def identity(pid):
     if platform.system() == 'Darwin':
         value = inspect_darwin(Path(__file__).resolve().parent.parent, 'identity', pid)
@@ -633,6 +651,7 @@ def main(argv=None):
         require_prerequisites(env)
         prepare(root, env)
         record = initialize(root, env)
+        select_treg(root)
         # First launch installs the agents' browser tool; later launches find it in place.
         try:
             _, browser_problem = ensure_agent_browser(root)

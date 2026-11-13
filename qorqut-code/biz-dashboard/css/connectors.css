@@ -62,6 +62,13 @@
 .cx-does { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--fg); opacity: .88; }
 .cx-note { margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--warn); }
 .cx-note[data-tone="info"] { color: var(--fg-2); }
+.cx-key { display: grid; gap: 8px; padding: 10px 11px; border-radius: var(--r-sm); background: var(--bg); border: 1px solid var(--line-2); }
+.cx-key[hidden] { display: none; }
+.cx-key label { display: grid; gap: 5px; font-size: 11.5px; color: var(--fg-2); }
+.cx-key input { width: 100%; height: 30px; padding: 0 9px; font: 12px var(--mono); color: var(--fg); background: var(--wash); border: 1px solid var(--line-2); border-radius: var(--r-sm); }
+.cx-key input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cx-key-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.cx-key-actions button { height: 28px; padding: 0 12px; font-size: 11px; }
 .cx-more summary { cursor: pointer; font-size: 11.5px; color: var(--fg-2); list-style: none; display: inline-flex; align-items: center; gap: 5px; }
 .cx-more summary::-webkit-details-marker { display: none; }
 .cx-more summary::before { content: "+"; font: 12px var(--mono); color: var(--fg-3); }

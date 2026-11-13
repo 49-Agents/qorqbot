@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+license = "PolyForm-Noncommercial-1.0.0"
+license-files = ["LICENSE", "LICENSES/Apache-2.0.txt", "RELEASE-LICENSES.json"]
+name = "qorqut-treg"
+version = "0.1.0"
+description = "treg toolkit for a Qorqbot host: thousands of outside lookup tools behind the central Qorqut MCP"
+readme = "README.md"
+requires-python = ">=3.12"
+# The host (import package ``qorqut``) supplies the extension API, the private-file helpers and the Operations engine.
+# treg is reached over its HTTP API with the standard library only; there is no treg client library and no treg CLI.
+dependencies = ["qorqut-core==1.3.0.dev0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["qorqut_treg*"]

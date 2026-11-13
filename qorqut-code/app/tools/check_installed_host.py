@@ -46,7 +46,8 @@ HEX40 = re.compile(r"[0-9a-f]{40}")
 # The wheels every preparation builds, and the ones added by each selected extension (prepare-local.py's receipt keys).
 BASE_WHEELS = ("qorqut-agentic", "qorqut-operations", "qorqut-context", "document-history", "host")
 SELECTED_WHEELS = {"paper": ("paper-service", "qorqut-paper"), "content": ("content-library", "qorqut-content"),
-                   "fastmail": ("email-engine", "qorqut-fastmail"), "google_calendar": ("qorqut-google-calendar",)}
+                   "fastmail": ("email-engine", "qorqut-fastmail"), "google_calendar": ("qorqut-google-calendar",),
+                   "treg": ("qorqut-treg",)}
 BASE_ENVIRONMENTS = ("venv",)
 # The environments a selected extension adds (the host environment always holds the extension bridges).
 SELECTED_ENVIRONMENTS = {"paper": "paper-service-venv", "fastmail": "email-engine-venv"}

@@ -54,7 +54,7 @@ jobs:
           mkdir -p "$RELEASE_WORK"
           python qorqut-code/tools/export-unified.py --repository "$GITHUB_WORKSPACE" --commit "$GITHUB_SHA" --with-fastmail --output "$RELEASE_WORK/source"
           python qorqut-code/tools/distribution/runtime_source.py project --source "$RELEASE_WORK/source" --output "$RELEASE_WORK/runtime-source" --report "$RELEASE_WORK/projection.json"
-          python qorqut-code/tools/prepare-local.py --source-root "$RELEASE_WORK/runtime-source" --output "$RELEASE_WORK/prepared" --with-google-calendar
+          python qorqut-code/tools/prepare-local.py --source-root "$RELEASE_WORK/runtime-source" --output "$RELEASE_WORK/prepared" --with-google-calendar --with-treg
           python qorqut-code/tools/distribution/native_build.py --prepared "$RELEASE_WORK/prepared" --target macos14-arm64 --output "$RELEASE_WORK/package" --report "$RELEASE_WORK/build.json" --version "$QORQBOT_BUILD_VERSION"
       - name: Check exact Mac archive lifecycle
         run: |
