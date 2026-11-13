@@ -83,12 +83,10 @@
 .agfocus-layout.agfocus-record-open{display:flex;flex:1;min-height:0;overflow:hidden;align-items:stretch;margin-top:8px}
 .agfocus-layout.agfocus-record-open>:not(.agfocus-dock){display:none}
 .agfocus-layout.agfocus-record-open .agfocus-dock{position:relative;flex:1;min-height:0}
-/* The expanded item owns everything below that row: calendar, Pinned heading, list and paging step aside. */
-.agfocus.agfocus-record-open>.agfocus-calendar,
+/* The expanded item owns everything below that row: Pinned heading, list and paging step aside. */
 .agfocus.agfocus-record-open>header,
 .agfocus.agfocus-record-open>.agfocus-empty,
 .agfocus.agfocus-record-open>.agfocus-pages,
-.agfocus.agfocus-surface-open>.agfocus-calendar,
 .agfocus.agfocus-surface-open>header,
 .agfocus.agfocus-surface-open>.agfocus-empty,
 .agfocus.agfocus-surface-open>.agfocus-layout,
@@ -233,6 +231,7 @@
 .focus-signoff-chip .attention-signoff{width:18px;height:18px;border:0;border-radius:0}
 .focus-signoff-chip svg{width:18px;height:18px}
 .focus-signoff-chip{position:relative}
+.focus-calendar-chip[data-calendar-state="past"]{opacity:.7}
 .focus-signoff-chip[data-unread="true"]::after{content:"";position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 0 1px #777;pointer-events:none}
 
 /* Fixed launchers, a quiet divider, then the scrolling side-chat queue. */

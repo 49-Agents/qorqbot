@@ -13,7 +13,7 @@ async function fixture(browser, browserZone, appZone = 'UTC') {
   const page = await context.newPage(), errors = [];
   page.on('pageerror',error=>errors.push(error.message));
   await page.route('**/*',route=>route.abort());
-  await page.setContent('<div id="calendar"></div><div id="today"></div>');
+  await page.setContent('<div id="calendar"></div>');
   await page.clock.install({time:new Date('2026-11-11T02:54:00Z')});
   for (const file of ['app.css','css/global-calendar.css']) await page.addStyleTag({path:path.join(root,file)});
   await page.evaluate(() => {
@@ -43,7 +43,6 @@ async function fixture(browser, browserZone, appZone = 'UTC') {
   await page.evaluate(zone=>{
     sjConfigure({operational_timezone:zone});
     window.disposeCalendar = calendarMount(document.querySelector('#calendar'));
-    window.todayController = calendarTodayMount(document.querySelector('#today'));
   },appZone);
   await page.waitForFunction(()=>document.querySelector('.calendar-status').textContent==='');
   return {context,page,errors};
@@ -60,7 +59,6 @@ test('rendered times, columns, provider ranges and navigation follow UTC in diff
           assert.equal(await page.locator('.calendar-clock').getAttribute('title'),'UTC');
           assert.deepEqual(await page.locator('.calendar-dayheads .calendar-dayhead').allTextContents(),['Wed','Thu','Fri']);
           assert.equal(await page.locator('.calendar-range').textContent(),'Today – 13 Nov');
-          assert.equal(await page.locator('.calendar-today-queue').getAttribute('data-calendar-day'),'2026-11-11');
           const block = page.locator('.calendar-day[data-calendar-day="2026-11-11"] .calendar-event').filter({hasText:'Planning session'});
           assert.equal(await block.count(),1);
           assert.deepEqual(await block.evaluate(el=>({top:getComputedStyle(el).top,height:getComputedStyle(el).height})),{top:'128px',height:'192px'});
@@ -69,7 +67,6 @@ test('rendered times, columns, provider ranges and navigation follow UTC in diff
           assert.equal(await page.locator('.calendar-all-day-cell').nth(0).textContent(),'Veterans Day');
           const reads = await page.evaluate(()=>calls.filter(c=>c.url.endsWith('calendar_events_list')).map(c=>[c.args.start,c.args.end]));
           assert.ok(reads.some(([start,end])=>start==='2026-11-11T00:00:00.000Z' && end==='2026-11-14T00:00:00.000Z'));
-          assert.ok(reads.some(([start,end])=>start==='2026-11-11T00:00:00.000Z' && end==='2026-11-12T00:00:00.000Z'));
           await page.locator('.calendar-view').selectOption('7');
           assert.equal(await page.locator('.calendar-day').last().getAttribute('data-calendar-day'),'2026-11-17');
           await page.locator('[data-calendar-next]').click();
@@ -91,7 +88,6 @@ test('a UTC browser renders app-local overnight segments on their correct dates'
       const {page,errors} = await fixture(browser,'UTC','America/New_York');
       assert.equal(await page.locator('.calendar-clock').textContent(),'9:54 PM');
       assert.equal(await page.locator('.calendar-day').first().getAttribute('data-calendar-day'),'2026-11-10');
-      assert.equal(await page.locator('.calendar-today-queue').getAttribute('data-calendar-day'),'2026-11-10');
       const block = page.locator('.calendar-day[data-calendar-day="2026-11-10"] .calendar-event').filter({hasText:'Planning session'});
       assert.match(await block.getAttribute('title'),/9:00 PM – 12:00 AM/);
       assert.equal(await page.locator('.calendar-day[data-calendar-day="2026-11-11"] .calendar-event').count(),0);

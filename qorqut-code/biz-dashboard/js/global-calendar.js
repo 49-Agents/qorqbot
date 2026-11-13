@@ -29,7 +29,7 @@ function calendarInputInstant(value) {
 const calendarTarget = event => ({connection_id:event.connection_id, calendar_id:event.calendar_id, event_id:event.id, revision:event.revision});
 const calendarCall = async (operation, args = {}, key) => {
   try { return coreData(await post(`/root/operations/${operation}`, {...args, ...(key ? {idempotency_key:key} : {})})); }
-  catch (error) { if (accessLost(error)) { calendarDirectory = null; calendarTodayShared = null; } throw error; }
+  catch (error) { if (accessLost(error)) calendarDirectory = null; throw error; }
 };
 // Calendar names/IDs change much less often than events. Share one short-lived
 // directory across views instead of rediscovering every provider on each poll.
@@ -274,7 +274,6 @@ const calendarChanges = new Set();
 let calendarWriteGeneration = 0;
 function calendarChanged(refresh) {
   calendarWriteGeneration++;
-  calendarTodayShared = null;
   for (const listener of [...calendarChanges]) { try { listener(); } catch (error) { console.error(error); } }
   refresh?.();
 }
@@ -404,19 +403,15 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
   return () => { active = false; calendarChanges.delete(changed); unsubscribe(); dispose(); };
 }
 
-// Queue tiles show only the calendar icon; the one expanded tile adds its title, cut at 25 characters.
-const calendarQueueTitle = title => { const chars = [...(title || 'Untitled event')]; return chars.length > 25 ? chars.slice(0,25).join('')+'…' : chars.join(''); };
-
-function calendarEventButton(event, calendars, refresh, allDay = false, {queue = null} = {}) {
+function calendarEventButton(event, calendars, refresh, allDay = false) {
   const calendar = calendars.find(c => c.id === event.calendar_id && c.connection_id === event.connection_id), pending = event.attendees?.some(a => calendar?.organizers?.some(email => email.toLowerCase() === a.email.toLowerCase()) && a.status === 'needsAction');
   const button = document.createElement('button'); button.type = 'button';
   const personal = calendarStatuses.statusOf(event), shown = personal && personal !== 'pending' ? personal : '';
-  button.className = `calendar-event${allDay ? ' calendar-all-day-event' : ''}${shown ? ` calendar-status-${shown}` : ''}${queue ? ` calendar-queue-event calendar-queue-${queue.state}${queue.expanded ? ' calendar-queue-expanded' : ''}` : ''}`;
+  button.className = `calendar-event${allDay ? ' calendar-all-day-event' : ''}${shown ? ` calendar-status-${shown}` : ''}`;
   const when = allDay ? 'All day' : `${calendarTime(new Date(event.start))} – ${calendarTime(new Date(event.end))}`;
   const label = `${event.title || 'Untitled event'} · ${when} · ${calendar?.name || ''}${pending ? ' · Invitation' : ''}${shown ? ` · ${calendarStatusLabels[shown]}` : ''}`;
   button.setAttribute('aria-label',label); button.title = label;
-  button.innerHTML = queue ? `${T_VIEW_ICON.calendar}${queue.expanded ? `<strong>${esc(calendarQueueTitle(event.title))}</strong>` : ''}${calendarStatusMark(shown)}`
-    : `${calendarStatusMark(shown)}<strong>${esc(event.title || 'Untitled event')}</strong>`;
+  button.innerHTML = `${calendarStatusMark(shown)}<strong>${esc(event.title || 'Untitled event')}</strong>`;
   button.onclick = () => calendarOpen(event,calendars,refresh,event,button); return button;
 }
 
@@ -452,110 +447,39 @@ function calendarPaintGrid(page, dates, allEvents, eventButton, hourHeight = 64)
   return {startHour,endHour};
 }
 
-// Compact event queue above Focus attention; the Calendar tab keeps its time grid.
-// Today's provider read is shared by every mounted Today excerpt. A mount paints the last same-day read and only reads again once it is older than the
-// fresh window; concurrent ordinary reads join one flight, while an explicit refresh (after a change) always follows a read that started before it.
-const CALENDAR_TODAY_FRESH_MS = 30000;
-let calendarTodayShared = null, calendarTodayFlight = null;
-function calendarTodayLoad(force = false) {
-  if (calendarTodayFlight) return force ? calendarTodayFlight.catch(() => {}).then(() => { calendarDirectory = null; return calendarTodayLoad(); }) : calendarTodayFlight;
-  const generation = calendarWriteGeneration;
-  const flight = calendarTodayFlight = (async () => {
-    const key = calendarDateString(new Date()), zone = calendarZone();
-    const start = calendarDayStart(key).toISOString(), end = calendarDayStart(calendarAddDays(key,1)).toISOString();
-    const result = await calendarDirectoryLoad(force);
-    const calendars = result.calendars, events = [], errors = result.errors.map(e => `${e.connection_id}: ${e.message}`);
-    await Promise.all(calendars.map(async calendar => {
-      let cursor;
-      try {
-        do {
-          const page = await calendarCall('calendar_events_list',{connection_id:calendar.connection_id,calendar_id:calendar.id,
-            start,end,limit:200,...(cursor ? {cursor} : {})});
-          events.push(...page.events); cursor = page.next_cursor;
-        } while (cursor);
-      } catch (error) {
-        if (accessLost(error)) { calendarTodayShared = null; throw error; }
-        errors.push(`${calendar.name}: ${error.message}`);
-      }
-    }));
-    const visibleEvents = events.filter(event => event.status !== 'cancelled');
-    visibleEvents.sort((a,b) => {
-      const allDayA = a.start.length === 10, allDayB = b.start.length === 10;
-      return Number(allDayB)-Number(allDayA) || (allDayA ? a.start.localeCompare(b.start) : new Date(a.start)-new Date(b.start)) || a.id.localeCompare(b.id);
-    });
-    const resultData = {key,zone,calendars,visibleEvents,configured:result.configured,errors,at:Date.now()};
-    if (generation === calendarWriteGeneration && zone === calendarZone()) calendarTodayShared = resultData;
-    return resultData;
-  })();
-  const clear = () => { if (calendarTodayFlight === flight) calendarTodayFlight = null; };
-  flight.then(clear, clear);
-  return flight;
-}
-function calendarTodayMount(host, openCalendar) {
-  host.className = 'calendar-page calendar-today';
-  host.setAttribute('aria-label', "Today's calendar");
-  host.innerHTML = `<p class="calendar-status" role="status">Loading calendar…</p><div class="calendar-today-row"><ul class="calendar-today-queue" aria-label="Today's events" hidden></ul>${openCalendar ? `<button type="button" class="quiet calendar-today-open" aria-label="Open today's calendar" title="Open today's calendar">${T_VIEW_ICON.calendar}</button>` : ''}</div>`;
-  const status = $('.calendar-status',host), queue = $('.calendar-today-queue',host);
-  if (openCalendar) $('.calendar-today-open',host).onclick = () => openCalendar();
-  let active = true, pending = false, refreshAgain = false, loadedDay, snapshot, timer, data = null, refreshError = '';
-  const current = () => active && host.isConnected;
-  // Paints from the last provider read, so a status change never needs another provider call.
-  const paintQueue = () => {
-    if (!current() || !data) return;
-    const {key,calendars,visibleEvents,configured,errors} = data, notice = calendarStatusNotice();
-    status.textContent = [...errors,refreshError,notice].filter(Boolean).join(' · ') || (!configured ? 'Connect your calendars to see today.' : visibleEvents.length ? '' : 'No events today.');
-    queue.hidden = !configured || !visibleEvents.length;
-    queue.dataset.calendarDay = key;
-    // Timed events are past once started; the earliest later one (list is sorted) is the single expanded tile.
-    const now = Date.now(), timed = event => event.start.length !== 10;
-    const stateOf = event => !timed(event) ? 'all-day' : new Date(event.start) <= now ? 'past' : 'upcoming';
-    const nextEvent = visibleEvents.find(event => stateOf(event) === 'upcoming');
-    const nextSnapshot = JSON.stringify([key,calendars,visibleEvents,visibleEvents.map(event => calendarStatuses.statusOf(event)),visibleEvents.map(stateOf),nextEvent?.id,nextEvent?.connection_id,nextEvent?.calendar_id]);
-    if (snapshot !== nextSnapshot) {
-      const left = loadedDay === key ? queue.scrollLeft : 0;
-      queue.replaceChildren(...visibleEvents.map(event => {
-        const item = document.createElement('li');
-        item.append(calendarEventButton(event,calendars,refresh,!timed(event),{queue:{state:stateOf(event),expanded:event === nextEvent}}));
-        return item;
-      }));
-      queue.scrollLeft = left;
-      loadedDay = key; snapshot = nextSnapshot;
-    }
-  };
-  const refresh = async force => {
-    if (!current()) return;
-    if (pending) { if (force !== false) refreshAgain = true; return; }
-    pending = true;
-    const generation = calendarWriteGeneration;
-    const statuses = calendarStatuses.refresh();
+// Calendar events for the shared attention strip, read from a week back to two hours ahead. An event joins the strip one
+// hour before it starts (an all-day event at the start of its day) and stays, past or not, until the owner discards it.
+// The strip filters on `appear`, so one read serves every repaint. Provider events are never changed by discarding.
+const CALENDAR_QUEUE_LEAD_MS = 3600000, CALENDAR_QUEUE_BACK_MS = 7 * 86400000, CALENDAR_QUEUE_AHEAD_MS = 2 * 3600000;
+// The key leads with the event's date in the app zone so the server can retire old discards without reading a provider.
+const calendarQueueKey = event => `calendar:${event.start.length === 10 ? event.start : calendarDateString(new Date(event.start))}:${JSON.stringify([event.connection_id,event.calendar_id,event.id,event.start])}`;
+const calendarQueueAppears = event => event.start.length === 10 ? +calendarDayStart(event.start) : +new Date(event.start) - CALENDAR_QUEUE_LEAD_MS;
+async function calendarQueueLoad(now = Date.now()) {
+  const start = new Date(now - CALENDAR_QUEUE_BACK_MS).toISOString(), end = new Date(now + CALENDAR_QUEUE_AHEAD_MS).toISOString();
+  const result = await calendarDirectoryLoad();
+  const calendars = result.calendars, events = [], errors = result.errors.map(e => `${e.connection_id}: ${e.message}`);
+  await Promise.all(calendars.map(async calendar => {
+    let cursor;
     try {
-      const shared = await calendarTodayLoad(force !== false);
-      if (!current() || generation !== calendarWriteGeneration) return;
-      if (shared.zone !== calendarZone()) { refreshAgain = true; return; }
-      data = shared; refreshError = '';
-      await statuses;
-      if (generation === calendarWriteGeneration) paintQueue();
+      do {
+        const page = await calendarCall('calendar_events_list',{connection_id:calendar.connection_id,calendar_id:calendar.id,start,end,limit:200,...(cursor ? {cursor} : {})});
+        events.push(...page.events); cursor = page.next_cursor;
+      } while (cursor);
     } catch (error) {
-      if (!current() || generation !== calendarWriteGeneration) return;
-      if (accessLost(error)) calendarTodayShared = null;
-      // A transient provider failure keeps the last loaded queue so a label save can still repaint it.
-      if (data && !accessLost(error)) { refreshError = error.message; paintQueue(); }
-      else { data = null; snapshot = undefined; refreshError = ''; queue.replaceChildren(); queue.hidden = true; status.textContent = error.message; }
+      if (accessLost(error)) throw error;
+      errors.push(`${calendar.name}: ${error.message}`);
     }
-    finally { pending = false; if (refreshAgain && current()) { refreshAgain = false; void refresh(); } }
-  };
-  const unsubscribe = calendarStatuses.subscribe(paintQueue);
-  const changed = () => { if (active) void refresh(); };
-  calendarChanges.add(changed);
-  const dispose = () => { active = false; calendarChanges.delete(changed); unsubscribe(); clearInterval(timer); document.removeEventListener('visibilitychange',visible); };
-  timer = setInterval(() => { if (!current()) dispose(); else if (!document.hidden) void refresh(false); },60000);
-  const visible = () => { if (!document.hidden) void refresh(false); };
-  document.addEventListener('visibilitychange',visible);
-  const seed = calendarTodayShared;
-  const sameDay = seed && seed.key === calendarDateString(new Date()) && seed.zone === calendarZone();
-  if (sameDay) { data = seed; paintQueue(); }
-  if (!sameDay || Date.now() - seed.at >= CALENDAR_TODAY_FRESH_MS) void refresh(false);
-  return {refresh,dispose};
+  }));
+  const rows = new Map();
+  for (const event of events) {
+    if (event.status === 'cancelled' || typeof event.start !== 'string') continue;
+    const appear = calendarQueueAppears(event);
+    if (!Number.isFinite(appear)) continue;
+    const key = calendarQueueKey(event), calendar = calendars.find(c => c.id === event.calendar_id && c.connection_id === event.connection_id);
+    rows.set(key, {key, event, appear, label:`${event.title || 'Untitled event'} · ${calendarEventWhen(event)}${calendar?.name ? ' · ' + calendar.name : ''}`});
+  }
+  const items = [...rows.values()].sort((a,b) => a.appear - b.appear || a.key.localeCompare(b.key));
+  return {items, calendars, configured:result.configured, errors};
 }
 
 // Calendar content owns one Focus expansion and replaces its children for nested work.
