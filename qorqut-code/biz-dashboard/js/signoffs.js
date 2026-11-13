@@ -1,3 +1,15 @@
+// A chat age describes persisted signoff changes, never polling or local keystrokes.
+function sgChangedAt(s) {
+  const times = [s.updated_at, s.decision?.at, s.created_at].map(Date.parse).filter(Number.isFinite);
+  return times.length ? new Date(Math.max(...times)).toISOString() : null;
+}
+function sgChangedAge(value, now = Date.now()) {
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return '';
+  const minutes = Math.max(0, Math.floor((now - time) / 60000));
+  return minutes < 1 ? 'Just now' : minutes < 60 ? `${minutes} min ago`
+    : minutes < 1440 ? `${Math.floor(minutes / 60)} hr ago` : `${Math.floor(minutes / 1440)} d ago`;
+}
 function sgAttentionTags(item) {
   return ['urgent', 'blocking'].filter(key => item.state === 'pending' && item.attention?.[key])
     .map(key => `<span class="sg-priority-tag">${key === 'urgent' ? 'Urgent' : 'Blocking'}</span>`).join('');
@@ -756,7 +768,10 @@ function sgCreateView(options) {
       options.focusLayout ? '' : priorityText ? `Set by ${attention.priority_updated_by_name || 'not recorded'}` : '',
       attention.deadline ? `Deadline: ${stamp(attention.deadline)}` : '',
       attention.snoozed_until && Date.parse(attention.snoozed_until) > Date.now() ? `Snoozed until ${stamp(attention.snoozed_until)}` : ''].filter(Boolean).join(' · ');
-    html(detail.querySelector('.sg-attention-meta'), attentionText ? `<p class="sg-notice">${esc(attentionText)}</p>` : '');
+    const chatAttention = [attention.deadline ? `Deadline: ${stamp(attention.deadline)}` : '',
+      attention.snoozed_until && Date.parse(attention.snoozed_until) > Date.now() ? `Snoozed until ${stamp(attention.snoozed_until)}` : ''].filter(Boolean).join(' · ');
+    const shownAttention = options.chatLayout ? chatAttention : attentionText;
+    html(detail.querySelector('.sg-attention-meta'), shownAttention ? `<p class="sg-notice">${esc(shownAttention)}</p>` : '');
     if (options.focusLayout) {
       const facts = [priorityText ? `<p class="sg-meta">${esc(priorityText)}</p>` : '', s.decision ? `<p class="sg-meta">Submitted ${esc(stamp(s.decision.at))}</p>` : ''].join('');
       html(detail.querySelector('.sg-focus-details'), facts ? `<details><summary>Details</summary>${facts}</details>` : '');
@@ -794,7 +809,7 @@ function sgCreateView(options) {
           <span class="sg-choice-name">${esc(choice.label)}</span>${options.inline ? "" : `<span aria-hidden="true">—</span>
           <span class="sg-choice-explanation" title="${esc(choice.explanation)}">${esc(choice.explanation)}</span>`}</button>`;
       }).join("")}</div>` : "");
-    html(detail.querySelector(".sg-savedresponse"), s.decision ? `<p class="sg-response-notes">${esc(s.decision.message_id && !sgIsDraftReview(s) ? "" : (s.decision.notes ?? s.decision.feedback ?? ""))}</p>${options.focusLayout ? "" : `<p class="sg-meta">Submitted ${esc(stamp(s.decision.at))}</p>`}` : "");
+    html(detail.querySelector(".sg-savedresponse"), s.decision ? `<p class="sg-response-notes">${esc(s.decision.message_id && !sgIsDraftReview(s) ? "" : (s.decision.notes ?? s.decision.feedback ?? ""))}</p>${options.focusLayout || options.chatLayout ? "" : `<p class="sg-meta">Submitted ${esc(stamp(s.decision.at))}</p>`}` : "");
     const feedback = detail.querySelector(".sg-feedbackwrap");
     feedback.classList.toggle('sg-draft-feedback', sgIsDraftReview(s));
     const retainedFeedback = sgIsDraftReview(s) && reviewEdits.has(s.id) && s.state !== 'pending';
@@ -838,6 +853,19 @@ function sgCreateView(options) {
       if (pending) controls += `<p class="sg-notice">${pending.unknown ? "Response lost. Check the saved execution request." : "Saving execution request…"}</p>${pending.unknown ? '<button type="button" class="sg-command" data-sg="check-execution">Check execution</button>' : ""}`;
     }
     html(detail.querySelector(".sg-actionarea"), messageEdits.has(s.id) ? messageEditControls(s) : reviewEdits.has(s.id) ? reviewEditControls(s, canReview, busy) : controls);
+    if (options.chatLayout) {
+      const area = detail.querySelector('.sg-actionarea'), editing = messageEdits.has(s.id) || reviewEdits.has(s.id);
+      const actions = area.querySelector('.sg-actions');
+      actions?.classList.toggle('sg-edit-actions', editing);
+      for (const cancel of area.querySelectorAll('[data-sg="cancel-message"],[data-sg="discard-draft"]')) cancel.textContent = 'Cancel';
+      let status = area.querySelector('.sg-chat-status');
+      if (!status) { status = document.createElement('span'); status.className = 'sg-chat-status'; (actions || area).prepend(status); }
+      status.textContent = editing ? 'Editing draft' : s.state === 'pending' ? 'Needs review' : sgItemStatus(s, labels);
+      if (actions && !editing && canEditMessage(s) && !actions.querySelector('[data-sg="edit-message"]')) {
+        const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'sg-edit';
+        edit.dataset.sg = 'edit-message'; edit.textContent = 'Edit'; actions.append(edit);
+      }
+    }
   }
   function render() {
     if (!active() || !sg.mount || !sg.mount.isConnected) return;
@@ -873,6 +901,10 @@ function sgCreateView(options) {
         row.querySelector(".sg-rowtitle").textContent = s.title || s.preview && s.preview.title || s.operation_name;
         html(row.querySelector(".sg-state"), `<span class="sg-state-tags">${sgAttentionTags(s) || (s.state === "pending" ? "" : esc(sgItemStatus(s, labels)))}</span><time datetime="${esc(s.created_at)}" title="${esc(stamp(s.created_at))}">${esc(age(s.created_at))}</time>`);
         if (options.inline) html(row.querySelector(".sg-state"), `<span class="sg-state-tags">${esc(sgItemStatus(s, labels))}</span>`);
+        if (options.chatLayout) {
+          const changed = sgChangedAt(s), age = sgChangedAge(changed);
+          html(row.querySelector('.sg-state'), changed ? `<time class="sg-updated" datetime="${esc(changed)}" title="Last changed: ${esc(stamp(changed))}" aria-label="Signoff last changed ${esc(age)}">${esc(age)}</time>` : '');
+        }
         const proposer = s.proposer_display_name || "Unknown proposer";
         const initiator = s.initiated_by_principal_id ? ` / initiated by ${s.initiated_by_display_name || "Unknown initiator"}` : "";
         const business = state.bizs.find(b => b.id === s.review_business_id || b.business_id === s.review_business_id);
@@ -1250,6 +1282,7 @@ function sgCreateView(options) {
     }
     body.classList.add("sg-body");
     body.classList.toggle("sg-inline", !!options.inline);
+    body.classList.toggle("sg-chat", !!options.chatLayout);
     body.innerHTML = `<div class="sg"><div class="sg-listnotice"></div><section class="sg-urgent"><h2>Urgent / blocking · All projects</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div><div class="sg-foreign"></div></section><section class="sg-waiting"><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>${options.execution ? '<section class="sg-execution"><h2>Execution and history</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>' : ""}<button type="button" class="sg-command sg-more" data-sg="more" hidden>Load more</button></div>`;
     body.onclick = event => {
       if (event.target.matches('.sg-draft-editor')) return;
@@ -1293,6 +1326,11 @@ function sgCreateView(options) {
       if (command && !command.disabled) {
         const commandRow = command.closest(".sg-row");
         const action = command.dataset.sg;
+        if (action === 'edit-message') {
+          const s = sg.items.get(commandRow?.dataset.id);
+          if (s && canEditMessage(s)) commandRow.querySelector('textarea.sg-message-editor[data-editable="true"]')?.focus({preventScroll:true});
+          return;
+        }
         if (['save-draft', 'discard-draft', 'rebase-draft'].includes(action)) {
           const s = sg.items.get(commandRow?.dataset.id), edit = s && reviewEdits.get(s.id);
           if (!s) return;
@@ -1415,12 +1453,19 @@ function sgCreateView(options) {
       if (selected && draftKey(selected) === key && textarea && textarea.value !== value) { textarea.value = value; if (options.inline || sgIsDraftReview(selected)) fitFeedback(textarea); }
     },
     suspend() { readObserver?.disconnect();readTarget=null;readVisible=false;sg.generation++; sg.mount = null; sg.loading = false; sg.detailLoading = null; },
-    dispose() { this.suspend();window.removeEventListener('focus',markSelectedRead);document.removeEventListener('visibilitychange',markSelectedRead);window.removeEventListener('resize',resizeMessages); sgViews.delete(view); document.removeEventListener('click', outsideClick); document.removeEventListener('pointerdown', outsidePointer, true); },
+    dispose() { clearInterval(ageTimer); this.suspend();window.removeEventListener('focus',markSelectedRead);document.removeEventListener('visibilitychange',markSelectedRead);window.removeEventListener('resize',resizeMessages); sgViews.delete(view); document.removeEventListener('click', outsideClick); document.removeEventListener('pointerdown', outsidePointer, true); },
     livePaint(slug, live) {
       if (slug !== workspace() || slug !== sg.slug || active() || !live || !Number.isInteger(live.signoffs_pending)) return;
       sg.counts = { ...(sg.counts || {}), pending: live.signoffs_pending };
     },
   };
+  const ageTimer = options.chatLayout ? setInterval(() => {
+    if (!active() || !sg.mount?.isConnected || document.hidden) return;
+    for (const time of sg.mount.querySelectorAll('.sg-updated')) {
+      const age = sgChangedAge(time.dateTime);
+      time.textContent = age; time.setAttribute('aria-label', 'Signoff last changed ' + age);
+    }
+  }, 30000) : null;
   const outsideClick = event => {
     if (options.item || !active() || !sg.selected || !sg.mount) return;
     if (event.composedPath().some(node => node.dataset?.action === 'open' || node.dataset?.attentionId)) return;
@@ -1457,7 +1502,7 @@ function sgChatMount(ref, host, options = {}) {
   const slug = ref.business_slug || (ref.business_id ? (state.bizs || []).find(b => b.id === ref.business_id || b.business_id === ref.business_id)?.slug : null);
   if (ref.business_id && !slug) return null;
   let started = false, nearby = false, disposed = false, observer;
-  const signoff = sgCreateView({active: () => started && (nearby || signoff.hasUnsaved()) && host.isConnected && (options.active ? options.active() : true), body: () => host, inline: true, compactEmail: true, execution: true, waitingOnly: false,
+  const signoff = sgCreateView({active: () => started && (nearby || signoff.hasUnsaved()) && host.isConnected && (options.active ? options.active() : true), body: () => host, inline: true, chatLayout: true, execution: true, waitingOnly: false,
     workspace: () => slug || 'scope:global', global: !ref.business_id, dropOnDenied: !!options.dropOnDenied,
     item: () => ({id: ref.id, businessId: ref.business_id || null})});
   // Only nearby cards refresh. Keep the observer after first paint so scrolling

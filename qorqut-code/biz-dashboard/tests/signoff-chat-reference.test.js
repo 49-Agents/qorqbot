@@ -15,11 +15,32 @@ function run(extra = []) {
   return result.stdout;
 }
 
-test('chat Signoff references: six-line email preview, no Effects, one-line feedback', {skip: !chrome && 'Chrome not installed'}, () => {
+test('chat Signoffs: full editors, saved-change age, compact actions and preserved feedback', {skip: !chrome && 'Chrome not installed'}, () => {
   const dom = run(['--dump-dom']);
   const out = JSON.parse(/<pre id="out"[^>]*>(.*?)<\/pre>/s.exec(dom)[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
-  assert.equal(out.longPeekLines, 6);
-  assert.equal(out.shortPeekLines, 2);
+  assert.equal(out.fullMessageVisible, true);
+  assert.equal(out.fromVisible, true);
+  assert.match(out.fromText, /me@example.com/);
+  assert.equal(out.age, '5 min ago');
+  assert.equal(out.ageSource, true);
+  assert.equal(out.attentionRemoved, true);
+  assert.equal(out.headerStatus, false);
+  assert.equal(out.footerStatus, 'Needs review');
+  assert.equal(out.editStatus, 'Editing draft');
+  assert.equal(out.cancelLabel, 'Cancel');
+  assert.deepEqual(out.editButtonSizes[0], out.editButtonSizes[1]);
+  assert.equal(out.typingKeepsTime, true);
+  assert.equal(out.cancelRestoresBody, true);
+  assert.equal(out.cancelKeepsTime, true);
+  assert.equal(out.refreshedAge, 'Just now');
+  assert.equal(out.submittedTimestampRemoved, true);
+  assert.equal(out.decisionNoteKept, true);
+  assert.equal(out.completedContentVisible, true);
+  assert.equal(out.completedStatus, true);
+  assert.deepEqual(out.ageCases, ['Just now', '5 min ago', '1 hr ago', '1 d ago']);
+  assert.equal(out.invalidAge, '');
+  assert.equal(out.missingTimestamp, null);
+  assert.equal(out.creationFallback, '2026-11-01T00:00:00.000Z');
   assert.deepEqual(out.effectsCollapsed, [false, false, false, false]);
   assert.equal(out.effectsExpanded, false);
   assert.deepEqual(out.effectsKeptInDom.slice(0, 3), [true, true, true]);

@@ -42,9 +42,16 @@ recursively; bookkeeping metadata and duplicate queue payloads are omitted.
 Missing required message content prevents approval. Closed list cards offer Review
 to open the prepared detail before Approve becomes available. This reads existing
 preview data without fetching providers or changing decision bindings. Message
-text stays fully expanded. Technical chat/message IDs are omitted, and inline
-message cards keep the proposer explanation under Details.
-Check: `node tests/test_signoff_previews_browser.js`.
+text stays fully expanded. Technical chat/message IDs are omitted.
+
+Chat cards keep From/To visible, use the shared inline editors, and put the
+decision or editing status beside the actions. Their header shows the last saved
+signoff change as a relative age, using `updated_at` with decision/creation
+fallbacks; typing, cancelling and polling do not reset it. The submission stamp,
+attention explanation/attribution, message rationale and Details control are
+omitted in Chat. Deadlines, snoozes, decision notes and execution errors remain
+visible. Drawer and Focus layouts are unchanged.
+Check: `node --test tests/signoff-chat-reference.test.js tests/signoff-questions.test.js`.
 
 The Focus toolbar keeps Browser/Desktop fixed on the left and shows pending
 Signoffs in a scrolling row on the right. Each opens the existing review window;
