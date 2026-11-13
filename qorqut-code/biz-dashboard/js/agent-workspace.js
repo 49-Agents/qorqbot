@@ -193,7 +193,8 @@ function agentWorkspacePairedRecord(child, source, parentTable = null) {
       || parentTable.type !== 'table' || source.type !== 'task')) return false;
   const generation = ++agentWorkspacePairedGeneration;
   agentWorkspacePairedFrame = child === window ? null : child;
-  const canonical = {type: source.type, id: source.id, business_id: source.business_id ?? null};
+  const canonical = {type: source.type, id: source.id, business_id: source.business_id ?? null,
+    label: typeof source.label === 'string' ? source.label.slice(0, 200) : null};
   return globalAgentViewActive?.selectPairedSource?.(canonical, generation, () => {
     if (generation === agentWorkspacePairedGeneration && agentWorkspacePairedCurrent(child)) {
       if (typeof child.agentWorkspacePairedUnavailable === 'function') return child.agentWorkspacePairedUnavailable(canonical);
@@ -203,6 +204,11 @@ function agentWorkspacePairedRecord(child, source, parentTable = null) {
   }, ref => {
     if (generation === agentWorkspacePairedGeneration && agentWorkspacePairedCurrent(child))
       return child.agentWorkspacePairedReference?.(ref) ?? false;
+    return false;
+  }, () => {
+    // "Chat" above the thread closes the record on the right, which hands the Chat area back.
+    if (generation === agentWorkspacePairedGeneration && agentWorkspacePairedCurrent(child))
+      return child.agentWorkspacePairedClose?.() ?? false;
     return false;
   }) ?? false;
 }

@@ -47,8 +47,10 @@ function agfocusMount(p) {
   p.focusWorkspace=recordWorkspaceMount($('.agfocus-dock-content',board),agfocusWorkspaceOptions(p));
   const pairedUnavailable=source=>p.focusWorkspace?.invalidate?.(source) ?? false;
   const pairedReference=ref=>agfocusOpenPairedReference(p,ref);
+  const pairedClose=()=>p.focusWorkspace?.close?.();
   window.agentWorkspacePairedUnavailable=pairedUnavailable;
   window.agentWorkspacePairedReference=pairedReference;
+  window.agentWorkspacePairedClose=pairedClose;
   const disposeText=agfocusTextHost()?.mount(p,board) || (()=>{});
   $('[data-surface-close]',board).onclick=()=>agpadSurfaceClose(p);
   // Escape closes an open expansion or record.
@@ -66,6 +68,7 @@ function agfocusMount(p) {
     p.focusWorkspace?.dispose();p.focusWorkspace=null;
     if(window.agentWorkspacePairedUnavailable===pairedUnavailable)delete window.agentWorkspacePairedUnavailable;
     if(window.agentWorkspacePairedReference===pairedReference)delete window.agentWorkspacePairedReference;
+    if(window.agentWorkspacePairedClose===pairedClose)delete window.agentWorkspacePairedClose;
     p.focusMount=null;
   };
   p.nextFocus=Date.now()+AGFOCUS_POLL_MS;
@@ -101,14 +104,19 @@ function agfocusPaint(p) {
 }
 
 // Open a record in the shared workspace (used by deep links and Chat references).
-async function agfocusOpenTarget(p,target,{root=true,paired=target?._workKind==='crm',parentTable=null}={}) {
+async function agfocusOpenTarget(p,target,{root=true,paired,parentTable=null}={}) {
   if (p.surface) { await agpadSurfaceClose(p); if (p.surface || _agpad !== p) return false; }
   const record=rwRecordFromItem(target,{can_thread:target?.can_thread});
   if(!record)throw new Error('This item is no longer available.');
+  // A record with a private thread shows that thread in the Chat area on the left and its details here.
+  if(paired===undefined)paired=target?._workKind==='crm' || (!!record.can_thread && agfocusLeftChatReady());
   if(!await agfocusWorkspaceMode(p,paired))return false;
   agfocusShowDock(p);
-  if(parentTable?.id) return p.focusWorkspace?.navigate(record,{parentTable});
-  return p.focusWorkspace?.open(record,{root,tab:record.can_thread?'chat':'dashboard'});
+  const opened=parentTable?.id ? await p.focusWorkspace?.navigate(record,{parentTable})
+    : await p.focusWorkspace?.open(record,{root,tab:record.can_thread?'chat':'dashboard'});
+  // The Chat area can refuse the thread (a side chat still sending); then nothing opens here either.
+  if(opened===false && !p.focusWorkspace?.isOpen?.())agfocusClearSelection(p);
+  return opened;
 }
 // Native Chat Task references preserve their canonical scope and open this record's private thread.
 async function agfocusOpenChatTask(agentId, reference) {
@@ -127,6 +135,11 @@ async function agfocusOpenChatTask(agentId, reference) {
   if(typeof _agpad==='undefined' || _agpad!==pane || String(pane.agentId ?? '')!==String(agentId ?? ''))throw new Error('This agent is no longer open.');
   if(!pane.focusWorkspace?.isOpen?.())throw new Error('This Task could not be opened.');
   return opened;
+}
+// The Chat area beside this pane can show a thread: the parent's when Focus runs in a frame, or this page's.
+function agfocusLeftChatReady() {
+  if(window.parent!==window)return typeof window.parent.agentWorkspacePairedRecord==='function';
+  return typeof globalAgentViewActive!=='undefined' && typeof globalAgentViewActive?.selectPairedSource==='function';
 }
 async function agfocusWorkspaceMode(p,paired) {
   paired=!!paired && p.workspaceRole==='ordubashy';
@@ -189,8 +202,8 @@ function agfocusPairedSource(record,parentTable) {
   if(!source)return window.parent?.agentWorkspacePairedRecord?.(window,null,null) ?? true;
   const parent=parentTable?{type:'table',id:parentTable.id,business_id:parentTable.business_id ?? null}:null;
   if(window.parent!==window && typeof window.parent.agentWorkspacePairedRecord==='function')
-    return window.parent.agentWorkspacePairedRecord(window,{type:source.type,id:source.id,business_id:source.business_id ?? null},parent);
-  return window.agentWorkspacePairedRecord?.(window,{type:source.type,id:source.id,business_id:source.business_id ?? null},parent) ?? true;
+    return window.parent.agentWorkspacePairedRecord(window,{type:source.type,id:source.id,business_id:source.business_id ?? null,label:record.label || source.label || null},parent);
+  return window.agentWorkspacePairedRecord?.(window,{type:source.type,id:source.id,business_id:source.business_id ?? null,label:record.label || source.label || null},parent) ?? true;
 }
 async function agfocusOpenPairedReference(p,ref) {
   if(ref?.type==='task')return agentOpenRecordReference(ref);

@@ -543,7 +543,8 @@ function conversationMount(host,source,adapter={}) {
     ...(composerHost?{composerHost,bannerHost:composerHost}:{}),
     onDraft:text=>{if(!current())return;s.text=text;syncDraft();adapter.onInput?.();},
     onSubmit:()=>{void submit();},
-    ...(source.type==='task'?{
+    // Task threads and side chats (adapter.attachments) take files; they upload first and are sent as references.
+    ...((adapter.attachments ?? source.type==='task')?{
       onFiles:files=>{
         if(!current() || s.sending || s.submission || !files.length)return;
         if(s.files.length+files.length>10 || files.some(file=>file.size>25*1024*1024)){setError('Choose up to 10 files, each 25 MB or smaller.');return;}

@@ -43,6 +43,9 @@ browserTest('a first start shows the sample text and saves nothing until the own
   const {browser, page} = await fixture({revision: 0, card_ids: [], blocks: []});
   try {
     assert.equal(await value(page), 'Your notes here');
+    // The notes fill the board's width, not just the width of their text.
+    const widths = await page.evaluate(() => [document.querySelector('.agfocus-layout'), document.querySelector('.agfocus-notes-input')].map(e => e.getBoundingClientRect().width));
+    assert.equal(widths[1], widths[0]);
     await page.waitForTimeout(700);
     assert.deepEqual(await page.evaluate(() => posts), []);
     await page.locator('.agfocus-notes-input').fill('Call the bank\nPlan launch');

@@ -596,7 +596,7 @@ function recordWorkspaceMount(host, options = {}) {
   }
   // Focus can pin a record's thread to its top row, beside the open side chats.
   function pinnable(item) {
-    return options.entry === 'focus' && !options.paired && typeof threadPins !== 'undefined' && !!item.record?.can_thread && !item.record.scopeMissing;
+    return options.entry === 'focus' && typeof threadPins !== 'undefined' && !!item.record?.can_thread && !item.record.scopeMissing;
   }
   function paintPin(item) {
     if (!item.alive || !item.pinButton) return;
