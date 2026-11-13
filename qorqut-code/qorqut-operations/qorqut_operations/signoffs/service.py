@@ -408,6 +408,14 @@ class SignoffService:
                                       [*params, limit]).fetchall()
         return {"count": count, "items": [self._dto(decode_row(row), uow, detail=False) for row in rows]}
 
+    def latest_acknowledge(self, context, uow):
+        """The newest read-and-acknowledge request the caller may read, whatever its state; None when there is none."""
+        context = self._context(context, uow)
+        clause, params = self._visibility(context, uow)
+        row = uow.connection.execute(f"SELECT s.* FROM signoffs s WHERE {clause} AND {ACKNOWLEDGE_SQL} "
+                                     "ORDER BY s.created_at DESC, s.id DESC LIMIT 1", params).fetchone()
+        return self._dto(decode_row(row), uow, detail=False) if row else None
+
     def get(self, context, signoff_id, **arguments):
         return self.app.invoke(context, "signoffs_get", {**arguments, "signoff_id": signoff_id, **({"scope": "global"} if context.business_id is None else {})})
 

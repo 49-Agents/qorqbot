@@ -132,6 +132,33 @@ class WorkReviewTests(unittest.TestCase):
         # Nothing before the period.
         self.assertEqual(self.read({"since": "2020-01-01T00:00:00Z", "until": "2020-01-02T00:00:00Z"})["signoffs"]["proposed"]["count"], 0)
 
+    def test_reports_to_read_are_counted_apart_from_decisions_and_the_last_one_is_named(self):
+        runtime = self.runtime
+        self.assertEqual({name: self.read()["standing_now"][name] for name in ("pending_signoffs", "unacknowledged", "last_report")},
+                         {"pending_signoffs": 0, "unacknowledged": 0, "last_report": None})
+        report = lambda title: invoke(runtime, "signoffs_input_create", {"request_key": "daily-report", "form": {
+            "title": title, "explanation": "Nothing was dropped.", "kind": "acknowledge", "selection_mode": "none"}},
+            ctx=runtime.coordinator)["signoff"]
+        invoke(runtime, "signoffs_input_create", {"request_key": "date", "form": {
+            "title": "Choose a date", "explanation": "Which date works?", "kind": "question", "selection_mode": "none"}},
+            ctx=runtime.coordinator)
+        report("Daily report, 11 Nov")
+        second = report("Daily report, 12 Nov")
+        standing = self.read()["standing_now"]
+        # The replaced report is gone; the question is the only decision waiting.
+        self.assertEqual((standing["pending_signoffs"], standing["unacknowledged"]), (1, 1))
+        self.assertEqual((standing["last_report"]["id"], standing["last_report"]["title"], standing["last_report"]["state"],
+                          standing["last_report"]["acknowledged_at"]), (second["id"], "Daily report, 12 Nov", "pending", None))
+        result = runtime.signoffs.respond(runtime.owner, second["id"], proposal_revision=second["proposal_revision"],
+            payload_hash=second["payload_hash"], expected_status_revision=second["status_revision"], idempotency_key=new_id())
+        self.assertEqual(result.status, "ok", result.error)
+        review = self.read(EVER)
+        standing = review["standing_now"]
+        self.assertEqual((standing["pending_signoffs"], standing["unacknowledged"], standing["last_report"]["state"]), (1, 0, "answered"))
+        self.assertIsNotNone(standing["last_report"]["acknowledged_at"])
+        self.assertIn((second["id"], "acknowledged"),
+                      [(item["id"], item["decision_state"]) for item in review["signoffs"]["decided"]["items"]])
+
     def test_owner_facing_output_is_counted_per_agent(self):
         task = self.task("Send the Linden contract")
         for author, audience, when in ((self.worker, "owner", at(9)), (self.worker, "owner", at(10)), (self.lead, "owner", at(11)),
@@ -165,7 +192,7 @@ class WorkReviewTests(unittest.TestCase):
         standing = self.read()["standing_now"]
         self.assertEqual(standing, {"as_of": "2026-11-12T18:00:00.000000Z", "open_work_tasks": 5, "open_without_worker": 1,
                                     "working_untouched": 1, "parked_untouched": 1, "parked_without_wake_time": 1,
-                                    "needs_owner_input": 1, "pending_signoffs": 0})
+                                    "needs_owner_input": 1, "pending_signoffs": 0, "unacknowledged": 0, "last_report": None})
 
     def test_a_section_that_cannot_be_read_is_named_and_the_others_still_answer(self):
         self.action("Sent the contract", self.worker, at(9))

@@ -9,7 +9,8 @@ what was recorded as done in the same period, so the two can be compared without
 * ``signoffs``: proposals put to the owner and proposals decided;
 * ``owner_facing``: how many notes agents posted for the owner, replies in the private owner threads and completed
   chat replies, per agent;
-* ``standing_now``: how much open work there is now and how much of it is unassigned, stale or waiting on the owner.
+* ``standing_now``: how much open work there is now and how much of it is unassigned, stale or waiting on the owner,
+  and the reports put to the owner to read: how many are unacknowledged and when the last one was posted.
   The list itself is ``tasks_overview(view="holders")``; it is not repeated here.
 
 Each section is read with the caller's grant for the equivalent read, and one that cannot be read is returned as
@@ -36,7 +37,9 @@ DESCRIPTION = (
     "with count, by (who did how many) and the newest items, oldest first; more says how many older ones were left out. "
     "actions: Actions recorded. signoffs: proposed and decided. owner_facing: counts of notes posted for the owner, replies "
     "in private owner threads and completed chat replies per agent. standing_now: open work now, and how much of it has no "
-    "Worker, is stale or waits on the owner; read tasks_overview(view=\"holders\") for the list. A section that cannot be "
+    "Worker, is stale or waits on the owner; read tasks_overview(view=\"holders\") for the list. pending_signoffs counts "
+    "decisions waiting on the owner; unacknowledged counts reports posted for the owner to read (form.kind=acknowledge) that "
+    "are not acknowledged yet, and last_report is the newest such report: at, title, state and acknowledged_at. A section that cannot be "
     "read is {unavailable: code}. A record here shows that something was written, not that an ask was met: read the Task, "
     "Action or Signoff before you call it done. Changes nothing.")
 SCHEMA = schema({
@@ -216,9 +219,16 @@ class _Review:
             self.allowed("signoffs_list")
             listing = self.app.registry.get("signoffs_list")
             arguments = self.app.registry.bind_arguments("signoffs_list", {"scope": "global", "states": ["pending"], "limit": 1})
-            found["pending_signoffs"] = listing.read(self.ctx, arguments, InvocationOptions(), self.uow)["counts"]["pending"]
+            pending = listing.read(self.ctx, arguments, InvocationOptions(), self.uow)
+            # A report waiting to be read is not a decision waiting on the owner; the two are counted apart.
+            found["unacknowledged"] = pending.get("to_read", 0)
+            found["pending_signoffs"] = pending["counts"]["pending"] - found["unacknowledged"]
+            report = self.app.signoffs.latest_acknowledge(self.ctx, self.uow) if self.app.signoffs is not None else None
+            found["last_report"] = report and {
+                "at": report["created_at"], "id": report["id"], "title": cut(report["title"], 120), "state": report["state"],
+                "acknowledged_at": (report["decision"] or {}).get("at") if report["state"] == "answered" else None}
         except DomainError:
-            found["pending_signoffs"] = None
+            found["pending_signoffs"] = found["unacknowledged"] = found["last_report"] = None
         return found
 
 
