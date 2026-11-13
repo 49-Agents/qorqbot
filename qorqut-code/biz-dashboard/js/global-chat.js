@@ -109,7 +109,7 @@ function globalChatViewToggle(terminal = false) {
   return `<div class="gchat-view-toggle" role="group" aria-label="Agent view">
     <button type="button" class="ttab" data-chat-return aria-label="Chat" aria-pressed="${!terminal}" ${terminal ? '' : 'disabled'}><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
     <button type="button" class="ttab" data-terminal aria-label="Terminal" aria-pressed="${terminal}" ${terminal ? 'disabled' : ''}><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 17 6-6-6-6M12 19h8"/></svg></button>
-  </div><button type="button" class="ttab gchat-refresh" data-agent-refresh aria-label="Refresh" title="Refresh"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 12l-3-4"/></svg></button>`;
+  </div>`;
 }
 
 // One Chat/Terminal lifecycle for any registered agent, on the Global page and in a business workspace.
@@ -146,7 +146,6 @@ function mountAgentView(pane, agent, opts) {
     const label = agent.display_name || agent.name;
     terminalHost.innerHTML = `<div class="gchat-terminal"><div class="gchat-top"><span class="gchat-name">${esc(label)}</span><span class="gchat-status">Terminal</span></div><div class="gchat-session-switch">${globalChatViewToggle(true)}</div><div class="gchat-terminal-host"></div></div>`;
     terminalHost.querySelector('[data-chat-return]').onclick = () => showChat();
-    terminalHost.querySelector('[data-agent-refresh]').onclick = () => showTerminal(true);
     const shellStatus = terminalHost.querySelector('.gchat-status');
     closeTerminal = mountTerminal(opts.terminal.key, terminalHost.querySelector('.gchat-terminal-host'), status => {
       shellStatus.textContent = status === 'ended' ? 'Terminal exited' : status === 'disconnected' ? 'Terminal disconnected' : 'Terminal';
@@ -439,9 +438,6 @@ function mountGlobalChat(pane, agent, options = {}) {
   const paintSession = () => paint();
   const showBanner = text => { bannerText = text || ''; reconnecting = false; view.render({banner: {text: bannerText}}); };
   listen(root, 'click', event => {
-    if (event.target.closest('[data-agent-refresh]')) {
-      clearTimeout(retryTimer); retryDelay = 1000; closeStream(); void load(); return;
-    }
     if (event.target.closest('[data-terminal]')) options.openTerminal?.();
   });
 

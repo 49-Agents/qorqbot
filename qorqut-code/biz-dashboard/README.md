@@ -190,8 +190,8 @@ persistent cards over Tasks, Signoffs and URL references.
   [the record workspace](docs/RECORD-WORKSPACE.md). Checks:
   `tests/test_private_channels_browser.js`, `tests/test_record_workspace_browser.js`,
   `tests/test_focus_conversations_browser.js`.
-- Under the launcher row, the attention strip shows unread reply controls, with pending
-  Signoffs in a separate queue beside it (`/root/attention-queue`). Reply
+- The launcher row includes open side chats; a separate row below it holds pending
+  Signoffs, due reminders and recovery actions (`/root/attention-queue`). Reply
   notifications poll `/root/reply-notifications` every 10 seconds while visible and
   every 30 seconds hidden. Checks: `tests/test_attention_queue_browser.js`,
   `tests/test_owner_attention_browser.js`, `tests/test_reply_notifications_browser.js`.

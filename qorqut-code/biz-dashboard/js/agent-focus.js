@@ -248,10 +248,10 @@ async function agfocusSnooze(p,node,until,popup,retry=false) {
   agfocusPaint(p);
 }
 
-// The Browser/Desktop launchers and the owner Signoff queue shared by Focus and Todo.
+// Launchers and open side chats above the owner attention queue in Focus and Todo.
 // `queue` is the .attention-queue section; the returned function releases the strip, subscription and listeners.
 function agfocusQueueMount(p,queue) {
-  // An agent with Focus gets the Browser, Desktop and pending Signoffs in one strip; agents without Focus keep their views and queue.
+  // An agent with Focus gets launchers and open side chats above attention; other agents keep their views and queue.
   p.focusSurfaces=agpadFocusSurfaces(p) && typeof agviewboxSurfacesMount==='function'?agviewboxSurfacesMount(p,queue):null;
   const strip=p.focusSurfaces;
   const disposeAttention=strip?()=>{strip.dispose();if(p.focusSurfaces===strip)p.focusSurfaces=null;}
@@ -261,7 +261,7 @@ function agfocusQueueMount(p,queue) {
     signoffQueue.className='focus-signoff-queue';signoffQueue.setAttribute('aria-label','Signoff queue');signoffQueue.hidden=true;
     queue.after(signoffQueue);
   }
-  const disposeSignoffs=typeof attentionQueue!=='undefined'?attentionQueue.mountSignoffs(signoffQueue,id=>p.focus?.items.find(item=>item.source?.type==='signoff' && item.source.id===id)?.display_name):()=>{};
+  const disposeSignoffs=typeof attentionQueue!=='undefined'?attentionQueue.mountSignoffs(signoffQueue,id=>p.focus?.items.find(item=>item.source?.type==='signoff' && item.source.id===id)?.display_name,undefined,{sideChatHost:strip?.sideChatHost}):()=>{};
   return ()=>{disposeAttention();disposeSignoffs();if(!strip)signoffQueue.remove();};
 }
 
@@ -279,9 +279,9 @@ function agfocusMount(p) {
   let todayCalendar;
   if(p.workspaceScope === 'global' && p.workspaceRole === 'ordubashy') {
     const excerpt=document.createElement('section');
-    // The launchers/attention/signoff row stays the board's first row; the calendar excerpt sits under it.
+    // Launchers and open side chats sit above attention; the calendar excerpt follows both rows.
     board.querySelector('.attention-queue').after(excerpt);
-    todayCalendar=calendarTodayMount(excerpt,()=>agpadSetView(p,'calendar'));
+    todayCalendar=calendarTodayMount(excerpt);
     excerpt.classList.add('agfocus-calendar');
   }
   const disposeQueue=agfocusQueueMount(p,board.querySelector('.attention-queue'));

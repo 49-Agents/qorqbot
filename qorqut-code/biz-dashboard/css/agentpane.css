@@ -120,7 +120,7 @@
 .agsplit.nav-off > .listcol{visibility:hidden;overflow:visible;padding:0;border:0;pointer-events:none}
 .agsplit.nav-off > .listcol .agent-nav-toggle{visibility:visible;pointer-events:auto;position:absolute;top:12px;left:12px;z-index:6;margin:0;background:var(--bg);border:1px solid var(--line);box-shadow:0 2px 8px #0003}
 
-/* One control size for the agent pane's navigation tabs and the chat/terminal/refresh controls. */
+/* One control size for the agent pane's navigation tabs and the chat/terminal controls. */
 .agsplit{--ag-ctl:49.5px;--ag-ctl-icon:21.375px}
 .agpad .ttab,.gchat-session-switch .ttab{position:relative;flex:0 0 var(--ag-ctl);width:var(--ag-ctl);height:var(--ag-ctl)}
 .agpad .ttab svg,.gchat-session-switch .ttab svg{width:var(--ag-ctl-icon);height:var(--ag-ctl-icon)}

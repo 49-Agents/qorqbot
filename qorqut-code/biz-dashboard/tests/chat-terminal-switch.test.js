@@ -110,13 +110,11 @@ test('warm Chat/Terminal toggles preserve views, drafts, scroll and streams; hid
     assert.equal(await page.evaluate(() => calls.posts.filter(p => p.url.endsWith('/resize')).length), 0);
     await page.click('[data-terminal]:visible');
     await page.waitForFunction(() => calls.posts.some(p => p.url.endsWith('/resize')));
-    await page.click('[data-agent-refresh]:visible');
+    assert.equal(await page.locator('[data-agent-refresh]').count(), 0);
     assert.equal(await page.evaluate(() => calls.streams.filter(s => s.url.endsWith('/stream') && !s.closed).length), 1);
-    assert.equal(await page.evaluate(() => _term !== savedTerminal), true);
+    assert.equal(await page.evaluate(() => _term === savedTerminal), true);
     await page.click('[data-chat-return]:visible');
-    const beforeRefresh = await page.evaluate(() => calls.loads);
-    await page.click('[data-agent-refresh]:visible');
-    await page.waitForFunction(before => calls.loads > before, beforeRefresh);
+    assert.equal(await page.locator('[data-agent-refresh]').count(), 0);
     await page.evaluate(() => controller.dispose());
     assert.equal(await page.evaluate(() => calls.streams.every(s => s.closed)), true);
     assert.equal(await page.locator('.gchat-view-host').count(), 0);
