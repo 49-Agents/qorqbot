@@ -261,7 +261,7 @@ function agfocusQueueMount(p,queue) {
     signoffQueue.className='focus-signoff-queue';signoffQueue.setAttribute('aria-label','Signoff queue');signoffQueue.hidden=true;
     queue.after(signoffQueue);
   }
-  const disposeSignoffs=typeof attentionQueue!=='undefined'?attentionQueue.mountSignoffs(signoffQueue,id=>p.focus?.items.find(item=>item.source?.type==='signoff' && item.source.id===id)?.display_name):()=>{};
+  const disposeSignoffs=typeof attentionQueue!=='undefined'?attentionQueue.mountSignoffs(signoffQueue,id=>p.focus?.items.find(item=>item.source?.type==='signoff' && item.source.id===id)?.display_name,undefined,{sideChatHost:strip?.sideChatHost}):()=>{};
   return ()=>{disposeAttention();disposeSignoffs();if(!strip)signoffQueue.remove();};
 }
 
@@ -281,7 +281,7 @@ function agfocusMount(p) {
     const excerpt=document.createElement('section');
     // The launchers/attention/signoff row stays the board's first row; the calendar excerpt sits under it.
     board.querySelector('.attention-queue').after(excerpt);
-    todayCalendar=calendarTodayMount(excerpt,()=>agpadSetView(p,'calendar'));
+    todayCalendar=calendarTodayMount(excerpt);
     excerpt.classList.add('agfocus-calendar');
   }
   const disposeQueue=agfocusQueueMount(p,board.querySelector('.attention-queue'));

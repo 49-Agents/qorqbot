@@ -331,18 +331,21 @@ function agviewboxBack(p, toList = false) {
 }
 
 // ------------------------------------------------------------ Focus surfaces strip
-// Browser, Desktop and new side chat stay fixed beside the shared pending Signoff queue.
+// Browser, Desktop and new side chat stay fixed beside open side chats.
 const AGVB_SURFACES = [['browser', 'Browser'], ['desktop', 'Desktop']];
 const agvbSurfaceIcon = name => (typeof T_VIEW_ICON === 'object' && T_VIEW_ICON[name]) || '';
 
 function agviewboxSurfacesMount(p, host) {
   if (!host || !p.agentId) return null;
   const strip = { agentId: p.agentId, dead: false, discovery: 'checking', surfaces: null, active: { kind: null, id: null } };
+  host.classList.add('agfocus-queues');
   host.setAttribute('aria-label', 'Browser, Desktop, side chats and Signoffs');
   host.innerHTML = `<div class="attention-stack agfocus-surfaces"><div class="agfocus-fixed" role="group" aria-label="Browser, Desktop and new side chat">${AGVB_SURFACES.map(([view, label]) =>
     `<button type="button" class="attention-chip agfocus-surface-chip" data-focus-surface="${view}" aria-disabled="true">${agvbSurfaceIcon(view)}<span class="attention-label">${label}</span></button>`).join('')}<button type="button" class="attention-chip agfocus-surface-chip" data-side-chat-new aria-label="New side chat" title="New side chat">${AGVB_SVG('<path d="M12 5v14M5 12h14"/>')}</button></div>
-    <span class="agfocus-divider" aria-hidden="true"></span>
-    <div class="agfocus-surface-board focus-signoff-queue" role="group" aria-label="Signoff queue" hidden></div></div>`;
+    <span class="agfocus-divider" aria-hidden="true" hidden></span>
+    <div class="agfocus-side-chat-queue focus-signoff-queue" role="group" aria-label="Open side chats" hidden></div></div>
+    <div class="agfocus-surface-board focus-signoff-queue agfocus-attention-row" role="group" aria-label="Attention queue" hidden></div>`;
+  strip.sideChatHost = $('.agfocus-side-chat-queue', host);
   strip.signoffHost = $('.agfocus-surface-board', host);
   // A launcher is enabled only by this agent's own resolved browser-surface binding (the existing cached discovery),
   // within the scope discovery covers; Desktop is also limited to Ordubashy. Pending, failed and empty read differently.
@@ -389,7 +392,7 @@ function agviewboxSurfacesMount(p, host) {
   strip.setActive = (kind, id = null) => { strip.active = { kind, id }; applyActive(); };
   strip.chip = kind => host.querySelector(`[data-focus-surface="${kind}"]`);
   strip.refresh = () => { if (strip.discovery === 'failed') discover(true); };
-  strip.dispose = () => { strip.dead = true; host.onclick = null; host.innerHTML = ''; };
+  strip.dispose = () => { strip.dead = true; host.onclick = null; host.innerHTML = ''; host.classList.remove('agfocus-queues'); };
   applyActive();
   discover(false);
   return strip;

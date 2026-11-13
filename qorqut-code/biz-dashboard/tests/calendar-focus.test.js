@@ -4,6 +4,11 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 
+test('Focus keeps the calendar excerpt without its Calendar shortcut', () => {
+  const source=fs.readFileSync(path.join(__dirname,'../js/agent-focus.js'),'utf8');
+  assert.match(source,/todayCalendar\s*=\s*calendarTodayMount\(excerpt\)/);
+});
+
 // Minimal DOM and provider: no calendar request leaves this process.
 function harness() {
   const calls = [], notices = [], subscriptions = [];

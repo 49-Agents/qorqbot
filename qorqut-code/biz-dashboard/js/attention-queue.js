@@ -78,7 +78,14 @@ const attentionQueue=(()=>{
       const chats=sideChats.map(s=>`<button type="button" class="focus-signoff-chip focus-side-chat-chip" data-side-chat-key="${esc(s.id)}" data-unread="${!!s.unread}" aria-label="${esc(s.title)}${s.unread?' · Unread':''}" title="${esc(s.title+'\n'+s.preview)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="${signoffPaths.message}"/></svg></button>`).join('');
       const due=dueReminders.map(r=>{const unread=reminderUnread(r);return `<button type="button" class="focus-signoff-chip focus-reminder-chip" data-reminder-key="${esc(r.reminder_id)}" data-reminder-state="due" data-unread="${unread}" aria-label="${esc('Reminder due: '+r.text)}${unread?' · Unread':''}" title="${esc(r.text)}">${reminderIcon}</button>`;}).join('');
       const recovery=recoveryCount ? '<button type="button" class="quiet" data-reminder-recovery>Unconfirmed reminder changes</button>' : recoveryError ? '<button type="button" class="quiet" data-reminder-recovery-check>Retry reminder session</button>' : '';
-      const markup=chats+due+recovery+signoffs.map(s=>{const title=mount.name?.(s.id)||s.title,unread=signoffUnread(s.id);return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" data-unread="${unread}" aria-label="Review ${esc(title)}${unread?' · Unread':''}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
+      if(mount.sideChatHost){
+        const chatHost=mount.sideChatHost;
+        if(chatHost._signoffHTML!==chats){chatHost.innerHTML=chats;chatHost._signoffHTML=chats;}
+        chatHost.hidden=!chats;
+        const divider=chatHost.parentElement?.querySelector('.agfocus-divider');
+        if(divider)divider.hidden=!chats;
+      }
+      const markup=(mount.sideChatHost?'':chats)+due+recovery+signoffs.map(s=>{const title=mount.name?.(s.id)||s.title,unread=signoffUnread(s.id);return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" data-unread="${unread}" aria-label="Review ${esc(title)}${unread?' · Unread':''}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
       const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'')+(remindersError?'<button type="button" class="quiet" data-reminders-retry>Retry reminders</button>':'');
       if(host._signoffHTML!==html){host.innerHTML=html;host._signoffHTML=html;}
       host.hidden=!markup && !signoffsError && !remindersError;
@@ -275,8 +282,8 @@ const attentionQueue=(()=>{
   window.addEventListener('focus',()=>{if(mounts.size || signoffMounts.size)void refresh();void refreshSignoffs();if(signoffMounts.size)void refreshReminderRecovery();});
   if(typeof onChange==='function')onChange(['signoffs'],null,()=>{void refreshSignoffs();if(mounts.size || signoffMounts.size)void refresh();});
   return {signoffViewed,reminderViewed,viewboxViewed,refresh,refreshSignoffs,paintSignoffs,
-    mountSignoffs(host,name,opener){signoffMounts.set(host,{name,opener});host.addEventListener('click',signoffClick);host.addEventListener('contextmenu',reminderContextMenu);paintSignoffs();void refreshSignoffs(true);void refresh(true);void refreshReminderRecovery();
-      return ()=>{signoffMounts.delete(host);host.removeEventListener('click',signoffClick);host.removeEventListener('contextmenu',reminderContextMenu);if(!signoffMounts.size){clearTimeout(signoffTimer);if(!mounts.size)clearTimeout(timer);}};},
+    mountSignoffs(host,name,opener,options={}){const sideChatHost=options.sideChatHost;signoffMounts.set(host,{name,opener,sideChatHost});host.addEventListener('click',signoffClick);sideChatHost?.addEventListener('click',signoffClick);host.addEventListener('contextmenu',reminderContextMenu);paintSignoffs();void refreshSignoffs(true);void refresh(true);void refreshReminderRecovery();
+      return ()=>{signoffMounts.delete(host);host.removeEventListener('click',signoffClick);sideChatHost?.removeEventListener('click',signoffClick);host.removeEventListener('contextmenu',reminderContextMenu);delete host._signoffHTML;if(sideChatHost)delete sideChatHost._signoffHTML;if(!signoffMounts.size){clearTimeout(signoffTimer);if(!mounts.size)clearTimeout(timer);}};},
     mount(host){mounts.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);paint(host);void refresh(true);
     return ()=>{mounts.delete(host);host.removeEventListener('click',clicks);host.removeEventListener('contextmenu',dismiss);if(!mounts.size && !signoffMounts.size)clearTimeout(timer);};}};
 })();
