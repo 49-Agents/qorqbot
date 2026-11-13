@@ -5,6 +5,14 @@ its behavior. Include documentation when a user-visible operation changes.
 Keep credentials, personal records, local configuration and machine paths out of
 code, examples, screenshots and test fixtures. Use synthetic test data.
 
+## Branches
+
+Create work branches from `dev`. Open pull requests against `dev`. A pull
+request into `dev` needs the maintainer's approval and passing checks.
+
+`main` holds released code and takes pull requests only from `dev`. They need
+the maintainer's approval. Neither branch accepts direct pushes or force-pushes.
+
 ## Rights and license
 
 Only submit work you have the right to contribute. Preserve existing third-party

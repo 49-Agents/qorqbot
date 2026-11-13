@@ -40,6 +40,10 @@ For a local build:
    publication-date ledger and release notes. Publishing is a separate maintainer
    action; build commands do not deploy, publish or change repository visibility.
 
+Prepare a release in a pull request into `dev`. Then merge `dev` into `main`
+through a pull request titled "Release X.Y.Z", using a merge commit. Build the
+release from that `main` commit and tag it there.
+
 Only the owner changes repository visibility. Existing installations require
 explicit database/instruction compatibility checks and migration evidence; a
 fresh-install or same-archive update test does not establish those properties.

@@ -2,7 +2,7 @@ name: Checks
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, dev]
   workflow_dispatch:
 permissions:
   contents: read
@@ -41,6 +41,22 @@ jobs:
           printf '%s  %s\n' "$GITLEAKS_SHA256" "$scanner_dir/$archive" | sha256sum --check --strict
           tar -xzf "$scanner_dir/$archive" -C "$scanner_dir" gitleaks
           "$scanner_dir/gitleaks" git "$GITHUB_WORKSPACE" --log-opts=--all --redact --no-banner
+  base-branch:
+    # main takes pull requests only from dev; every other pull request targets dev.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Pull requests into main come from dev
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          if [ "$BASE" = main ] && { [ "$HEAD" != dev ] || [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; }; then
+            echo "::error::main takes pull requests only from dev. Open this pull request against dev."
+            exit 1
+          fi
   backend:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
