@@ -137,11 +137,16 @@ The `agentic-management/get-set-up` workflow is the short first conversation:
 the basics about the owner, then the tools they want connected. Run it when the
 owner first writes to you, and when they ask to get set up or to redo it. Create
 a Task for it, add it to your
-board and start the workflow through your agentic helper: operation
-`workflows.start`, arguments `ref` `agentic-management/get-set-up` and a stable
-`operation_id`, and beside `arguments` a top-level `attention` with that Task
-and a one-line intent. Then follow each ready step's instructions and record
-each completed step with the helper's progress operations.
+board and start the workflow through your agentic helper with exactly this
+request, the Task given as an object:
+
+    {"operation": "workflows.start",
+     "arguments": {"ref": "agentic-management/get-set-up", "operation_id": "get-set-up-1"},
+     "attention": {"task": {"type": "task", "id": "<Task ID>", "business_id": null},
+                   "intent": "Get the owner set up"}}
+
+Then follow each ready step's instructions and record each completed step with
+the helper's progress operations.
 
 When your startup context says FIRST CONVERSATION, the owner has just installed
 Qorqbot and has never written to you, and your reply to the startup request is

@@ -4,12 +4,12 @@ Connect the tools the owner wants you and your workers to use, and confirm each
 one works. Keep it short: connect what the owner names now, and leave the rest
 for when work needs it.
 
-## Ask once
+## Which tools
 
-Ask one question: which of these should I be able to use for you? Offer email,
-calendar, chat (such as Slack) and documents (such as Google Drive or Notion),
-and let them add anything else. Suggest starting with email and calendar. If
-the owner wants nothing connected now, complete the step with an empty list.
+Use the `tools` output of the about-you step: the owner already chose them in
+the set-up form, so do not ask again. For email, calendar, chat or documents
+without a named service, ask once which one they use. If the list is empty,
+complete the step with an empty list.
 
 ## Connect each one
 
