@@ -2,8 +2,8 @@
 
 The Task flow (records, fixed states, custom fields, parents, dependencies, tags, discussion, follows, events and the
 snooze) is the engine's. What the engine cannot know comes in through ``TaskPorts``, each part required and none
-discovered by name: the host's contact and peer rules for who may be assigned, the owner
-Focus presentation, the incident ticket link, the references a note may cite beyond engine items, and the routes that v1
+discovered by name: the host's contact and peer rules for who may be assigned, the
+incident ticket link, the references a note may cite beyond engine items, and the routes that v1
 made mandatory for owner work. A port narrows or enriches an operation; it cannot grant access, and every port is
 called inside the same prepared plan and transaction as the Task write it belongs to."""
 
@@ -29,18 +29,6 @@ class AssigneeRules(Protocol):
     def owner_directed(self, ctx: InvocationContext, identity: str, uow) -> bool: ...
 
     def worker_excluded(self, ctx: InvocationContext, identity: str, uow) -> bool: ...
-
-
-class Focus(Protocol):
-    """The owner Focus presentation of a new Task (v1 ``creation_access`` / ``present_created``).
-
-    ``schema`` is the property schema of the optional ``focus`` argument of ``tasks_create``."""
-
-    schema: Mapping[str, Any]
-
-    def creation_access(self, ctx: InvocationContext, focus: Mapping[str, Any], uow) -> None: ...
-
-    def present_created(self, ctx: InvocationContext, focus: Mapping[str, Any], item: Mapping[str, Any], uow) -> None: ...
 
 
 class Incidents(Protocol):
@@ -106,7 +94,6 @@ class TaskPorts:
     ``boards`` is the one optional part: an assembly without work boards leaves it out."""
 
     assignees: AssigneeRules
-    focus: Focus
     incidents: Incidents
     references: NoteReferences
     routing: Routing
@@ -117,16 +104,14 @@ class TaskPorts:
             raise AssemblyError("The optional task port boards must provide workers_named")
         for label, value, methods in (
                 ("assignees", self.assignees, ("protect", "owner_directed", "worker_excluded")),
-                ("focus", self.focus, ("creation_access", "present_created")), ("incidents", self.incidents, ("link_task",)),
+                ("incidents", self.incidents, ("link_task",)),
                 ("references", self.references, ("resolve", "derived")), ("routing", self.routing, ("routes", "snooze_routes"))):
             missing = [name for name in methods if not callable(getattr(value, name, None))]
             if value is None or missing:
                 raise AssemblyError(f"Required task port {label} must provide {', '.join(missing) or 'an implementation'}")
-        if not isinstance(getattr(self.focus, "schema", None), Mapping):
-            raise AssemblyError("The Focus port provides the schema of the tasks_create focus argument")
         if any(not isinstance(getattr(self.references, name, None), Sequence) or isinstance(getattr(self.references, name), str)
                for name in ("types", "host_types")):
             raise AssemblyError("The note reference port lists its reference types and its host-resolved types")
 
 
-__all__ = ["AssigneeRules", "Boards", "Focus", "Incidents", "NoteReferences", "Routing", "TaskPorts"]
+__all__ = ["AssigneeRules", "Boards", "Incidents", "NoteReferences", "Routing", "TaskPorts"]

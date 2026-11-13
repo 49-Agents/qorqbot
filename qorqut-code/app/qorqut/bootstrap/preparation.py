@@ -540,10 +540,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
             "registration_id": registration_id, "agent_id": data["agent_id"], "workspace": str(workspace),
             "service_url": endpoint, "credential_file": ".qorqut/credential",
             "capture_transcripts": capture_transcripts,
-            # Focus curators use the same verified native continuation contract,
-            # with Focus-only review (2), not the broader work/inbox checkpoint (1).
-            "checkpoint_protocol": {runtime:(2 if enabled and ordubashy else enabled)
-                                    for runtime,enabled in (checkpoint_protocol or {}).items()},
+            "checkpoint_protocol": dict(checkpoint_protocol or {}),
             "read_operations": read_operations}),
     }
     claude_mode = "bypassPermissions" if data["scope"]["kind"] == "ecosystem" else "dontAsk"

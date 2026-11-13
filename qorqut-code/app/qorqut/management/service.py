@@ -206,10 +206,6 @@ class ManagementService:
             uow.connection.execute('''UPDATE management_routing SET coordinator_id=?,attention_destination=?,escalation_reason=?,recommendation=?,deadline=?,management_allowed=?,updated_at=?,updated_by=?,revision=revision+1 WHERE id=?''', values[4:10] + (now,ctx.principal_id,identity))
         else:
             uow.connection.execute('''INSERT INTO management_routing(id,source_type,source_id,business_id,coordinator_id,attention_destination,escalation_reason,recommendation,deadline,management_allowed,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''', values[:10] + (values[10], now, now))
-        if ctx.principal_id == coordinator and args['attention_destination'] == 'owner' and args['source_type'] == 'signoffs' and getattr(self.app,'attention',None):
-            from qorqut.inbox.attention import present_created
-            present_created(self.app,ctx,{'reason':args.get('escalation_reason','')},
-                {'type':'signoff','id':args['source_id'],'business_id':business_id},uow)
         return {'routing': self._view(uow.connection.execute('SELECT * FROM management_routing WHERE id=?', (identity,)).fetchone(), uow)}
 
     def prepare_message(self, ctx, args, options, uow):

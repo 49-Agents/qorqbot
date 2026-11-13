@@ -196,23 +196,6 @@ class AttentionBoard:
             return {'id':row['id'],'revision':row['revision'],'archived':row['archived'],'unavailable':True,'task':None}
         return value
 
-    def completion_snapshot(self,ctx,uow):
-        """One authorized, read-only snapshot of every non-archived card.
-
-        Includes postponed cards; no pagination, conversations, read receipts or
-        inbox acknowledgements. Source access is resolved exactly as on the board.
-        """
-        ctx=self.context(ctx,uow)
-        self.app.authorize(ctx,self.app.registry.get('focus_get'),(),uow)
-        from .private_conversations import private_index
-        rows=[decode(row) for row in uow.connection.execute(
-            'SELECT * FROM focus_cards WHERE archived=0 ORDER BY position,id')]
-        private=private_index(ctx,[self.binding(row) for row in rows],uow)
-        return {'revision':uow.connection.execute(
-                    "SELECT value FROM change_sequences WHERE name='focus_board'").fetchone()[0],
-                'complete':True,'includes_postponed':True,
-                'items':[self.projection(ctx,row,uow,private) for row in rows]}
-
     def read(self,ctx,args,uow):
         ctx=self.context(ctx,uow)
         revision=uow.connection.execute("SELECT value FROM change_sequences WHERE name='focus_board'").fetchone()[0]
@@ -494,19 +477,3 @@ class AttentionBoard:
                 [(timestamp(self.legacy.inbox.clock),r[0]) for r in rows])
             uow.next_sequence('focus_board')
         return [r[0] for r in rows]
-
-
-def creation_access(app,ctx,presentation,uow):
-    board=getattr(app,'attention',None)
-    if board is None: raise DomainError('operation_unavailable','Owner attention is not installed')
-    # The installation owner can create an item directly from the shared board too.
-    global_ctx=board.context(ctx,uow)
-    app.authorize(global_ctx,app.registry.get('focus_present'),(),uow,namespace='global')
-    for ref in presentation.get('references',[]): board.resolve(global_ctx,ref,uow)
-    return board,global_ctx
-
-
-def present_created(app,ctx,presentation,source,uow):
-    board,global_ctx=creation_access(app,ctx,presentation,uow)
-    args={**plain(presentation),'source':source,'scope':'global'}
-    return board.apply(global_ctx,board.prepare('focus_present',global_ctx,args,InvocationOptions(),uow),uow)

@@ -175,16 +175,8 @@ class ManagementQueries(Protocol):
 
 
 class FocusAttention(Protocol):
-    """Focus/Task attention surfaces (v1 ``inbox.attention``). ``fields`` is ``FIELDS`` (the ``focus`` argument's
-    property schema). ``creation_access`` and ``present_created`` keep v1's leading ``application`` argument;
+    """Focus/Task attention surfaces (v1 ``inbox.attention``).
     ``release_signoff(row, updated, uow)`` is ``AttentionBoard.release_signoff`` called after each status update."""
-
-    fields: Mapping[str, Any]
-
-    def creation_access(self, application, context: InvocationContext, focus: Mapping[str, Any], uow) -> None: ...
-
-    def present_created(self, application, context: InvocationContext, focus: Mapping[str, Any],
-                        source: Mapping[str, Any], uow) -> None: ...
 
     def release_signoff(self, row: Mapping[str, Any], updated: Mapping[str, Any], uow) -> None: ...
 
@@ -240,7 +232,7 @@ class SignoffPorts:
                               "is_email_submission"), ()),
                 ("email", ("visibility", "email_context"), ()),
                 ("management", ("coordinator", "auto_route_input", "routing_for"), ("managed_input_sql",)),
-                ("focus", ("creation_access", "present_created", "release_signoff"), ("fields",)),
+                ("focus", ("release_signoff",), ()),
                 ("narrowing", ("narrow",), ()),
                 ("sources", ("check",), ())):
             value = getattr(self, name)

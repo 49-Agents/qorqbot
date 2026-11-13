@@ -14,7 +14,6 @@ from .sources import SOURCE
 from . import questions
 from .questions import TEXT, CHOICE
 
-FOCUS_UNAVAILABLE = "The Focus attention domain is not installed"
 MANAGEMENT_UNAVAILABLE = "The management domain is not installed"
 
 ATTENTION = schema({"notify": {"type": "boolean"}, "urgent": {"type": "boolean"},
@@ -94,7 +93,6 @@ class InputRequests:
         self.service = signoffs
 
     def descriptors(self):
-        focus = self.service.ports.focus
         common = dict(supports_signoff=False, scope_kinds=frozenset({'business', 'global'}),
             global_capability='read_global_context',
             resolve_namespace=lambda c,a: 'global' if a.get('scope') == 'global' else 'business:' + (c.business_id or ''))
@@ -102,8 +100,7 @@ class InputRequests:
         for name, properties, required, description in (
             ('signoffs_input_create', {'request_key': {"type": "string", "minLength": 1, "maxLength": 200},
                 'form': FORM, 'attention': ATTENTION,
-                **({'source': SOURCE} if self.service.ports.sources is not ABSENT else {}),
-                **({'focus': schema(focus.fields)} if focus is not ABSENT else {})}, ('request_key', 'form'),
+                **({'source': SOURCE} if self.service.ports.sources is not ABSENT else {})}, ('request_key', 'form'),
                 instruction_text('inputs-ask-the-owner-a-question-or-request-input')),
             ('signoffs_attention_set', {'signoff_id': {"type": "string", "format": "uuid"}, 'attention': ATTENTION},
                 ('signoff_id', 'attention'), instruction_text('inputs-set-notification-urgency-blocking-for-your-pending-signoff')),
@@ -132,8 +129,6 @@ class InputRequests:
         builder = PlanBuilder(ctx, name, args, 'Request owner input',
             namespace='business:' + ctx.business_id if ctx.business_id else 'global', affected_scope=scope)
         if name == 'signoffs_input_create':
-            if 'focus' in args:
-                self.service.ports.require('focus', FOCUS_UNAVAILABLE).creation_access(self.service.app,ctx,args['focus'],uow)
             form = validate_form({'response_policy': 'owner_only', **args['form']} if 'source' in args else args['form'])
             if 'source' in args:
                 self.service.sources.check_source(ctx, args['source'], uow)
@@ -227,8 +222,6 @@ class InputRequests:
             changed = self.attention(identity, values['attention'], uow, actor_id=ctx.principal_id)
             if existed and changed:
                 row = self.service._update(row, {}, uow)
-        if 'focus' in plan.arguments:
-            self.service.ports.require('focus', FOCUS_UNAVAILABLE).present_created(self.service.app,ctx,plan.arguments['focus'],{'type':'signoff','id':row['id'],'business_id':row['review_business_id']},uow)
         result = {'signoff': self.service._dto(row, uow)}
         if 'source' in plan.arguments:
             source = plain(plan.arguments['source'])

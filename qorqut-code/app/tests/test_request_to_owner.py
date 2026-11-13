@@ -41,7 +41,7 @@ class RequestToOwnerTests(unittest.TestCase):
         items = ItemResolver(self.app, [ItemContribution('test', ('task',), lookup)],
                              candidates=NS(candidates=lambda *a: ()))
         ports = TaskPorts(assignees=NS(protect=noop, owner_directed=lambda *a: False,
-            worker_excluded=lambda *a: False), focus=NS(schema={}, creation_access=noop, present_created=noop),
+            worker_excluded=lambda *a: False),
             incidents=NS(link_task=noop), references=NS(types=('task',), host_types=(), resolve=noop, derived=noop),
             routing=NS(routes=lambda *a: ((), ()), snooze_routes=lambda *a: ()))
         self.tasks = TaskOperations(self.app, items, ports=ports)

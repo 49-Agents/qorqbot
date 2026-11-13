@@ -13,7 +13,7 @@ from qorqut.composition.locations import agent_workspace_of
 
 RUNTIMES = frozenset({'claude-code', 'codex'})
 from qorqut_agentic.behavior import completion as completion_policy
-from qorqut_agentic.behavior.completion import REVIEW, FOCUS_REVIEW
+from qorqut_agentic.behavior.completion import REVIEW
 
 
 def native_checkpoint(runtime, agent_id, session_id, registration_id=None):
@@ -67,7 +67,7 @@ class AgentCheckpoints:
             raise DomainError('inbox_session_superseded', 'A newer session owns this agent inbox')
         return ctx, row
 
-    def _findings(self, ctx, row, native, uow, *, instructions, focus_only=False):
+    def _findings(self, ctx, row, native, uow, *, instructions):
         from qorqut.management.identity import configured_ordubashy
         coordinator = ctx.principal_id == configured_ordubashy(uow)
         items = row['items_json']  # Repository rows already decode JSON columns.
@@ -87,7 +87,7 @@ class AgentCheckpoints:
             assignment = uow.repository('agent_current_work').get(ctx.principal_id)
             items = [assignment['item_json']] if assignment and assignment['item_json'] else []
         issues = {}
-        for item in ([] if focus_only or coordinator else items[:10]):
+        for item in ([] if coordinator else items[:10]):
             task_id, business = item.get('task_id'), item['business_id']
             if not task_id:
                 continue
@@ -111,16 +111,15 @@ class AgentCheckpoints:
         # without a repeated maintenance write at every turn.
         reviewed = (todo is not None or (row['work_reviewed_turn'] == native['root_turn_id']
                     and row['work_reviewed_sequence'] >= native['dirty_sequence']))
-        if completion_policy.review_required(focus_only=focus_only, coordinator=coordinator,
+        if completion_policy.review_required(coordinator=coordinator,
                 dirty_sequence=native['dirty_sequence'], reviewed=reviewed):
             # One reminder episode per substantive root turn, never per Stop or continuation.
             issues[REVIEW + ':' + native['root_turn_id']] = {
                 'code': 'work_review_missing', 'business_id': ctx.business_id, 'task_id': None,
                 'message': instructions.render('completion-records')}
-        # The per-turn Focus board review (with the full board pasted into the Stop hook) is retired; Attention
-        # board nudges keep the board current instead.
         inbox = getattr(self.app, 'inbox', None)
-        if not focus_only and inbox is not None and inbox.pending_owner_conversations(ctx, row['session_id'], uow):
+        # Ordubashy talks with the owner in Chat itself, so his turns carry no owner-inbox reminder.
+        if not coordinator and inbox is not None and inbox.pending_owner_conversations(ctx, row['session_id'], uow):
             # Keep this issue session-bound and deliberately generic. The source
             # may be private even when its notification is old or was delivered.
             issues['owner-inbox'] = {
@@ -128,11 +127,11 @@ class AgentCheckpoints:
                 'message': instructions.render("completion-owner-inbox")}
         return issues, reviewed
 
-    def check(self, ctx, registration_id, session_id, turn_id, *, allow_correction=False, claim_id=None, binding_generation=None, focus_only=False):
+    def check(self, ctx, registration_id, session_id, turn_id, *, allow_correction=False, claim_id=None, binding_generation=None):
         if binding_generation is not None:
             from dataclasses import replace
             ctx = replace(ctx,inbox_session_id=session_id,inbox_generation=binding_generation)
-        if type(allow_correction) is not bool or type(focus_only) is not bool:
+        if type(allow_correction) is not bool:
             raise DomainError('validation_error', 'Invalid correction allowance')
         try:
             session_id, turn_id = str(uuid.UUID(session_id)), str(uuid.UUID(turn_id))
@@ -150,7 +149,7 @@ class AgentCheckpoints:
         instructions = self.app.policy.agent_resolver.require_agentic_view().runtime_instructions()
         with self.app.database.read() as uow:
             ctx, row = self._context(ctx, registration_id, session_id, uow)
-            issues, reviewed = self._findings(ctx, row, native, uow, instructions=instructions, focus_only=focus_only)
+            issues, reviewed = self._findings(ctx, row, native, uow, instructions=instructions)
             saved = {r['check_key']: dict(r) for r in uow.connection.execute(
                 "SELECT * FROM agent_checkpoint_findings WHERE agent_id=? AND state='open'",
                 (ctx.principal_id,))}
@@ -164,7 +163,7 @@ class AgentCheckpoints:
             self.app.ensure_writes_open(uow)
             ctx, row = self._context(ctx, registration_id, session_id, uow)
             # Current source state is rechecked inside the single claim transaction.
-            issues, reviewed = self._findings(ctx, row, native, uow, instructions=instructions, focus_only=focus_only)
+            issues, reviewed = self._findings(ctx, row, native, uow, instructions=instructions)
             saved = {r['check_key']: dict(r) for r in uow.connection.execute(
                 'SELECT * FROM agent_checkpoint_findings WHERE agent_id=?', (ctx.principal_id,))}
             if len(set(issues) | {k for k,r in saved.items() if r['state']=='open'}) > 100:
@@ -178,15 +177,6 @@ class AgentCheckpoints:
                     uow.connection.execute("UPDATE agent_checkpoint_findings SET state='resolved',resolved_at=?,updated_at=? "
                                            'WHERE agent_id=? AND check_key=?', (now, now, ctx.principal_id, key))
             claimed = []
-            focus_board = None
-            focus_key = FOCUS_REVIEW + ':' + native['root_turn_id']
-            # Assemble before claiming; never deliver a silently truncated board.
-            # The complete snapshot stays out of persistent findings.
-            if (allow_correction and focus_key in issues
-                    and (focus_key not in saved or saved[focus_key]['state']=='resolved' or not saved[focus_key]['claimed_at'])):
-                focus_board = self.app.attention.completion_snapshot(ctx,uow)
-                if len(json.dumps(focus_board).encode()) > 3 * 1024 * 1024:
-                    raise DomainError('checkpoint_unavailable','Complete Focus snapshot exceeds native delivery budget')
             for key, issue in issues.items():
                 before = saved.get(key)
                 if before is None or before['state'] == 'resolved':
@@ -207,10 +197,7 @@ class AgentCheckpoints:
                         claimed.append(issue['message'])
             current = {r['check_key']: dict(r) for r in uow.connection.execute(
                 "SELECT * FROM agent_checkpoint_findings WHERE agent_id=? AND state='open'", (ctx.principal_id,))}
-            result = self._result(issues, current, claimed, 'checked', instructions=instructions)
-            if instructions.render('completion-focus-retired') in claimed:
-                result['focus_board'] = focus_board
-            return result
+            return self._result(issues, current, claimed, 'checked', instructions=instructions)
 
     _closes = staticmethod(completion_policy.closes)
 

@@ -514,6 +514,17 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
+            if parts == ["root", "thread-pins"] and request.method in {"GET", "POST"}:
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "Pinned threads are for the owner's dashboard")
+                from qorqut.dashboard_preferences import thread_pins
+                body = await read_json(request, limit=65536) if request.method == "POST" else None
+                if body is not None and not isinstance(body, dict):
+                    raise DomainError("validation_error", "A pinned thread change must be an object")
+                data = await anyio.to_thread.run_sync(partial(thread_pins, self.runtime.paths.runtime, actor.principal.id, body))
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
             if parts == ["root", "testing-mode"] and request.method in {"GET", "POST"}:
                 if request.headers.get("authorization") is not None:
                     raise DomainError("forbidden", "Testing mode is for the owner's dashboard")
@@ -1330,6 +1341,7 @@ class HTTPAPI:
             body = await read_json(request, limit=8192)
             checked_fields(body, {"registration_id","session_id","turn_id","allow_correction","claim_id","binding_generation","focus_only"},
                            {"registration_id","session_id","turn_id"})
+            body.pop("focus_only", None)  # Sent by hooks installed before the Focus review was removed; ignored.
             if body["registration_id"] != actor.registration_id:
                 raise DomainError("forbidden", "Checkpoint registration is not bound to this credential")
             context = await anyio.to_thread.run_sync(partial(self.runtime.agent_context, actor.principal, diagnostic=True))

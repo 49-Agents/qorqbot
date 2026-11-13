@@ -243,13 +243,6 @@
       "when_to_use": "checkpoints; conditional; selected by the registered runtime policy."
     },
     {
-      "id": "completion-focus-retired",
-      "kind": "instruction",
-      "path": "messages/completion-focus-retired.md",
-      "description": "Completion focus retired",
-      "when_to_use": "checkpoints; retired; selected by the registered runtime policy."
-    },
-    {
       "id": "completion-owner-inbox",
       "kind": "instruction",
       "path": "messages/completion-owner-inbox.md",

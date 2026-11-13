@@ -40,7 +40,6 @@ The consolidation preserves existing wording, triggers and delivery order. Condi
 | [browser-worker-repair](messages/browser-worker-repair.md) | browser/access.py | conditional |
 | [browser-worker-unconfigured](messages/browser-worker-unconfigured.md) | browser/access.py | conditional |
 | [completion-finished-work](messages/completion-finished-work.md) | checkpoints | conditional |
-| [completion-focus-retired](messages/completion-focus-retired.md) | checkpoints | retired |
 | [completion-owner-inbox](messages/completion-owner-inbox.md) | checkpoints | conditional |
 | [completion-records](messages/completion-records.md) | checkpoints | conditional |
 | [completion-unavailable-work](messages/completion-unavailable-work.md) | checkpoints | conditional |

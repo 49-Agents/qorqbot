@@ -162,7 +162,7 @@ class TaskOperations:
                 **common, effect_kind="read", supports_signoff=False, read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
         comment = {"note_refs": refs, "summary": SUMMARY, "relay": RELAY, "for_owner": FOR_OWNER}
         mutations = {
-            "tasks_create": ({"focus": schema(self.ports.focus.schema), **TASK_FIELDS, "id": IDENTITY, "note": TEXT, **comment,
+            "tasks_create": ({**TASK_FIELDS, "id": IDENTITY, "note": TEXT, **comment,
                               "allow_duplicate": lifecycle.ALLOW_DUPLICATE, "owner_requested": lifecycle.OWNER_REQUESTED}, ("title",)),
             "tasks_update": ({"task_id": IDENTITY, "changes": {**schema({**TASK_FIELDS, "related_task": links.EDIT}), "minProperties": 1}, "note": TEXT, **comment,
                               "owner_requested": lifecycle.OWNER_REQUESTED}, ("task_id", "changes")),
@@ -473,8 +473,6 @@ class TaskOperations:
         builder.expect(ref("business_configs", "tasks", ctx.business_id), config_row)
         if operation == "tasks_config_update":
             return self.prepare_config(ctx, arguments, options, uow, builder, config_row)
-        if arguments.get("focus") is not None:
-            self.ports.focus.creation_access(ctx, arguments["focus"], uow)
         creating = operation == "tasks_create"
         identity = arguments.get("id") or new_id() if creating else arguments["task_id"]
         before = uow.repository("tasks", business_id=ctx.business_id).get(identity)
@@ -717,8 +715,6 @@ class TaskOperations:
         for item in plan.arguments.get("note_refs", ()):
             if item["type"] == "dev_ticket":
                 self.ports.incidents.link_task(uow, item["id"], ctx.business_id, identity, ctx.principal_id, timestamp(self.clock))
-        if "focus" in plan.arguments:
-            self.ports.focus.present_created(ctx, plan.arguments["focus"], {"type": "task", "id": identity, "business_id": ctx.business_id}, uow)
         return self.read("tasks_get", ctx, {"task_id": identity, **({"scope": "global"} if ctx.business_id is None else {})}, uow)
 
     def announce(self, ctx, uow, plan, before, after, comments):
