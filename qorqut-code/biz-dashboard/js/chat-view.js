@@ -999,8 +999,8 @@ function mountChatView(host, options = {}) {
   function disposeTyped(node) {
     for (const item of node._typed?.values() || []) item.dispose();
     node._typed?.clear();
-    for (const container of node._typedAttachments?.values() || []) container.remove();
-    node._typedAttachments?.clear();
+    for (const container of node._typedGroups?.values() || []) container.remove();
+    node._typedGroups?.clear();
     node._typedHost?.remove(); node._typedHost = null;
   }
   function paintTyped(node, entry) {
@@ -1008,7 +1008,7 @@ function mountChatView(host, options = {}) {
     if (!refs.length) { if (node._typedHost) disposeTyped(node); return; }
     if (!node._typedHost) {
       node._typedHost = document.createElement('div'); node._typedHost.className = 'gchat-typed';
-      node._typed = new Map(); node._typedAttachments = new Map(); node.append(node._typedHost);
+      node._typed = new Map(); node._typedGroups = new Map(); node.append(node._typedHost);
     }
     const next = new Map(), sequence = [];
     for (const ref of refs) {
@@ -1027,29 +1027,27 @@ function mountChatView(host, options = {}) {
       }
       next.set(key, item);
       // Only a resolved Task is a flat attachment row; every other typed reference keeps its own component.
-      sequence.push({key, view: item, attachment: ['table', 'task'].includes(ref.type) && available});
+      sequence.push({key, view: item, kind: ref.type === 'agent' ? 'agent' : (['table', 'task'].includes(ref.type) && available ? 'attachment' : null)});
     }
     for (const [key, item] of node._typed) if (!next.has(key)) item.dispose();
     node._typed = next;
-    // Consecutive Task references are one flat attachment list: the same left rule and small inset as a record
-    // thread, so a Task reads the same under a native agent-chat message. Other references keep their own slot
-    // and the canonical order of the message's references is never rearranged.
+    // Consecutive agents and attachments each share a group while retaining canonical reference order.
     const slots = [];
     let run = null;
     for (const mounted of sequence) {
-      if (mounted.attachment) { if (!run) slots.push(run = {items: []}); run.items.push(mounted); }
+      if (mounted.kind) { if (!run || run.kind !== mounted.kind) slots.push(run = {kind: mounted.kind, items: []}); run.items.push(mounted); }
       else { run = null; slots.push({view: mounted.view}); }
     }
-    const attachments = new Map();
+    const groups = new Map();
     for (const slot of slots) {
       if (!slot.items) { slot.el = slot.view.el; continue; }
-      const key = slot.items[0].key;
-      let container = node._typedAttachments.get(key);
+      const key = JSON.stringify([slot.kind, slot.items[0].key]);
+      let container = node._typedGroups.get(key);
       if (!container) {
-        container = document.createElement('div'); container.className = 'gchat-attachment';
-        container.setAttribute('role', 'group'); container.setAttribute('aria-label', 'Table and record references');
+        container = document.createElement('div'); container.className = slot.kind === 'agent' ? 'gchat-agent-references' : 'gchat-attachment';
+        container.setAttribute('role', 'group'); container.setAttribute('aria-label', slot.kind === 'agent' ? 'Agent references' : 'Table and record references');
       }
-      attachments.set(key, container);
+      groups.set(key, container);
       let rowCursor = container.firstChild;
       for (const row of slot.items) {
         const el = row.view.el;
@@ -1057,8 +1055,8 @@ function mountChatView(host, options = {}) {
       }
       slot.el = container;
     }
-    for (const [key, container] of node._typedAttachments) if (!attachments.has(key)) container.remove();
-    node._typedAttachments = attachments;
+    for (const [key, container] of node._typedGroups) if (!groups.has(key)) container.remove();
+    node._typedGroups = groups;
     let cursor = node._typedHost.firstChild;
     for (const slot of slots) { if (slot.el === cursor) cursor = cursor.nextSibling; else node._typedHost.insertBefore(slot.el, cursor); }
   }

@@ -153,6 +153,9 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 /* Typed references (request_user_input): Signoff card, inline browser and entity blocks — under their message. */
 .gchat-typed { display:flex; flex-direction:column; align-items:flex-start; gap:7px; max-width:100%; padding:3px 0 8px; box-sizing:border-box; }
 .gchat-typed:empty { display:none; }
+.gchat-agent-references { display:flex; flex-flow:row wrap; align-items:center; gap:7px; min-width:0; max-width:100%; }
+.gchat-agent-references > .gchat-reference { flex:0 1 auto; box-sizing:border-box; }
+.gchat-agent-references > .gchat-reference > span:last-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .gchat-agent-reference, .gchat-project-reference { cursor:default; }
 .chat-view .gchat-task-reference:not(.gchat-reference-block), .agfocus .chat-view button.gchat-task-reference:not(.gchat-reference-block) { display:inline-flex; align-items:center; min-height:0; height:auto; margin:0; padding:2px 0; border:0; border-radius:4px; background:transparent; box-shadow:none; color:var(--fg); font:inherit; font-size:11px; cursor:default; }
 .chat-view button.gchat-task-reference:not(.gchat-reference-block), .agfocus .chat-view button.gchat-task-reference:not(.gchat-reference-block) { cursor:pointer; }
