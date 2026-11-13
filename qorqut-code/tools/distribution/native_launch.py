@@ -438,6 +438,32 @@ def installation_processes(root):
     return found
 
 
+def stop_agent_browsers(root, timeout=30):
+    """Close this installation's detached agent browsers before its runtime changes; the application starts them again.
+
+    Only a browser supervisor is signalled, and only while it is one of this installation's processes with the exact
+    identity it recorded for itself. It then closes the one Chrome it launched. No stop request is recorded, and
+    anything that remains is left for the caller to refuse."""
+    records = sorted((root / 'instance/operations/.runtime/agent-browsers').glob('*/ready.json'))
+    if not records:
+        return
+    owned = set(installation_processes(root))
+    signalled = False
+    for record in records:
+        try:
+            saved = read_json(record)
+            pid = saved['supervisor_pid']
+            current = identity(pid) if isinstance(pid, int) and pid in owned else None
+            if current and current['boot'] + ':' + current['start'] == saved['supervisor_identity']:
+                os.kill(pid, signal.SIGTERM)
+                signalled = True
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    deadline = time.monotonic() + timeout
+    while signalled and time.monotonic() < deadline and installation_processes(root):
+        time.sleep(.5)
+
+
 def prepare(root, env):
     runtime = root / 'runtime'
     marker = runtime / 'ENVIRONMENT.json'
