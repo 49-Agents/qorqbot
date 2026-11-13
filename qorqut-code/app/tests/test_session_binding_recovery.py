@@ -43,6 +43,10 @@ class SessionBindingTests(unittest.TestCase):
         self.alive = patch('qorqut.bootstrap.bridge_binding.owner_alive', return_value=True)
         self.alive.start()
         self.addCleanup(self.alive.stop)
+        # macOS has no /proc: there the bridge asks the process inspector for the same command line.
+        inspected = patch('qorqut.process_info.cmdline', return_value=['codex'])
+        inspected.start()
+        self.addCleanup(inspected.stop)
 
     def write(self, name, value):
         (self.local / name).write_text(json.dumps(value))
