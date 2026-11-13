@@ -12,7 +12,8 @@ onChange(['action_logs', 'signoffs', 'jobs_routines'], null, refreshSide);
 setInterval(refreshSide, 60000);
 onChange(['jobs_routines'], null, () => { if (rtGlobal() && rtVisible()) rtRefresh(); });
 setInterval(() => { if (rtGlobal() && rtVisible()) rtRefresh(); }, 60000);
-loadBiz().then(() => onboarding.boot());
+// The owner signs in to Qorqbot (js/account-gate.js) before the walkthrough can open.
+loadBiz().then(() => accountGate.boot()).then(() => onboarding.boot());
 replyNotifications.start();
 connectEvents();
 }

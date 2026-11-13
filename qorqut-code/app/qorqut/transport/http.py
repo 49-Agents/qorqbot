@@ -398,6 +398,33 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
+            account_routes = {("GET", ()), ("POST", ("start",)), ("POST", ("verify",)), ("POST", ("logout",))}
+            if parts[:2] == ["root", "account"] and (request.method, tuple(parts[2:])) in account_routes:
+                # The owner's Qorqbot sign-in (``qorqut/account.py``). The local server calls the account service, so the
+                # session token never reaches the browser, an agent or ``.env``.
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "The Qorqbot account is for the owner's dashboard")
+                context, _ = self.context(actor)
+                with self.runtime.database.read() as uow:
+                    owner = uow.repository("installation").get("service")
+                if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
+                    raise DomainError("forbidden", "Only the installation owner can manage the Qorqbot account")
+                from qorqut import account
+                runtime_directory = self.runtime.paths.runtime
+                action = parts[2] if len(parts) > 2 else None
+                if action is None:
+                    call = partial(account.owner_view, runtime_directory)
+                else:
+                    body = await read_json(request, limit=2048)
+                    if not isinstance(body, dict):
+                        raise DomainError("validation_error", "An account request must be an object")
+                    call = {"start": partial(account.start, runtime_directory, body),
+                            "verify": partial(account.verify, runtime_directory, body),
+                            "logout": partial(account.logout, runtime_directory)}[action]
+                data = await anyio.to_thread.run_sync(call)
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
             if parts == ["root", "agent-trust"] and request.method in {"GET", "POST"}:
                 if request.headers.get("authorization") is not None:
                     raise DomainError("forbidden", "Agent trust consent is for the owner's dashboard")

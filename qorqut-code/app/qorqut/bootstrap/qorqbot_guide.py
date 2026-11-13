@@ -34,8 +34,9 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
 - **Ordubashy** is the lead agent. The owner gives him goals; he carries the work forward, hands parts to helper
   agents (workers) and brings decisions back. The **Learning Applier** keeps shared context and how the agents work up
   to date as the owner works.
-- **Privacy:** Qorqbot collects nothing. There is no Qorqbot account, no tracking and no Qorqbot server; everything it
-  keeps stays on this computer. What the owner asks the agents goes to Claude or Codex under the owner's own account,
+- **Privacy:** Everything Qorqbot keeps stays on this computer. The owner signs in once with an emailed code; the
+  account service learns only that email, personal or work use, and a daily heartbeat (installation ID, version,
+  platform), never conversations, files, records or agent work. What the owner asks the agents goes to Claude or Codex under the owner's own account,
   the same as using them directly. Connectors such as Gmail are signed in on the provider's own page; Qorqbot never
   sees or stores passwords.
 

@@ -7,8 +7,10 @@ The native launcher accepts an explicitly downloaded local package:
 ```
 
 Verify the expected checksum through the trusted distribution channel separately.
-An embedded checksum is integrity metadata, not publisher authentication. There
-is no selected release feed, automatic download or extension marketplace.
+An embedded checksum is integrity metadata, not publisher authentication. The
+dashboard tells the owner when a newer release exists and links to the download
+page (`docs/ACCOUNT.md`), but there is no automatic download, automatic apply or
+extension marketplace.
 
 Stop the application and its agent terminals first. The updater takes both the
 launcher and instance lifetime locks, refuses running terminals, validates the
