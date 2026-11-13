@@ -56,17 +56,19 @@ class DirectoryTests(unittest.TestCase):
             (self.root / name).mkdir()
         for name in ['z.txt', 'A.md', 'a.md', '.hidden', 'bad\nname']:
             (self.root / name).write_text('note')
+        # A.md and a.md are one file on a case-insensitive filesystem (the macOS default).
+        notes = sorted(name for name in os.listdir(self.root) if name.casefold() == 'a.md')
         first = self.read(limit='2')
         self.assertEqual([row['name'] for row in first['entries']], ['alpha', 'Beta'])
-        self.assertEqual((first['total'], first['skipped']), (5, 1))
+        self.assertEqual((first['total'], first['skipped']), (3 + len(notes), 1))
         page, names = first, []
         while True:
             names.extend(row['name'] for row in page['entries'])
             if not page['next_cursor']:
                 break
             page = self.read(limit='2', cursor=page['next_cursor'])
-        self.assertEqual(names, ['alpha', 'Beta', 'A.md', 'a.md', 'z.txt'])
-        self.assertEqual(self.read(hidden='1')['total'], 6)
+        self.assertEqual(names, ['alpha', 'Beta', *notes, 'z.txt'])
+        self.assertEqual(self.read(hidden='1')['total'], 4 + len(notes))
         for options in [{'path':'alpha'}, {'hidden':'1'}]:
             with self.assertRaises(DomainError):
                 self.read(cursor=first['next_cursor'], **options)
