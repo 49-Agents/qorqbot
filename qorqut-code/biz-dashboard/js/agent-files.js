@@ -34,6 +34,7 @@ function agentFilesSize(bytes) {
   return bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 function agentFilesMount(p) {
+  if (!agentPaneViewAllowed(p.workspaceRole, 'files')) return;
   const host = $('#agpad-body', p.el);
   if (!host) return;
   host.classList.add('agfiles-host');

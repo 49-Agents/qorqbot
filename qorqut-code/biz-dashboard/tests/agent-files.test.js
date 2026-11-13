@@ -11,14 +11,52 @@ const browserTest = (name, fn) => test(name, {skip: !browserAvailable && 'Local 
 const dashboard = path.join(__dirname, '..');
 const read = file => fs.readFileSync(path.join(dashboard, file), 'utf8');
 
-test('Files is offered and restored only in Ordubashy’s pane', () => {
+test('Files is offered only in Ordubashy’s pane with Testing mode enabled', () => {
   const context = vm.createContext({window:{}, T_VIEW_LABEL:{}, T_VIEW_ICON:{}, setInterval(){}});
+  vm.runInContext(read('js/testing-mode.js'), context);
   vm.runInContext(read('js/agentpane.js'), context);
+  vm.runInContext(read('js/agent-files.js'), context);
+  const unavailable = () => {
+    assert.ok(!context.agentPaneViews('global', 'ordubashy', ['files']).includes('files'));
+    assert.equal(context.agentPaneViewAllowed('ordubashy', 'files'), false);
+    // A direct mount must stop before it reads the DOM or fetches directories.
+    context.agentFilesMount({workspaceRole:'ordubashy'});
+  };
+  unavailable(); // Preference not loaded yet.
+  context.testingModeSetState(false);
+  unavailable();
+  context.testingModeSetState(true);
   assert.ok(context.agentPaneViews('global', 'ordubashy').includes('files'));
   for (const role of ['global-worker', 'learning-applier', null]) {
     assert.ok(!context.agentPaneViews('global', role, ['files']).includes('files'));
     assert.equal(context.agentPaneViewAllowed(role, 'files'), false);
   }
+  vm.runInContext("testingMode.status = 'error'; testingMode.enabled = false;", context);
+  unavailable();
+  vm.runInContext('testingModeEnabled = undefined;', context);
+  unavailable();
+});
+
+test('turning Testing mode off removes Files and disposes the selected explorer', () => {
+  let disposed = 0;
+  const context = vm.createContext({window:{}, T_VIEW_LABEL:{}, T_VIEW_ICON:{}, setInterval(){},
+    document:{body:{classList:{contains:()=>false}}}, $:()=>null,
+    tHead:()=>'', tWireHead(){}, p:{workspaceRole:'ordubashy', workspaceScope:'global', workspaceBase:[],
+      view:'files', el:{}, workspaceDispose:()=>disposed++}});
+  vm.runInContext(read('js/testing-mode.js'), context);
+  vm.runInContext(read('js/agentpane.js'), context);
+  // Keep the pane's real availability reconciliation and view transition;
+  // Focus painting and unrelated pane polling need no DOM in this check.
+  vm.runInContext('agpadWorkspaceMount = () => {}; agpadPaint = () => {}; agpadTick = () => {}; agpadAnimateContent = () => {}; agpadSurfaceDispose = () => {};', context);
+  context.testingModeSetState(true);
+  vm.runInContext("p.views = agentPaneViews('global', 'ordubashy'); _agpad = p;", context);
+  context.testingModeSetState(false);
+  assert.ok(!context.p.views.includes('files'));
+  assert.equal(context.p.view, 'focus');
+  assert.equal(disposed, 1);
+  context.testingModeSetState(true);
+  assert.ok(context.p.views.includes('files'));
+  assert.equal(context.p.view, 'focus');
 });
 
 async function fixture() {
@@ -58,8 +96,8 @@ async function fixture() {
       <div class="agpad tasks"><div class="tbody" id="agpad-body"></div></div><script>
       window.T_VIEW_LABEL={};window.T_VIEW_ICON={};window.$=(s,r=document)=>r.querySelector(s);
       window.esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-      window.toast=()=>{};window.p={el:document.querySelector('.agpad')};
-      </script><script src="/js/agent-files.js"></script><script>agentFilesMount(p);</script></body></html>`});
+      window.toast=()=>{};window.p={el:document.querySelector('.agpad'),workspaceRole:'ordubashy'};
+      </script><script src="/js/testing-mode.js"></script><script src="/js/agentpane.js"></script><script src="/js/agent-files.js"></script><script>testingModeSetState(true);agentFilesMount(p);</script></body></html>`});
     const relative = url.pathname === '/files/view' ? 'file-viewer.html' : url.pathname.slice(1);
     const target = path.join(dashboard, relative);
     if (target.startsWith(dashboard + path.sep) && fs.existsSync(target)) return route.fulfill({path:target});

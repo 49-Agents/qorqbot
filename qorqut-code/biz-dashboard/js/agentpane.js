@@ -125,8 +125,7 @@ const AGPAD_RETIRED_PANE_VIEWS = new Set(["business", "campaign_review", "status
 // Desktop remains Ordubashy's alone (core also enforces this on the binding).
 // Viewbox is offered to registered agents except Learning Applier (the owner-only board is keyed by agent id).
 function agentPaneViewAllowed(roleId, view) {
-  if (view === "files") return roleId === "ordubashy";
-  if (view === "timeline") return roleId === "ordubashy" && typeof testingModeEnabled === "function" && testingModeEnabled();
+  if (view === "files" || view === "timeline") return roleId === "ordubashy" && typeof testingModeEnabled === "function" && testingModeEnabled();
   return view !== "threads" && !(view === "journal" && roleId !== "ordubashy") && !AGPAD_RETIRED_PANE_VIEWS.has(view)
     && !(view === "viewbox" && roleId === "learning-applier");
 }
@@ -202,6 +201,12 @@ function agpadWorkspaceViewsSync(p) {
   if (agpadFocusSurfaces(p) && p.view === "focus" && before === agpadHeadViews(p).join("\u0000")) return;
   agpadSetView(p, views.includes(p.view) ? p.view : views[0]);
 }
+
+// Testing-only tabs follow changes from Settings and other browser tabs. If a
+// selected view becomes unavailable, the normal transition also disposes it.
+if (typeof testingModeSubscribe === 'function') testingModeSubscribe(() => {
+  if (_agpad?.workspaceRole === 'ordubashy') agpadWorkspaceViewsSync(_agpad);
+});
 
 function agpadWorkspaceMount(p, view) {
   if (!agentPaneViewAllowed(p.workspaceRole, view)) return;

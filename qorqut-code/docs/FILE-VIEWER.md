@@ -102,8 +102,9 @@ Errors use the standard envelope. Codes: `not_found` (404), `validation_error`, 
 
 ## Operations tree
 
-Ordubashy's **Files** tab browses the actual operations folders. Expanding a folder lazily reads
-one directory; selecting a file embeds the existing reader, with preview/source, copy and download
+Ordubashy's **Files** tab is available only while **Testing mode** is enabled. Turning Testing
+mode off removes the tab and closes an open explorer. The tab browses the actual operations folders.
+Expanding a folder lazily reads one directory; selecting a file embeds the existing reader, with preview/source, copy and download
 controls. The pane follows the dashboard appearance and stacks tree above preview in narrow panes.
 Search filters **loaded** folders and files. Refresh reloads expanded folders and project counts.
 
