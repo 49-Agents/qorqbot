@@ -150,7 +150,9 @@ discussions pass `onFilePreview({href,title})` to open the existing reader throu
 the shared Focus expansion, with its normal Close and draft-preservation behavior.
 The file title, Close and Open in new tab link share the expansion's header row.
 Embedded screens forward only the canonical URL and title to the parent opener.
-Pending uploads retain their removable file cards in the composer.
+Pending uploads retain their removable file cards in the composer. Owner-written messages and pending
+receipts keep external URLs as clickable text without automatic website or remote-image cards; completed
+agent replies retain those cards. Same-origin file and table viewer references remain available for owners.
 
 Group containers and rows use `.gchat-ref-group`, `.gchat-ref-rows`, `.gchat-ref-row` and `.gchat-reference-row`; action
 counts add `.gchat-action-group`. A native message's Task rows use `.gchat-attachment`; message-attached record-thread
@@ -160,10 +162,12 @@ a thread omits the card's nested channel composer when its channel is the enclos
 
 `notice` is supplied only from controller metadata, never inferred from text.
 Native Chat combines contiguous verified inbox nudges and trusted outgoing agent messages into
-`notice.activity: {nudgeCount, recipients: [{id, name}]}` with `markerOnly: true`. The first entry
+`notice.activity: {nudgeCount, recipients: [{id, name, glyphHtml}]}` with `markerOnly: true`. The first entry
 supplies the key and position; each render recomputes counts and first-seen distinct recipients from
-the ordered ID-keyed transcript. Other entries break a run. The shared view displays escaped names
-in a compact left-aligned row without navigation. Legacy `notice.agentMessage` markers remain supported;
+the ordered ID-keyed transcript. Other entries break a run. Each `glyphHtml` comes from the trusted local
+agent glyph renderer, never server HTML. The shared view displays icons in a compact left-aligned row
+without navigation; escaped names appear only as accessible labels. Missing glyphs use a neutral local
+fallback. Legacy `notice.agentMessage` markers remain supported;
 their `glyphHtml` must be locally generated. Other notices retain their centered style, and unverified
 notices keep their label in the danger colour.
 `verified` and `inputType` are native controller provenance; ordinary thread system

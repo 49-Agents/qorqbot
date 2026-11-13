@@ -196,13 +196,13 @@ function chatViewFileRow(target, label) {
   return row;
 }
 // Chips represent rendered links, never code samples. No document/image request happens until a chip is opened.
-function chatViewReferenceChips(body) {
+function chatViewReferenceChips(body, {includeExternalLinks = true} = {}) {
   const chips = document.createElement('div'), seen = new Set();
   chips.className = 'gchat-references';
   let run = null;
   for (const link of body.querySelectorAll('a.safe-link')) {
     const target = chatViewReferenceTarget(link.href);
-    if (!target || seen.has(target.url.href)) continue;
+    if (!target || (!includeExternalLinks && !target.viewer) || seen.has(target.url.href)) continue;
     seen.add(target.url.href);
     const website = !target.viewer && !target.image;
     const file = target.image || target.viewer && target.url.pathname === '/files/view';
@@ -252,7 +252,7 @@ function chatViewExtractTableLinks(body) {
 }
 
 function chatViewOwnerReferences(body) {
-  const chips = chatViewReferenceChips(body);
+  const chips = chatViewReferenceChips(body, {includeExternalLinks: false});
   let removed = false;
   // A copied attachment is shown once as its reference card. Its local path
   // stays in the native transcript, rather than cluttering the visible text.
@@ -708,8 +708,9 @@ function mountChatView(host, options = {}) {
     if (notice?.activity) {
       const {nudgeCount, recipients = []} = notice.activity;
       const nudge = nudgeCount ? `${nudgeCount > 1 ? `${nudgeCount}× ` : ''}inbox nudge` : '';
-      const message = recipients.length ? `messaged ${recipients.map(bot => bot.name).join(', ')}` : '';
-      return `<span class="gchat-marker gchat-compact-activity">${esc([nudge, message].filter(Boolean).join(' · '))}</span>`;
+      const fallback = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true" focusable="false"><rect x="4" y="6" width="16" height="13" rx="4"/><path d="M12 3v3M8 12h.01M16 12h.01M9 16h6"/></svg>';
+      const icons = recipients.map(bot => `<span class="gchat-activity-recipient" role="img" aria-label="${esc(bot.name)}">${bot.glyphHtml || fallback}</span>`).join('');
+      return `<span class="gchat-marker gchat-compact-activity">${nudge ? `<span>${esc(nudge)}</span>` : ''}${nudge && recipients.length ? ' <span>·</span> ' : ''}${recipients.length ? `<span>messaged</span>${icons}` : ''}</span>`;
     }
     if (!notice?.label) return '';
     const bots = notice.agentMessage?.recipients;

@@ -277,7 +277,10 @@ function mountGlobalChat(pane, agent, options = {}) {
         for (const raw of entry.agent_message.recipients) {
           const name = String(raw?.display_name || 'Agent'), id = String(raw?.agent_id || '');
           const key = id || `name:${name}`;
-          if (!seen.has(key)) { seen.add(key); recipients.push({id, name}); }
+          if (!seen.has(key)) {
+            seen.add(key);
+            recipients.push({id, name, glyphHtml: agentGlyph({...(raw?.presentation || {}), agent_id: raw?.agent_id, display_name: raw?.display_name, role: raw?.role}, 16)});
+          }
         }
       }
       return {...presentEntry(first), text: '', notice: {label: 'Activity', verified: true, markerOnly: true, activity: {nudgeCount, recipients}}};
