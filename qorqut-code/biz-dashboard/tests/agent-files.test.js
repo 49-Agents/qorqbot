@@ -69,9 +69,11 @@ async function fixture() {
   const project = {name:'Example project', description:'Current plans and project notes.', open_tasks:12, signoffs:3, subprojects:null};
   const hostile = '<img src=x onerror=alert(1)>';
   const folders = {
-    '':[dir('projects'), dir('agents')],
+    '':[dir('projects'), dir('notes'), dir('agents'), {name:'CLAUDE.md', path:'CLAUDE.md', kind:'file', size:200}],
+    notes:[file('ideas.md', 'notes')],
     projects:[dir('example', 'projects', {project}), dir('archived', 'projects', {project:null}), dir(hostile, 'projects', {project:null})],
-    'projects/example':[dir('code', 'projects/example'), dir('hq', 'projects/example')],
+    'projects/example':[dir('agents', 'projects/example'), dir('code', 'projects/example'), dir('context', 'projects/example'), dir('hq', 'projects/example'),
+      file('AGENTS.md', 'projects/example'), file('CLAUDE.md', 'projects/example'), file('business.yaml', 'projects/example'), file('plan.md', 'projects/example')],
     'projects/example/hq':[file('notes.md', 'projects/example/hq')],
     'projects/example/code':Array.from({length:105}, (_, index) => file(`file-${String(index).padStart(3, '0')}.txt`, 'projects/example/code')),
     agents:[],
@@ -119,12 +121,17 @@ browserTest('tree expands real directory responses, paginates, filters and handl
     assert.match(await page.locator('[data-row="projects/archived"]').innerText(), /—/);
     await page.locator('.agfiles-tree [data-select="projects/example"]').click();
     await page.locator('.agfiles-tree [data-select="projects/example/code"]').click();
-    await page.locator('[data-row="projects/example/code/file-099.txt"]').waitFor();
-    await page.locator('.agfiles-tree [data-more="projects/example/code"]').click();
-    await page.locator('[data-row="projects/example/code/file-104.txt"]').waitFor();
+    // The tree holds folders only; the folder's files list on the right, a page at a time.
+    await page.locator('.agfiles-detail [data-select="projects/example/code/file-099.txt"]').waitFor();
+    assert.equal(await page.locator('.agfiles-tree [data-row^="projects/example/code/"]').count(), 0);
     assert.equal(await page.locator('.agfiles-tree [data-more="projects/example/code"]').count(), 0);
+    await page.locator('.agfiles-detail [data-more="projects/example/code"]').click();
+    await page.locator('.agfiles-detail [data-select="projects/example/code/file-104.txt"]').waitFor();
+    assert.equal(await page.locator('.agfiles-detail [data-more="projects/example/code"]').count(), 0);
     const search = page.getByRole('searchbox');
     await search.fill('file-104');
+    assert.equal(await page.locator('.agfiles-tree [data-row]').count(), 0);
+    await search.fill('hq');
     assert.equal(await page.locator('.agfiles-tree [data-row]').count(), 1);
     await search.fill('');
     const project = page.locator('[data-row="projects/example"]');
@@ -134,10 +141,47 @@ browserTest('tree expands real directory responses, paginates, filters and handl
     assert.equal(await project.getAttribute('aria-expanded'), 'true');
     await page.keyboard.press('ArrowDown');
     assert.equal(await page.evaluate(() => document.activeElement.dataset.row), 'projects/example/code');
-    await page.locator('[data-hidden]').check();
+    await page.locator('[data-system]').check();
     await page.locator('[data-row=".hidden"]').waitFor();
     assert.deepEqual(h.errors, []);
     assert.ok(h.requests.every(request => request.method === 'GET'));
+  } finally { await h.browser.close(); }
+});
+
+browserTest('only projects and notes show until system files are switched on', async () => {
+  const h = await fixture();
+  try {
+    const {page} = h;
+    const treeRows = () => page.locator('.agfiles-tree [data-row]').evaluateAll(rows => rows.map(row => row.dataset.row));
+    assert.deepEqual(await treeRows(), ['projects', 'projects/example', 'projects/archived', 'projects/<img src=x onerror=alert(1)>', 'notes']);
+    assert.deepEqual(await page.locator('.agfiles-crumbs button').allInnerTexts(), ['Files', 'Projects']);
+    assert.equal(await page.locator('[data-row="projects"] .agfiles-count').innerText(), '3');
+    await page.locator('.agfiles-tree [data-select="projects/example"]').click();
+    await page.locator('[data-row="projects/example/hq"]').waitFor();
+    // A project's agent folders and instruction files stay out of the tree and the folder list.
+    assert.deepEqual((await treeRows()).filter(row => row.startsWith('projects/example/')), ['projects/example/code', 'projects/example/hq']);
+    assert.deepEqual(await page.locator('.agfiles-detail .agfiles-child span').allInnerTexts(), ['code', 'hq', 'plan.md']);
+    assert.match(await page.locator('.agfiles-hidden-note').innerText(), /5 system items hidden here/);
+    // A folder with no subfolders has nothing to expand.
+    assert.equal(await page.locator('[data-row="projects/example/hq"] .agfiles-toggle').count(), 1);
+    await page.locator('.agfiles-tree [data-select="projects/example/hq"]').click();
+    await page.locator('.agfiles-detail [data-select="projects/example/hq/notes.md"]').waitFor();
+    assert.equal(await page.locator('[data-row="projects/example/hq"] .agfiles-toggle').count(), 0);
+    await page.locator('.agfiles-tree [data-select="notes"]').click();
+    await page.locator('.agfiles-detail [data-select="notes/ideas.md"]').waitFor();
+    // The note's link and the footer switch show everything; switching off leaves no selection inside system files.
+    await page.locator('.agfiles-tree [data-select="projects/example"]').click();
+    await page.locator('[data-show-system]').click();
+    await page.locator('[data-row="projects/example/agents"]').waitFor();
+    assert.equal(await page.locator('[data-system]').isChecked(), true);
+    assert.ok((await treeRows()).includes('CLAUDE.md'));
+    assert.ok((await treeRows()).includes('projects/example/business.yaml'));
+    await page.locator('.agfiles-tree [data-select="agents"]').click();
+    await page.locator('[data-system]').uncheck();
+    await page.locator('[data-row="projects/example"]').waitFor();
+    assert.equal(await page.locator('.agfiles-row.selected').getAttribute('data-row'), 'projects');
+    assert.equal(await page.locator('[data-row="agents"]').count(), 0);
+    assert.deepEqual(h.errors, []);
   } finally { await h.browser.close(); }
 });
 
@@ -147,7 +191,7 @@ browserTest('file preview reuses the inert reader, supports Source and follows p
     const {page} = h;
     await page.locator('.agfiles-tree [data-select="projects/example"]').click();
     await page.locator('.agfiles-tree [data-select="projects/example/hq"]').click();
-    await page.locator('.agfiles-tree [data-select="projects/example/hq/notes.md"]').click();
+    await page.locator('.agfiles-detail [data-select="projects/example/hq/notes.md"]').click();
     const frame = page.frameLocator('.agfiles-viewer');
     await frame.locator('.fv-md h1').waitFor();
     assert.equal(await frame.locator('.fv-md h1').innerText(), 'Project notes');
@@ -172,15 +216,15 @@ browserTest('failed folders can be retried and a detached read cannot replace a 
     const {page} = h;
     await page.evaluate(() => {
       window.actualFetch = window.fetch;
-      window.fetch = (url, options) => String(url).includes('path=agents')
+      window.fetch = (url, options) => String(url).includes('path=notes')
         ? Promise.resolve(new Response(JSON.stringify({status:'error', error:{message:'Folder is unavailable'}}), {status:403}))
         : actualFetch(url, options);
     });
-    await page.locator('.agfiles-tree [data-select="agents"]').click();
+    await page.locator('.agfiles-tree [data-select="notes"]').click();
     await page.getByRole('alert').filter({hasText:'Folder is unavailable'}).first().waitFor();
     await page.evaluate(() => { window.fetch = actualFetch; });
-    await page.locator('.agfiles-detail [data-retry="agents"]').click();
-    await page.locator('.agfiles-detail').getByText('This folder is empty.').waitFor();
+    await page.locator('.agfiles-detail [data-retry="notes"]').click();
+    await page.locator('.agfiles-detail [data-select="notes/ideas.md"]').waitFor();
     await page.evaluate(() => {
       window.fetch = (url, options) => String(url).includes('path=projects%2Fexample')
         ? new Promise(resolve => { window.finishRead = () => resolve(new Response(JSON.stringify({status:'ok', data:{entries:[], total:0}}))); })
