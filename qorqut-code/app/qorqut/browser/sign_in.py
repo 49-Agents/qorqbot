@@ -251,7 +251,9 @@ def start(runtime, agent_id, value):
     site, url = parse(value)
     owner = _require_agent(runtime, agent_id)
     if sys.platform == "linux" and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
-        raise DomainError("browser_no_screen", "This computer has no screen for a sign-in window. Sign in from the Qorqbot desktop instead.")
+        raise DomainError("browser_no_screen", "This computer has no screen for a sign-in window. Open the site's own sign-in page in your "
+                                               "own browser instead, ask the owner for the password or code and type it yourself. A worker's "
+                                               "browser cannot be signed in without a screen.")
     with _lock:
         if agent_id in _active:
             raise DomainError("conflict", f"Finish signing in to {_active[agent_id]} first, then close that Chrome window.")
@@ -287,7 +289,7 @@ def agent_call(runtime, principal_id, arguments):
         raise DomainError("validation_error", "Use the site's https address, so the owner's password is never sent unencrypted.")
     start(runtime, agent_id, arguments.get("site"))
     return {"opened": site, "next": f"Chrome is open at {site}. Tell the owner to check the address bar, sign in themselves and close the "
-                                    "window when finished. Then call status to confirm. Never ask for their password."}
+                                    "window when finished. Then call status to confirm."}
 
 
 def sign_out(runtime, agent_id, value):

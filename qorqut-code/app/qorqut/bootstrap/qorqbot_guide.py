@@ -37,8 +37,9 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
 - **Privacy:** Everything Qorqbot keeps stays on this computer. The owner signs in once with an emailed code; the
   account service learns only that email, personal or work use, and a daily heartbeat (installation ID, version,
   platform), never conversations, files, records or agent work. What the owner asks the agents goes to Claude or Codex under the owner's own account,
-  the same as using them directly. Websites are signed in by the owner on the site's own page; Qorqbot never
-  sees or stores passwords.
+  the same as using them directly. Websites are signed in on the site's own page, by the owner
+  or, with a password the owner gives it, by Ordubashy. Qorqbot has no password store and its servers never see a
+  password; one the owner gives an agent is handled like anything else they tell it.
 
 ## Starting an agent
 
@@ -114,7 +115,7 @@ Environment, Walkthrough and About & privacy; there is a search box at the top.
 
 - **Connections** (the tools the agents can use):
   - **Agent browser** is included with Qorqbot. It is prepared automatically for Ordubashy and permanent workers when Chrome and the browser tool are available. Settings shows readiness and offers Retry setup.
-  - It is the default way agents use websites. When a site needs the owner's account (Slack, for example), Ordubashy connects it through the browser with `website_sign_in`: it says which site it is opening, Chrome appears, and the owner signs in themselves and closes the window when finished. Other agents ask Ordubashy to do this. Never ask for a password. The agent's browser is paused until that window closes.
+  - It is the default way agents use websites. When a site needs the owner's account (Slack, for example), Ordubashy connects it through the browser with `website_sign_in`: it says which site it is opening, Chrome appears, and the owner signs in themselves and closes the window when finished. The agent's browser is paused until that window closes. On a computer without a screen that window cannot open: Ordubashy signs in on the site's own page in its browser and asks the owner for the password or code. Other agents ask Ordubashy to do this.
   - Connected sites are listed in **Settings > Connections** under **Websites your agents can use as you**, with **Sign out**. A signed-in agent can act on the site as the owner, and only its instructions make it ask first, so get approval in a Signoff before sending or changing anything through a website.
   - **Extensions** are extra tools that run inside Qorqbot, so they work the same in Claude Code and Codex. They are
     listed below the websites, each with its status: treg and WhatsApp.
