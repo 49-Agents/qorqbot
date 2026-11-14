@@ -30,6 +30,23 @@ function agentFilesMetrics(project) {
 function agentFilesEntryIcon(entry) {
   return agentFilesIcon(entry.kind === 'directory' ? entry.name === 'code' ? 'code' : 'folder' : 'file');
 }
+// Projects and notes are the owner's work; everything else at the top, dot files, agent instruction files and a
+// project's own agent folders are system files, shown only while "Show system files" is on.
+const AGFILES_TOP_LEVEL = new Set(['projects', 'notes']);
+const AGFILES_SYSTEM_ANYWHERE = new Set(['CLAUDE.md', 'AGENTS.md']);
+const AGFILES_SYSTEM_IN_PROJECT = new Set(['agents', 'browser', 'context', 'tables', 'business.yaml']);
+function agentFilesIsSystem(entry) {
+  const parent = entry.path.includes('/') ? entry.path.slice(0, entry.path.lastIndexOf('/')) : '';
+  if (entry.name.startsWith('.')) return true;
+  if (!parent) return !(AGFILES_TOP_LEVEL.has(entry.name) && entry.kind === 'directory');
+  if (AGFILES_SYSTEM_ANYWHERE.has(entry.name)) return true;
+  return /^projects\/[^/]+$/.test(parent) && AGFILES_SYSTEM_IN_PROJECT.has(entry.name);
+}
+// A path is a system path when it or any folder above it is one.
+function agentFilesInSystem(path) {
+  const parts = path.split('/').filter(Boolean);
+  return parts.some((name, index) => agentFilesIsSystem({name, path:parts.slice(0, index + 1).join('/'), kind:'directory'}));
+}
 function agentFilesSize(bytes) {
   return bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
@@ -40,25 +57,30 @@ function agentFilesMount(p) {
   host.classList.add('agfiles-host');
   const saved = p.filesState || {};
   const s = {dirs:new Map(), expanded:new Set(saved.expanded || ['', 'projects']), selected:saved.selected || {path:'projects', name:'Projects', kind:'directory'},
-    hidden:!!saved.hidden, filter:'', closed:false, generation:0, controllers:new Set()};
+    system:!!saved.system, filter:'', closed:false, generation:0, controllers:new Set()};
   const shell = document.createElement('section');
   shell.className = 'agfiles';
   shell.setAttribute('aria-label', 'Operations files');
-  shell.innerHTML = `<header class="agfiles-head"><div><strong>Operations</strong><span>Projects, notes & agent workspaces</span></div>
+  shell.innerHTML = `<header class="agfiles-head"><div><strong>Files</strong><span data-files-scope></span></div>
     <button type="button" class="agfiles-icon-btn" data-refresh title="Refresh folders and counts" aria-label="Refresh folders and counts">${agentFilesIcon('refresh')}</button></header>
-    <div class="agfiles-search">${agentFilesIcon('search')}<input type="search" placeholder="Filter loaded folders and files…" aria-label="Filter loaded folders and files"><label><input type="checkbox" data-hidden ${s.hidden ? 'checked' : ''}> Hidden</label></div>
+    <div class="agfiles-search">${agentFilesIcon('search')}<input type="search" placeholder="Find a project or folder" aria-label="Find a project or folder"></div>
     <nav class="agfiles-crumbs" aria-label="File location"></nav>
     <div class="agfiles-layout"><div class="agfiles-tree" role="tree" aria-label="Operations folder tree"></div><section class="agfiles-detail" aria-label="Selected file or folder"></section></div>
-    <footer class="agfiles-footer"><span>Operations folders</span><span title="Open tasks · pending signoffs · subprojects">${agentFilesIcon('tasks')} Tasks ${agentFilesIcon('signoffs')} Signoffs ${agentFilesIcon('subprojects')} Subprojects</span></footer>`;
+    <footer class="agfiles-footer"><label class="agfiles-system"><input type="checkbox" role="switch" data-system ${s.system ? 'checked' : ''}><span>Show system files</span></label><span title="Open tasks · pending signoffs · subprojects">${agentFilesIcon('tasks')} Tasks ${agentFilesIcon('signoffs')} Signoffs ${agentFilesIcon('subprojects')} Subprojects</span></footer>`;
   host.replaceChildren(shell);
   const tree = shell.querySelector('.agfiles-tree'), detail = shell.querySelector('.agfiles-detail'), crumbs = shell.querySelector('.agfiles-crumbs');
   let viewerPath = null;
   const live = () => !s.closed && shell.isConnected;
   const parentOf = path => path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
-  const directoryEntry = path => ({path, name:path.split('/').pop() || 'Operations', kind:'directory'});
+  const directoryEntry = path => ({path, name:path.split('/').pop() || 'Files', kind:'directory'});
   const projectRow = entry => parentOf(entry.path) === 'projects' && entry.kind === 'directory';
   const available = entry => ['directory', 'file'].includes(entry.kind);
-  const label = entry => entry.path === 'projects' ? 'Projects' : entry.path === 'agents' ? 'Agent workspaces' : entry.name;
+  const label = entry => entry.path === 'projects' ? 'Projects' : entry.path === 'notes' ? 'Notes' : entry.path === 'agents' ? 'Agent workspaces' : entry.name;
+  const shown = entry => s.system || !agentFilesIsSystem(entry);
+  // Without system files the tree holds folders only; their files list on the right.
+  const inTree = entry => s.system || (shown(entry) && entry.kind === 'directory');
+  const subfolders = path => (s.dirs.get(path)?.entries || []).filter(inTree);
+  const paintScope = () => { shell.querySelector('[data-files-scope]').textContent = s.system ? 'Every operations folder, including system files' : 'Projects and notes'; };
   const errorText = error => error?.message || 'This folder could not be loaded.';
 
   async function load(path, more = false) {
@@ -71,7 +93,7 @@ function agentFilesMount(p) {
     s.controllers.add(controller);
     paint();
     try {
-      const params = new URLSearchParams({path, hidden:s.hidden ? '1' : '0'});
+      const params = new URLSearchParams({path, hidden:s.system ? '1' : '0'});
       if (more && dir.next_cursor) params.set('cursor', dir.next_cursor);
       const response = await fetch(`/api/root/files/directory?${params}`, {cache:'no-store', signal:controller.signal, headers:{Accept:'application/json'}});
       const body = await response.json();
@@ -91,19 +113,24 @@ function agentFilesMount(p) {
   function row(entry, level, flat = false) {
     const folder = entry.kind === 'directory', expanded = s.expanded.has(entry.path), blocked = !available(entry);
     const badge = projectRow(entry) ? agentFilesMetrics(entry.project) : '';
+    const loaded = s.dirs.get(entry.path), leaf = folder && !s.system && loaded?.loaded && !loaded.next_cursor && !subfolders(entry.path).length;
+    const count = entry.path === 'projects' && loaded?.loaded ? `<small class="agfiles-count">${subfolders('projects').length}</small>` : '';
     const title = blocked ? `${entry.path} — ${entry.kind === 'symlink' ? 'symbolic links are not followed' : 'special files cannot be opened'}` : entry.path;
     return `<div class="agfiles-row${s.selected.path === entry.path ? ' selected' : ''}${blocked ? ' unavailable' : ''}" role="treeitem" aria-level="${level + 1}" aria-selected="${s.selected.path === entry.path}" ${folder ? `aria-expanded="${expanded}"` : ''} ${blocked ? 'aria-disabled="true"' : ''} tabindex="-1" data-row="${esc(entry.path)}" style="--depth:${flat ? 0 : level}" title="${esc(title)}">
-      ${folder && !flat ? `<button type="button" tabindex="-1" class="agfiles-toggle${expanded ? ' expanded' : ''}" data-toggle="${esc(entry.path)}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${esc(entry.name)}">${agentFilesIcon('chevron')}</button>` : '<span class="agfiles-indent"></span>'}
-      <button type="button" tabindex="-1" class="agfiles-name" data-select="${esc(entry.path)}" ${blocked ? 'disabled' : ''}>${agentFilesEntryIcon(entry)}<span>${esc(label(entry))}${flat ? `<small>${esc(parentOf(entry.path) || 'Operations')}</small>` : ''}</span></button>${badge}</div>`;
+      ${folder && !flat && !leaf ? `<button type="button" tabindex="-1" class="agfiles-toggle${expanded ? ' expanded' : ''}" data-toggle="${esc(entry.path)}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${esc(entry.name)}">${agentFilesIcon('chevron')}</button>` : '<span class="agfiles-indent"></span>'}
+      <button type="button" tabindex="-1" class="agfiles-name" data-select="${esc(entry.path)}" ${blocked ? 'disabled' : ''}>${agentFilesEntryIcon(entry)}<span>${esc(label(entry))}${flat ? `<small>${esc(parentOf(entry.path) || 'Files')}</small>` : ''}</span>${count}</button>${badge}</div>`;
   }
   function branch(path, depth) {
     const dir = s.dirs.get(path);
     if (!dir) return '';
-    let html = dir.entries.map(entry => row(entry, depth) + (entry.kind === 'directory' && s.expanded.has(entry.path) ? `<div role="group">${branch(entry.path, depth + 1)}</div>` : '')).join('');
+    const entries = dir.entries.filter(inTree);
+    // Projects lead; Notes follow.
+    if (!path && !s.system) entries.sort((x, y) => (y.path === 'projects') - (x.path === 'projects'));
+    let html = entries.map(entry => row(entry, depth) + (entry.kind === 'directory' && s.expanded.has(entry.path) ? `<div role="group">${branch(entry.path, depth + 1)}</div>` : '')).join('');
     if (dir.loading) html += '<div class="agfiles-status" role="status">Loading…</div>';
     if (dir.error) html += `<div class="agfiles-status" role="alert">${esc(dir.error)} <button type="button" data-retry="${esc(path)}">Try again</button></div>`;
-    if (dir.loaded && !dir.entries.length && !dir.loading) html += '<div class="agfiles-status">This folder is empty.</div>';
-    if (dir.next_cursor) html += `<button type="button" class="agfiles-more" data-more="${esc(path)}" ${dir.loading ? 'disabled' : ''}>Show more (${dir.entries.length} of ${dir.total})</button>`;
+    if (s.system && dir.loaded && !dir.entries.length && !dir.loading) html += '<div class="agfiles-status">This folder is empty.</div>';
+    if (dir.next_cursor && (s.system || subfolders(path).length)) html += `<button type="button" class="agfiles-more" data-more="${esc(path)}" ${dir.loading ? 'disabled' : ''}>Show more (${dir.entries.length} of ${dir.total})</button>`;
     if (dir.skipped) html += `<div class="agfiles-status">${dir.skipped} unsupported file name(s) omitted.</div>`;
     return html;
   }
@@ -119,8 +146,8 @@ function agentFilesMount(p) {
     const scroll = tree.scrollTop;
     if (s.filter) {
       const entries = [...new Map([...s.dirs.values()].flatMap(dir => dir.entries).map(entry => [entry.path, entry])).values()];
-      const matches = entries.filter(entry => `${entry.name} ${entry.path} ${entry.project?.name || ''} ${entry.project?.description || ''}`.toLocaleLowerCase().includes(s.filter));
-      tree.innerHTML = matches.length ? matches.map(entry => row(entry, 0, true)).join('') : '<div class="agfiles-status">No matches in loaded folders. Expand a folder to include its files.</div>';
+      const matches = entries.filter(entry => inTree(entry) && (s.system || !agentFilesInSystem(entry.path)) && `${entry.name} ${entry.path} ${entry.project?.name || ''} ${entry.project?.description || ''}`.toLocaleLowerCase().includes(s.filter));
+      tree.innerHTML = matches.length ? matches.map(entry => row(entry, 0, true)).join('') : `<div class="agfiles-status">No matches in loaded folders. Expand a folder to include its ${s.system ? 'files' : 'folders'}.</div>`;
     } else tree.innerHTML = branch('', 0);
     const rows = [...tree.querySelectorAll('[data-row]')];
     const current = rows.find(node => node.dataset.row === (focused || s.selected.path)) || rows[0];
@@ -129,7 +156,7 @@ function agentFilesMount(p) {
   }
   function paintCrumbs() {
     const parts = s.selected.path.split('/').filter(Boolean);
-    crumbs.innerHTML = `<button type="button" data-folder="">Operations</button>${parts.map((part, index) => `${agentFilesIcon('chevron')}<button type="button" data-folder="${esc(parts.slice(0, index + 1).join('/'))}" ${index === parts.length - 1 ? 'disabled aria-current="location"' : ''}>${esc(part)}</button>`).join('')}`;
+    crumbs.innerHTML = `<button type="button" data-folder="">Files</button>${parts.map((part, index) => `${agentFilesIcon('chevron')}<button type="button" data-folder="${esc(parts.slice(0, index + 1).join('/'))}" ${index === parts.length - 1 ? 'disabled aria-current="location"' : ''}>${esc(index ? part : label({path:part, name:part}))}</button>`).join('')}`;
   }
   function paintDetail() {
     const entry = s.selected;
@@ -146,15 +173,17 @@ function agentFilesMount(p) {
     }
     viewerPath = null;
     const dir = s.dirs.get(entry.path), project = dir?.project || findEntry(entry.path)?.project;
-    const description = project?.description || (entry.path === 'projects' ? 'Project folders, notes, plans and code.' : entry.path === 'agents' ? 'Working files and notes from your agents.' : entry.path === '' ? 'The files your agents work with, organized by folder.' : 'Select a file to read its contents.');
+    const description = project?.description || (entry.path === 'projects' ? 'Project folders, notes, plans and code.' : entry.path === 'notes' ? 'Your notes.' : entry.path === 'agents' ? 'Working files and notes from your agents.' : entry.path === '' ? (s.system ? 'Every operations folder, including system files.' : 'Your projects and notes.') : 'Select a file to read its contents.');
+    const children = (dir?.entries || []).filter(shown), hiddenHere = (dir?.entries.length || 0) - children.length;
     detail.innerHTML = `<div class="agfiles-folder-head"><div class="agfiles-folder-icon">${agentFilesEntryIcon(entry)}</div><h2>${esc(projectRow(entry) && project ? project.name : label(entry))}</h2><p>${esc(description)}</p>${projectRow(entry) ? agentFilesMetrics(project) : ''}<div class="agfiles-folder-path">${esc(entry.path || 'operations/')}</div></div>
-      <div class="agfiles-folder-items"><div class="agfiles-section-title">In this folder <span>${dir?.total ?? ''}</span></div>
-      ${(dir?.entries || []).map(child => `<button type="button" class="agfiles-child" data-select="${esc(child.path)}" ${available(child) ? '' : 'disabled'}>${agentFilesEntryIcon(child)}<span>${esc(child.name)}</span><small>${child.kind === 'file' ? agentFilesSize(child.size) : child.kind === 'directory' ? 'Folder' : child.kind}</small></button>`).join('')}
+      <div class="agfiles-folder-items"><div class="agfiles-section-title">In this folder <span>${dir?.loaded ? children.length + (dir.next_cursor ? '+' : '') : ''}</span></div>
+      ${children.map(child => `<button type="button" class="agfiles-child" data-select="${esc(child.path)}" ${available(child) ? '' : 'disabled'}>${agentFilesEntryIcon(child)}<span>${esc(child.name)}</span><small>${child.kind === 'file' ? agentFilesSize(child.size) : child.kind === 'directory' ? 'Folder' : child.kind}</small></button>`).join('')}
       ${dir?.loading ? '<p class="agfiles-status" role="status">Loading…</p>' : ''}${dir?.error ? `<p class="agfiles-status" role="alert">${esc(dir.error)} <button type="button" data-retry="${esc(entry.path)}">Try again</button></p>` : ''}
-      ${dir?.loaded && !dir.entries.length ? '<p class="agfiles-status">This folder is empty.</p>' : ''}
-      ${dir?.next_cursor ? `<button type="button" class="agfiles-more" data-more="${esc(entry.path)}" ${dir.loading ? 'disabled' : ''}>Show more (${dir.entries.length} of ${dir.total})</button>` : ''}</div>`;
+      ${dir?.loaded && !children.length && !dir.next_cursor ? '<p class="agfiles-status">This folder is empty.</p>' : ''}
+      ${dir?.next_cursor ? `<button type="button" class="agfiles-more" data-more="${esc(entry.path)}" ${dir.loading ? 'disabled' : ''}>Show more (${dir.entries.length} of ${dir.total})</button>` : ''}
+      ${hiddenHere > 0 ? `<p class="agfiles-hidden-note">${hiddenHere} system ${hiddenHere === 1 ? 'item' : 'items'} hidden here. <button type="button" data-show-system>Show system files</button></p>` : ''}</div>`;
   }
-  function paint() { if (live()) { paintTree(); paintCrumbs(); paintDetail(); } }
+  function paint() { if (live()) { paintScope(); paintTree(); paintCrumbs(); paintDetail(); } }
   function select(path) {
     const entry = findEntry(path);
     if (!available(entry)) return;
@@ -187,6 +216,7 @@ function agentFilesMount(p) {
     else if (button.hasAttribute('data-folder')) select(button.dataset.folder);
     else if (button.hasAttribute('data-more')) load(button.dataset.more, true);
     else if (button.hasAttribute('data-retry')) { const dir = s.dirs.get(button.dataset.retry); if (dir) dir.loaded = false; load(button.dataset.retry, !!dir?.next_cursor); }
+    else if (button.hasAttribute('data-show-system')) { const toggle = shell.querySelector('[data-system]'); toggle.checked = true; setSystem(true); }
     else if (button.hasAttribute('data-refresh')) { button.disabled = true; try { await refresh(); } finally { button.disabled = false; } }
     else if (button.hasAttribute('data-copy')) {
       try { await navigator.clipboard.writeText(s.selected.path); toast('File path copied.'); }
@@ -212,9 +242,16 @@ function agentFilesMount(p) {
     if (next) { rows.forEach(node => node.tabIndex = -1); next.tabIndex = 0; next.focus(); }
   });
   shell.querySelector('input[type=search]').addEventListener('input', event => { s.filter = event.target.value.trim().toLocaleLowerCase(); paintTree(); });
-  shell.querySelector('[data-hidden]').addEventListener('change', event => { s.hidden = event.target.checked; refresh(); });
+  function setSystem(on) {
+    s.system = on;
+    // Turning system files off leaves no selection inside them.
+    if (!on && agentFilesInSystem(s.selected.path)) s.selected = directoryEntry('projects');
+    refresh();
+  }
+  shell.querySelector('[data-system]').addEventListener('change', event => setSystem(event.target.checked));
+  if (!s.system && agentFilesInSystem(s.selected.path)) s.selected = directoryEntry('projects');
   p.workspaceDispose = () => {
-    p.filesState = {selected:s.selected, expanded:[...s.expanded], hidden:s.hidden};
+    p.filesState = {selected:s.selected, expanded:[...s.expanded], system:s.system};
     s.closed = true;
     host.classList.remove('agfiles-host');
     for (const controller of s.controllers) controller.abort();
