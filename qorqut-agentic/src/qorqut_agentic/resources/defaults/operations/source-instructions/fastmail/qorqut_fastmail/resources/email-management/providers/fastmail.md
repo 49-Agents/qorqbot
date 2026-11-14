@@ -110,5 +110,6 @@ an entire email chain into a note or invent a link from an internet Message-ID.
 7. Record the address and what it is for in `inboxes/`, with a Project association only if the owner
    gave one.
 
-The owner does their own login, verification and consent in the browser; if one blocks you, ask
-through owner-input. Never type or record a password or code.
+Login and verification follow browser-control's website sign-in: Ordubashy signs in and asks the
+owner for a password or code it does not have; other agents ask Ordubashy. Consent is the owner's.
+Never record a password or code.

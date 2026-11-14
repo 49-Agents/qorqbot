@@ -18,8 +18,11 @@ Codex. For each site, one at a time:
 
 1. Say in Chat exactly which website you are opening.
 2. Call `website_sign_in` with action `open` and the site.
-3. The owner signs in themselves in the Chrome window and closes it. Never ask
-   for or type a password. Your browser is paused until the window closes.
+3. The owner signs in themselves in the Chrome window and closes it. Your
+   browser is paused until the window closes. If the window cannot open because
+   this computer has no screen (`browser_no_screen`), open the site's own sign-in
+   page in your browser, ask the owner for the password or code and type it
+   yourself; never repeat it or write it anywhere else.
 4. Confirm it worked: `website_sign_in` with action `status` only shows that the
    site left cookies, so open the site in your own browser and check that the
    owner's account is signed in. Read only; send, change or post nothing.

@@ -10,9 +10,10 @@ credential; entries are guidance.
 - **Model connector.** A native mail connector exposed to this runtime (for example a Gmail
   connector). It counts only if you can see it in this session, so check the tools you actually have
   before saying it is available. A connector set up in another app or an earlier session is not proof.
-- **Managed browser.** Use browser-control with the account signed in for the owner. The owner does
-  the login, verification and consent. If sign-in is blocked, ask through owner-input; never ask for
-  or type a password or code in chat or in these files.
+- **Managed browser.** Use browser-control with the account signed in for the owner. Login and
+  verification follow its website sign-in: Ordubashy signs in and asks the owner for a password or
+  code it does not have; other agents ask Ordubashy. Consent is the owner's. Never write a password
+  or code in these files.
 - **Native provider tools.** An optional provider package may add tools of its own. They count only
   when the package is installed, granted to you and visible in this session. Do not promise them
   otherwise.
