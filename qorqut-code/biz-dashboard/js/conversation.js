@@ -104,6 +104,23 @@ function conversationActivityEntry(note) {
     references:(note.refs || []).filter(ref=>ref.type!=='dev_ticket').map((ref,index)=>({key:`ref${index}`,label:ref.label || ref.type || 'Reference',disabled:!!ref.unavailable,value:ref}))};
 }
 // Related records have their own identities and pagination; they never enter the message store.
+// A Task's plan as one notice: how far it is and the step in hand. Opened, it lists every step with its outcome.
+// Steps are numbered by position; their identifiers are for agents and never shown.
+function conversationPlanEntry(steps,open) {
+  const finished=steps.filter(step=>step.state==='completed' || step.state==='skipped').length;
+  const current=steps.find(step=>step.current);
+  const clip=text=>text.length>140?`${text.slice(0,139).trimEnd()}…`:text;
+  const line=current?`Plan: ${finished} of ${steps.length} steps done. Now: ${clip(current.text)}`
+    :`Plan: all ${steps.length} steps finished.`;
+  const row=(step,index)=>{
+    const mark=step.state==='completed'?'✓':step.state==='skipped'?'–':step.current?'→':'○';
+    const outcome=step.state==='skipped'?`skipped${step.note?`: ${step.note}`:''}`:step.note || '';
+    return `${mark} ${index+1}. ${step.text}${outcome?` (${outcome})`:''}`;
+  };
+  return {key:open?'plan-open':'plan',speaker:'notice',
+    text:open?[line,...steps.map(row)].join('\n'):line,
+    actions:[{key:'plan-steps',label:open?'Hide steps':'Show steps'}]};
+}
 function conversationRecordKey(record) { return `${record.type}:${record.business_id || 'global'}:${record.id}`; }
 function conversationRelatedRecords(s,source) {
   const records=[...(s.related || [])];
@@ -286,6 +303,7 @@ function conversationMount(host,source,adapter={}) {
     const earliest=s.before?s.notes[0]?.created_at:null;
     for(const note of ctx?.notes || [])if(!earliest || note.created_at>=earliest)entries.push(conversationActivityEntry(note));
     entries.sort((a,b)=>(a.timestamp || '').localeCompare(b.timestamp || ''));
+    if(ctx?.plan_steps?.length)entries.push(conversationPlanEntry(ctx.plan_steps,!!s.planOpen));
     // The thread shows what is for the owner. Agents' working notes stay one click away and are never dropped.
     if(s.allNotes || ctx?.notes_hidden)entries.push({key:'working-notes',speaker:'notice',
       text:s.allNotes?'Showing agents’ working notes.':`${ctx.notes_hidden} working note${ctx.notes_hidden===1?'':'s'} hidden.`,
@@ -569,6 +587,7 @@ function conversationMount(host,source,adapter={}) {
       // Switching between the owner's part and everything rereads the Task's notes from the start.
       if(actionKey==='working-notes'){s.allNotes=!s.allNotes;ctxPages=0;void loadRelated();return;}
       if(actionKey==='context-retry'){void loadRelated();return;}
+      if(actionKey==='plan-steps'){s.planOpen=!s.planOpen;paint('preserve');return;}
       const note=actionKey==='parent'?s.notes.find(n=>n.id===entryKey):null;
       if(note && adapter.openParent)Promise.resolve().then(()=>adapter.openParent(note)).catch(()=>setError(CONVERSATION_TEXT.load));
     }});
