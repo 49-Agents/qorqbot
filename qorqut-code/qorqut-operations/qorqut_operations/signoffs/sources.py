@@ -82,6 +82,8 @@ class SignoffSources:
 
     def check_signoff(self, ctx, row, uow):
         self.service.inputs.authorize_update(ctx, row, 'signoffs_source_link', uow)
+        if row['category'] == 'input_request' and row['preview_json']['input'].get('kind') == 'acknowledge':
+            raise DomainError('validation_error', 'A read-and-acknowledge request cannot be what a Task or record waits on')
         if row['category'] == 'input_request' and row['preview_json']['input']['response_policy'] != 'owner_only':
             raise DomainError('validation_error', 'Only owner_only input requests may mark a source as needing user input')
 

@@ -481,7 +481,8 @@ function modal({ title = "", body = "", actions = [], width = 520, onOpen, onClo
   actions.forEach(a => {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = a.primary ? "primary" : "ghost";
+    // `quiet` draws a secondary choice (such as "Not now") as an outline next to the filled primary action.
+    b.className = a.primary ? "primary" : a.quiet ? "quiet" : "ghost";
     if (a.icon) { b.innerHTML = a.icon; b.append(a.label || ""); } else { b.textContent = a.label || ""; }
     b.onclick = () => { try { a.onClick && a.onClick(close, el); } catch (err) { console.error(err); } };
     foot.appendChild(b);

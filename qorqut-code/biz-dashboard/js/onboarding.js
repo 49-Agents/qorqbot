@@ -5,15 +5,18 @@ const onboarding = (() => {
     connect: 'connect your tools'};
   const pane = () => document.querySelector('#agpad');
   const steps = [
-    {id: 'assistant', chapter: 'online', title: 'meet ordubashy',
+    // The agent list, Walkthrough, Terminal and Settings live in the menu under the mark at the top left. Steps marked `menu`
+    // hold that menu open (globalAgentNavHold) while they point into it.
+    {id: 'assistant', chapter: 'online', title: 'meet ordubashy', menu: true,
       body: 'Ordubashy is your lead agent. Give him a goal. He carries the work forward, hands parts to helpers and brings decisions back to you. Next, you start him in his own terminal.',
+      hint: 'This menu opens when you point at the mark at the top left. It lists your agents, Terminal and Settings.',
       target: () => agentButton('ordubashy')},
     // Once per installation: trust Qorqbot's own agent folders, so claude and codex skip their folder-trust and hook-review
     // prompts there. A CLI can still ask about an enclosing repository; the owner answers that in the terminal.
     {id: 'start', chapter: 'online', title: 'allow qorqbot’s folders', consent: true,
-      body: 'Claude Code and Codex ask before they work in a new folder. Allow Qorqbot’s own agent folders once, and they can open straight into the session from now on.',
+      body: 'Claude Code and Codex ask before they work in a new folder. Allow Qorqbot’s own agent folders once, and they open straight into the session from now on.',
       instructions: ['Only the folders Qorqbot prepares for its agents are trusted. Your other projects are not changed.',
-        'Claude Code or Codex can still ask about a larger folder around an agent, such as the git repository it sits in. Qorqbot does not answer that for you: you decide in the terminal.',
+        'A CLI can still ask about a larger folder around an agent, such as a git repository. You answer that in the terminal.',
         'You can turn this off in Settings.'],
       target: () => null},
     // The launch itself, the way the owner will do it every time: claude or codex, typed in his own terminal.
@@ -22,22 +25,18 @@ const onboarding = (() => {
       instructions: ['<code>claude</code> runs him in Claude Code, <code>codex</code> in Codex. Use the one you are signed in to.',
         'He connects to Chat by himself. This is how you start him every time.'],
       prompts: 'First time in this folder? Claude asks to trust it: press ↓, then Enter on “Yes, I trust this folder”. Codex asks you to review hooks: choose to trust them. If either asks about a larger folder around this one, such as a git repository, read the question and answer it yourself.',
-      online: 'Ordubashy is online. He is setting himself up and will answer in Chat in a moment.',
+      online: 'Ordubashy is online. He sets himself up while you look around, and you say hello to him at the end of the tour.',
       target: () => document.querySelector('#global-agent-terminal .gchat-terminal')},
-    {id: 'chat', chapter: 'online', title: 'say hello',
-      body: 'Once he is connected, type “hi, help me get set up” in the message box and press send. He asks a few quick questions about you and connects the tools you want him to use.',
-      hint: 'Wait for his reply, then continue. To watch him work, the >_ icon above Chat opens his Terminal.',
-      target: () => document.querySelector('#global-agent-terminal .gchat-composer')},
     {id: 'focus', chapter: 'workspace', view: 'focus', title: 'focus',
-      body: 'The right side is Ordubashy’s workspace. Focus keeps the tasks and records you care about in view, with today’s calendar and anything waiting on you.',
-      hint: 'Pin something from a task or record to keep it here.',
+      body: 'The right side is Ordubashy’s workspace. Focus keeps what needs you in one place: signoffs waiting for your answer, side chats and the threads you pin, with your own notes below.',
+      hint: 'Only you see these notes; agents never read them.',
       target: pane},
     {id: 'attention', chapter: 'workspace', view: 'attentionBoard', title: 'todo',
-      body: 'Todo keeps work for you and your agents in one list. Filter it by who needs to act next.',
+      body: 'Todo lists the work on Ordubashy’s board, yours and your agents’. The person icon shows only the tasks waiting on you.',
       hint: 'It fills up once you give him work.',
       target: pane},
     {id: 'calendar', chapter: 'workspace', view: 'calendar', title: 'calendar',
-      body: 'Your day at a glance. Connect Google Calendar to see your own events here and in Focus.',
+      body: `Your schedule shows here once Google Calendar is connected. For now that is a one-time technical setup, described in the <a href="${CALENDAR_GUIDE_URL}" target="_blank" rel="noopener noreferrer">calendar guide</a>.`,
       target: pane},
     {id: 'journal', chapter: 'workspace', view: 'journal', title: 'journal',
       body: 'Your notes, saved as you type. Keep plans and loose thoughts here, next to the work.',
@@ -51,10 +50,10 @@ const onboarding = (() => {
       body: 'When an agent needs your approval, such as for creating a project, it waits as a Signoff at the top of Focus. Nothing happens until you approve it. Due reminders show up there too.',
       example: {agent: 'Ordubashy', title: 'Create the project “Acme Bakery”', detail: 'A project for the bakery’s orders, suppliers and weekly menu.'},
       target: pane, action: 'open signoffs',
-      run: () => { sgAttentionNavigate(null); return 'Close the list to continue the walkthrough.'; }},
-    {id: 'settings', chapter: 'yours', title: 'settings',
-      body: 'Environment values such as API keys for your agents live in Settings.',
-      hint: 'Take this walkthrough again, or one chapter of it, anytime with the ? button at the bottom left.',
+      run: () => { sgAttentionNavigate(null); return 'Close the list, or press Esc, to continue the walkthrough.'; }},
+    {id: 'settings', chapter: 'yours', title: 'settings', menu: true,
+      body: 'Settings holds your connections, how agents start, the theme and text size, and values such as API keys.',
+      hint: 'Walkthrough, in this same menu, takes this tour again, or one chapter of it.',
       target: () => document.querySelector('[data-global-settings]')},
     // No target: the whole screen dims and the promise stands on its own.
     {id: 'privacy', chapter: 'connect', title: 'your data stays yours', wide: true, standalone: true,
@@ -64,15 +63,31 @@ const onboarding = (() => {
     {id: 'connect-overview', chapter: 'connect', title: 'two ways to reach your tools', wide: true, standalone: true,
       body: 'Both are optional.',
       instructions: ['<b>Agent browser:</b> built into Qorqbot and the default way agents use websites. Works with both Claude Code and Codex. To connect a site, ask Ordubashy, for example “connect my Slack”. It opens Chrome and you sign in yourself. Qorqbot never sees your password.',
-        '<b>Claude connectors:</b> direct connections such as Gmail. Only agents running in Claude Code can use them, through the same Claude account your agents use. Any change they make needs your approval first. They’re in Settings under Claude connectors.'],
+        '<b>Extensions:</b> extra tools that run inside Qorqbot and work with both Claude Code and Codex. Start with treg: one key gives your agents thousands of live data lookups, such as search results and company details. Add your key in Settings under Extensions.'],
       target: () => null},
     {id: 'browser-setup', chapter: 'connect', tab: 'settings', title: 'agent browser',
-      body: 'It sets itself up. This card shows when it’s ready, or how to fix it if not. Websites Ordubashy has connected for you are listed just below it.',
-      target: () => document.querySelector('[data-cx-browser]')},
+      body: 'It sets itself up. This card shows when it’s ready, or how to fix it if not. Websites Ordubashy connects for you are listed with it.',
+      target: () => document.querySelector('[data-cx-browser-area]')},
+    // The tour ends where the first conversation starts, so his questions never arrive behind the tour.
+    {id: 'chat', chapter: 'connect', title: 'say hello', hello: true,
+      body: 'Type “hi, help me get set up” and press send. Ordubashy asks a few quick questions about you, then connects the tools you want him to use.',
+      hint: 'His replies appear here in Chat. To watch him work, the >_ icon above Chat opens his terminal.',
+      offline: 'He isn’t running yet. Open his terminal with the >_ icon above Chat and type claude or codex, then say hello.',
+      // A first walkthrough types the hello for the owner, and done sends it.
+      typed: '“hi, help me get set up” is typed in below. Press done to send it. Ordubashy asks a few quick questions about you, then connects the tools you want him to use.',
+      target: () => document.querySelector('#global-agent-terminal .gchat-composer')},
   ];
   let root = null, card = null, target = null, index = 0, generation = 0, busy = false;
   let saved = null, writes = Promise.resolve(), observer = null, resize = null, frame = 0, previousFocus = null;
   let targetDescription = null, welcome = false, booted = false, savedInert = false, skippedConsent = false, stepTargetReady = false;
+  // Taking a finished walkthrough again (from Settings or the menu) never changes its saved progress.
+  // Set once a step's action opened a list in the workspace (the signoffs step), so the tour closes it when it moves on.
+  let openedList = false;
+  let replay = false;
+  // The agent the first message goes to when a first walkthrough finishes on the hello step; null when the owner types it.
+  let greet = null;
+  const HELLO = 'hi, help me get set up';
+  const holdMenu = hold => { if (typeof globalAgentNavHold === 'function') globalAgentNavHold(hold); };
   const visible = el => !!el?.isConnected && !!el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
   const findAgent = role => globalAgentProfiles.find(a => globalRosterAgent(a) && (a.role?.id || a.role_id) === role);
   const agentButton = role => { const id = findAgent(role)?.agent_id; return id ? document.querySelector(`[data-global-agent="${CSS.escape(id)}"]`) : null; };
@@ -89,6 +104,7 @@ const onboarding = (() => {
     });
   }
   function persist(status, step = onboardingPlan.saveId(steps[index])) {
+    if (replay) return Promise.resolve();
     saved = {status, step};
     writes = writes.catch(() => {}).then(() => post('/root/onboarding', {status, step})).then(coreData);
     writes.catch(() => { if (root) notice('Progress couldn’t be saved. You can still continue or skip.'); });
@@ -117,6 +133,7 @@ const onboarding = (() => {
   function create() {
     if (root) return;
     previousFocus = document.activeElement; savedInert = !!document.querySelector('.app')?.inert;
+    replay = saved?.status === 'completed';
     root = document.createElement('div'); root.className = 'onboarding';
     root.innerHTML = `<div class="onboarding-shade" data-shade="top"></div><div class="onboarding-shade" data-shade="bottom"></div><div class="onboarding-shade" data-shade="left"></div><div class="onboarding-shade" data-shade="right"></div><div class="onboarding-outline" aria-hidden="true"></div><section class="onboarding-card" role="dialog" aria-labelledby="onboarding-title" aria-describedby="onboarding-description"></section>`;
     card = root.querySelector('.onboarding-card'); document.body.appendChild(root);
@@ -135,21 +152,40 @@ const onboarding = (() => {
     window.visualViewport?.removeEventListener('resize', schedule);
     document.removeEventListener('keydown', keydown, true); document.removeEventListener('focusin', focusin, true);
     const app = document.querySelector('.app'); if (app) app.inert = savedInert;
+    holdMenu(false);
     root?.remove(); root = card = null; busy = false;
     if (visible(previousFocus)) previousFocus.focus({preventScroll: true});
   }
   function exit(status = 'skipped') {
+    const again = replay;
     persist(status).catch(() => {}); dispose();
     if (status === 'completed') {
       const assistant = findAgent('ordubashy');
-      // The last chapter ends in Settings; open the agents view first so Chat can be shown.
+      // The tour ends in Chat, ready for the first message; open the agents view first in case it was left.
       if (assistant) Promise.resolve(state.scope === 'global' && state.globalTab === 'agents' ? null : selectGlobal('agents'))
         .then(() => waitFor(() => document.querySelector('.global-agents')?.openAgent))
-        .then(() => globalAgentsNavigate(assistant.agent_id, {chat: true})).catch(() => {});
-      toast('You’re ready. Replay the walkthrough anytime with the ? button at the bottom left.');
+        .then(() => globalAgentsNavigate(assistant.agent_id, {chat: true}))
+        .then(() => sendHello(greet === assistant.agent_id))
+        .catch(() => {});
+      toast(again ? 'Walkthrough finished.' : 'You’re all set. Take the walkthrough again anytime from Settings.');
     } else {
-      toast('Walkthrough closed. Open it again anytime with the ? button at the bottom left.');
+      toast(again ? 'Walkthrough closed.' : 'Walkthrough skipped. Take it anytime from Settings.');
     }
+  }
+  // Sends the typed hello when the owner left it as it is; otherwise only focuses the composer for their own first message.
+  async function sendHello(send) {
+    const input = await waitFor(() => document.querySelector('#global-agent-terminal .gchat-composer textarea:not(:disabled)'), 10000);
+    if (!send || ![HELLO, ''].includes(input.value.trim())) { input.focus({preventScroll: true}); return; }
+    input.value = HELLO; input.dispatchEvent(new Event('input', {bubbles: true}));
+    const button = await waitFor(() => { const b = input.form?.querySelector('.gchat-send'); return b && !b.disabled && b; }, 4000);
+    if (input.value === HELLO) input.form.requestSubmit(button);
+  }
+  // Esc: the welcome, the menu and a replay close as they are; a first walkthrough keeps its place and offers to continue
+  // the next time the dashboard opens. Only skip and done record an outcome.
+  function pause() {
+    if (welcome || replay) { dispose(); return; }
+    persist('in_progress').catch(() => {}); dispose();
+    toast('Walkthrough paused. It picks up here next time.');
   }
   function focusables() {
     const selector = 'button:not(:disabled),a[href],input:not(:disabled),textarea:not(:disabled),select:not(:disabled),[tabindex="0"]';
@@ -161,9 +197,18 @@ const onboarding = (() => {
   }
   function keydown(event) {
     if (!root || appDialog()) return;
+    // A list opened from the tour (the signoffs step's "open signoffs") closes on Esc first; the tour stays.
+    if (event.key === 'Escape' && !welcome) {
+      const close = document.querySelector('#agpad [data-surface-close]');
+      if (visible(close) && !(steps[index].terminal && target?.contains(event.target))) {
+        event.preventDefault(); event.stopImmediatePropagation(); close.click(); notice('');
+        card?.querySelector('[data-tour-next]')?.focus({preventScroll: true});
+        return;
+      }
+    }
     // Keys typed in the terminal step's highlighted area (Ordubashy's terminal) belong to it: Esc and Tab are the CLI's own
     // keys there. On every other step they belong to the tour (onboardingPlan.handleKey).
-    onboardingPlan.handleKey(event, {step: steps[index], target, active: document.activeElement, focusables, exit: () => exit()});
+    onboardingPlan.handleKey(event, {step: steps[index], target, active: document.activeElement, focusables, exit: pause});
   }
   function schedule() { if (root && !frame) frame = requestAnimationFrame(() => { frame = 0; position(); }); }
   const LAUNCH_TEXT = {
@@ -194,7 +239,7 @@ const onboarding = (() => {
         card.querySelector('#onboarding-description').textContent = steps[index].online;
         card.querySelector('.onboarding-instructions')?.remove();
         card.querySelector('[data-launch-prompts]')?.remove();
-        const hint = card.querySelector('.onboarding-hint'); if (hint) hint.textContent = 'Press next to say hello.';
+        const hint = card.querySelector('.onboarding-hint'); if (hint) hint.textContent = 'Press next to continue the tour.';
       }
     }
     const later = card.querySelector('[data-launch-later]'); if (later) later.hidden = phase === 'online';
@@ -217,7 +262,11 @@ const onboarding = (() => {
     if (!welcome && steps[index].consent) paintConsent();
     root.classList.toggle('is-paused', appDialog());
     if (!welcome) describeTarget(stepTargetReady && visible(steps[index].target()) ? steps[index].target() : null);
-    const w = document.documentElement.clientWidth, h = window.visualViewport?.height || innerHeight;
+    // Text size zooms the whole page (appearance.js). Everything is measured on screen, then placed in the page's own zoomed
+    // pixels: `scale` is the ratio between the two, read from the tour's full-window layer.
+    const frameBox = root.getBoundingClientRect(), scale = root.offsetWidth ? frameBox.width / root.offsetWidth : 1;
+    const px = value => (value / scale) + 'px';
+    const w = frameBox.width, h = Math.min(frameBox.height, window.visualViewport?.height || innerHeight);
     let box = target?.getBoundingClientRect();
     const pad = 7;
     let x = box ? Math.max(0, box.left - pad) : 0, y = box ? Math.max(0, box.top - pad) : 0;
@@ -226,26 +275,28 @@ const onboarding = (() => {
     const rects = {top: [0,0,w,y], bottom: [0,bottom,w,h-bottom], left: [0,y,x,bottom-y], right: [right,y,w-right,bottom-y]};
     for (const [key, values] of Object.entries(rects)) {
       const el = root.querySelector(`[data-shade="${key}"]`);
-      Object.assign(el.style, {left: values[0]+'px', top: values[1]+'px', width: values[2]+'px', height: values[3]+'px'});
+      Object.assign(el.style, {left: px(values[0]), top: px(values[1]), width: px(values[2]), height: px(values[3])});
     }
     // The outline's shadow dims the screen around a rounded cutout; with no target it shrinks to the centre and dims it all.
     // The shades stay transparent and only keep clicks off the dimmed area, so the bright area remains live.
     const outline = root.querySelector('.onboarding-outline'); outline.classList.toggle('is-empty', !box);
-    if (box) Object.assign(outline.style, {left:x+'px', top:y+'px', width:(right-x)+'px', height:(bottom-y)+'px'});
-    else Object.assign(outline.style, {left:w/2+'px', top:h/2+'px', width:'0px', height:'0px'});
+    if (box) Object.assign(outline.style, {left: px(x), top: px(y), width: px(right-x), height: px(bottom-y)});
+    else Object.assign(outline.style, {left: px(w/2), top: px(h/2), width: '0px', height: '0px'});
     const edge = 16, gap = 18, minWidth = 280;
+    // The card always fits the window, whatever the text size.
+    Object.assign(card.style, {maxWidth: px(w - 2*edge), maxHeight: px(h - 2*edge)});
     // A wide highlight leaves no room beside it at the card's usual width: narrow the card into the larger side gap
     // rather than covering the highlighted area.
     card.style.width = '';
     let narrowed = null;
     if (box && !welcome) {
-      const natural = card.offsetWidth, rightGap = w - right - gap - edge, leftGap = x - gap - edge;
+      const natural = card.offsetWidth * scale, rightGap = w - right - gap - edge, leftGap = x - gap - edge;
       if (natural > rightGap && natural > leftGap && Math.max(rightGap, leftGap) >= minWidth) {
         narrowed = rightGap >= leftGap ? 'right' : 'left';
-        card.style.width = Math.floor(Math.max(rightGap, leftGap)) + 'px';
+        card.style.width = px(Math.floor(Math.max(rightGap, leftGap)));
       }
     }
-    const cw = card.offsetWidth, ch = card.offsetHeight;
+    const cw = card.offsetWidth * scale, ch = card.offsetHeight * scale;
     const clampX = v => Math.max(edge, Math.min(v, w-cw-edge));
     const clampY = v => Math.max(edge, Math.min(v, h-ch-edge));
     let cx = (w-cw)/2, cy = (h-ch)/2;
@@ -255,17 +306,18 @@ const onboarding = (() => {
       else if (x-gap-cw >= edge) { cx=x-gap-cw; cy=y; }
       else if (bottom+gap+ch <= h-edge) { cx=x; cy=bottom+gap; }
       else if (y-gap-ch >= edge) { cx=x; cy=y-gap-ch; }
-      else { cx=(w-cw)/2; cy=(y+bottom)/2 > h/2 ? edge : h-ch-edge; }
+      // Nothing fits beside, below or above: the card covers the end of the highlight, so its start (usually a heading) stays readable.
+      else { cx=right-cw; cy=h-ch-edge; }
     }
-    Object.assign(card.style, {left:clampX(cx)+'px', top:clampY(cy)+'px'});
+    Object.assign(card.style, {left: px(clampX(cx)), top: px(clampY(cy))});
   }
-  // First run shows a short welcome; the ? button (menu) also lists every chapter. Both work in any saved state,
-  // so a skipped or finished walkthrough can always be taken again.
+  // First run shows a short welcome; Walkthrough (in the agent menu and in Settings) also lists every chapter. Both work in any
+  // saved state, so a skipped or finished walkthrough can always be taken again.
   function invitation(resume = 0, menu = false) {
     create(); setWelcome(true); describeTarget(null); card.classList.remove('is-wide');
     const mascot = findAgent('ordubashy');
     const intro = resume ? `<p>You stopped at <b>${chapterTitles[steps[resume].chapter]}</b>.</p>`
-      : `<p>Qorqbot runs AI agents for you on this computer. This short tour gets Ordubashy online, shows you around and connects the tools your agents use, in ${onboardingPlan.chapters(steps).length} chapters. Skip any of it, or take it again anytime with the ? button at the bottom left.</p>`;
+      : `<p>Qorqbot runs AI agents for you on this computer. This short tour gets Ordubashy online, shows you around and ends with your first conversation, in ${onboardingPlan.chapters(steps).length} chapters. Skip any of it, or take it again anytime from Settings.</p>`;
     const promise = `<p class="onboarding-private"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.2 2.2 4.3-4.6"/></svg><span><b>Private by design.</b> Your work stays on this computer. Qorqbot only knows your email and that it is in use.</span></p>`;
     const list = menu ? `<div class="onboarding-chapters" aria-label="chapters">${onboardingPlan.chapters(steps).map((c, i) =>
       `<button type="button" class="onboarding-chapter-pick" data-tour-chapter-pick="${c.start}"><span>${String(i + 1).padStart(2, '0')}</span>${chapterTitles[c.id]}</button>`).join('')}</div>` : '';
@@ -287,7 +339,7 @@ const onboarding = (() => {
     if (step.tab === 'settings') {
       if (state.scope !== 'global' || state.globalTab !== 'settings' || !document.querySelector('.settingspane')) await selectGlobal('settings');
       if (!isCurrent(token)) return;
-      // Settings shows one section at a time; the connector steps live in Connections.
+      // Settings shows one section at a time; the browser step lives in Connections.
       if (typeof settingsShowSection === 'function') settingsShowSection('connections');
       await waitFor(() => visible(step.target()) && step.target(), 10000);
       // Instant, so the spotlight is placed on where the area ends up rather than mid-scroll.
@@ -319,7 +371,27 @@ const onboarding = (() => {
     else if (['chat', 'projects'].includes(step.id)) globalAgentViewActive?.showChat();
     if (opened && step.view && _agpad?.workspaceFrame) await _agpad.workspaceFrame.workspaceReady;
     if (!isCurrent(token)) return;
+    if (step.menu) holdMenu(true);
     await waitFor(() => visible(step.target()) && step.target());
+    // The last step asks for the first message, so it says how to start him first when he isn't running. On the first
+    // walkthrough, while he is online and the owner has never written to him, it types the message for them and done
+    // sends it.
+    if (step.hello) {
+      const chat = await api(`${globalChatBase(assistant.agent_id)}?limit=20`, {signal: AbortSignal.timeout(4000)})
+        .then(coreData).catch(() => null);
+      if (!isCurrent(token)) return;
+      const online = onboardingPlan.launchPhase(chat ? chat.session || {state: 'offline'} : null) === 'online';
+      const hint = card.querySelector('.onboarding-hint');
+      if (hint && !online) hint.textContent = step.offline;
+      const written = !chat || (chat.entries || []).some(entry => entry.speaker === 'user')
+        || (chat.inputs || []).some(item => item.origin === 'owner');
+      const input = step.target()?.querySelector('textarea');
+      if (online && !replay && !written && input && !input.disabled && [HELLO, ''].includes(input.value.trim())) {
+        greet = assistant.agent_id;
+        input.value = HELLO; input.dispatchEvent(new Event('input', {bubbles: true}));
+        card.querySelector('#onboarding-description').innerHTML = step.typed;
+      }
+    }
   }
   async function showStep(next) {
     if (busy) return;
@@ -330,7 +402,9 @@ const onboarding = (() => {
       await card.animate([{opacity: 1}, {opacity: 0}], {duration: 120, easing: 'ease-out'}).finished.catch(() => {});
       if (!isCurrent(token)) return;
     }
-    index = Math.max(0, Math.min(next, steps.length-1)); const step = steps[index];
+    if (openedList) { const close = document.querySelector('#agpad [data-surface-close]'); if (visible(close)) close.click(); openedList = false; }
+    index = Math.max(0, Math.min(next, steps.length-1)); const step = steps[index]; greet = null;
+    if (!step.menu) holdMenu(false);
     card.style.opacity = '0';
     stepTargetReady = false; setWelcome(false); describeTarget(null); card.classList.toggle('is-wide', !!step.wide); launchSession = null; clearTimeout(launchTimer);
     persist('in_progress').catch(() => {});
@@ -353,6 +427,9 @@ const onboarding = (() => {
       if (!isCurrent(token)) return;
       if (view) { trustView = view; skippedConsent = false; }
       paintConsent(); schedule();
+      // The confirmation dialog returns focus to the button that opened it, which is hidden once allowed.
+      const next = card.querySelector('[data-tour-next]'), allow = card.querySelector('[data-consent-allow]:not([hidden])');
+      (next.disabled && allow ? allow : next).focus({preventScroll: true});
     });
     card.querySelector('[data-consent-skip]')?.addEventListener('click', () => { skippedConsent = true; showStep(index + 1); });
     card.querySelector('[data-launch-later]')?.addEventListener('click', () => {
@@ -362,6 +439,7 @@ const onboarding = (() => {
       const button = event.currentTarget; button.disabled = true;
       try {
         const result = await step.run();
+        openedList = true;
         if (!isCurrent(token)) return;
         notice(result || 'Opened. Continue when you’re ready.');
       } catch (_) { if (isCurrent(token)) notice('This view couldn’t open. You can continue or try again.'); }
@@ -397,7 +475,7 @@ const onboarding = (() => {
       const first = chapter ? Math.max(0, steps.findIndex(step => step.chapter === chapter)) : 0;
       if (root) dispose(); index = first; create(); await showStep(first);
     },
-    // The ? button and the desktop app's Help menu. Offers to continue an unfinished walkthrough.
+    // Walkthrough in the agent menu and the desktop app's Help menu. Offers to continue an unfinished walkthrough.
     async open() {
       if (agentWorkspaceEmbedded()) return;
       try { saved = coreData(await api('/root/onboarding')); } catch (_) { /* Open the menu even if progress can't be read. */ }

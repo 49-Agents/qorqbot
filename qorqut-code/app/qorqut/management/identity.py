@@ -41,6 +41,18 @@ def configured_ordubashy(uow):
     return identity
 
 
+def owner_messages(uow, agent_id):
+    """How many messages the installation owner has sent this agent, counted up to 2: in Chat, over Telegram, as a direct
+    message or in a private thread. A message typed again after a failed attempt keeps its source key and counts once.
+    None of these records can be deleted, so the count never goes down."""
+    return min(2, uow.connection.execute(
+        """SELECT (SELECT COUNT(*) FROM (SELECT DISTINCT source_key FROM native_inputs
+                                         WHERE agent_id=? AND origin='owner' LIMIT 2))
+                + (SELECT COUNT(*) FROM (SELECT 1 FROM global_chat_messages WHERE agent_id=? AND role='owner' LIMIT 2))
+                + (SELECT COUNT(*) FROM (SELECT 1 FROM owner_conversation_messages WHERE author_role='owner' LIMIT 2))""",
+        (agent_id, agent_id)).fetchone()[0])
+
+
 def private_participants(uow):
     """The exact pair allowed in a private conversation; never client-selected."""
     return installation_owner(uow), configured_ordubashy(uow)

@@ -85,11 +85,17 @@ class ResponseStyleHookTests(unittest.TestCase):
         mandatory = 'x' * (MAX_CONTEXT_CHARACTERS - len(reminder) - 2)
         self.response['mandatory_context'] = mandatory
         self.response['work_briefing'] = {'rendered': 'Optional briefing.', 'compact': True}
-        for runtime in ('claude-code', 'codex'):
-            with self.subTest(runtime=runtime):
-                output, receipt, _ = self.deliver(runtime)
-                self.assertEqual(output['hookSpecificOutput']['additionalContext'], mandatory + '\n\n' + reminder)
-                self.assertIsNone(receipt['briefing_hash'])
+        output, receipt, _ = self.deliver('codex')
+        self.assertEqual(output['hookSpecificOutput']['additionalContext'], mandatory + '\n\n' + reminder)
+        self.assertIsNone(receipt['briefing_hash'])
+        # Claude Code shows at most 10,000 characters of hook output: the same text goes to a file the model is told
+        # to read, and the reminder stays last in what it sees.
+        output, receipt, _ = self.deliver('claude-code')
+        text = output['hookSpecificOutput']['additionalContext']
+        self.assertTrue(text.endswith(reminder))
+        self.assertLessEqual(len(text), 10_000)
+        self.assertEqual((self.root / '.qorqut/startup-context.md').read_text(), mandatory + '\n\n' + reminder)
+        self.assertIsNone(receipt['briefing_hash'])
 
     def test_cached_prompt_preserves_operational_skills(self):
         self.cached_receipt()

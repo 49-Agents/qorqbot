@@ -76,6 +76,7 @@ function rwTypeIcon(record) {
   return T_VIEW_ICON.tasks;
 }
 // One record descriptor built from a Focus card or a related reference. Nothing is fetched here.
+const RW_PIN_ICON = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6l-1 6 4 4H6l4-4zM12 13v8"/></svg>';
 function rwRecordFromItem(item, options = {}) {
   if (!item) return null;
   const binding = item.conversation || null;
@@ -285,6 +286,7 @@ function recordWorkspaceMount(host, options = {}) {
       <button type="button" class="quiet rw-back" aria-label="Back" hidden>← Back</button>
       <span class="rw-context" hidden>CRM /</span><span class="rw-title" role="heading" aria-level="2"></span>
       <button type="button" class="quiet rw-move" hidden>Move to project…</button>
+      <button type="button" class="quiet rw-pin" aria-pressed="false" hidden>${RW_PIN_ICON}</button>
       <div class="rw-tabs" role="tablist" aria-label="Record views"></div>${closeIcon}
     </header><div class="rw-body"><div class="rw-pane rw-dashboard" role="tabpanel" tabindex="0"></div><div class="rw-pane rw-activity" role="tabpanel" tabindex="0" hidden></div><div class="rw-pane rw-chat" role="tabpanel" tabindex="0" hidden><div class="agfocus-conversation rw-conversation"></div></div></div>`;
     item.dashHost = item.recordEl.querySelector('.rw-dashboard');
@@ -304,6 +306,10 @@ function recordWorkspaceMount(host, options = {}) {
     item.moveButton = item.recordEl.querySelector('.rw-move');
     item.moveButton.onclick = () => { void moveRecord(item); };
     paintMove(item);
+    item.pinButton = item.recordEl.querySelector('.rw-pin');
+    item.pinButton.onclick = () => { void togglePin(item); };
+    item.unpinWatch = typeof threadPins !== 'undefined' ? threadPins.subscribe(() => paintPin(item)) : null;
+    paintPin(item);
     item.recordEl.querySelector('.rw-close').onclick = () => { void close(); };
     item.tabs.querySelectorAll('[data-rw-tab]').forEach(tab => {
       tab.onclick = () => selectTab(item, tab.dataset.rwTab);
@@ -588,9 +594,28 @@ function recordWorkspaceMount(host, options = {}) {
       item.back.setAttribute('aria-label', 'Back to ' + label);
     }
   }
+  // Focus can pin a record's thread to its top row, beside the open side chats.
+  function pinnable(item) {
+    return options.entry === 'focus' && typeof threadPins !== 'undefined' && !!item.record?.can_thread && !item.record.scopeMissing;
+  }
+  function paintPin(item) {
+    if (!item.alive || !item.pinButton) return;
+    const on = pinnable(item) && threadPins.isPinned(item.record.source);
+    item.pinButton.hidden = !pinnable(item);
+    item.pinButton.setAttribute('aria-pressed', String(on));
+    const label = on ? 'Unpin thread from Focus' : 'Pin thread to Focus';
+    item.pinButton.setAttribute('aria-label', label); item.pinButton.title = label;
+  }
+  async function togglePin(item) {
+    if (!pinnable(item) || item.pinButton.getAttribute('aria-busy') === 'true') return;
+    item.pinButton.setAttribute('aria-busy', 'true');
+    try { await threadPins.set(item.record.source, item.record.label, !threadPins.isPinned(item.record.source)); }
+    finally { item.pinButton?.removeAttribute('aria-busy'); paintPin(item); }
+  }
   function removeEntry(item) {
     if (!item || !item.alive) return;
     item.alive = false;
+    item.unpinWatch?.(); item.unpinWatch = null;
     item.leaveChoice?.settle(false);
     try { item.moveDialog?.close(); } catch (_) { /* a dead dialog cannot keep the stack alive */ }
     item.moveDialog = null;

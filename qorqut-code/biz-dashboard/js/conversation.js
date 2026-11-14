@@ -29,12 +29,6 @@ function conversationPersonName(person) {
   const profile=typeof globalAgentProfile==='function'?globalAgentProfile(person.created_by || person.actor_id):null;
   return person.created_by_name || person.author_name || person.display_name || person.name || profile?.display_name || profile?.name || 'Unknown participant';
 }
-function conversationGlyph(person,size) {
-  const profile=typeof globalAgentProfile==='function'?globalAgentProfile(person.created_by):null;
-  return person.author_kind==='agent' && typeof agentGlyph==='function'
-    ? agentGlyph({...person.presentation,...profile},size)
-    : esc(conversationPersonName(person).slice(0,2));
-}
 // Presentation only: canonical bodies and transport payloads stay complete.
 function messagePreview(body, summary) {
   const words=String(summary || plainSafeLinks(body) || '').trim().split(/\s+/u).filter(Boolean);
@@ -72,8 +66,12 @@ const CONVERSATION_TEXT = {load:"Couldn't load. Try again",unconfirmed:"Couldn't
 const CONVERSATION_GONE = ['forbidden','not_found','policy_denied','invalid_principal'];
 const CONVERSATION_REVIEW = ['revision_conflict','stale_signoff','not_found','forbidden','policy_denied','invalid_principal'];
 // Normalizes canonical notes (already in controller order) into shared view entries.
+// Threads read like the main Chat: replies carry no avatar. Only a thread with replies from more than one
+// participant names each reply's sender, once per run, so the owner can tell them apart.
 function conversationEntries(notes,adapter) {
   let previous=null;
+  const repliers=new Set(notes.filter(note=>note.entry_kind!=='system' && !(note.is_owner ?? (note.author_kind==='human')))
+    .map(note=>note.author_id || note.created_by || ''));
   return notes.map(note=>{
     const system=note.entry_kind==='system',owner=!system && (note.is_owner ?? (note.author_kind==='human'));
     const entry={key:note.id,speaker:system?'notice':owner?'user':'agent',text:note.body || '',timestamp:note.created_at,
@@ -88,10 +86,9 @@ function conversationEntries(notes,adapter) {
       entry.author={name:`${conversationPersonName(note)} · ${note.attribution?.kind==='owner_intent'?'interpreted':'recorded'} by ${note.recorder_name || 'Ordubashy'}`};
       entry.showAuthor=true;
     }
-    if(!system && !owner && !relayed){
-      entry.author={name:conversationPersonName(note),avatarHtml:conversationGlyph(note,31)};
+    if(!system && !owner && !relayed && repliers.size>1){
+      entry.author={name:conversationPersonName(note)};
       entry.showAuthor=previous!==sender;
-      entry.showAuthorName=false;
     }
     previous=sender;
     return entry;
@@ -261,7 +258,7 @@ function conversationMount(host,source,adapter={}) {
     host.append(composerHost);
   }
   const composerLabel=adapter.inlineComposer?(adapter.ariaLabel ?? 'Leave a comment'):'Message';
-  const defaultPlaceholder=()=>adapter.inlineComposer?(adapter.placeholder ?? 'Private message to Ordubashy…'):'Message…';
+  const defaultPlaceholder=()=>adapter.inlineComposer?(adapter.placeholder ?? 'Message Ordubashy…'):'Message…';
   s.mounts.add(host);
   const sameState=mount=>mount.isConnected && mount.dataset.conversation===key;
   // Silent for every mounted view of this exact state; a view whose text already matches keeps its caret.
@@ -546,7 +543,8 @@ function conversationMount(host,source,adapter={}) {
     ...(composerHost?{composerHost,bannerHost:composerHost}:{}),
     onDraft:text=>{if(!current())return;s.text=text;syncDraft();adapter.onInput?.();},
     onSubmit:()=>{void submit();},
-    ...(source.type==='task'?{
+    // Task threads and side chats (adapter.attachments) take files; they upload first and are sent as references.
+    ...((adapter.attachments ?? source.type==='task')?{
       onFiles:files=>{
         if(!current() || s.sending || s.submission || !files.length)return;
         if(s.files.length+files.length>10 || files.some(file=>file.size>25*1024*1024)){setError('Choose up to 10 files, each 25 MB or smaller.');return;}

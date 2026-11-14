@@ -28,7 +28,7 @@ def ports(**extra):
     noop = lambda *a, **k: None
     return TaskPorts(**{**dict(
         assignees=NS(protect=noop, owner_directed=lambda *a: False, worker_excluded=lambda *a: False),
-        focus=NS(schema={}, creation_access=noop, present_created=noop), incidents=NS(link_task=noop),
+        incidents=NS(link_task=noop),
         references=NS(types=('task',), host_types=(), resolve=noop, derived=noop),
         routing=NS(routes=lambda *a: ((), ()), snooze_routes=lambda *a: ())), **extra})
 

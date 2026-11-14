@@ -55,10 +55,13 @@ Needs an Apple silicon Mac (M1 or newer) on macOS 14 or newer.
    **Open Anyway** next to "Qorqbot was blocked" and enter your password. Open
    Qorqbot again and click **Open Anyway** in the dialog. You do this once.
    Or, in Terminal: `xattr -dr com.apple.quarantine /Applications/Qorqbot.app`
-5. The first open installs into `~/Qorqbot/qorqbot`, opens the dashboard and
-   offers a walkthrough. It shows you how to start your first agent, then tours
-   the workspace chapter by chapter. Skipped or finished, take it again anytime
-   with the **?** button at the bottom left, or **Help > Show Walkthrough**.
+5. The first open installs into `~/Qorqbot/qorqbot` and opens the dashboard.
+   Sign in with your email: Qorqbot sends a code, and you do this once.
+6. The walkthrough starts by itself. It has you start Ordubashy, your lead
+   agent, in his own terminal, tours the workspace chapter by chapter and ends
+   in Chat, where you say hello and he sets you up: a few questions about you,
+   then the tools you want him to use. Skipped or finished, take it again from
+   **Settings > Walkthrough** or **Help > Show Walkthrough**.
 
 If a tool from step 1 is missing, the app shows a checklist with the exact command to
 copy, and carries on by itself once it is installed. Details: [Mac guide](qorqut-code/docs/distribution/MACOS.md).

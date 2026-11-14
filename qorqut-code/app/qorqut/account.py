@@ -234,14 +234,14 @@ def verify(runtime_directory, body, environ=None) -> dict:
     company = body.get("company")
     if not isinstance(email, str) or not EMAIL.match(email.strip()):
         raise DomainError("validation_error", "Enter a valid email address")
-    if not isinstance(code, str) or not re.fullmatch(r"[A-Za-z0-9]{8}", code.replace("-", "").replace(" ", "")):
-        raise DomainError("validation_error", "Enter the 8-character code from the email")
+    if not isinstance(code, str) or not re.fullmatch(r"\d{6}", code.replace("-", "").replace(" ", "")):
+        raise DomainError("validation_error", "Enter the 6-digit code from the email")
     if use not in USES:
         raise DomainError("validation_error", "Choose personal or work use")
     if use == "work" and (not isinstance(company, str) or not company.strip() or len(company) > 200):
         raise DomainError("validation_error", "Enter your company name")
     reply = _call("POST", "/v1/auth/email/verify", {
-        "email": email.strip().lower(), "code": code.replace("-", "").replace(" ", "").upper(),
+        "email": email.strip().lower(), "code": code.replace("-", "").replace(" ", ""),
         "install_id": install_id(runtime_directory), **_facts(environ), "use": use,
         "company": company.strip() if use == "work" else None, "marketing_ok": body.get("marketing_ok") is True,
     }, environ=environ)

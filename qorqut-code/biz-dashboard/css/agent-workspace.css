@@ -55,16 +55,13 @@
 .agent-workspace-app .agpad .tbody { padding:5px 23px 21px; }
 .agent-workspace-app .agpad .tbody:has(> .agfocus) { padding-left:10px; padding-right:11.5px; }
 .agent-workspace-app .agpad .agfocus-heading > .global-eyebrow { display:none; }
-.agent-workspace-app .agpad .agfocus-toolbar { width:auto; }
 .agent-workspace-app .agpad .agfocus > header { margin-bottom:8px; }
 
 /* Focus follows the approved workspace: quiet controls, square attention tiles,
    and readable separated rows. Source status colours remain in tasks.css. */
-.agent-workspace-app .agpad .agfocus > header:has(.agfocus-empty[hidden]) { display:none; }
 .agent-workspace-app .agpad .agfocus { padding-top:0; padding-left:0; }
 .agent-workspace-app .agfocus > header,
-.agent-workspace-app .agfocus > .attention-queue,
-.agent-workspace-app .agfocus > .agfocus-pages { zoom:1.1; }
+.agent-workspace-app .agfocus > .attention-queue { zoom:1.1; }
 .agent-workspace-app .agfocus .attention-queue { height:auto; min-height:44px; align-items:flex-start; margin:3px 0 10px; }
 .agent-workspace-app .agfocus .attention-stack { gap:8px; padding:0; }
 .agent-workspace-app .agfocus .attention-chip { flex:0 1 44px; width:44px; height:44px; min-height:44px; padding:7px 0; border:0; border-radius:8px; background:#131313; box-shadow:none; }
@@ -81,7 +78,7 @@
 .agent-workspace-app .agfocus .agfocus-row > .task-headline { grid-column:3; grid-row:1; }
 .agent-workspace-app .agfocus .agfocus-row > .agfocus-actions { grid-column:4; grid-row:1; }
 .agent-workspace-app .agfocus .agfocus-row .ttl { font-size:14.5px; font-weight:400; letter-spacing:-.005em; line-height:1.75; padding:0; text-transform:lowercase; }
-.agent-workspace-app .agfocus .agfocus-text .agfocus-text-input { font-size:14.5px; font-weight:400; letter-spacing:-.005em; line-height:1.75; padding-top:3px; padding-bottom:3px; }
+.agent-workspace-app .agfocus .agfocus-notes .agfocus-notes-input { font-size:14.5px; font-weight:400; letter-spacing:-.005em; line-height:1.75; }
 .agent-workspace-app .agfocus .agfocus-row .agfocus-scope { grid-column:3; grid-row:1; justify-self:end; position:relative; z-index:1; width:auto; max-width:min(124px,65%); opacity:0; pointer-events:none; }
 .agent-workspace-app .agfocus .agfocus-card:hover > .agfocus-row .agfocus-scope,
 .agent-workspace-app .agfocus .agfocus-card:focus-within > .agfocus-row .agfocus-scope { opacity:1; }
@@ -92,7 +89,6 @@
 .agent-workspace-app .ball.agfocus-task-state .core{transform:scale(.55)}
 .agent-workspace-app .agfocus .agfocus-marker:hover .agfocus-task-state .core,.agent-workspace-app .agfocus .agfocus-task-state:focus-visible .core{transform:scale(1.1)}
 .agent-workspace-app .agfocus .agfocus-dock{border:0}
-.agent-workspace-app .agfocus .agfocus-work-child { margin-left:calc(var(--focus-depth,1) * 23px); }
 .agent-workspace-app .agfocus .agfocus-actions { opacity:0; pointer-events:none; }
 .agent-workspace-app .agfocus .agfocus-card:hover > .agfocus-row .agfocus-actions,
 .agent-workspace-app .agfocus .agfocus-card:focus-within > .agfocus-row .agfocus-actions,
@@ -182,6 +178,12 @@
 .agent-nav-trigger > svg, .agent-nav-trigger .identity-avatar svg { width:28px; height:28px; }
 .agent-workspace-app .global-agents > .listcol.agent-nav-overlay { position:fixed; inset:0 auto 0 0; width:400px; max-width:calc(100vw - 24px); max-height:100dvh; height:100dvh; min-height:0; margin:0; padding:12px; box-sizing:border-box; overflow:visible; border:0; border-right:1px solid color-mix(in srgb,var(--fg) 18%,transparent); border-radius:0; background:color-mix(in srgb,var(--bg) 92%,transparent); box-shadow:0 16px 48px #0005; color:var(--fg); }
 .agent-nav-overlay::backdrop { background:#0003; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); pointer-events:none; }
+/* While the walkthrough holds the menu (globalAgentNavHold) it shows the menu alone: no report panel, no blur over the walkthrough's card. */
+.agent-nav-overlay[data-held]::backdrop { background:transparent; backdrop-filter:none; -webkit-backdrop-filter:none; }
+.agent-workspace-app .global-agents .agent-nav-overlay[data-held] > .agent-nav-timeline { display:none; }
+.agent-workspace-app .global-agents > .listcol.agent-nav-overlay[data-held] { background:var(--bg); }
+/* The menu sits in the top layer, above the walkthrough's own outline, so the item the walkthrough points at is ringed here. */
+.agent-nav-overlay[data-held] [aria-describedby~="onboarding-description"] { outline:1.5px solid color-mix(in srgb,var(--fg) 75%,transparent); outline-offset:-2px; }
 .agent-workspace-app .global-agents > .agent-nav-overlay:not(:popover-open) { display:none; }
 .agent-workspace-app .global-agents > .agent-nav-overlay:popover-open { display:flex; flex-direction:column; }
 .agent-workspace-app .global-agents .agent-nav-overlay .global-nav-body { min-height:0; overflow:hidden; }

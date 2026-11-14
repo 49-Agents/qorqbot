@@ -10,8 +10,7 @@ hook, run inside every Task write:
 * when the stored state moves into done or cancelled, the Task's Focus card is archived and the reminders agents set
   for agents about it are cancelled.
 
-Nothing here decides anything about the Task. A reopened Task returns to its workers' boards; it is put on Focus
-again the ordinary way.
+Nothing here decides anything about the Task. A reopened Task returns to its workers' boards.
 """
 
 from __future__ import annotations

@@ -57,24 +57,40 @@ test('rendered times, columns, provider ranges and navigation follow UTC in diff
         try {
           assert.equal(await page.locator('.calendar-clock').textContent(),'2:54 AM');
           assert.equal(await page.locator('.calendar-clock').getAttribute('title'),'UTC');
-          assert.deepEqual(await page.locator('.calendar-dayheads .calendar-dayhead').allTextContents(),['Wed','Thu','Fri']);
-          assert.equal(await page.locator('.calendar-range').textContent(),'Today – 13 Nov');
+          assert.deepEqual(await page.locator('.calendar-dayheads .calendar-dayhead-name').allTextContents(),['Wed','Thu','Fri']);
+          assert.deepEqual(await page.locator('.calendar-dayheads .calendar-dayhead-num').allTextContents(),['11','12','13']);
+          assert.equal(await page.locator('.calendar-dayhead.is-today .calendar-dayhead-num').textContent(),'11');
+          assert.equal(await page.locator('.calendar-range').textContent(),'11 – 13 November');
+          assert.equal(await page.locator('[data-calendar-today]').getAttribute('aria-pressed'),'true');
           const block = page.locator('.calendar-day[data-calendar-day="2026-11-11"] .calendar-event').filter({hasText:'Planning session'});
           assert.equal(await block.count(),1);
           assert.deepEqual(await block.evaluate(el=>({top:getComputedStyle(el).top,height:getComputedStyle(el).height})),{top:'128px',height:'192px'});
           assert.match(await block.getAttribute('title'),/2:00 AM – 5:00 AM/);
-          assert.equal(await page.locator('.calendar-tick').first().textContent(),'12:00 AM');
+          assert.equal(await block.locator('.calendar-event-time').textContent(),'2 – 5 AM');
+          // The event and its calendar in the list share one colour.
+          assert.equal(await block.getAttribute('data-calendar-tone'),'0');
+          assert.equal(await page.locator('.calendar-source').getAttribute('data-calendar-tone'),'0');
+          assert.equal(await page.locator('.calendar-source-name').textContent(),'Work');
+          assert.equal(await page.locator('.calendar-tick').first().textContent(),'12 AM');
+          // The now line sits on today's column at 2:54 on a grid that starts at midnight.
+          assert.equal(await page.locator('.calendar-now').count(),1);
+          assert.equal(await page.locator('.calendar-day[data-calendar-day="2026-11-11"] .calendar-now').evaluate(el=>el.style.top),`${2.9*64}px`);
           assert.equal(await page.locator('.calendar-all-day-cell').nth(0).textContent(),'Veterans Day');
           const reads = await page.evaluate(()=>calls.filter(c=>c.url.endsWith('calendar_events_list')).map(c=>[c.args.start,c.args.end]));
           assert.ok(reads.some(([start,end])=>start==='2026-11-11T00:00:00.000Z' && end==='2026-11-14T00:00:00.000Z'));
-          await page.locator('.calendar-view').selectOption('7');
+          await page.locator('[data-calendar-view="7"]').click();
+          assert.equal(await page.locator('[data-calendar-view="7"]').getAttribute('aria-pressed'),'true');
           assert.equal(await page.locator('.calendar-day').last().getAttribute('data-calendar-day'),'2026-11-17');
           await page.locator('[data-calendar-next]').click();
           assert.equal(await page.locator('.calendar-day').first().getAttribute('data-calendar-day'),'2026-11-18');
+          assert.equal(await page.locator('.calendar-now').count(),0);
+          assert.equal(await page.locator('[data-calendar-today]').getAttribute('aria-pressed'),'false');
           await page.locator('[data-month-next]').click();
           await page.locator('[data-calendar-date="2026-12-01"]').click();
           assert.equal(await page.locator('.calendar-day').first().getAttribute('data-calendar-day'),'2026-12-01');
-          assert.equal(await page.locator('.calendar-dayhead').first().textContent(),'Tue');
+          assert.equal(await page.locator('.calendar-dayhead-name').first().textContent(),'Tue');
+          await page.locator('[data-calendar-today]').click();
+          assert.equal(await page.locator('.calendar-day').first().getAttribute('data-calendar-day'),'2026-11-11');
           assert.deepEqual(errors,[]);
         } finally { await context.close(); }
       }

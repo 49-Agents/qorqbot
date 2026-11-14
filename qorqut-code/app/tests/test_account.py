@@ -67,7 +67,7 @@ class AccountTests(unittest.TestCase):
 
     def sign_in(self):
         self.service.replies["/v1/auth/email/verify"] = VERIFIED
-        return account.verify(self.runtime, {"email": "Sam@Example.com ", "code": "abcd-1234", "use": "work",
+        return account.verify(self.runtime, {"email": "Sam@Example.com ", "code": "123 456", "use": "work",
                                              "company": " Acme ", "marketing_ok": True}, self.env)
 
     def test_start_sends_the_email_and_a_stable_installation_id(self):
@@ -83,9 +83,11 @@ class AccountTests(unittest.TestCase):
         for body in ({"email": "nope"}, {}, {"email": 3}):
             with self.subTest(body=body), self.assertRaises(DomainError):
                 account.start(self.runtime, body, self.env)
-        for body in ({"email": "a@b.co", "code": "short", "use": "personal"},
-                     {"email": "a@b.co", "code": "ABCD1234", "use": "team"},
-                     {"email": "a@b.co", "code": "ABCD1234", "use": "work", "company": " "}):
+        for body in ({"email": "a@b.co", "code": "12345", "use": "personal"},
+                     {"email": "a@b.co", "code": "1234567", "use": "personal"},
+                     {"email": "a@b.co", "code": "12345a", "use": "personal"},
+                     {"email": "a@b.co", "code": "123456", "use": "team"},
+                     {"email": "a@b.co", "code": "123456", "use": "work", "company": " "}):
             with self.subTest(body=body), self.assertRaises(DomainError):
                 account.verify(self.runtime, body, self.env)
         self.assertEqual(self.service.requests, [])
@@ -94,7 +96,7 @@ class AccountTests(unittest.TestCase):
         view = self.sign_in()
         sent = self.service.requests[-1]["body"]
         self.assertEqual((sent["email"], sent["code"], sent["company"], sent["marketing_ok"]),
-                         ("sam@example.com", "ABCD1234", "Acme", True))
+                         ("sam@example.com", "123456", "Acme", True))
         self.assertEqual(sent["app_version"], "dev")
         self.assertTrue(view["signed_in"])
         self.assertEqual(view["account"]["email"], "sam@example.com")
@@ -128,7 +130,7 @@ class AccountTests(unittest.TestCase):
     def test_a_refused_code_keeps_the_service_message(self):
         self.service.replies["/v1/auth/email/verify"] = (400, {"error": "invalid_code", "message": "That code is wrong."})
         with self.assertRaises(DomainError) as raised:
-            account.verify(self.runtime, {"email": "a@b.co", "code": "ABCD1234", "use": "personal"}, self.env)
+            account.verify(self.runtime, {"email": "a@b.co", "code": "123456", "use": "personal"}, self.env)
         self.assertEqual((raised.exception.code, raised.exception.message), ("validation_error", "That code is wrong."))
         self.assertFalse(account.owner_view(self.runtime, self.env)["signed_in"])
 
@@ -273,7 +275,7 @@ class AccountTests(unittest.TestCase):
         account.refresh_license(self.runtime, self.env)
         self.service.replies["/v1/auth/email/verify"] = (200, {"token": "t2", "account": {
             "id": "a1", "email": "sam@example.com", "use": "personal", "company": None, "created": "2026-11-12T00:00:00Z"}})
-        view = account.verify(self.runtime, {"email": "sam@example.com", "code": "abcd-1234", "use": "personal"}, self.env)
+        view = account.verify(self.runtime, {"email": "sam@example.com", "code": "123456", "use": "personal"}, self.env)
         self.assertFalse(view["license"]["commercial"])
         self.assertEqual((view["license"]["known"], view["license"]["paid"], view["license"]["price"]),
                          (True, True, "yearly"))
@@ -284,7 +286,7 @@ class AccountTests(unittest.TestCase):
         account.refresh_license(self.runtime, self.env)
         self.service.replies["/v1/auth/email/verify"] = (200, {"token": "t2", "account": {
             "id": "a2", "email": "lee@example.com", "use": "personal", "company": None, "created": "2026-11-13T00:00:00Z"}})
-        view = account.verify(self.runtime, {"email": "lee@example.com", "code": "abcd-1234", "use": "personal"}, self.env)
+        view = account.verify(self.runtime, {"email": "lee@example.com", "code": "123456", "use": "personal"}, self.env)
         self.assertEqual((view["license"]["known"], view["license"]["paid"]), (False, None))
         self.assertNotIn("server_license", json.loads(account.path(self.runtime).read_text()))
 

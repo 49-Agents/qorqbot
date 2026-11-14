@@ -1,133 +1,24 @@
-"""Connectors the owner sets up for their agents: what each one is and whether it is ready.
+"""Extensions the owner sets up for their agents: what each one is and whether it is ready.
 
-Qorqbot itself never contacts these services and keeps no copy of their data. There are two kinds:
+Each entry is a Qorqbot extension (treg, WhatsApp), set up through that extension. Its tools reach the agents through
+Qorqbot, so they work for every agent client. The core never contacts these services and keeps no copy of their data; an
+extension makes its own requests (treg's are described in ``qorqut_treg``).
 
-* ``claude`` - a connector of the owner's Claude account (Gmail, Google Calendar, Google Drive, Notion, Slack). The owner
-  signs in on claude.ai; Claude Code then offers it to every Claude session, including Qorqbot's agents. Qorqbot only
-  reads ``claude mcp list`` to show whether it is connected.
-* ``extension`` - a Qorqbot extension (WhatsApp), set up through that extension.
+Connectors of the owner's Claude account are not listed or set up here. An agent running in Claude Code still receives
+whatever that account has connected, and ``qorqut.connector_gate`` keeps such a call from changing anything before the
+owner approves it.
 """
 import json
 import os
 from pathlib import Path
-import re
 import shutil
-import subprocess
-import threading
-import time
-
-from qorqut_operations.contracts import DomainError
 
 # Standard locations a GUI-launched service may be missing from PATH; Node itself must be findable by npx's shebang.
 SYSTEM_PATH = ("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin")
-PROBE_TIMEOUT = 90
-PROBE_FRESH_FOR = 60
 CATALOG = (
-    {"id": "gmail", "kind": "claude", "tier": "recommended", "clients": ["claude-code"], "claude_name": "Gmail"},
-    {"id": "google_calendar", "kind": "claude", "tier": "suggested", "clients": ["claude-code"],
-     "claude_name": "Google Calendar"},
-    {"id": "google_drive", "kind": "claude", "tier": "suggested", "clients": ["claude-code"], "claude_name": "Google Drive"},
-    {"id": "whatsapp", "kind": "extension", "tier": "suggested", "clients": ["claude-code", "codex"]},
-    {"id": "notion", "kind": "claude", "tier": "suggested", "clients": ["claude-code"], "claude_name": "Notion"},
-    {"id": "slack", "kind": "claude", "tier": "suggested", "clients": ["claude-code"], "claude_name": "Slack"},
+    {"id": "treg", "kind": "extension", "clients": ["claude-code", "codex"]},
+    {"id": "whatsapp", "kind": "extension", "clients": ["claude-code", "codex"]},
 )
-
-# `claude mcp list` prints one line per server, e.g. "claude.ai Gmail: https://... - ✔ Connected".
-CLAUDE_LINE = re.compile(r"^claude\.ai (?P<name>[^:]+): .* - (?P<state>.+?)\s*$")
-
-
-def _atomic_write(path: Path, content: bytes, mode=0o600):
-    from qorqut.agent_trust import _atomic_write as write
-    write(path, content, mode=mode)
-
-
-def parse_claude_list(text: str) -> dict:
-    """``{connector name: "connected" | "needs_sign_in" | "failed"}`` from ``claude mcp list`` output."""
-    found = {}
-    for line in text.splitlines():
-        match = CLAUDE_LINE.match(line.strip())
-        if not match:
-            continue
-        state = match["state"].lower()
-        found[match["name"].strip()] = ("connected" if "connected" in state and "fail" not in state
-                                        else "needs_sign_in" if "auth" in state else "failed")
-    return found
-
-
-class ClaudeProbe:
-    """Runs ``claude mcp list`` in the background (it checks each server, which takes a while) and keeps the last result.
-
-    With ``cache`` (a file in the installation's runtime folder), the last result is also kept across restarts: a new
-    server shows it at once, marked as checking, instead of "Checking…" for every connector until Claude answers."""
-
-    def __init__(self, run=subprocess.run, clock=time.monotonic):
-        self._run, self._clock, self._lock = run, clock, threading.Lock()
-        self._result, self._checked, self._thread, self._cache = None, None, None, None
-
-    def view(self, environ, refresh=False, cache=None) -> dict:
-        with self._lock:
-            if cache is not None:
-                self._cache = Path(cache)
-                if self._result is None:
-                    self._result = _read_cached(self._cache)
-            fresh = self._checked is not None and self._clock() - self._checked < PROBE_FRESH_FOR
-            running = self._thread is not None and self._thread.is_alive()
-            if (refresh or not fresh) and not running:
-                self._thread = threading.Thread(target=self._probe, args=(dict(environ),), daemon=True,
-                                                name="qorqbot-claude-connectors")
-                self._thread.start()
-                running = True
-            return {"checking": running, "result": self._result}
-
-    def _account(self, environ):
-        """The Claude sign-in agents use: claude.ai connectors belong to that account, so the owner connects on it."""
-        try:
-            completed = self._run(["claude", "auth", "status"], capture_output=True, text=True, timeout=30,
-                                  stdin=subprocess.DEVNULL, env=environ, cwd=environ.get("HOME") or "/")
-            status = json.loads(completed.stdout)
-        except (OSError, subprocess.SubprocessError, ValueError):
-            return None
-        if not isinstance(status, dict):
-            return None
-        return {"signed_in": status.get("loggedIn") is True, "method": status.get("authMethod"),
-                "email": status.get("email") if isinstance(status.get("email"), str) else None,
-                "plan": status.get("subscriptionType") if isinstance(status.get("subscriptionType"), str) else None}
-
-    def _probe(self, environ):
-        account = self._account(environ)
-        try:
-            completed = self._run(["claude", "mcp", "list"], capture_output=True, text=True, timeout=PROBE_TIMEOUT,
-                                  stdin=subprocess.DEVNULL, env=environ, cwd=environ.get("HOME") or "/")
-            result = ({"available": True, "connectors": parse_claude_list(completed.stdout)} if completed.returncode == 0
-                      else {"available": False, "reason": "claude_failed"})
-        except FileNotFoundError:
-            result = {"available": False, "reason": "claude_missing"}
-        except (OSError, subprocess.SubprocessError):
-            result = {"available": False, "reason": "claude_failed"}
-        result["account"] = account
-        with self._lock:
-            self._result, self._checked, cache = result, self._clock(), self._cache
-        if cache is not None:
-            try:
-                _atomic_write(cache, json.dumps(result).encode(), mode=0o600)
-            except OSError:
-                pass
-
-
-def _read_cached(path):
-    """The last saved result, if it is a well-formed one."""
-    try:
-        data = json.loads(path.read_text())
-    except (OSError, ValueError):
-        return None
-    if not isinstance(data, dict) or not isinstance(data.get("available"), bool):
-        return None
-    if data["available"] and not isinstance(data.get("connectors"), dict):
-        return None
-    return data
-
-
-PROBE = ClaudeProbe()
 
 
 def _probe_environment(environ=None):
@@ -147,6 +38,13 @@ def _probe_environment(environ=None):
     if not shutil.which("claude", path=base.get("PATH")):
         base["PATH"] = ":".join([base.get("PATH", ""), *SYSTEM_PATH, str(Path(base.get("HOME", "/")) / ".local/bin")])
     return base
+
+
+def _treg_status(runtime) -> dict:
+    """Whether the treg extension is part of this install and the owner has saved a key. No key is read here."""
+    selected = getattr(getattr(runtime, "selection", None), "extensions", ())
+    extension = next((item for item in selected if item.id == "treg"), None)
+    return {"status": "not_installed" if extension is None else extension.status()}
 
 
 def _whatsapp_status(runtime, platform="linux") -> dict:
@@ -173,34 +71,13 @@ def host_platform(proc_version="/proc/version") -> str:
         return "linux"
 
 
-def view(runtime, *, refresh=False, environ=None, probe=None) -> dict:
-    """Every connector with its status, for the owner's dashboard."""
+def view(runtime, *, environ=None) -> dict:
+    """Every extension with its status, for the owner's dashboard. Reads local files only."""
     from qorqut.agent_trust import clients
     platform = host_platform()
-    claude = (probe or PROBE).view(_probe_environment(environ), refresh=refresh,
-                                   cache=Path(runtime.paths.runtime) / "connectors-status.json")
-    result = claude["result"]
     items = []
     for entry in CATALOG:
-        item = {key: value for key, value in entry.items() if key != "claude_name"}
-        if entry["kind"] == "extension":
-            item.update(_whatsapp_status(runtime, platform))
-        elif result is None:
-            item["status"] = "checking"
-        elif not result["available"]:
-            item["status"] = "unavailable"
-            item["reason"] = result["reason"]
-        else:
-            item["status"] = result["connectors"].get(entry["claude_name"], "not_added")
+        item = dict(entry)
+        item.update(_treg_status(runtime) if entry["id"] == "treg" else _whatsapp_status(runtime, platform))
         items.append(item)
-    return {"connectors": items, "checking": claude["checking"], "clients": clients(environ), "platform": platform,
-            "claude_account": (result or {}).get("account")}
-
-
-def owner_view(runtime, change=None, environ=None) -> dict:
-    """GET (``change`` None) or ``{"refresh": true}``."""
-    if change is not None:
-        if set(change) != {"refresh"} or change["refresh"] is not True:
-            raise DomainError("validation_error", "Only a refresh can be requested")
-        return view(runtime, refresh=True, environ=environ)
-    return view(runtime, environ=environ)
+    return {"connectors": items, "clients": clients(environ), "platform": platform}

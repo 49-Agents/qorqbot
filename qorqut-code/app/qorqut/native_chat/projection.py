@@ -34,7 +34,7 @@ Provenance rules, applied to every record:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 import re
@@ -255,6 +255,9 @@ class Lineage:
     def reply_id(self, kind: str, key: str) -> str:
         return self.identity("native-reply", kind, key)
 
+    def turn_id(self, kind: str, key: str) -> str:
+        return self.identity("native-owner-turn", kind, key)
+
 
 @dataclass(frozen=True)
 class Entry:
@@ -275,6 +278,7 @@ class Entry:
     # A ``request_user_input`` presentation: ``text`` is its message and these are its identity-only references, each
     # ``(type, id, business_id)`` in order. ``None`` for every other entry; an empty tuple is a message with no references.
     references: tuple[user_input.Key, ...] | None = None
+    command: bool = False  # a slash command the user typed (``/compact``): shown as a user entry, but it asks the agent nothing
 
     def public_id(self, lineage: Lineage) -> str:
         return lineage.entry_id(self.identity_kind, self.key)
@@ -450,7 +454,8 @@ class Projector:
             name = command.group(1) if command.group(1).startswith("/") else "/" + command.group(1)
             typed = (name + " " + (command.group(2) or "").strip()).strip()
             # Shown, but not a turn: commands such as /compact or /clear get no assistant reply to end one.
-            return Result(entry=_user_entry(identity[0], identity[1], typed, value, record.offset, record.length))
+            return Result(entry=replace(_user_entry(identity[0], identity[1], typed, value, record.offset, record.length),
+                                        command=True))
         if stripped.startswith(_COMMAND_PREFIXES):
             return Result(hidden=True)
         entry = _user_entry(identity[0], identity[1], text, value, record.offset, record.length)

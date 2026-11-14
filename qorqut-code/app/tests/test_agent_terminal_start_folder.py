@@ -21,7 +21,7 @@ from qorqut_operations.contracts import DomainError
 
 from qorqut import agent_trust
 from qorqut.agents import roles
-from qorqut.transport.agent_terminal_control import AgentTerminalBackend
+from qorqut.transport.agent_terminal_control import AgentTerminalBackend, DEV_ROLE
 
 SHELL = {"state": "present", "server_pid": "10", "session_id": "$1", "pane_id": "%1", "pane_pid": "4242", "command": "bash",
          "foreground_pid": 4242, "foreground_started": "1000", "client": "claude", "selection_revision": None}
@@ -246,7 +246,7 @@ class StartFolderTest(Fixture):
 
     def test_dev_still_launches_from_wherever_its_terminal_is(self):
         dev = {"agent_id": "dev", "home_business_id": None,
-               "profile_json": json.dumps({"runtime": "claude-code", "role": {"id": roles.DEV_ROLE}})}
+               "profile_json": json.dumps({"runtime": "claude-code", "role": {"id": DEV_ROLE}})}
         backend = self.backend([SHELL], [self.project], row=dev)
         self.assertEqual(self.start(backend), "Startup command submitted; readiness/work is not confirmed")
         self.assertEqual(self.broker.typed, ["claude"])

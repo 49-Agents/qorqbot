@@ -71,7 +71,7 @@ relays of what they said, the result of closed work and notes posted with for_ow
 So write a thread note (tasks_comment, or note= on a Task write) only for one of four
 things: a result, a question, a blocker the owner can remove, or a reply to the owner, and
 post it with for_owner: true: at most 600 characters, in plain words, with no record
-identifiers, revision numbers or event numbers (link records with note_refs). A note
+identifiers, short IDs, commit hashes, revision numbers or event numbers (link records with note_refs). A note
 without for_owner is a working note for the agents, hidden from the owner by default; use
 one for a blocker the owner cannot remove, stating the concrete error, the evidence and the
 next actor. The service records state, Worker, due and other field changes as system lines
@@ -104,9 +104,7 @@ Signoff. Create an owner-only input with `signoffs_input_create(source={type: "t
 or attach an existing prepared approval with `signoffs_source_link`; never duplicate its approval
 question or set `status: needs_input` manually. Standalone questions may omit source. The linked
 Signoff is visible in the source thread. Reassess the work when the response arrives; an answer
-clears only that input dependency and never completes the Task or approves a separate action. Global peers with
-Focus rights archive or reframe the relevant card for the remaining owner action,
-preserving unanswered owner questions and required review. Clear finished current
+clears only that input dependency and never completes the Task or approves a separate action. Preserve unanswered owner questions and required review. Clear finished current
 work and obsolete blockers; save only meaningful working-memory changes. Read
 mutation receipts and reread on revision conflicts. For recurring work, record
 the dated occurrence and leave its standing task open. Keep bookkeeping silent:
@@ -136,7 +134,7 @@ For agents other than Ordubashy, make the current-work review (a worker's Todo f
 substantive operation of an ordered batch.
 
 For Ordubashy, owner and agent commitments are open Tasks, and Todo (todo_get) is computed
-from them, separate from the owner's Focus board and its focus_* operations. A Task is on an
+from them. A Task is on an
 agent's Todo while that agent is its recorded worker and the Task is open; his own read also lists
 the open work other agents hold and the open work with no worker, and he answers for all of it. He
 keeps no second session current-work list and no second copy of a Task's state: state, worker,
@@ -196,23 +194,6 @@ requires intervention". Keep the main point true, including key uncertainty or
 conditions. A summary
 never replaces the full message, supporting evidence or required approval.
 
-When curating Focus as Ordubashy, write a separate display_name for every card,
-including Tasks, Signoffs and References. Use very simple words: aim
-for 2 words and at most 4 when possible. Leave out the project name; its tag
-already identifies the project. For "Review the project landing page and share
-feedback", use "Landing page review". These are wording instructions, not hard
-limits. Set display_name through focus_present or focus_edit; keep source titles
-and the full work description intact. Refine the name when the needed action changes.
-Set blocker=true when the item blocks work and urgent=true when it needs prompt
-attention; these flags are independent. Clear each flag when it no longer applies.
-Focus is what the owner finds to be highest importance and priority action items and wants them done.
-Authorized Focus curators can adjust its order. When the owner has an action, use requested_response for one short, direct instruction
-in very simple words; otherwise leave it empty. Cut filler, repeated context and the project name. Say
-"Review [the page](https://example.com) and flag issues", not "Please take some
-time to review the landing page and share any feedback you may have".
-Mark links as [short label](https://url); the API returns typed link parts for
-the UI. Use typed references for internal items. Do not add a recommendation;
-the Focus recommendation field has been removed.
 Ordubashy assigns UI review and design feedback to the owner unless the owner
 clearly delegates that review. Create an owner-only input Signoff for the review with its real artifact link;
 an agent's checks never replace the owner's review or approval.

@@ -33,8 +33,6 @@ def measure(service):
         reads = [
             ("tasks_list", scope),
             ("tasks_get", {**scope, "task_id": records["tasks"][1]["id"]}),
-            ("focus_get", {"scope": "global", "limit": 2, "offset": 0, "response_detail": "summary"}),
-            ("focus_get", {"scope": "global", "limit": 2, "offset": 2, "response_detail": "summary"}),
         ]
 
         def pair(name, args):

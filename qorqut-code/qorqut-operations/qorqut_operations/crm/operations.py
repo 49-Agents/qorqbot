@@ -39,8 +39,8 @@ CATALOG_ENTRIES = (
 )
 STAGE = {"anyOf": [KEY, {"type": "null"}]}
 LIMIT = {"limit": {"type": "integer", "minimum": 1, "maximum": 100}, "cursor": PAGE["cursor"]}
-# The Task-creation fields an entry's ``create`` may carry: tasks_create's own, minus the Focus presentation and scope.
-NOT_CREATE = frozenset({"focus", "scope", "rationale"})
+# The Task-creation fields an entry's ``create`` may carry: tasks_create's own, minus the scope.
+NOT_CREATE = frozenset({"scope", "rationale"})
 
 
 class CRMOperations:

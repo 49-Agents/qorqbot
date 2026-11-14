@@ -16,7 +16,7 @@ from qorqut_operations.contracts import (ChangePreview, ChangeSet, DomainError, 
 from qorqut.composition.locations import agent_workspace, document_root
 from . import plugin_defaults, roles
 from .global_scope import with_effective_scope
-from .models import AgentProfile, PLUGIN_GRANT_SCHEMA, PROFILE_SCHEMA, REFERENCE_SCHEMA, RETIRED_ROLE_IDS, GLOBAL_CAPABILITIES, scope_schema
+from .models import AgentProfile, PLUGIN_GRANT_SCHEMA, PROFILE_SCHEMA, REFERENCE_SCHEMA, GLOBAL_CAPABILITIES, scope_schema
 from qorqut_operations.document_history.files import seed_document
 from qorqut_operations.storage.files import RegisteredFileTarget, file_hash, file_values
 from qorqut.management.identity import configured_ordubashy, installation_owner, require_protected_control
@@ -72,10 +72,10 @@ class AgentOperations:
 
     @staticmethod
     def _validate_role_lifecycle(operation, profile):
-        """Keep retired role references readable while fencing active recreation."""
+        """A profile outside the supported global roles can only be deactivated."""
         role_id = profile.data["role"]["id"]
-        if role_id in RETIRED_ROLE_IDS and not (operation == "agents_deactivate" and profile.data["status"] == "inactive"):
-            raise DomainError("retired_role", "This role is retired; only the supported global roles operate")
+        if role_id not in roles.SUPPORTED_GLOBAL_ROLES and not (operation == "agents_deactivate" and profile.data["status"] == "inactive"):
+            raise DomainError("unsupported_role", "Only the supported global roles operate")
         if (role_id == roles.GLOBAL_WORKER_ROLE and operation != "agents_deactivate"
                 and "manage_agentic_layer" in profile.scope.global_capabilities):
             raise DomainError("forbidden", "Toolkit management cannot be granted to a worker")
@@ -288,13 +288,11 @@ class AgentOperations:
             return result
         if operation in {"roles_list", "plugins_list"}:
             kind = "role" if operation == "roles_list" else "plugin"
-            # Retired package bytes remain available to exact historical pins, but
-            # the owner must not be offered an overlapping obsolete capability.
-            retired = sorted(RETIRED_ROLE_IDS if kind == "role" else roles.RETIRED_PLUGIN_IDS)
             rows = uow.connection.execute("SELECT kind,artifact_id,version,digest FROM artifacts WHERE kind=? "
-                f"AND artifact_id NOT IN ({','.join('?' * len(retired))}) ORDER BY artifact_id,version",
-                (kind, *retired))
-            return {"roles" if kind == "role" else "plugins": [{"id": row["artifact_id"], "version": row["version"], "digest": row["digest"]} for row in rows]}
+                "ORDER BY artifact_id,version", (kind,))
+            # Only a role an agent may hold is offered; every plugin artifact is.
+            return {"roles" if kind == "role" else "plugins": [{"id": row["artifact_id"], "version": row["version"], "digest": row["digest"]}
+                for row in rows if kind == "plugin" or row["artifact_id"] in roles.SUPPORTED_GLOBAL_ROLES]}
         if operation == "agents_icons_list":
             return {"icons": [{"id": icon, "label": label} for icon, label in AGENT_ICONS]}
         if operation == "roles_get":
@@ -363,8 +361,8 @@ class AgentOperations:
             self._require_creation_authority(ctx, role["id"], uow)
             worker = role["id"] == roles.GLOBAL_WORKER_ROLE
             scope = args.get("scope") or (WORKER_DEFAULT_SCOPE if worker else {"kind": "business", "business_id": ctx.business_id})
-            if role["id"] in RETIRED_ROLE_IDS:
-                raise DomainError("retired_role", "This role is retired; only the supported global roles operate")
+            if role["id"] not in roles.SUPPORTED_GLOBAL_ROLES:
+                raise DomainError("unsupported_role", "Only the supported global roles operate")
             if scope["kind"] != "ecosystem":
                 raise DomainError("invalid_profile", "Projects own resources only; agents are global with ecosystem scope")
             required = {"name", "assignment_brief"} if worker else {"name", "display_name", "assignment_brief"}

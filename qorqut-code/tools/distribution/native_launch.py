@@ -510,6 +510,7 @@ def initialize(root, env):
         record = read_json(receipt)
         if record.get('state') != 'initialized' or record.get('instance_root') != str(instance):
             raise RuntimeError('The existing instance is incomplete or belongs to a different folder')
+        ensure_context_repository(root, env, record)
         return record
     if instance.exists() and any(instance.iterdir()):
         raise RuntimeError('The instance folder is not empty and has no successful initialization receipt; nothing was replaced')
@@ -517,6 +518,35 @@ def initialize(root, env):
          '--prepared-root', runtime, '--instance-root', instance], env=env, cwd=root)
     (instance / 'config/operational-timezone').write_text(env['QORQUT_TIMEZONE'] + '\n')
     return read_json(receipt)
+
+
+def ensure_context_repository(root, env, record):
+    """An installation initialized before the Context store was provisioned gets it created once; an existing store is never touched."""
+    instance = root / 'instance'
+    if (instance / 'operations/context-graph').exists():
+        return
+    command = [root / 'runtime/venv/bin/python', '-I', '-B', '-m', 'qorqut.bootstrap.context_repository', '--instance-root', instance]
+    for name, location in record['components'].items():
+        command.extend(['--component', f'{name}={location}'])
+    run(command, env=env, cwd=root)
+
+
+TREG_FACTORY = 'qorqut_treg.extension:create'
+
+
+def select_treg(root):
+    """The treg toolkit ships in the runtime and belongs to every installation, new or updated. Selecting it adds its
+    tools only; it contacts nothing and stays idle until the owner adds a treg key in the dashboard."""
+    receipt = root / 'runtime/PREPARATION-RECEIPT.json'
+    if not receipt.exists() or not (read_json(receipt).get('selection') or {}).get('treg'):
+        return False
+    config = root / 'instance/config/extensions.json'
+    selected = read_json(config)
+    if any(item.get('factory') == TREG_FACTORY for item in selected['extensions']):
+        return False
+    selected['extensions'].append({'factory': TREG_FACTORY, 'config': {}})
+    save_json(config, selected)
+    return True
 
 
 def identity(pid):
@@ -621,6 +651,7 @@ def main(argv=None):
         require_prerequisites(env)
         prepare(root, env)
         record = initialize(root, env)
+        select_treg(root)
         # First launch installs the agents' browser tool; later launches find it in place.
         try:
             _, browser_problem = ensure_agent_browser(root)

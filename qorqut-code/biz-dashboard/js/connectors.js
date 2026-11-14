@@ -1,52 +1,36 @@
-// Connectors: the services the owner connects so agents can use them (Gmail, Calendar and more).
+// Connections: the agent browser, the websites agents use as the owner, and Qorqbot's extensions (treg, WhatsApp).
 // `connectorsModel` is pure (unit tested with `node --test biz-dashboard/tests/*.test.js`); `connectorsPanel` renders the
-// panel shown in Settings and in the walkthrough. Status comes from /root/connectors (qorqut.connectors).
+// panel shown in Settings. Extension status comes from /root/connectors (qorqut.connectors).
 const connectorsModel = (() => {
-  const CLAUDE_CONNECTORS_URL = 'https://claude.ai/settings/connectors';
   const icon = path => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
   const ICONS = {
-    gmail: icon('<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M4 7l8 6 8-6"/>'),
-    google_calendar: icon('<rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>'),
-    google_drive: icon('<path d="M4 18.5h16M8.5 4.5h7L21 14l-2.5 4.5M8.5 4.5L3 14l2.5 4.5M8.5 4.5L14 14H3"/>'),
     whatsapp: icon('<path d="M20 11.6a8 8 0 0 1-11.8 7L4 20l1.4-4.1A8 8 0 1 1 20 11.6z"/>'),
-    notion: icon('<rect x="4" y="3.5" width="16" height="17" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>'),
-    slack: icon('<path d="M9 3.5v17M15 3.5v17M3.5 9h17M3.5 15h17"/>'),
+    treg: icon('<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M17 14v6M14 17h6"/>'),
   };
   // Owner-facing copy. `does` is what agents can do with it, `why` why it helps, `privacy` what it can see and where it runs.
   const COPY = {
-    gmail: {name: 'Gmail', does: 'Ordubashy finds and reads your email, sorts what needs you and drafts replies for you to send.',
-      why: 'Most requests arrive by email. This is how your agents keep up with them.',
-      privacy: 'You sign in with Google on Google’s own page. Qorqbot never sees your password and keeps no copy of your mail.'},
-    google_calendar: {name: 'Google Calendar', does: 'Agents see your schedule, suggest times and add events when you ask.',
-      why: 'Planning work around your real day.',
-      privacy: 'You sign in with Google on Google’s own page. Qorqbot keeps no copy of your events.'},
-    google_drive: {name: 'Google Drive', does: 'Agents find and read your documents and spreadsheets.',
-      why: 'Your agents can work from your own files.',
-      privacy: 'You sign in with Google on Google’s own page. Qorqbot keeps no copy of your files.'},
     whatsapp: {name: 'WhatsApp', does: 'Ordubashy reads your chats to catch you up. Sending a message always needs your approval.',
       why: 'Catch up on chats without scrolling through them.',
       privacy: 'Runs on this computer and links like WhatsApp on a second device. Your messages stay in a private folder of this installation.'},
-    notion: {name: 'Notion', does: 'Agents read and update your pages and databases.', why: 'Keep your notes and wikis in the loop.',
-      privacy: 'You sign in on Notion’s own page. Qorqbot keeps no copy of your pages.'},
-    slack: {name: 'Slack', does: 'Agents read channels and draft messages.', why: 'Follow team conversations without living in Slack.',
-      privacy: 'You sign in on Slack’s own page. Qorqbot keeps no copy of your messages.'},
+    // A Qorqbot extension: the owner pastes a treg key here and the tools reach every agent through Qorqbot itself.
+    treg: {name: 'treg', does: 'Agents look up live data when a task needs it: search results, keyword and backlink numbers, company and contact details, social profiles and web pages. Lookups run on their own, each capped at $0.10. treg tools that post, send or buy stay switched off.',
+      why: 'One key gives your agents thousands of data tools, so they don’t need a separate account for each service. It works with Claude Code and Codex alike.',
+      privacy: 'What your agents look up goes to treg and the data provider it picks. Your key is kept in a private file on this computer and is never shown to your agents.',
+      needs: 'A treg account and a key from it. treg charges per lookup from a balance you top up there.',
+      steps: ['Create an account at treg.to and add a small balance.', 'Create an API key in your treg account and copy it.', 'Press Add key here, paste the key and save.']},
   };
   const STATUS = {
-    connected: {label: 'Connected', tone: 'ok'}, off: {label: 'Off', tone: 'idle'}, not_added: {label: 'Not connected', tone: 'idle'},
-    needs_sign_in: {label: 'Needs sign-in', tone: 'warn'}, failed: {label: 'Not working', tone: 'warn'},
-    checking: {label: 'Checking…', tone: 'idle'}, unavailable: {label: 'Unavailable', tone: 'warn'},
-    unknown: {label: 'Unknown', tone: 'idle'}, not_installed: {label: 'Not installed', tone: 'idle'},
-    not_set_up: {label: 'Not set up', tone: 'idle'}, not_paired: {label: 'Not linked', tone: 'warn'},
-    coming_soon: {label: 'Coming soon on Mac', tone: 'idle'}, needs_install: {label: 'Needs a quick install', tone: 'warn'},
+    connected: {label: 'Connected', tone: 'ok'}, unknown: {label: 'Unknown', tone: 'idle'},
+    not_installed: {label: 'Not installed', tone: 'idle'}, not_set_up: {label: 'Not set up', tone: 'idle'},
+    not_paired: {label: 'Not linked', tone: 'warn'}, coming_soon: {label: 'Coming soon on Mac', tone: 'idle'},
   };
   const status = item => STATUS[item.status] || STATUS.unknown;
-  // What the card's main button does: 'claude' (connect on claude.ai) or 'none'.
+  // What the card's main button does: 'key' (open the card's key field) or 'none'.
   function action(item) {
     if (item.status === 'coming_soon') return {kind: 'none'};
-    if (item.kind === 'claude') {
-      if (item.status === 'connected') return {kind: 'claude', label: 'Manage', quiet: true};
-      if (item.status === 'unavailable' || item.status === 'checking') return {kind: 'none'};
-      return {kind: 'claude', label: item.status === 'needs_sign_in' ? 'Sign in' : 'Connect'};
+    if (item.id === 'treg') {
+      if (item.status === 'connected') return {kind: 'key', label: 'Change key', quiet: true};
+      return item.status === 'not_set_up' ? {kind: 'key', label: 'Add key'} : {kind: 'none'};
     }
     return {kind: 'none'};
   }
@@ -54,47 +38,41 @@ const connectorsModel = (() => {
   function note(item) {
     const text = noteText(item);
     if (!text) return null;
-    return {text, tone: ['not_added', 'not_installed', 'unsupported', 'coming_soon', 'checking'].includes(item.status) ? 'info' : 'warn'};
+    return {text, tone: ['not_installed', 'coming_soon'].includes(item.status) ? 'info' : 'warn'};
   }
   function noteText(item) {
-    if (item.kind === 'claude' && item.status === 'unavailable')
-      return item.reason === 'claude_missing' ? 'Install Claude Code and sign in with your Claude account to use Claude’s connectors.'
-        : 'Claude Code could not list its connectors. Open a terminal and run “claude” once to sign in.';
-    if (item.kind === 'claude' && item.status === 'failed') return 'Claude could not reach it. Open Claude’s connectors and connect it again.';
-    if (item.kind === 'claude' && item.status !== 'connected') return 'Claude Code only. Codex can’t use Claude’s connectors.';
+    if (item.id === 'treg' && item.status === 'not_installed') return 'Comes with the treg extension, which isn’t part of this Qorqbot yet.';
+    if (item.id === 'treg' && item.status === 'not_set_up') return 'Add your treg key to turn it on.';
     if (item.id === 'whatsapp' && item.status === 'coming_soon') return 'The WhatsApp extension is available for Windows (WSL) and Linux. A Mac version is in progress.';
     if (item.id === 'whatsapp' && item.status === 'not_installed') return 'Comes with the WhatsApp extension, which isn’t installed in this Qorqbot yet.';
     if (item.id === 'whatsapp' && item.status === 'not_set_up') return 'The WhatsApp extension is installed. Link your phone to finish.';
     if (item.id === 'whatsapp' && item.status === 'not_paired') return 'Link your phone: in WhatsApp open Settings, Linked devices, Link a device.';
     return null;
   }
-  function summary(items) {
-    const recommended = items.filter(item => item.tier === 'recommended');
-    const done = recommended.filter(item => item.status === 'connected').length;
-    return {done, total: recommended.length, complete: done === recommended.length};
-  }
-  // Which Claude account agents use, so the owner connects Gmail and others on that same account.
-  function account(view) {
-    const value = view?.claude_account;
-    if (!value) return null;
-    if (!value.signed_in) return {tone: 'warn', text: 'Claude Code isn’t signed in. Open Terminal, run “claude” and sign in, then press Check again.'};
-    if (value.method !== 'claude.ai') return {tone: 'warn', text: 'Claude Code is signed in with an API key. Claude’s connectors need a Claude account sign-in.'};
-    return {tone: 'ok', text: `Your agents use the Claude account ${value.email || 'you signed in with'}. Connect services on claude.ai while signed in to that same account.`};
-  }
-  return {COPY, ICONS, STATUS, CLAUDE_CONNECTORS_URL, status, action, note, summary, account};
+  return {COPY, ICONS, STATUS, status, action, note};
 })();
 if (typeof module !== 'undefined') module.exports = connectorsModel;
 
 const connectorsPanel = (() => {
-  const POLL_MS = 3000;
   const PRIVACY = `<section class="cx-privacy" aria-labelledby="cx-privacy-title">
       <div class="cx-privacy-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.2 2.2 4.3-4.6"/></svg></div>
       <div><h2 id="cx-privacy-title">Private by design. Your work stays on this computer.</h2>
       <p>Qorqbot’s servers know only your sign-in email, whether you use it for personal or work, and a daily check that it is running. Never your conversations, files, records or what your agents do.</p>
-      <ul><li>Browser sessions stay in each agent’s private local profile. External connection sign-ins happen on the provider’s page.</li>
-      <li>External connections are optional and managed in their own services.</li>
+      <ul><li>Browser sessions stay in each agent’s private local profile.</li>
+      <li>Extensions are optional. Each one says what it can see before you turn it on.</li>
       <li>What you ask your agents goes to Claude or Codex under your own account, the same as when you use them directly.</li></ul></div>
     </section>`;
+  // The key field of a connector whose button is 'key'. It stays closed until that button is pressed; the saved key is
+  // never sent back, so the field always starts empty.
+  function keyForm(item, action) {
+    if (action.kind !== 'key') return '';
+    return `<form class="cx-key" data-cx-key="${esc(item.id)}" hidden>
+      <label><span>Your treg key</span><input type="password" name="key" autocomplete="off" spellcheck="false" placeholder="Paste the key from treg" required></label>
+      <div class="cx-key-actions"><button type="submit">Save key</button>
+        ${item.status === 'connected' ? '<button type="button" class="quiet" data-cx-key-remove>Remove key</button>' : ''}
+        <button type="button" class="quiet" data-cx-key-cancel>Cancel</button></div>
+      <p class="cx-note" data-cx-key-error hidden></p></form>`;
+  }
   function card(item) {
     const copy = connectorsModel.COPY[item.id] || {name: item.id, does: ''};
     const status = connectorsModel.status(item), action = connectorsModel.action(item), note = connectorsModel.note(item);
@@ -106,12 +84,13 @@ const connectorsPanel = (() => {
         ${button}</div>
       <p class="cx-does">${esc(copy.does)}</p>
       ${note ? `<p class="cx-note" data-tone="${note.tone}">${esc(note.text)}</p>` : ''}
+      ${keyForm(item, action)}
       <details class="cx-more"><summary>Why it helps and what it can see</summary>
         <p><b>Why:</b> ${esc(copy.why || '')}</p><p><b>Privacy:</b> ${esc(copy.privacy || '')}</p>
         ${copy.needs ? `<p><b>Needs:</b> ${esc(copy.needs)}</p>` : ''}${steps}</details>
     </article>`;
   }
-  // Settings shows each connector as one compact row; the walkthrough and the cards above share the same model.
+  // Settings shows each extension as one compact row; the cards above share the same model.
   function row(item) {
     const copy = connectorsModel.COPY[item.id] || {name: item.id, does: ''};
     const status = connectorsModel.status(item), action = connectorsModel.action(item), note = connectorsModel.note(item);
@@ -124,6 +103,7 @@ const connectorsPanel = (() => {
         <div class="cx-row-title"><h3>${esc(copy.name)}</h3><span class="cx-status" data-tone="${status.tone}">${esc(status.label)}</span></div>
         <p class="cx-row-does">${esc(copy.does)}</p>
         ${note ? `<p class="cx-note" data-tone="${note.tone}">${esc(note.text)}</p>` : ''}
+        ${keyForm(item, action)}
         <details class="cx-more"><summary>What it can see</summary>
           <p><b>Why:</b> ${esc(copy.why || '')}</p><p><b>Privacy:</b> ${esc(copy.privacy || '')}</p>
           ${copy.needs ? `<p><b>Needs:</b> ${esc(copy.needs)}</p>` : ''}${steps}</details>
@@ -131,21 +111,12 @@ const connectorsPanel = (() => {
       <div class="cx-row-action">${button}</div>
     </div>`;
   }
-  // Shown under the cards once the owner has gone to claude.ai, so returning to the dashboard shows what to do next.
-  const CLAUDE_STEPS = `<div class="cx-claude-steps" data-cx-claude-steps hidden role="status">
-      <h3>Finish in Claude</h3>
-      <ol><li>On claude.ai, open <b>Settings</b>, then <b>Connectors</b>.</li>
-      <li>Find the service and press <b>Connect</b>.</li>
-      <li>Sign in with your Google (or other) account on its own page and allow access.</li>
-      <li>Come back here. Qorqbot checks again by itself.</li></ol>
-      <p class="muted small">Signing in gives your Claude account access to that one service. You can remove it at any time in Claude’s connectors or in your Google account’s security settings.</p>
-    </div>`;
   // `options.onChange(view)` is called after every read; `options.compact` drops the privacy banner (the walkthrough shows its own).
   function mount(container, options = {}) {
     const root = document.createElement('div');
     root.className = 'cx-panel' + (options.rows ? ' cx-panel-rows' : '');
     root.innerHTML = `${options.compact ? '' : PRIVACY}
-      <div class="cx-browser" data-cx-browser aria-live="polite"><div class="cx-browser-copy"><span class="cx-eyebrow">Included with Qorqbot</span>
+      <div class="cx-browser-area" data-cx-browser-area><div class="cx-browser" data-cx-browser aria-live="polite"><div class="cx-browser-copy"><span class="cx-eyebrow">Included with Qorqbot</span>
         <h3>Agent browser <span class="cx-status" data-cx-browser-status>Checking…</span></h3>
         <p>Your agents use their own private browser to work on websites for you. It sets itself up.</p>
         <p class="cx-browser-detail" data-cx-browser-detail>Checking browser readiness…</p></div>
@@ -157,19 +128,16 @@ const connectorsPanel = (() => {
         <p class="cx-accounts-empty" data-cx-accounts-empty hidden>No websites connected yet.</p>
         <p class="cx-error" data-cx-accounts-error role="alert" hidden></p>
         <div class="cx-rows" data-cx-accounts-list hidden></div>
-        <p class="cx-accounts-limit">A signed-in agent can act on that website as you, including sending messages. Only its instructions tell it to ask you first, and Qorqbot can’t block those actions in code. Claude connectors below do require your approval.</p>
-      </section>
+        <p class="cx-accounts-limit">A signed-in agent can act on that website as you, including sending messages. Only its instructions tell it to ask you first, and Qorqbot can’t block those actions in code.</p>
+      </section></div>
       <p class="cx-error" data-cx-error role="alert" hidden></p>
-      <details class="cx-direct" data-cx-direct><summary>Claude connectors <span class="cx-direct-count" data-cx-direct-count></span></summary>
-      <div class="cx-head"><div>${options.rows ? '' : '<h2>Optional connections</h2>'}<p>Direct connections for agents running in Claude Code. Connect opens claude.ai, where you allow access on the service’s own page.</p></div>
-        <div class="cx-progress" data-cx-progress aria-live="polite"></div></div>
-      <p class="cx-account" data-cx-account hidden></p>
-      <h3 class="cx-group">Recommended for email</h3><div class="${options.rows ? 'cx-rows' : 'cx-grid'}" data-cx-tier="recommended"><p class="muted small">Loading connections…</p></div>
-      <h3 class="cx-group">Also useful</h3><div class="${options.rows ? 'cx-rows' : 'cx-grid'}" data-cx-tier="suggested"></div>
-      ${CLAUDE_STEPS}
-      <p class="cx-foot muted small"><button type="button" class="cx-link" data-cx-refresh>Check again</button></p></details>`;
+      <section class="cx-extensions" data-cx-extensions>
+        <${options.rows ? 'h3' : 'h2'}>Extensions</${options.rows ? 'h3' : 'h2'}>
+        <p>Extra tools that run inside Qorqbot, so they work the same for agents in Claude Code and Codex.</p>
+        <div class="${options.rows ? 'cx-rows' : 'cx-grid'}" data-cx-list><p class="muted small">Loading extensions…</p></div>
+      </section>`;
     container.appendChild(root);
-    let view = null, browserView = null, timer = 0, browserTimer = 0, browserChecks = 0, awaitingClaude = false;
+    let view = null, browserView = null, browserTimer = 0, browserChecks = 0;
     let accountsView = null, accountsTimer = 0;
     const SIGN_IN_STATUS = {true: ['Session saved', 'ok'], false: ['No session', 'warn'], null: ['Status unavailable while the browser is off', '']};
     function paintAccounts() {
@@ -247,33 +215,22 @@ const connectorsPanel = (() => {
     }
     function paint() {
       if (!view) return;
-      for (const tier of ['recommended', 'suggested'])
-        root.querySelector(`[data-cx-tier="${tier}"]`).innerHTML = view.connectors.filter(item => item.tier === tier).map(options.rows ? row : card).join('');
-      const progress = connectorsModel.summary(view.connectors);
-      root.querySelector('[data-cx-progress]').innerHTML = `<span class="cx-progress-text">${progress.done} of ${progress.total} recommended connected</span>
-        <span class="cx-progress-bar" aria-hidden="true"><i style="width:${Math.round(progress.done / progress.total * 100)}%"></i></span>`;
-      const connected = view.connectors.filter(item => item.status === 'connected').length;
-      root.querySelector('[data-cx-direct-count]').textContent = connected ? `${connected} connected` : '';
-      root.querySelector('[data-cx-claude-steps]').hidden = !awaitingClaude;
-      const signIn = connectorsModel.account(view), line = root.querySelector('[data-cx-account]');
-      line.hidden = !signIn; if (signIn) { line.textContent = signIn.text; line.dataset.tone = signIn.tone; }
-      const refresh = root.querySelector('[data-cx-refresh]');
-      refresh.disabled = view.checking; refresh.textContent = view.checking ? 'Checking…' : 'Check again';
+      // A repaint must not close a key field the owner is typing in.
+      const open = root.querySelector('[data-cx-key]:not([hidden])');
+      const typed = open && {id: open.dataset.cxKey, value: open.elements.key.value, focused: document.activeElement === open.elements.key};
+      root.querySelector('[data-cx-list]').innerHTML = view.connectors.map(options.rows ? row : card).join('');
+      const again = typed && root.querySelector(`[data-cx-key="${typed.id}"]`);
+      if (again) { again.hidden = false; again.elements.key.value = typed.value; if (typed.focused) again.elements.key.focus(); }
       options.onChange?.(view);
       root.dispatchEvent(new CustomEvent('connectors-painted', {bubbles: true}));
     }
-    function schedule() {
-      clearTimeout(timer);
-      if (live() && view?.checking) timer = setTimeout(() => load(), POLL_MS);
-    }
-    async function load(change) {
+    async function load() {
       if (!live()) return;
       try {
-        view = coreData(change ? await post('/root/connectors', change) : await api('/root/connectors'));
+        view = coreData(await api('/root/connectors'));
         if (!live()) return;
         error(''); paint();
-      } catch (failure) { if (live()) error(failure.message || 'Connectors could not be loaded.'); }
-      schedule();
+      } catch (failure) { if (live()) error(failure.message || 'Extensions could not be loaded.'); }
     }
     root.addEventListener('click', async event => {
       const siteAction = event.target.closest('[data-cx-site-action]');
@@ -283,28 +240,52 @@ const connectorsPanel = (() => {
         return;
       }
       if (event.target.closest('[data-cx-browser-retry]')) { await loadBrowser(true); return; }
-      if (event.target.closest('[data-cx-refresh]')) { await load({refresh: true}); return; }
+      const keyForm = event.target.closest('[data-cx-key]');
+      if (keyForm && event.target.closest('[data-cx-key-cancel]')) { keyForm.reset(); keyForm.hidden = true; return; }
+      if (keyForm && event.target.closest('[data-cx-key-remove]')) { await saveKey(keyForm, null); return; }
       const button = event.target.closest('[data-cx-action]');
       if (!button) return;
       const item = view?.connectors.find(entry => entry.id === button.dataset.cxId);
       if (!item) return;
-      if (button.dataset.cxAction === 'claude') {
-        window.open(connectorsModel.CLAUDE_CONNECTORS_URL, '_blank', 'noopener,noreferrer');
-        awaitingClaude = true; paint();
+      if (button.dataset.cxAction === 'key') {
+        const form = root.querySelector(`[data-cx-key="${item.id}"]`);
+        form.hidden = !form.hidden;
+        if (!form.hidden) form.elements.key.focus();
       }
     });
-    // Returning from claude.ai: check again by itself, once per return.
-    const focus = () => { if (awaitingClaude && live() && document.visibilityState === 'visible') load({refresh: true}); };
+    // Saves the pasted key (or removes the saved one when `key` is null) through the connector's own extension route.
+    async function saveKey(form, key) {
+      const problem = form.querySelector('[data-cx-key-error]'), buttons = form.querySelectorAll('button');
+      problem.hidden = true;
+      buttons.forEach(button => { button.disabled = true; });
+      try {
+        await post(`/root/extensions/${encodeURIComponent(form.dataset.cxKey)}/key`, {key});
+        form.reset(); form.hidden = true;
+        await load();
+      } catch (failure) {
+        if (!live()) return;
+        problem.textContent = failure.message || 'The key could not be saved.'; problem.hidden = false;
+        buttons.forEach(button => { button.disabled = false; });
+      }
+    }
+    root.addEventListener('submit', async event => {
+      const form = event.target.closest('[data-cx-key]');
+      if (!form) return;
+      event.preventDefault();
+      await saveKey(form, form.elements.key.value.trim());
+    });
+    // An extension can be set up outside this page (WhatsApp is linked from a terminal), so returning here reads again.
+    const focus = () => { if (live() && document.visibilityState === 'visible') load(); };
     window.addEventListener('focus', focus);
     document.addEventListener('visibilitychange', focus);
     const watch = new MutationObserver(() => {
       if (live()) return;
-      clearTimeout(timer); clearTimeout(browserTimer); clearTimeout(accountsTimer); watch.disconnect();
+      clearTimeout(browserTimer); clearTimeout(accountsTimer); watch.disconnect();
       window.removeEventListener('focus', focus); document.removeEventListener('visibilitychange', focus);
     });
     watch.observe(container.ownerDocument.body, {childList: true, subtree: true});
     load(); loadBrowser(); loadAccounts();
-    return {root, reload: () => load({refresh: true}), get view() { return view; }};
+    return {root, reload: () => load(), get view() { return view; }};
   }
   return {mount, PRIVACY};
 })();

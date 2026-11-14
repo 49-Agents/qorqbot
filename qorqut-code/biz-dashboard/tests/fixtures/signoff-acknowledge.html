@@ -1,0 +1,93 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../app.css">
+<link rel="stylesheet" href="../../css/signoffs.css">
+<style>body{margin:0;padding:16px;background:var(--bg)}.ref{width:560px;max-width:100%;margin-bottom:24px}</style>
+<main id="refs"></main><pre id="out" hidden></pre>
+<script src="../../js/safe-links.js"></script>
+<script>
+window.IntersectionObserver = undefined;
+const state = {agents:[],biz:'demo',bizs:[{id:'b1',slug:'demo',name:'Demo'}],session:null,scope:'global'};
+const esc = s => String(s ?? '').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const sjDateTime = d => String(d), aicon = () => '', coreData = r => r.data;
+let sequence=0;
+const newRequestId = () => 'request-'+(++sequence);
+const globalAgentProfile = () => null, globalAgentProfiles=[1], identityAvatar=()=>'', RW_CHAT_ICON='', SVG_X='', SVG_CHECK='', T_VIEW_ICON={signoffs:''};
+const taskBusinessLabel=()=> 'Global', businessPortraitHtml=()=>'', workRelatedChips=()=>{}, toast=()=>{};
+const base = (id,input,title) => ({id,state:'pending',category:'input_request',operation_name:'signoffs_input_create',review_business_id:null,status_revision:1,proposal_revision:1,
+  payload_hash:'hash-'+id,actionable:true,title,created_at:'2026-11-12T12:00:00Z',input,input_kind:input.kind,attention:{notify:1,urgent:0,blocking:0},preview:{changes:[]}});
+const report = id => base(id,{title:'Daily report, 12 Nov',kind:'acknowledge',selection_mode:'none',choices:[],selection_required:false,notes_required:false,response_policy:'owner_only',
+  explanation:'## Forgotten\n\nNothing was dropped.\n\n## Done\n\n- Linden contract **sent** ([contract](/files/view?path=linden.pdf))\n- Invoice filed'},'Daily report, 12 Nov');
+const question = id => base(id,{title:'Choose a date',kind:'question',selection_mode:'none',choices:[],selection_required:false,notes_required:true,response_policy:'owner_only',
+  explanation:'Which date works?'},'Choose a date');
+const items={report:report('report'),card:report('card'),question:question('question')};
+const api = async url => {
+  if(url === '/session') return {data:{principal_kind:'human',is_owner:true,principal_id:'owner'}};
+  if(url.startsWith('/root/signoffs?')) return {data:{items:['report','question'].map(id=>items[id]).filter(s=>s.state==='pending').map(s=>structuredClone(s)),
+    review_business_id:null,counts:{pending:2},to_read:1,next_cursor:null}};
+  return {data:{signoff:structuredClone(items[url.split('/').pop()])}};
+};
+const posts=[];
+const post = async (url,body) => {
+  const id=url.split('/').at(-2); posts.push({id,action:url.split('/').at(-1),body:structuredClone(body)});
+  const s=items[id]; s.state='answered'; s.actionable=false; s.status_revision++; s.decision_state='acknowledged';
+  s.decision={kind:'respond',by:'owner',at:'2026-11-12T12:15:00Z',message_id:null,selected_choices:[]};
+  return {data:{signoff:structuredClone(s)}};
+};
+// The private conversation is its own component; this records how the card mounts it.
+const comments=[];
+function conversationMount(host,source,adapter) {
+  if(host._conversation) return host._conversation;
+  const record={source,adapter,expanded:false,disposed:false};comments.push(record);
+  host.innerHTML='<textarea class="comment-box" aria-label="'+esc(adapter.ariaLabel)+'" placeholder="'+esc(adapter.placeholder)+'"></textarea>';
+  return host._conversation={expand(){record.expanded=true;},refresh(){},dispose(){record.disposed=true;}};
+}
+</script>
+<script src="../../js/chat-view.js"></script>
+<script src="../../js/signoffs.js"></script>
+<script>
+const refs=document.getElementById('refs'), hosts={}, views={};
+for(const id of ['list','card']) {hosts[id]=document.createElement('div');hosts[id].className='ref';refs.append(hosts[id]);}
+views.list=sgCreateView({active:()=>true,body:()=>hosts.list,global:true,workspace:()=> 'scope:global',prefix:'list-'});
+views.list.paint();
+views.card=sgChatMount({id:'card',business_id:null},hosts.card);
+const wait = ms => new Promise(r=>setTimeout(r,ms));
+const q=(id,selector)=>hosts[id].querySelector(selector);
+const rows=group=>[...hosts.list.querySelectorAll(`.sg-${group} .sg-row`)].map(row=>row.dataset.id);
+const row=id=>[...hosts.list.querySelectorAll('.sg-row')].find(node=>node.dataset.id===id);
+(async()=>{
+  const out={};
+  try {
+    await wait(300);
+    if(location.hash==='#shot') {hosts.card.hidden=true;row('report').querySelector('.sg-rowhead').click();return;}
+    out.ownGroup=JSON.stringify(rows('toread'))==='["report"]' && JSON.stringify(rows('waiting'))==='["question"]' && !q('list','.sg-toread').hidden
+      && q('list','.sg-toread h2').textContent==='To read';
+    row('report').querySelector('.sg-rowhead').click();await wait(200);
+    const card=row('report');
+    out.markdown=card.querySelectorAll('.sg-report .gc-heading').length===2 && card.querySelectorAll('.sg-report li').length===2
+      && !!card.querySelector('.sg-report strong') && /\/files\/view\?path=linden\.pdf/.test(card.querySelector('.sg-report a.safe-link')?.getAttribute('href') || '');
+    const actions=[...card.querySelectorAll('.sg-detail button[data-sg]')];
+    out.oneButton=actions.length===1 && actions[0].dataset.sg==='respond' && actions[0].textContent==='Acknowledge' && !actions[0].disabled;
+    out.noAnswerField=!card.querySelector('.sg-feedback') && !card.querySelector('.sg-choice');
+    out.commentBox=comments.length===1 && comments[0].source.type==='signoff' && comments[0].source.id==='report' && comments[0].expanded
+      && comments[0].adapter.inlineComposer===true && comments[0].adapter.privateSource.id==='report' && !card.querySelector('.sg-comment').hidden
+      && !!card.querySelector('.sg-comment .comment-box');
+    // A question keeps its answer field and gets no comment box of its own.
+    row('question').querySelector('.sg-rowhead').click();await wait(200);
+    out.questionUnchanged=!!row('question').querySelector('.sg-feedback') && row('question').querySelector('[data-sg="respond"]').textContent==='Submit'
+      && row('question').querySelector('.sg-comment').hidden && comments.length===1;
+    row('report').querySelector('.sg-rowhead').click();await wait(200);
+    row('report').querySelector('[data-sg="respond"]').click();await wait(200);
+    out.payload=posts[0];
+    const done=row('report');
+    out.acknowledged=!!done && JSON.stringify(rows('toread'))==='["report"]' && !done.querySelector('[data-sg="respond"]')
+      && /^Acknowledged /.test(done.querySelector('.sg-savedresponse').textContent) && !done.querySelector('.sg-comment').hidden && !comments[0].disposed;
+    out.onePost=posts.length===1;
+    // An inline card sits in a conversation already: the button, no nested comment box.
+    out.inlineCard=q('card','[data-sg="respond"]')?.textContent==='Acknowledge' && q('card','.sg-chat-status')?.textContent==='To read'
+      && q('card','.sg-comment').hidden && !q('card','.sg-feedback') && comments.length===1 && !!q('card','.sg-report .gc-heading');
+    views.list.dispose();out.disposed=comments[0].disposed;
+  } catch(error) {out.error=error.stack;}
+  document.getElementById('out').textContent=JSON.stringify(out);
+})();
+</script>

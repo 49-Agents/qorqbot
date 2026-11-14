@@ -14,7 +14,7 @@
   background:rgba(107,170,130,.1); border:1px solid rgba(107,170,130,.3); color:#d7e8dc; font-size:12.5px; line-height:1.5; }
 .onboarding-private svg { flex:none; width:18px; height:18px; margin-top:1px; color:var(--ok); }
 .onboarding-private b { color:var(--ok); font-weight:600; }
-.onboarding-card { position:absolute; width:350px; max-width:calc(100vw - 32px); max-height:calc(100dvh - 32px); overflow:auto; padding:24px; pointer-events:auto; background:#171717; color:var(--fg); border:1px solid rgba(255,255,255,.12); border-radius:18px; box-shadow:0 16px 80px rgba(0,0,0,.5); animation:tour-in .16s ease-out; }
+.onboarding-card { position:absolute; width:350px; max-width:calc(100vw - 32px); max-height:calc(100dvh - 32px); overflow:auto; padding:24px; pointer-events:auto; color-scheme:dark; background:#171717; color:var(--fg); border:1px solid rgba(255,255,255,.12); border-radius:18px; box-shadow:0 16px 80px rgba(0,0,0,.5); animation:tour-in .16s ease-out; }
 .onboarding-card h2 { margin:17px 0 10px; max-width:290px; font-size:23px; font-weight:500; text-transform:none; color:var(--fg); line-height:1.2; letter-spacing:-.035em; }
 .onboarding-card p { margin:0; font-size:13px; line-height:1.65; color:#c0c0c0; }
 .onboarding-card .onboarding-hint { margin-top:13px; font-size:12px; color:#909090; }
@@ -31,7 +31,9 @@
 .onboarding-progress { display:flex; gap:4px; margin-top:13px; }
 .onboarding-progress i { height:2px; flex:1; background:rgba(255,255,255,.1); border-radius:2px; }
 .onboarding-progress i.done { background:var(--accent); }
-.onboarding-card button { text-transform:none; font-size:11px; font-weight:500; height:33px; padding:0 14px; }
+/* The same text size as the Signoff buttons, and their touch size on touch screens. */
+.onboarding-card button { text-transform:none; font-size:12px; font-weight:500; height:33px; padding:0 14px; }
+@media (pointer:coarse) { .onboarding-card button { min-height:44px; min-width:44px; } }
 .onboarding-card button:hover { transform:none; }
 .onboarding-card button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 .onboarding-card .onboarding-action { display:flex; align-items:center; justify-content:space-between; width:100%; margin-top:20px; padding:0 12px; height:38px; border-radius:9px; background:#232323; border:1px solid rgba(255,255,255,.09); color:var(--fg); }
@@ -51,7 +53,7 @@
 .onboarding-notice:empty { display:none; }
 .onboarding-footer { display:flex; justify-content:space-between; align-items:center; gap:4px; padding-top:18px; margin-top:20px; border-top:1px solid rgba(255,255,255,.08); }
 .onboarding-footer>div { display:flex; gap:4px; }
-.onboarding-card .onboarding-skip { padding:0; color:#909090; font-size:10px; }
+.onboarding-card .onboarding-skip { padding:0; color:#909090; font-size:11px; }
 .onboarding-card .ghost { background:transparent; color:#a5a5a5; }
 .onboarding-card .ghost:hover { color:var(--fg); background:rgba(255,255,255,.04); }
 .onboarding-card .onboarding-close { position:absolute; top:13px; right:13px; width:28px; height:28px; padding:0; font-size:20px; background:transparent; color:#818181; }
@@ -75,6 +77,19 @@
   .onboarding-card, .onboarding-card.is-wide { padding:20px; width:330px; }
   .onboarding.is-welcome .onboarding-card { padding:26px; }
   .onboarding-settings { align-items:flex-start; flex-direction:column; gap:12px; }
+}
+/* Short windows (900×600 and less): tighter spacing, so a step's card fits without scrolling. */
+@media (max-height:700px) {
+  .onboarding-card, .onboarding-card.is-wide { padding:18px 20px; }
+  .onboarding-card h2 { margin:12px 0 8px; font-size:21px; }
+  .onboarding-instructions { margin-top:10px; line-height:1.5; }
+  .onboarding-instructions li + li { margin-top:5px; }
+  .onboarding-card .onboarding-hint { margin-top:9px; }
+  .onboarding-launch { margin-top:12px; padding:11px 12px; gap:8px; }
+  .onboarding-footer { margin-top:14px; padding-top:12px; }
+  .onboarding.is-welcome .onboarding-card { padding:24px; }
+  .onboarding-mark { margin-bottom:16px; }
+  .onboarding-welcome-actions { margin-top:18px; }
 }
 @media (prefers-reduced-motion:reduce) { .onboarding-card, .onboarding-shade, .onboarding-outline { animation:none; transition:none; } .onboarding-outline::after { animation:none; opacity:0; } }
 

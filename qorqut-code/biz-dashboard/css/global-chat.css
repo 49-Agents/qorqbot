@@ -45,8 +45,11 @@
 /* Session controls stay over their own surface, outside chat scroll and terminal output. */
 .gchat-session-switch { display:flex; align-items:center; gap:4px; position:absolute; top:0; right:0; z-index:3; max-width:calc(100% - 8px); overflow-x:auto; scrollbar-width:thin; }
 .gchat-terminal > .gchat-top { max-width:calc(100% - 2 * var(--ag-ctl, 30px) - 20px); }
+/* The agent menu's mark sits fixed at the top left, over the terminal's corner; the terminal's name starts after it. */
+.global-agents.agent-nav-overlay-mode .gchat-terminal > .gchat-top { left:48px; max-width:calc(100% - 2 * var(--ag-ctl, 30px) - 64px); }
 .gchat-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .gchat-paired-record{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;height:100%;box-sizing:border-box}
+.gchat-paired-record > .conversation-toggle{display:none}
 .gchat-paired-record .conversation-panel{display:flex;flex:1;flex-direction:column;min-height:0;padding:0;border:0;border-radius:0}
 .gchat-paired-record .conversation-view{flex:1;height:auto;min-height:0}
 .gchat-paired-record .conversation-inline-compose{flex:none;margin-top:5px;min-width:0}
@@ -73,3 +76,19 @@
 :root[data-theme="light"] .gchat .gchat-start:hover:not(:disabled),:root[data-theme="light"] .gchat [data-empty-action="start"]:hover:not(:disabled){background:#dedede;border-color:#dedede;color:#1b1b1b}
 :root[data-theme="light"] .gchat button.quiet.gchat-start,:root[data-theme="light"] .gchat button.quiet[data-empty-action="start"]{background:#f4f4f4;color:#1b1b1b;border-color:#b5b5b5}
 :root[data-theme="light"] .gchat button.quiet.gchat-start:hover:not(:disabled),:root[data-theme="light"] .gchat button.quiet[data-empty-action="start"]:hover:not(:disabled){background:#dedede;border-color:#999;color:#1b1b1b}
+/* A thread or side chat taking over the Chat area: a small header ("‹ Chat", the title, its own actions) over the conversation. */
+.gchat-takeover{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;height:100%;box-sizing:border-box}
+.gchat-takeover-head{flex:none;display:flex;align-items:center;gap:10px;min-height:36px;padding:2px 0 10px}
+.global-agents.agent-nav-overlay-mode .gchat-takeover-head{padding-left:48px}
+.gchat-takeover-back{flex:none;display:inline-flex;align-items:center;gap:4px;min-height:28px;padding:4px 10px 4px 7px;border-radius:999px;background:var(--surface);font-size:12px;font-weight:500;color:var(--fg)}
+.gchat-takeover-back:hover{background:var(--hover)}
+.gchat-takeover-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;color:var(--fg)}
+.gchat-takeover-title.side-chat-title{overflow:visible;white-space:normal}
+.gchat-takeover-title .side-chat-title-button{display:block;max-width:100%;min-height:0;padding:4px 6px;margin-left:-6px;border:0;border-radius:var(--r-sm);background:none;color:inherit;font:inherit;letter-spacing:inherit;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:text}
+.gchat-takeover-title .side-chat-title-button:hover{background:var(--hover)}
+.gchat-takeover-action{flex:none;white-space:nowrap;font-size:11px;color:var(--fg-2)}
+.gchat-takeover-action:hover{color:var(--fg);text-decoration:underline}
+.gchat-takeover-body{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0}
+.gchat-side-content{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;overflow:hidden}
+.gchat-side-content > .side-chat-footer{margin-top:0}
+.gchat-side-content > .side-chat-footer:has(> .ferr[hidden]){display:none}

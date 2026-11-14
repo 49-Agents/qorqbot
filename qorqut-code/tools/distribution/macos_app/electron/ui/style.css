@@ -36,6 +36,7 @@ pre { padding: 10px 12px; margin: 0 0 12px; white-space: pre-wrap; word-break: b
 button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 6px 14px; cursor: pointer; }
 button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 button:focus-visible { outline: 2px solid var(--ok); outline-offset: 2px; }
+#detail-block { margin-bottom: 12px; }
 details summary { cursor: pointer; color: var(--muted); }
 details pre { margin-top: 8px; }
 .hint { color: var(--muted); font-size: 13px; }

@@ -6,7 +6,7 @@ from qorqut.inbox.defaults import legacy_inbox_skill
 from qorqut.agents import role_workflow
 from qorqut.agents import cleanup_workflow
 from qorqut.agents.operational_delegation import supports_durable_delegation_version
-from qorqut.agents.roles import GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE, RETIRED_ROLE_IDS
+from qorqut.agents.roles import GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE, SUPPORTED_GLOBAL_ROLES
 from qorqut.composition.locations import agent_workspace, business_code, business_hq
 
 from dataclasses import dataclass
@@ -27,7 +27,7 @@ from qorqut_agentic.behavior import instructions as runtime_instructions
 from qorqut.catalog.packages import content_hash, files_digest, relative_path
 from qorqut_operations.contracts import DomainError, Principal, new_id, utc_now
 from qorqut_operations.storage import safe_io
-from .client import auth_headers, path_has_symlink, service_url
+from .client import STARTUP_INSTRUCTIONS, auth_headers, path_has_symlink, service_url
 from . import email_guidance
 from .tool_permissions import (VERSION as TOOL_CONFIGURATION_VERSION, fingerprint as tool_fingerprint,
                                permissions as tool_permissions, preparation_lock)
@@ -540,10 +540,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
             "registration_id": registration_id, "agent_id": data["agent_id"], "workspace": str(workspace),
             "service_url": endpoint, "credential_file": ".qorqut/credential",
             "capture_transcripts": capture_transcripts,
-            # Focus curators use the same verified native continuation contract,
-            # with Focus-only review (2), not the broader work/inbox checkpoint (1).
-            "checkpoint_protocol": {runtime:(2 if enabled and ordubashy else enabled)
-                                    for runtime,enabled in (checkpoint_protocol or {}).items()},
+            "checkpoint_protocol": dict(checkpoint_protocol or {}),
             "read_operations": read_operations}),
     }
     claude_mode = "bypassPermissions" if data["scope"]["kind"] == "ecosystem" else "dontAsk"
@@ -681,8 +678,8 @@ def _prepare_agent_locked(resolver, principal: Principal, *, endpoint: str, vers
         raise DomainError("unsupported_runtime", "No installed agent CLI meets the supported preparation baseline", details=compatibility)
     config = resolver.resolve_agent_config(principal)
     data = config.to_dict()
-    if data["role"]["id"] in RETIRED_ROLE_IDS:
-        raise DomainError("retired_role", "This role is retired; its profiles may be read or deactivated but not prepared")
+    if data["role"]["id"] not in SUPPORTED_GLOBAL_ROLES:
+        raise DomainError("unsupported_role", "Only the supported global roles operate; this profile may be read or deactivated but not prepared")
     workspace = Path(data["workspace"])
     if any(path_has_symlink(workspace / path) for path in (".claude", ".claude/skills", ".codex", ".agents", ".agents/skills", ".qorqut", "notes", "work")):
         raise DomainError("projection_conflict", "Prepared project directories cannot follow symlinks")
@@ -779,6 +776,11 @@ def _prepare_agent_locked(resolver, principal: Principal, *, endpoint: str, vers
     for name, body in projection.files.items():
         _write_file(workspace / name, body, private=name.startswith(".qorqut/") or name == ".claude/settings.local.json",
                     executable=name == ".qorqut/agentic")
+    # The first copy of the instructions CLAUDE.md imports, so the first session has them. Not a tracked projection
+    # file: the session hook rewrites it whenever the instructions change.
+    managed_instructions = data["mandatory_context"].get("instructions")
+    if isinstance(managed_instructions, str):
+        _write_file(workspace / STARTUP_INSTRUCTIONS, managed_instructions.encode(), private=True)
     _write_file(workspace / ".qorqut/credential", (token + "\n").encode(), private=True)
     ignore = workspace / ".gitignore"
     try:

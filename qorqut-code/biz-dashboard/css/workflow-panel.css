@@ -1,35 +1,49 @@
-/* Clickable agent focus board above the native chat composer. */
-.wfpanel { zoom:.9; position:relative; display:flex; flex-direction:column; flex:none; min-width:0; min-height:0; height:var(--wfpanel-height,auto); max-height:var(--wfpanel-max-height,min(40%,260px)); box-sizing:border-box; margin:0 0 10px; padding:0; overflow:hidden; border:1px solid color-mix(in srgb,var(--fg) 20%,transparent); border-radius:18px; background:linear-gradient(135deg,color-mix(in srgb,var(--fg) 9%,transparent),color-mix(in srgb,var(--fg) 2%,transparent)),color-mix(in srgb,var(--bg) 62%,transparent); backdrop-filter:blur(20px) saturate(150%); -webkit-backdrop-filter:blur(20px) saturate(150%); box-shadow:inset 0 1px 0 color-mix(in srgb,var(--fg) 12%,transparent),0 8px 24px #0002; color:var(--fg); font-size:13px; line-height:1.45; }
+/* Clickable agent focus strip: the top part of the native chat composer, above a hairline. */
+.wfpanel { zoom:.9; position:relative; display:flex; flex-direction:column; grid-column:1 / -1; min-width:0; min-height:0; max-height:min(36vh,260px); box-sizing:border-box; margin:0 calc(-10px / .9) calc(6px / .9); padding:0; overflow:hidden; border:0; border-bottom:1px solid var(--line); border-radius:calc(24px / .9) calc(24px / .9) 0 0; background:transparent; color:var(--fg); font-size:13px; line-height:1.45; cursor:pointer; }
 .wfpanel[hidden], .wfpanel [hidden] { display:none; }
-.wfpanel { cursor:pointer; }
-.wfpanel-context-row { display:flex; align-items:flex-start; gap:8px; flex:none; min-width:0; padding:13px 16px 8px; }
-.wfpanel .gchat-context { flex:1; max-height:min(14vh,94px); box-sizing:border-box; padding:0; }
-.wfpanel .gchat-focus-label { font-size:14px; }
-.wfpanel-focus-icon .identity-avatar { display:flex; align-items:center; justify-content:center; width:20px; height:21px; }
-.wfpanel-focus-icon .identity-avatar svg { width:20px; height:20px; }
-.wfpanel-context-row > .gchat-working-tag { flex:none; margin:8.5px 0 0; }
-.wfpanel button.wfpanel-head { display:flex; align-items:center; justify-content:center; flex:none; width:24px; height:24px; min-height:24px; margin:-1.5px 0 0; padding:3px; border:0; border-radius:4px; box-shadow:none; background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; }
-.wfpanel button.wfpanel-head:hover { background:transparent; transform:none; }
-.wfpanel-chevron { flex:none; display:inline-flex; color:var(--fg-2); transition:transform .15s ease; }
-.wfpanel-collapsed .wfpanel-chevron { transform:rotate(-90deg); }
-.wfpanel-head:focus-visible { outline:2px solid currentColor; outline-offset:-2px; border-radius:4px; }
-.wfpanel-expanded { min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:0 16px 10px; }
-.wfpanel .gchat-focus-intent { margin:0; padding:0 0 8px 28px; color:var(--fg-2); font-size:12px; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; }
-.wfpanel-agents { padding:0 0 6px; }
-.wfpanel-agent { display:flex; align-items:flex-start; gap:8px; min-width:0; min-height:28px; padding:3px 0; font-size:12px; line-height:1.5; }
-.wfpanel-agent .identity-avatar { flex:none; width:20px; height:20px; }
-.wfpanel-agent .identity-avatar svg { width:18px; height:18px; }
-.wfpanel-agent-summary { min-width:0; overflow-wrap:anywhere; white-space:normal; }
-.wfpanel-agent-name { font-weight:500; }
+/* The composer becomes one box: no top padding above the strip, and the rounder corners of a multi-line box. */
+@media (min-width:701px) {
+  .gchat-composer:has(> .wfpanel:not([hidden])) { padding-top:0; border-radius:24px; }
+}
 @media (max-width:700px) {
   .wfpanel { display:none; }
 }
 
-.wfpanel-collapsed { height:auto; }
-.wfpanel-collapsed .wfpanel-context-row { padding-bottom:13px; }
-.wfpanel-resize { position:absolute; top:0; left:16px; right:16px; height:10px; z-index:1; cursor:ns-resize; touch-action:none; border-radius:8px; }
-.wfpanel-resize::after { content:""; position:absolute; top:3px; left:50%; width:32px; height:3px; transform:translateX(-50%); border-radius:3px; background:var(--fg-3); opacity:.5; }
-.wfpanel-resize:hover::after,.wfpanel-resize:focus-visible::after { opacity:1; background:var(--fg-2); }
-.wfpanel-resize:focus-visible { outline:1px solid var(--fg-2); outline-offset:1px; }
-.wfpanel-resize[hidden] { display:none; }
-.wfpanel-resizing { user-select:none; }
+/* One centre line for the avatar, the first line of the focus text, the working dots and the arrow.
+   The marks centre on the text's first line box; where the browser can trim text to its capitals,
+   they centre on the capitals instead, which is where the eye reads the middle of the text. */
+.wfpanel-context-row { display:flex; align-items:flex-start; gap:8px; flex:none; min-width:0; padding:12px 16px 10px; font-size:14px; line-height:1.5; }
+/* The focus text scrolls when long; its padding keeps the avatar and the letters' ascenders and descenders unclipped. */
+.wfpanel .wfpanel-context-row > .gchat-context { flex:1; max-height:min(14vh,94px); box-sizing:border-box; padding:6px 0; margin:-6px 0; }
+.wfpanel .gchat-focus-label { font-size:14px; line-height:21px; }
+.wfpanel .wfpanel-focus-icon { display:flex; align-items:center; height:21px; font-size:14px; }
+.wfpanel-focus-icon .identity-avatar { display:flex; align-items:center; justify-content:center; flex:none; width:20px; height:20px; }
+.wfpanel-focus-icon .identity-avatar svg { width:20px; height:20px; }
+.wfpanel-context-row > .gchat-working-tag { flex:none; height:24px; margin:calc((21px - 24px) / 2) 0 0; }
+.wfpanel button.wfpanel-head { display:flex; align-items:center; justify-content:center; flex:none; width:24px; height:24px; min-height:24px; margin:calc((21px - 24px) / 2) 0 0; padding:3px; border:0; border-radius:4px; box-shadow:none; background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+.wfpanel button.wfpanel-head:hover { background:transparent; transform:none; }
+.wfpanel-chevron { flex:none; display:inline-flex; color:var(--fg-2); transition:transform .15s ease; }
+.wfpanel-collapsed .wfpanel-chevron { transform:rotate(-90deg); }
+.wfpanel-head:focus-visible { outline:2px solid currentColor; outline-offset:-2px; border-radius:4px; }
+
+.wfpanel-expanded { min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:0 16px 8px; }
+/* Open with nothing to show (no intent, no other agents): no empty band under the focus line. */
+.wfpanel-expanded:not(:has(> :not([hidden]))) { display:none; }
+.wfpanel .gchat-focus-intent { margin:0; padding:0 0 8px 28px; color:var(--fg-2); font-size:12px; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; }
+.wfpanel-agents { padding:0 0 6px; }
+.wfpanel-agent { display:flex; align-items:flex-start; gap:8px; min-width:0; min-height:28px; padding:3px 0; font-size:12px; line-height:1.5; }
+.wfpanel-agent-mark { display:flex; align-items:center; justify-content:center; flex:none; width:20px; height:18px; }
+.wfpanel-agent .identity-avatar { flex:none; width:20px; height:20px; }
+.wfpanel-agent .identity-avatar svg { width:18px; height:18px; }
+.wfpanel-agent-summary { min-width:0; overflow-wrap:anywhere; white-space:normal; }
+.wfpanel-agent-name { font-weight:500; }
+
+@supports (text-box: trim-both cap alphabetic) {
+  /* The trimmed text box runs from the capitals' top to the baseline; the padding gives back the trimmed space. */
+  .wfpanel .gchat-focus-label, .wfpanel-agent-summary { text-box:trim-both cap alphabetic; }
+  .wfpanel-context-row { padding:calc(12px + (21px - 1cap) / 2) 16px calc(10px + (21px - 1cap) / 2); }
+  .wfpanel .wfpanel-focus-icon { height:1cap; }
+  .wfpanel-context-row > .gchat-working-tag, .wfpanel button.wfpanel-head { margin-top:calc((1cap - 24px) / 2); }
+  .wfpanel-agent { min-height:calc(28px - (1lh - 1cap)); padding:calc(3px + (1lh - 1cap) / 2) 0; }
+  .wfpanel-agent-mark { height:1cap; }
+}

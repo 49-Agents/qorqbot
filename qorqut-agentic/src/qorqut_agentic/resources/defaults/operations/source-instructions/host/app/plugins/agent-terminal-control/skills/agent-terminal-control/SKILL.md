@@ -1,6 +1,6 @@
 ---
 name: qorqut-plugin-agent-terminal-control
-description: Inspect and control scoped agent terminals; Ordubashy and Global Marketing can start, restart, stop and directly message business Dev sessions.
+description: Inspect and control scoped agent terminals; Ordubashy can start, restart, stop and directly message business Dev sessions.
 ---
 
 Use agent_terminal_status with the registered target_agent_id first. Tools accept
@@ -15,9 +15,8 @@ For non-Dev agents, start launches Codex and submits $role. Restart kills the bo
 session then starts its client. Kill terminates the bound terminal, including active work; idle is not proof
 of dormancy. Do not restart yourself.
 
-Ordubashy and Global Marketing have standing authority to start/restart/kill
-business Dev sessions in their authorized scope; no repeated owner approval is
-needed. Marketing's terminal targets are Dev agents only. Ordubashy's existing
+Ordubashy has standing authority to start/restart/kill business Dev sessions
+in its authorized scope; no repeated owner approval is needed. Ordubashy's existing
 control of other permitted agents remains. Explicit policy overrides still apply.
 Dev start/restart launches its configured Claude Code or Codex client; it does
 not submit `$role` or choose a project. An explicit structured owner

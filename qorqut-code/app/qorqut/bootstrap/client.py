@@ -158,7 +158,17 @@ class BootstrapClient:
         return value.get("data", value)
 
 
+# Claude Code reads CLAUDE.md and its imports before the SessionStart hook runs and shows the model at most 10,000
+# characters of hook output, so a Claude Code agent's managed instructions travel in this file, which its CLAUDE.md
+# imports. Preparation writes the first copy; the session hook keeps it current.
+STARTUP_INSTRUCTIONS = ".qorqut/startup-instructions.md"
+
+
 def write_json_private(path: Path, value: dict) -> None:
+    write_text_private(path, json.dumps(value, sort_keys=True, separators=(",", ":")))
+
+
+def write_text_private(path: Path, text: str) -> None:
     if path_has_symlink(path):
         raise DomainError("projection_conflict", "Local receipts cannot follow symlinks")
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -166,7 +176,7 @@ def write_json_private(path: Path, value: dict) -> None:
     try:
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "w") as stream:
-            json.dump(value, stream, sort_keys=True, separators=(",", ":"))
+            stream.write(text)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)

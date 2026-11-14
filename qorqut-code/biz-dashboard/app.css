@@ -408,13 +408,11 @@ details[open] summary { color: var(--fg); }
 .agfocus header:where(:not(.agfocus-conversation header)) { margin-bottom:10px; }
 .agpad .agfocus h2 { font-size:14px; font-weight:500; line-height:1.5; margin:8px 0; white-space:pre-wrap; text-transform:none; letter-spacing:normal; color:var(--fg); }
 .agfocus p:where(:not(.agfocus-conversation p)) { margin:4px 0; font-size:12px; line-height:1.5; white-space:pre-wrap; }
-.agfocus .agfocus-activity { font:11px/1.5 var(--sans); }
 .agfocus .muted { color:var(--fg-2); }
 .agfocus-card { border:1px solid var(--line-2); background:var(--surface); border-radius:var(--r); padding:10px 12px; margin:6px 0; }
 .agfocus-card h3 { font-size:13px; font-weight:500; margin:5px 0; line-height:1.5; }
 .agfocus-card button { display:block; margin:6px 0 0 auto; min-height:26px; padding:3px 8px; font-size:11px; }
 .agfocus-note { display:block; width:100%; margin-top:7px; resize:vertical; }
-.agfocus-activity { border-left:2px solid var(--fg-3); padding-left:10px; }
 .agfocus-attention { position:relative; }
 .agfocus-attention::after { content:''; position:absolute; top:6px; right:6px; width:5px; height:5px; border-radius:50%; background:var(--warn); }
 .agfocus [role="alert"] { color:var(--danger); }

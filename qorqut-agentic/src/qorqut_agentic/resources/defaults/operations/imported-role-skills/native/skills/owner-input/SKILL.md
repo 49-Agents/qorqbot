@@ -31,7 +31,7 @@ execute a prepared action. Keep platform and internal-change approvals on their
 existing tools. An answer to a question does not bypass those approvals.
 
 When work or a record thread is waiting, pass `source: {type, id, business_id}` at creation.
-Use the actual source identity (`task`, `table`, `project`, or standalone Focus `reference`),
+Use the actual source identity (`task`, `table`, `project`, or `reference`),
 with an explicit project UUID or `null` for Global. A Project source names its own UUID in both
 fields. Source and Signoff keep their own scopes. Omit source for a standalone question.
 Link an existing pending approval with `signoffs_source_link` instead of creating another
@@ -58,7 +58,8 @@ or choices materially change, withdraw the old input with
 `signoffs_input_cancel`, then submit its replacement. Avoid duplicate requests
 for each retry of a blocked operation.
 
-The unversioned `form` contains `title`, `explanation`, `kind` (`question`, `request`, or `draft_review`), and
+The unversioned `form` contains `title`, `explanation`, `kind` (`question`, `request`, `draft_review`, or
+Ordubashy's `acknowledge`, described under "Read and acknowledge"), and
 `selection_mode` (`none`, `single`, or `multiple`). For choices provide at least
 two entries with unique stable `id`, a one/two-word `label`, and `explanation`.
 Use `selection_required` and `notes_required` only when that information is
@@ -134,6 +135,39 @@ present the review there using its typed Signoff reference.
 Returning a draft gives you content and feedback. It does not authorize sending
 the email, publishing, activating a campaign or setting its schedule. Obtain
 the appropriate separate action approval when needed.
+
+## Read and acknowledge
+
+`form.kind: acknowledge` asks the owner nothing. It puts a report or a document in
+front of them and records that they read it. Only Ordubashy can post one. A worker
+with a report or document the owner must see hands it to Ordubashy, with the file
+and the reason the owner needs it.
+
+Use it only when you need to know the owner saw something: the daily report, or a
+document that changes what they should do or expect. Routine results stay in the
+Task's status line and thread notes. Never use it to obtain a yes: an
+acknowledgement approves nothing and answers nothing. Ask a question when you need
+a decision.
+
+The form is `title`, `explanation`, `kind: acknowledge` and `selection_mode: none`.
+The explanation is the text the owner reads, shown as Markdown (headings, lists,
+tables, links), up to 8000 characters. Put a longer document in a file and link it
+from the explanation with the Markdown link `files_link` returns, naming the
+document version when it has one, and keep the points the owner must not miss in
+the explanation itself. Choices, required notes, `source`, `urgent` and `blocking`
+are refused: nothing can wait on it, and it never shows as Needs your input.
+
+It notifies the owner once when it is posted and then waits in the dashboard's
+**To read** group, apart from decisions. The owner clicks **Acknowledge**, and
+writes any comment in the Signoff's own conversation with you: read it with
+`owner_conversation_get` and treat a comment as a new owner input. Posting another
+one with the same `request_key` replaces the one the owner has not acknowledged
+yet, so a recurring report keeps one key. One the owner already acknowledged is
+kept as it is.
+
+After the owner acknowledges, the Signoff is `state: answered` with
+`decision_state: acknowledged`; `decision.by` and `decision.at` say who and when.
+There are no notes or choices to read.
 
 Set `attention.notify: true` when the item should notify the owner. Delivery
 uses the available notification connector; do not promise a fixed daily summary.

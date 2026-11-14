@@ -166,4 +166,4 @@ global visibility, revoked authority, worker attribution/job replay, DB rollback
 mixed-file crash recovery, raw-file conflicts and allowed-file restart recovery.
 Service tests cover real HTTP/MCP integration; background tests cover job-consequence verification.
 
-General input requests, saved responses and in-app notification scheduling are described in [Owner input and notifications](../../../docs/SIGNOFF-INPUT-NOTIFICATIONS.md).
+General input requests, saved responses and in-app notification scheduling are described in [Owner input and notifications](../../../docs/SIGNOFF-INPUT-NOTIFICATIONS.md). That document also covers read-and-acknowledge requests, which the host counts as `to_read` (dashboard summary, attention queue and business briefing) and never as a decision waiting on the owner.

@@ -18,7 +18,7 @@ For a local build:
 2. Export the exact commit with `python3 qorqut-code/tools/export-unified.py --repository /absolute/repo --commit COMMIT --with-fastmail --output EXPORT`.
    Git metadata and private working files are never exported.
 3. Run `python3 qorqut-code/tools/distribution/runtime_source.py project --source EXPORT --output RUNTIME_SOURCE --report PROJECTION.json`.
-4. Run `python3 qorqut-code/tools/prepare-local.py --source-root RUNTIME_SOURCE --output PREPARED --with-google-calendar`.
+4. Run `python3 qorqut-code/tools/prepare-local.py --source-root RUNTIME_SOURCE --output PREPARED --with-google-calendar --with-treg`.
    Unchanged pure-Python first-party wheels reuse the content-checked cache. The
    receipt records source, wheel hashes, reuse and resolved dependencies. No
    native toolchain is built or copied.
@@ -39,6 +39,10 @@ For a local build:
    notices, source artifacts, test evidence and platform limitations. Complete the
    publication-date ledger and release notes. Publishing is a separate maintainer
    action; build commands do not deploy, publish or change repository visibility.
+
+Prepare a release in a pull request into `dev`. Then merge `dev` into `main`
+through a pull request titled "Release X.Y.Z", using a merge commit. Build the
+release from that `main` commit and tag it there.
 
 Only the owner changes repository visibility. Existing installations require
 explicit database/instruction compatibility checks and migration evidence; a

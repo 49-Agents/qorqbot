@@ -10,7 +10,6 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 from qorqut_operations.contracts import ArtifactRef, DomainError, freeze, plain
 from qorqut.catalog.packages import ID, VERSION, validate_policy
-from .roles import RETIRED_ROLE_IDS
 
 
 GLOBAL_CAPABILITIES = frozenset({"coordinate_businesses", "read_global_context", "read_agent_experience", "manage_calendar", "manage_shared_instructions", "publish_roles", "publish_plugins", "manage_global_routines", "manage_ecosystem_agents", "manage_delegated_assignments", "manage_agentic_layer"})

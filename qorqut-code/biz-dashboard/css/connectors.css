@@ -1,5 +1,7 @@
 /* Connectors panel (js/connectors.js): Settings and the walkthrough's "connect your tools" chapter. */
 .cx-panel { display: flex; flex-direction: column; gap: 14px; margin-bottom: 30px; padding-bottom: 28px; border-bottom: 1px solid var(--line-2); }
+/* The agent browser card and its signed-in websites, shown (and pointed at by the walkthrough) as one area. */
+.cx-browser-area { display: flex; flex-direction: column; gap: 14px; }
 .cx-browser { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 22px;
   border: 1px solid rgba(107,170,130,.38); border-radius: var(--r-lg);
   background: linear-gradient(125deg, rgba(107,170,130,.14), var(--elevated)); }
@@ -19,6 +21,11 @@
 .cx-accounts .cx-signin-note { padding: 9px 12px; border-radius: var(--r-sm); border: 1px solid var(--line-2); background: var(--elevated); color: var(--fg); max-width: none; }
 .cx-row.cx-account-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
 .cx-accounts .cx-accounts-limit { font-size: 11.5px; color: var(--fg-3); }
+.cx-extensions { display: grid; gap: 10px; margin-top: 18px; }
+.cx-panel .cx-extensions > h2, .cx-panel .cx-extensions > h3 { margin: 0; font-size: 14px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--fg); }
+.cx-extensions > p { margin: 0; max-width: 640px; font-size: 12.5px; line-height: 1.55; color: var(--fg-2); }
+button.cx-link { height: auto; padding: 0; border: 0; background: none; color: var(--fg); font-weight: 500; font-size: inherit; text-decoration: underline; text-underline-offset: 3px; }
+button.cx-link:hover { background: none; color: var(--fg); transform: none; }
 .cx-privacy { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 16px; padding: 20px 22px; border-radius: var(--r-lg);
   background: linear-gradient(135deg, rgba(107,170,130,.13), rgba(107,170,130,.035)); border: 1px solid rgba(107,170,130,.32); }
 .cx-privacy-mark { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; background: rgba(107,170,130,.16); color: var(--ok); }
@@ -31,14 +38,6 @@
 .cx-privacy li:last-child { color: var(--fg-3); }
 .cx-privacy li:last-child::before { border-color: var(--fg-3); }
 
-.cx-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-top: 6px; }
-.cx-panel .cx-head h2 { margin: 0 0 4px; font-size: 16px; font-weight: 600; text-transform: none; letter-spacing: -.01em; color: var(--fg); }
-.cx-head p { margin: 0; font-size: 12.5px; color: var(--fg-2); max-width: 460px; line-height: 1.5; }
-.cx-progress { flex: none; display: grid; gap: 6px; justify-items: end; }
-.cx-progress-text { font: 11px var(--mono); color: var(--fg-2); }
-.cx-progress-bar { display: block; width: 140px; height: 3px; border-radius: 3px; background: var(--line-2); overflow: hidden; }
-.cx-progress-bar i { display: block; height: 100%; background: var(--ok); transition: width .3s ease; }
-.cx-group { margin: 8px 0 -4px; font: 10px var(--mono); text-transform: uppercase; letter-spacing: .07em; color: var(--fg-2); }
 .cx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; }
 .cx-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 15px; border-radius: var(--r); background: var(--wash);
   border: 1px solid var(--line-2); transition: border-color .2s ease, background .2s ease; }
@@ -60,38 +59,28 @@
 .cx-does { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--fg); opacity: .88; }
 .cx-note { margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--warn); }
 .cx-note[data-tone="info"] { color: var(--fg-2); }
+.cx-key { display: grid; gap: 8px; padding: 10px 11px; border-radius: var(--r-sm); background: var(--bg); border: 1px solid var(--line-2); }
+.cx-key[hidden] { display: none; }
+.cx-key label { display: grid; gap: 5px; font-size: 11.5px; color: var(--fg-2); }
+.cx-key input { width: 100%; height: 30px; padding: 0 9px; font: 12px var(--mono); color: var(--fg); background: var(--wash); border: 1px solid var(--line-2); border-radius: var(--r-sm); }
+.cx-key input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cx-key-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.cx-key-actions button { height: 28px; padding: 0 12px; font-size: 11px; }
 .cx-more summary { cursor: pointer; font-size: 11.5px; color: var(--fg-2); list-style: none; display: inline-flex; align-items: center; gap: 5px; }
 .cx-more summary::-webkit-details-marker { display: none; }
 .cx-more summary::before { content: "+"; font: 12px var(--mono); color: var(--fg-3); }
 .cx-more[open] summary::before { content: "−"; }
 .cx-more summary:hover { color: var(--fg); }
-.cx-direct { margin-top: 18px; }
-.cx-direct > summary { display: flex; align-items: center; gap: 10px; padding: 8px 0; cursor: pointer; list-style: none; font-size: 13px; font-weight: 600; color: var(--fg); }
-.cx-direct > summary::-webkit-details-marker { display: none; }
-.cx-direct > summary::before { content: "+"; font: 13px var(--mono); color: var(--fg-3); }
-.cx-direct[open] > summary::before { content: "−"; }
-.cx-direct > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.cx-direct-count { font-size: 11.5px; font-weight: 400; color: var(--fg-2); }
-.cx-direct > .cx-head:first-of-type { margin-top: 8px; }
 .cx-more summary:focus-visible, .cx-link:focus-visible, .cx-more a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
 .cx-more p, .cx-more li { font-size: 12px; line-height: 1.5; color: var(--fg-2); }
 .cx-more p { margin: 8px 0 0; }
 .cx-more b { color: var(--fg); font-weight: 500; }
 .cx-more ol { margin: 8px 0 0; padding-left: 18px; }
-.cx-more a, .cx-claude-steps a { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
-.cx-claude-steps { padding: 15px 17px; border-radius: var(--r); border: 1px solid var(--line-2); background: var(--elevated); }
-.cx-panel .cx-claude-steps h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; text-transform: none; }
-.cx-claude-steps ol { margin: 0 0 8px; padding-left: 18px; font-size: 12.5px; line-height: 1.65; color: var(--fg); }
-.cx-claude-steps b { font-weight: 600; }
-.cx-account { margin: 0; padding: 9px 12px; border-radius: var(--r-sm); font-size: 12px; line-height: 1.5; background: var(--wash); border: 1px solid var(--line-2); color: var(--fg-2); }
-.cx-account[data-tone="warn"] { color: var(--warn); border-color: rgba(201,160,100,.35); }
+.cx-more a { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
 .cx-card a.cx-get { align-self: flex-start; display: inline-flex; align-items: center; height: 30px; padding: 0 13px; border-radius: var(--r-full); font-size: 11.5px; font-weight: 500; color: var(--bg); background: var(--fg); text-decoration: none; }
 .cx-card a.cx-get:hover { opacity: .9; }
 .cx-card a.cx-get:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .cx-error { margin: 0; font-size: 12px; color: var(--danger); }
-.cx-foot { margin: 2px 0 0; }
-button.cx-link { height: auto; padding: 0; border: 0; background: none; color: var(--fg); font-weight: 500; font-size: inherit; text-decoration: underline; text-underline-offset: 3px; }
-button.cx-link:hover { background: none; color: var(--fg); transform: none; }
 /* Settings: the owner's consent for Qorqbot to start agents (js/settings.js paintAgentTrust). */
 .cx-trust { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 0 0 24px; margin-bottom: 26px; border-bottom: 1px solid var(--line-2); }
 .cx-trust[hidden] { display: none; }
@@ -100,7 +89,6 @@ button.cx-link:hover { background: none; color: var(--fg); transform: none; }
 .cx-trust button { flex: none; }
 /* Settings: one compact row per connector. */
 .cx-panel-rows { margin: 0; padding: 0; border: 0; gap: 12px; }
-.cx-panel-rows .cx-head p { max-width: none; }
 .cx-rows { display: grid; border: 1px solid var(--line-2); border-radius: var(--r-lg); overflow: hidden; background: var(--wash); }
 .cx-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 14px 18px; border-top: 1px solid var(--line-2); }
 .cx-row:first-child { border-top: 0; }
@@ -119,11 +107,9 @@ button.cx-link:hover { background: none; color: var(--fg); transform: none; }
   .cx-accounts { padding: 16px; }
   .cx-trust { flex-direction: column; align-items: flex-start; }
   .cx-privacy { grid-template-columns: 1fr; padding: 18px; }
-  .cx-head { flex-direction: column; align-items: flex-start; }
-  .cx-progress { justify-items: start; }
   .cx-grid { grid-template-columns: minmax(0, 1fr); }
 }
-@media (prefers-reduced-motion: reduce) { .cx-card, .cx-progress-bar i { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .cx-card { transition: none; } }
 /* Dashboard notice when Google Chrome is missing (js/setup-notice.js). */
 .setup-notice { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 2000; display: flex; align-items: center; gap: 12px;
   max-width: calc(100vw - 32px); padding: 9px 10px 9px 16px; border-radius: var(--r-full, 999px); font-size: 13px;

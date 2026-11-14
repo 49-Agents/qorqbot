@@ -249,8 +249,8 @@ def _profile_grants(paths, *, immutable=False):
 
 
 # ``google_calendar`` is a provider-only extension id: it is recorded with the installation selection like any other, and it
-# adds no Agentic source, package or binding (``OPTIONAL`` has no entry for it).
-SELECTION_IDS = frozenset({"content", "paper", "fastmail", "telegram", "whatsapp", "google_calendar", "email-management", "agent-terminal-control"})
+# adds no Agentic source, package or binding (``OPTIONAL`` has no entry for it). ``treg`` is the same: operations only.
+SELECTION_IDS = frozenset({"content", "paper", "fastmail", "telegram", "whatsapp", "google_calendar", "treg", "email-management", "agent-terminal-control"})
 
 
 def _installed_selection(record):

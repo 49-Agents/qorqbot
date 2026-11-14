@@ -13,7 +13,9 @@ triggers. There is one authoritative copy of each workflow in `.github/workflows
 | One optional connector | Backend tests, core archive qualification and that connector; unrelated connectors are not rebuilt |
 | CI rules or unclassified inputs | All checks |
 
-`Checks` runs on PRs and pushes to `main`. Feature-branch pushes do not duplicate
+`Checks` runs on PRs and on pushes to `main` and `dev`. `main` receives only PRs
+from `dev`; a PR into `main` from any other branch fails the `base-branch` job.
+Feature-branch pushes do not duplicate
 the PR run. New commits cancel superseded runs. The selector reads the complete
 Git diff (including deleted files and both sides of moves); it does not use a
 limited changed-files API. Runtime instruction and prompt Markdown is code,

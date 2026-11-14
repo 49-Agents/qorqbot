@@ -95,13 +95,6 @@ entries:
     research, a one-off web request, or a URL supplied as context does not activate
     this skill.
   path: native/skills/ordubashy-browser-control/SKILL.md
-- id: asset-b200e2018e7701f089c9
-  kind: skill
-  description: Curate the owner's persistent Focus board with source-owned conversations
-    and explicit domain actions.
-  when_to_use: Curate the owner's persistent Focus board with source-owned conversations
-    and explicit domain actions.
-  path: native/skills/owner-focus/SKILL.md
 - id: asset-e7fd82311103ade31a44
   kind: skill
   description: Ask the owner a question or request a missing decision, access, or
