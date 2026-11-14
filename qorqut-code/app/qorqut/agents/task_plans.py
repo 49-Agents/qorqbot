@@ -175,7 +175,9 @@ class TaskPlans:
         workflows, key = self.workflows(), plan_key(task)
         actor = {'actor_id': ctx.principal_id, 'actor_kind': 'agent' if ctx.principal_kind == 'agent' else 'owner'}
         said = {field: arguments.get(field) for field in ('step_id', 'note', 'text', 'after', 'reason')}
-        operation_id = 'step-' + hashlib.sha256(json.dumps([name, key, said], ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:48]
+        # A repeated request reaches this stage again before its saved receipt is found, so the engine key is made from
+        # what was said, not from the request: saying the same thing twice changes the plan once.
+        operation_id ='step-' + hashlib.sha256(json.dumps([name, key, said], ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:48]
         try:
             origin = f"task:{task.get('business_id') or 'global'}:{task['id']}"
             run_id = workflows.start_plan(list(attributes(task)['plan']), HOST_ACTOR, origin, key)['run']['run_id']
