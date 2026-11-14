@@ -57,6 +57,22 @@ browserTest('a first start shows the sample text and saves nothing until the own
   } finally { await browser.close(); }
 });
 
+browserTest('an item opened on Focus (signoff, browser, side chat) hides the notes until it closes', async () => {
+  const {browser, page} = await fixture({revision: 0, card_ids: [], blocks: []});
+  try {
+    const notesShown = () => page.evaluate(() => {
+      const r = document.querySelector('.agfocus-notes-input').getBoundingClientRect();
+      return getComputedStyle(document.querySelector('.agfocus > .agfocus-layout')).display !== 'none' && r.width > 0 && r.height > 0;
+    });
+    assert.equal(await notesShown(), true);
+    await page.evaluate(() => document.querySelector('.agfocus').classList.add('agfocus-surface-open'));
+    assert.equal(await notesShown(), false);
+    await page.evaluate(() => document.querySelector('.agfocus').classList.remove('agfocus-surface-open'));
+    assert.equal(await notesShown(), true);
+    assert.equal(await value(page), 'Your notes here');
+  } finally { await browser.close(); }
+});
+
 browserTest('emptied notes stay empty after a reload instead of returning to the sample text', async () => {
   const {browser, page, mount} = await fixture({revision: 0, card_ids: [], blocks: []});
   try {
