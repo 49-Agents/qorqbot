@@ -567,7 +567,7 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # supply their own private visibility and outcome callbacks through the explicit extension declarations.
     signoff_domains.bind(management=management, focus_board=runtime.focus.board).require()
     from qorqut.inbox.private_conversations import PrivateConversations
-    runtime.private_conversations = PrivateConversations(inbox).register()
+    runtime.private_conversations = PrivateConversations(inbox, references=signoffs.notes).register()
     # The owner's own messages across every agent's chat and the private threads, for the owner and the coordinator.
     from qorqut.domains.owner_inputs import OwnerInputs
     OwnerInputs(runtime).register()
