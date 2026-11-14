@@ -58,6 +58,11 @@ refused; a worker with an `allow` override is still refused, and an explicit `de
   releases**. A unit that is already running is reused, never duplicated. The supervisor holds a per-worker process lock, records
   boot-bound identities for itself and Chrome, and publishes `ready` only after the CDP endpoint answers *and* that exact Chrome
   owns the listener;
+* the user manager does not share the application service's mount namespace. When the service sees its instance through a
+  private bind mount (`BindPaths=`), the supervisor is started with the directory's path on the underlying filesystem and is
+  told the path the ownership record was written with (`--recorded-state <dir>`), so both sides read and lock the same files;
+* Chrome's temporary directory is `<dir>/tmp` when its singleton socket path fits a Unix socket address, and otherwise a
+  private `qorqut-browser-<hash>` directory under `/run/user/<uid>` (Chrome aborts on a longer socket path);
 * a generated `.qorqut/browser.json` (unchanged schema: `schema_version`, `cdp_endpoint`, `runtime_dir`) written only after
   the browser is verified, using the installation's pinned browser runtime.
 

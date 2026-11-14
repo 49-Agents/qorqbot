@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,7 @@ import socket
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -31,12 +33,18 @@ from .control import owns_listener, process_identity
 
 EXIT_STOPPED, EXIT_FAILED, EXIT_BUSY, EXIT_CONFIG = 0, 1, 75, 78
 START_TIMEOUT = 40
+SOCKET_PATH_LIMIT = 104
 
 
-def load_meta(state: Path) -> dict:
-    """The manager's saved ownership record for this directory, or ``ValueError`` when it is not exactly what it wrote."""
+def load_meta(state: Path, recorded: Path | None = None) -> dict:
+    """The manager's saved ownership record for this directory, or ``ValueError`` when it is not exactly what it wrote.
+
+    ``recorded`` is the path the manager knows this directory by when it runs behind a private bind mount and that path differs
+    from the supervisor's own. The record is checked against it, and the profile is then taken from ``state`` itself."""
     if not state.is_absolute() or path_has_symlink(state) or not state.is_dir():
         raise ValueError("state directory")
+    if recorded is not None and (not recorded.is_absolute() or recorded.name != state.name):
+        raise ValueError("recorded state directory")
     info = state.lstat()
     if info.st_uid != os.geteuid() or info.st_mode & 0o077:
         raise ValueError("state directory is not private")
@@ -44,10 +52,11 @@ def load_meta(state: Path) -> dict:
     managed = meta["managed"]
     if (meta["schema_version"] != 1 or meta["mode"] != "managed" or meta["agent_id"] != state.name
             or str(uuid.UUID(meta["agent_id"])) != state.name or not isinstance(managed["port"], int)
-            or not 1024 <= managed["port"] <= 65535 or managed["profile"] != str(state / "profile")
+            or not 1024 <= managed["port"] <= 65535 or managed["profile"] != str((recorded or state) / "profile")
             or not os.path.isabs(managed["chrome"])
             or meta["target"]["content"]["cdp_endpoint"] != f"http://127.0.0.1:{managed['port']}"):
         raise ValueError("ownership record")
+    managed["profile"] = str(state / "profile")
     return meta
 
 
@@ -77,6 +86,34 @@ def visible_chrome_command(meta: dict, url: str, debug_port: int) -> list[str]:
             f"--remote-debugging-port={debug_port}", url]
 
 
+def socket_fits(temporary: Path) -> bool:
+    """Chrome keeps its singleton socket in a fresh folder under TMPDIR and aborts when that path exceeds a Unix socket address
+    (108 bytes on Linux, 104 on macOS)."""
+    return len(os.fsencode(temporary / "org.chromium.Chromium.XXXXXX/SingletonSocket")) < SOCKET_PATH_LIMIT
+
+
+def short_temporary(state: Path) -> Path:
+    """A private temporary directory for one agent's Chrome when its state directory is too deep for the singleton socket.
+
+    The user's runtime directory is private by construction. The shared temporary directory is the fallback, and there the
+    directory must be ours alone: anything else is refused, never adopted."""
+    runtime = Path(f"/run/user/{os.getuid()}")
+    try:
+        private = not runtime.is_symlink() and runtime.is_dir() and runtime.stat().st_uid == os.geteuid()
+    except OSError:
+        private = False
+    directory = ((runtime if private else Path(tempfile.gettempdir()))
+                 / ("qorqut-browser-" + hashlib.sha256(os.fsencode(state)).hexdigest()[:12]))
+    try:
+        directory.mkdir(mode=0o700)
+    except FileExistsError:
+        pass
+    info = directory.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077 or not socket_fits(directory):
+        raise RuntimeError("temporary_directory_unsafe")
+    return directory
+
+
 def chrome_environment(state: Path) -> dict:
     """Chrome's environment for this agent's private state directory."""
     from qorqut import native_paths
@@ -86,6 +123,8 @@ def chrome_environment(state: Path) -> dict:
     for key, name in (("TMPDIR", "tmp"), ("XDG_CACHE_HOME", "cache"), ("XDG_CONFIG_HOME", "config"), ("XDG_RUNTIME_DIR", "run")):
         installation = folder or (native.parent.parent if native is not None else None)
         directory = installation / ".run/c" if key == "TMPDIR" and installation is not None else state / name
+        if key == "TMPDIR" and installation is None and not socket_fits(directory):
+            directory = short_temporary(state)
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         env[key] = str(directory)
     return env
@@ -126,9 +165,9 @@ def stop_child(child: subprocess.Popen) -> None:
     child.wait(timeout=5)
 
 
-def serve(state: Path, stop: threading.Event) -> int:
+def serve(state: Path, stop: threading.Event, recorded: Path | None = None) -> int:
     try:
-        meta = load_meta(state)
+        meta = load_meta(state, recorded)
     except (OSError, ValueError, KeyError, TypeError):
         print("Browser supervisor: invalid ownership record; nothing was started.", file=sys.stderr)
         return EXIT_CONFIG
@@ -202,12 +241,13 @@ def serve(state: Path, stop: threading.Event) -> int:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state", required=True, type=Path)
+    parser.add_argument("--recorded-state", type=Path)
     arguments = parser.parse_args(argv)
     stop = threading.Event()
     for number in (signal.SIGTERM, signal.SIGINT):
         signal.signal(number, lambda *_: stop.set())
     signal.signal(signal.SIGHUP, signal.SIG_IGN)
-    return serve(arguments.state, stop)
+    return serve(arguments.state, stop, arguments.recorded_state)
 
 
 if __name__ == "__main__":
