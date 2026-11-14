@@ -44,7 +44,8 @@ from qorqut_operations.tasks.scope import task_context, task_namespace
 from qorqut_operations.tasks.schema import CLOSED_STATES, PAUSED_STATES, STATES
 from qorqut_operations.tasks.snooze import reconcile_snoozes
 from qorqut_operations.tasks.types import (KIND_SCHEMA, NEXT_STEP_SCHEMA, PLAN_SCHEMA, POSITION_SCHEMA, PROFILE_SCHEMA, STATE_SCHEMA,
-                                           STATUS_LINE_SCHEMA, TYPES, apply_attributes, attributes, custom_fields, queue_rank)
+                                           STATUS_LINE_SCHEMA, TEMPLATE_SCHEMA, TYPES, apply_attributes, attributes, custom_fields,
+                                           queue_rank)
 from qorqut_operations.team_channel import reject_owner_team_write
 
 TASK_READS = ("tasks_list", "tasks_get", "tasks_thread_get", "tasks_notes_list", "tasks_config_get", "assignees_list", "workers_list", "tasks_overview",
@@ -102,6 +103,9 @@ class TaskOperations:
         # ``plan_steps(ctx, task, uow)``: the host's reading of where a Task's plan stands, one entry per step with its
         # state, for ``tasks_get``. Without it a Task shows only the plan it was handed over with.
         self.plan_steps = None
+        # ``plan_template(ref)``: the host's reading of a saved plan as its ordered step instructions, for a hand-over
+        # that names a template instead of writing the steps.
+        self.plan_template = None
 
     # -- moved Tasks -----------------------------------------------------------------------------------------------
 
@@ -174,7 +178,8 @@ class TaskOperations:
             "tasks_complete": ({"task_id": IDENTITY, "status": {"enum": list(CLOSED_STATES)}, "note": TEXT, **comment,
                                 "children": lifecycle.CHILDREN, "result": lifecycle.RESULT}, ("task_id",)),
             "tasks_delegate": ({"task_id": IDENTITY, "worker_id": UUID, "brief": TEXT, "note_refs": refs,
-                                "plan": PLAN_SCHEMA, "position": POSITION_SCHEMA}, ("task_id", "worker_id")),
+                                "plan": PLAN_SCHEMA, "template": TEMPLATE_SCHEMA,
+                                "position": POSITION_SCHEMA}, ("task_id", "worker_id")),
             "tasks_config_update": ({"config": {"type": "object"}}, ("config",)),
         }
         for name, (properties, required) in mutations.items():
@@ -510,8 +515,15 @@ class TaskOperations:
             # One recorded worker: the agent doing the work. The brief is the Task's own comment, so the hand-over and the
             # work it describes are one record.
             edits["worker_ids"] = [arguments["worker_id"]]
-            if "plan" in arguments:
-                edits["plan"] = arguments["plan"]
+            if "template" in arguments:
+                if "plan" in arguments:
+                    raise DomainError("validation_error", "Give a plan or a template, not both")
+                if self.plan_template is None:
+                    raise DomainError("operation_unavailable", "Plan templates are unavailable")
+                # The steps are copied now: the Task keeps the plan it was handed over with.
+                edits["plan"], edits["plan_template"] = self.plan_template(arguments["template"]), arguments["template"]
+            elif "plan" in arguments:
+                edits["plan"], edits["plan_template"] = arguments["plan"], None
             # A new worker's queue takes the Task at the end unless told otherwise; handing it again to the same
             # worker keeps its place unless a position is named.
             if ("position" in arguments or events.workers({"row": before}) != [arguments["worker_id"]]

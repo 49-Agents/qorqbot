@@ -186,11 +186,18 @@ instructions and the run is stored like any other, with `workflow_ref` set to
   step without doing it. The step's state becomes `skipped`, with the reason as
   its completion note and the actor as who closed it.
 
+A saved workflow can serve as a template for a plan. `plan_template(ref, selection=None)`
+returns its step instructions in an order that respects their dependencies, as
+`{ref, revision, steps}`. It only reads: the host copies the steps into its own
+record and starts a plan run from them, so the plan no longer depends on the
+workflow. A workflow that takes arguments or has a step with a verifier is
+refused, because a plan carries neither.
+
 A skipped step counts as finished: steps that depend on it become ready, and a
 run whose steps are all completed or skipped is completed. `add_step` and
 `skip_step` are refused for a run started from a catalog entry, and for a run
 that is not running. A plan has at most 50 steps of at most 4000 characters.
-These four calls are not part of the JSON CLI; the host decides who may use them.
+These five calls are not part of the JSON CLI; the host decides who may use them.
 
 In Qorqut a delegated Task carries its plan and the host starts the plan run on
 the first step action: see `qorqut-code/app/qorqut/agents/task_plans.py`.
