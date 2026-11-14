@@ -5,6 +5,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'">
 <title>How Qorqbot Works</title>
 <link rel="stylesheet" href="style.css">
+<script src="platform.js"></script>
 </head>
 <body>
 <main>
@@ -19,9 +20,9 @@
   <h2>Opening and quitting</h2>
   <div class="card">
     <table>
-      <tr><td>Open the app</td><td>Starts Qorqbot's local server on this Mac and shows the dashboard in this window.</td></tr>
-      <tr><td>Close the window</td><td>Hides it. Qorqbot keeps running; click the Dock icon to bring it back.</td></tr>
-      <tr><td>Quit (&#8984;Q)</td><td>Stops the local server, then quits. Open the app again to continue where you left off.</td></tr>
+      <tr><td>Open the app</td><td>Starts Qorqbot's local server on <span class="mac-only">this Mac</span><span class="linux-only">this computer</span> and shows the dashboard in this window.</td></tr>
+      <tr><td>Close the window</td><td><span class="mac-only">Hides it. Qorqbot keeps running; click the Dock icon to bring it back.</span><span class="linux-only">Quits Qorqbot and stops its local server. A server started from a terminal keeps running.</span></td></tr>
+      <tr><td>Quit (<span class="mac-only">&#8984;Q</span><span class="linux-only">Ctrl+Q</span>)</td><td>Stops the local server, then quits. Open the app again to continue where you left off.</td></tr>
       <tr><td>Server menu</td><td>Shows whether the server is running, and can stop, start or restart it, open logs, or show the install folder.</td></tr>
       <tr><td>View &rsaquo; Open in Browser</td><td>Opens the same dashboard in your web browser while the app is running.</td></tr>
     </table>
@@ -42,8 +43,11 @@
   <div class="card">
     <p>The first launch unpacks Qorqbot into the folder above and prepares its Python environment from the files
       inside the app (no downloads). It takes about a minute. Later launches take a few seconds.</p>
-    <p>Qorqbot uses programs you install yourself: <b>Python 3.12</b>, <b>git</b> and <b>tmux</b>. With
+    <p class="mac-only">Qorqbot uses programs you install yourself: <b>Python 3.12</b>, <b>git</b> and <b>tmux</b>. With
       <a href="https://brew.sh">Homebrew</a>, run <code>brew install python@3.12 git tmux</code> in Terminal.
+      Agent terminals use your own Codex or Claude Code installation.</p>
+    <p class="linux-only">Qorqbot uses <b>Python 3.12</b>, <b>git</b> and <b>tmux</b>. The Ubuntu package installs them
+      with it. If one is missing, run <code>sudo apt install python3.12 python3.12-venv git tmux</code> in a terminal.
       Agent terminals use your own Codex or Claude Code installation.</p>
   </div>
 
@@ -53,16 +57,19 @@
       Close agent terminals first; the update refuses while they run and leaves the installed version unchanged.</p>
   </div>
 
-  <h2>"Qorqbot cannot be opened" on another Mac</h2>
-  <div class="card">
+  <h2 class="mac-only">"Qorqbot cannot be opened" on another Mac</h2>
+  <div class="card mac-only">
     <p>This build is not notarized by Apple, so a downloaded copy is blocked the first time. Try to open it once,
       then choose <b>System Settings &rsaquo; Privacy &amp; Security &rsaquo; Open Anyway</b>. After that it opens normally.</p>
   </div>
 
   <h2>Removing Qorqbot</h2>
   <div class="card">
-    <p>Quit Qorqbot, delete the app, then delete the install folder above. Deleting the folder deletes your
+    <p class="mac-only">Quit Qorqbot, delete the app, then delete the install folder above. Deleting the folder deletes your
       Qorqbot records; back it up first if you want to keep them. Programs you installed with Homebrew stay installed.</p>
+    <p class="linux-only">Quit Qorqbot, then remove the app with <code>sudo apt remove qorqbot</code>. This leaves the
+      <code>~/Qorqbot</code> folder and its records in place. Deleting that folder deletes your Qorqbot records; back it
+      up first if you want to keep them. Programs you installed with apt stay installed.</p>
   </div>
 </main>
 <script src="help.js"></script>

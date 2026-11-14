@@ -1,7 +1,8 @@
 'use strict';
 // Engine tests against a fake Qorqbot folder whose ./qorqbot has the same CLI
 // surface (setup, status, stop, update, --port) and serves HTTP with Python.
-//   npm test   (macOS, needs python3.12 on PATH)
+//   npm test   (macOS or Ubuntu, needs python3.12 on PATH)
+// Engines use the macOS platform values unless a test passes another platform.
 const assert = require('node:assert/strict');
 const { execFileSync, spawnSync } = require('node:child_process');
 const crypto = require('node:crypto');
@@ -9,7 +10,8 @@ const fs = require('node:fs');
 const net = require('node:net');
 const path = require('node:path');
 const { test, beforeEach, afterEach } = require('node:test');
-const { Engine, EngineError, INSTALL_COMMAND } = require('../engine');
+const { Engine, EngineError } = require('../engine');
+const { platformFor, installCommand } = require('../platform');
 
 // String.raw keeps \${ literally; it is unescaped below so bash sees ${.
 const FAKE_QORQBOT = String.raw`#!/bin/bash
@@ -75,7 +77,8 @@ function freePort() {
 async function engineFor(payload, extra = {}) {
   const engine = new Engine({
     payload, home: path.join(base, 'h'), firstPort: await freePort(),
-    env: { PATH: process.env.PATH, HOME: base, QORQUT_PYTHON: PYTHON, ...extra.env }, loginPath: false, ...extra.options,
+    env: { PATH: process.env.PATH, HOME: base, QORQUT_PYTHON: PYTHON, ...extra.env }, loginPath: false,
+    platform: platformFor('darwin'), ...extra.options,
   });
   engines.push(engine);
   return engine;
@@ -203,7 +206,7 @@ test('missing or wrong Python is reported with the install command', async () =>
     const engine = await engineFor(makePayload('1.0.0').payload, { env: { QORQUT_PYTHON: python } });
     const { missing } = await engine.prerequisites();
     assert.deepEqual(missing, ['Python 3.12']);
-    await assert.rejects(engine.start(), (error) => error.code === 'prerequisites' && error.command === INSTALL_COMMAND);
+    await assert.rejects(engine.start(), (error) => error.code === 'prerequisites' && error.command === installCommand(platformFor('darwin')));
   }
 });
 
@@ -345,4 +348,73 @@ test('checklist names the Homebrew formula for a missing Python', async () => {
   const list = await engine.checklist({ log: false });
   assert.equal(list.command, 'brew install python@3.12 git tmux');
   assert.doesNotMatch(fs.existsSync(engine.logFile) ? fs.readFileSync(engine.logFile, 'utf8') : '', /missing prerequisites/);
+});
+
+test('checklist reports Homebrew as the package manager on macOS', async () => {
+  for (const [available, present] of [[['brew'], true], [[], false]]) {
+    const engine = onlyCommands(await engineFor(makePayload('1.0.0').payload), available);
+    const list = await engine.checklist({ log: false });
+    assert.equal(list.platform, 'darwin');
+    assert.equal(list.homebrew, present);
+    assert.deepEqual(list.packageManager, { label: 'Homebrew', url: 'https://brew.sh', present });
+    assert.deepEqual(list.tools.find((tool) => tool.id === 'python').packages, ['python@3.12']);
+  }
+});
+
+// ---------------------------------------------------------------- Ubuntu
+
+const LINUX = platformFor('linux');
+
+function linuxEngine(payload, extra = {}) {
+  return engineFor(payload, { ...extra, options: { platform: LINUX, ...extra.options } });
+}
+
+test('on Ubuntu PATH ends with /usr/local/bin and has no Homebrew folder', async () => {
+  const shell = path.join(base, 'fakeshell');
+  fs.writeFileSync(shell, '#!/bin/sh\nprintf "__QBPATH__/login/bin__QBPATH__"\n', { mode: 0o755 });
+  const engine = await linuxEngine(makePayload('1.0.0').payload, { env: { SHELL: shell, PATH: '/bin' }, options: { loginPath: true } });
+  const env = await engine.environment();
+  assert.equal(env.PATH, '/login/bin:/bin:/usr/local/bin');
+  assert.ok(env.PATH.endsWith(':/usr/local/bin'));
+  assert.doesNotMatch(env.PATH, /homebrew/);
+});
+
+test('on Ubuntu the checklist names apt packages for what is missing', async () => {
+  const payload = makePayload('1.0.0').payload;
+  const tmuxOnly = onlyCommands(await linuxEngine(payload), ['git']);
+  const list = await tmuxOnly.checklist({ log: false });
+  assert.equal(list.platform, 'linux');
+  assert.equal(list.ready, false);
+  assert.equal(list.command, 'sudo apt install tmux');
+  assert.equal(list.packageManager, null);
+  assert.equal(list.homebrew, false);
+  assert.deepEqual(list.tools.find((tool) => tool.id === 'tmux').packages, ['tmux']);
+
+  const pythonOnly = onlyCommands(await linuxEngine(payload, { env: { QORQUT_PYTHON: '/nonexistent/python3.12' } }), ['git', 'tmux']);
+  assert.equal((await pythonOnly.checklist({ log: false })).command, 'sudo apt install python3.12 python3.12-venv');
+
+  const all = onlyCommands(await linuxEngine(payload, { env: { QORQUT_PYTHON: '/nonexistent/python3.12' } }), []);
+  assert.equal((await all.checklist({ log: false })).command, 'sudo apt install python3.12 python3.12-venv git tmux');
+
+  const none = onlyCommands(await linuxEngine(payload), ['git', 'tmux']);
+  const ready = await none.checklist({ log: false });
+  assert.equal(ready.ready, true);
+  assert.equal(ready.command, '');
+});
+
+test('on Ubuntu the prerequisites error says this computer and carries the apt command', async () => {
+  const engine = onlyCommands(await linuxEngine(makePayload('1.0.0').payload, { env: { QORQUT_PYTHON: '/nonexistent/python3.12' } }), []);
+  await assert.rejects(engine.start(), (error) => error.code === 'prerequisites'
+    && error.message === 'Qorqbot needs Python 3.12, git, tmux on this computer.'
+    && error.command === 'sudo apt install python3.12 python3.12-venv git tmux');
+});
+
+test('a Python without ensurepip is rejected on Ubuntu and accepted on macOS', async () => {
+  const fake = path.join(base, 'python-no-ensurepip');
+  fs.writeFileSync(fake, '#!/bin/sh\ncase "$2" in *ensurepip*) exit 1;; esac\nexit 0\n', { mode: 0o755 });
+  const payload = makePayload('1.0.0').payload;
+  const linux = await linuxEngine(payload, { env: { QORQUT_PYTHON: fake } });
+  assert.deepEqual((await linux.prerequisites({ log: false })).missing, ['Python 3.12']);
+  const mac = await engineFor(payload, { env: { QORQUT_PYTHON: fake } });
+  assert.deepEqual((await mac.prerequisites({ log: false })).missing, []);
 });

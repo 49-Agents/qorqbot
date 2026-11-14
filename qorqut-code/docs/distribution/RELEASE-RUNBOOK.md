@@ -10,6 +10,11 @@ and retains the checked downloads. Supply the release version and the connectors
 being released. Reuse those exact artifacts for publication; do not rebuild them
 merely to copy them to the release channel.
 
+The same `linux` job also wraps the Ubuntu archive in the Ubuntu desktop app,
+`Qorqbot-VERSION-ubuntu24-x86_64.deb`, installs it and checks it. The `.deb` and
+its `.sha256` file are kept with the other Linux downloads. See
+[LINUX-DESKTOP.md](LINUX-DESKTOP.md).
+
 For a local build:
 
 1. Run the relevant current application and tooling tests. The `Checks` workflow

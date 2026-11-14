@@ -41,6 +41,10 @@ Keep the initialized folder at the same location: generated workspace bindings
 contain absolute paths. Use a short path (roughly 50 bytes or fewer) for Linux
 socket limits. This folder placement is not a filesystem sandbox.
 
+An Ubuntu desktop app is being prepared as an alternative to the terminal
+download: a `.deb` package that shows Qorqbot in its own window. It is not part
+of a published release yet. See [LINUX-DESKTOP.md](LINUX-DESKTOP.md).
+
 ## Optional features
 
 The app can run without a browser or an agent client. Install the external tools

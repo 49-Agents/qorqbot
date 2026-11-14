@@ -6,6 +6,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 if (location.protocol === 'file:') {
   contextBridge.exposeInMainWorld('qorqbot', {
+    platform: process.platform,
     getState: () => ipcRenderer.invoke('qorqbot:get-state'),
     paths: () => ipcRenderer.invoke('qorqbot:paths'),
     action: (name) => ipcRenderer.invoke('qorqbot:action', String(name)),

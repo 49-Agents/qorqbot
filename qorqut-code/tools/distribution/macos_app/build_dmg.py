@@ -37,7 +37,7 @@ ARCHIVE_NAME = re.compile(r'^qorqbot-(?P<version>[0-9A-Za-z.+-]+)-macos14-arm64\
 ICON_SIZES = (16, 32, 128, 256, 512)
 # Copied into the staged Electron project; tests, local builds and installed
 # modules are never packaged from the source tree.
-ELECTRON_SOURCES = ('package.json', 'package-lock.json', 'main.js', 'engine.js', 'preload.js', 'ui')
+ELECTRON_SOURCES = ('package.json', 'package-lock.json', 'main.js', 'engine.js', 'platform.js', 'preload.js', 'ui')
 
 
 def run(argv, **kwargs):

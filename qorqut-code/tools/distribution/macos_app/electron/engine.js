@@ -1,7 +1,7 @@
 'use strict';
-// Install/start/stop/update engine for the Qorqbot Mac app.
+// Install/start/stop/update engine for the Qorqbot desktop app (macOS and Ubuntu).
 //
-// The app bundle carries the exact native archive unchanged. Qorqbot runs from
+// The app carries the exact native archive unchanged. Qorqbot runs from
 // a writable folder at a short fixed path (~/Qorqbot/qorqbot), so the first
 // launch unpacks the archive there and runs the folder's own offline setup.
 // Every server operation goes through that folder's ./qorqbot command; this
@@ -18,8 +18,8 @@ const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const semver = require('semver');
+const { platformFor, installCommand } = require('./platform');
 
-const INSTALL_COMMAND = 'brew install python@3.12 git tmux';
 // native_launch.py refuses roots whose Unix socket paths exceed 104 bytes;
 // '<root>/.run/c/org.chromium.Chromium.XXXXXX/SingletonSocket' needs root <= 50.
 const MAX_ROOT_LENGTH = 50;
@@ -28,7 +28,6 @@ const AGENT_CLIS = [
   { id: 'claude', label: 'Claude Code', command: 'claude', url: 'https://docs.anthropic.com/en/docs/claude-code' },
   { id: 'codex', label: 'Codex', command: 'codex', url: 'https://github.com/openai/codex' },
 ];
-const HOMEBREW_URL = 'https://brew.sh';
 const PORT_RANGE = 20;
 const READY_TIMEOUT_MS = 180_000;
 const LOGIN_SHELL_TIMEOUT_MS = 5_000;
@@ -84,8 +83,10 @@ class Engine {
    * @param {number} [options.firstPort]
    * @param {object} [options.env]     base environment (default process.env)
    * @param {boolean} [options.loginPath] read PATH from the login shell (default true)
+   * @param {object} [options.platform] per-platform values (default platformFor())
    */
-  constructor({ payload, home, firstPort = 1049, env = process.env, loginPath = true }) {
+  constructor({ payload, home, firstPort = 1049, env = process.env, loginPath = true, platform = platformFor() }) {
+    this.platform = platform;
     this.payload = payload;
     this.installParent = home || path.join(os.homedir(), 'Qorqbot');
     this.root = path.join(this.installParent, 'qorqbot');
@@ -126,21 +127,21 @@ class Engine {
 
   // ---------------------------------------------------------------- environment
 
-  /** Finder-started apps get a minimal PATH; add the login shell's PATH and Homebrew. */
+  /** Apps started from the desktop get a minimal PATH; add the login shell's PATH and the platform's usual folders. */
   async environment() {
     if (this.env) return this.env;
     let extra = '';
     if (this.loginPath) extra = await this.readLoginPath();
     const base = this.baseEnv.PATH || '/usr/bin:/bin:/usr/sbin:/sbin';
     const env = { ...this.baseEnv };
-    env.PATH = [extra, base, '/opt/homebrew/bin', '/usr/local/bin'].filter(Boolean).join(':');
+    env.PATH = [extra, base, ...this.platform.extraPath].filter(Boolean).join(':');
     delete env.ELECTRON_RUN_AS_NODE;
     this.env = env;
     return env;
   }
 
   readLoginPath() {
-    const shell = this.baseEnv.SHELL || '/bin/zsh';
+    const shell = this.baseEnv.SHELL || this.platform.defaultShell;
     return new Promise((resolve) => {
       let output = '';
       let finished = false;
@@ -181,7 +182,8 @@ class Engine {
 
   pythonUsable(python, env) {
     return new Promise((resolve) => {
-      const child = spawn(python, ['-c', 'import sys, venv; sys.exit(sys.version_info[:2] != (3, 12))'],
+      const imports = ['sys', ...this.platform.pythonModules].join(', ');
+      const child = spawn(python, ['-c', `import ${imports}; sys.exit(sys.version_info[:2] != (3, 12))`],
         { env, stdio: 'ignore' });
       child.on('error', () => resolve(false));
       child.on('close', (code) => resolve(code === 0));
@@ -193,9 +195,7 @@ class Engine {
     const env = await this.environment();
     const missing = [];
     let python = env.QORQUT_PYTHON || this.which('python3.12', env);
-    if (!python && fs.existsSync('/opt/homebrew/opt/python@3.12/bin/python3.12')) {
-      python = '/opt/homebrew/opt/python@3.12/bin/python3.12';
-    }
+    if (!python) python = this.platform.pythonFallbacks.find((candidate) => fs.existsSync(candidate)) || null;
     if (!python || !(await this.pythonUsable(python, env))) {
       missing.push('Python 3.12');
       python = null;
@@ -209,29 +209,33 @@ class Engine {
   }
 
   /** Every program the first-run checklist shows. `ready` means Qorqbot can start; agent CLIs are reported but optional.
-   * `command` installs only the missing required programs with Homebrew. */
+   * `command` installs only the missing required programs with the platform's package manager. */
   async checklist({ log = true } = {}) {
     const env = await this.environment();
     const { missing } = await this.prerequisites({ log });
+    const { platform } = this;
     const tools = [
-      { id: 'python', label: 'Python 3.12', formula: 'python@3.12', ok: !missing.includes('Python 3.12') },
-      { id: 'git', label: 'git', formula: 'git', ok: !missing.includes('git') },
-      { id: 'tmux', label: 'tmux, for agent terminals', formula: 'tmux', ok: !missing.includes('tmux') },
-    ];
+      { id: 'python', label: 'Python 3.12', ok: !missing.includes('Python 3.12') },
+      { id: 'git', label: 'git', ok: !missing.includes('git') },
+      { id: 'tmux', label: 'tmux, for agent terminals', ok: !missing.includes('tmux') },
+    ].map((tool) => ({ ...tool, packages: platform.packages[tool.id] }));
     const agents = AGENT_CLIS.map(({ id, label, command, url }) => ({ id, label, command, url, ok: Boolean(this.which(command, env)) }));
-    const absent = tools.filter((tool) => !tool.ok).map((tool) => tool.formula);
+    const absent = tools.filter((tool) => !tool.ok).map((tool) => tool.id);
+    const manager = platform.packageManager;
+    const present = manager ? Boolean(this.which(manager.command, env)) : false;
     return {
-      ready: absent.length === 0, homebrew: Boolean(this.which('brew', env)),
-      command: absent.length ? 'brew install ' + absent.join(' ') : '',
+      platform: platform.id, ready: absent.length === 0, command: installCommand(platform, absent),
       tools, agents, agentReady: agents.some((agent) => agent.ok),
+      homebrew: platform.id === 'darwin' && present,
+      packageManager: manager ? { label: manager.label, url: manager.url, present } : null,
     };
   }
 
   async requirePrerequisites() {
     const { missing } = await this.prerequisites();
     if (missing.length) {
-      throw new EngineError('prerequisites', `Qorqbot needs ${missing.join(', ')} on this Mac.`,
-        { command: INSTALL_COMMAND });
+      throw new EngineError('prerequisites', `Qorqbot needs ${missing.join(', ')} on ${this.platform.computer}.`,
+        { command: installCommand(this.platform) });
     }
   }
 
@@ -444,4 +448,4 @@ class Engine {
   }
 }
 
-module.exports = { Engine, EngineError, AGENT_CLIS, HOMEBREW_URL, INSTALL_COMMAND, MAX_ROOT_LENGTH };
+module.exports = { Engine, EngineError, AGENT_CLIS, MAX_ROOT_LENGTH };
