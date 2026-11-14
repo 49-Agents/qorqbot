@@ -320,15 +320,6 @@
       "previous_source": "agents/checkpoints.py"
     },
     {
-      "id": "completion-focus-retired",
-      "path": "messages/completion-focus-retired.md",
-      "parameters": [],
-      "status": "retired",
-      "trigger": "checkpoints",
-      "audience": "registered agents; role/runtime conditions retained by the caller",
-      "previous_source": "agents/checkpoints.py"
-    },
-    {
       "id": "completion-owner-inbox",
       "path": "messages/completion-owner-inbox.md",
       "parameters": [],

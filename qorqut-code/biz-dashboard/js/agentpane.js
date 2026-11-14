@@ -12,8 +12,7 @@ let _agpad = null;
 const WORKSPACE_BASE_VIEWS = new Set(["tasks", "globalTasks"]);
 const WORKSPACE_SEED = [
   { key: "focus", display_name: "Focus", supported_roles: ["ordubashy", "global-worker"], renderer: "focus_board",
-    presentation_actions: ["focus_show", "focus_clear", "focus_browser_input", "focus_present", "focus_edit",
-      "focus_move", "focus_set_archived", "focus_reply"] },
+    presentation_actions: [] },
 ];
 // Renderers register themselves (core's Focus below, installed extensions through
 // their same-origin assets). A registration only supplies behavior and static
@@ -43,14 +42,7 @@ function registerWorkspaceRenderer(renderer, definition) {
 window.registerWorkspaceRenderer = registerWorkspaceRenderer;
 // Each renderer owns its cache and poll gate.
 registerWorkspaceRenderer("focus_board", {
-  mount: p => {
-    // A remount keeps this pane's same-page data and its poll gate; the existing interval and invalidations decide when to read.
-    if (!p.focus || p.focusPageKey !== agfocusPageKey(p)) { p.focus = null; p.focusPageKey = null; p.nextFocus = 0; }
-    agfocusMount(p);
-    const scroll = p.focusScroll; p.focusScroll = 0;
-    const list = $(".agfocus-layout", p.el);
-    if (scroll && p.focus && list) list.scrollTop = scroll;
-  }, tick: p => agfocusTick(p), leading: true,
+  mount: p => agfocusMount(p), tick: p => agfocusTick(p), leading: true,
   views: { focus: { label: "Focus", icon: typeof T_VIEW_ICON === "object" ? T_VIEW_ICON.focus || "" : "" } },
 });
 

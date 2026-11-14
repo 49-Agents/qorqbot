@@ -69,7 +69,7 @@ class Fixture(unittest.TestCase):
                                                                                     fingerprint=noop))], candidates=NS(candidates=lambda *a: ()))
         self.tasks = TaskOperations(self.app, items, ports=TaskPorts(
             assignees=NS(protect=noop, owner_directed=lambda *a: False, worker_excluded=lambda *a: False),
-            focus=NS(schema={}, creation_access=noop, present_created=noop), incidents=NS(link_task=noop),
+            incidents=NS(link_task=noop),
             references=NS(types=('task',), host_types=(), resolve=noop, derived=noop),
             routing=NS(routes=lambda *a: ((), ()), snooze_routes=lambda *a: ()), boards=HostBoards(self.app)))
         for descriptor in self.tasks.descriptors():
@@ -163,7 +163,10 @@ class TaskTests(Fixture):
         task = self.task(self.worker, 'Wait for the supplier')
         self.refused(self.update(self.worker, task, {'status': 'waiting'}), 'snoozed_until or due')
         self.ok(self.update(self.worker, task, {'status': 'waiting', 'snoozed_until': LATER}))
-        self.refused(self.update(self.worker, task, {'status_line': f'See {uuid4()}'}), 'record identifier')
+        self.refused(self.update(self.worker, task, {'status_line': f'See {uuid4()}'}), 'by identifier')
+        self.refused(self.update(self.worker, task, {'status_line': 'Imported to table d4342431'}), 'by identifier')
+        self.refused(self.update(self.worker, task, {'status_line': 'Saved at rev 65'}), 'record revision')
+        self.ok(self.update(self.worker, task, {'status_line': 'Waiting for 2 of 3 quotes, $1,534 so far'}))
         parent = self.task(self.worker, 'Campaign')
         child = self.task(self.worker, 'Step one', parent_id=parent['id'])
         self.refused(self.invoke(self.worker, 'tasks_create', {'title': 'Step one', 'parent_id': parent['id']}), 'already exists')
@@ -236,12 +239,20 @@ class ThreadTests(Fixture):
         self.ok(comment('Do you want the 5th instead?', for_owner=True))
         self.refused(comment('x' * (OWNER_POST_LIMIT + 1), for_owner=True), 'at most 600 characters')
         self.refused(comment(f'Done, see {uuid4()}', for_owner=True), 'no record identifiers')
+        self.refused(comment('Imported to table d4342431, rev 12', for_owner=True), 'short IDs')
         self.ok(self.complete(self.worker, task, result='Booked for the 5th'))
         read = lambda **extra: self.ok(self.invoke(self.owner, 'tasks_notes_list', {'task_id': task['id'], 'limit': 50, **extra}))
         everything, owner = read(), read(audience='owner')
         self.assertEqual(len(everything['notes']), 3)
         self.assertEqual({note['body'] for note in owner['notes']}, {'Do you want the 5th instead?', 'Booked for the 5th'})
         self.assertEqual(owner['hidden'], 1)
+
+    def test_a_result_that_does_not_read_for_the_owner_stays_a_working_note(self):
+        task = self.task(self.lead, 'Import the contacts', worker_ids=[self.worker])
+        self.ok(self.complete(self.worker, task, result='All 300 contacts are imported',
+                              note='Imported 300 rows into table d4342431 (rev 77 to 80), readback 0 mismatches'))
+        owner = self.ok(self.invoke(self.owner, 'tasks_notes_list', {'task_id': task['id'], 'limit': 50, 'audience': 'owner'}))
+        self.assertEqual((list(owner['notes']), owner['hidden']), ([], 1))
 
 
 class TargetListTests(Fixture):

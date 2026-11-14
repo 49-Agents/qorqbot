@@ -702,11 +702,6 @@
       "line": 314
     },
     {
-      "id": "mcp-presentation-returns-a-compact-focus-receipt-with-revisions",
-      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
-      "line": 316
-    },
-    {
       "id": "mcp-presentation-compact-index-by-default-response-detail-summary",
       "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 318
@@ -727,7 +722,7 @@
       "line": 324
     },
     {
-      "id": "mcp-reads-optional-revalidation-focus-board-lists-only-send",
+      "id": "mcp-reads-optional-revalidation-task-reads-only-send",
       "source": "qorqut-code/app/qorqut/transport/mcp_reads.py",
       "line": 22
     },

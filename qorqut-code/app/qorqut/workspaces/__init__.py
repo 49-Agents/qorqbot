@@ -58,13 +58,11 @@ class WorkspaceType:
                 "presentation_actions": list(self.presentation_actions), "description": self.description}
 
 
-# Focus keeps its own operations and authorization; the registry only records
-# that the host knows how to render it and which role it belongs to.
+# The registry only records that the host knows how to render the Focus tab and which role it belongs to. Agents
+# have no operations on it: its content (threads and the owner's notes) belongs to the owner.
 WORKSPACE_TYPES = (
-    WorkspaceType("focus", "Focus", frozenset({roles.ORDUBASHY_ROLE, roles.GLOBAL_WORKER_ROLE}), "focus_board",
-        ("focus_show", "focus_clear", "focus_browser_input", "focus_present", "focus_edit",
-         "focus_move", "focus_set_archived", "focus_reply"),
-        "Shared owner board for Ordubashy and global workers. Ordering remains owner-only."),
+    WorkspaceType("focus", "Focus", frozenset({roles.ORDUBASHY_ROLE, roles.GLOBAL_WORKER_ROLE}), "focus_board", (),
+        "Owner area: side chats, pinned threads and the owner's personal notes."),
 )
 
 # Roles that may see the workspace tools at all; the type still gates each call. An installed extension's type must stay

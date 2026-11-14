@@ -456,19 +456,16 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
-            if parts == ["root", "connectors"] and request.method in {"GET", "POST"}:
+            if parts == ["root", "connectors"] and request.method == "GET":
                 if request.headers.get("authorization") is not None:
-                    raise DomainError("forbidden", "Connectors are for the owner's dashboard")
+                    raise DomainError("forbidden", "Extensions are listed for the owner's dashboard")
                 context, _ = self.context(actor)
                 with self.runtime.database.read() as uow:
                     owner = uow.repository("installation").get("service")
                 if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
-                    raise DomainError("forbidden", "Only the installation owner can change connectors")
-                from qorqut.connectors import owner_view as connectors_view
-                body = await read_json(request, limit=1024) if request.method == "POST" else None
-                if request.method == "POST" and not isinstance(body, dict):
-                    raise DomainError("validation_error", "A connector change must be an object")
-                data = await anyio.to_thread.run_sync(partial(connectors_view, self.runtime, body))
+                    raise DomainError("forbidden", "Only the installation owner can see the extensions")
+                from qorqut.connectors import view as connectors_view
+                data = await anyio.to_thread.run_sync(partial(connectors_view, self.runtime))
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
@@ -511,6 +508,17 @@ class HTTPAPI:
                 if body is not None and not isinstance(body, dict):
                     raise DomainError("validation_error", "Pin preferences must be an object")
                 data = await anyio.to_thread.run_sync(partial(pins, self.runtime.paths.runtime, actor.principal.id, body))
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
+            if parts == ["root", "thread-pins"] and request.method in {"GET", "POST"}:
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "Pinned threads are for the owner's dashboard")
+                from qorqut.dashboard_preferences import thread_pins
+                body = await read_json(request, limit=65536) if request.method == "POST" else None
+                if body is not None and not isinstance(body, dict):
+                    raise DomainError("validation_error", "A pinned thread change must be an object")
+                data = await anyio.to_thread.run_sync(partial(thread_pins, self.runtime.paths.runtime, actor.principal.id, body))
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
@@ -612,6 +620,7 @@ class HTTPAPI:
                     "management_coordinator_set", "management_list", "management_get", "management_resolve",
                     "system_incidents_list", "system_incidents_get",
                     "dashboard_summary_get", "global_progress_get", "records_health", "records_reconcile",
+                    "owner_inputs_list", "owner_input_get", "work_review_get",
                     "actions_record", "actions_list", "actions_get", "actions_correct", "actions_withdraw", "actions_config_get", "working_memory_get", "working_memory_update", "agent_context_get",
                     "costs_overview",
                     "calendar_calendars_list", "calendar_events_list", "calendar_event_get",
@@ -1330,6 +1339,7 @@ class HTTPAPI:
             body = await read_json(request, limit=8192)
             checked_fields(body, {"registration_id","session_id","turn_id","allow_correction","claim_id","binding_generation","focus_only"},
                            {"registration_id","session_id","turn_id"})
+            body.pop("focus_only", None)  # Sent by hooks installed before the Focus review was removed; ignored.
             if body["registration_id"] != actor.registration_id:
                 raise DomainError("forbidden", "Checkpoint registration is not bound to this credential")
             context = await anyio.to_thread.run_sync(partial(self.runtime.agent_context, actor.principal, diagnostic=True))

@@ -236,14 +236,17 @@ class _Briefing:
         listing = self.optional(lambda: self.call("signoffs_list", {"states": ["pending"], "limit": 50}))
         if listing is not None:
             found = True
-            rows = [row for row in listing["items"] if row.get("actionable")]
+            # Reports waiting to be read are not decisions; they are counted on their own line.
+            to_read = listing.get("to_read", 0)
+            rows = [row for row in listing["items"] if row.get("actionable") and row.get("input_kind") != "acknowledge"]
 
             def kind(row):
                 if row["category"] == "input_request":
                     return "question"
                 return "approval" if row["category"] == "platform_action" else "change"
             attention = lambda row: (not row["attention"].get("blocking"), not row["attention"].get("urgent"))
-            result["pending_signoffs"] = listing["counts"].get("pending", len(rows))
+            result["pending_signoffs"] = max(listing["counts"].get("pending", len(rows) + to_read) - to_read, 0)
+            result["to_read"] = to_read or None
             result["by_kind"] = dict(sorted(Counter(kind(row) for row in rows).items()))
             result["signoffs"] = [compact({"id": row["id"], "kind": kind(row), "title": clip(row.get("title"), 90),
                 "by": row.get("proposer_display_name"), "at": when(row.get("created_at")),

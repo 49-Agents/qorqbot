@@ -65,6 +65,23 @@ const calendarEventWhen = event => {
   const start = new Date(event.start), end = new Date(event.end);
   return `${calendarDateLabel(start)} · ${calendarTime(start)} – ${calendarDateString(start) === calendarDateString(end) ? '' : calendarDateLabel(end)+' · '}${calendarTime(end)}`;
 };
+// "9 – 10 AM", "9:30 – 11 AM", "11 AM – 1 PM": the shared period is written once.
+const calendarTimeRange = (start, end) => {
+  const a = calendarTime(start), b = calendarTime(end), period = value => (/\s?([AP]M)$/i.exec(value) || [])[1];
+  if (!period(a) || !period(b)) return `${a} – ${b}`; // 24-hour clocks stay as they are.
+  const trim = value => value.replace(/:00(?=\s?[AP]M$)/i,'');
+  return period(a) === period(b) ? `${trim(a).replace(/\s?[AP]M$/i,'')} – ${trim(b)}` : `${trim(a)} – ${trim(b)}`;
+};
+// The toolbar title: "Wednesday 11 November", "11 – 13 November", "30 Nov – 2 Dec"; the year only outside the current one.
+function calendarRangeTitle(first, last, today = calendarDateString(new Date())) {
+  const year = first.slice(0,4) !== today.slice(0,4) || last.slice(0,4) !== today.slice(0,4) ? {year:'numeric'} : {};
+  if (first === last) return calendarDateFormat(first,{weekday:'long',day:'numeric',month:'long',...year});
+  if (first.slice(0,7) === last.slice(0,7)) return `${Number(first.slice(8))} – ${calendarDateFormat(last,{day:'numeric',month:'long',...year})}`;
+  return `${calendarDateFormat(first,{day:'numeric',month:'short'})} – ${calendarDateFormat(last,{day:'numeric',month:'short',...year})}`;
+}
+// One colour per calendar, by its place in the list; the stylesheet holds the colours.
+const CALENDAR_TONES = 6;
+const calendarTone = index => index < 0 ? 'none' : String(index % CALENDAR_TONES);
 const calendarIcon = name => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${AICONS[name] || ''}</svg>`;
 
 // Personal status is an owner preference over a provider event; it never writes to the provider.
@@ -291,15 +308,20 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
     const count = countForWidth();
     const first = calendarDate, zone = calendarZone();
     const last = calendarAddDays(first,count), dates = Array.from({length:count},(_,i) => calendarAddDays(first,i));
+    const views = [[1,'Day'],[3,'3 days'],[7,'Week']];
     host.innerHTML = `<section class="pane calendar-page${embedded ? ' calendar-embedded' : ''}" aria-label="Calendar" style="--calendar-columns:${count}">
-      <header class="calendar-header"><div class="calendar-brand"><h1>Calendar</h1><time class="calendar-clock" aria-label="Current time"></time></div>
-        <div class="calendar-header-actions"><button type="button" class="ghost" data-calendar-unconfirmed hidden>Unconfirmed calendar changes</button><button type="button" class="calendar-icon" data-calendar-refresh aria-label="Refresh calendars">${calendarIcon('refresh-cw')}</button><button type="button" class="primary" data-calendar-add disabled><span aria-hidden="true">＋</span> Add event</button></div></header>
+      <header class="calendar-toolbar"><div class="calendar-title"><h1 class="calendar-range"></h1><time class="calendar-clock" aria-label="Current time"></time></div>
+        <div class="calendar-controls">
+          <div class="calendar-nav"><button type="button" class="calendar-icon" data-calendar-prev aria-label="Previous days">‹</button><button type="button" class="calendar-today" data-calendar-today>Today</button><button type="button" class="calendar-icon" data-calendar-next aria-label="Next days">›</button></div>
+          <div class="calendar-view" role="group" aria-label="Calendar view">${views.map(([days,label]) => `<button type="button" data-calendar-view="${days}" aria-pressed="${days === calendarViewDays}">${label}</button>`).join('')}</div>
+          <button type="button" class="ghost" data-calendar-unconfirmed hidden>Unconfirmed changes</button>
+          <button type="button" class="calendar-icon" data-calendar-refresh aria-label="Refresh calendars">${calendarIcon('refresh-cw')}</button>
+          <button type="button" class="primary calendar-add" data-calendar-add disabled><span aria-hidden="true">＋</span> Add</button>
+        </div></header>
       <div class="calendar-layout"><aside class="calendar-sidebar" aria-label="Calendar navigation">
         <div class="calendar-month-heading"><h2></h2><div><button type="button" class="calendar-icon" data-month-prev aria-label="Previous month">‹</button><button type="button" class="calendar-icon" data-month-next aria-label="Next month">›</button></div></div>
-        <div class="calendar-month" aria-label="Choose a date"></div><div class="calendar-sources"><h2>My calendars</h2><div></div></div>
-      </aside><main class="calendar-main"><div class="calendar-toolbar"><h2 class="calendar-range"></h2><div class="calendar-controls">
-        <button type="button" class="calendar-icon" data-calendar-prev aria-label="Previous days">‹</button><button type="button" class="calendar-icon" data-calendar-next aria-label="Next days">›</button>
-        <select class="inp calendar-view" aria-label="Calendar view"><option value="1">Day</option><option value="3">3 days</option><option value="7">Week</option></select></div></div>
+        <div class="calendar-month" aria-label="Choose a date"></div><div class="calendar-sources"><h2>Calendars</h2><div></div></div>
+      </aside><main class="calendar-main">
         <div class="calendar-status" role="status">Loading calendars…</div><div class="calendar-dayheads"></div><div class="calendar-all-day" hidden></div><div class="calendar-week" aria-label="Hourly calendar grid"></div><div class="calendar-more"></div>
       </main></div></section>`;
     const page = $('.calendar-page',host);
@@ -323,19 +345,22 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
     const reload = (force = false) => { if (current()) return render(force === true); };
     const chooseDate = date => { calendarDate = date; calendarMonth = calendarMonthStart(date); reload(); };
     const paintDates = () => {
-      $('.calendar-range',page).textContent = count === 1 ? calendarDateLabel(first) : `${calendarDateLabel(first)} – ${calendarDateLabel(calendarAddDays(last,-1))}`;
-      $('.calendar-dayheads',page).innerHTML = '<span></span>'+dates.map(date => `<div class="calendar-dayhead">${esc(calendarDateFormat(date,{weekday:'short'}))}</div>`).join('');
+      const today = calendarDateString(new Date());
+      $('.calendar-range',page).textContent = calendarRangeTitle(first,calendarAddDays(last,-1),today);
+      $('[data-calendar-today]',page).setAttribute('aria-pressed',String(today >= first && today < last));
+      $('.calendar-dayheads',page).innerHTML = '<span></span>'+dates.map(date => `<div class="calendar-dayhead${date === today ? ' is-today' : ''}"><span class="calendar-dayhead-name">${esc(calendarDateFormat(date,{weekday:'short'}))}</span><span class="calendar-dayhead-num">${Number(date.slice(8))}</span></div>`).join('');
       $('.calendar-month-heading h2',page).textContent = calendarDateFormat(calendarMonth,{month:'long'});
       const offset = (new Date(calendarMonth+'T12:00:00Z').getUTCDay()+6)%7, total = Number(calendarAddDays(calendarMonthShift(calendarMonth,1),-1).slice(8));
       const month = $('.calendar-month',page);
       month.innerHTML = ['M','T','W','T','F','S','S'].map(day => `<span class="calendar-weekday">${day}</span>`).join('') + (offset ? `<span style="grid-column:span ${offset}"></span>` : '') +
         Array.from({length:total},(_,i) => { const date = calendarAddDays(calendarMonth,i);
-          return `<button type="button" class="calendar-monthday ${date >= first && date < last ? 'in-range' : ''}" data-calendar-date="${date}" aria-label="${esc(calendarDateLabel(date))}" aria-pressed="${date === first}">${i+1}</button>`;
+          const kind = [date >= first && date < last ? 'in-range' : '', date === today ? 'is-today' : ''].filter(Boolean).join(' ');
+          return `<button type="button" class="calendar-monthday${kind ? ' '+kind : ''}" data-calendar-date="${date}" aria-label="${esc(calendarDateLabel(date))}" aria-pressed="${date === first}">${i+1}</button>`;
         }).join('');
       month.querySelectorAll('button').forEach(button => button.onclick = () => chooseDate(button.dataset.calendarDate));
     };
-    $('.calendar-view',page).value = String(calendarViewDays);
-    $('.calendar-view',page).onchange = event => { calendarViewDays = Number(event.target.value); reload(); };
+    page.querySelectorAll('[data-calendar-view]').forEach(button => button.onclick = () => { calendarViewDays = Number(button.dataset.calendarView); reload(); });
+    $('[data-calendar-today]',page).onclick = () => chooseDate(calendarDateString(new Date()));
     $('[data-calendar-prev]',page).onclick = () => chooseDate(calendarAddDays(first,-count));
     $('[data-calendar-next]',page).onclick = () => chooseDate(last);
     $('[data-calendar-refresh]',page).onclick = () => reload(true);
@@ -343,7 +368,8 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
       calendarMonth = calendarMonthShift(calendarMonth,offset); paintDates();
     };
     paintDates();
-    let clockDay = calendarDateString(new Date()), clockTimer, observer;
+    let clockDay = calendarDateString(new Date()), clockTimer, observer, gridHours = null;
+    const placeNow = () => { if (gridHours) calendarPlaceNow(page,gridHours.startHour,gridHours.endHour); };
     const cleanup = () => { clearInterval(clockTimer); observer?.disconnect(); };
     const disposeReview = dispose;
     dispose = () => { cleanup(); disposeReview(); };
@@ -351,6 +377,7 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
       if (!current()) { cleanup(); return; }
       if (zone !== calendarZone()) { reload(); return; }
       const now = new Date(), clock = $('.calendar-clock',page); clock.dateTime = now.toISOString(); clock.textContent = calendarTime(now); clock.title = zone;
+      placeNow();
       const day = calendarDateString(now); if (day !== clockDay) { clockDay = day; paintDates(); }
     };
     tick(); clockTimer = setInterval(tick,1000);
@@ -365,7 +392,8 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
       status.textContent = fixedMessage || [...failures.values(),calendarStatusNotice()].filter(Boolean).join(' · ') || (loading ? 'Loading events…' : '');
       // No calendar yet: say how one gets connected, since nothing in the app can do it.
       if (unconnected && fixedMessage) status.insertAdjacentHTML('beforeend', ` <a href="${CALENDAR_GUIDE_URL}" target="_blank" rel="noopener noreferrer">Calendar guide</a>`);
-      calendarPaintGrid(page,dates,allEvents,eventButton);
+      gridHours = calendarPaintGrid(page,dates,allEvents,eventButton);
+      placeNow();
     };
     repaint = paint;
     paint();
@@ -375,7 +403,7 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
       if (!current()) return;
       calendars = result.calendars;
       result.errors.forEach(e => failures.set(e.connection_id,`${e.connection_id}: ${e.message}`));
-      $('.calendar-sources > div',page).innerHTML = calendars.map(calendar => `<div class="calendar-source"><span class="calendar-dot"></span><span>${esc(calendar.name)} · ${esc(calendar.provider_name || calendar.provider)}</span></div>`).join('');
+      $('.calendar-sources > div',page).innerHTML = calendars.map((calendar,index) => `<div class="calendar-source" data-calendar-tone="${calendarTone(index)}"><span class="calendar-dot" aria-hidden="true"></span><span class="calendar-source-name">${esc(calendar.name)}</span><span class="calendar-source-provider">${esc(calendar.provider_name || calendar.provider || '')}</span></div>`).join('');
       if (!result.configured) { fixedMessage = 'No calendar connected yet. Connecting Google Calendar is a one-time technical setup for now.'; unconnected = true; paint(); return; }
       $('[data-calendar-add]',page).disabled = !calendars.some(c => c.writable);
       $('[data-calendar-add]',page).onclick = e => calendarEdit(null,calendars,reload,calendarDate,e.currentTarget);
@@ -408,13 +436,14 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
 }
 
 function calendarEventButton(event, calendars, refresh, allDay = false) {
-  const calendar = calendars.find(c => c.id === event.calendar_id && c.connection_id === event.connection_id), pending = event.attendees?.some(a => calendar?.organizers?.some(email => email.toLowerCase() === a.email.toLowerCase()) && a.status === 'needsAction');
+  const calendarIndex = calendars.findIndex(c => c.id === event.calendar_id && c.connection_id === event.connection_id), calendar = calendars[calendarIndex], pending = event.attendees?.some(a => calendar?.organizers?.some(email => email.toLowerCase() === a.email.toLowerCase()) && a.status === 'needsAction');
   const button = document.createElement('button'); button.type = 'button';
   const personal = calendarStatuses.statusOf(event), shown = personal && personal !== 'pending' ? personal : '';
   button.className = `calendar-event${allDay ? ' calendar-all-day-event' : ''}${shown ? ` calendar-status-${shown}` : ''}`;
   const when = allDay ? 'All day' : `${calendarTime(new Date(event.start))} – ${calendarTime(new Date(event.end))}`;
   const label = `${event.title || 'Untitled event'} · ${when} · ${calendar?.name || ''}${pending ? ' · Invitation' : ''}${shown ? ` · ${calendarStatusLabels[shown]}` : ''}`;
   button.setAttribute('aria-label',label); button.title = label;
+  button.dataset.calendarTone = calendarTone(calendarIndex);
   button.innerHTML = `${calendarStatusMark(shown)}<strong>${esc(event.title || 'Untitled event')}</strong>`;
   button.onclick = () => calendarOpen(event,calendars,refresh,event,button); return button;
 }
@@ -428,7 +457,7 @@ function calendarPaintGrid(page, dates, allEvents, eventButton, hourHeight = 64)
   page.style.setProperty('--calendar-hours',endHour-startHour);
   const grid = $('.calendar-week',page);
   // Axis labels are wall-clock hours, including the skipped/repeated hour on DST transition days.
-  grid.innerHTML = `<div class="calendar-axis">${Array.from({length:endHour-startHour+1},(_,i) => `<span class="calendar-tick" style="top:${i*hourHeight}px">${esc(calendarTime(new Date(Date.UTC(2000,0,1,startHour+i)),'UTC'))}</span>`).join('')}</div>`;
+  grid.innerHTML = `<div class="calendar-axis">${Array.from({length:endHour-startHour+1},(_,i) => `<span class="calendar-tick" style="top:${i*hourHeight}px">${esc(calendarTime(new Date(Date.UTC(2000,0,1,startHour+i)),'UTC').replace(/:00(?=\s?[AP]M$)/i,''))}</span>`).join('')}</div>`;
   const allDayRow = $('.calendar-all-day',page); allDayRow.innerHTML = '<span class="calendar-all-day-label">All day</span>'; let hasAllDay = false;
   dates.forEach((date,index) => {
     const key = calendarDateString(date), column = document.createElement('section'); column.className = 'calendar-day'; column.dataset.calendarDay = key;
@@ -437,8 +466,11 @@ function calendarPaintGrid(page, dates, allEvents, eventButton, hourHeight = 64)
       const button = eventButton(span.event), height = (span.end-span.start)/60*hourHeight;
       button.style.top = `${(span.start/60-startHour)*hourHeight}px`; button.style.height = `${height}px`;
       button.style.left = `calc(${span.lane/span.columns*100}% + 3px)`; button.style.width = `calc(${100/span.columns}% - 6px)`;
-      if (height < 44) button.classList.add('calendar-short-event');
-      if (height >= 68) { const time = document.createElement('span'); time.textContent = `${calendarTime(new Date(span.event.start))} – ${calendarTime(new Date(span.event.end))}`; button.append(time); }
+      if (height < 40) button.classList.add('calendar-short-event');
+      if (height >= 80) button.classList.add('calendar-tall-event'); // Room for a two-line title.
+      // Title first; the time when a second line fits; the place when a third does.
+      if (height >= 40) { const time = document.createElement('span'); time.className = 'calendar-event-time'; time.textContent = calendarTimeRange(new Date(span.event.start),new Date(span.event.end)); button.append(time); }
+      if (height >= 60 && span.event.location) { const where = document.createElement('span'); where.className = 'calendar-event-where'; where.textContent = span.event.location; button.append(where); }
       column.append(button);
     }
     grid.append(column);
@@ -451,13 +483,31 @@ function calendarPaintGrid(page, dates, allEvents, eventButton, hourHeight = 64)
   return {startHour,endHour};
 }
 
+// A red line across today's column at the current time in the app zone, while that time is on the grid.
+function calendarPlaceNow(page, startHour, endHour, now = new Date()) {
+  const parts = sjParts(now), hourHeight = parseFloat(page.style.getPropertyValue('--calendar-hour')) || 64;
+  page.querySelectorAll('.calendar-now').forEach(line => { if (line.parentElement?.dataset.calendarDay !== parts?.date) line.remove(); });
+  const column = parts && page.querySelector(`.calendar-day[data-calendar-day="${parts.date}"]`);
+  const minutes = parts ? parts.hour*60 + Number(parts.time.slice(3)) : -1;
+  if (!column || minutes < startHour*60 || minutes > endHour*60) { column?.querySelector('.calendar-now')?.remove(); return; }
+  let line = column.querySelector('.calendar-now');
+  if (!line) { line = document.createElement('div'); line.className = 'calendar-now'; line.setAttribute('aria-hidden','true'); column.append(line); }
+  line.style.top = `${(minutes/60-startHour)*hourHeight}px`;
+}
+
 // Calendar events for the shared attention strip, read from a week back to two hours ahead. An event joins the strip one
-// hour before it starts (an all-day event at the start of its day) and stays, past or not, until the owner discards it.
-// The strip filters on `appear`, so one read serves every repaint. Provider events are never changed by discarding.
+// hour before it starts (an all-day event at the start of its day) and leaves it two hours after it ends (an all-day event
+// two hours after its last day), or earlier when the owner discards it. The strip filters on `appear` and `retire`, so one
+// read serves every repaint. Provider events are never changed by discarding.
 const CALENDAR_QUEUE_LEAD_MS = 3600000, CALENDAR_QUEUE_BACK_MS = 7 * 86400000, CALENDAR_QUEUE_AHEAD_MS = 2 * 3600000;
+const CALENDAR_QUEUE_RETIRE_MS = 2 * 3600000;
 // The key leads with the event's date in the app zone so the server can retire old discards without reading a provider.
 const calendarQueueKey = event => `calendar:${event.start.length === 10 ? event.start : calendarDateString(new Date(event.start))}:${JSON.stringify([event.connection_id,event.calendar_id,event.id,event.start])}`;
 const calendarQueueAppears = event => event.start.length === 10 ? +calendarDayStart(event.start) : +new Date(event.start) - CALENDAR_QUEUE_LEAD_MS;
+// An all-day event's end is the exclusive day after it; an event without an end retires from its start.
+const calendarQueueRetires = event => CALENDAR_QUEUE_RETIRE_MS + (event.start.length === 10
+  ? +calendarDayStart(typeof event.end === 'string' && event.end.length === 10 ? event.end : calendarAddDays(event.start,1))
+  : +new Date(typeof event.end === 'string' ? event.end : event.start));
 async function calendarQueueLoad(now = Date.now()) {
   const start = new Date(now - CALENDAR_QUEUE_BACK_MS).toISOString(), end = new Date(now + CALENDAR_QUEUE_AHEAD_MS).toISOString();
   const result = await calendarDirectoryLoad();
@@ -480,7 +530,7 @@ async function calendarQueueLoad(now = Date.now()) {
     const appear = calendarQueueAppears(event);
     if (!Number.isFinite(appear)) continue;
     const key = calendarQueueKey(event), calendar = calendars.find(c => c.id === event.calendar_id && c.connection_id === event.connection_id);
-    rows.set(key, {key, event, appear, label:`${event.title || 'Untitled event'} · ${calendarEventWhen(event)}${calendar?.name ? ' · ' + calendar.name : ''}`});
+    rows.set(key, {key, event, appear, retire:calendarQueueRetires(event), label:`${event.title || 'Untitled event'} · ${calendarEventWhen(event)}${calendar?.name ? ' · ' + calendar.name : ''}`});
   }
   const items = [...rows.values()].sort((a,b) => a.appear - b.appear || a.key.localeCompare(b.key));
   return {items, calendars, configured:result.configured, errors};

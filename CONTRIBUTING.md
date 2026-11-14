@@ -10,6 +10,14 @@ run application tests; installer and connector qualification runs for relevant
 changes or an explicit download release. See [CI and release preparation](qorqut-code/docs/CI-AND-RELEASES.md)
 for selection rules, local commands and retained evidence.
 
+## Branches
+
+Create work branches from `dev`. Open pull requests against `dev`. A pull
+request into `dev` needs the maintainer's approval and passing checks.
+
+`main` holds released code and takes pull requests only from `dev`. They need
+the maintainer's approval. Neither branch accepts direct pushes or force-pushes.
+
 ## Rights and license
 
 Only submit work you have the right to contribute. Preserve existing third-party

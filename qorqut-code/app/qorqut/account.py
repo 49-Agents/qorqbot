@@ -6,7 +6,9 @@ Qorqbot asks the owner to sign in once per installation with an emailed one-time
 
 * at sign-in: the email, how the owner uses Qorqbot (personal or work, and the company for work), whether they want
   product emails, a random installation ID, the Qorqbot version and the platform;
-* in a heartbeat at most once a day while the dashboard is open: the installation ID, version and platform.
+* in a heartbeat at most once a day while the dashboard is open: the installation ID, version and platform;
+* in a licence check (``GET /v1/me`` with the session token, nothing in the body) after sign-in and then at most every
+  six hours while the dashboard is open, to learn whether the signed-in email has a paid licence.
 
 It never receives conversations, files, prompts, records or anything agents do. The session token is kept in
 ``<runtime>/account.json`` (mode 0600), never in ``.env``, which agent terminals receive, and never in the browser.
@@ -38,12 +40,18 @@ COMMERCIAL_FREE_UNTIL = "2027-01-01"
 TIMEOUT = 10
 HEARTBEAT_EVERY = 20 * 3600     # at most one a day; the service also counts one per installation per day
 RELEASE_EVERY = 6 * 3600
+LICENSE_EVERY = 6 * 3600        # how long a fetched licence stays current
+LICENSE_RETRY = 15 * 60         # between background attempts, so an offline installation does not retry on every view
+DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}(?:[Tt ][0-9:.]+(?:[Zz]|[+-]\d{2}:?\d{2})?)?$")
+PRICES = {"monthly", "yearly"}
 EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,255}\.[^@\s]{2,63}$")
 USES = {"personal", "work"}
 
 _lock = threading.Lock()
 _release_cache: dict = {}        # {"checked": monotonic, "latest": {...} | None}
 _heartbeat_started: dict = {}    # runtime directory -> monotonic time of the last background heartbeat attempt
+_license_started: dict = {}      # runtime directory -> monotonic time of the last background licence attempt
 
 
 def api_base(environ=None) -> str:
@@ -153,15 +161,40 @@ def _public(saved) -> dict:
             "account": {key: account.get(key) for key in ("email", "use", "company", "created")} if account else None}
 
 
+def _server_license(saved) -> dict | None:
+    """The licence last fetched for the signed-in email, or None when there is none or it belongs to another email."""
+    cached, account = saved.get("server_license"), saved.get("account")
+    if not isinstance(cached, dict) or not isinstance(account, dict) or cached.get("email") != account.get("email"):
+        return None
+    return cached
+
+
+def _license_view(saved, account) -> dict:
+    """The licence the dashboard shows. ``paid`` is True or False only when the service said so; otherwise (not fetched
+    yet, offline, an older service) it is None and ``known`` is False. Nothing here grants or withholds anything."""
+    cached = _server_license(saved) or {}
+    paid = cached.get("paid") if isinstance(cached.get("paid"), bool) else None
+    return {"commercial_free_until": cached.get("commercial_free_until") or COMMERCIAL_FREE_UNTIL,
+            "commercial": bool(account and account.get("use") == "work"),
+            "known": paid is not None, "paid": paid,
+            "paid_until": cached.get("paid_until") if paid else None,
+            "price": cached.get("price") if paid else None,
+            "status": cached.get("status"), "checked": cached.get("fetched_at")}
+
+
+def _license_stale(saved) -> bool:
+    cached = _server_license(saved)
+    return cached is None or time.time() - float(cached.get("fetched_at") or 0) > LICENSE_EVERY
+
+
 def owner_view(runtime_directory, environ=None) -> dict:
-    """What the dashboard shows: whether sign-in is needed, the account, the licence note and any newer release.
-    The token is never returned. A due heartbeat and a due release check run in the background."""
+    """What the dashboard shows: whether sign-in is needed, the account, the licence and any newer release. The token
+    is never returned. A due heartbeat, licence check and release check run in the background."""
     saved = _read(runtime_directory)
     view = _public(saved)
     view.update({
         "required": required(environ) and not view["signed_in"],
-        "license": {"commercial_free_until": COMMERCIAL_FREE_UNTIL,
-                    "commercial": bool(view["account"] and view["account"].get("use") == "work")},
+        "license": _license_view(saved, view["account"]),
         "update": update_view(environ),
     })
     now = time.monotonic()
@@ -170,11 +203,17 @@ def owner_view(runtime_directory, environ=None) -> dict:
                 and now - _heartbeat_started.get(str(runtime_directory), -3600) >= 3600)
         if beat:
             _heartbeat_started[str(runtime_directory)] = now
+        refresh = (view["signed_in"] and _license_stale(saved)
+                   and now - _license_started.get(str(runtime_directory), -LICENSE_RETRY) >= LICENSE_RETRY)
+        if refresh:
+            _license_started[str(runtime_directory)] = now
         check = now - _release_cache.get("checked", -RELEASE_EVERY) >= RELEASE_EVERY
         if check:
             _release_cache["checked"] = now
     if beat:
         threading.Thread(target=_heartbeat_quietly, args=(runtime_directory, environ), daemon=True).start()
+    if refresh:
+        threading.Thread(target=_license_quietly, args=(runtime_directory, environ), daemon=True).start()
     if check:
         threading.Thread(target=_refresh_release, args=(environ,), daemon=True).start()
     return view
@@ -195,14 +234,14 @@ def verify(runtime_directory, body, environ=None) -> dict:
     company = body.get("company")
     if not isinstance(email, str) or not EMAIL.match(email.strip()):
         raise DomainError("validation_error", "Enter a valid email address")
-    if not isinstance(code, str) or not re.fullmatch(r"[A-Za-z0-9]{8}", code.replace("-", "").replace(" ", "")):
-        raise DomainError("validation_error", "Enter the 8-character code from the email")
+    if not isinstance(code, str) or not re.fullmatch(r"\d{6}", code.replace("-", "").replace(" ", "")):
+        raise DomainError("validation_error", "Enter the 6-digit code from the email")
     if use not in USES:
         raise DomainError("validation_error", "Choose personal or work use")
     if use == "work" and (not isinstance(company, str) or not company.strip() or len(company) > 200):
         raise DomainError("validation_error", "Enter your company name")
     reply = _call("POST", "/v1/auth/email/verify", {
-        "email": email.strip().lower(), "code": code.replace("-", "").replace(" ", "").upper(),
+        "email": email.strip().lower(), "code": code.replace("-", "").replace(" ", ""),
         "install_id": install_id(runtime_directory), **_facts(environ), "use": use,
         "company": company.strip() if use == "work" else None, "marketing_ok": body.get("marketing_ok") is True,
     }, environ=environ)
@@ -212,6 +251,8 @@ def verify(runtime_directory, body, environ=None) -> dict:
         saved = _read(runtime_directory)
         saved.update({"token": reply["token"], "account": reply["account"], "signed_in_at": utc_now(),
                       "heartbeat_at": time.time()})
+        if not _server_license(saved):
+            saved.pop("server_license", None)   # a paid licence belongs to the email, so signing in again keeps it
         _write(runtime_directory, saved)
     return owner_view(runtime_directory, environ)
 
@@ -221,6 +262,7 @@ def logout(runtime_directory, environ=None) -> dict:
         saved = _read(runtime_directory)
         token = saved.pop("token", None)
         saved.pop("account", None)
+        saved.pop("server_license", None)
         _write(runtime_directory, saved)
     if token:
         try:
@@ -228,6 +270,17 @@ def logout(runtime_directory, environ=None) -> dict:
         except DomainError:
             pass    # The local sign-out stands; the service forgets an unused token by itself.
     return owner_view(runtime_directory, environ)
+
+
+def _drop_session(runtime_directory, token) -> None:
+    """The service no longer accepts this token: sign out locally, unless a newer sign-in has replaced it."""
+    with _lock:
+        current = _read(runtime_directory)
+        if current.get("token") == token:
+            current.pop("token", None)
+            current.pop("account", None)
+            current.pop("server_license", None)
+            _write(runtime_directory, current)
 
 
 def heartbeat(runtime_directory, environ=None) -> bool:
@@ -240,18 +293,60 @@ def heartbeat(runtime_directory, environ=None) -> bool:
               token=saved["token"], environ=environ)
     except DomainError as error:
         if error.code == "unauthenticated":
-            with _lock:
-                current = _read(runtime_directory)
-                if current.get("token") == saved["token"]:
-                    current.pop("token", None)
-                    current.pop("account", None)
-                    _write(runtime_directory, current)
+            _drop_session(runtime_directory, saved["token"])
         return False
     with _lock:
         current = _read(runtime_directory)
         current["heartbeat_at"] = time.time()
         _write(runtime_directory, current)
     return True
+
+
+def _license_fields(reply) -> dict | None:
+    """The licence fields of a ``GET /v1/me`` reply, each kept only when it has the expected type. A reply without a
+    ``license`` object (an older service) gives None, so nothing is learned or erased."""
+    license = reply.get("license") if isinstance(reply, dict) else None
+    if not isinstance(license, dict):
+        return None
+    free, until, price, status = (license.get(key) for key in ("commercial_free_until", "paid_until", "price", "status"))
+    return {"commercial_free_until": free if isinstance(free, str) and DATE.match(free) else None,
+            "paid": license["paid"] if isinstance(license.get("paid"), bool) else None,
+            "paid_until": until if isinstance(until, str) and ISO_DATE.match(until) else None,
+            "price": price if isinstance(price, str) and price in PRICES else None,
+            "status": status if isinstance(status, str) and re.fullmatch(r"[A-Za-z0-9_ -]{1,40}", status) else None}
+
+
+def refresh_license(runtime_directory, environ=None) -> bool:
+    """Ask the service for this email's licence and keep the answer beside the session (never in the browser). Offline
+    or an unusable reply leaves the last answer as it was, and use of Qorqbot is never blocked either way. A revoked
+    token signs the installation out, as for a heartbeat."""
+    saved = _read(runtime_directory)
+    token, account = saved.get("token"), saved.get("account")
+    if not token or not isinstance(account, dict):
+        return False
+    try:
+        reply = _call("GET", "/v1/me", token=token, environ=environ)
+    except DomainError as error:
+        if error.code == "unauthenticated":
+            _drop_session(runtime_directory, token)
+        return False
+    fields = _license_fields(reply)
+    if fields is None:
+        return False
+    with _lock:
+        current = _read(runtime_directory)
+        if current.get("token") != token:
+            return False    # signed out, or in again, while the request was out
+        current["server_license"] = {**fields, "email": account.get("email"), "fetched_at": time.time()}
+        _write(runtime_directory, current)
+    return True
+
+
+def _license_quietly(runtime_directory, environ):
+    try:
+        refresh_license(runtime_directory, environ)
+    except Exception:   # A background courtesy: never surfaces.
+        pass
 
 
 def _heartbeat_quietly(runtime_directory, environ):

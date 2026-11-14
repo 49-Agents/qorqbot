@@ -15,13 +15,12 @@ import secrets
 
 from qorqut_operations.contracts import DomainError, canonical_bytes
 
-# Keep this deliberately small. Focus supports board lists only: its item view
-# can contain approval evidence or private conversations, which stay complete.
-# Never suppress mandatory context, provider reads or activity freshness.
-OPERATIONS = frozenset({"focus_get", "tasks_get", "tasks_list"})
+# Keep this deliberately small. Never suppress mandatory context, provider reads
+# or activity freshness.
+OPERATIONS = frozenset({"tasks_get", "tasks_list"})
 TOKEN_PATTERN = r"^(?:|r1\.[A-Za-z0-9_-]{43})$"
 TOKEN_SCHEMA = {"type": "string", "maxLength": 46, "pattern": TOKEN_PATTERN,
-    "description": instruction_text('mcp-reads-optional-revalidation-focus-board-lists-only-send')}
+    "description": instruction_text('mcp-reads-optional-revalidation-task-reads-only-send')}
 
 
 def split(name, arguments, detail):
@@ -30,9 +29,7 @@ def split(name, arguments, detail):
         return arguments, None
     token = arguments.pop("if_read_token")
     if name not in OPERATIONS or detail == "text":
-        raise DomainError("validation_error", "if_read_token supports JSON Focus/task reads only; never context, approvals or messages")
-    if name == "focus_get" and (arguments.get("item_id") or arguments.get("conversation")):
-        raise DomainError("validation_error", "Focus revalidation is for board lists only; item and conversation evidence must be read in full")
+        raise DomainError("validation_error", "if_read_token supports JSON task reads only; never context, approvals or messages")
     if not isinstance(token, str) or re.fullmatch(TOKEN_PATTERN, token) is None:
         raise DomainError("validation_error", "if_read_token must be empty or an issued r1 token")
     return arguments, token

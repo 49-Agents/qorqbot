@@ -90,6 +90,7 @@ REQUIRED_RUNTIME_ASSETS = {
     "core-instructions": ("qorqut-agentic/src/qorqut_agentic/resources/defaults/roles/imported-roles",
                           "qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/email/plugin.yaml", "qorqut-code/app/qorqut/release_worker/lifetime.py"),
     "google-calendar": ("qorqut-code/extensions/google-calendar/pyproject.toml",),
+    "treg": ("qorqut-code/extensions/treg/pyproject.toml",),
 }
 NOTICE_NAMES = re.compile(r"^(?:LICENSE|LICENCE|NOTICE|COPYING|THIRD[-_ ]PARTY)(?:[-_.].*)?$", re.I)
 

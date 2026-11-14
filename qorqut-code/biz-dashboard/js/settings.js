@@ -44,7 +44,7 @@ async function renderSettings(c) {
     <p class="st-help">Changes apply to new agent sessions and later jobs. Agents already running keep their current environment.</p>`;
   const look = appearance.get(), alerts = desktopNotify.prefs();
   const body = {
-    connections: `<div class="st-block" data-search="connections connectors gmail calendar drive notion slack whatsapp" data-connectors-slot></div>`,
+    connections: `<div class="st-block" data-search="connections browser websites extensions treg whatsapp" data-connectors-slot></div>`,
     agents: `<div class="st-rows" data-agent-clients><p class="st-help">Checking Claude Code and Codex…</p></div>
       <div class="st-rows">${settingsRow({label: 'Trusted agent folders', keywords: 'trust consent hooks prompts folder security',
         help: '<span data-agent-trust-text>Checking…</span>', control: '<button type="button" class="quiet" data-agent-trust-toggle disabled>…</button>', attrs: 'data-agent-trust'})}
@@ -277,12 +277,13 @@ function settingsAccountRow(account) {
       help: 'Not signed in.', control: '<button type="button" class="quiet" data-account-signin>Sign in</button>'});
   }
   const info = account.account || {};
-  const free = new Date(account.license.commercial_free_until + 'T00:00:00')
-    .toLocaleDateString(undefined, {year: 'numeric', month: 'long', day: 'numeric'});
+  const license = accountGate.licenseMessage(account);
+  const note = license && license.text ? ` ${esc(license.text)}` : '';
+  const link = `<a href="${accountGate.LICENSE_URL}" target="_blank" rel="noopener noreferrer">License</a>`;
   const use = info.use === 'work'
-    ? `For work${info.company ? ` at ${esc(info.company)}` : ''}. Commercial license free until ${esc(free)}. <a href="${accountGate.LICENSE_URL}" target="_blank" rel="noopener noreferrer">License</a>`
-    : 'Personal use.';
-  return settingsRow({label: 'Qorqbot account', keywords: 'account sign in email login license commercial',
+    ? `For work${info.company ? ` at ${esc(info.company)}` : ''}.${note} ${link}`
+    : `Personal use.${note}`;
+  return settingsRow({label: 'Qorqbot account', keywords: 'account sign in email login license commercial paid plan',
     help: `${esc(info.email || '')} · ${use}`, control: '<button type="button" class="quiet" data-account-signout>Sign out</button>'});
 }
 function settingsAccountRefresh() {

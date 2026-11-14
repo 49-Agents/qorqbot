@@ -1,6 +1,6 @@
 schema_version: 1
 id: ordubashy
-version: 1.76.0
+version: 1.77.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/ordubashy/BRIEF.md
@@ -14,8 +14,6 @@ skills:
   path: operations/imported-role-skills/native/skills/operations-delegation/SKILL.md
 - id: business-operations
   path: operations/imported-role-skills/native/skills/business-operations/SKILL.md
-- id: owner-focus
-  path: operations/imported-role-skills/native/skills/owner-focus/SKILL.md
 - id: browser-control
   path: operations/imported-role-skills/native/skills/managed-browser-control/SKILL.md
 - id: owner-input
@@ -66,12 +64,6 @@ default_tool_policy:
   environment_get: allow
   business_archive: signoff
   owner_action_propose: signoff
-  focus_get: allow
-  focus_present: allow
-  focus_edit: allow
-  focus_move: allow
-  focus_set_archived: allow
-  focus_reply: allow
   owner_conversation_get: allow
   owner_conversation_send: allow
   signoffs_reject: allow

@@ -76,6 +76,7 @@ class DefaultsTest(unittest.TestCase):
             first = timing.parse_stamp(row["next_at"])
             self.assertEqual(timing.first_slot_after(row["schedule"], row["timezone"], first) - first, timedelta(hours=24))
         self.assertIn("daily reconcile of open work", defaults.COORDINATOR_TEXT)
+        self.assertIn("daily report", defaults.COORDINATOR_TEXT)
         self.assertTrue(defaults.COORDINATOR_TEXT.startswith("Daily browser cleanup:"))
         before = self.reminders()
         self.service.defaults = defaults.BrowserCleanupDefaults(self.service)  # simulated restart

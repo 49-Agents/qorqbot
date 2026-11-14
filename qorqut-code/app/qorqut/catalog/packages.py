@@ -55,7 +55,7 @@ ROLE_SCHEMA = {"type": "object", "additionalProperties": False,
     "required": [*BASE, "brief", "scope_brief", "default_tool_policy"],
     "properties": {**BASE, "brief": {"type": "string"},
         # Immutable historical format: Catalog.get reads stored business-scoped packages through this schema. It is not
-        # active business-agent support: publishing refuses business-scoped and retired roles, and registration accepts
+        # active business-agent support: publishing refuses business-scoped roles, and registration accepts
         # only the supported global roles.
         "scope_brief": {"enum": ["business-agent", "ecosystem-agent"]},
         "external_connections": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},

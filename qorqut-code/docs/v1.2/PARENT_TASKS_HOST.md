@@ -24,8 +24,9 @@ kind, table, alias, redirect or compatibility route.
 * A thread message is for the owner or it is a working note (`qorqut_operations/discussion/threads.py`). The audience
   is derived from what is stored, with no extra column: the owner's own messages, owner relays, the closing note of
   `tasks_complete`, an agent's first note after the owner's own message, and notes an agent posts with
-  `for_owner: true` (at most 600 characters, no record identifiers; the marker is kept in the message's
-  attribution). Everything else, system entries included, is a working note. `tasks_get`, `tasks_thread_get` and
+  `for_owner: true` (at most 600 characters, with no record identifiers, short IDs, commit hashes or revision numbers:
+  `qorqut_operations/owner_text.py`; the marker is kept in the message's attribution). A closing note or reply that
+  fails those checks is kept as a working note instead, and a status line is held to the same checks when it changes. Everything else, system entries included, is a working note. `tasks_get`, `tasks_thread_get` and
   `tasks_notes_list` take `audience: "owner"` and report how many notes were left out; the dashboard thread asks
   for the owner's part by default and offers "Show all". Agents read everything by default.
 * A list of targets is rows of a table, not a Task each. An agent cannot create or move a work Task under a parent that

@@ -197,7 +197,8 @@
 .ntside[hidden] { display:none; }
 .ntnavtoggle { margin-top:4px; }
 :is(.agent-pane-embedded, .agent-journal-host) .ntside { width:220px; }
-:is(.agent-pane-embedded, .agent-journal-host) .ntedinner { padding:16px 16px 64px; }
+:is(.agent-pane-embedded, .agent-journal-host) .ntedinner { margin:0; padding:16px 16px 64px; } /* Left-aligned in the pane, not centred. */
+:is(.agent-pane-embedded, .agent-journal-host) :is(.nt-loading, .nt-load-error) { margin:0; }
 :is(.agent-pane-embedded, .agent-journal-host) .nt .ntedhead { gap:8px; align-items:center; }
 :is(.agent-pane-embedded, .agent-journal-host) .nt .nttitlein { flex:1 1 0; min-width:0; font-size:20px; line-height:1.3; padding:1.5px; }
 :is(.agent-pane-embedded, .agent-journal-host) .ntnavtoggle { margin:0; }

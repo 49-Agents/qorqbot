@@ -1,9 +1,7 @@
 import json
-import os
 from pathlib import Path
 import shlex
 import shutil
-import stat
 import subprocess
 import tempfile
 from types import SimpleNamespace
@@ -11,24 +9,6 @@ import unittest
 from unittest import mock
 
 from qorqut import connectors
-from qorqut_operations.contracts import DomainError
-
-CLAUDE_LIST = """Checking MCP server health…
-
-claude.ai Gmail: https://gmailmcp.googleapis.com/mcp/v1 - ✔ Connected
-claude.ai Notion: https://mcp.notion.com/mcp - ! Needs authentication
-claude.ai Slack: https://mcp.slack.com/mcp - ✘ Failed to connect
-plugin:playwright:playwright: npx @playwright/mcp@latest - ✔ Connected
-"""
-
-
-class FakeProbe:
-    def __init__(self, result=None, checking=False):
-        self.result, self.checking, self.refreshed = result, checking, []
-
-    def view(self, environ, refresh=False, cache=None):
-        self.refreshed.append(refresh)
-        return {"checking": self.checking, "result": self.result}
 
 
 class ConnectorsTest(unittest.TestCase):
@@ -45,35 +25,36 @@ class ConnectorsTest(unittest.TestCase):
         self.environ = {"PATH": str(self.bin), "HOME": str(self.directory), "SHELL": "/nonexistent"}
         self.runtime = SimpleNamespace(paths=SimpleNamespace(runtime=self.runtime_dir), resolver=SimpleNamespace(native_connections={}))
 
-    def test_parse_claude_list(self):
-        self.assertEqual(connectors.parse_claude_list(CLAUDE_LIST),
-                         {"Gmail": "connected", "Notion": "needs_sign_in", "Slack": "failed"})
-
-    def test_view_combines_statuses(self):
-        probe = FakeProbe({"available": True, "connectors": connectors.parse_claude_list(CLAUDE_LIST)})
-        result = connectors.view(self.runtime, environ=self.environ, probe=probe)
+    def test_view_lists_the_extensions_with_their_statuses(self):
+        result = connectors.view(self.runtime, environ=self.environ)
+        self.assertEqual([item["id"] for item in result["connectors"]], ["treg", "whatsapp"])
         status = {item["id"]: item["status"] for item in result["connectors"]}
-        self.assertEqual(status["gmail"], "connected")
-        self.assertEqual(status["notion"], "needs_sign_in")
-        self.assertEqual(status["google_calendar"], "not_added")
+        self.assertEqual(status["treg"], "not_installed")
         self.assertEqual(status["whatsapp"], "coming_soon" if connectors.host_platform() == "darwin" else "not_installed")
-        self.assertNotIn("claude_name", result["connectors"][0])
+        self.assertEqual(set(result), {"connectors", "clients", "platform"})
 
-    def test_browsing_is_not_a_connector(self):
-        items = connectors.view(self.runtime, environ=self.environ, probe=FakeProbe({"available": True, "connectors": {}}))
-        ids = [item["id"] for item in items["connectors"]]
-        self.assertEqual([item["id"] for item in items["connectors"] if item["tier"] == "recommended"], ["gmail"])
-        for hidden in ("browser", "chrome", "playwright"):
+    def test_only_qorqbot_extensions_are_listed(self):
+        items = connectors.view(self.runtime, environ=self.environ)["connectors"]
+        self.assertEqual({item["kind"] for item in items}, {"extension"})
+        ids = [item["id"] for item in items]
+        for hidden in ("browser", "chrome", "playwright", "gmail", "google_calendar", "google_drive", "notion", "slack"):
             self.assertNotIn(hidden, ids)
 
-    def test_view_before_first_check_and_without_claude(self):
-        checking = connectors.view(self.runtime, environ=self.environ, probe=FakeProbe(None, True))
-        missing = connectors.view(self.runtime, environ=self.environ,
-                                  probe=FakeProbe({"available": False, "reason": "claude_missing"}))
-        gmail = lambda result: next(item for item in result["connectors"] if item["id"] == "gmail")
-        self.assertEqual(gmail(checking)["status"], "checking")
-        self.assertTrue(checking["checking"])
-        self.assertEqual(gmail(missing), {**gmail(missing), "status": "unavailable", "reason": "claude_missing"})
+    def test_the_view_never_runs_a_program(self):
+        with mock.patch.object(subprocess, "run", side_effect=AssertionError("no program may run")), \
+                mock.patch.object(subprocess, "Popen", side_effect=AssertionError("no program may run")):
+            connectors.view(self.runtime, environ=self.environ)
+
+    def test_treg_follows_its_extension(self):
+        treg = lambda: next(item for item in connectors.view(self.runtime, environ=self.environ)["connectors"]
+                            if item["id"] == "treg")
+        self.assertEqual(treg()["status"], "not_installed")
+        extension = SimpleNamespace(id="treg", status=lambda: "not_set_up")
+        self.runtime.selection = SimpleNamespace(extensions=(SimpleNamespace(id="other"), extension))
+        self.assertEqual(treg(), {"id": "treg", "kind": "extension", "clients": ["claude-code", "codex"],
+                                  "status": "not_set_up"})
+        extension.status = lambda: "connected"
+        self.assertEqual(treg()["status"], "connected")
 
     def test_whatsapp_without_extension_is_coming_soon_on_mac(self):
         self.runtime.resolver.native_connections = {}
@@ -92,16 +73,6 @@ class ConnectorsTest(unittest.TestCase):
         (instance / "private/whatsapp").mkdir(parents=True)
         (instance / "private/whatsapp/session.sqlite3").write_text("")
         self.assertEqual(connectors._whatsapp_status(self.runtime), {"status": "connected"})
-
-    def test_owner_view_only_refreshes(self):
-        probe = FakeProbe({"available": True, "connectors": {}})
-        with mock.patch.object(connectors, "PROBE", probe):
-            connectors.owner_view(self.runtime, {"refresh": True}, self.environ)
-            connectors.owner_view(self.runtime, None, self.environ)
-            for change in ({"id": "playwright", "enabled": True}, {"refresh": False}, {}):
-                with self.assertRaises(DomainError):
-                    connectors.owner_view(self.runtime, change, self.environ)
-        self.assertEqual(probe.refreshed, [True, False])
 
 
 class ProbeEnvironmentTest(unittest.TestCase):
@@ -131,76 +102,8 @@ class PlatformTest(unittest.TestCase):
         runtime_dir.mkdir()
         runtime = SimpleNamespace(paths=SimpleNamespace(runtime=runtime_dir), resolver=SimpleNamespace(native_connections={}))
         with mock.patch.object(connectors, "host_platform", return_value="wsl"):
-            result = connectors.view(runtime, environ={}, probe=FakeProbe({"available": True, "connectors": {}}))
+            result = connectors.view(runtime, environ={})
         self.assertEqual(result["platform"], "wsl")
-
-
-class ClaudeProbeTest(unittest.TestCase):
-    def test_runs_once_in_background_and_caches(self):
-        calls, now = [], [0.0]
-
-        def run(command, **options):
-            calls.append((command, options["env"]["HOME"]))
-            if command[1] == "auth":
-                return SimpleNamespace(returncode=0, stdout=json.dumps({"loggedIn": True, "authMethod": "claude.ai",
-                                                                         "email": "owner@example.com", "subscriptionType": "max"}))
-            return SimpleNamespace(returncode=0, stdout=CLAUDE_LIST)
-
-        probe = connectors.ClaudeProbe(run=run, clock=lambda: now[0])
-        first = probe.view({"HOME": "/home/owner"})
-        self.assertTrue(first["checking"])
-        probe._thread.join()
-        second = probe.view({"HOME": "/home/owner"})
-        self.assertFalse(second["checking"])
-        self.assertEqual(second["result"]["connectors"]["Gmail"], "connected")
-        self.assertEqual(second["result"]["account"], {"signed_in": True, "method": "claude.ai", "email": "owner@example.com", "plan": "max"})
-        self.assertEqual(calls, [(["claude", "auth", "status"], "/home/owner"), (["claude", "mcp", "list"], "/home/owner")])
-        now[0] = connectors.PROBE_FRESH_FOR + 1
-        probe.view({"HOME": "/home/owner"})
-        probe._thread.join()
-        self.assertEqual(len(calls), 4)
-
-    def test_the_last_result_is_kept_across_restarts(self):
-        directory = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, directory)
-        cache = directory / "connectors-status.json"
-
-        def run(command, **options):
-            if command[1] == "auth":
-                return SimpleNamespace(returncode=0, stdout=json.dumps({"loggedIn": True}))
-            return SimpleNamespace(returncode=0, stdout=CLAUDE_LIST)
-
-        first = connectors.ClaudeProbe(run=run)
-        self.assertIsNone(first.view({}, cache=cache)["result"])
-        first._thread.join()
-        self.assertEqual(stat.S_IMODE(cache.stat().st_mode), 0o600)
-        # A new server process: the saved result shows at once while a fresh check runs.
-        second = connectors.ClaudeProbe(run=lambda command, **options: SimpleNamespace(returncode=1, stdout=""))
-        shown = second.view({}, cache=cache)
-        self.assertTrue(shown["checking"])
-        self.assertEqual(shown["result"]["connectors"]["Gmail"], "connected")
-        second._thread.join()
-
-    def test_a_damaged_saved_result_is_ignored(self):
-        directory = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, directory)
-        cache = directory / "connectors-status.json"
-        for content in ("not json", "[]", json.dumps({"available": True})):
-            cache.write_text(content)
-            self.assertIsNone(connectors._read_cached(cache))
-
-    def test_missing_or_failing_claude(self):
-        def missing(command, **options):
-            raise FileNotFoundError(command[0])
-
-        probe = connectors.ClaudeProbe(run=missing)
-        probe.view({})
-        probe._thread.join()
-        self.assertEqual(probe.view({})["result"], {"available": False, "reason": "claude_missing", "account": None})
-        failing = connectors.ClaudeProbe(run=lambda command, **options: SimpleNamespace(returncode=1, stdout=""))
-        failing.view({})
-        failing._thread.join()
-        self.assertEqual(failing.view({})["result"]["reason"], "claude_failed")
 
 
 class AgentShellTest(unittest.TestCase):

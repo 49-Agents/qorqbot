@@ -19,6 +19,12 @@ class ChangeSelection(unittest.TestCase):
         self.assertEqual(self.enabled("qorqut-code/app/qorqut/agents/attention.py"), {"backend"})
         self.assertEqual(self.enabled("qorqut-code/app/qorqut/service/web.py"), {"backend", "dashboard"})
 
+    def test_bundled_extensions_run_the_backend_and_build_the_installer(self):
+        for path in ("qorqut-code/extensions/google-calendar/qorqut_google_calendar/calendar.py",
+                     "qorqut-code/extensions/treg/qorqut_treg/operations.py"):
+            with self.subTest(path=path):
+                self.assertEqual(self.enabled(path), {"backend", "distribution"})
+
     def test_docs_skip_but_managed_instructions_and_prompts_run(self):
         self.assertEqual(self.enabled("RELEASES.md", "qorqut-code/docs/INSTALLATION.md"), set())
         for path in ("qorqut-agentic/src/qorqut_agentic/resources/defaults/roles/owner.md",

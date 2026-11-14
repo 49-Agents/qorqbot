@@ -1,7 +1,7 @@
 schema_version: 1
 id: agent-terminal-control
 version: 1.1.0
-description: Scoped terminal lifecycle for Ordubashy and Global Marketing, with recorded direct Dev messages.
+description: Scoped terminal lifecycle for Ordubashy, with recorded direct Dev messages.
 scope_kinds: [ecosystem]
 config_schema: plugins/agent-terminal-control/config.schema.json
 tools: plugins/agent-terminal-control/tools.yaml

@@ -3,7 +3,7 @@
 // Where sign-in is required there is no way past this screen: when the service cannot be reached the owner can only
 // try again. Opened from Settings on an installation that does not require it, the card can be cancelled.
 // Also paints the one-line "new version" notice from the same /root/account read, checked again every six hours.
-// `accountGate.updateMessage` is pure (tested with node --test).
+// `accountGate.updateMessage` and `accountGate.licenseMessage` are pure (tested with node --test).
 const accountGate = (() => {
   const LICENSE_URL = 'https://qorqbot.com/license/';
   const PRIVACY_URL = 'https://qorqbot.com/privacy/';
@@ -16,6 +16,33 @@ const accountGate = (() => {
     if (!update || !update.version) return null;
     return {text: `Qorqbot ${update.version} is available.`, action: 'Download', url: update.url || 'https://qorqbot.com/downloads/',
       version: update.version};
+  }
+  // "March 15, 2027" from an ISO date or timestamp, read as a calendar date so the time zone never shifts the day.
+  function dateText(value) {
+    const part = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ''));
+    if (!part) return '';
+    const day = new Date(Date.UTC(+part[1], +part[2] - 1, +part[3]));
+    if (Number.isNaN(day.getTime())) return '';
+    return day.toLocaleDateString('en-US', {year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC'});
+  }
+  // The license sentence for Settings, from the /root/account read (qorqut/account.py `_license_view`): paid, free or
+  // not known. `paid` is true or false only when the license service said so; anything else is not known, and a
+  // missing or older reply never reads as paid. Plain text: the caller escapes it. Nothing here limits use.
+  function licenseMessage(view) {
+    const license = view && view.license;
+    if (!license) return null;
+    const work = !!(view.account && view.account.use === 'work');
+    const free = dateText(license.commercial_free_until);
+    if (license.paid === true) {
+      const price = license.price === 'monthly' || license.price === 'yearly' ? ` (${license.price})` : '';
+      const until = dateText(license.paid_until);
+      return {status: 'paid', text: `Paid license${price}${until ? ` through ${until}` : ''}.`};
+    }
+    if (license.paid === false) {
+      return {status: 'free', text: work ? `Commercial license free until ${free || 'January 1, 2027'}.` : ''};
+    }
+    return {status: 'unknown', text: work
+      ? `Commercial license free until ${free || 'January 1, 2027'}. Paid status not known yet.` : 'Paid status not known yet.'};
   }
   function paintUpdate(view) {
     document.querySelector('.update-notice')?.remove();
@@ -94,7 +121,7 @@ const accountGate = (() => {
     const section = card(`<h2 id="account-gate-title">check your email</h2>
       <p>We sent a code to <b>${esc(email)}</b>. It expires in 10 minutes.</p>
       <form class="account-gate-form" data-account-code novalidate>
-        <input name="code" autocomplete="one-time-code" inputmode="text" maxlength="9" placeholder="XXXX-XXXX" required aria-label="sign-in code" class="account-gate-code">
+        <input name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="9" placeholder="123456" required aria-label="sign-in code" class="account-gate-code">
         <fieldset class="account-gate-use"><legend>How will you use Qorqbot?</legend>
           <div class="account-gate-choice"><label><input type="radio" name="use" value="personal" checked>Personal</label>
           <label><input type="radio" name="use" value="work">For work</label></div>
@@ -171,6 +198,6 @@ const accountGate = (() => {
     try { view = await read(); } catch (_) { return; }
     if (view.required && !root) { optional = false; resolveGate = null; emailStep(); }
   }
-  return {boot, read, send, signIn, enforce, updateMessage, paintUpdate, LICENSE_URL, PRIVACY_URL};
+  return {boot, read, send, signIn, enforce, updateMessage, licenseMessage, paintUpdate, LICENSE_URL, PRIVACY_URL};
 })();
 if (typeof module !== 'undefined') module.exports = accountGate;

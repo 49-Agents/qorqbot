@@ -1,7 +1,8 @@
 """The typed host metadata contribution of native-session Chat.
 
-Seven tables of durable *metadata*: session bindings, per-agent counters, capture/index cursors, input requests and their
-receipts, the append-only input event ledger, reply completions and owner read boundaries. None of them is a message-body
+Eight tables of durable *metadata*: session bindings, per-agent counters, capture/index cursors, input requests and their
+receipts, the append-only input event ledger, reply completions, owner read boundaries and the positions of the native user
+turns (``native_owner_turns``: where each one starts in the archive and when, never its text). None of them is a message-body
 authority: the transcript archive owns conversation content, an input row keeps its text only while the input is not yet
 visible in the native conversation, and a reply row keeps a derived notification preview that the archive can rebuild.
 
@@ -29,6 +30,7 @@ TABLE_SPECS = {
     "native_input_events": TableSpec(("id",), mutable=False, revision_column=None),
     "native_replies": TableSpec(("id",), mutable=False, revision_column=None),
     "native_reads": TableSpec(("agent_id", "principal_id"), revision_column=None),
+    "native_owner_turns": TableSpec(("id",), mutable=False, revision_column=None),
 }
 
 IMMUTABLE_FIELDS = {
@@ -242,6 +244,42 @@ END""",
     """CREATE TRIGGER native_reads_no_delete BEFORE DELETE ON native_reads
 BEGIN
     SELECT RAISE(ABORT, 'Read boundaries are never deleted');
+END""",
+    # One row per native user turn: a pointer into the archive payload, its time and how it arrived. ``via`` is the type of the
+    # admitted input the turn was matched to, or ``typed`` when none matched (text typed in the agent's own terminal). A turn
+    # that may be a private input is ``redacted``: its length is not kept and its text is never read back.
+    """CREATE TABLE native_owner_turns (
+    id TEXT PRIMARY KEY CHECK(length(id) = 64),
+    agent_id TEXT NOT NULL REFERENCES principals(id),
+    provider TEXT NOT NULL CHECK(provider IN ('claude','codex')),
+    conversation_id TEXT NOT NULL CHECK(length(conversation_id) BETWEEN 1 AND 256),
+    archive_id TEXT NOT NULL CHECK(length(archive_id) BETWEEN 1 AND 400),
+    identity_kind TEXT NOT NULL CHECK(identity_kind IN ('native_id','raw_range')),
+    identity_key TEXT NOT NULL CHECK(length(identity_key) BETWEEN 1 AND 400),
+    session_id TEXT REFERENCES native_sessions(id),
+    receipt_id TEXT NOT NULL,
+    raw_offset INTEGER NOT NULL CHECK(raw_offset >= 0),
+    raw_length INTEGER NOT NULL CHECK(raw_length > 0),
+    occurred_at TEXT NOT NULL,
+    indexed_at TEXT NOT NULL,
+    chars INTEGER NOT NULL CHECK(chars >= 0),
+    input_id TEXT REFERENCES native_inputs(id),
+    via TEXT NOT NULL CHECK(via IN ('chat','telegram','broadcast','direct_message','typed')),
+    redacted INTEGER NOT NULL DEFAULT 0 CHECK(redacted IN (0,1)),
+    CHECK((via = 'typed') = (input_id IS NULL)),
+    CHECK(redacted = 0 OR (chars = 0 AND input_id IS NULL)),
+    UNIQUE(agent_id, provider, conversation_id, archive_id, identity_kind, identity_key)
+) STRICT""",
+    """CREATE INDEX native_owner_turns_time ON native_owner_turns(occurred_at, id)""",
+    """CREATE INDEX native_owner_turns_agent ON native_owner_turns(agent_id, occurred_at)""",
+    """CREATE UNIQUE INDEX native_owner_turns_input ON native_owner_turns(input_id) WHERE input_id IS NOT NULL""",
+    """CREATE TRIGGER native_owner_turns_no_update BEFORE UPDATE ON native_owner_turns
+BEGIN
+    SELECT RAISE(ABORT, 'A native user turn is never changed');
+END""",
+    """CREATE TRIGGER native_owner_turns_no_delete BEFORE DELETE ON native_owner_turns
+BEGIN
+    SELECT RAISE(ABORT, 'A native user turn is never deleted');
 END""",
 )
 

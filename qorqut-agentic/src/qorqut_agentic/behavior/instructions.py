@@ -19,7 +19,7 @@ MAX_BYTES = 512 * 1024
 TOKEN = re.compile(r"\{\{([A-Z][A-Z0-9_]*)\}\}")
 
 ALWAYS_SKILLS = (
-    "qorqut-role-owner-focus", "qorqut-role-chat-references",
+    "qorqut-role-chat-references",
     "qorqut-role-owner-input", "qorqut-role-action-recording",
     "qorqut-role-owner-reminders", "qorqut-role-calendar",
     "qorqut-plugin-email-management", "qorqut-role-business-tables",

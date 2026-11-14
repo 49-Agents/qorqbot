@@ -28,8 +28,8 @@ const onboarding = (() => {
       online: 'Ordubashy is online. He sets himself up while you look around, and you say hello to him at the end of the tour.',
       target: () => document.querySelector('#global-agent-terminal .gchat-terminal')},
     {id: 'focus', chapter: 'workspace', view: 'focus', title: 'focus',
-      body: 'The right side is Ordubashy’s workspace. Focus keeps what needs you in one place: signoffs waiting for your answer, side chats, and the tasks and records you pin.',
-      hint: 'Pin a task or record to keep it here.',
+      body: 'The right side is Ordubashy’s workspace. Focus keeps what needs you in one place: signoffs waiting for your answer, side chats and the threads you pin, with your own notes below.',
+      hint: 'Only you see these notes; agents never read them.',
       target: pane},
     {id: 'attention', chapter: 'workspace', view: 'attentionBoard', title: 'todo',
       body: 'Todo lists the work on Ordubashy’s board, yours and your agents’. The person icon shows only the tasks waiting on you.',
@@ -63,7 +63,7 @@ const onboarding = (() => {
     {id: 'connect-overview', chapter: 'connect', title: 'two ways to reach your tools', wide: true, standalone: true,
       body: 'Both are optional.',
       instructions: ['<b>Agent browser:</b> built into Qorqbot and the default way agents use websites. Works with both Claude Code and Codex. To connect a site, ask Ordubashy, for example “connect my Slack”. It opens Chrome and you sign in yourself. Qorqbot never sees your password.',
-        '<b>Claude connectors:</b> direct connections such as Gmail. Only agents running in Claude Code can use them, through the same Claude account your agents use. Any change they make needs your approval first. They’re in Settings under Claude connectors.'],
+        '<b>Extensions:</b> extra tools that run inside Qorqbot and work with both Claude Code and Codex. Start with treg: one key gives your agents thousands of live data lookups, such as search results and company details. Add your key in Settings under Extensions.'],
       target: () => null},
     {id: 'browser-setup', chapter: 'connect', tab: 'settings', title: 'agent browser',
       body: 'It sets itself up. This card shows when it’s ready, or how to fix it if not. Websites Ordubashy connects for you are listed with it.',
@@ -73,6 +73,8 @@ const onboarding = (() => {
       body: 'Type “hi, help me get set up” and press send. Ordubashy asks a few quick questions about you, then connects the tools you want him to use.',
       hint: 'His replies appear here in Chat. To watch him work, the >_ icon above Chat opens his terminal.',
       offline: 'He isn’t running yet. Open his terminal with the >_ icon above Chat and type claude or codex, then say hello.',
+      // A first walkthrough types the hello for the owner, and done sends it.
+      typed: '“hi, help me get set up” is typed in below. Press done to send it. Ordubashy asks a few quick questions about you, then connects the tools you want him to use.',
       target: () => document.querySelector('#global-agent-terminal .gchat-composer')},
   ];
   let root = null, card = null, target = null, index = 0, generation = 0, busy = false;
@@ -82,6 +84,9 @@ const onboarding = (() => {
   // Set once a step's action opened a list in the workspace (the signoffs step), so the tour closes it when it moves on.
   let openedList = false;
   let replay = false;
+  // The agent the first message goes to when a first walkthrough finishes on the hello step; null when the owner types it.
+  let greet = null;
+  const HELLO = 'hi, help me get set up';
   const holdMenu = hold => { if (typeof globalAgentNavHold === 'function') globalAgentNavHold(hold); };
   const visible = el => !!el?.isConnected && !!el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
   const findAgent = role => globalAgentProfiles.find(a => globalRosterAgent(a) && (a.role?.id || a.role_id) === role);
@@ -160,12 +165,20 @@ const onboarding = (() => {
       if (assistant) Promise.resolve(state.scope === 'global' && state.globalTab === 'agents' ? null : selectGlobal('agents'))
         .then(() => waitFor(() => document.querySelector('.global-agents')?.openAgent))
         .then(() => globalAgentsNavigate(assistant.agent_id, {chat: true}))
-        .then(() => document.querySelector('#global-agent-terminal .gchat-composer textarea:not(:disabled)')?.focus({preventScroll: true}))
+        .then(() => sendHello(greet === assistant.agent_id))
         .catch(() => {});
       toast(again ? 'Walkthrough finished.' : 'You’re all set. Take the walkthrough again anytime from Settings.');
     } else {
       toast(again ? 'Walkthrough closed.' : 'Walkthrough skipped. Take it anytime from Settings.');
     }
+  }
+  // Sends the typed hello when the owner left it as it is; otherwise only focuses the composer for their own first message.
+  async function sendHello(send) {
+    const input = await waitFor(() => document.querySelector('#global-agent-terminal .gchat-composer textarea:not(:disabled)'), 10000);
+    if (!send || ![HELLO, ''].includes(input.value.trim())) { input.focus({preventScroll: true}); return; }
+    input.value = HELLO; input.dispatchEvent(new Event('input', {bubbles: true}));
+    const button = await waitFor(() => { const b = input.form?.querySelector('.gchat-send'); return b && !b.disabled && b; }, 4000);
+    if (input.value === HELLO) input.form.requestSubmit(button);
   }
   // Esc: the welcome, the menu and a replay close as they are; a first walkthrough keeps its place and offers to continue
   // the next time the dashboard opens. Only skip and done record an outcome.
@@ -326,7 +339,7 @@ const onboarding = (() => {
     if (step.tab === 'settings') {
       if (state.scope !== 'global' || state.globalTab !== 'settings' || !document.querySelector('.settingspane')) await selectGlobal('settings');
       if (!isCurrent(token)) return;
-      // Settings shows one section at a time; the connector steps live in Connections.
+      // Settings shows one section at a time; the browser step lives in Connections.
       if (typeof settingsShowSection === 'function') settingsShowSection('connections');
       await waitFor(() => visible(step.target()) && step.target(), 10000);
       // Instant, so the spotlight is placed on where the area ends up rather than mid-scroll.
@@ -360,12 +373,24 @@ const onboarding = (() => {
     if (!isCurrent(token)) return;
     if (step.menu) holdMenu(true);
     await waitFor(() => visible(step.target()) && step.target());
-    // The last step asks for the first message, so it says how to start him first when he isn't running.
+    // The last step asks for the first message, so it says how to start him first when he isn't running. On the first
+    // walkthrough, while he is online and the owner has never written to him, it types the message for them and done
+    // sends it.
     if (step.hello) {
-      const session = await api(`${globalChatBase(assistant.agent_id)}?limit=1`, {signal: AbortSignal.timeout(4000)})
-        .then(data => coreData(data).session || {state: 'offline'}).catch(() => null);
-      const hint = isCurrent(token) && card.querySelector('.onboarding-hint');
-      if (hint && onboardingPlan.launchPhase(session) !== 'online') hint.textContent = step.offline;
+      const chat = await api(`${globalChatBase(assistant.agent_id)}?limit=20`, {signal: AbortSignal.timeout(4000)})
+        .then(coreData).catch(() => null);
+      if (!isCurrent(token)) return;
+      const online = onboardingPlan.launchPhase(chat ? chat.session || {state: 'offline'} : null) === 'online';
+      const hint = card.querySelector('.onboarding-hint');
+      if (hint && !online) hint.textContent = step.offline;
+      const written = !chat || (chat.entries || []).some(entry => entry.speaker === 'user')
+        || (chat.inputs || []).some(item => item.origin === 'owner');
+      const input = step.target()?.querySelector('textarea');
+      if (online && !replay && !written && input && !input.disabled && [HELLO, ''].includes(input.value.trim())) {
+        greet = assistant.agent_id;
+        input.value = HELLO; input.dispatchEvent(new Event('input', {bubbles: true}));
+        card.querySelector('#onboarding-description').innerHTML = step.typed;
+      }
     }
   }
   async function showStep(next) {
@@ -378,7 +403,7 @@ const onboarding = (() => {
       if (!isCurrent(token)) return;
     }
     if (openedList) { const close = document.querySelector('#agpad [data-surface-close]'); if (visible(close)) close.click(); openedList = false; }
-    index = Math.max(0, Math.min(next, steps.length-1)); const step = steps[index];
+    index = Math.max(0, Math.min(next, steps.length-1)); const step = steps[index]; greet = null;
     if (!step.menu) holdMenu(false);
     card.style.opacity = '0';
     stepTargetReady = false; setWelcome(false); describeTarget(null); card.classList.toggle('is-wide', !!step.wide); launchSession = null; clearTimeout(launchTimer);

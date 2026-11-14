@@ -55,16 +55,13 @@
 .agent-workspace-app .agpad .tbody { padding:5px 23px 21px; }
 .agent-workspace-app .agpad .tbody:has(> .agfocus) { padding-left:10px; padding-right:11.5px; }
 .agent-workspace-app .agpad .agfocus-heading > .global-eyebrow { display:none; }
-.agent-workspace-app .agpad .agfocus-toolbar { width:auto; }
 .agent-workspace-app .agpad .agfocus > header { margin-bottom:8px; }
 
 /* Focus follows the approved workspace: quiet controls, square attention tiles,
    and readable separated rows. Source status colours remain in tasks.css. */
-.agent-workspace-app .agpad .agfocus > header:has(.agfocus-empty[hidden]) { display:none; }
 .agent-workspace-app .agpad .agfocus { padding-top:0; padding-left:0; }
 .agent-workspace-app .agfocus > header,
-.agent-workspace-app .agfocus > .attention-queue,
-.agent-workspace-app .agfocus > .agfocus-pages { zoom:1.1; }
+.agent-workspace-app .agfocus > .attention-queue { zoom:1.1; }
 .agent-workspace-app .agfocus .attention-queue { height:auto; min-height:44px; align-items:flex-start; margin:3px 0 10px; }
 .agent-workspace-app .agfocus .attention-stack { gap:8px; padding:0; }
 .agent-workspace-app .agfocus .attention-chip { flex:0 1 44px; width:44px; height:44px; min-height:44px; padding:7px 0; border:0; border-radius:8px; background:#131313; box-shadow:none; }
@@ -81,7 +78,7 @@
 .agent-workspace-app .agfocus .agfocus-row > .task-headline { grid-column:3; grid-row:1; }
 .agent-workspace-app .agfocus .agfocus-row > .agfocus-actions { grid-column:4; grid-row:1; }
 .agent-workspace-app .agfocus .agfocus-row .ttl { font-size:14.5px; font-weight:400; letter-spacing:-.005em; line-height:1.75; padding:0; text-transform:lowercase; }
-.agent-workspace-app .agfocus .agfocus-text .agfocus-text-input { font-size:14.5px; font-weight:400; letter-spacing:-.005em; line-height:1.75; padding-top:3px; padding-bottom:3px; }
+.agent-workspace-app .agfocus .agfocus-notes .agfocus-notes-input { font-size:15.5px; font-weight:400; letter-spacing:-.005em; line-height:1.75; }
 .agent-workspace-app .agfocus .agfocus-row .agfocus-scope { grid-column:3; grid-row:1; justify-self:end; position:relative; z-index:1; width:auto; max-width:min(124px,65%); opacity:0; pointer-events:none; }
 .agent-workspace-app .agfocus .agfocus-card:hover > .agfocus-row .agfocus-scope,
 .agent-workspace-app .agfocus .agfocus-card:focus-within > .agfocus-row .agfocus-scope { opacity:1; }
@@ -92,7 +89,6 @@
 .agent-workspace-app .ball.agfocus-task-state .core{transform:scale(.55)}
 .agent-workspace-app .agfocus .agfocus-marker:hover .agfocus-task-state .core,.agent-workspace-app .agfocus .agfocus-task-state:focus-visible .core{transform:scale(1.1)}
 .agent-workspace-app .agfocus .agfocus-dock{border:0}
-.agent-workspace-app .agfocus .agfocus-work-child { margin-left:calc(var(--focus-depth,1) * 23px); }
 .agent-workspace-app .agfocus .agfocus-actions { opacity:0; pointer-events:none; }
 .agent-workspace-app .agfocus .agfocus-card:hover > .agfocus-row .agfocus-actions,
 .agent-workspace-app .agfocus .agfocus-card:focus-within > .agfocus-row .agfocus-actions,

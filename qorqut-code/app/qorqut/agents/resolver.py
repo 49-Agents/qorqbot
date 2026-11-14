@@ -30,8 +30,8 @@ from . import role_workflow
 from . import cleanup_workflow
 from .context import MAX_CONTEXT_CHARACTERS, ContextSource, compose_context
 from .global_scope import with_effective_scope
-from .models import AgentProfile, EffectiveAgentConfig, RETIRED_ROLE_IDS
-from .roles import RETIRED_PLUGIN_IDS, SUPPORTED_GLOBAL_ROLES
+from .models import AgentProfile, EffectiveAgentConfig
+from .roles import SUPPORTED_GLOBAL_ROLES
 
 PROFILE_CACHE_LIMIT = 128
 FINGERPRINT_CACHE_LIMIT = 256
@@ -293,8 +293,8 @@ class AgentConfigResolver:
             # whatever its stored status, and is never revived for execution.
             raise DomainError("inactive_agent", "Business-home agent identities are historical and cannot operate")
         profile = self._parsed_profile(principal.id, row["profile_json"])
-        if profile.role.id in RETIRED_ROLE_IDS or profile.role.id not in SUPPORTED_GLOBAL_ROLES:
-            raise DomainError("inactive_agent", "Agent uses a retired or unsupported role and cannot operate")
+        if profile.role.id not in SUPPORTED_GLOBAL_ROLES:
+            raise DomainError("inactive_agent", "Agent uses an unsupported role and cannot operate")
         if profile.scope.kind != "ecosystem":
             raise DomainError("profile_conflict", "An active agent must hold ecosystem scope")
         if (profile.agent_id != principal.id or row["principal_id"] != principal.id or profile.data["status"] != "active" or profile.revision != row["revision"]
@@ -702,9 +702,6 @@ class AgentConfigResolver:
         if profile.scope.kind not in role.manifest["scope_kinds"]:
             raise DomainError("invalid_scope", "Pinned role does not support this agent scope")
         packages = [role]
-        retired = sorted({item["id"] for item in profile.data["plugins"]} & RETIRED_PLUGIN_IDS)
-        if retired:
-            raise DomainError("invalid_plugin_config", f"Plugin {retired[0]} is retired; disable it for this agent")
         for grant in profile.data["plugins"]:
             plugin = self.catalog.get("plugin", grant, connection=connection)
             if profile.scope.kind not in plugin.manifest["scope_kinds"]:

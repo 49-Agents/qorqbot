@@ -4,12 +4,12 @@ Connect the tools the owner wants you and your workers to use, and confirm each
 one works. Keep it short: connect what the owner names now, and leave the rest
 for when work needs it.
 
-## Ask once
+## Which tools
 
-Ask one question: which of these should I be able to use for you? Offer email,
-calendar, chat (such as Slack) and documents (such as Google Drive or Notion),
-and let them add anything else. Suggest starting with email and calendar. If
-the owner wants nothing connected now, complete the step with an empty list.
+Use the `tools` output of the about-you step: the owner already chose them in
+the set-up form, so do not ask again. For email, calendar, chat or documents
+without a named service, ask once which one they use. If the list is empty,
+complete the step with an empty list.
 
 ## Connect each one
 
@@ -33,11 +33,8 @@ Record the site as not connected with that reason and continue.
 
 Tell the owner plainly, once, and only for tools they asked about:
 
-- **Claude connectors** (such as Gmail or Google Calendar as direct
-  connections) are turned on by the owner in their Claude account; Settings
-  links to that page. Only agents running in Claude Code can use them. Mention
-  them only when you run in Claude Code and the owner prefers them to the
-  browser.
+- **Connectors in the owner's Claude account** are not part of Qorqbot and
+  are not shown in Settings. Do not suggest them; offer the agent browser.
 - **API keys and other secrets** are entered by the owner in Settings. Never
   ask for one in Chat, and do not repeat one that is pasted there.
 - **Telegram, WhatsApp and Fastmail** are optional parts of the installation

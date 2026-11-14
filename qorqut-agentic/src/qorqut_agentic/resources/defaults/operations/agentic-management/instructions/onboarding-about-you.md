@@ -1,36 +1,50 @@
 # About you
 
-Learn the basics about the owner and save them. This should take the owner about
-two minutes. It is a first conversation, not a form and not a full profile: more
-will be captured later from ordinary work.
+Learn the basics about the owner, and which tools they want connected, from one
+short set-up form. This should take the owner about a minute. It is a first
+conversation, not a full profile: more will be captured later from ordinary
+work.
 
 ## Before asking
 
 Read the personal context node: `context_home` returns `personal_context.ref`;
 read it with `context_object`. Do not ask for anything the node already holds.
-If everything below is already there, say so in one line, confirm it is still
-right, and complete the step.
 
 If `context_home` returns no personal context pointer, do not create a profile.
-Tell the owner the personal store is unavailable on this installation, complete
-the step with that as the reason, and continue with the rest of the run.
+Ask only the tools question below, tell the owner the personal store is
+unavailable on this installation, and complete the step with that as the reason.
 
-## What to ask
+## The set-up form
 
-Ask for what is missing in one message, as a short list the owner can answer in
-one reply:
+Create one Signoff with `signoffs_input_create`: a version-2 question form as
+Owner input describes, `response_policy: owner_only`, request key `get-set-up`,
+title "Getting set up", explanation "Everything is optional. Answer what you
+like and press Done.", and the set-up Task as its `source`. Leave out each
+question the personal context node already answers. Every question has
+`required: false`:
 
-1. What should I call you?
-2. What do you do? Your work or business and your role, in a sentence or two.
-3. Where are you based, and which language should we work in?
-4. Which links should I know (website, LinkedIn or similar), and which email address
-   should I use for you?
-5. What do you most want help with right now?
+1. `name`, no choices: "What should I call you?"
+2. `work`, no choices: "What do you do?", explained as "Your work or business
+   and your role, in a sentence. Or drop your LinkedIn link, or anything else
+   that gives quick context."
+3. `todo`, no choices: "What's your todo list right now?", explained as "You can
+   paste it in."
+4. `tools`, multiple choice: "Which tools should I connect?", explained as
+   "Email and calendar are a good start." Choices `email` (Email: Gmail, Outlook
+   or similar), `calendar` (Calendar: Google Calendar or similar), `chat` (Chat:
+   Slack or similar) and `documents` (Documents: Google Drive, Notion or
+   similar).
 
-Every question is optional. If the owner skips one, leave it and do not ask
-again in this run. Ask at most one follow-up, and only when an answer is too
-unclear to record. Do not ask about goals, preferences, people or history
-beyond this list.
+Show it in Chat with `request_user_input` and the form's Signoff reference, with
+one short line such as "A few quick questions to get you set up, all optional."
+That line is your whole reply: do not repeat the questions, and send no other
+message about the form. Then wait for the answer.
+
+When the form is answered, read the decision with `signoffs_get`. Use each
+answer's notes as written; the tools answer is its selected choices plus
+anything the owner wrote in its notes. If the owner answers in Chat instead,
+use those answers and cancel the form with `signoffs_input_cancel`. If they
+skip everything, save nothing and do not ask again in this run.
 
 ## Saving
 
@@ -46,6 +60,11 @@ anything was saved. If the base revision moved, rebuild the edit on the current
 revision. If it cannot be saved, say so and keep the answers in the Task thread
 for follow-up.
 
+A link the owner gives (LinkedIn or similar) is saved as given; do not open it
+during set-up. The todo list is work, not a personal fact: do not save it to the
+node. Post it as written to the set-up Task's thread and pass it on in the step
+output.
+
 Things the owner says about how they want you to work (tone, approvals, rules)
 are not personal facts. Note them in the Task thread and handle them through
 the existing preferences workflow after this run.
@@ -57,5 +76,8 @@ Complete the step with output:
 - `saved`: the attribute names written or already current
 - `skipped`: what the owner chose not to answer
 - `edit`: the queue input ID of the edit and its outcome, or null when nothing changed
+- `tools`: the tools the owner chose, as written (an empty list when none)
+- `todo`: the owner's todo list as written, or null when they skipped it
+- `signoff`: the form's Signoff ID
 
 Then move to the next ready step without waiting to be asked.

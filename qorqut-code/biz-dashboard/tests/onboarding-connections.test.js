@@ -19,22 +19,40 @@ test('the overview comes right before the Settings steps and is a saved step', (
   assert.ok(saved.indexOf('"connect-overview"') >= 0 && saved.indexOf('"connect-overview"') < saved.indexOf('"browser-setup"'));
 });
 
-test('the overview covers who each path works for and the same-account rule', () => {
+test('the overview covers the browser and extensions, and both work with either agent', () => {
   const text = step('connect-overview');
   assert.match(text, /built into Qorqbot/);
-  assert.match(text, /both Claude Code and Codex/);
-  assert.match(text, /Only agents running in Claude Code/);
-  assert.match(text, /same Claude account/);
+  assert.match(text, /Works with both Claude Code and Codex/);
+  assert.match(text, /<b>Extensions:<\/b>/);
+  assert.match(text, /work with both Claude Code and Codex/);
+  assert.match(text, /Start with treg/);
+  assert.ok(!/Claude connectors|same Claude account|claude\.ai/.test(text));
 });
 
-test('the tour points to the hidden connectors, then the browser, then ends in Chat with the first message', () => {
+test('the tour names where extensions are, then shows the browser, then ends in Chat with the first message', () => {
   for (const removed of ["{id: 'connectors'", "{id: 'connect-more'"]) assert.ok(!tour.includes(removed), removed);
-  assert.match(step('connect-overview'), /Settings under Claude connectors/);
+  assert.match(step('connect-overview'), /Settings under Extensions/);
   assert.ok(tour.indexOf("{id: 'browser-setup'") < tour.indexOf("{id: 'chat'"));
   const ids = [...tour.matchAll(/\{id: '([a-z-]+)'/g)].map(match => match[1]);
   assert.equal(ids.at(-1), 'chat');
   assert.match(step('chat'), /hi, help me get set up/);
   assert.match(step('chat'), /offline: 'He isn’t running yet/);
+});
+
+test('a first walkthrough types the hello and done sends it, only while the owner has never written to Ordubashy', () => {
+  assert.match(step('chat'), /typed: '“hi, help me get set up” is typed in below. Press done to send it/);
+  const hello = tour.slice(tour.indexOf('if (step.hello) {'), tour.indexOf('async function showStep'));
+  assert.match(hello, /online && !replay && !written/);
+  assert.match(hello, /entry\.speaker === 'user'/);
+  assert.match(hello, /item\.origin === 'owner'/);
+  assert.match(hello, /greet = assistant\.agent_id/);
+  // Done sends it only when the box still holds the hello; anything the owner typed instead is left for them.
+  assert.match(tour, /sendHello\(greet === assistant\.agent_id\)/);
+  const send = tour.slice(tour.indexOf('async function sendHello'), tour.indexOf('// Esc:'));
+  assert.match(send, /\[HELLO, ''\]\.includes\(input\.value\.trim\(\)\)/);
+  assert.match(send, /requestSubmit/);
+  // Leaving the step forgets the pending hello.
+  assert.match(tour, /const step = steps\[index\]; greet = null;/);
 });
 
 test('steps that point into the agent menu hold it open, and no step mentions the retired ? button', () => {
@@ -51,11 +69,12 @@ test('the browser step points at the browser card together with its signed-in we
   assert.ok(area >= 0 && area < panel.indexOf('data-cx-browser ') && panel.indexOf('data-cx-accounts') < panel.indexOf('</section></div>'));
 });
 
-test('Claude connectors are collapsed by default and Connect is explained inside', () => {
+test('extensions are shown open below the browser, and no Claude connector is offered', () => {
   const panel = read('js/connectors.js');
-  assert.match(panel, /<details class="cx-direct" data-cx-direct>/);
-  assert.match(panel, /Connect opens claude\.ai/);
-  assert.ok(panel.indexOf('data-cx-browser ') < panel.indexOf('data-cx-direct>'));
+  assert.match(panel, /<section class="cx-extensions" data-cx-extensions>/);
+  assert.ok(panel.indexOf('data-cx-browser ') < panel.indexOf('data-cx-extensions>'));
+  for (const removed of ['cx-direct', 'claude.ai', 'Claude connectors', 'Gmail', 'Notion', 'Google Drive'])
+    assert.ok(!panel.includes(removed), removed);
 });
 
 test('Chat tells the owner to start the agent in Terminal and offers no Start button', () => {

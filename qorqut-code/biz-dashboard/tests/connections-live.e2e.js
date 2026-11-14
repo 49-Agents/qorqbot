@@ -37,9 +37,8 @@ test('live app serves browser setup and Connections at desktop and mobile widths
     await page.locator('[data-global-settings]').first().click();
     await page.locator('[data-cx-browser-status]').waitFor();
     await page.locator('[data-cx-browser-status]').getByText('Ready').waitFor();
-    assert.equal(await page.locator('[data-cx-tier="recommended"]').isVisible(), false);
-    await page.locator('[data-cx-direct] > summary').click();
-    await page.locator('[data-cx-tier="recommended"] [data-cx-card="gmail"]').waitFor();
+    await page.locator('[data-cx-extensions] [data-cx-card="treg"]').waitFor();
+    assert.equal(await page.locator('details.cx-direct, [data-cx-card="gmail"]').count(), 0);
     assert.equal(await page.locator('[data-cx-browser] [data-cx-action]').count(), 0);
     if (process.env.CONNECTIONS_SCREENSHOT_DIR)
       await page.screenshot({path: path.join(process.env.CONNECTIONS_SCREENSHOT_DIR, 'connections-live-desktop.png'), fullPage: true});

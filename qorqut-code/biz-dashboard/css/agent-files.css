@@ -66,6 +66,19 @@
 @container (max-width: 540px) {
   .agfiles-layout { grid-template-columns: 1fr; grid-template-rows: minmax(140px, 38%) minmax(0, 1fr); }
   .agfiles-tree { border-right: 0; border-bottom: 1px solid var(--line); }
-  .agfiles-footer > span:first-child { display: none; }
+  .agfiles-footer > span:last-child { display: none; }
   .agfiles-folder-head { padding: 16px; }
 }
+
+/* Projects and notes by default; system files only behind the footer switch. */
+.agfiles-count { margin-left: 6px; color: var(--fg-2); font-size: 10px; font-variant-numeric: tabular-nums; }
+.agfiles-name > .agfiles-count { flex: none; overflow: visible; }
+.agfiles-hidden-note { margin: 14px 7px 0; padding-top: 12px; border-top: 1px solid var(--line); font-size: 11px; line-height: 1.5; color: var(--fg-2); }
+.agfiles .agfiles-hidden-note button { color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
+.agfiles-system { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-size: 11px; color: var(--fg-2); }
+.agfiles-system input { appearance: none; position: relative; flex: none; width: 26px; height: 15px; margin: 0; border-radius: 8px; background: var(--line-2); cursor: pointer; transition: background .15s ease; }
+.agfiles-system input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: var(--fg-2); transition: transform .15s ease, background .15s ease; }
+.agfiles-system input:checked { background: var(--accent); }
+.agfiles-system input:checked::after { transform: translateX(11px); background: var(--accent-fg); }
+.agfiles-system input:focus-visible { outline: 2px solid var(--fg-2); outline-offset: 2px; }
+.agfiles-system:hover { color: var(--fg); }
