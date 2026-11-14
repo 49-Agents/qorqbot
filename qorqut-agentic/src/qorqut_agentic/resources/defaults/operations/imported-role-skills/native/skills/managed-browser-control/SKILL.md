@@ -58,8 +58,10 @@ browser is paused until then. When the window cannot open (`browser_no_screen`: 
 has no screen), Ordubashy opens the site's own sign-in page in its own browser, asks the owner
 for the password or code it does not have (a Telegram secret request where Telegram is
 connected, otherwise an urgent blocking owner-input Signoff), types it itself and checks that
-the account is signed in. A worker's own browser cannot be signed in without a screen, so
-Ordubashy then does the signed-in step in its own browser. A password or code goes only into
+the account is signed in. When the worker needs the site signed in inside its own browser,
+Ordubashy does the same there: `browser_turn` with action `list` shows each worker's browser,
+`acquire` with `protocol: "handles"` and that `browser_id` (the worker's agent id) returns a
+handle for it, and the worker waits until Ordubashy says to continue. A password or code goes only into
 the sign-in page of the site it belongs to (check the address first) and is never repeated or
 written anywhere else: no message, note, Task, Signoff, working memory, file or command. Sites
 sign out over time; Ordubashy signs in again the same way when work needs them. Before

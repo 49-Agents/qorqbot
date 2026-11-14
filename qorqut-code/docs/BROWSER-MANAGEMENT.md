@@ -74,6 +74,16 @@ Profiles, cookies, logins, `browser.json` and ownership metadata survive `restar
 action: nothing wipes a profile, replaces a configured target or silently assigns a different port or profile. A target file
 that differs from the saved record is reported `conflict` and left untouched.
 
+## Ordubashy using a worker's browser
+
+`agent_browser_manage` only maintains a worker's browser. To use it, for example to sign a website in there on a computer
+without a screen, the configured Ordubashy selects it with `browser_turn`: `list` names each active permanent worker's own
+browser under the worker's agent ID, and `acquire` with `protocol: "handles"` and that `browser_id` returns a handle bound to
+it. Every call with that handle proves afresh that the caller is the configured Ordubashy and that the worker is still an
+active permanent worker. Commands hold the worker's use lock like the worker's own, so a restart or stop is refused while one
+runs, and artifacts stay in Ordubashy's own folder. No other agent can select another agent's browser. The worker's own access
+is not paused, so the worker waits while Ordubashy works there.
+
 ## Existing browsers and the legacy binding
 
 A healthy existing `.qorqut/browser.json` is never replaced, migrated, cloned or restarted by `ensure`. The file alone does

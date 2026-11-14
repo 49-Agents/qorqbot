@@ -31,7 +31,7 @@ def register_browser_operation(runtime):
             "lease_id": {**_UUID, "description": instruction_text('operations-legacy-callers-only-omit-when-using-handle')},
             "turn_token": {"type": ["string", "null"], "maxLength": 128, "description": instruction_text('operations-legacy-callers-only-omit-when-using-handle')},
             "consumer_id": {**_UUID, "description": instruction_text('operations-optional-uuid-of-your-own-choosing-given-on')},
-            "browser_id": {"type": ["string", "null"], "pattern": "^[a-z][a-z0-9-]{0,62}$", "description": instruction_text('operations-ordubashy-only-on-acquire-with-protocol-handles-the')},
+            "browser_id": {"type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9-]{0,62}$", "description": instruction_text('operations-ordubashy-only-on-acquire-with-protocol-handles-the')},
             "browser_key": {"type": ["string", "null"], "maxLength": 200, "description": instruction_text('operations-durable-workers-use-the-exact-assignment-target-native')},
             "handle": {"type": ["string", "null"], "pattern": "^b[a-f0-9]{12}$", "description": instruction_text('operations-short-browser-handle-returned-by-acquire-use-it')},
             "action_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 200, "description": instruction_text('operations-stable-action-identity-reused-exactly-for-reconciliation-defaults')}, "command": {"type": ["array", "null"], "items": {"type": "string", "maxLength": 2000}, "maxItems": 32},
@@ -93,7 +93,8 @@ def register_agent_browser_management(runtime):
                     "to check the address bar, sign in themselves and close the window when finished. The target browser is paused "
                     "until the window closes. If open answers browser_no_screen, this computer has no screen for that window: open "
                     "the site's own sign-in page in your own browser, ask the owner for the password or code you do not have, type "
-                    "it yourself, and never repeat it or write it anywhere else. status lists connected sites; session_saved "
+                    "it yourself, and never repeat it or write it anywhere else. For a worker's own browser, acquire it with "
+                    "browser_turn (browser_id from action list) and sign in there the same way. status lists connected sites; session_saved "
                     "only means the site left cookies, and many sites do that before login, so open the site in your browser to "
                     "confirm the owner is really signed in. sign_out removes one. Before sending or changing anything on "
                     "a signed-in site, get the owner's approval in a Signoff. Nothing else enforces that.",

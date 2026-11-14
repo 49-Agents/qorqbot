@@ -252,8 +252,9 @@ def start(runtime, agent_id, value):
     owner = _require_agent(runtime, agent_id)
     if sys.platform == "linux" and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
         raise DomainError("browser_no_screen", "This computer has no screen for a sign-in window. Open the site's own sign-in page in your "
-                                               "own browser instead, ask the owner for the password or code and type it yourself. A worker's "
-                                               "browser cannot be signed in without a screen.")
+                                               "own browser instead, ask the owner for the password or code and type it yourself. For a worker's "
+                                               "own browser, acquire it with browser_turn (browser_id from action list) and "
+                                               "sign in there the same way.")
     with _lock:
         if agent_id in _active:
             raise DomainError("conflict", f"Finish signing in to {_active[agent_id]} first, then close that Chrome window.")
