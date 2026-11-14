@@ -151,3 +151,21 @@ browserTest('a detached rename cannot change the title of newer Focus content',a
   assert.equal(await page.locator('.side-chat-title-button').count(),0);assert.deepEqual(errors,[]);
  }finally{await browser.close();}
 });
+browserTest('references in a side chat open a referenced side chat as that side chat and a Task as a Task',async()=>{
+ const {browser,page,errors}=await fixture();try{
+  await page.evaluate(()=>{
+   const original=post;
+   window.post=async(url,body)=>url.endsWith('/owner_conversation_get') && body.source?.id==='one'
+    ?{messages:[{id:'m1',body:'See these',author_kind:'agent',created_at:'2026-11-13T10:00:00Z',refs:[{type:'signoff',id:'two'},{type:'task',id:'t1'}]}],conversation:{latest_sequence:1,message_count:1}}
+    :original(url,body);
+   window.attentionQueue={refresh:async()=>{},sideChat:id=>id==='two'?{id:'two',title:'Second chat',source:{type:'signoff',id:'two',business_id:null}}:null};
+   window.opened=[];window.taskProgressOpenReference=async(biz,ref)=>{opened.push(ref.type+':'+ref.id);};
+  });
+  await page.evaluate(()=>sideChatOpen({id:'one',title:'First chat',source:{type:'signoff',id:'one',business_id:null}}));
+  await page.locator('.side-chat-thread .gchat-ref-row-task').click();
+  assert.deepEqual(await page.evaluate(()=>opened),['task:t1']);
+  await page.locator('.side-chat-thread button.gchat-reference',{hasText:'signoff'}).click();
+  await page.waitForFunction(()=>document.querySelector('.side-chat-title-button')?.textContent==='Second chat');
+  assert.deepEqual(await page.evaluate(()=>opened),['task:t1']);assert.deepEqual(errors,[]);
+ }finally{await browser.close();}
+});

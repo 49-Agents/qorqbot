@@ -24,7 +24,7 @@ class SideChats:
             resolve_namespace=lambda c, a: 'global' if a.get('scope') == 'global' else 'business:' + (c.business_id or ''))
         for name, fields, required, description in (
             ('side_chats_create', {'text': {'type': 'string', 'minLength': 1, 'maxLength': 20000, 'pattern': r'\S'},
-                'title': {'type': 'string', 'maxLength': 200}}, ('text',),
+                'title': {'type': 'string', 'maxLength': 200}, **self.conversations.refs_field()}, ('text',),
                 'Open a side chat with the owner’s first private message to Ordubashy. A title is optional.'),
             ('side_chats_rename', {'signoff_id': {'type': 'string', 'format': 'uuid'},
                 'title': {'type': 'string', 'minLength': 1, 'maxLength': 200, 'pattern': r'\S'}}, ('signoff_id', 'title'),
@@ -59,6 +59,9 @@ class SideChats:
         if name == 'side_chats_create':
             if not args['text'].strip():
                 raise DomainError('validation_error', 'Write a message to start the side chat')
+            if args.get('refs'):
+                # The side chat does not exist yet; its first message's references are checked in the chat's own scope.
+                self.conversations.references.references(ctx, list(args['refs']), uow)
             builder.record('signoffs', new_id(), None, {'title': args.get('title', '').strip() or 'Side chat'})
         else:
             row = self.target(ctx, args['signoff_id'], uow)
@@ -102,7 +105,7 @@ class SideChats:
                 'policy_binding_json': binding, 'affected_scope_json': plain(plan.affected_scope),
                 'state': 'pending', 'updated_sequence': uow.next_sequence('signoffs'), 'created_at': self.signoffs.clock()})
             args = {'source': {'type': 'signoff', 'id': identity, 'business_id': ctx.business_id},
-                    'text': plan.arguments['text']}
+                    'text': plan.arguments['text'], **({'refs': plain(plan.arguments['refs'])} if plan.arguments.get('refs') else {})}
             self.app.authorize(ctx, self.app.registry.get('owner_conversation_send'), (), uow,
                                namespace=plan.target_namespace)
             message = self.conversations.prepare(ctx, args, InvocationOptions(), uow)
