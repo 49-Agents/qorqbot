@@ -72,17 +72,19 @@ note "Gatekeeper verdict: $(spctl --assess --type execute -vv "$APP" 2>&1 | tr '
 note "app architecture: $(lipo -archs "$APP/Contents/MacOS/Qorqbot" 2>&1)"
 
 section "First open, straight after download"
-note "open: $(open "$APP" 2>&1 || true)"
+# macOS holds `open` until its warning is dismissed, so do not wait for it.
+open "$APP" >"$OUT/01-open-output.txt" 2>&1 &
 sleep 12
 shot 01-first-open
 note "app running: $(pgrep -x Qorqbot >/dev/null && echo yes || echo no)"
-open "x-apple.systempreferences:com.apple.preference.security?General" 2>>"$OUT/errors.txt"
+open "x-apple.systempreferences:com.apple.preference.security?General" >>"$OUT/errors.txt" 2>&1 &
 sleep 10
 shot 02-privacy-and-security
 killall "System Settings" 2>/dev/null
 killall CoreServicesUIAgent 2>/dev/null
 pkill -x Qorqbot 2>/dev/null
 sleep 2
+note "open said: $(tr '\n' ' ' <"$OUT/01-open-output.txt")"
 
 if [ "$(uname -m)" != "arm64" ]; then
   note ""
@@ -110,7 +112,7 @@ for tool in python3.12 tmux brew; do
 done
 note "Programs with the developer tools taken away:"
 tools_report
-open "$APP" 2>>"$OUT/errors.txt"
+open "$APP" >>"$OUT/errors.txt" 2>&1 &
 sleep 30
 shot 03-open-without-developer-programs
 save_launcher_log 03-launcher.log
