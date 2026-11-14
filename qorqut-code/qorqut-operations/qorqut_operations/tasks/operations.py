@@ -43,8 +43,8 @@ from qorqut_operations.tasks.relocation import TaskRelocation, moved_location
 from qorqut_operations.tasks.scope import task_context, task_namespace
 from qorqut_operations.tasks.schema import CLOSED_STATES, PAUSED_STATES, STATES
 from qorqut_operations.tasks.snooze import reconcile_snoozes
-from qorqut_operations.tasks.types import (KIND_SCHEMA, NEXT_STEP_SCHEMA, PROFILE_SCHEMA, STATE_SCHEMA, STATUS_LINE_SCHEMA, TYPES,
-                                           apply_attributes, attributes, custom_fields)
+from qorqut_operations.tasks.types import (KIND_SCHEMA, NEXT_STEP_SCHEMA, PLAN_SCHEMA, POSITION_SCHEMA, PROFILE_SCHEMA, STATE_SCHEMA,
+                                           STATUS_LINE_SCHEMA, TYPES, apply_attributes, attributes, custom_fields, queue_rank)
 from qorqut_operations.team_channel import reject_owner_team_write
 
 TASK_READS = ("tasks_list", "tasks_get", "tasks_thread_get", "tasks_notes_list", "tasks_config_get", "assignees_list", "workers_list", "tasks_overview",
@@ -99,6 +99,9 @@ class TaskOperations:
         # writing transaction with the stored state before (``None`` for a new Task) and after. The host uses it to keep the
         # records that point at a Task (board entries, Focus cards, reminders) in step with it.
         self.on_change = None
+        # ``plan_steps(ctx, task, uow)``: the host's reading of where a Task's plan stands, one entry per step with its
+        # state, for ``tasks_get``. Without it a Task shows only the plan it was handed over with.
+        self.plan_steps = None
 
     # -- moved Tasks -----------------------------------------------------------------------------------------------
 
@@ -170,7 +173,8 @@ class TaskOperations:
             "tasks_comment": ({"task_id": IDENTITY, "text": BODY, **comment}, ("task_id", "text")),
             "tasks_complete": ({"task_id": IDENTITY, "status": {"enum": list(CLOSED_STATES)}, "note": TEXT, **comment,
                                 "children": lifecycle.CHILDREN, "result": lifecycle.RESULT}, ("task_id",)),
-            "tasks_delegate": ({"task_id": IDENTITY, "worker_id": UUID, "brief": TEXT, "note_refs": refs}, ("task_id", "worker_id")),
+            "tasks_delegate": ({"task_id": IDENTITY, "worker_id": UUID, "brief": TEXT, "note_refs": refs,
+                                "plan": PLAN_SCHEMA, "position": POSITION_SCHEMA}, ("task_id", "worker_id")),
             "tasks_config_update": ({"config": {"type": "object"}}, ("config",)),
         }
         for name, (properties, required) in mutations.items():
@@ -385,6 +389,8 @@ class TaskOperations:
             task = self.require(ctx, uow, arguments["task_id"])
             detail = self.detail(ctx, task, uow, configuration["fields"], now, notes_page=arguments)
             detail.update(links.read(self, ctx, task, uow, arguments.get("related_cursor")))
+            if detail.get("plan") and self.plan_steps is not None:
+                detail["plan_steps"] = self.plan_steps(ctx, task, uow)
             return {"task": detail}
         return self.list_tasks(ctx, arguments, uow, configuration, now)
 
@@ -504,6 +510,13 @@ class TaskOperations:
             # One recorded worker: the agent doing the work. The brief is the Task's own comment, so the hand-over and the
             # work it describes are one record.
             edits["worker_ids"] = [arguments["worker_id"]]
+            if "plan" in arguments:
+                edits["plan"] = arguments["plan"]
+            # A new worker's queue takes the Task at the end unless told otherwise; handing it again to the same
+            # worker keeps its place unless a position is named.
+            if ("position" in arguments or events.workers({"row": before}) != [arguments["worker_id"]]
+                    or attributes(before)["queue_rank"] is None):
+                edits["queue_rank"] = queue_rank(arguments.get("position", "last"), builder.at)
         current = dict(before) if before else {
             "id": identity, "title": arguments["title"], "status": DEFAULT_STATE, "due": None, "fields_json": {}, "archived": False,
             "created_by": ctx.principal_id, "created_at": builder.at, "updated_at": builder.at, "kind": "ordinary", "parent_id": None,

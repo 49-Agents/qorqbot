@@ -90,6 +90,16 @@ def task_workers(row):
     return set(json.loads(value) if isinstance(value, str) else value)
 
 
+def queue_rank(row):
+    """Where a Task stands in its worker's queue: the rank its hand-over gave it, or zero for a Task that has none."""
+    fields = row.get('fields_json') or {}
+    if isinstance(fields, str):
+        fields = json.loads(fields)
+    typed = fields.get('$task') if isinstance(fields, dict) else None
+    value = typed.get('queue_rank') if isinstance(typed, dict) else None
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+
+
 def on_boards(row):
     """A Task that belongs on its workers' boards: open and not archived."""
     return row['status'] not in ('done', 'cancelled') and not row.get('archived')
@@ -598,7 +608,8 @@ class Attention:
             except DomainError as error:
                 if error.code not in UNREADABLE: raise
                 continue
-            items.append({'membership_id':row['id'], 'membership_revision':row['revision'], 'task_ref':ref, 'task':task, 'added_at':row['created_at']})
+            items.append({'membership_id':row['id'], 'membership_revision':row['revision'], 'task_ref':ref, 'task':task, 'added_at':row['created_at'],
+                          'queue_rank':queue_rank(task)})
         if items:
             projected = self.app.signoffs.sources.project_tasks(ctx, [item['task'] for item in items], uow)
             for item, task in zip(items, projected):
@@ -610,7 +621,8 @@ class Attention:
             completed = task.get('latest_completed_at') or '' if status == 'done' else ''
             # Fixed-width UTC timestamps sort in reverse through their inverted character values.
             inverted = ''.join(chr(127-ord(char)) for char in completed) if completed else '\x7f'
-            return (rank, inverted, item['added_at'], item['membership_id'])
+            # Within one state the queue order set at hand-over comes first; a Task without one keeps its place by date.
+            return (rank, inverted, item['queue_rank'], item['added_at'], item['membership_id'])
         selected, next_cursor = page(items, args, None, 'attention_get:'+agent, key=ordering, reverse=False)
         # Existing callers retain full Tasks. The board opts into compact rows,
         # and the workflow header opts into focus only instead of reading a board.

@@ -3,6 +3,12 @@
 Each run freezes its definition and referenced instruction bodies. SQLite write
 transactions serialize progress; verifier execution takes place outside them.
 The host remains responsible for authorization and human confirmation.
+
+A plan run has no catalog entry: the host hands over an ordered list of step
+instructions (``start_plan``). Its steps run one after another, a step may be
+added while it runs (``add_step``) and a step may be skipped with a recorded
+reason (``skip_step``). A skipped step counts as finished for the order of the
+steps and for the end of the run.
 """
 from __future__ import annotations
 
@@ -21,6 +27,12 @@ from .tools import Tools
 from .util import check_operation_id, dumps, is_ref, json_digest, loads, new_id, sha256_hex
 
 RUN_STATES = {"waiting_arguments", "running", "paused", "completed", "cancelled"}
+# A step that needs no more work: done, or skipped with a recorded reason.
+FINISHED_STEP_STATES = ("completed", "skipped")
+# The ``workflow_ref`` of a plan run. It has no slash, so it can never name a catalog entry.
+PLAN_REF = "task-plan"
+PLAN_STEP_LIMIT = 50
+PLAN_TEXT_LIMIT = 4000
 
 
 class Workflows:
@@ -127,7 +139,7 @@ class Workflows:
                 continue
             if "step" in arg and arg["acquisition"] != "ask_before_start":
                 step = self._step(snapshot, arg["step"])
-                if not all(states[dep]["state"] == "completed" for dep in step.get("depends_on", [])):
+                if not all(states[dep]["state"] in FINISHED_STEP_STATES for dep in step.get("depends_on", [])):
                     continue
                 if missing_global:
                     continue
@@ -149,6 +161,8 @@ class Workflows:
                 if field in definition:
                     step[field] = definition[field]
             step["depends_on"] = definition.get("depends_on", [])
+            if definition.get("added"):
+                step["added"] = True
             step["attempts"] = []
             for attempt in conn.execute("SELECT * FROM run_attempts WHERE run_id = ? AND step_id = ? ORDER BY attempt_id",
                                         (run_id, step["id"])):
@@ -156,10 +170,11 @@ class Workflows:
                 for field in ("actor", "output", "details"):
                     item[field] = loads(item[field])
                 step["attempts"].append(item)
-            dependencies_ready = all(states[dep]["state"] == "completed" for dep in definition.get("depends_on", []))
+            dependencies_ready = all(states[dep]["state"] in FINISHED_STEP_STATES
+                                     for dep in definition.get("depends_on", []))
             missing_local = any(arg["name"] not in arguments and arg.get("step") == step["id"]
                                 for arg in snapshot.get("arguments", []))
-            step["ready"] = (row["control"] == "running" and step["state"] != "completed"
+            step["ready"] = (row["control"] == "running" and step["state"] not in FINISHED_STEP_STATES
                              and not missing_global and not missing_local and dependencies_ready
                              and not any(a["status"] == "verifying" for a in step["attempts"]))
             if step["ready"]:
@@ -283,6 +298,142 @@ class Workflows:
             self._write_arguments(conn, run_id, records)
             self._event(conn, run_id, "started", actor, {"operation_id": operation_id, "arguments": records})
             return self._result(conn, run_id, "start", operation_id)
+
+    # -- plan runs ---------------------------------------------------------------
+
+    @staticmethod
+    def _plan_text(value, field):
+        if not isinstance(value, str) or not value.strip() or len(value) > PLAN_TEXT_LIMIT:
+            raise InvalidRequestError(f"{field} must be text of 1-{PLAN_TEXT_LIMIT} characters", details={"field": field})
+        return value.strip()
+
+    def start_plan(self, steps, actor, origin, operation_id):
+        """Start a run from an ordered list of step instructions; each step waits for the one before it.
+
+        ``origin`` names what the plan belongs to (the host's record) and is only stored. The operation ID is the
+        host's key for the run: a repeated call with the same steps returns the same run.
+        """
+        actor = normalize_actor(actor)
+        check_operation_id(operation_id)
+        if not isinstance(origin, str) or not 1 <= len(origin) <= 500:
+            raise InvalidRequestError("origin must be a string of 1-500 characters", details={"field": "origin"})
+        if not isinstance(steps, list) or not 1 <= len(steps) <= PLAN_STEP_LIMIT:
+            raise InvalidRequestError(f"a plan holds 1-{PLAN_STEP_LIMIT} steps", details={"field": "steps"})
+        texts = [self._plan_text(text, "steps") for text in steps]
+        definition = {"plan": True, "origin": origin, "steps": [
+            {"id": f"s{number}", "instructions": text, **({"depends_on": [f"s{number - 1}"]} if number > 1 else {})}
+            for number, text in enumerate(texts, 1)]}
+        fingerprint = self._fingerprint("start_plan", actor, origin=origin, steps=texts)
+        with self.ctx.store.reader() as conn:
+            existing = self._op(conn, "start", operation_id, fingerprint)
+            if existing is not None:
+                return loads(existing["result"])
+        run_id, now = new_id("run"), self.ctx.now()
+        self.ctx.require_no_check_mutation()
+        with self.ctx.store.lock(exclusive=True), self.ctx.store.transaction() as conn:
+            existing = self._op(conn, "start", operation_id, fingerprint)
+            if existing is not None:
+                return loads(existing["result"])
+            self._reserve(conn, "start", operation_id, fingerprint)
+            conn.execute("INSERT INTO runs(run_id, workflow_ref, workflow_revision, created_at, updated_at, actor, "
+                         "control, selection, snapshot) VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?)",
+                         (run_id, PLAN_REF, json_digest(definition), now, now, dumps(actor),
+                          dumps(Selection.from_value(None).to_dict()), dumps(definition)))
+            for step in definition["steps"]:
+                conn.execute("INSERT INTO run_steps(run_id, step_id, state, verification) VALUES (?, ?, 'pending', 'none')",
+                             (run_id, step["id"]))
+            self._event(conn, run_id, "started", actor, {"operation_id": operation_id, "origin": origin})
+            return self._result(conn, run_id, "start", operation_id)
+
+    def plan_run(self, operation_id):
+        """The current state of the plan run started under this operation ID, or ``None`` before it was started."""
+        check_operation_id(operation_id)
+        with self.ctx.store.reader() as conn:
+            conn.execute("BEGIN")
+            row = conn.execute("SELECT result FROM workflow_ops WHERE scope = 'start' AND operation_id = ?",
+                               (operation_id,)).fetchone()
+            if row is None or row["result"] is None:
+                return None
+            return {"run": self._view(conn, loads(row["result"])["run"]["run_id"])}
+
+    @staticmethod
+    def _plan_snapshot(run):
+        snapshot = loads(run["snapshot"])
+        if snapshot.get("plan") is not True:
+            raise StateConflictError("only a plan run takes added or skipped steps")
+        return snapshot
+
+    def add_step(self, run_id, instructions, actor, operation_id, after=None):
+        """Add one step to a running plan, right after ``after`` (default: after the last step).
+
+        The step that followed ``after`` now follows the new one, so it must not have started yet.
+        """
+        actor = normalize_actor(actor)
+        text = self._plan_text(instructions, "instructions")
+        if after is not None and not isinstance(after, str):
+            raise InvalidRequestError("after must name a step", details={"field": "after"})
+        fingerprint = self._fingerprint("add_step", actor, run_id=run_id, instructions=text, after=after)
+        with self.ctx.store.lock(exclusive=True), self.ctx.store.transaction() as conn:
+            self.ctx.guard_overseer_admission(conn, run_id=run_id)
+            run = self._run(conn, run_id)
+            op = self._op(conn, run_id, operation_id, fingerprint)
+            if op is not None:
+                return loads(op["result"])
+            self._progress_allowed(run)
+            snapshot = self._plan_snapshot(run)
+            steps = snapshot["steps"]
+            if len(steps) >= PLAN_STEP_LIMIT:
+                raise StateConflictError(f"a plan holds at most {PLAN_STEP_LIMIT} steps")
+            ids = [step["id"] for step in steps]
+            anchor = ids[-1] if after is None else after
+            if anchor not in ids:
+                raise NotFoundError(f"no step {anchor!r}")
+            index = ids.index(anchor)
+            follower = steps[index + 1] if index + 1 < len(steps) else None
+            if follower is not None:
+                state = conn.execute("SELECT state FROM run_steps WHERE run_id = ? AND step_id = ?",
+                                     (run_id, follower["id"])).fetchone()["state"]
+                if state != "pending":
+                    raise StateConflictError("a step can only be added before work that has not started",
+                                             details={"step_id": follower["id"]})
+            # Step IDs are never reused: the next number is one more than every step the run has ever held.
+            new = {"id": f"s{len(steps) + 1}", "instructions": text, "depends_on": [anchor], "added": True}
+            if follower is not None:
+                follower["depends_on"] = [new["id"]]
+            steps.insert(index + 1, new)
+            self._reserve(conn, run_id, operation_id, fingerprint)
+            conn.execute("UPDATE runs SET snapshot = ? WHERE run_id = ?", (dumps(snapshot), run_id))
+            conn.execute("INSERT INTO run_steps(run_id, step_id, state, verification) VALUES (?, ?, 'pending', 'none')",
+                         (run_id, new["id"]))
+            self._event(conn, run_id, "step_added", actor,
+                        {"operation_id": operation_id, "step_id": new["id"], "after": anchor})
+            return self._result(conn, run_id, run_id, operation_id)
+
+    def skip_step(self, run_id, step_id, actor, operation_id, reason):
+        """Close one unfinished step of a running plan without doing it; the reason and who decided are recorded."""
+        actor = normalize_actor(actor)
+        text = self._plan_text(reason, "reason")
+        fingerprint = self._fingerprint("skip_step", actor, run_id=run_id, step_id=step_id, reason=text)
+        with self.ctx.store.lock(exclusive=True), self.ctx.store.transaction() as conn:
+            self.ctx.guard_overseer_admission(conn, run_id=run_id)
+            run = self._run(conn, run_id)
+            op = self._op(conn, run_id, operation_id, fingerprint)
+            if op is not None:
+                return loads(op["result"])
+            self._progress_allowed(run)
+            self._step(self._plan_snapshot(run), step_id)
+            state = conn.execute("SELECT state FROM run_steps WHERE run_id = ? AND step_id = ?",
+                                 (run_id, step_id)).fetchone()["state"]
+            if state in FINISHED_STEP_STATES:
+                raise StateConflictError(f"step {step_id!r} is already {state}", details={"step_id": step_id})
+            self._reserve(conn, run_id, operation_id, fingerprint)
+            now = self.ctx.now()
+            conn.execute("UPDATE run_steps SET state = 'skipped', completed_at = ?, completed_by = ?, completion_note = ? "
+                         "WHERE run_id = ? AND step_id = ?", (now, dumps(actor), text, run_id, step_id))
+            self._event(conn, run_id, "step_skipped", actor,
+                        {"operation_id": operation_id, "step_id": step_id, "reason": text})
+            self._finish_if_done(conn, run_id, actor, now)
+            return self._result(conn, run_id, run_id, operation_id)
 
     def _write_arguments(self, conn, run_id, records):
         for name, record in records.items():
@@ -480,7 +631,11 @@ class Workflows:
                      (verification, now, dumps(actor), note, dumps(output), run_id, step_id))
         self._event(conn, run_id, "step_completed", actor,
                     {"operation_id": operation_id, "step_id": step_id, "verification": verification})
-        incomplete = conn.execute("SELECT 1 FROM run_steps WHERE run_id = ? AND state != 'completed'", (run_id,)).fetchone()
+        self._finish_if_done(conn, run_id, actor, now)
+
+    def _finish_if_done(self, conn, run_id, actor, now):
+        incomplete = conn.execute("SELECT 1 FROM run_steps WHERE run_id = ? AND state NOT IN ('completed', 'skipped')",
+                                  (run_id,)).fetchone()
         if incomplete is None:
             conn.execute("UPDATE runs SET control = 'completed', completed_at = ? WHERE run_id = ?", (now, run_id))
             self._event(conn, run_id, "completed", actor, {})

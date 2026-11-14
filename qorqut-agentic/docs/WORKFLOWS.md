@@ -166,6 +166,35 @@ with that underlying reason. Current control state is never
 overwritten. After resume, a new completion ID can verify again. Cancellation is
 terminal. A pause cannot undo a verifier's already executed external effects.
 
+## Plan runs
+
+A plan run has no catalog entry. The host hands over an ordered list of step
+instructions and the run is stored like any other, with `workflow_ref` set to
+`task-plan` (no slash, so it can never name a catalog entry):
+
+- `start_plan(steps, actor, origin, operation_id)` starts it. Steps get the IDs
+  `s1`, `s2`, ... and each depends on the one before. `origin` names the host
+  record the plan belongs to and is only stored. The operation ID is the host's
+  key for the run: the same steps under the same ID return the same run.
+- `plan_run(operation_id)` returns that run as it stands now, or `None` before
+  it was started. It only reads.
+- `add_step(run_id, instructions, actor, operation_id, after=None)` adds one
+  step to a running plan, right after `after` (default: after the last step).
+  The step that followed `after` then follows the new one, so it must still be
+  pending. Step IDs are never reused.
+- `skip_step(run_id, step_id, actor, operation_id, reason)` closes an unfinished
+  step without doing it. The step's state becomes `skipped`, with the reason as
+  its completion note and the actor as who closed it.
+
+A skipped step counts as finished: steps that depend on it become ready, and a
+run whose steps are all completed or skipped is completed. `add_step` and
+`skip_step` are refused for a run started from a catalog entry, and for a run
+that is not running. A plan has at most 50 steps of at most 4000 characters.
+These four calls are not part of the JSON CLI; the host decides who may use them.
+
+In Qorqut a delegated Task carries its plan and the host starts the plan run on
+the first step action: see `qorqut-code/app/qorqut/agents/task_plans.py`.
+
 See the synthetic [example walkthrough](../examples/packages/example-project-workflow/README.md)
 for a complete sequence. The standalone facade and JSON CLI exercise this same
 runner. The authorized Qorqut execution adapter remains separate host work.
