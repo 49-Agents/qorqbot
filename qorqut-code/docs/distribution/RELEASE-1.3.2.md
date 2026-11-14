@@ -27,11 +27,12 @@ until 2027-01-01; see [the license scope](../../LICENSE-SCOPE.md).
 - Set-up starts on the owner's first message, with one optional form that asks for
   a todo list and quick context. A first walkthrough ends by typing and sending the
   first hello.
-- Focus holds the owner's notes and pinned threads only; threads render like Chat,
-  and items opened on Focus cover the notes. An agent with Todo work and no focus is
+- Focus holds the owner's notes and pinned threads only, with notes text 7%
+  larger; threads render like Chat, and items opened on Focus cover the notes. An agent with Todo work and no focus is
   asked to set one.
-- Chat: threads and side chats open in the left chat, side chats take files, the
-  focus line sits at the top of the chat input and chat text is 10% larger.
+- Chat: threads and side chats open in the left chat, side chats take files and
+  their messages can reference Signoffs and Tasks, the focus line sits at the top
+  of the chat input and chat text is 10% larger.
 - Owner messages, a day review, read-and-acknowledge Signoffs and a daily report.
   Record IDs and revisions are kept out of what the owner reads.
 - Calendar: one toolbar, a colour per calendar and a line for the current time;
