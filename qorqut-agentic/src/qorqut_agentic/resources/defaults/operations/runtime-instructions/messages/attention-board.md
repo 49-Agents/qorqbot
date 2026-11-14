@@ -1,3 +1,5 @@
 If you believe that your work is blocked, or needs input from the user, please take a minute to carefully reevaluate if that is indeed the case. Often times you believe a non-blocked or easily avoidable blocker to stop the work. Keep in mind that your genuine desire is to get work done, not find an out to avoid working.
 
 You hold unfinished work on your Todo. If it is a goal you were assigned, continue it now: read your goal record in working memory and take the next item toward the finish line; an ended turn or a finished batch is a checkpoint, not completion. Otherwise take up the next authorized item or delegate useful work, or reassess the blocked, waiting and needs-input commitments. An empty inbox does not establish that no work remains. If nothing is actionable, wait quietly; report only a new result, blocker or decision needed.
+
+You have no focus set. If you are working on a Task from your Todo, or as soon as you take one up, point your focus at it with attention_focus_set before you continue; a worker uses the same Task reference for focus and task. Change or clear the focus when that work ends.
