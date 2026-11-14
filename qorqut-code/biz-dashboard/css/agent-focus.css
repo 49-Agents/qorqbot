@@ -244,7 +244,7 @@
    Only while nothing is open: an opened item (signoff, browser, desktop, side chat) owns the board instead. */
 .agfocus:not([data-attention-board]):not(.agfocus-surface-open) > .agfocus-layout{display:flex;flex-direction:column;align-items:stretch;overflow:hidden}
 .agfocus-notes{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
-.agfocus .agfocus-notes .agfocus-notes-input{display:block;flex:1;width:100%;min-height:120px;box-sizing:border-box;margin:0;padding:10px 12px;border:0;border-radius:8px;background:transparent;box-shadow:none;color:var(--fg);font:inherit;font-size:13px;line-height:1.6;resize:none;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;outline:0}
+.agfocus .agfocus-notes .agfocus-notes-input{display:block;flex:1;width:100%;min-height:120px;box-sizing:border-box;margin:0;padding:10px 12px;border:0;border-radius:8px;background:transparent;box-shadow:none;color:var(--fg);font:inherit;font-size:13.9px;line-height:1.6;resize:none;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;outline:0}
 .agfocus .agfocus-notes .agfocus-notes-input:focus{background:rgba(255,255,255,.03);box-shadow:none}
 .agfocus .agfocus-notes .agfocus-notes-input:disabled{opacity:.6;cursor:default}
 .agfocus-text-status{display:flex;flex:none;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0 0;padding:0 12px;font-size:11px;color:var(--fg-2)}
