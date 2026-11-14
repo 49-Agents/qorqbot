@@ -1,0 +1,32 @@
+name: Mac first-run check
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - check/mac-first-run
+permissions:
+  contents: read
+jobs:
+  first-run:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15, macos-26, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install the published download as a new person would
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash qorqut-code/tools/distribution/macos_app/first_run_check.sh "$RUNNER_TEMP/first-run"
+      - name: Save the screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mac-first-run-${{ matrix.os }}
+          retention-days: 7
+          if-no-files-found: warn
+          path: ${{ runner.temp }}/first-run
+      # This job observes the published download only. It builds nothing,
+      # publishes nothing and signs in to no account.
