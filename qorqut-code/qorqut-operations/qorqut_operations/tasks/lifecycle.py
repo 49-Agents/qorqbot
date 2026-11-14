@@ -48,7 +48,8 @@ RESULT = {"type": "string", "minLength": 1, "maxLength": 1000,
                          "status line and, when no note is given, the closing comment, so nothing else needs to repeat it."}
 DELEGATE = ("Hand a Task to the agent who will do it, in one write: that agent becomes the Task's recorded worker and the "
             "brief is posted on the Task as the hand-over. The worker is notified. Use this instead of a separate message "
-            "plus a board entry; the Task stays yours to answer for.")
+            "plus a board entry; the Task stays yours to answer for. For work of more than a couple of steps add plan, the "
+            "ordered steps the worker follows without coming back to you; position places the Task in the worker's queue.")
 
 
 def work(task) -> bool:

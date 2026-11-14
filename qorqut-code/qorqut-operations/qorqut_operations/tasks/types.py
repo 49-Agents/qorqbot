@@ -12,10 +12,15 @@ the Task: the state is a label, not a lifecycle state.
 Every type also holds two short lines that are the Task's own record of where it stands: ``status_line`` is what the owner
 is told (shown wherever the Task is shown, so nobody keeps a second copy of it), and ``next_step`` is the one pending
 action. Both are single lines stored only while they hold something.
+
+A delegated Task may carry a ``plan``: the ordered step instructions its worker follows. The Task holds the plan as it
+was handed over; where the work stands on it is the host's reading (see ``TaskOperations.plan_steps``).
+``queue_rank`` orders a worker's open Tasks: lower comes first, and a Task without one sorts as zero.
 """
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 from copy import deepcopy
+from datetime import datetime
 import unicodedata
 
 from qorqut_operations import owner_text
@@ -28,9 +33,12 @@ STATE_LIMIT = 120
 NOTES_LIMIT = 20000
 PROFILE_LIMITS = {"company": 500, "contact_name": 500, "email": 500, "phone": 500, "website": 500, "notes": NOTES_LIMIT}
 LINE_LIMIT = 240
+PLAN_STEP_LIMIT = 30
+PLAN_TEXT_LIMIT = 1000
+POSITIONS = ("last", "next")
 DEFAULTS = {"task_type": "task", "overview": "", "email_conversation_id": None,
             "customer_kind": None, "customer_state": "", "customer_profile": {},
-            "status_line": "", "next_step": ""}
+            "status_line": "", "next_step": "", "plan": [], "queue_rank": None}
 # Stored whenever the Task is not all-default, exactly as before Customers existed, so a repeated write of an older
 # Story or Email Task stays a no-op. The customer attributes are stored only while they hold something.
 STORED_ALWAYS = ("task_type", "overview", "email_conversation_id")
@@ -57,6 +65,20 @@ STATUS_LINE_SCHEMA = {"type": "string", "maxLength": 1000,
 NEXT_STEP_SCHEMA = {"type": "string", "maxLength": 1000,
                     "description": f"The one pending action on this Task and who takes it, at most {LINE_LIMIT} characters. "
                                    "Replaced as a whole; empty when nothing is pending."}
+PLAN_SCHEMA = {"type": "array", "maxItems": PLAN_STEP_LIMIT,
+               "items": {"type": "string", "minLength": 1, "maxLength": PLAN_TEXT_LIMIT},
+               "description": f"The steps the worker follows, in order: at most {PLAN_STEP_LIMIT}, each one instruction of at "
+                              f"most {PLAN_TEXT_LIMIT} characters, including where to stop and ask. Leave it out for a quick "
+                              "Task that needs only the brief. Replaces an earlier plan as a whole; an empty list removes it."}
+POSITION_SCHEMA = {"enum": list(POSITIONS),
+                   "description": "Where the Task goes in the worker's queue: last (the default for a new hand-over) or "
+                                  "next, ahead of the worker's other open Tasks. It never interrupts the Task being worked on."}
+
+
+def queue_rank(position, at):
+    """The rank a hand-over at ``at`` gets: later hand-overs sort later, and ``next`` sorts ahead of every earlier one."""
+    seconds = round(datetime.fromisoformat(at.replace("Z", "+00:00")).timestamp(), 3)
+    return -seconds if position == "next" else seconds
 
 
 def normalize_state(value):
@@ -101,6 +123,8 @@ def apply_attributes(current, edits, states=()):
     for name in LINES:
         if isinstance(given.get(name), str):
             values[name] = normalize_state(given[name])
+    if isinstance(given.get("plan"), list):
+        values["plan"] = [step.strip() if isinstance(step, str) else step for step in given["plan"]]
     if values["status_line"] != attributes(current)["status_line"]:
         # Checked when the line changes, so a Task whose older line predates the rule can still be written.
         problem = owner_text.problem(values["status_line"])
@@ -152,6 +176,17 @@ def validate_lines(values):
         raise DomainError("validation_error", "The status line is read by the owner: name things in words, not by record identifier")
 
 
+def validate_plan(values):
+    """The plan's steps and the queue rank."""
+    plan, rank = values["plan"], values["queue_rank"]
+    if (not isinstance(plan, list) or len(plan) > PLAN_STEP_LIMIT
+            or any(not isinstance(step, str) or not step or step != step.strip() or len(step) > PLAN_TEXT_LIMIT for step in plan)):
+        raise DomainError("validation_error", f"A plan is at most {PLAN_STEP_LIMIT} steps, each one instruction of at most "
+                                              f"{PLAN_TEXT_LIMIT} characters")
+    if rank is not None and (isinstance(rank, bool) or not isinstance(rank, (int, float))):
+        raise DomainError("validation_error", "Invalid Task queue rank")
+
+
 def validate_attributes(task):
     links = task["fields_json"].get("$task_links", [])
     if (not isinstance(links, list) or len(links) > 100
@@ -175,3 +210,4 @@ def validate_attributes(task):
         raise DomainError("validation_error", "Only an Email Task can bind an email conversation")
     validate_customer(values)
     validate_lines(values)
+    validate_plan(values)

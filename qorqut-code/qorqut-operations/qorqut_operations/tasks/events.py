@@ -117,7 +117,8 @@ def _stored(row: Mapping, key: str) -> dict:
 
 
 # Typed attributes that get a sentence of their own; every other stored field is reported as ``Fields changed.``.
-TYPED_NAMED = frozenset({"task_type", "overview", "customer_state", "status_line", "next_step"})
+# ``queue_rank`` only orders a worker's queue and is never reported.
+TYPED_NAMED = frozenset({"task_type", "overview", "customer_state", "status_line", "next_step", "plan", "queue_rank"})
 
 
 def _typed(fields: Mapping) -> dict:
@@ -185,6 +186,9 @@ def detail_changes(before: Mapping, after: Mapping, names=None) -> list[tuple[st
     for field, label in (("status_line", "Status line"), ("next_step", "Next step")):
         if (old_typed.get(field) or "") != (new_typed.get(field) or ""):
             add(field, f"{label}: {new_typed[field]}" if new_typed.get(field) else f"{label} cleared.")
+    if (old_typed.get("plan") or []) != (new_typed.get("plan") or []):
+        count = len(new_typed.get("plan") or [])
+        add("plan", f"Plan set: {count} step{'' if count == 1 else 's'}." if count else "Plan removed.")
     if (old_typed.get("customer_state") or "") != (new_typed.get("customer_state") or ""):
         add("customer_state", f"Customer state set to {new_typed['customer_state']}." if new_typed.get("customer_state")
             else "Customer state cleared.")
