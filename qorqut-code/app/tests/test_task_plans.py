@@ -191,3 +191,23 @@ class QueueTests(PlanFixture):
         self.assertEqual(self.queue(self.worker), ['First', 'Second'])
         self.delegate(first, position='last')
         self.assertEqual(self.queue(self.worker), ['Second', 'First'])
+
+
+class ThreadTests(PlanFixture):
+    def context(self, task):
+        from qorqut.inbox.thread_views import task_context
+        service = NS(select=lambda ctx, business, uow: ctx, app=self.app)
+        with self.db.read() as uow:
+            return task_context(service, self.ctx(self.lead), {'type': 'task', 'id': task['id'], 'business_id': None}, uow)
+
+    def test_the_thread_shows_where_the_plan_stands(self):
+        task = self.planned()
+        self.ok(self.step(self.worker, 'done', task, step_id='s1', note='Three found.'))
+        steps = self.context(task)['plan_steps']
+        self.assertEqual(self.states(steps), [('s1', 'completed'), ('s2', 'pending'), ('s3', 'pending')])
+        self.assertEqual((steps[0]['note'], steps[1].get('current')), ('Three found.', True))
+
+    def test_a_thread_without_a_plan_carries_none(self):
+        task = self.task(self.lead, 'Rename the file')
+        self.delegate(task)
+        self.assertNotIn('plan_steps', self.context(task))
