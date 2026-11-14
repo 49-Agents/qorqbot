@@ -7,6 +7,7 @@ from uuid import uuid4
 from qorqut.agents.task_plans import TaskPlans
 from qorqut_agentic.layer import AgenticLayer
 
+import plan_template_package
 from test_single_source import STAMP, Fixture, profile
 
 PLAN = ['Find the three suppliers', 'Ask each for a quote', 'Put the quotes in the table']
@@ -211,3 +212,55 @@ class ThreadTests(PlanFixture):
         task = self.task(self.lead, 'Rename the file')
         self.delegate(task)
         self.assertNotIn('plan_steps', self.context(task))
+
+
+class TemplateTests(PlanFixture):
+    REF = 'house-plans/publish-post'
+
+    def setUp(self):
+        super().setUp()
+        plan_template_package.install(self.layer)
+
+    def test_a_template_is_copied_into_the_tasks_plan(self):
+        task = self.task(self.lead, 'Publish the spring post')
+        self.delegate(task, template=self.REF)
+        shown = self.read(self.worker, task)
+        self.assertEqual(list(shown['plan']), plan_template_package.PUBLISH_STEPS)
+        self.assertEqual(shown['plan_template'], self.REF)
+        self.assertEqual(self.states(shown['plan_steps']), [('s1', 'pending'), ('s2', 'pending'), ('s3', 'pending')])
+        entries = [row[0] for row in self.rows("SELECT body FROM thread_messages WHERE item_id=? AND kind='system'", task['id'])]
+        self.assertTrue(any('Plan set: 3 steps from the template house-plans/publish-post.' in entry for entry in entries), entries)
+
+    def test_a_plan_from_a_template_is_worked_like_any_plan(self):
+        task = self.task(self.lead, 'Publish the spring post')
+        self.delegate(task, template=self.REF)
+        self.ok(self.step(self.worker, 'done', task, step_id='s1'))
+        added = self.ok(self.step(self.worker, 'add', task, text='Check the picture credits.', after='s1'))
+        self.assertEqual(self.states(added['plan_steps']),
+                         [('s1', 'completed'), ('s4', 'pending'), ('s2', 'pending'), ('s3', 'pending')])
+        skipped = self.ok(self.step(self.lead, 'skip', task, step_id='s2', reason='The owner gave the time already.'))
+        self.assertEqual(skipped['next_step']['id'], 's4')
+
+    def test_a_plan_and_a_template_together_are_refused(self):
+        task = self.task(self.lead, 'Publish the spring post')
+        result = self.invoke(self.lead, 'tasks_delegate', {'task_id': task['id'], 'worker_id': self.worker,
+                                                           'template': self.REF, 'plan': PLAN})
+        self.refused(result, 'not both')
+
+    def test_templates_a_plan_cannot_carry_are_refused_with_the_reason(self):
+        task = self.task(self.lead, 'Publish the spring post')
+        for ref, code, fragment in (('house-plans/nothing', 'not_found', 'There is no template'),
+                                    ('house-plans/with-inputs', 'validation_error', 'arguments'),
+                                    ('house-plans/too-long', 'validation_error', 'at most')):
+            result = self.invoke(self.lead, 'tasks_delegate', {'task_id': task['id'], 'worker_id': self.worker, 'template': ref})
+            self.refused_as(result, code, fragment)
+        self.assertEqual(list(self.read(self.lead, task)['plan']), [])
+
+    def test_a_written_plan_replaces_the_template(self):
+        task = self.task(self.lead, 'Publish the spring post')
+        self.delegate(task, template=self.REF)
+        self.delegate(task, plan=PLAN)
+        shown = self.read(self.worker, task)
+        self.assertEqual(list(shown['plan']), PLAN)
+        self.assertIsNone(shown['plan_template'])
+

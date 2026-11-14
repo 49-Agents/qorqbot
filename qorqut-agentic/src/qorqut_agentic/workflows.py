@@ -307,6 +307,31 @@ class Workflows:
             raise InvalidRequestError(f"{field} must be text of 1-{PLAN_TEXT_LIMIT} characters", details={"field": field})
         return value.strip()
 
+    def plan_template(self, ref, selection=None):
+        """A saved workflow as an ordered list of step instructions, for a host that hands it over as a plan.
+
+        Only a workflow that a plan can carry qualifies: it takes no arguments, no step has a verifier, and every
+        step's instructions fit a plan step. The steps come in an order that respects their dependencies, keeping the
+        authored order wherever it allows. Nothing is started and nothing is written.
+        """
+        revision, definition = self._snapshot(ref, Selection.from_value(selection))
+        if definition.get("arguments"):
+            raise InvalidRequestError(f"{ref} takes arguments, which a plan cannot carry", details={"ref": ref})
+        pending, done, texts = list(definition["steps"]), set(), []
+        while pending:
+            step = next((item for item in pending if set(item.get("depends_on", ())) <= done), None)
+            if step is None:
+                raise InvalidRequestError(f"the steps of {ref} cannot be put in order", details={"ref": ref})
+            if "verifier" in step:
+                raise InvalidRequestError(f"step {step['id']} of {ref} has a verifier, which a plan cannot run",
+                                          details={"ref": ref, "step_id": step["id"]})
+            pending.remove(step)
+            done.add(step["id"])
+            texts.append(self._plan_text(step.get("instructions"), f"step {step['id']} of {ref}"))
+        if len(texts) > PLAN_STEP_LIMIT:
+            raise InvalidRequestError(f"{ref} has more than {PLAN_STEP_LIMIT} steps", details={"ref": ref})
+        return {"ref": ref, "revision": revision, "steps": texts}
+
     def start_plan(self, steps, actor, origin, operation_id):
         """Start a run from an ordered list of step instructions; each step waits for the one before it.
 

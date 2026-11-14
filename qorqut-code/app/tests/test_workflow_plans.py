@@ -6,6 +6,8 @@ from pathlib import Path
 from qorqut_agentic.errors import InvalidRequestError, NotFoundError, OperationConflictError, StateConflictError
 from qorqut_agentic.layer import AgenticLayer
 
+import plan_template_package
+
 HOST = {"actor_id": "task-plans", "actor_kind": "host"}
 WORKER = {"actor_id": "worker-1", "actor_kind": "agent"}
 LEAD = {"actor_id": "lead-1", "actor_kind": "agent"}
@@ -124,6 +126,34 @@ class WorkflowPlanTests(unittest.TestCase):
             self.workflows.add_step(run["run_id"], "Later", WORKER, "op-add")
         with self.assertRaises(StateConflictError):
             self.workflows.skip_step(run["run_id"], "s1", LEAD, "op-skip", "Paused")
+
+
+class PlanTemplateTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        base = Path(self.directory.name)
+        self.layer = AgenticLayer.initialize(base / "tree", base / "state")
+        plan_template_package.install(self.layer)
+        self.workflows = self.layer.workflows
+
+    def test_a_saved_workflow_reads_as_ordered_steps(self):
+        found = self.workflows.plan_template("house-plans/publish-post")
+        self.assertEqual(found["ref"], "house-plans/publish-post")
+        self.assertEqual(found["steps"], plan_template_package.PUBLISH_STEPS)
+        self.assertTrue(found["revision"])
+        self.assertEqual(self.workflows.list()["runs"], [])
+
+    def test_a_workflow_with_arguments_is_not_a_plan(self):
+        with self.assertRaises(InvalidRequestError) as raised:
+            self.workflows.plan_template("house-plans/with-inputs")
+        self.assertIn("arguments", raised.exception.message)
+
+    def test_an_unknown_workflow_is_not_found(self):
+        with self.assertRaises(NotFoundError):
+            self.workflows.plan_template("house-plans/nothing")
+        with self.assertRaises(InvalidRequestError):
+            self.workflows.plan_template("not a reference")
 
 
 if __name__ == "__main__":

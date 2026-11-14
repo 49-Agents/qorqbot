@@ -16,6 +16,8 @@ action. Both are single lines stored only while they hold something.
 A delegated Task may carry a ``plan``: the ordered step instructions its worker follows. The Task holds the plan as it
 was handed over; where the work stands on it is the host's reading (see ``TaskOperations.plan_steps``).
 ``queue_rank`` orders a worker's open Tasks: lower comes first, and a Task without one sorts as zero.
+``plan_template`` names the saved plan the steps were copied from at hand-over, when there was one; the Task's own plan
+is what is worked, so later changes to the template never reach it.
 """
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
@@ -38,7 +40,7 @@ PLAN_TEXT_LIMIT = 1000
 POSITIONS = ("last", "next")
 DEFAULTS = {"task_type": "task", "overview": "", "email_conversation_id": None,
             "customer_kind": None, "customer_state": "", "customer_profile": {},
-            "status_line": "", "next_step": "", "plan": [], "queue_rank": None}
+            "status_line": "", "next_step": "", "plan": [], "queue_rank": None, "plan_template": None}
 # Stored whenever the Task is not all-default, exactly as before Customers existed, so a repeated write of an older
 # Story or Email Task stays a no-op. The customer attributes are stored only while they hold something.
 STORED_ALWAYS = ("task_type", "overview", "email_conversation_id")
@@ -70,6 +72,9 @@ PLAN_SCHEMA = {"type": "array", "maxItems": PLAN_STEP_LIMIT,
                "description": f"The steps the worker follows, in order: at most {PLAN_STEP_LIMIT}, each one instruction of at "
                               f"most {PLAN_TEXT_LIMIT} characters, including where to stop and ask. Leave it out for a quick "
                               "Task that needs only the brief. Replaces an earlier plan as a whole; an empty list removes it."}
+TEMPLATE_SCHEMA = {"type": "string", "minLength": 3, "maxLength": 200,
+                   "description": "A saved plan to hand over instead of writing the steps: its reference, package-id/entry-id. "
+                                  "Its steps are copied into the Task's plan. Give plan or template, not both."}
 POSITION_SCHEMA = {"enum": list(POSITIONS),
                    "description": "Where the Task goes in the worker's queue: last (the default for a new hand-over) or "
                                   "next, ahead of the worker's other open Tasks. It never interrupts the Task being worked on."}
@@ -177,14 +182,16 @@ def validate_lines(values):
 
 
 def validate_plan(values):
-    """The plan's steps and the queue rank."""
-    plan, rank = values["plan"], values["queue_rank"]
+    """The plan's steps, the template they came from and the queue rank."""
+    plan, rank, template = values["plan"], values["queue_rank"], values["plan_template"]
     if (not isinstance(plan, list) or len(plan) > PLAN_STEP_LIMIT
             or any(not isinstance(step, str) or not step or step != step.strip() or len(step) > PLAN_TEXT_LIMIT for step in plan)):
         raise DomainError("validation_error", f"A plan is at most {PLAN_STEP_LIMIT} steps, each one instruction of at most "
                                               f"{PLAN_TEXT_LIMIT} characters")
     if rank is not None and (isinstance(rank, bool) or not isinstance(rank, (int, float))):
         raise DomainError("validation_error", "Invalid Task queue rank")
+    if template is not None and (not isinstance(template, str) or not 3 <= len(template) <= 200 or not plan):
+        raise DomainError("validation_error", "Invalid Task plan template")
 
 
 def validate_attributes(task):

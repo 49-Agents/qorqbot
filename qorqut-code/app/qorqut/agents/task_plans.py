@@ -26,7 +26,7 @@ from qorqut_operations.application.plans import IDENTITY, TEXT, PlanBuilder, ref
 from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.tasks.schema import CLOSED_STATES
 from qorqut_operations.tasks.scope import task_context, task_namespace
-from qorqut_operations.tasks.types import PLAN_TEXT_LIMIT, attributes
+from qorqut_operations.tasks.types import PLAN_STEP_LIMIT, PLAN_TEXT_LIMIT, attributes
 
 from qorqut.agents.attention import task_workers
 from qorqut.management.identity import configured_ordubashy, is_active_installation_owner
@@ -111,6 +111,8 @@ class TaskPlans:
                 prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, uow), **common))
         # ``tasks_get`` shows where the plan stands through this reading.
         self.tasks.plan_steps = self.steps
+        # ``tasks_delegate`` copies a named template's steps into the Task through this one.
+        self.tasks.plan_template = self.template
         return self
 
     # -- reading ---------------------------------------------------------------------------------------------------
@@ -132,6 +134,27 @@ class TaskPlans:
 
     def steps(self, ctx, task, uow):
         return step_views(attributes(task)['plan'], self.run(task))
+
+    def template(self, ref):
+        """The step instructions of the saved workflow ``ref``, when a Task's plan can carry it.
+
+        A template is a workflow entry of the instruction store, saved through the owner's approval like any other
+        instruction. It is only read here: the hand-over copies its steps into the Task, so the Task's plan no longer
+        depends on the template and is worked, added to and skipped like a plan written by hand.
+        """
+        try:
+            steps = self.workflows().plan_template(ref)['steps']
+        except AgenticError as error:
+            if error.code == 'lock_timeout':
+                raise DomainError('operation_unavailable', 'The template store is busy; call the tool again') from None
+            if error.code == 'not_found':
+                raise DomainError('not_found', f'There is no template {ref}. Templates are the saved workflows of the '
+                                               'instruction store; catalog.list in your agentic helper shows them') from None
+            raise DomainError('validation_error', f'{ref} cannot be handed over as a plan: {error.message}') from None
+        if len(steps) > PLAN_STEP_LIMIT or any(len(step) > PLAN_TEXT_LIMIT for step in steps):
+            raise DomainError('validation_error', f'{ref} cannot be handed over as a plan: a plan holds at most '
+                                                  f'{PLAN_STEP_LIMIT} steps of at most {PLAN_TEXT_LIMIT} characters each')
+        return steps
 
     # -- authority -------------------------------------------------------------------------------------------------
 
