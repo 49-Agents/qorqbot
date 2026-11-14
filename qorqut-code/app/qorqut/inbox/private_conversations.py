@@ -20,6 +20,7 @@ from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp, utc_clock
 from qorqut_operations.conversations import SUMMARY, author, normalize_summary, participants
 from qorqut_operations.discussion.threads import RELAY, attribution, read_attribution, save_attribution
+from qorqut_operations.signoffs.notes import note_refs_schema
 from qorqut.agents.global_scope import active_business_participant
 from qorqut.management.identity import installation_owner, private_participants
 
@@ -111,7 +112,10 @@ def visible_conversation(app, ctx, conversation_id, uow):
 
 
 class PrivateConversations:
-    def __init__(self, inbox, *, clock=None):
+    def __init__(self, inbox, *, clock=None, references=None):
+        # ``references`` is the Signoff conversation's own reference reader (``SignoffNotes``): a private message
+        # links records exactly as a Signoff note does, with the same vocabulary, checks and display.
+        self.references = references
         self.inbox = inbox
         self.app = inbox.app
         self.domains = inbox.domains
@@ -131,7 +135,7 @@ class PrivateConversations:
             **common, effect_kind='read', read=lambda c, a, o, u: self.read(c, a, u),
             description=instruction_text('private-conversations-read-the-private-owner-ordubashy-conversation-on')))
         registry.register(OperationDescriptor('owner_conversation_send', schema({**FIELDS,
-            'text': {'type': 'string', 'minLength': 1, 'maxLength': 20000}, 'summary': SUMMARY, 'relay': RELAY,
+            'text': {'type': 'string', 'minLength': 1, 'maxLength': 20000}, 'summary': SUMMARY, 'relay': RELAY, **self.refs_field(),
             'expected_conversation_revision': {'type': 'integer', 'minimum': 1}}, ('source', 'text')),
             **common, prepare=self.prepare, apply=self.apply, replay_validator=self.validate_replay,
             description=instruction_text('private-conversations-send-one-private-message-to-the-owner')))
@@ -160,6 +164,21 @@ class PrivateConversations:
             description=instruction_text('private-conversations-read-related-records-for-visual-thread-context')))
         self.app.private_conversations = self
         return self
+
+    def refs_field(self):
+        """The optional ``refs`` argument: the Signoff note reference schema, when a reference reader is wired."""
+        if self.references is None:
+            return {}
+        return {'refs': {**note_refs_schema(self.references.service.ports.references.targets), 'description': (
+            'Records this message is about (for example a signoff or a task), each {type, id}. The owner sees each as a '
+            'link that opens the record. Each must be readable by you in this conversation’s scope.')}}
+
+    def linked(self, ctx, source, refs, uow, *, strict=True):
+        """``refs`` checked (strict) or displayed for ``ctx`` in the source's scope, as a Signoff note's references."""
+        if not refs or self.references is None:
+            return []
+        selected = self.select(self.app.current_context(ctx, uow), source['business_id'], uow)
+        return self.references.references(selected, list(refs), uow, strict=strict)
 
     # ----- identity and canonical binding -------------------------------------
 
@@ -358,6 +377,7 @@ class PrivateConversations:
             messages = list(reversed(page[:limit]))
             for message in messages:
                 message.pop('conversation_id', None)
+                message['refs'] = self.linked(ctx, source, json.loads(message.pop('refs_json', None) or '[]'), uow, strict=False)
                 message.update(read_attribution(uow, 'owner_conversation', message['id'], message['created_by']))
                 author(message, uow)
         owner, coordinator = self.participants(uow, ctx, args)
@@ -376,10 +396,11 @@ class PrivateConversations:
                 else {'kind': 'global'}), 'conversation_peer_id': peer}).build()
 
     def prepare(self, ctx, args, options, uow):
-        self.resolve(ctx, args, uow)
+        _, source = self.resolve(ctx, args, uow)
         if not isinstance(args['text'], str) or not args['text'].strip():
             raise DomainError('validation_error', 'A private message must contain 1–20000 characters and cannot be blank')
         normalize_summary(args.get('summary'))
+        self.linked(ctx, source, args.get('refs', ()), uow)
         attribution(ctx, uow, args.get('relay'))
         _, coordinator = self.participants(uow, ctx, args)
         return self.plan(ctx, 'owner_conversation_send', args, 'Private message', coordinator)
@@ -426,10 +447,13 @@ class PrivateConversations:
         message = {'id': new_id(), 'conversation_id': row['id'], 'created_by': ctx.principal_id,
                    'author_role': role, 'body': args['text'],
                    'summary': normalize_summary(args.get('summary')), 'created_at': now}
-        columns = ('id', 'conversation_id', 'created_by', 'author_role', 'body', 'summary', 'created_at')
+        refs = self.linked(ctx, source, args.get('refs', ()), uow)
+        stored = {**message, 'refs_json': json.dumps(refs)}
+        columns = ('id', 'conversation_id', 'created_by', 'author_role', 'body', 'summary', 'created_at', 'refs_json')
         cursor = uow.connection.execute('INSERT INTO owner_conversation_messages'
             '(' + ','.join(columns) + ') VALUES(' + ','.join('?' * len(columns)) + ')',
-            tuple(message[name] for name in columns))
+            tuple(stored[name] for name in columns))
+        message['refs'] = refs
         sequence = cursor.lastrowid
         save_attribution(ctx, uow, 'owner_conversation', message['id'], args.get('relay'))
         message.update(read_attribution(uow, 'owner_conversation', message['id'], ctx.principal_id))

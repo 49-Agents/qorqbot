@@ -50,7 +50,7 @@ def build_runtime(tmp_path):
     runtime = SimpleNamespace(database=database, application=app, signoffs=signoffs, inbox=inbox,
         focus=SimpleNamespace(inbox=inbox), paths=SimpleNamespace(runtime=tmp_path / 'runtime'), selection=NO_EXTENSIONS)
     app.ordubashy_attention = Attention(runtime)
-    runtime.private_conversations = PrivateConversations(inbox).register()
+    runtime.private_conversations = PrivateConversations(inbox, references=signoffs.notes).register()
     runtime.side_chats = SideChats(runtime).register()
     runtime.reminders = ReminderService(runtime).register()
     owner, coordinator, worker = new_id(), new_id(), new_id()

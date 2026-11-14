@@ -306,7 +306,8 @@ WHEN NEW.kind='working_memory' AND NEW.owning_agent_id IS NULL BEGIN
  author_role TEXT NOT NULL CHECK(author_role IN ('owner','coordinator')),
  body TEXT NOT NULL CHECK(length(trim(body))>0 AND length(body)<=20000),
  summary TEXT CHECK(summary IS NULL OR (length(trim(summary))>0 AND length(summary)<=500)),
- created_at TEXT NOT NULL
+ created_at TEXT NOT NULL,
+ refs_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(refs_json))
 )""",
         """CREATE INDEX owner_conversation_messages_thread ON owner_conversation_messages(conversation_id,sequence)""",
         """CREATE TRIGGER owner_conversation_messages_no_update BEFORE UPDATE ON owner_conversation_messages BEGIN SELECT RAISE(ABORT,'Private messages are immutable'); END""",

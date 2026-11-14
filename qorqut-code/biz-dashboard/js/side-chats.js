@@ -83,7 +83,9 @@ function sideChatOpen(item){
     const view=conversationMount(host,{...source,biz},{privateSource:source,privateGlobal:true,inlineComposer:true,dismissOnOutside:false,
       placeholder:'Message Ordubashy…',ariaLabel:'Side chat message',sourceTitle:item.title || 'Side chat',attachments:true,
       isVisible:visible,onRead:()=>void attentionQueue.refresh(),onUnread:()=>void attentionQueue.refresh(),
-      onSent:()=>void attentionQueue.refresh()});
+      onSent:()=>void attentionQueue.refresh(),
+      // A referenced side chat opens as that side chat; Tasks and other signoffs open as they do elsewhere.
+      openReference:ref=>{const chat=ref.type==='signoff'?attentionQueue.sideChat(ref.id):null;return chat?sideChatOpen(chat):taskProgressOpenReference(ref.business_slug ?? biz,ref);}});
     const canLeave=()=>{
       if(closing || !view.canLeave()){
         error.textContent=closing?'Wait for the side chat to finish closing.':view.state.sending?'Wait for the message to finish sending.':'Save or discard the question edits before leaving.';
