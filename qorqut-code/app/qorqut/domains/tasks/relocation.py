@@ -52,6 +52,8 @@ TASK_COLUMNS = {
     "attention_membership_events.task_business_id": "historical",
     # The Task a read-and-acknowledge report belongs to; one row per report, so a move never meets a destination duplicate.
     "signoff_report_tasks.task_id": "followed", "signoff_report_tasks.task_business_id": "followed",
+    # A timeline belongs to its Task: its entries and questions get the new Project with the move (the one permitted update of an entry).
+    "timeline_entries.item_id": "followed", "timeline_questions.item_id": "followed",
 }
 # Typed item columns (``item_type``/``source_type`` plus an id): the stores that hold a Task through a type column.
 TYPED_REFERENCES = {
@@ -172,6 +174,9 @@ class HostRelocation:
         reports = self.report_links(connection, tables, relocation)
         material['report_links'] = digest([list(row) for row in reports])
         counts['report_links'] = len(reports)
+        timeline = self.timeline_rows(connection, tables, relocation)
+        material['timeline'] = digest([list(row) for row in timeline])
+        counts['timeline_rows'] = len(timeline)
         for link in links:
             if connection.execute('SELECT 1 FROM signoff_source_links WHERE signoff_id=? AND source_type=\'task\' '
                     'AND source_id=? AND source_business_id IS ?',
@@ -367,6 +372,17 @@ class HostRelocation:
         return connection.execute('SELECT * FROM signoff_report_tasks WHERE task_business_id IS ? AND task_id IN '
             + marks(relocation.ids) + ' ORDER BY signoff_id', (relocation.source, *relocation.ids)).fetchall()
 
+    @staticmethod
+    def timeline_rows(connection, tables, relocation):
+        """The timeline entries and questions of the moved Tasks (``(table, id)``). They follow their Task."""
+        found = []
+        for table in ('timeline_entries', 'timeline_questions'):
+            if table in tables:
+                found += [(table, row['id']) for row in connection.execute(
+                    f"SELECT id FROM {table} WHERE item_type='task' AND business_id IS ? AND item_id IN " + marks(relocation.ids) + ' ORDER BY id',
+                    (relocation.source, *relocation.ids))]
+        return found
+
     def apply(self, uow, relocation: Relocation, at: str):
         connection, tables = uow.connection, existing_tables(uow)
         ids, source, destination = set(relocation.ids), relocation.source, relocation.destination
@@ -381,6 +397,12 @@ class HostRelocation:
             connection.execute('UPDATE signoff_report_tasks SET task_business_id=?,revision=revision+1 WHERE signoff_id=?',
                 (destination, link['signoff_id']))
         counts['report_links'] = len(reports)
+        timeline = self.timeline_rows(connection, tables, relocation)
+        for table in ('timeline_entries', 'timeline_questions'):
+            if table in tables:
+                connection.execute(f"UPDATE {table} SET business_id=? WHERE item_type='task' AND business_id IS ? AND item_id IN " + marks(ids),
+                                   (destination, source, *ids))
+        counts['timeline_rows'] = len(timeline)
         for row in self.conversations(connection, tables, relocation):
             updated = connection.execute(
                 "UPDATE owner_conversations SET business_id=?, source_key=?, revision=revision+1, updated_at=? WHERE id=? AND revision=?",

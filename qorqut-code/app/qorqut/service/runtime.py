@@ -574,6 +574,9 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # The owner's pinned-threads row at the top of Focus: the owner's dashboard route, plus these two tools for the coordinator.
     from qorqut.domains.thread_pins import ThreadPins
     ThreadPins(runtime).register()
+    # The timelines of Tasks, Projects and Global: any agent reads one it may read; only the coordinator files.
+    from qorqut.domains.timeline import Timeline
+    Timeline(runtime).register()
     # Its companion: what the records say was done over the same period.
     from qorqut.domains.work_review import WorkReview
     WorkReview(runtime).register()

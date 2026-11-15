@@ -69,6 +69,8 @@ KIND_BY_TABLE = {
     "action_logs": "action_logs", "action_businesses": "action_logs",
     "agent_profiles": "agents", "principals": "agents", "business_memberships": "agents",
     "data_tables": "tables", "data_rows": "tables",
+    # A timeline row belongs to the Task, Project or Global it names; Global rows land at the global scope.
+    "timeline_entries": "timeline", "timeline_questions": "timeline",
     # CRM memberships belong to their Table's views; a recorded observation belongs to its Task's activity.
     "crm_entries": "tables", "crm_activity_events": "tasks",
 }
@@ -139,7 +141,7 @@ GLOBAL_ONLY_KINDS = frozenset({"jobs_routines", "learnings", "thread_pins", CONT
 # scope and GLOBAL_SCOPE, or it can miss the global-only half of the kind's
 # writes and 304 on data that already changed. "action_logs": Global-stored
 # owner/ecosystem actions are shared into businesses through memberships.
-ALSO_GLOBAL_KINDS = frozenset({"signoffs", "tasks", "agents", "action_logs"})
+ALSO_GLOBAL_KINDS = frozenset({"signoffs", "tasks", "agents", "action_logs", "timeline"})
 
 
 def _json(value):
