@@ -135,6 +135,21 @@ class CompactionRecoveryTests(unittest.TestCase):
     def test_slow_refresh_after_compaction_is_delivered_to_codex(self):
         self.slow_refresh_after_compaction('codex')
 
+    def compaction_request(self, runtime):
+        """The bootstrap request the service receives for a compaction the hook reported."""
+        self.begin(runtime)
+        self.hook('SessionStart', source='compact')
+        self.supervise()
+        return [body for route, body in self.posts if route == '/api/agent/bootstrap' and body['event'] == 'compact']
+
+    def test_a_compaction_reaches_the_service_with_its_event_and_session_for_claude_code(self):
+        self.assertEqual([(body['event'], body['session_id'], body['runtime']) for body in self.compaction_request('claude-code')],
+                         [('compact', SESSION, 'claude-code')])
+
+    def test_a_compaction_reaches_the_service_with_its_event_and_session_for_codex(self):
+        self.assertEqual([(body['event'], body['session_id'], body['runtime']) for body in self.compaction_request('codex')],
+                         [('compact', SESSION, 'codex')])
+
     def test_slow_refresh_on_an_ordinary_prompt_needs_no_recovery(self):
         self.begin('codex')
         with mock.patch('qorqut.bootstrap.handoff.offer', return_value=handoff.result_path(self.root, self.native)):

@@ -580,6 +580,8 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # The owner's dashboard reads of them: one item's timeline and every open question.
     from qorqut.domains.timeline_owner import TimelineOwner
     TimelineOwner(runtime).register()
+    from qorqut.domains.timeline_delivery import TimelineDelivery
+    runtime.timeline_delivery = resolver.timeline_delivery = TimelineDelivery(runtime)
     # Its companion: what the records say was done over the same period.
     from qorqut.domains.work_review import WorkReview
     WorkReview(runtime).register()
