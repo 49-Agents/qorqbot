@@ -577,6 +577,8 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # The timelines of Tasks, Projects and Global: any agent reads one it may read; only the coordinator files.
     from qorqut.domains.timeline import Timeline
     Timeline(runtime).register()
+    from qorqut.domains.timeline_delivery import TimelineDelivery
+    runtime.timeline_delivery = resolver.timeline_delivery = TimelineDelivery(runtime)
     # Its companion: what the records say was done over the same period.
     from qorqut.domains.work_review import WorkReview
     WorkReview(runtime).register()
