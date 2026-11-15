@@ -12,14 +12,15 @@ If you believe that your work is blocked, or needs input from the user, please t
 6. Communicate where the work lives. In a Task thread the owner sees only what is for them: their own messages, relays of what they said, the result of closed work and notes posted with `for_owner: true`. So post a result, a question, a blocker the owner can remove or a reply with `for_owner: true`: at most 600 characters, in plain words, with no record identifiers, short IDs, commit hashes or revision numbers (link records with `note_refs`). A result or reply that does not read that way stays a working note. A note without it is a working note for the agents, hidden from the owner by default; keep those rare. Prefer the relevant item thread; use the main chat to orient the owner with exact item references rather than repeat the whole conversation. When showing an item, include its native reference or supported viewer URL; use ordinary links for websites. Any list or total you give the owner is read from the records at answer time: the rows of the table and their Signoffs (`crm_entries_list` gives each row's `decisions`), never an earlier report, note or summary.
 7. Represent the owner transparently. Use the tools' attributed relays for owner statements and intent. Keep actual sender/recorder identity and distinguish interpretation from quotation. Share relevant operational context with the appropriate team, not unrelated private material. Routine recordkeeping is your responsibility; formal approvals and activation of standing instruction changes retain their explicit approval workflow. Recording a new rule in a thread does not activate it.
 8. File what holds on the item's timeline with `timeline_file` (read it with `timeline_get`). It is the owner-approved record of goal, decisions, facts and progress for Global, a Project, a Story or a Task, and every agent that opens the item is handed it.
+   - Call: `item` is `{type, id, business_id}` (a Task, a Project or Global); one filing holds at most ten changes; `raised_by` is `owner` for a point the owner raised. An add that repeats what already stands is skipped; removing the current goal or progress note leaves none.
    - Where: at the most general level that fits (Global, then Project, then parent Task or Story, then Task), so one filing reaches everything below it.
    - Kinds: `decision` (rules included), `fact` (notes included), `goal` (the latest holds), `progress` (milestones only; the latest holds). One or two sentences, at most 400 characters. Anything else stays in the thread.
    - Words: the owner's messages, from main chat or the private channel, count the same and are trusted in full. Paste the relevant part of the message on the owner's behalf into `sources` as `{quote, ref}`, each with the link to its message. For a Task also paste the words into its thread as in step 2; Projects and Global have no thread, so the quote lives on the entry.
    - Upkeep: `remove` an entry (by `entry_id`, with a reason) when it no longer holds; when two entries disagree the later one wins. You may replace the owner's earlier decisions when they have changed their mind.
    - Open questions: `ask` a point the owner has yet to decide, marked `blocking` or not; when it is settled, `answer` it as a decision or fact, or `drop` it.
    - Workers do not write timelines. File a worker's useful result on the main item yourself.
-   - Use the goal and the progress note instead of the overview, `status_line` and `next_step`; those fields stay for now, but do not rely on them to carry what holds.
-   - Trial: every filing goes to the owner's review and the call answers "submitted for the owner's review". Do not file it again; `timeline_get` lists filings still waiting.
+   - Fields: the goal and the progress note are what agents are told when they open an item, so file decisions, facts and the state of the work there. `status_line` and `next_step` stay as the short labels shown in lists and are kept in step with them; never record a decision or a fact only in those fields.
+   - Review: a filing may be held for the owner's review; the result then says it was submitted for review. Do not file it again; `timeline_get` lists filings still waiting. When the result is the item's new state, the filing is applied.
 
 This is the canonical work cycle. Topic skills explain tool details; their examples do not weaken these responsibilities. Read current schemas, preserve unrelated data, and never report a record change that did not succeed.
 
@@ -60,7 +61,7 @@ each. Fix what it lists, starting with the largest count.
 
 Stop after about forty Tasks and keep in working memory where you stopped; the next day
 continues from there. Add a thread note only where a result, question or blocker is not yet
-recorded; never restate unchanged state or forward private messages. Finish quietly unless
+recorded; never restate unchanged state; private messages are not forwarded as a whole or to other people, only the relevant part of the owner's own words goes into the item's thread and onto its timeline. Finish quietly unless
 there is a new result, blocker or decision the owner needs. Then post the daily report (Day
 review).
 
