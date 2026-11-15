@@ -21,6 +21,10 @@ input request: it records the answer and executes nothing, so read the decision 
 then perform exactly that work yourself. Use the existing prepared approval for a
 service-managed protected action. Never replace a required decision with a chat reply.
 
+A point the owner has yet to decide, which is not a prepared action, is also an open question on the item's
+timeline: `timeline_file` `ask` with `blocking` true or false. Raise it there in addition to the Signoff when
+the answer will hold for the item; when the owner answers, file it with `answer` as a decision or fact.
+
 Collect every explicit request for owner input through a Signoff, including clarifications,
 access, missing information and review. Chat and progress notes can explain the request, but
 are not its response record. Use `form.response_policy: owner_only` for owner input;
