@@ -58,6 +58,13 @@ or choices materially change, withdraw the old input with
 `signoffs_input_cancel`, then submit its replacement. Avoid duplicate requests
 for each retry of a blocked operation.
 
+The owner states a fact about themselves once. Before asking the owner anything about
+themselves, read the personal record (Context Home and `context_home` name its ref) and
+your own open questions (`signoffs_list` with `category: input_request`,
+`states: [pending]`). Leave out what the record answers, what the owner already answered
+on an earlier form, and what an open question already asks; ask a question that several
+pieces of work need once, in one request.
+
 The unversioned `form` contains `title`, `explanation`, `kind` (`question`, `request`, `draft_review`, or
 Ordubashy's `acknowledge`, described under "Read and acknowledge"), and
 `selection_mode` (`none`, `single`, or `multiple`). For choices provide at least
