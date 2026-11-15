@@ -22,7 +22,7 @@ from qorqut.agentic.text import bundled, render
 
 # A generous total delivery budget, roughly 20k tokens for ordinary English.
 # This is a character bound, not an assertion about a model's tokenizer.
-MAX_CONTEXT_CHARACTERS = 120000
+MAX_CONTEXT_CHARACTERS = 160000
 VIEWBOX_GUIDANCE = (bundled("host", "app/qorqut/agentic/assets/viewbox-guidance.md"))
 
 
