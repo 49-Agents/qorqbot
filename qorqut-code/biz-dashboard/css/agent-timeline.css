@@ -45,3 +45,37 @@
   .agent-timeline { padding: 12px 4px; }
 }
 @media (prefers-reduced-motion: reduce) { .agent-timeline .agent-timeline-expand svg { transition: none; } }
+
+/* The owner's messages: a speech-bubble mark on the rail instead of the action dot. */
+.owner-timeline-row { position:relative; padding:0 0 20px 18px; border-left:1px solid var(--line-2); list-style:none; }
+.owner-timeline-row::before, .agent-nav-events li.owner-timeline-row::before { content:none; }
+.owner-timeline-icon { position:absolute; left:-9px; top:0; display:flex; align-items:center; justify-content:center; width:17px; height:17px; border-radius:50%; background:var(--bg); color:var(--fg); }
+.agent-nav-timeline .owner-timeline-icon { background:transparent; }
+.owner-timeline-icon svg { width:13px; height:13px; }
+.owner-timeline-row time { color:var(--fg-2); font-size:11px; }
+.owner-timeline-row .owner-timeline-text { margin:5px 0 0; font-size:13px; line-height:1.5; overflow-wrap:anywhere; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+.owner-timeline-private { color:var(--fg-2); }
+.owner-timeline-more { margin:4px 0 0; border-top:0; font-size:12px; color:var(--fg-2); }
+.owner-timeline-more > summary { cursor:pointer; list-style:none; width:max-content; }
+.owner-timeline-more > summary::-webkit-details-marker { display:none; }
+.owner-timeline-more > summary:hover { color:var(--fg); }
+.owner-timeline-more .owner-timeline-text { color:var(--fg); }
+.owner-timeline-then { margin:8px 0 0; padding:0 0 0 12px; border-left:1px solid var(--line); }
+.owner-timeline-then p, .agent-nav-events .owner-timeline-then p { margin:0 0 4px; font-size:12px; line-height:1.5; color:var(--fg); overflow-wrap:anywhere; }
+.owner-timeline-then span { color:var(--fg-2); }
+.owner-timeline-toggle { display:inline-flex; align-items:center; gap:7px; height:24px; min-height:0; padding:0 6px; border:0; border-radius:5px; background:none; box-shadow:none; color:var(--fg-2); font-size:11px; font-weight:450; cursor:pointer; }
+.owner-timeline-toggle:hover { background:var(--hover); color:var(--fg); transform:none; }
+/* Focus restyles its buttons as bordered pills; the switch in a report on Focus keeps the plain look. */
+.agfocus .sg-report-timeline button.owner-timeline-toggle { min-height:0; height:24px; padding:0 6px; border:0; background:none; font:450 11px/1 var(--sans); color:var(--fg-2); }
+.agfocus .sg-report-timeline button.owner-timeline-toggle:hover { background:var(--hover); color:var(--fg); }
+.owner-timeline-switch { position:relative; width:22px; height:12px; border-radius:6px; background:var(--line-2); transition:background .15s ease; }
+.owner-timeline-switch::after { content:""; position:absolute; top:2px; left:2px; width:8px; height:8px; border-radius:50%; background:var(--fg-2); transition:transform .15s ease, background .15s ease; }
+.owner-timeline-toggle[aria-checked="true"] .owner-timeline-switch { background:var(--fg); }
+.owner-timeline-toggle[aria-checked="true"] .owner-timeline-switch::after { transform:translateX(10px); background:var(--bg); }
+.agent-timeline-title { display:flex; align-items:center; gap:10px; min-width:0; }
+/* The daily report's timeline, under the report text. */
+.sg-report-timeline { margin:18px 0 0; padding:14px 0 0; border-top:1px solid var(--line); }
+.owner-timeline-report-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:0 0 12px; }
+.owner-timeline-report-head h3 { margin:0; font-size:12px; font-weight:500; color:var(--fg-2); text-transform:none; letter-spacing:0; }
+.owner-timeline-report-status { margin:0 0 10px; font-size:12px; color:var(--fg-2); }
+.owner-timeline-report-list { list-style:none; margin:0; padding:0 0 0 12px; }

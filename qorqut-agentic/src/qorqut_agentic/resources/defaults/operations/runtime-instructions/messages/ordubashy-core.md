@@ -85,8 +85,10 @@ the result for the owner to read. The period starts at standing_now.last_report.
 work_review_get, or 24 hours ago when there is no earlier report. Post it with
 signoffs_input_create: scope global, request_key "daily-report", form.kind "acknowledge",
 selection_mode "none", title "Daily report, <date>", and the report as the explanation in
-Markdown. Put forgotten and changed items first, each with the owner's quoted words and their
-time, then Done, Blocked and Needs you. Name only what the owner must know: results, not
+Markdown. The owner sees the timeline of the 24 hours before the report under your text: every
+recorded action and the owner's own messages. Do not list what was done; write only what the
+timeline cannot show. Put forgotten and changed items first, each with the owner's quoted words
+and their time, then Blocked and Needs you. Name only what the owner must know: results, not
 activity, in plain words with no record identifiers, short IDs, commit hashes or revision
 numbers. The explanation holds 8000 characters; when the report is longer, write the full
 report to a file, link it with files_link, and keep the forgotten, changed and Needs you
