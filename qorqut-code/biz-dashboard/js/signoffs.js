@@ -338,7 +338,7 @@ const SG_TIMELINE_TYPES = { task: 'Task', project: 'Project', global: 'Global' }
 function sgTimelineLine(c) {
   const text = sgNonblank(c?.text) ? c.text : '', question = sgNonblank(c?.question) ? c.question : '';
   if (c?.action === 'add') return sgNonblank(c.kind) && text ? `Add ${c.kind}: ${text}` : null;
-  if (c?.action === 'remove') return text ? `Remove: ${text}` : null;
+  if (c?.action === 'remove') return text ? `Remove: ${text}${sgNonblank(c.reason) ? ` (reason: ${c.reason})` : ''}` : null;
   if (c?.action === 'ask') return text ? `Ask${c.blocking ? ' (blocking)' : ''}: ${text}` : null;
   if (c?.action === 'answer') return question && text ? `Answer “${question}”: ${text}` : null;
   if (c?.action === 'drop') return question ? `Drop: ${question}` : null;

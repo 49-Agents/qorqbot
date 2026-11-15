@@ -173,7 +173,8 @@ const attentionQueue=(()=>{
   // The coordinator's timeline filings during the review trial: two or more collapse into one chip that opens them together.
   const isFiling=s=>s.operation_name==='timeline_file';
   const filingsChip=()=>{const list=signoffs.filter(isFiling);return `<button type="button" class="focus-signoff-chip focus-filings-chip" data-filings-group aria-label="Filings to review · ${list.length}" title="Filings to review (${list.length})">${signoffIcon(list[0])}<span class="focus-filings-count">${list.length}</span></button>`;};
-  // Approve all calls the ordinary approve route once per filing, in order; each failure is reported against its own card.
+  // Each filing has its own Approve and Reject with an optional note to the coordinator; Approve all calls the ordinary approve
+  // route once per filing still waiting, in order. Each failure is reported against its own card.
   function filingsOpen(){
     return window.focusExpansion.open({title:'Filings to review',mount(host){
       const box=document.createElement('div');box.className='filings-review';host.append(box);
@@ -181,12 +182,20 @@ const attentionQueue=(()=>{
       let busy=false,alive=true,summary='',loadError='';
       const preview=c=>renderer?.preview(c.s.preview);
       const approvable=c=>!!c.s && c.s.state==='pending' && !c.done && preview(c)?.ok===true;
+      const actions=c=>approvable(c)?`<div class="filing-actions"><input type="text" class="filing-note" data-filing-note maxlength="2000" placeholder="${c.s.rejection_requires_message?'Reason (required to reject)':'Note to the coordinator (optional)'}" aria-label="Note to the coordinator" value="${esc(c.note||'')}"${busy?' disabled':''}><button type="button" class="sg-reject" data-filing-decide="reject"${busy?' disabled':''}>Reject</button><button type="button" class="sg-approve" data-filing-decide="approve"${busy?' disabled':''}>Approve</button></div>`:'';
       function paint(){
         if(!alive)return;
         const list=[...cards.values()],ready=list.filter(approvable).length;
-        box.innerHTML=`<div class="filings-bar"><button type="button" class="sg-approve" data-filings-approve-all${busy||!ready?' disabled':''}>${busy?'Approving…':`Approve all (${ready})`}</button></div>`
+        box.innerHTML=`<div class="filings-bar"><button type="button" class="sg-approve" data-filings-approve-all${busy||!ready?' disabled':''}>${busy?'Working…':`Approve all (${ready})`}</button></div>`
           +(loadError?`<p class="sg-notice" role="alert">${esc(loadError)}</p>`:'')+(summary?`<p class="sg-notice" role="status">${esc(summary)}</p>`:'')
-          +list.map(c=>`<section class="filing-card" data-filing="${esc(c.id)}"><h3>${esc(c.s?.title||'Filing')}</h3>${c.s?preview(c)?.html||'':''}${c.status?`<p class="filing-status" role="status">${esc(c.status)}</p>`:''}</section>`).join('');
+          +list.map(c=>`<section class="filing-card" data-filing="${esc(c.id)}"><h3>${esc(c.s?.title||'Filing')}</h3>${c.s?preview(c)?.html||'':''}${actions(c)}${c.status?`<p class="filing-status" role="status">${esc(c.status)}</p>`:''}</section>`).join('');
+      }
+      // One decision through the ordinary route; the answer must be this filing, no longer pending.
+      async function send(c,action,feedback){
+        const s=c.s;
+        const decided=coreData(await post('/root/signoffs/'+encodeURIComponent(c.id)+'/'+action,{proposal_revision:s.proposal_revision,payload_hash:s.payload_hash,expected_status_revision:s.status_revision,idempotency_key:newRequestId(),feedback}))?.signoff;
+        if(!decided || decided.id!==c.id || decided.state==='pending')throw new Error('the decision could not be verified');
+        c.done=true;
       }
       async function approveAll(){
         if(busy)return;busy=true;summary='';paint();
@@ -194,17 +203,30 @@ const attentionQueue=(()=>{
         for(const c of cards.values()){
           if(!alive)break;
           if(!approvable(c))continue;
-          const s=c.s;
-          try{
-            coreData(await post('/root/signoffs/'+encodeURIComponent(c.id)+'/approve',{proposal_revision:s.proposal_revision,payload_hash:s.payload_hash,expected_status_revision:s.status_revision,idempotency_key:newRequestId(),feedback:null}));
-            c.done=true;c.status='Approved';approved++;
-          }catch(e){c.status='Not approved: '+(e?.message||'the request failed');failed++;}
+          try{await send(c,'approve',null);c.status='Approved';approved++;}
+          catch(e){c.status='Not approved: '+(e?.message||'the request failed');failed++;}
           paint();
         }
         busy=false;summary=`${approved} approved${failed?`, ${failed} not approved`:''}.`;paint();void refreshSignoffs();
       }
-      const click=event=>{if(event.target.closest('[data-filings-approve-all]'))void approveAll();};
-      box.addEventListener('click',click);
+      async function decide(c,action){
+        if(busy||!approvable(c))return;
+        const note=(c.note||'').trim()||null,reject=action==='reject';
+        if(reject && c.s.rejection_requires_message && !note){c.status='Add a reason to reject.';paint();return;}
+        busy=true;summary='';c.status=reject?'Rejecting…':'Approving…';paint();
+        try{await send(c,action,note);c.status=reject?'Rejected':'Approved';}
+        catch(e){c.status=(reject?'Not rejected: ':'Not approved: ')+(e?.message||'the request failed');}
+        busy=false;paint();void refreshSignoffs();
+      }
+      const card=target=>cards.get(target.closest('[data-filing]')?.dataset?.filing);
+      const click=event=>{
+        if(event.target.closest('[data-filings-approve-all]')){void approveAll();return;}
+        const button=event.target.closest('[data-filing-decide]'),c=button && card(button);
+        if(c)void decide(c,button.dataset.filingDecide==='reject'?'reject':'approve');
+      };
+      // The note is kept on its card so a repaint (another card's decision) does not lose what was typed.
+      const input=event=>{const field=event.target.closest?.('[data-filing-note]'),c=field && card(field);if(c)c.note=field.value;};
+      box.addEventListener('click',click);box.addEventListener('input',input);
       (async()=>{
         const ids=signoffs.filter(isFiling).map(s=>s.id);
         for(const id of ids)cards.set(id,{id,s:null,status:'Loading…'});
@@ -217,7 +239,7 @@ const attentionQueue=(()=>{
         if(!ids.length)loadError='No filings are waiting.';
         paint();
       })();
-      return ()=>{alive=false;box.removeEventListener('click',click);};
+      return ()=>{alive=false;box.removeEventListener('click',click);box.removeEventListener('input',input);};
     }});
   }
   function paintSignoffs(){

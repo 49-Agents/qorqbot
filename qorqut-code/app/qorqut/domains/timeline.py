@@ -292,9 +292,13 @@ class Timeline:
         item = args["item"]
         builder = PlanBuilder(ctx, "timeline_file", args, f"File on the timeline of {item['type']} \"{title}\"" if title else "File on the Global timeline")
         self.pin(builder, item, pins)
+        lines = plain(self.lines(args["changes"], pins))
+        # The same changes already waiting on this item would only make the owner decide them twice.
+        if any(row["changes"] == lines for row in self.waiting(ctx, item, uow)):
+            raise DomainError("validation_error", "These changes already wait for the owner's review; do not file them again")
         # What the owner reads: the item, one line per change and the quoted words, ahead of the generic field list.
         fields = {"item_type": item["type"], "item_id": item["id"], "item_business_id": item["business_id"], "item_title": title or "",
-                  "changes": self.lines(args["changes"], pins), "sources": args.get("sources", [])}
+                  "changes": lines, "sources": args.get("sources", [])}
         resource = PreviewResource("timeline_filing", "filing", "Timeline filing")
         builder.previews.append(StructuredPreview(resource, tuple(FieldChange(path, None, value) for path, value in fields.items())))
         builder.resources.append(resource)
@@ -310,21 +314,21 @@ class Timeline:
     # -- filings still waiting for review --------------------------------------------------------------------------
 
     def waiting(self, ctx, item, uow):
-        """The pending ``timeline_file`` approvals on ``item`` as ``{id, changes}``: for the coordinator in person and the owner,
-        never for another agent. Read from the approvals themselves."""
-        current = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
-        owner = current.principal_kind == "human"
-        if not owner and (current.delegation_assignment_id is not None or current.principal_id != configured_ordubashy(uow)):
+        """The ``timeline_file`` approvals on ``item`` that are not on the timeline yet, as ``{id, state, changes}``: the ones
+        the owner has still to decide (``pending``) and the ones approved and about to be applied (``approved``), so a filing is
+        not sent twice in the moment between the two. For the coordinator in person and the installation owner, never for
+        another agent or another person. Read from the approvals themselves."""
+        if not self.trusted(ctx, uow):
             return []
         found = []
         for row in uow.connection.execute(
-                "SELECT id, preview_json, created_at FROM signoffs WHERE operation_name='timeline_file' AND state='pending' "
-                "AND superseded_by_id IS NULL ORDER BY created_at, id").fetchall():
+                "SELECT id, state, preview_json, created_at FROM signoffs WHERE operation_name='timeline_file' "
+                "AND state IN ('pending','approved') AND superseded_by_id IS NULL ORDER BY created_at, id").fetchall():
             fields = {}
             for change in json.loads(row["preview_json"]).get("changes", []):
                 fields.update({field["path"]: field["after"] for field in change.get("fields", [])})
             if (fields.get("item_type"), fields.get("item_id"), fields.get("item_business_id")) == (item["type"], item["id"], item["business_id"]):
-                found.append({"id": row["id"], "filed_at": row["created_at"], "changes": fields.get("changes", [])})
+                found.append({"id": row["id"], "state": row["state"], "filed_at": row["created_at"], "changes": fields.get("changes", [])})
         return found
 
     @staticmethod

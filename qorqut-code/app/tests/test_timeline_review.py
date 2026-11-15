@@ -132,7 +132,9 @@ class TimelineReviewTests(Fixture):
 
     def test_two_removals_approved_together_before_either_applies_the_second_does_not_apply(self):
         entry = self.add('decision', 'Old rule.')
-        first, second = self.held([{'action': 'remove', 'entry_id': entry}]), self.held([{'action': 'remove', 'entry_id': entry}])
+        # Two filings that differ only in their reason: the same changes twice are refused when the second is filed.
+        first = self.held([{'action': 'remove', 'entry_id': entry}])
+        second = self.held([{'action': 'remove', 'entry_id': entry, 'reason': 'Replaced.'}])
         self.assertEqual((self.decision(first, 'approve').status, self.decision(second, 'approve').status), ('accepted', 'accepted'))
         self.signoffs.run_one(first['id'])
         self.signoffs.run_one(second['id'])
@@ -177,7 +179,7 @@ class TimelineReviewTests(Fixture):
         result = self.get(self.lead)
         self.assertEqual(result.status, 'ok', result.to_dict())
         data = plain(result.data)
-        self.assertEqual([row['id'] for row in data['waiting_for_review']], [waiting['id']])
+        self.assertEqual([(row['id'], row['state']) for row in data['waiting_for_review']], [(waiting['id'], 'pending')])
         self.assertEqual([line['action'] for line in data['waiting_for_review'][0]['changes']], ['add', 'ask'])
         self.assertIn('do not file them again', data['text'])
         self.assertIn('Add decision: Pay in dollars.', data['text'])
@@ -190,8 +192,26 @@ class TimelineReviewTests(Fixture):
         self.assertNotIn('waiting_for_review', plain(other.data) if other.status == 'ok' else {})
         if other.status == 'ok':
             self.assertNotIn('Pay in dollars.', plain(other.data)['text'])
-        self.approve(waiting)
+        # Approved and not applied yet, it is still not on the timeline, so it stays listed until the service has applied it.
+        self.assertEqual(self.decision(waiting, 'approve').status, 'accepted')
+        self.assertEqual(self.state_of(waiting), 'approved')
+        listed = plain(self.get(self.lead).data)['waiting_for_review']
+        self.assertEqual([(row['id'], row['state']) for row in listed], [(waiting['id'], 'approved')])
+        self.signoffs.run_one(waiting['id'])
+        self.assertEqual(self.state_of(waiting), 'applied')
         self.assertNotIn('waiting_for_review', plain(self.get(self.lead).data))
+
+    def test_the_same_changes_are_not_held_twice(self):
+        changes = [{'action': 'add', 'kind': 'decision', 'text': 'Pay in dollars.'}]
+        first = self.held(changes)
+        again = self.file(changes)
+        self.assertEqual((again.status, again.error['code']), ('error', 'validation_error'), again.to_dict())
+        self.assertIn('already wait', again.error['message'])
+        self.assertEqual(self.count('signoffs'), 1)
+        # Other changes on the same item are held as usual, and once the first is rejected the same words can be filed again.
+        self.held([{'action': 'add', 'kind': 'decision', 'text': 'Pay in euros.'}])
+        self.assertEqual(self.decision(first, 'reject', 'Not yet.').status, 'ok')
+        self.held(changes)
 
     def test_a_pending_filing_on_another_item_is_not_listed(self):
         other = self.task(self.lead, 'Other work')
