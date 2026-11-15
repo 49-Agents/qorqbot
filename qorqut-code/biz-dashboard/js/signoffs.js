@@ -467,8 +467,10 @@ function sgCreateView(options) {
     const savedValid = final && sgQuestionDecisionValid(s);
     const answers = savedValid ? sgQuestionAnswers(s, s.decision.answers) : draft.answers;
     const retained = !!draft.conflict || (s.state !== 'pending' && draft.answers.some(a => a.notes || a.selected_choices.length) && !sgQuestionMatches(s, draft.answers));
-    host.querySelector('.sg-question-progress').textContent = draft.conflict || (retained ? 'This request is closed. Your unsubmitted answers are kept here.'
-      : draft.errors._form || (s.state === 'pending' ? `${answers.filter(a => a.notes.trim() || a.selected_choices.length).length} of ${answers.length} filled · Not submitted` : ''));
+    // Only a problem is announced here: a conflict, a closed request holding unsent answers, or a form error. No progress count.
+    const progress = host.querySelector('.sg-question-progress');
+    progress.textContent = draft.conflict || (retained ? 'This request is closed. Your unsubmitted answers are kept here.' : draft.errors._form || '');
+    progress.hidden = !progress.textContent;
     const fields = host.querySelector('.sg-question-fields');
     const summary = (q,a) => !a.selected_choices.length && !a.notes.trim() ? 'Not answered (optional)'
       : [q.choices.filter(c => a.selected_choices.includes(c.id)).map(c => c.label).join(', '), a.notes].filter(Boolean).join('\n');
