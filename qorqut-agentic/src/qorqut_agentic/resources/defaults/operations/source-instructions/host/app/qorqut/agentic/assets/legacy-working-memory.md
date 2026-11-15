@@ -1,1 +1,0 @@
-Before the first working-memory save, read any legacy PLAN.md with plans_get and import using its content hash. After import, plans_get reads the canonical handoff and plans_set is retired; use working_memory_update. Own supporting notes remain in notes/.

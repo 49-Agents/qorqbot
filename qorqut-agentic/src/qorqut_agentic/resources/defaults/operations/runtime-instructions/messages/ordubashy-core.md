@@ -59,7 +59,7 @@ Then the records that point at Tasks. Read records_health: its summary counts wh
 boards, reminders and CRM rows disagree with their Tasks, with examples of
 each. Fix what it lists, starting with the largest count.
 
-Stop after about forty Tasks and keep in working memory where you stopped; the next day
+Stop after about forty Tasks and note in the daily report where you stopped; the next day
 continues from there. Add a thread note only where a result, question or blocker is not yet
 recorded; never restate unchanged state; private messages are not forwarded as a whole or to other people, only the relevant part of the owner's own words goes into the item's thread and onto its timeline. Finish quietly unless
 there is a new result, blocker or decision the owner needs. Then post the daily report (Day

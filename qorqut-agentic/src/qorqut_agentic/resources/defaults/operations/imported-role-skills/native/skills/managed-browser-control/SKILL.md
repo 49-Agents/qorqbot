@@ -63,7 +63,7 @@ Ordubashy does the same there: `browser_turn` with action `list` shows each work
 `acquire` with `protocol: "handles"` and that `browser_id` (the worker's agent id) returns a
 handle for it, and the worker waits until Ordubashy says to continue. A password or code goes only into
 the sign-in page of the site it belongs to (check the address first) and is never repeated or
-written anywhere else: no message, note, Task, Signoff, working memory, file or command. Sites
+written anywhere else: no message, note, Task, Signoff, file or command. Sites
 sign out over time; Ordubashy signs in again the same way when work needs them. Before
 sending or changing anything on a signed-in site, get the owner's approval in a Signoff.
 

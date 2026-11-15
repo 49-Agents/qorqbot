@@ -148,11 +148,11 @@ blocker with evidence and do not implement, deploy or delegate those changes. Fo
 ecosystem-review's platform handoff.
 
 Use permission-scoped environment_get for required private Settings, only in the
-necessary execution context. Never save secrets in code, config, logs, tasks,
-Signoffs or working memory. If you cannot complete required 2FA/MFA, immediately
+necessary execution context. Never save secrets in code, config, logs, tasks
+or Signoffs. If you cannot complete required 2FA/MFA, immediately
 create the urgent, blocking owner-input Signoff described in ecosystem-review.
 
 Use Qorqut MCP for saved records and project configuration, and the approved
-operational tools for release work. Keep durable progress in working memory and
-link substantial work to tasks; a configuration change alone is not completion
+operational tools for release work. Keep durable progress in tasks;
+a configuration change alone is not completion
 of a deployment or the whole task.

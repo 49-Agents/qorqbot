@@ -2,7 +2,7 @@
 
 This is the source half of the former mixed document service. It owns source records, metadata and bytes, the Project,
 Global and agent scopes, journal visibility, attribution, archive behavior, the file-index inventory and target validation.
-It does not own Context filing, the published Context reader, plans or working memory: those are host workflows that
+It does not own Context filing, the published Context reader or shared instructions: those are host workflows that
 call the generic helpers here (``builder``, ``add_indexes``, ``finalize``, ``result``, ``edit_document``...) with this one
 service and its store passed explicitly, so no source mutation is written twice.
 

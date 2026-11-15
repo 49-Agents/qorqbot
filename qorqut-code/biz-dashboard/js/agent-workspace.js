@@ -408,7 +408,7 @@ async function agentWorkspaceLeaveEmbedded() {
   if (!confirm('This pane has unsaved edits. Discard them and leave?')) return false;
   // These editors retain drafts in document-local maps. A confirmed discard
   // must clear them now that section navigation no longer destroys the frame.
-  _dataDrafts.clear(); workingMemoryDrafts.clear();
+  _dataDrafts.clear();
   return true;
 }
 

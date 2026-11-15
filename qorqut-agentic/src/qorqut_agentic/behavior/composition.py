@@ -20,7 +20,6 @@ CAPABILITIES = (
     (('tasks_overview',), 'task-overview'),
     (('environment_list',), 'environment-list'),
     (('files_link',), 'files-link-guidance'),
-    (('notes_create', 'notes_get', 'plans_get', 'plans_set'), 'legacy-working-memory'),
     (('agents_list', 'tasks_list'), 'team-queue'),
     (('tasks_list', 'tasks_update'), 'backlog'),
     (('owner_conversation_get', 'owner_conversation_send'), 'private-owner-replies'),
@@ -36,7 +35,7 @@ def orientation_tail(available_operations):
     paths = list(COMMON_ORIENTATION)
     if "business_briefing" in available_operations:
         paths.append("project-briefing")
-    return (*paths, "working-memory", "capability-handoffs")
+    return (*paths, "capability-handoffs")
 
 
 def capability_guidance(available_operations):

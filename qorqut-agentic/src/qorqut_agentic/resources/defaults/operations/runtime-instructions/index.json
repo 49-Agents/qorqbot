@@ -518,33 +518,6 @@
       "previous_source": "qorqut-code/app/qorqut/bootstrap/learning_applier.py:15"
     },
     {
-      "id": "memory-legacy-plan",
-      "path": "messages/memory-legacy-plan.md",
-      "parameters": [],
-      "status": "conditional",
-      "trigger": "working memory",
-      "audience": "registered agents; role/runtime conditions retained by the caller",
-      "previous_source": "domains/working_memory.py"
-    },
-    {
-      "id": "memory-omitted",
-      "path": "messages/memory-omitted.md",
-      "parameters": [],
-      "status": "conditional",
-      "trigger": "working memory",
-      "audience": "registered agents; role/runtime conditions retained by the caller",
-      "previous_source": "domains/working_memory.py"
-    },
-    {
-      "id": "memory-pending",
-      "path": "messages/memory-pending.md",
-      "parameters": [],
-      "status": "conditional",
-      "trigger": "working memory",
-      "audience": "registered agents; role/runtime conditions retained by the caller",
-      "previous_source": "domains/working_memory.py"
-    },
-    {
       "id": "overseer-extraction-due",
       "path": "messages/overseer-extraction-due.md",
       "parameters": [],
@@ -659,15 +632,6 @@
     {
       "id": "startup-fault",
       "path": "messages/startup-fault.md",
-      "parameters": [],
-      "status": "conditional",
-      "trigger": "claude session",
-      "audience": "registered agents; role/runtime conditions retained by the caller",
-      "previous_source": "bootstrap/claude_session.py"
-    },
-    {
-      "id": "startup-inventory",
-      "path": "messages/startup-inventory.md",
       "parameters": [],
       "status": "conditional",
       "trigger": "claude session",

@@ -3,8 +3,7 @@
 Write one short activity or blocker per item, aiming for about 50 characters
 (roughly 6–10 words) across `summary` and `blocked_reason` together. This target
 applies to session work and permanent-worker assignments. Do not repeat a blocker
-in both fields. Keep IDs in reference fields and details in the linked Task or
-working memory. Preserve essential meaning instead of using cryptic abbreviations.
+in both fields. Keep IDs in reference fields and details in the linked Task. Preserve essential meaning instead of using cryptic abbreviations.
 The existing validation ceilings remain unchanged; they are not writing targets.
 
 Examples: "Preparing six SF messages", "Waiting for message approvals", or

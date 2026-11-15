@@ -621,7 +621,7 @@ class HTTPAPI:
                     "system_incidents_list", "system_incidents_get",
                     "dashboard_summary_get", "global_progress_get", "records_health", "records_reconcile",
                     "owner_inputs_list", "owner_input_get", "work_review_get",
-                    "actions_record", "actions_list", "actions_get", "actions_correct", "actions_withdraw", "actions_config_get", "working_memory_get", "working_memory_update", "agent_context_get",
+                    "actions_record", "actions_list", "actions_get", "actions_correct", "actions_withdraw", "actions_config_get", "agent_context_get",
                     "costs_overview",
                     "calendar_calendars_list", "calendar_events_list", "calendar_event_get",
                     "calendar_event_create", "calendar_event_update", "calendar_event_delete", "calendar_event_respond",

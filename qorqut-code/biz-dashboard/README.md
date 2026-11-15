@@ -278,14 +278,13 @@ Checks: `tests/test_global_chat_browser.js`, `tests/test_chat_view_browser.js`,
 
 ### Retained components
 
-No normal Broadcast or Working Memory entry point is currently exposed in the
-navigation. Their modules (`js/broadcast.js`, `css/broadcast.css`,
-`js/working-memory.js`) and draft lifecycle are retained, and they are covered only
+No normal Broadcast entry point is currently exposed in the
+navigation. Its modules (`js/broadcast.js`, `css/broadcast.css`)
+and draft lifecycle are retained, and they are covered only
 as components mounted directly in a test page, not as reachable features. Checks:
 `tests/test_terminal_browser.js`, `tests/test_broadcast_browser.js` and
 `tests/test_broadcast_real_browser.js` (direct `renderBroadcast` mounts),
-`tests/test_working_memory_browser.js` (direct
-`workingMemoryMount`), `python3 -m pytest -q tests/test_broadcast_submit.py` (isolated
+`python3 -m pytest -q tests/test_broadcast_submit.py` (isolated
 tmux; `QORQUT_TEST_CODEX_INPUT=1` also checks a local Codex `/status`).
 
 Shift+Tab cycles agents on Global → Agents; hold Tab and press O to jump to
@@ -333,11 +332,6 @@ owner table page. Checks: `tests/test_agent_viewbox_browser.js` (stub API) and
   observation details without inferring task state. Provider SVG marks are from Simple
   Icons v14 (CC0); brand rights remain with their respective owners. Check:
   `tests/test_current_work_cards_browser.js`.
-- **Working memory** (retained module, no current navigation entry; see
-  [Retained components](#retained-components)) shows the agent's cross-session handoff with a Global/project
-  selector; owners can inspect history, correct text and restore a historical version as
-  a new checked version. Drafts survive navigation and conflicts preserve edits. Check
-  (component mount only): `tests/test_working_memory_browser.js`.
 - **Browser and Desktop** show the agent's browser surfaces
   (`GET /root/agents/<uuid>/browser-surfaces`).
   Ordubashy's Desktop uses its explicit binding, else the validated

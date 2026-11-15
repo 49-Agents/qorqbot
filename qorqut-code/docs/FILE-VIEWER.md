@@ -205,7 +205,7 @@ matches the latest saved version it says **Edited since the latest saved version
 never attributed to an author.
 
 There is no restore and no edit, and **reading records nothing**. Working memory is excluded from the
-generic history (it has `working_memory_get`). History is exactly what `document_history_get` returns;
+generic history (its rows are kept but not read). History is exactly what `document_history_get` returns;
 see [Document history](DOCUMENT-HISTORY.md).
 
 ## Ordinary links in prose

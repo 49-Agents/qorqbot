@@ -78,7 +78,7 @@ The host composes the following retained capabilities. Each links to its contrac
   membership row is never authority. Agents cannot create agents (Ordubashy registers workers). See
   [agent platform decisions](docs/agent-platform/README.md), [agent management coordination](docs/AGENT-MANAGEMENT-COORDINATION.md),
   [agent inbox](docs/AGENT-INBOX.md), [messaging and the keyless local API](docs/AGENT-MESSAGING.md),
-  [Viewbox](docs/AGENT-VIEWBOX.md), [working memory](docs/WORKING-MEMORY.md) and
+  [Viewbox](docs/AGENT-VIEWBOX.md) and
   [terminal control](docs/AGENT-TERMINAL-CONTROL.md).
 - **Chat and attention.** [Native Chat](docs/v1.2/NATIVE_CHAT_CHECKPOINT.md) is derived from each registered agent's
   captured native conversation; every input to a native session passes one arbiter bound to the exact registered

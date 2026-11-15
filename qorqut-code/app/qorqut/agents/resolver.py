@@ -874,8 +874,8 @@ class AgentConfigResolver:
             result["inbox_session_note"] = data["inbox_session_note"]
         if event != "prompt" or changed:
             result["mandatory_context"] = data["mandatory_context"]
-            memory = getattr(self, 'working_memory', None)
-            result["work_briefing"] = memory.bootstrap(principal, data) if memory else self.briefing(principal, data)
+            startup = getattr(self, 'startup_context', None)
+            result["work_briefing"] = startup.bootstrap(principal, data) if startup else self.briefing(principal, data)
             activity = getattr(self, 'activity', None)
             if activity:
                 team = activity.startup(principal, data)
@@ -890,9 +890,9 @@ class AgentConfigResolver:
                     rendered = briefing.get('rendered', '') + '\n\n' + team
                     reserve = MAX_CONTEXT_CHARACTERS - len(data['mandatory_context']['rendered']) - 2048
                     if len(rendered) > reserve:
-                        rendered = 'Before work, call agent_context_get(inventory=true), follow next_cursor, and read your saved handoff.\n\n' + team
+                        rendered = 'Before work, call agent_context_get(inventory=true) and follow next_cursor.\n\n' + team
                     if len(rendered) > reserve:
-                        rendered = 'Before work, finish agent_context_get(inventory=true) and agents_activity_list continuation pages; read your saved handoff.'
+                        rendered = 'Before work, finish agent_context_get(inventory=true) and agents_activity_list continuation pages.'
                     result['work_briefing'] = {**briefing, 'rendered': rendered,
                         'character_count': len(rendered), 'bundle_hash': content_hash(rendered.encode())}
         if delivery and (event != "prompt" or changed):

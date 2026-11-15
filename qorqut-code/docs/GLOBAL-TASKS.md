@@ -22,7 +22,7 @@ business information in business tasks, not Global task bodies or comments.
 
 Global task assignment and owner-task-following use the existing agent inbox;
 read-time permissions filter every notification. Global session context includes
-the same bounded task attention and same-scope working-memory source references.
+the same bounded task attention.
 No terminal is started, resumed, or messaged by a task change.
 
 [Task snoozing](TASK-SNOOZING.md) applies in this namespace too: use the same task
