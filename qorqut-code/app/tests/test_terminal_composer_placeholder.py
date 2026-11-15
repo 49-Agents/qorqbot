@@ -82,6 +82,18 @@ class PlaceholderTest(unittest.TestCase):
         dialog = "\n".join([claude(row(PLACEHOLDER, DIM)), " Do you want to proceed?"])
         self.assertEqual(self.read(dialog), ("text", "paste_not_in_composer"))
 
+    def test_the_expand_hint_under_a_collapsed_paste_is_client_chrome(self):
+        # Claude Code 2.1.287 as captured: white (SGR 37) rules and, in place of the footer, "paste again to expand".
+        white = "\x1b[37m"
+        rule = white + "─" * 66
+        hint = f"{PLAIN}  {white}paste again to expand{PLAIN}"
+        text = "\n".join(["line"] * 17)
+        screen = "\n".join(["● Earlier answer", rule, f"{PLAIN}❯\xa0[Pasted text #1 +16 lines]", rule, hint])
+        self.assertEqual(self.read(screen, expect=text), ("pasted", "paste_in_composer"))
+        # Text typed under the placeholder is still not the paste, with or without the hint.
+        typed = "\n".join(["● Earlier answer", rule, f"{PLAIN}❯\xa0[Pasted text #1 +16 lines]", f"{PLAIN}  more typed text", rule, hint])
+        self.assertEqual(self.read(typed, expect=text), ("text", "paste_not_in_composer"))
+
     def test_the_command_hint_after_a_command_is_still_not_part_of_the_paste(self):
         hint = f"{PLAIN}❯\xa0\x1b[38;5;105m/compact{PLAIN}  {GREY}<optional custom summarization instructions>{PLAIN}"
         reading = tc.read("claude", claude(hint), (11, 2, True), expect="/compact ")
