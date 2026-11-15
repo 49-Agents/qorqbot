@@ -1,7 +1,8 @@
 """Registered browser access: own configured browsers, Ordubashy's managed Global desktops and assignment turns.
 
 Projects have no browsers. Every target is an agent's own configured browser (``configured:<agent>``) or a managed Global
-desktop (``desktop:<surface>``)."""
+desktop (``desktop:<surface>``). The configured Ordubashy may also select a permanent worker's own browser by the worker's
+agent ID, for example to sign a website in there."""
 
 from contextlib import contextmanager
 import hashlib
@@ -75,8 +76,37 @@ class BrowserAccess:
             return OWN
         if not isinstance(handle, str) or re.fullmatch(r"b[a-f0-9]{12}", handle) is None:
             return None
-        return next((surface for surface in DESKTOP_TARGETS
-                     if handle[1:7] == self._digest("configured:" + principal_id + ":" + surface)), None)
+        def names(selected):
+            return handle[1:7] == self._digest("configured:" + principal_id + ":" + selected)
+        return (next((surface for surface in DESKTOP_TARGETS if names(surface)), None)
+                or next((agent for agent in self.worker_browsers(principal_id) if names(agent)), None))
+
+    def worker_browsers(self, principal_id):
+        """The active permanent workers whose own browsers the configured Ordubashy may select, as ``{agent ID: name}``.
+        Read afresh on every call, so a worker who left is no longer selectable and an issued handle stops resolving."""
+        from . import setup
+        from qorqut.agents.roles import GLOBAL_WORKER_ROLE
+        _owner, agents = setup.targets(self.runtime)
+        return {agent["agent_id"]: agent["name"] for agent in agents
+                if agent["role"] == GLOBAL_WORKER_ROLE and agent["agent_id"] != principal_id}
+
+    @staticmethod
+    def _browser_owner(actor, browser_key):
+        """The agent whose workspace configures a lease-free target: the caller, or the worker whose own browser the
+        configured Ordubashy selected."""
+        return browser_key.split(":", 1)[1] if browser_key.startswith("configured:") else actor.principal.id
+
+    @contextmanager
+    def _selected_worker(self, actor, owner):
+        """A selected worker's browser that is missing or stopped is reported in words for Ordubashy, who can repair it."""
+        try:
+            yield
+        except DomainError as error:
+            if owner == actor.principal.id or error.code not in {
+                    "browser_not_configured", "browser_configuration_invalid", "browser_not_ready"}:
+                raise
+            raise DomainError(error.code, "That worker's browser is not usable now. Run agent_browser_manage for the worker "
+                              "with action ensure or repair, then try again.") from None
 
     def _native(self, actor, action, body, browser_key, handle):
         """Configured browsers are lease-free: no turn, lease, fence or durable intent gates a call."""
@@ -87,7 +117,9 @@ class BrowserAccess:
         if action == "artifact":
             return self._read_artifact(actor.principal.id, handle, body)
         if action == "acquire":
-            self._worker_target(browser_key, actor.principal.id)
+            owner = self._browser_owner(actor, browser_key)
+            with self._selected_worker(actor, owner):
+                self._worker_target(browser_key, owner)
             return {"status": "owning", "handle": handle}
         return {"status": "released" if action == "release" else "owning"}
 
@@ -101,11 +133,13 @@ class BrowserAccess:
         except browser.BrowserError as exc:
             raise DomainError("validation_error", str(exc)) from exc
         workspace = self._artifact_root(actor.principal.id, handle)
+        owner = self._browser_owner(actor, browser_key)
         try:
-            target = self._worker_target(browser_key, actor.principal.id)
-            with self._managed_use(browser_key):
-                code, stdout, errors = browser.run(workspace, command, target=(target["cdp_endpoint"],
-                    browser.runtime_executable(target["runtime_dir"])), instance=target["instance"], capture=True)
+            with self._selected_worker(actor, owner):
+                target = self._worker_target(browser_key, owner)
+                with self._managed_use(browser_key):
+                    code, stdout, errors = browser.run(workspace, command, target=(target["cdp_endpoint"],
+                        browser.runtime_executable(target["runtime_dir"])), instance=target["instance"], capture=True)
         except browser.BrowserTimeout:
             raise DomainError("browser_timeout", "Browser command timed out; inspect the page before "
                               "repeating a state-changing action. Nothing is locked.") from None
@@ -164,14 +198,18 @@ class BrowserAccess:
                                   namespace=application.namespace(context, descriptor, {"action": "status"}))
 
     def catalog(self, actor):
-        """The browsers the configured Ordubashy can select by id, as ``{id, label}``. Read only: it takes no turn, lease or
-        handle and returns no URL or endpoint."""
+        """The browsers the configured Ordubashy can select by id, as ``{id, label}``: the managed Global desktops, then each
+        permanent worker's own browser under the worker's agent ID. Read only: it takes no turn, lease or handle and returns
+        no URL or endpoint."""
         self.authorize_ordubashy(actor)
         with self.runtime.database.read() as uow:
-            return {"browsers": self.targets.catalog(uow, actor.principal.id)}
+            browsers = self.targets.catalog(uow, actor.principal.id)
+        return {"browsers": browsers + [{"id": agent, "label": f"{name}'s own browser"}
+                                        for agent, name in self.worker_browsers(actor.principal.id).items()]}
 
     def _selected(self, actor, action, handle, body):
-        """The managed desktop (surface ID) a native call addresses, or ``None`` for the caller's own configured browser.
+        """The managed desktop (surface ID) or the worker (agent ID) whose browser a native call addresses, or ``None`` for
+        the caller's own configured browser.
 
         On acquire ``browser_id`` selects it; afterwards only the handle does, and a ``browser_id`` that is not exactly the
         handle's browser is refused. Selecting a browser other than one's own is the configured Ordubashy's, proved afresh on
@@ -191,13 +229,14 @@ class BrowserAccess:
         if body.get("protocol") != "handles":
             raise DomainError("validation_error", "Selecting a browser by id requires protocol=handles")
         self.authorize_ordubashy(actor)
-        with self.runtime.database.read() as uow:
-            registry = self.targets.registry()
-            if browser_id in self.targets.own_surfaces(registry, principal_id):
-                return None
-            surface = registry["surfaces"].get(browser_id) if registry else None
-            if browser_id not in DESKTOP_TARGETS or not surface or surface["kind"] != "browser":
-                raise DomainError("not_found", "No such browser; list the available browsers first")
+        registry = self.targets.registry()
+        if browser_id in self.targets.own_surfaces(registry, principal_id):
+            return None
+        if browser_id in self.worker_browsers(principal_id):
+            return browser_id
+        surface = registry["surfaces"].get(browser_id) if registry else None
+        if browser_id not in DESKTOP_TARGETS or not surface or surface["kind"] != "browser":
+            raise DomainError("not_found", "No such browser; list the available browsers first")
         return browser_id
 
     def _names(self, actor, target, browser_id):
@@ -228,7 +267,8 @@ class BrowserAccess:
                 raise DomainError("forbidden", "Native MCP browser access requires a registered agent's configured browser")
             browser_id = body.get("browser_id")
             selected = self._selected(actor, action, handle, body)
-            browser_key = "configured:" + actor.principal.id if selected is None else DESKTOP_KEY + selected
+            browser_key = ("configured:" + actor.principal.id if selected is None
+                           else DESKTOP_KEY + selected if selected in DESKTOP_TARGETS else "configured:" + selected)
             if body.get("browser_key") not in {None, browser_key}:
                 raise DomainError("forbidden", "Native browser access is limited to this agent's configured target")
             if handle is None:

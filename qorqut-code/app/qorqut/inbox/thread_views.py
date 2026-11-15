@@ -57,7 +57,9 @@ def task_context(service, ctx, source, uow, audience=None):
             **{key: task[key] for key in ('input_requests', 'input_needed', 'input_version', 'input_request_missing', 'work_status')},
             'notes': task['notes'], 'notes_next_cursor': task['notes_next_cursor'],
             # With ``notes_audience: owner`` the notes are what is for the owner; this is how many working notes were left out.
-            **({'notes_hidden': task['notes_hidden']} if 'notes_hidden' in task else {})}
+            **({'notes_hidden': task['notes_hidden']} if 'notes_hidden' in task else {}),
+            # A Task with a plan shows where the plan stands; the thread draws it as one line that opens to the steps.
+            **({'plan_steps': task['plan_steps']} if task.get('plan_steps') else {})}
 
 
 def directory(service, ctx, args, uow):

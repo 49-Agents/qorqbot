@@ -74,7 +74,7 @@ async function renderSettings(c) {
       <div class="st-privacy" data-search="privacy data collect tracking passwords private local">
         <h3>Private by design. Your work stays on this computer.</h3>
         <p>Qorqbot’s servers know only your sign-in email, whether you use it for personal or work, and a daily check that it is running. Never your conversations, files, records or what your agents do.</p>
-        <ul><li>You sign in on each service’s own page. Qorqbot never sees or stores your passwords, and website sessions stay in your agents’ private browsers on this computer.</li>
+        <ul><li>You sign in on each service’s own page, or give Ordubashy the password when it asks so it can sign in for you. Qorqbot has no password store and its servers never see your passwords; website sessions stay in your agents’ private browsers on this computer.</li>
           <li>Every connection is optional, and you can turn it off at any time.</li>
           <li>What you ask your agents goes to Claude or Codex under your own account, the same as when you use them directly.</li></ul></div>`,
   };

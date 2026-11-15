@@ -58,6 +58,11 @@ refused; a worker with an `allow` override is still refused, and an explicit `de
   releases**. A unit that is already running is reused, never duplicated. The supervisor holds a per-worker process lock, records
   boot-bound identities for itself and Chrome, and publishes `ready` only after the CDP endpoint answers *and* that exact Chrome
   owns the listener;
+* the user manager does not share the application service's mount namespace. When the service sees its instance through a
+  private bind mount (`BindPaths=`), the supervisor is started with the directory's path on the underlying filesystem and is
+  told the path the ownership record was written with (`--recorded-state <dir>`), so both sides read and lock the same files;
+* Chrome's temporary directory is `<dir>/tmp` when its singleton socket path fits a Unix socket address, and otherwise a
+  private `qorqut-browser-<hash>` directory under `/run/user/<uid>` (Chrome aborts on a longer socket path);
 * a generated `.qorqut/browser.json` (unchanged schema: `schema_version`, `cdp_endpoint`, `runtime_dir`) written only after
   the browser is verified, using the installation's pinned browser runtime.
 
@@ -73,6 +78,16 @@ again. `stop` ends exactly that supervisor (and, only if it ignored the stop, ex
 Profiles, cookies, logins, `browser.json` and ownership metadata survive `restart`, `stop` and `repair`. There is no delete
 action: nothing wipes a profile, replaces a configured target or silently assigns a different port or profile. A target file
 that differs from the saved record is reported `conflict` and left untouched.
+
+## Ordubashy using a worker's browser
+
+`agent_browser_manage` only maintains a worker's browser. To use it, for example to sign a website in there on a computer
+without a screen, the configured Ordubashy selects it with `browser_turn`: `list` names each active permanent worker's own
+browser under the worker's agent ID, and `acquire` with `protocol: "handles"` and that `browser_id` returns a handle bound to
+it. Every call with that handle proves afresh that the caller is the configured Ordubashy and that the worker is still an
+active permanent worker. Commands hold the worker's use lock like the worker's own, so a restart or stop is refused while one
+runs, and artifacts stay in Ordubashy's own folder. No other agent can select another agent's browser. The worker's own access
+is not paused, so the worker waits while Ordubashy works there.
 
 ## Existing browsers and the legacy binding
 

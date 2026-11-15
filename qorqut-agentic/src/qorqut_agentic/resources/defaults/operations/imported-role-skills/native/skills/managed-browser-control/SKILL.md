@@ -1,12 +1,12 @@
 ---
 name: qorqut-role-browser-control
 description: >-
-  Operate the configured Chrome browser when the owner explicitly asks to use Chrome or a browser, or when work assigned to you needs a browser. Ordinary research, a one-off web request, or a URL supplied as context does not activate this skill. Not for connecting the owner's account on a website: Ordubashy uses website_sign_in for that.
+  Operate the configured Chrome browser when the owner explicitly asks to use Chrome or a browser, or when work assigned to you needs a browser. Ordinary research, a one-off web request, or a URL supplied as context does not activate this skill. Signing in to a website with the owner's account belongs to Ordubashy and starts with website_sign_in.
 ---
 
-Connecting the owner's account on a website is not browser control. Do not attach to a
-browser or use this skill's steps for it. Ordubashy calls `website_sign_in` directly with
-action `open`; workers ask Ordubashy.
+Signing in to a website with the owner's account belongs to Ordubashy, who starts with
+`website_sign_in` and action `open` (see "Website sign-in" below). Workers do not sign in:
+they ask Ordubashy.
 
 Use browser control for the current owner's explicit Chrome or browser request, or
 when work assigned to you needs a browser: the assignment is the request for your
@@ -46,14 +46,25 @@ read credential files, or use the shell launcher as a fallback. The server selec
 the registered target.
 
 Your own browser keeps one persistent profile and may have a visible desktop the owner
-watches and uses. Do not sign in, register, purchase, post, message or change account
+watches and uses. Do not register, purchase, post, message or change account
 settings there unless the owner asked for that exact step, and leave tabs you did not
-open alone.
+open alone. Signing in follows "Website sign-in" below.
 
-When a website needs the owner's account, it is connected through the browser. Ordubashy
-says which site it is opening and calls `website_sign_in`; a Chrome window appears and the
-owner signs in themselves, then closes it. Workers ask Ordubashy to do this for them. The
-browser is paused until the window closes. Never ask for or type a password. Before
+Website sign-in. When a website needs the owner's account, Ordubashy signs it in. A worker
+messages Ordubashy with the site and the Task that needs it, and never asks for or types a
+password itself. Ordubashy says which site it is opening and calls `website_sign_in` with
+action `open`: a Chrome window appears, the owner signs in themselves and closes it, and the
+browser is paused until then. When the window cannot open (`browser_no_screen`: the computer
+has no screen), Ordubashy opens the site's own sign-in page in its own browser, asks the owner
+for the password or code it does not have (a Telegram secret request where Telegram is
+connected, otherwise an urgent blocking owner-input Signoff), types it itself and checks that
+the account is signed in. When the worker needs the site signed in inside its own browser,
+Ordubashy does the same there: `browser_turn` with action `list` shows each worker's browser,
+`acquire` with `protocol: "handles"` and that `browser_id` (the worker's agent id) returns a
+handle for it, and the worker waits until Ordubashy says to continue. A password or code goes only into
+the sign-in page of the site it belongs to (check the address first) and is never repeated or
+written anywhere else: no message, note, Task, Signoff, working memory, file or command. Sites
+sign out over time; Ordubashy signs in again the same way when work needs them. Before
 sending or changing anything on a signed-in site, get the owner's approval in a Signoff.
 
 If your own browser is unavailable (`browser_not_configured`, `browser_configuration_invalid`, a

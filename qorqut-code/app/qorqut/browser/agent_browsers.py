@@ -345,12 +345,72 @@ class SystemctlAdapter:
                                       "systemctl refused to ") + f"{verb} the bound service."))
 
 
+_MOUNT_ESCAPE = re.compile(r"\\([0-7]{3})")
+
+
+def _mounts(table):
+    """``(device, root, mount point)`` for each line of a ``mountinfo`` table, in table order."""
+    mounts = []
+    for line in table.splitlines():
+        fields = line.split(" ")
+        if len(fields) >= 5:
+            root, point = (_MOUNT_ESCAPE.sub(lambda match: chr(int(match.group(1), 8)), value) for value in fields[3:5])
+            mounts.append((fields[2], root, point))
+    return mounts
+
+
+def _below(path, parent):
+    """``path`` relative to ``parent`` (empty for the directory itself), or ``None`` when it is not inside it."""
+    if path == parent:
+        return ""
+    prefix = parent if parent.endswith("/") else parent + "/"
+    return path[len(prefix):] if path.startswith(prefix) else None
+
+
+def outside_private_mounts(path, table=None, same=os.path.samefile):
+    """The same file or directory by a path that is also valid outside this process's private bind mounts.
+
+    A service unit with ``BindPaths=`` sees its instance at a path that exists only in its own mount namespace. A transient
+    user service starts in the user manager's namespace, where that path is missing or is a different directory. When ``path``
+    lies under such a bind mount, this returns the path it has on the same filesystem's own mount point, confirmed to be the
+    same file. Every other path, and one that cannot be resolved this way, is returned unchanged."""
+    path = Path(path)
+    if sys.platform != "linux":
+        return path
+    try:
+        mounts = _mounts(Path("/proc/self/mountinfo").read_text() if table is None else table)
+    except OSError:
+        return path
+    text, over = str(path), None
+    for mount in mounts:                 # the deepest mount point holds the path; of equal ones the later mount is on top
+        if _below(text, mount[2]) is not None and (over is None or len(mount[2]) >= len(over[2])):
+            over = mount
+    if over is None or over[1] == "/":   # not below a mount of a subdirectory
+        return path
+    rest = _below(text, over[2])
+    inside = over[1].rstrip("/") + "/" + rest if rest else over[1]
+    for device, root, point in sorted(mounts, key=lambda mount: len(mount[1])):
+        rest = _below(inside, root)
+        if device != over[0] or rest is None or (root, point) == over[1:]:
+            continue
+        candidate = Path(point) / rest if rest else Path(point)
+        try:
+            if str(candidate) != text and same(candidate, path):
+                return candidate
+        except OSError:
+            continue
+    return path
+
+
 class UserUnitLauncher:
     """Runs a managed browser's supervisor as one transient user service, outside the application's own cgroup.
 
     ``systemd-run --user --unit=<derived name>`` with a fixed argv and environment; the unit name is derived from this
     installation and the agent, never supplied. A unit that is already running is reused, never duplicated. An unreachable user
-    manager is reported precisely (the application user needs a running user manager, i.e. lingering)."""
+    manager is reported precisely (the application user needs a running user manager, i.e. lingering).
+
+    The user manager does not share the application service's mount namespace, so every path handed to it is first taken
+    through ``outside_private_mounts``. The supervisor is also given the path its ownership record names when that differs."""
 
     def __init__(self, runner=subprocess.run, sleep=time.sleep):
         self.adapter, self.sleep = SystemctlAdapter(runner), sleep
@@ -379,13 +439,15 @@ class UserUnitLauncher:
         if state in UNIT_RUNNING:
             return False
         import qorqut
-        environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": str(directory), "PYTHONDONTWRITEBYTECODE": "1",
-                       "PYTHONPATH": os.pathsep.join(filter(None, [str(Path(qorqut.__file__).resolve().parent.parent),
-                                                                   os.environ.get("PYTHONPATH", "")]))}
+        state = outside_private_mounts(directory)
+        package = outside_private_mounts(Path(qorqut.__file__).resolve().parent.parent)
+        environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": str(state), "PYTHONDONTWRITEBYTECODE": "1",
+                       "PYTHONPATH": os.pathsep.join(filter(None, [str(package), os.environ.get("PYTHONPATH", "")]))}
         argv = [SYSTEMD_RUN, "--user", f"--unit={unit}", "--collect", "--quiet",
-                "--description=Qorqut agent browser supervisor", f"--working-directory={directory}",
+                "--description=Qorqut agent browser supervisor", f"--working-directory={state}",
                 "--property=TimeoutStopSec=30", *(f"--setenv={key}={value}" for key, value in environment.items()),
-                "--", sys.executable, "-m", "qorqut.browser.agent_supervisor", "--state", str(directory)]
+                "--", str(outside_private_mounts(sys.executable)), "-m", "qorqut.browser.agent_supervisor", "--state", str(state),
+                *(["--recorded-state", str(directory)] if state != Path(directory) else [])]
         done = self.adapter._run("user", argv, 30)
         if done.returncode != 0:
             if self.state(unit) in UNIT_RUNNING:        # raced with another start of the same unit

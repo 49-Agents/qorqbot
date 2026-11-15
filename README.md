@@ -41,30 +41,29 @@ Extend it with your own skills, plugins, and integrations.
 
 Needs an Apple silicon Mac (M1 or newer) on macOS 14 or newer.
 
-1. Install the tools Qorqbot uses, with [Homebrew](https://brew.sh), in Terminal:
-   `brew install python@3.12 git tmux`
-2. Install at least one agent CLI and sign in to it once in Terminal:
-   [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) or
-   [Codex](https://github.com/openai/codex) (`codex`). You can use both.
-3. Download `Qorqbot-VERSION-macos14-arm64.dmg` from the
+1. Download `Qorqbot-VERSION-macos14-arm64.dmg` from the
    [Releases page](https://github.com/49-Agents/qorqbot/releases), open it and
-   drag **Qorqbot** to **Applications**.
-4. Open Qorqbot from Applications. The app is not notarized yet, so macOS says it
+   drag **Qorqbot** to **Applications**. Everything Qorqbot needs to run is
+   inside the app; there is nothing to install first.
+2. Open Qorqbot from Applications. The app is not notarized yet, so macOS says it
    "could not verify" Qorqbot. Click **Done**, not **Move to Trash**. Then open
    **System Settings > Privacy & Security**, scroll down to **Security**, click
    **Open Anyway** next to "Qorqbot was blocked" and enter your password. Open
    Qorqbot again and click **Open Anyway** in the dialog. You do this once.
    Or, in Terminal: `xattr -dr com.apple.quarantine /Applications/Qorqbot.app`
-5. The first open installs into `~/Qorqbot/qorqbot` and opens the dashboard.
-   Sign in with your email: Qorqbot sends a code, and you do this once.
-6. The walkthrough starts by itself. It has you start Ordubashy, your lead
+3. The first open sets Qorqbot up in `~/Qorqbot/qorqbot` in a few seconds and
+   opens the dashboard. Sign in with your email: Qorqbot sends a code, and you
+   do this once.
+4. Install at least one agent CLI and sign in to it once in Terminal:
+   [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) or
+   [Codex](https://github.com/openai/codex) (`codex`). You can use both.
+5. The walkthrough starts by itself. It has you start Ordubashy, your lead
    agent, in his own terminal, tours the workspace chapter by chapter and ends
    in Chat, where you say hello and he sets you up: a few questions about you,
    then the tools you want him to use. Skipped or finished, take it again from
    **Settings > Walkthrough** or **Help > Show Walkthrough**.
 
-If a tool from step 1 is missing, the app shows a checklist with the exact command to
-copy, and carries on by itself once it is installed. Details: [Mac guide](qorqut-code/docs/distribution/MACOS.md).
+Details: [Mac guide](qorqut-code/docs/distribution/MACOS.md).
 
 ## Run it in your browser
 

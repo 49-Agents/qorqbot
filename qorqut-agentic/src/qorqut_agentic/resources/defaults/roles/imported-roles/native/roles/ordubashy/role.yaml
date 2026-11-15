@@ -1,6 +1,6 @@
 schema_version: 1
 id: ordubashy
-version: 1.77.0
+version: 1.78.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/ordubashy/BRIEF.md

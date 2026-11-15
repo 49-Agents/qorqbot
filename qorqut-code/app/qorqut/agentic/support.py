@@ -166,7 +166,8 @@ class Source:
 
     def _git_run(self, *args, allowed=(0,)):
         from qorqut import native_paths
-        executable = (native_paths.executable("git") if native_paths.root() else shutil.which("git", path=os.defpath))
+        executable = (native_paths.executable("git") if native_paths.root()
+                      else native_paths.shipped("git") or shutil.which("git", path=os.defpath))
         if executable is None:
             raise FileNotFoundError("Git is unavailable")
         # No inherited GIT_DIR/WORK_TREE/INDEX/CONFIG/OBJECT_DIRECTORY or PATH.

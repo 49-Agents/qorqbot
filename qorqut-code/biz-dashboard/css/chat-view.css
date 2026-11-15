@@ -31,6 +31,8 @@
 .gchat-agent > .gchat-body, .gchat-agent > .gchat-bubble-row > .gchat-body { padding: 4px 0; border: 0; border-radius: 0; background: none; text-align: left; line-height: 1.65; }
 .gchat-recorded-by-agent .gchat-body { background: color-mix(in srgb, var(--fg, #f7f7f7) 7%, var(--bg, #090909)); color: inherit; text-align: left; white-space: normal; }
 .gchat-notice .gchat-body { padding: 2px 10px; border: 0; border-radius: 0; background: none; font-size: 12px; line-height: 1.45; text-align: center; white-space: pre-wrap; }
+/* A Task's opened plan is a list of steps, so it reads from the left. */
+.gchat-notice[data-id="plan-open"] .gchat-body { text-align: left; line-height: 1.6; }
 /* Optional sender label and title: the same primitives for every conversation, never a second message style. */
 .gchat-author { display: flex; align-items: center; gap: 8px; padding: 0 12px; min-width: 0; font-size: 11px; color: var(--fg-2); }
 .gchat-agent .gchat-author { padding-left: 0; }

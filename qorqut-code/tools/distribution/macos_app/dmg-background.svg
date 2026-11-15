@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="420" viewBox="0 0 660 420">
+  <!-- Disk image window: the app icon sits at (180,190), the Applications folder at (480,190). -->
+  <rect width="660" height="420" fill="#f4f1ea"/>
+  <g fill="none" stroke="#1b1a17" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.55">
+    <path d="M282 190 H372"/>
+    <path d="M352 168 L376 190 L352 212"/>
+  </g>
+  <text x="330" y="338" text-anchor="middle" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="17"
+        fill="#1b1a17" opacity="0.72">Drag Qorqbot into Applications</text>
+</svg>

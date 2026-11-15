@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const net = require('node:net');
 const path = require('node:path');
 const { test, beforeEach, afterEach } = require('node:test');
-const { Engine, EngineError, INSTALL_COMMAND } = require('../engine');
+const { Engine, EngineError } = require('../engine');
 
 // String.raw keeps \${ literally; it is unescaped below so bash sees ${.
 const FAKE_QORQBOT = String.raw`#!/bin/bash
@@ -196,22 +196,6 @@ test('a too-long install path is refused before unpacking', async () => {
   assert.equal(fs.existsSync(engine.root), false);
 });
 
-test('missing or wrong Python is reported with the install command', async () => {
-  const fake = path.join(base, 'python3.11');
-  fs.writeFileSync(fake, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
-  for (const python of ['/nonexistent/python3.12', fake]) {
-    const engine = await engineFor(makePayload('1.0.0').payload, { env: { QORQUT_PYTHON: python } });
-    const { missing } = await engine.prerequisites();
-    assert.deepEqual(missing, ['Python 3.12']);
-    await assert.rejects(engine.start(), (error) => error.code === 'prerequisites' && error.command === INSTALL_COMMAND);
-  }
-});
-
-test('present prerequisites report nothing missing', async () => {
-  const engine = await engineFor(makePayload('1.0.0').payload);
-  assert.deepEqual((await engine.prerequisites()).missing, []);
-});
-
 test('start failure carries the log tail', async () => {
   const engine = await engineFor(makePayload('1.0.0').payload, { env: { FAKE_START_FAIL: '1' } });
   await engine.install();
@@ -275,7 +259,13 @@ test('login shell PATH is read between markers, ignoring banners', async () => {
   fs.writeFileSync(shell, '#!/bin/sh\necho "banner noise"\nprintf "__QBPATH__/login/bin:/usr/bin__QBPATH__"\n', { mode: 0o755 });
   const engine = await engineFor(makePayload('1.0.0').payload, { env: { SHELL: shell, PATH: '/bin' }, options: { loginPath: true } });
   const env = await engine.environment();
-  assert.equal(env.PATH, '/login/bin:/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin');
+  assert.equal(env.PATH, `/login/bin:/usr/bin:/bin:${base}/.local/bin:/opt/homebrew/bin:/usr/local/bin`);
+});
+
+test('PATH puts the login shell first, then the base PATH, ~/.local/bin and the Homebrew locations', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload, { env: { PATH: '/base/bin', HOME: '/home/someone' } });
+  const env = await engine.environment();
+  assert.equal(env.PATH, '/base/bin:/home/someone/.local/bin:/opt/homebrew/bin:/usr/local/bin');
 });
 
 test('a hanging login shell times out and falls back', async () => {
@@ -285,7 +275,7 @@ test('a hanging login shell times out and falls back', async () => {
   const started = Date.now();
   const env = await engine.environment();
   assert.ok(Date.now() - started < 8000);
-  assert.equal(env.PATH, '/bin:/opt/homebrew/bin:/usr/local/bin');
+  assert.equal(env.PATH, `/bin:${base}/.local/bin:/opt/homebrew/bin:/usr/local/bin`);
   assert.match(fs.readFileSync(engine.logFile, 'utf8'), /timed out/);
 });
 
@@ -314,35 +304,32 @@ test('the Terminal command is installed through the folder launcher', async () =
   await assert.rejects(failing.installCommand(), (error) => error instanceof EngineError && /already exists/.test(error.detail));
 });
 
-function onlyCommands(engine, available) {
-  engine.which = (command) => (available.includes(command) ? '/fake/bin/' + command : null);
-  return engine;
+function fakePython(file) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '#!/bin/sh\n', { mode: 0o755 });
+  return file;
 }
 
-test('checklist installs only the missing required programs and never blocks on agent CLIs', async () => {
-  const engine = onlyCommands(await engineFor(makePayload('1.0.0').payload), ['brew', 'git']);
-  const list = await engine.checklist();
-  assert.equal(list.ready, false);
-  assert.equal(list.command, 'brew install tmux');
-  assert.deepEqual(list.tools.map((tool) => [tool.id, tool.ok]), [['python', true], ['git', true], ['tmux', false]]);
-  assert.deepEqual(list.agents.map((agent) => [agent.id, agent.ok]), [['claude', false], ['codex', false]]);
-  assert.equal(list.agentReady, false);
-  assert.equal(list.homebrew, true);
+test('launcherEnv adds no Python for a folder that ships its own runtime', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload, { env: { QORQUT_PYTHON: undefined } });
+  fs.mkdirSync(path.join(engine.root, 'runtime', 'native', 'bin'), { recursive: true });
+  fakePython(path.join(engine.root, 'runtime', 'venv', 'bin', 'python3.12'));
+  assert.equal((await engine.launcherEnv()).QORQUT_PYTHON, undefined);
+  const chosen = await engineFor(makePayload('1.0.0').payload, { env: { QORQUT_PYTHON: '/user/python' } });
+  assert.equal((await chosen.launcherEnv()).QORQUT_PYTHON, '/user/python', 'a value the user set is kept');
 });
 
-test('checklist is ready without any agent CLI and reports a missing Homebrew', async () => {
-  const engine = onlyCommands(await engineFor(makePayload('1.0.0').payload), ['git', 'tmux', 'codex']);
-  const list = await engine.checklist();
-  assert.equal(list.ready, true);
-  assert.equal(list.command, '');
-  assert.equal(list.homebrew, false);
-  assert.equal(list.agentReady, true);
-  assert.deepEqual(list.agents.filter((agent) => agent.ok).map((agent) => agent.id), ['codex']);
+test('launcherEnv points an older folder at its own Python', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload, { env: { QORQUT_PYTHON: '/user/python' } });
+  assert.equal((await engine.launcherEnv()).QORQUT_PYTHON, '/user/python', 'nothing found yet: left alone');
+  const python = fakePython(path.join(engine.root, 'runtime', 'venv', 'bin', 'python3.12'));
+  fakePython(path.join(engine.root, '.previous-runtime', 'venv', 'bin', 'python3.12'));
+  assert.equal((await engine.launcherEnv()).QORQUT_PYTHON, python, 'computed per call, runtime wins');
+  assert.equal(engine.baseEnv.QORQUT_PYTHON, '/user/python');
 });
 
-test('checklist names the Homebrew formula for a missing Python', async () => {
-  const engine = onlyCommands(await engineFor(makePayload('1.0.0').payload, { env: { QORQUT_PYTHON: '/nonexistent/python3.12' } }), []);
-  const list = await engine.checklist({ log: false });
-  assert.equal(list.command, 'brew install python@3.12 git tmux');
-  assert.doesNotMatch(fs.existsSync(engine.logFile) ? fs.readFileSync(engine.logFile, 'utf8') : '', /missing prerequisites/);
+test('launcherEnv falls back to the previous runtime of an older folder', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload, { env: { QORQUT_PYTHON: undefined } });
+  const python = fakePython(path.join(engine.root, '.previous-runtime', 'venv', 'bin', 'python3.12'));
+  assert.equal((await engine.launcherEnv()).QORQUT_PYTHON, python);
 });

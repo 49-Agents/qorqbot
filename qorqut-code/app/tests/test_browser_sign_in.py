@@ -108,7 +108,10 @@ class FlowTest(unittest.TestCase):
 
     def test_failed_window_restores_the_browser_and_clears_the_session(self):
         (self.root / AGENT / "stop-requested.json").write_text("{}")
-        with mock.patch.object(sign_in.subprocess, "Popen", side_effect=OSError("nope")), self.assertRaises(OSError):
+        # The window's environment is not under test; outside an installed folder it depends on how deep the system's
+        # temporary directory is.
+        with mock.patch.object(sign_in, "chrome_environment", return_value={}), \
+                mock.patch.object(sign_in.subprocess, "Popen", side_effect=OSError("nope")), self.assertRaises(OSError):
             sign_in.start(self.runtime, AGENT, "slack.com")
         self.assertEqual(self.calls, ["stop", "ensure"])
         self.assertFalse(sign_in.active(AGENT))
@@ -187,7 +190,14 @@ class AgentToolTest(unittest.TestCase):
             result = sign_in.agent_call(self.runtime, "ordubashy", {"action": "open", "site": "slack.com"})
         start.assert_called_once_with(self.runtime, "ordubashy", "slack.com")
         self.assertEqual(result["opened"], "slack.com")
-        self.assertIn("Never ask for their password", result["next"])
+        self.assertIn("sign in themselves", result["next"])
+
+    def test_without_a_screen_ordubashy_is_told_to_sign_in_on_the_sites_own_page(self):
+        with mock.patch.object(sign_in.sys, "platform", "linux"), mock.patch.dict(sign_in.os.environ, clear=True), \
+                mock.patch.object(sign_in, "_require_agent", return_value="owner"), self.assertRaises(DomainError) as caught:
+            sign_in.agent_call(self.runtime, "ordubashy", {"action": "open", "site": "slack.com"})
+        self.assertEqual(caught.exception.code, "browser_no_screen")
+        self.assertIn("ask the owner for the password or code and type it yourself", str(caught.exception))
 
     def test_open_can_target_a_worker(self):
         with mock.patch.object(sign_in, "start") as start:

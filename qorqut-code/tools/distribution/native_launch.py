@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Consumer launcher, copied to runtime/launch.py by native_build.py.
 
-Uses system Python and standard venv/pip with the release wheelhouse.
+A Linux package uses system Python and standard venv/pip with the release wheelhouse.
+A self-contained (Mac) package ships its Python environment, tmux and git ready to use.
 No installer, daemon, permission broker or host configuration is installed.
 """
 from __future__ import annotations
@@ -92,8 +93,10 @@ def environment(root, home):
         env[key] = str(path)
     if sys.platform == 'darwin':
         link_user_keychains(home, user_home)
+    # A self-contained package ships tmux and git; they come before the computer's own so every Mac runs the same ones.
+    shipped = [str(runtime / 'native/bin')] if (runtime / 'native/bin').is_dir() else []
     env.update({
-        'PATH': str(runtime / 'venv/bin') + os.pathsep + user_path,
+        'PATH': os.pathsep.join([str(runtime / 'venv/bin'), *shipped, user_path]),
         'QORQUT_FOLDER_ROOT': str(root),
         'QORQUT_CALENDAR_CONFIG': str(root / 'instance/config/calendar.json'),
         'BIZ_DASH_HOST': '127.0.0.1', 'BIZ_TMUX_SOCKET': 'qorqut',
@@ -105,7 +108,7 @@ def environment(root, home):
     # Vendor clients remain user-installed and use the user's existing account
     # configuration. Qorqbot's own state and generated workspace files stay here.
     env.setdefault('CODEX_HOME', str(user_home / '.codex'))
-    browser_tool = agent_browser_path(root)
+    browser_tool = shipped_agent_browser(root) or agent_browser_path(root)
     if 'QORQUT_AGENT_BROWSER_EXECUTABLE' not in env and browser_tool.is_file():
         env['QORQUT_AGENT_BROWSER_EXECUTABLE'] = str(browser_tool)
     env.setdefault('CLAUDE_CONFIG_DIR', str(user_home / '.claude'))
@@ -125,10 +128,51 @@ def environment(root, home):
     return env
 
 
+BUNDLED_TREES = ('native', 'venv')
+
+
+def tree_digest(folder):
+    """One SHA-256 for a folder: every file's path, owner-executable bit and content, and every link's path and target."""
+    entries = []
+    for base, directories, files in os.walk(folder):
+        for name in directories + files:
+            path = Path(base) / name
+            relative = path.relative_to(folder).as_posix()
+            if path.is_symlink():
+                entries.append((relative, 'link', os.readlink(path)))
+            elif path.is_file():
+                hasher = hashlib.sha256()
+                with path.open('rb') as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                        hasher.update(chunk)
+                entries.append((relative, 'program' if path.stat().st_mode & 0o100 else 'file', hasher.hexdigest()))
+            elif not path.is_dir():
+                raise RuntimeError('Unexpected special file in the package: ' + relative)
+    digest = hashlib.sha256()
+    for entry in sorted(entries):
+        digest.update('\0'.join(entry).encode() + b'\n')
+    return digest.hexdigest()
+
+
+def bundled(runtime):
+    """What a self-contained package ships ready to use, as {folder: digest}: its Python environment (``venv``) and its
+    tmux and git (``native``). Empty for a package that uses the computer's own Python, git and tmux."""
+    trees = read_json(runtime / 'PAYLOAD.json').get('bundled') or {}
+    if not isinstance(trees, dict) or set(trees) - set(BUNDLED_TREES):
+        raise RuntimeError('Unsupported package manifest')
+    return trees
+
+
 def verify(runtime):
     manifest = read_json(runtime / 'PAYLOAD.json')
     if manifest.get('format') != 1:
         raise RuntimeError('Unsupported package manifest')
+    for name, expected in bundled(runtime).items():
+        # Once the environment is in use, optional extensions are installed into it; it is checked as shipped only.
+        if name == 'venv' and (runtime / 'ENVIRONMENT.json').exists():
+            continue
+        if not (runtime / name).is_dir() or tree_digest(runtime / name) != expected:
+            raise RuntimeError('Package checksum failed: ' + name)
     for name, expected in manifest['files'].items():
         parts = Path(name).parts
         if Path(name).is_absolute() or '..' in parts:
@@ -157,7 +201,12 @@ def install_hint(*packages, system=None):
     return 'sudo apt install ' + ' '.join(packages)
 
 
-def require_prerequisites(env):
+def require_prerequisites(env, self_contained=False):
+    if self_contained:
+        # The package runs on the Python, git and tmux it ships; nothing has to be installed first.
+        if sys.version_info[:2] != (3, 12):
+            raise RuntimeError('Start Qorqbot with its own ./qorqbot command, which uses the Python shipped in this folder.')
+        return
     if sys.version_info[:2] != (3, 12):
         raise RuntimeError('This download requires Python 3.12 with venv support. Install it with: '
                            + install_hint('python3.12', 'python3.12-venv'))
@@ -186,6 +235,8 @@ def agent_browser_binary_name(system=None, machine=None):
     system, machine = (system or platform.system()), (machine or platform.machine()).lower()
     if system == 'Darwin' and machine in ('arm64', 'aarch64'):
         return 'agent-browser-darwin-arm64'
+    if system == 'Darwin' and machine in ('x86_64', 'amd64'):
+        return 'agent-browser-darwin-x64'
     if system == 'Linux' and machine in ('x86_64', 'amd64'):
         return 'agent-browser-linux-x64'
     return None
@@ -193,6 +244,12 @@ def agent_browser_binary_name(system=None, machine=None):
 
 def agent_browser_path(root):
     return Path(root) / 'tools' / ('agent-browser-' + AGENT_BROWSER_VERSION) / 'agent-browser'
+
+
+def shipped_agent_browser(root):
+    """The browser tool a self-contained package ships, or None."""
+    path = Path(root) / 'runtime/native/bin/agent-browser'
+    return path if path.is_file() and os.access(path, os.X_OK) else None
 
 
 def _download(url, destination, limit, timeout=120, opener=urllib.request.urlopen):
@@ -211,9 +268,23 @@ def _download(url, destination, limit, timeout=120, opener=urllib.request.urlope
     return base64.b64encode(digest.digest()).decode()
 
 
+def extract_agent_browser(archive, name, target):
+    """Write the one native binary ``name`` from the downloaded agent-browser package to ``target``."""
+    with tarfile.open(archive, 'r:gz') as package:
+        member = package.getmember('package/bin/' + name)
+        if not member.isfile():
+            raise RuntimeError('The agent-browser package has an unexpected layout')
+        with package.extractfile(member) as source, Path(target).open('wb') as output:
+            shutil.copyfileobj(source, output)
+    Path(target).chmod(0o755)
+
+
 def ensure_agent_browser(root, *, system=None, machine=None, download=_download):
     """Install the pinned agent-browser into ``root/tools`` if it is not there yet. Returns its path, or None with the
     reason as a second value when it could not be installed (offline, unsupported machine). Never raises for those."""
+    shipped = shipped_agent_browser(root)
+    if shipped is not None:
+        return shipped, None
     target = agent_browser_path(root)
     if target.is_file() and os.access(target, os.X_OK):
         return target, None
@@ -231,15 +302,8 @@ def ensure_agent_browser(root, *, system=None, machine=None, download=_download)
             return None, 'Could not download the browser tool for agents. Qorqbot tries again at the next start.'
         if integrity != AGENT_BROWSER_SHA512:
             raise RuntimeError('The agent-browser download does not match its pinned checksum')
-        with tarfile.open(archive, 'r:gz') as package:
-            member = package.getmember('package/bin/' + name)
-            if not member.isfile():
-                raise RuntimeError('The agent-browser package has an unexpected layout')
-            source = package.extractfile(member)
-            staged = work / 'agent-browser'
-            with staged.open('wb') as output:
-                shutil.copyfileobj(source, output)
-        staged.chmod(0o755)
+        staged = work / 'agent-browser'
+        extract_agent_browser(archive, name, staged)
         check = subprocess.run([str(staged), '--version'], capture_output=True, text=True, timeout=30,
                                stdin=subprocess.DEVNULL)
         if check.returncode != 0 or AGENT_BROWSER_VERSION not in check.stdout:
@@ -372,7 +436,8 @@ def require_platform(runtime):
     target = package_platform(runtime)
     if target == 'ubuntu24-x86_64' and platform.system() == 'Linux' and platform.machine() == 'x86_64':
         return
-    if target == 'macos14-arm64' and platform.system() == 'Darwin' and platform.machine() == 'arm64':
+    chip = {'macos14-arm64': 'arm64', 'macos14-x86_64': 'x86_64'}.get(target)
+    if chip and platform.system() == 'Darwin' and platform.machine() == chip:
         version = platform.mac_ver()[0].split('.')[0]
         if version.isdigit() and int(version) >= 14:
             return
@@ -489,6 +554,12 @@ def prepare(root, env):
     print('Preparing Qorqbot from the bundled files…', flush=True)
     verify(runtime)
     venv = runtime / 'venv'
+    if 'venv' in bundled(runtime):
+        # The environment came ready-made and was checked against the manifest above; nothing is built on this computer.
+        if not (venv / 'bin/python').is_file():
+            raise RuntimeError('This package is incomplete: its Python environment is missing. Download Qorqbot again.')
+        save_json(marker, {'format': 1, 'root': str(root)})
+        return
     if venv.exists():
         raise RuntimeError('An incomplete Python environment remains in runtime/venv. Keep it for diagnosis; setup was not retried.')
     require_prerequisites(env)
@@ -648,7 +719,7 @@ def main(argv=None):
         require_completed_extension_installs(runtime)
         require_completed_update(root)
         env = environment(root, runtime / 'setup-state')
-        require_prerequisites(env)
+        require_prerequisites(env, self_contained=bool(bundled(runtime)))
         prepare(root, env)
         record = initialize(root, env)
         select_treg(root)

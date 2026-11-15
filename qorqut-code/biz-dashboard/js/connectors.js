@@ -123,7 +123,7 @@ const connectorsPanel = (() => {
         <button type="button" class="quiet" data-cx-browser-retry hidden>Retry setup</button></div>
       <section class="cx-accounts" data-cx-accounts hidden>
         <h3>Websites your agents can use as you</h3>
-        <p>To connect a website, ask Ordubashy in Chat, for example “connect my Slack”. It opens Chrome on this computer and you sign in yourself. Your password goes only to that website. Qorqbot never sees or stores it, and your agent keeps just the signed-in session.</p>
+        <p>To connect a website, ask Ordubashy in Chat, for example “connect my Slack”. It opens Chrome on this computer and you sign in yourself: your password goes only to that website, and your agent keeps just the signed-in session. On a computer without a screen, Ordubashy asks you for the password and signs in for you.</p>
         <p class="cx-signin-note" data-cx-signin-note role="status" hidden></p>
         <p class="cx-accounts-empty" data-cx-accounts-empty hidden>No websites connected yet.</p>
         <p class="cx-error" data-cx-accounts-error role="alert" hidden></p>
