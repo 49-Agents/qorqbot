@@ -12,6 +12,7 @@
     "start": "electron ."
   },
   "devDependencies": {
+    "@electron/asar": "3.4.1",
     "electron": "44.10.2",
     "electron-builder": "26.18.0"
   },
