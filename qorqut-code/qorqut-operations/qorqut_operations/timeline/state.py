@@ -1,8 +1,9 @@
 """What holds now on an item, worked out from its entries and questions, and the text form agents are given.
 
 The state is read off the timeline, never stored: the latest goal; every decision and fact added and not removed, oldest first;
-the latest progress note; the open questions. A removal names the entry it takes out. The revision of an item is the highest
-sequence among its entries and its questions (0 when it has none)."""
+the latest progress note; the open questions. A removal names the entry it takes out. A later goal or progress note replaces
+the earlier one for good: removing the latest leaves none and never brings an older one back. The revision of an item is the
+highest sequence among its entries and its questions (0 when it has none)."""
 from __future__ import annotations
 
 import json
@@ -61,8 +62,12 @@ def state(connection, item):
     carrying their ids. ``goal`` and ``progress`` are the latest standing one or None."""
     entries, questions = entry_rows(connection, item), question_rows(connection, item)
     gone = removed_ids(entries)
-    standing = [row for row in entries if row['action'] == 'add' and row['id'] not in gone]
-    latest = lambda kind: next((_entry(row) for row in reversed(standing) if row['kind'] == kind), None)
+    added = [row for row in entries if row['action'] == 'add']
+    standing = [row for row in added if row['id'] not in gone]
+
+    def latest(kind):
+        row = next((row for row in reversed(added) if row['kind'] == kind), None)
+        return _entry(row) if row and row['id'] not in gone else None
     return {'item': {'type': item['type'], 'id': item['id'], 'business_id': item['business_id']},
             'revision': revision_of(entries, questions), 'goal': latest('goal'),
             'decisions': [_entry(row) for row in standing if row['kind'] == 'decision'],
@@ -112,6 +117,15 @@ def render(held, title=None, further=None):
 def standing_size(held, title=None):
     """The length of the state text without its further-reading line: what the warning threshold measures."""
     return len(render(held, title))
+
+
+def closed_questions(connection, item, limit):
+    """The answered and dropped questions of ``item``, latest closed first: the state lists only open ones, so this is where a
+    closed question and what became of it can still be read."""
+    rows = [row for row in question_rows(connection, item) if row['state'] != 'open']
+    return [{'id': row['id'], 'text': row['text'], 'state': row['state'], 'blocking': bool(row['blocking']),
+             'raised_by': row['raised_by'], 'answer_entry_id': row['answer_entry_id'], 'closed_at': row['closed_at']}
+            for row in sorted(rows, key=lambda row: row['sequence'], reverse=True)[:limit]]
 
 
 def history(connection, item, limit, after=0):
