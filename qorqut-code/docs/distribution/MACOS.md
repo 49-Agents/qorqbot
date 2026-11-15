@@ -107,6 +107,8 @@ DMG. The app shows Qorqbot in its own window. It carries the archive unchanged
 in `Contents/Resources/qorqbot-payload`; the archive brings its own Python, git
 and tmux, so the app needs nothing installed on the Mac.
 
+- Opened from the disk image, Downloads or the Desktop, the app first offers to
+  move itself to Applications and reopens from there.
 - First open: a short "Setting up Qorqbot" screen while the app verifies the
   archive, unpacks it to `~/Qorqbot/qorqbot` (a short path, see above) and runs
   `./qorqbot setup`; this takes a few seconds. Then it starts the server
@@ -127,8 +129,11 @@ and tmux, so the app needs nothing installed on the Mac.
 - The app log is `~/Qorqbot/launcher.log`; the server log stays in
   `instance/logs/application.log`.
 
-Building needs Node.js 22+ with npm (Electron and Electron Packager are pinned
-in `electron/package-lock.json`) and librsvg for the icon:
+Building needs Node.js 22+ with npm (Electron and electron-builder are pinned
+in `electron/package-lock.json`) and librsvg for the icon and the disk image
+window's background (`dmg-background.svg`). `build_dmg.py` prepares those and
+the archive, then electron-builder packages and signs the app and lays out the
+disk image window:
 
 ```sh
 brew install librsvg node

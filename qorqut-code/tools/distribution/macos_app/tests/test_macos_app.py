@@ -122,10 +122,10 @@ class BuilderIntegrationTests(unittest.TestCase):
                 asar = APP_TOOLS / 'electron/node_modules/.bin/asar'
                 listing = subprocess.run([asar, 'list', resources / 'app.asar'],
                                          check=True, capture_output=True, text=True).stdout.split()
-                for expected in ('/main.js', '/engine.js', '/preload.js', '/ui/status.html', '/ui/help.html', '/ui/start.html', '/ui/start.js', '/ui/mark.svg'):
+                for expected in ('/main.js', '/engine.js', '/placement.js', '/preload.js', '/ui/status.html', '/ui/help.html', '/ui/start.html', '/ui/start.js', '/ui/mark.svg'):
                     self.assertIn(expected, listing)
                 self.assertIn('/node_modules/semver/LICENSE', listing)
-                self.assertFalse([name for name in listing if name.startswith('/test') or 'electron-packager' in name])
+                self.assertFalse([name for name in listing if name.startswith('/test') or 'electron-builder' in name or name.startswith('/node_modules/electron/')])
                 subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', app], check=True)
             finally:
                 subprocess.run(['/usr/bin/hdiutil', 'detach', '-quiet', mount], check=True)

@@ -7,6 +7,7 @@
 const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, shell } = require('electron');
 const path = require('node:path');
 const { Engine } = require('./engine');
+const { runsFromTemporaryPlace } = require('./placement');
 
 const STATUS_PAGE = path.join(__dirname, 'ui', 'status.html');
 const HELP_PAGE = path.join(__dirname, 'ui', 'help.html');
@@ -322,6 +323,42 @@ ipcMain.handle('qorqbot:action', async (event, action) => {
 ipcMain.handle('qorqbot:paths', (event) => (fromLocalPage(event)
   ? { root: engine.root, log: engine.logFile, appLog: engine.appLog, version: engine.bundledVersion } : null));
 
+// ---------------------------------------------------------------- Applications folder
+
+/** Opened from the disk image, Downloads or the Desktop, offer to move the app into Applications. Resolves true
+ * when the app moved and is reopening from there. QORQBOT_MOVE=accept|decline answers for the release check. */
+async function offerMoveToApplications() {
+  if (process.platform !== 'darwin' || !app.isPackaged || app.isInApplicationsFolder()) return false;
+  const bundle = path.resolve(process.execPath, '..', '..', '..');
+  if (!runsFromTemporaryPlace(bundle, app.getPath('home'))) return false;
+  const preset = process.env.QORQBOT_MOVE;
+  let accepted = preset === 'accept';
+  if (preset !== 'accept' && preset !== 'decline') {
+    const { response } = await dialog.showMessageBox({
+      type: 'question', buttons: ['Move to Applications', 'Not Now'], defaultId: 0, cancelId: 1,
+      message: 'Move Qorqbot to your Applications folder?',
+      detail: 'Qorqbot was opened from the disk image or a downloads folder. In Applications it stays where you can find it, and the disk image can be ejected.',
+    });
+    accepted = response === 0;
+  }
+  if (!accepted) return false;
+  try {
+    return app.moveToApplicationsFolder({
+      // A copy that is running is left alone; an older copy is replaced only when the person says so.
+      conflictHandler: (conflict) => conflict === 'exists' && (preset === 'accept' || dialog.showMessageBoxSync({
+        type: 'question', buttons: ['Replace', 'Cancel'], defaultId: 0, cancelId: 1,
+        message: 'Replace the Qorqbot that is already in Applications?',
+      }) === 0),
+    });
+  } catch (error) {
+    dialog.showMessageBoxSync({
+      type: 'info', message: 'Qorqbot could not move itself',
+      detail: 'Drag Qorqbot into the Applications folder and open it from there. ' + error.message,
+    });
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------- app lifecycle
 
 if (!app.requestSingleInstanceLock()) {
@@ -334,7 +371,8 @@ if (!app.requestSingleInstanceLock()) {
     }
   });
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
+    if (await offerMoveToApplications()) return;
     const payload = process.env.QORQBOT_PAYLOAD || path.join(process.resourcesPath, 'qorqbot-payload');
     engine = new Engine({
       payload,

@@ -4,6 +4,7 @@
 #
 #   first_open_check.sh DISK_IMAGE OUTPUT_FOLDER
 #
+# The app is opened straight from the disk image window and must move itself to Applications first.
 # It takes Homebrew, Python, tmux, Node.js and Apple's developer tools away for the length of the check and puts
 # them back afterwards (needs sudo without a password, as on GitHub's Macs). macOS's warning for a downloaded app
 # is not part of this check: the app is opened as an approved app.
@@ -24,6 +25,7 @@ note() { printf '%s\n' "$*" | tee -a "$OUT/summary.txt"; }
 section() { note ""; note "== $* =="; }
 fail() { note "FAILED: $*"; FAILED=1; }
 shot() { screencapture -x -t jpg "$OUT/$1.jpg" 2>>"$OUT/errors.txt" && note "screenshot: $1.jpg" || note "screenshot not taken: $1"; }
+ready_count() { local count; count="$(grep -c "ready at" "$LAUNCHER_LOG" 2>/dev/null)"; echo "${count:-0}"; }
 now() { /usr/bin/perl -MTime::HiRes=time -e 'printf "%.1f", time'; }
 since() { /usr/bin/perl -e 'printf "%.1f", $ARGV[1] - $ARGV[0]' "$1" "$(now)"; }
 # What the app itself would find: it reads PATH from the login shell.
@@ -69,21 +71,46 @@ else
   note "  Apple's developer tools (git, python3 in /usr/bin): not installed"
 fi
 
-section "Install: open the disk image, copy the app to Applications"
-MOUNT="$(mktemp -d)"
-if hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT" "$DMG" >>"$OUT/errors.txt" 2>&1; then
-  ditto "$MOUNT/Qorqbot.app" "$APP"
-  hdiutil detach "$MOUNT" >>"$OUT/errors.txt" 2>&1
-  xattr -dr com.apple.quarantine "$APP" 2>/dev/null
-  note "copied $(basename "$DMG") ($(stat -f %z "$DMG") bytes) to $APP"
-else
-  fail "the disk image could not be opened"
+section "The disk image window"
+VOLUME="/Volumes/Qorqbot"
+open "$DMG" >>"$OUT/errors.txt" 2>&1
+for _ in $(seq 1 40); do [ -d "$VOLUME/Qorqbot.app" ] && break; sleep 0.5; done
+if [ ! -d "$VOLUME/Qorqbot.app" ]; then
+  fail "the disk image did not open at $VOLUME"
   exit 1
 fi
+note "opened $(basename "$DMG") ($(stat -f %z "$DMG") bytes)"
+[ "$(readlink "$VOLUME/Applications")" = /Applications ] || fail "the disk image has no Applications shortcut"
+sleep 3
+shot 00-disk-image
+# The same window with the dark appearance, where Finder draws the icon names in white.
+defaults write -g AppleInterfaceStyle -string Dark
+killall Finder 2>/dev/null; sleep 3
+open "$VOLUME" >>"$OUT/errors.txt" 2>&1; sleep 3
+shot 00-disk-image-dark
+defaults delete -g AppleInterfaceStyle 2>/dev/null
+killall Finder 2>/dev/null; sleep 2
 
-section "First open"
+section "First open, straight from the disk image"
+# A new person often double-clicks the app in the disk image window instead of dragging it first. The app then
+# offers to move itself to Applications; QORQBOT_MOVE=accept answers "Move to Applications" for this check.
 OPENED="$(now)"
-open "$APP" --args "--remote-debugging-port=$INSPECTION_PORT" '--remote-allow-origins=*' >>"$OUT/errors.txt" 2>&1 &
+open --env QORQBOT_MOVE=accept "$VOLUME/Qorqbot.app" >>"$OUT/errors.txt" 2>&1 &
+MOVED=""
+while [ "$(since "$OPENED" | cut -d . -f 1)" -lt 40 ]; do
+  if pgrep -f "^$APP/Contents/MacOS/Qorqbot" >/dev/null 2>&1; then MOVED="$(since "$OPENED")"; break; fi
+  sleep 0.5
+done
+if [ -n "$MOVED" ]; then
+  note "the app moved itself to Applications and reopened there after $MOVED seconds"
+else
+  fail "the app did not move itself to Applications; copying it there instead"
+  pkill -x Qorqbot 2>/dev/null; sleep 1
+  ditto "$VOLUME/Qorqbot.app" "$APP"
+  xattr -dr com.apple.quarantine "$APP" 2>/dev/null
+  OPENED="$(now)"
+  open "$APP" >>"$OUT/errors.txt" 2>&1 &
+fi
 sleep 2
 shot 01-setting-up
 READY=""
@@ -92,17 +119,32 @@ while [ "$(since "$OPENED" | cut -d . -f 1)" -lt "$READY_LIMIT" ]; do
   sleep 0.5
 done
 if [ -n "$READY" ]; then
-  note "ready $READY seconds after opening the app"
+  note "ready $READY seconds after the first open"
 else
-  fail "Qorqbot was not ready $READY_LIMIT seconds after opening the app"
+  fail "Qorqbot was not ready $READY_LIMIT seconds after the first open"
 fi
+sleep 3
+shot 02-first-window
+hdiutil detach "$VOLUME" >>"$OUT/errors.txt" 2>&1 || note "the disk image was already ejected"
 
 section "What the window shows"
+# Reopen from Applications with the inspection port, to read the window's content.
+pkill -x Qorqbot 2>/dev/null
+for _ in $(seq 1 40); do pgrep -x Qorqbot >/dev/null 2>&1 || break; sleep 0.5; done
+"$ROOT/qorqbot" stop >>"$OUT/errors.txt" 2>&1
+BEFORE="$(ready_count)"
+REOPENED="$(now)"
+open "$APP" --args "--remote-debugging-port=$INSPECTION_PORT" '--remote-allow-origins=*' >>"$OUT/errors.txt" 2>&1 &
+AGAIN=""
+while [ "$(since "$REOPENED" | cut -d . -f 1)" -lt "$READY_LIMIT" ]; do
+  if [ "$(ready_count)" -gt "$BEFORE" ]; then AGAIN="$(since "$REOPENED")"; break; fi
+  sleep 0.5
+done
+if [ -n "$AGAIN" ]; then note "ready $AGAIN seconds after the second open"; else fail "Qorqbot was not ready after the second open"; fi
 PAGE="$(ELECTRON_RUN_AS_NODE=1 "$APP/Contents/MacOS/Qorqbot" "$HERE/first_open_page.cjs" "$INSPECTION_PORT" 60 2>>"$OUT/errors.txt")" \
   || fail "the window does not show the sign-in screen"
 note "$PAGE"
-note "sign-in screen $(since "$OPENED") seconds after opening the app"
-shot 02-sign-in
+shot 03-sign-in
 
 section "Programs Qorqbot runs on"
 SERVICE="$(ps -axo command | grep -m 1 '[q]orqut.service' | cut -d ' ' -f 1)"
