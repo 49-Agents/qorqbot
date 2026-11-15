@@ -15,7 +15,7 @@ from qorqut.domains.owner_inputs import OwnerInputs
 from qorqut.domains.work_review import WorkReview
 from qorqut.native_chat import projection, store
 
-from test_side_chat_rename import build_runtime, create, invoke, reply
+from test_side_chat_rename import build_runtime, create, invoke, reply, report_task
 
 NOW = datetime(2026, 11, 12, 18, tzinfo=timezone.utc)
 BEFORE = "2026-11-01T09:00:00.000000Z"
@@ -137,8 +137,8 @@ class WorkReviewTests(unittest.TestCase):
         self.assertEqual({name: self.read()["standing_now"][name] for name in ("pending_signoffs", "unacknowledged", "last_report")},
                          {"pending_signoffs": 0, "unacknowledged": 0, "last_report": None})
         report = lambda title: invoke(runtime, "signoffs_input_create", {"request_key": "daily-report", "form": {
-            "title": title, "explanation": "Nothing was dropped.", "kind": "acknowledge", "selection_mode": "none"}},
-            ctx=runtime.coordinator)["signoff"]
+            "title": title, "explanation": "Nothing was dropped.", "kind": "acknowledge", "selection_mode": "none"},
+            "report_task": report_task(runtime)}, ctx=runtime.coordinator)["signoff"]
         invoke(runtime, "signoffs_input_create", {"request_key": "date", "form": {
             "title": "Choose a date", "explanation": "Which date works?", "kind": "question", "selection_mode": "none"}},
             ctx=runtime.coordinator)

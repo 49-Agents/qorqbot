@@ -294,7 +294,7 @@ class ChangeFeed:
         for row in captured:
             kinds_by_scope.setdefault(row["scope"], set()).update(row["kinds"])
             # A Signoff may have dependants in any project. Input state is independent of Task revisions.
-            if row['table'] in {'signoffs', 'signoff_source_links'}:
+            if row['table'] in {'signoffs', 'signoff_source_links', 'signoff_report_tasks'}:
                 kinds_by_scope.setdefault(GLOBAL_SCOPE, set()).update({'tasks', 'signoffs'})
         # A coarse kind has no row to prove a write happened (handoff 4.2): the
         # routine scheduler and job admission tag every tick this way whether or

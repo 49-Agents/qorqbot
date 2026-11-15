@@ -50,6 +50,8 @@ TASK_COLUMNS = {
     "agent_attention.work_task_json": "followed", "attention_workflows.work_task_json": "followed",
     "attention_membership_events.task_id": "historical", "attention_membership_events.task_created_at": "historical",
     "attention_membership_events.task_business_id": "historical",
+    # The Task a read-and-acknowledge report belongs to; one row per report, so a move never meets a destination duplicate.
+    "signoff_report_tasks.task_id": "followed", "signoff_report_tasks.task_business_id": "followed",
 }
 # Typed item columns (``item_type``/``source_type`` plus an id): the stores that hold a Task through a type column.
 TYPED_REFERENCES = {
@@ -167,6 +169,9 @@ class HostRelocation:
         links = self.input_links(connection, tables, relocation)
         material['input_links'] = digest([list(row) for row in links])
         counts['input_links'] = len(links)
+        reports = self.report_links(connection, tables, relocation)
+        material['report_links'] = digest([list(row) for row in reports])
+        counts['report_links'] = len(reports)
         for link in links:
             if connection.execute('SELECT 1 FROM signoff_source_links WHERE signoff_id=? AND source_type=\'task\' '
                     'AND source_id=? AND source_business_id IS ?',
@@ -354,6 +359,14 @@ class HostRelocation:
         return connection.execute("SELECT * FROM signoff_source_links WHERE source_type='task' AND source_business_id IS ? AND source_id IN "
             + marks(relocation.ids) + ' ORDER BY id', (relocation.source, *relocation.ids)).fetchall()
 
+    @staticmethod
+    def report_links(connection, tables, relocation):
+        """The reports that belong to a moved Task. They follow it; the reports themselves stay where they were posted."""
+        if 'signoff_report_tasks' not in tables:
+            return []
+        return connection.execute('SELECT * FROM signoff_report_tasks WHERE task_business_id IS ? AND task_id IN '
+            + marks(relocation.ids) + ' ORDER BY signoff_id', (relocation.source, *relocation.ids)).fetchall()
+
     def apply(self, uow, relocation: Relocation, at: str):
         connection, tables = uow.connection, existing_tables(uow)
         ids, source, destination = set(relocation.ids), relocation.source, relocation.destination
@@ -363,6 +376,11 @@ class HostRelocation:
             connection.execute('UPDATE signoff_source_links SET source_business_id=?,source_namespace=?,revision=revision+1 WHERE id=?',
                 (destination, 'business:' + destination if destination else 'global', link['id']))
         counts['input_links'] = len(links)
+        reports = self.report_links(connection, tables, relocation)
+        for link in reports:
+            connection.execute('UPDATE signoff_report_tasks SET task_business_id=?,revision=revision+1 WHERE signoff_id=?',
+                (destination, link['signoff_id']))
+        counts['report_links'] = len(reports)
         for row in self.conversations(connection, tables, relocation):
             updated = connection.execute(
                 "UPDATE owner_conversations SET business_id=?, source_key=?, revision=revision+1, updated_at=? WHERE id=? AND revision=?",
