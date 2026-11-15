@@ -9,6 +9,7 @@ that read still succeeds. Nothing else of the owner's Focus is writable here.
 """
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import replace
 
 from qorqut_operations.application import OperationDescriptor
@@ -86,13 +87,25 @@ class ThreadPins:
         """The caller, the source to store and its title. A pin reads the record through the caller's own read and stores the
         record's canonical identity, so one record is never pinned twice under two spellings; unpinning needs no read."""
         reading = self.caller(ctx, uow)
-        given = args["source"]
+        given = self.report_task(args["source"], uow) or args["source"]
         if not args["pinned"]:
             return reading, self.canonical(reading, given, uow) or given, args.get("title", "")
         shown = reading.source(**self.key(given))
         if shown is None:
             raise DomainError("not_found", "This record does not exist or you may not read it, so its thread cannot be pinned")
         return reading, self.canonical(reading, given, uow) or given, args["title"] if "title" in args else (shown["title"] or "")[:200]
+
+    @staticmethod
+    def report_task(source, uow):
+        """A report has no thread of its own: pinning or unpinning a report acts on the Task it belongs to."""
+        if source["type"] != "signoff":
+            return None
+        try:
+            row = uow.connection.execute("SELECT task_id,task_business_id FROM signoff_report_tasks WHERE signoff_id=?",
+                                         (source["id"],)).fetchone()
+        except sqlite3.OperationalError:
+            return None
+        return {"type": "task", "id": row["task_id"], "business_id": row["task_business_id"]} if row else None
 
     def canonical(self, reading, given, uow):
         try:

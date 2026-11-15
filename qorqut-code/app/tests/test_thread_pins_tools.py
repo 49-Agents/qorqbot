@@ -14,7 +14,7 @@ from qorqut.domains.thread_pins import ThreadPins
 from qorqut.inbox.private_conversations import PrivateConversations
 from qorqut.service.changes import _coarse_kinds_for_operation
 
-from test_side_chat_rename import build_runtime, create, invoke, source
+from test_side_chat_rename import build_runtime, create, invoke, report_task, source
 
 
 class ThreadPinsToolTests(unittest.TestCase):
@@ -82,6 +82,19 @@ class ThreadPinsToolTests(unittest.TestCase):
             self.assertEqual(invoke(self.runtime, "thread_pins_list", ctx=self.runtime.coordinator)["threads"],
                              [{"source": src, "title": None, "readable": False}])
             self.pin(src, False)
+        self.assertEqual(self.pins(), [])
+
+    def test_a_report_is_pinned_and_unpinned_as_its_task(self):
+        report = create(self.runtime)
+        task = report_task(self.runtime)
+        with self.runtime.database.transaction() as uow:
+            uow.connection.execute("INSERT INTO signoff_report_tasks(signoff_id,task_id,task_business_id,created_by,created_at) "
+                                   "VALUES(?,?,NULL,?,'2026-11-01T09:00:00.000000Z')", (report["id"], task["id"], self.owner))
+        task_source = {"type": "task", "id": task["id"], "business_id": None}
+        thread_pins(self.runtime.paths.runtime, self.owner, {"source": task_source, "title": "Report work", "pinned": True})
+        with self.runtime.database.read() as uow:
+            self.assertEqual(self.runtime.thread_pins.report_task(source(report), uow), task_source)
+        self.pin(source(report), False)
         self.assertEqual(self.pins(), [])
 
     def test_the_arguments_are_checked_and_pin_writes_wake_the_dashboard(self):

@@ -20,7 +20,8 @@ TABLE = 'signoff_report_tasks'
 REPORT_TASK = schema({'id': {'type': 'string', 'minLength': 1, 'maxLength': 300},
     'business_id': {'type': ['string', 'null'], 'format': 'uuid'}}, ('id', 'business_id'))
 MISSING = ('A report belongs to a Task: name it in report_task as {id, business_id} (business_id null for a Global Task, '
-           'the project for a project Task). Create the Task first when none fits; do not leave the report alone')
+           'the project for a project Task). Name the real Task whose work the report is about; never create a Task only to '
+           'hold a report')
 SCHEMA = (
     '''CREATE TABLE signoff_report_tasks (
  signoff_id TEXT PRIMARY KEY REFERENCES signoffs(id),
