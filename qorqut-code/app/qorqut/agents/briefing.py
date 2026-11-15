@@ -27,7 +27,7 @@ GUIDANCE = (
     ("Tables", ("tables_list", "tables_get", "tables_rows_list", "tables_create", "tables_update", "tables_rows_write",
                 "tables_thread_get", "tables_comment", "tables_follow",
                 "crm_entries_list", "crm_entries_add", "crm_entries_update", "crm_entries_remove")),
-    ("Own plan and notes", ("plans_get", "plans_set", "notes_list", "notes_get", "notes_create", "notes_update")),
+    ("Own plan and notes", ("plans_get", "plans_set", "notes_list", "notes_get", "notes_update")),
     ("Relationships", ("relationship_roles_list", "relationships_list", "relationships_get", "relationships_create", "relationships_update", "relationships_remove")),
     ("Context review", ("context_reviews_list", "context_review", "context_review_reopen")),
     ("Decisions and outcomes", ("signoffs_list", "signoffs_get")),
