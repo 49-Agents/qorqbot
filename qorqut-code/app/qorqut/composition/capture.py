@@ -25,6 +25,8 @@ def _crm(table: str):
 CAPTURED = {
     "signoff_source_links": (("id", "source_type", "source_id", "source_business_id", "signoff_id"), ("insert", "update", "delete")),
     "signoff_report_tasks": (("signoff_id", "task_id", "task_business_id"), ("insert", "update", "delete")),
+    "timeline_entries": (("business_id", "item_type", "item_id"), ("insert",)),
+    "timeline_questions": (("business_id", "item_type", "item_id"), ("insert", "update")),
     "tasks": (("business_id", "id"), ("insert", "update", "delete")),
     "thread_messages": (("business_id", "item_type", "item_id"), ("insert",)),
     "thread_follows": (("business_id", "item_type", "item_id"), ("insert", "update")),
