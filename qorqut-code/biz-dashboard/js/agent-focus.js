@@ -108,13 +108,13 @@ async function agfocusOpenTarget(p,target,{root=true,paired,parentTable=null}={}
   if (p.surface) { await agpadSurfaceClose(p); if (p.surface || _agpad !== p) return false; }
   const record=rwRecordFromItem(target,{can_thread:target?.can_thread});
   if(!record)throw new Error('This item is no longer available.');
-  // A record with a private thread shows that thread in the Chat area on the left and its details here.
+  // A record with a private thread keeps its details here; Open thread explicitly selects the left chat.
   if(paired===undefined)paired=target?._workKind==='crm' || (!!record.can_thread && agfocusLeftChatReady());
   if(!await agfocusWorkspaceMode(p,paired))return false;
   agfocusShowDock(p);
   const opened=parentTable?.id ? await p.focusWorkspace?.navigate(record,{parentTable})
     : await p.focusWorkspace?.open(record,{root,tab:record.can_thread?'chat':'dashboard'});
-  // The Chat area can refuse the thread (a side chat still sending); then nothing opens here either.
+  // A refused dashboard transition leaves the current record in place.
   if(opened===false && !p.focusWorkspace?.isOpen?.())agfocusClearSelection(p);
   return opened;
 }
@@ -189,7 +189,7 @@ function agfocusForceClose(p) {
 function agfocusWorkspaceOptions(p) {
   return {entry:'focus',
     paired:!!p.focusWorkspacePaired && p.workspaceRole === 'ordubashy',
-    closeFirst:true,
+    closeFirst:true, independentChat:true,
     onPairedSource:(record,parentTable)=>agfocusPairedSource(record,parentTable),
     visible:()=>agpadActive(p) && p.view==='focus' && p.focusMount && !p.focusMount.hidden,
     onClose:()=>agfocusClearSelection(p),

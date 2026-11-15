@@ -29,6 +29,12 @@ Focused coverage: `app/tests/test_thread_views.py`, dashboard `tests/test_thread
 - JavaScript syntax and Git whitespace checks passed.
 - The older Outreach workspace test assumes `campaign_review` is built into core, but its fixture loads no extensions. It fails with `Unknown workspace type` before its workspace-list assertion; that unrelated fixture remains unchanged. The new host tests verify the core Threads registration directly.
 
+## Independent Focus details and threads
+
+In Focus, opening a Project or another record opens its details on the right without replacing the current Chat. **Open thread** selects its conversation on the left. **Open project** (or **Open details**) in the thread header opens the record on the right. Closing the right-hand record leaves the thread and its draft in place; **Chat** in the thread header returns to the main conversation without closing the record.
+
+The pin button in either header saves that thread to the Focus row. Opening a pinned thread changes only the left Chat. Pins use the existing owner thread-pin preferences, and normal conversation access checks still apply. A pending send or unsaved inline signoff prevents leaving its thread; message drafts remain keyed by source when switching conversations.
+
 ## Shared Chat presentation
 
 Main Chat, Threads and Focus task conversations use the same message/reference/composer components. `sgChatMount` mounts the existing verified signoff view, including full WhatsApp/email content, decisions and private comments. A signoff shown inside its own thread omits its nested conversation so that its channel has one composer. Other related signoffs retain their own correctly scoped comments. The custom thread-preview renderer, its fetching layer and message-style overrides have been removed.

@@ -225,3 +225,7 @@
 
 /* The selected signoff owns the record reader's scroll frame. */
 .rw-dashboard.record-panel.rw-signoff-panel{display:flex;flex-direction:column;min-height:0;padding:0;overflow:hidden}
+
+.rw .rw-head .rw-open-thread{flex:none;padding:4px 10px;min-height:30px;border:1px solid var(--line-2);border-radius:var(--r-full);background:none;color:var(--fg-2);font-size:12px;font-weight:400}
+.rw .rw-head .rw-open-thread:hover{color:var(--fg);background:var(--hover)}
+.rw .rw-head .rw-open-thread[hidden]{display:none}

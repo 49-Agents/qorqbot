@@ -164,7 +164,7 @@ function agentWorkspaceDefault(p) {
 }
 
 let agentWorkspaceDocument = null;
-let agentWorkspacePairedGeneration = 0, agentWorkspacePairedFrame = null;
+let agentWorkspacePairedGeneration = 0, agentWorkspacePairedRequest = 0, agentWorkspacePairedFrame = null;
 const AGENT_WORKSPACE_PRIVATE_TYPES = new Set(['task','table','reference','signoff','project']);
 function agentWorkspacePairedValidSource(source) {
   return !!source && AGENT_WORKSPACE_PRIVATE_TYPES.has(source.type) && typeof source.id === 'string'
@@ -181,21 +181,34 @@ function agentWorkspacePairedCurrent(child) {
 }
 // Same-origin request from the exact selected Focus frame. It has no transport fallback:
 // detached, stale, foreign or malformed callers are ignored.
-function agentWorkspacePairedRecord(child, source, parentTable = null) {
+async function agentWorkspacePairedRecord(child, source, parentTable = null) {
   if (!agentWorkspacePairedCurrent(child)) return false;
+  const previousGeneration = agentWorkspacePairedGeneration, previousFrame = agentWorkspacePairedFrame;
+  const finish = async (result, generation) => {
+    const restore = () => {
+      if (agentWorkspacePairedGeneration === generation) {
+        agentWorkspacePairedGeneration = previousGeneration; agentWorkspacePairedFrame = previousFrame;
+      }
+    };
+    try {
+      const accepted = await result;
+      if (accepted === false) restore();
+      return accepted;
+    } catch (error) { restore(); throw error; }
+  };
   if (source == null) {
-    const generation = ++agentWorkspacePairedGeneration;
+    const generation = agentWorkspacePairedGeneration = ++agentWorkspacePairedRequest;
     agentWorkspacePairedFrame = child === window ? null : child;
-    return globalAgentViewActive?.clearPairedSource?.(generation) ?? false;
+    return finish(globalAgentViewActive?.clearPairedSource?.(generation) ?? false, generation);
   }
   if (!agentWorkspacePairedValidSource(source)) return false;
   if (parentTable != null && (!agentWorkspacePairedValidSource({...parentTable, type: 'table'})
       || parentTable.type !== 'table' || source.type !== 'task')) return false;
-  const generation = ++agentWorkspacePairedGeneration;
+  const generation = agentWorkspacePairedGeneration = ++agentWorkspacePairedRequest;
   agentWorkspacePairedFrame = child === window ? null : child;
   const canonical = {type: source.type, id: source.id, business_id: source.business_id ?? null,
     label: typeof source.label === 'string' ? source.label.slice(0, 200) : null};
-  return globalAgentViewActive?.selectPairedSource?.(canonical, generation, () => {
+  return finish(globalAgentViewActive?.selectPairedSource?.(canonical, generation, () => {
     if (generation === agentWorkspacePairedGeneration && agentWorkspacePairedCurrent(child)) {
       if (typeof child.agentWorkspacePairedUnavailable === 'function') return child.agentWorkspacePairedUnavailable(canonical);
       return agentWorkspacePairedRecord(child, null, null);
@@ -206,16 +219,16 @@ function agentWorkspacePairedRecord(child, source, parentTable = null) {
       return child.agentWorkspacePairedReference?.(ref) ?? false;
     return false;
   }, () => {
-    // "Chat" above the thread closes the record on the right, which hands the Chat area back.
+    // Returning to the main chat leaves the record dashboard on the right intact.
     if (generation === agentWorkspacePairedGeneration && agentWorkspacePairedCurrent(child))
-      return child.agentWorkspacePairedClose?.() ?? false;
+      return agentWorkspacePairedRecord(child, null, null);
     return false;
-  }) ?? false;
+  }) ?? false, generation);
 }
 function agentWorkspacePairedDetach(frame) {
   if (!frame || frame !== agentWorkspacePairedFrame) return false;
   agentWorkspacePairedFrame = null;
-  const generation = ++agentWorkspacePairedGeneration;
+  const generation = agentWorkspacePairedGeneration = ++agentWorkspacePairedRequest;
   return globalAgentViewActive?.clearPairedSource?.(generation) ?? false;
 }
 window.agentWorkspacePairedRecord = agentWorkspacePairedRecord;

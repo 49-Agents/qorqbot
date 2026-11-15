@@ -32,14 +32,15 @@ const threadPins = (() => {
     writes = run.catch(() => {});
     return run;
   }
-  // The Focus pane opens a pinned thread as its record, Chat first.
+  // A pinned thread opens only in Chat; the record dashboard keeps its own selection.
   async function open(item) {
     const pane = typeof _agpad === 'undefined' ? null : _agpad;
     if (!pane || !pane.focusMount?.isConnected) return;
     try {
-      const opened = await agfocusOpenTarget(pane, {source: {...item.source, label: item.title || null}, can_thread: true}, {root: true});
-      if (opened === false && !pane.focusWorkspace?.isOpen?.()) toast('This thread is unavailable.');
-    } catch (e) { toast(e.message || 'This thread is unavailable.'); }
+      const opened = await agfocusPairedSource({source:item.source,label:item.title || null},null);
+      if (opened === false) toast('This thread cannot open yet. Finish the current conversation action and try again.');
+      return opened;
+    } catch (e) { toast(e.message || 'This thread is unavailable.'); return false; }
   }
   return {load, set, open, key, list: () => items, isLoaded: () => loaded, error: () => error,
     isPinned: source => items.some(item => key(item.source) === key(canonical(source))),
