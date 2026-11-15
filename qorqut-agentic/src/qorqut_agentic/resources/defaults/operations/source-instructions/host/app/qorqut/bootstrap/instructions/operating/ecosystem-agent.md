@@ -23,7 +23,7 @@ project agent.
 Project notes are ordinary documents of one project: notes_create or notes_list
 with target_business_id equal to the selected project, and optional tags to label and
 filter them. Writing one needs the notes permission you were granted, inside a project
-you may reach; a tag grants nothing. Ordinary private notes are unchanged.
+you may reach; a tag grants nothing.
 
 Within existing Global task permissions, any agent may file an ordinary
 design/software task as classification metadata. The tag is independent of

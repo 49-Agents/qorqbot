@@ -57,13 +57,14 @@ class JournalLoadingTests(unittest.TestCase):
             cls.add_document(uow, 'agent_note', {})
 
     @classmethod
-    def add_document(cls, uow, kind, metadata, *, business_id=None, archived=False):
+    def add_document(cls, uow, kind, metadata, *, business_id=None, archived=False, owning_agent_id=None):
         identity = new_id()
         path = f'{identity}.md'
         (cls.root / path).write_bytes(document_bytes(metadata, 'A thought to keep.'))
         uow.repository('documents', business_id=business_id).insert({'id': identity, 'kind': kind, 'path': path,
             'namespace': business_id or 'global',
-            'metadata_json': metadata, 'content_hash': 'saved-hash', 'archived': int(archived)})
+            'metadata_json': metadata, 'content_hash': 'saved-hash', 'archived': int(archived),
+            'owning_agent_id': owning_agent_id})
         return identity
 
     @classmethod
@@ -136,6 +137,40 @@ class JournalLoadingTests(unittest.TestCase):
         for bad in (b'---\ntitle: first\ntitle: second\n---\nText', b'---\n- a list\n---\nText'):
             with self.assertRaises(DomainError):
                 split_document(bad)
+
+    def test_agents_cannot_create_private_notes_but_existing_ones_stay_readable(self):
+        agent_id = new_id()
+        agent = InvocationContext(Principal(agent_id, 'agent'), source='mcp')
+        with self.database.read() as uow:
+            with self.assertRaises(DomainError) as refused:
+                self.sources.prepare('notes_create', agent, {'title': 'Mine', 'body': 'Text'}, {}, uow)
+        self.assertEqual(refused.exception.code, 'forbidden')
+        with self.database.transaction() as uow:
+            existing = self.add_document(uow, 'agent_note', {'title': 'Old'})
+        with self.database.read() as uow:
+            row = self.sources.read('notes_get', self.owner, {'document_id': existing}, uow)
+        self.assertEqual(row['document']['id'], existing)
+
+    def test_project_notes_and_the_owner_journal_can_still_be_created(self):
+        agent = InvocationContext(Principal(new_id(), 'agent'), source='mcp', business_id=self.business_id,
+            allowed_business_ids={self.business_id})
+        args = {'title': 'Shared', 'body': 'Text', 'target_business_id': self.business_id}
+        with self.database.read() as uow:
+            self.sources.prepare('notes_create', agent, args, {}, uow)
+            self.sources.prepare('notes_create', self.owner, {'title': 'Journal', 'body': 'Text'}, {}, uow)
+
+    def test_an_agent_can_read_and_list_its_own_existing_notes(self):
+        agent_id = new_id()
+        agent = InvocationContext(Principal(agent_id, 'agent'), source='mcp')
+        with self.database.transaction() as uow:
+            uow.repository('principals').insert({'id': agent_id, 'kind': 'agent', 'display_name': 'Helper'})
+            uow.repository('agent_profiles', business_id=None).insert({'agent_id': agent_id, 'principal_id': agent_id,
+                'home_business_id': None, 'namespace': 'ecosystem', 'name': 'Helper', 'workspace': str(self.root / agent_id),
+                'status': 'active', 'profile_json': {}})
+            existing = self.add_document(uow, 'agent_note', {'title': 'Old'}, owning_agent_id=agent_id)
+        with self.database.read() as uow:
+            self.assertEqual(self.sources.read('notes_get', agent, {'document_id': existing}, uow)['document']['id'], existing)
+            self.assertEqual([row['id'] for row in self.sources.read('notes_list', agent, {}, uow)['items']], [existing])
 
 
 if __name__ == '__main__':
