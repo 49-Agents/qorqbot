@@ -287,7 +287,7 @@ function conversationMount(host,source,adapter={}) {
   // What holds now on a Task or Project, beside the pending inputs; empty when the item has no timeline.
   const timelineEl=document.createElement('section');timelineEl.className='tlp conversation-timeline';timelineEl.hidden=true;
   timelineEl.setAttribute('aria-label','What holds now');panel.insertBefore(timelineEl,viewEl);
-  const timelineItem=source.type==='task'?{type:'task',id:source.id,business_id:recordSource.business_id}
+  const timelineItem=source.type==='task'?{type:'task',id:source.id,business_id:recordSource.business_id ?? null}
     :source.type==='project'?{type:'project',id:source.id,business_id:source.id}:null;
   const timelinePanel=typeof timelinePanelMount==='function'?timelinePanelMount(timelineEl,{
     readHistory:args=>conversationRequest(post('/root/operations/timeline_view',{scope:'global',item:timelineItem,history:true,limit:50,...args})).then(coreData),
@@ -460,6 +460,7 @@ function conversationMount(host,source,adapter={}) {
       if(CONVERSATION_GONE.includes(e.code))dropContext();
       else if(more)relatedBlocked=true;
       else if(source.type==='task'){ctxError=true;paintContext();}
+      if(!more && timelineItem && !CONVERSATION_GONE.includes(e.code))timelinePanel?.fail();
       paint();adapter.onRelated?.([]);
     } finally {relatedPending=false;}
   }

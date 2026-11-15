@@ -113,5 +113,33 @@ class OwnerViewTests(Fixture):
         self.assertEqual(len(self.ok(self.questions(self.owner, limit=2))['items']), 2)
         self.assertTrue(self.ok(self.questions(self.owner, limit=2))['truncated'])
 
+    def test_truncated_counts_only_questions_the_owner_can_read(self):
+        self.filed(self.item, [{'action': 'ask', 'text': 'One?', 'blocking': False}])
+        self.filed(self.global_item, [{'action': 'ask', 'text': 'Two?', 'blocking': False}])
+        self.filed({'type': 'project', 'id': self.other, 'business_id': self.other}, [{'action': 'ask', 'text': 'Hidden?', 'blocking': False}])
+        exact = self.ok(self.questions(self.owner, limit=2))
+        self.assertEqual((len(exact['items']), exact['truncated']), (2, False))
+        self.assertEqual(self.ok(self.questions(self.owner))['truncated'], False)
+        self.assertEqual(self.ok(self.questions(self.owner, limit=1))['truncated'], True)
+
+    def test_the_owner_reads_the_timeline_of_a_task_inside_a_project(self):
+        inside = test_timeline.TimelineTests.inside(self, 'Inside task')
+        self.add('fact', 'Held in the project.', inside)
+        with self.db.read() as uow:
+            seen = timeline_part(NS(app=self.app), self.dash(self.owner), inside, uow)
+        self.assertEqual(seen['timeline']['state']['facts'][0]['text'], 'Held in the project.')
+        self.assertEqual(self.ok(self.view(self.owner, inside, history=True))['entries'][0]['text'], 'Held in the project.')
+
+    def test_history_carries_removed_by_for_the_whole_item_and_the_closed_questions(self):
+        gone = self.add('decision', 'Old way.')
+        self.filed(self.item, [{'action': 'remove', 'entry_id': gone, 'reason': 'Replaced.'}],
+                   sources=[{'quote': 'New way, please.', 'ref': 'thread:4'}])
+        self.add('fact', 'Later fact.')
+        asked = self.filed(self.item, [{'action': 'ask', 'text': 'Which month?', 'blocking': False}])['filed']['questions'][0]
+        self.filed(self.item, [{'action': 'drop', 'question_id': asked}])
+        first = self.ok(self.view(self.owner, self.item, history=True, limit=1))
+        self.assertIsNotNone(first['entries'][0]['removed_by'])
+        self.assertEqual([(row['text'], row['state']) for row in first['closed_questions']], [('Which month?', 'dropped')])
+
 if __name__ == '__main__':
     unittest.main()

@@ -31,9 +31,10 @@ function agentQuestionsMount(p) {
   body.innerHTML = `<section class="agent-questions" aria-label="Open questions"><header><h2 class="agent-questions-heading">Open questions</h2></header>
     <p class="agent-questions-status" role="status" aria-live="polite" data-status>Loading…</p>
     <div class="agent-questions-error" hidden><p role="alert"></p><button type="button" class="quiet" data-retry>Retry</button></div>
+    <p class="agent-questions-note" data-note hidden></p>
     <ul class="agent-questions-list" aria-label="Open questions, blocking first"></ul></section>`;
   const root = body.firstElementChild;
-  const questions = p.questions = {root, items: null, loading: false, seq: 0, next: 0, error: '', signature: ''};
+  const questions = p.questions = {root, items: null, truncated: false, loading: false, seq: 0, next: 0, error: '', signature: ''};
   root.addEventListener('click', event => {
     const button = event.target.closest('[data-question-open]');
     if (!button || button.disabled) return;
@@ -53,6 +54,9 @@ function agentQuestionsPaint(p) {
   const blocking = items ? items.filter(row => row.blocking).length : 0;
   t.root.querySelector('[data-status]').textContent = items === null ? (t.loading ? 'Loading…' : '')
     : !items.length ? 'No open questions.' : `${items.length} open question${items.length === 1 ? '' : 's'}${blocking ? `, ${blocking} blocking` : ''}`;
+  const note = t.root.querySelector('[data-note]');
+  note.hidden = !(items && t.truncated);
+  note.textContent = note.hidden ? '' : `Showing the first ${items.length} open questions.`;
   t.root.querySelector('.agent-questions-error').hidden = !t.error;
   t.root.querySelector('[role="alert"]').textContent = t.error;
   if (items !== null) {
@@ -69,7 +73,7 @@ async function agentQuestionsRefresh(p) {
     const data = coreData(await post('/root/operations/timeline_questions_list', {scope: 'global'}));
     if (!agentQuestionsCurrent(p, t) || seq !== t.seq) return;
     if (!Array.isArray(data?.items)) throw Error('Questions unavailable.');
-    t.items = data.items;
+    t.items = data.items; t.truncated = data.truncated === true;
   } catch (error) {
     if (!agentQuestionsCurrent(p, t) || seq !== t.seq) return;
     t.error = uiFailure(error, {load: true});

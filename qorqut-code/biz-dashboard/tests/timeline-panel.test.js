@@ -57,6 +57,56 @@ test('the history lists every entry oldest first, strikes removed ones with what
   const orphan=api.timelineHtml(DATA,{open:true,history:{entries:[HISTORY.entries[1]],links:{},next_cursor:'3'}});
   assert.ok(orphan.includes('tlp-removal'));assert.ok(orphan.includes('data-tlp-more'));
 });
+test('quoted words on a removal show in both forms, and removed_by marks an entry whose removal is not loaded',()=>{
+  const {api}=load();
+  const removal={...HISTORY.entries[1],sources:[{quote:'Please <drop> it.',ref:'thread:5'}]};
+  const folded=api.timelineHtml(DATA,{open:true,history:{...HISTORY,entries:[HISTORY.entries[0],removal,HISTORY.entries[2]]}});
+  assert.ok(folded.includes('Please &lt;drop&gt; it.'));assert.equal(folded.includes('<drop>'),false);
+  const orphan=api.timelineHtml(DATA,{open:true,history:{entries:[removal],links:{},next_cursor:null}});
+  assert.ok(orphan.includes('Please &lt;drop&gt; it.'));
+  const early=api.timelineHtml(DATA,{open:true,history:{entries:[HISTORY.entries[0]],links:{},next_cursor:'2'}});
+  assert.ok(early.includes('<s>Old way.</s>'));assert.ok(early.includes('tlp-removed'));assert.ok(early.includes('tlp-gone'));
+  const standing=api.timelineHtml(DATA,{open:true,history:{entries:[{...HISTORY.entries[0],removed_by:null}],links:{},next_cursor:null}});
+  assert.equal(standing.includes('<s>'),false);
+});
+test('closed questions are listed under a heading with the answering entry when it is loaded',()=>{
+  const {api}=load();
+  const history={...HISTORY,closed_questions:[
+    {id:'c1',text:'Which <month>?',state:'answered',blocking:false,raised_by:'coordinator',answer_entry_id:'b',closed_at:'2026-11-15T10:00:00Z'},
+    {id:'c2',text:'Dropped one?',state:'dropped',blocking:false,raised_by:'owner',answer_entry_id:null,closed_at:'2026-11-15T11:00:00Z'},
+    {id:'c3',text:'Answer not loaded?',state:'answered',blocking:false,raised_by:'owner',answer_entry_id:'zz',closed_at:'2026-11-15T12:00:00Z'}]};
+  const html=api.timelineHtml(DATA,{open:true,history});
+  assert.ok(html.includes('Closed questions'));assert.ok(html.includes('Which &lt;month&gt;?'));assert.equal(html.includes('<month>'),false);
+  assert.ok(html.includes('Answered'));assert.ok(html.includes('Dropped'));
+  assert.ok(html.includes('<p class="tlp-gone">Kept fact.</p>'));
+  assert.equal(api.timelineHtml(DATA,{open:true,history:HISTORY}).includes('Closed questions'),false);
+});
+test('links without a title get a neutral label, and a null goal or progress renders as nothing',()=>{
+  const {api}=load();
+  const history={entries:[],links:{subtasks:[],approvals:[{type:'signoff',id:'s1',state:'pending'}],reports:[{type:'signoff',id:'s2',state:'sent'}]},next_cursor:null};
+  const html=api.timelineHtml(DATA,{open:true,history});
+  assert.ok(html.includes('<li>Approval '));assert.ok(html.includes('<li>Report '));assert.equal(html.includes('Untitled'),false);
+  const state=api.timelineHtml({...DATA,state:{goal:null,decisions:[],facts:[entry('f','Only a fact.')],progress:null,questions:[]}},{});
+  assert.ok(state.includes('Only a fact.'));assert.equal(state.includes('null'),false);assert.equal(state.includes('Goal'),false);assert.equal(state.includes('Progress'),false);
+});
+test('the history error clears on a later success, and a failed context reload shows the error line instead of old content',async()=>{
+  const {api}=load();
+  const el=host();let fail=true;
+  const panel=api.timelinePanelMount(el,{readHistory:async()=>{if(fail)throw new Error('boom');return {...HISTORY,revision:7};}});
+  panel.update(DATA);el.click('data-tlp-switch');await settle();
+  assert.ok(el.innerHTML.includes('tlp-error'));
+  fail=false;panel.update({...DATA,revision:8});await settle();
+  assert.equal(el.innerHTML.includes('tlp-error'),false);assert.ok(el.innerHTML.includes('Old way.'));
+  panel.fail();
+  assert.equal(el.hidden,false);assert.ok(el.innerHTML.includes('tlp-error'));assert.equal(el.innerHTML.includes('Pay every creator.'),false);assert.equal(el.innerHTML.includes('Old way.'),false);
+  panel.update(DATA);assert.equal(el.innerHTML.includes('tlp-error'),false);assert.ok(el.innerHTML.includes('Pay every creator.'));
+});
+test('a Global Task reaches the panel with an explicit null business, and the questions page says when it is cut off',()=>{
+  const conversation=read('conversation.js'),questions=read('agent-questions.js');
+  assert.match(conversation,/type:'task',id:source\.id,business_id:recordSource\.business_id \?\? null/);
+  assert.match(conversation,/timelinePanel\?\.fail\(\)/);
+  assert.match(questions,/data\.truncated === true/);assert.match(questions,/Showing the first \$\{items\.length\} open questions\./);
+});
 function host() {
   const h={hidden:true,innerHTML:'',handlers:{},addEventListener(type,fn){this.handlers[type]=fn;},setAttribute(){},contains:()=>true,replaceChildren(){this.innerHTML='';}};
   h.click=attr=>h.handlers.click({target:{closest:()=>({hasAttribute:name=>name===attr,dataset:{tlpOpen:'t2',tlpBusiness:''}})}});

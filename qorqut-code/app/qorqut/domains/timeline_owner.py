@@ -11,7 +11,7 @@ from qorqut_operations.contracts import DomainError
 from qorqut_operations.timeline import state as timeline_state
 from qorqut_operations.timeline.schema import QUESTIONS
 
-from qorqut.domains.timeline import GET_SCHEMA
+from qorqut.domains.timeline import GET_SCHEMA, LINKS_LIMIT
 
 VIEW_DESCRIPTION = (
     "Owner dashboard read of the timeline of a Task, a Project or Global: item names it as in timeline_get. Returns the title, "
@@ -52,16 +52,15 @@ class TimelineOwner:
             cursor = int(args["cursor"]) if args.get("cursor") else 0
             entries, after = timeline_state.history(uow.connection, item, args.get("limit", 50), cursor)
             result.update(entries=entries, next_cursor=str(after) if after else None,
-                          **({"links": timeline.links(item, uow)} if not cursor else {}))
+                          **({"closed_questions": timeline_state.closed_questions(uow.connection, item, LINKS_LIMIT),
+                              "links": timeline.links(item, uow, timeline.trusted(ctx, uow))} if not cursor else {}))
         return result
 
     def questions(self, ctx, args, options, uow):
         rows = uow.connection.execute(
             f"SELECT * FROM {QUESTIONS} WHERE state='open' ORDER BY blocking DESC, sequence, id").fetchall()
-        limit, items = args.get("limit", LIMIT), []
+        limit, items, truncated = args.get("limit", LIMIT), [], False
         for row in rows:
-            if len(items) >= limit:
-                break
             item = {"type": row["item_type"], "id": row["item_id"], "business_id": row["business_id"]}
             try:
                 title = self.runtime.timeline.readable(ctx, item, uow)
@@ -69,9 +68,13 @@ class TimelineOwner:
                 if error.code == "not_found":
                     continue
                 raise
+            if len(items) >= limit:
+                # A further readable question exists: only matching rows count, never the ones filtered out.
+                truncated = True
+                break
             project = (uow.connection.execute("SELECT name FROM businesses WHERE id=?", (row["business_id"],)).fetchone()
                        if row["business_id"] else None)
             items.append({"id": row["id"], "text": row["text"], "blocking": bool(row["blocking"]), "raised_by": row["raised_by"],
                           "created_at": row["created_at"], "source": item, "title": title or "Global",
                           "business_name": project["name"] if project else "Global"})
-        return {"items": items, "truncated": len(items) >= limit and len(rows) > len(items)}
+        return {"items": items, "truncated": truncated}
