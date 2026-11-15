@@ -96,9 +96,11 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     client = client_factory(registration)
     client.native = native
     from . import handoff, recovery
+    # An open recovery episode means this session still lacks its context: ask for all of it and skip no part.
+    recovering = bool(recovery.read(registration, session_id))
     body = {
         "registration_id": registration["registration_id"], "session_id": session_id,
-        "event": lifecycle, "last_effective_config_id": None if recovery.read(registration,session_id) else last_id, "runtime": runtime,
+        "event": lifecycle, "last_effective_config_id": None if recovering else last_id, "runtime": runtime,
     }
     prepared = handoff.request(registration_path, registration, native, body)
     client.handoff = prepared[1] if prepared else None
@@ -149,9 +151,8 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     skills = ''
     if registration.get('operational_intake_enabled'):
         from .always_skills import handle as skills_hook
-        skills = skills_hook(hook, registration_path, runtime).get('hookSpecificOutput', {}).get('additionalContext', '')
-    if (event == "UserPromptSubmit" and last_id == config_id and not response.get("refresh_required")
-            and not recovery.read(registration,session_id)):
+        skills = skills_hook(hook, registration_path, runtime, force=recovering).get('hookSpecificOutput', {}).get('additionalContext', '')
+    if event == "UserPromptSubmit" and last_id == config_id and not response.get("refresh_required") and not recovering:
         prompt_context = '\n\n'.join(filter(None, (first, skills, reminder)))
         if len(prompt_context) > BOOTSTRAP_BUDGET:
             raise DomainError("invalid_bootstrap", "Combined bootstrap exceeds its character budget")
@@ -300,7 +301,9 @@ def run(hook: dict, registration_path: Path, *, stream=sys.stdout, diagnostics=s
             owner = native.get('owner') if native.get('session_id') == hook.get('session_id') else None
             receipt_path = Path(selected['workspace']) / '.qorqut/delivery' / (hashlib.sha256(hook.get('session_id', '').encode()).hexdigest() + '.json')
             delivered = False
-            if pending and not path_has_symlink(receipt_path):
+            # An earlier receipt covers a prompt whose refresh is only slow. A lifecycle event such as a compaction
+            # has to deliver again, so it keeps its recovery episode whatever this session received before.
+            if pending and hook.get('hook_event_name') == 'UserPromptSubmit' and not path_has_symlink(receipt_path):
                 try:
                     previous = json.loads(receipt_path.read_text())
                     delivered = (previous.get('registration_id') == selected['registration_id']
