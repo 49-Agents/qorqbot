@@ -11,8 +11,14 @@ miss and the update is re-derived in full. A hit skips only the pure re-derivati
 with the entry): ``managed_ancestry`` still reads every retained file, checks the prior binding's digest, and runs
 every check against current state (directory and Git identities, the copy receipt, the feed event and Git ancestry).
 
+Re-derivation also reads the retained layout intent and its prior binding, through the first update's prior record.
+Those are not in the key because every check re-reads and verifies them anyway (``retained_intents``, the layout
+activation proof and ``_validate_completed_record`` on the base binding).
+
 The file is a cache, not evidence. It lives with other host runtime state, never in the retained history, and an
-unreadable, oversized or malformed file is ignored. Offline and read-only callers neither read nor write it.
+unreadable, oversized or malformed file is ignored. It is private to the service user, as the retained history is:
+whoever can write it can also write that history and run the installer. Offline and read-only callers neither read
+nor write it, and a failure of the cache itself never fails a check.
 """
 from __future__ import annotations
 
@@ -36,21 +42,25 @@ _HEX = re.compile(r'[0-9a-f]{64}\Z')
 _STALE_TEMPORARY = 3600
 
 
+# Everything the verification code imports outside its own two packages, apart from error types.
+_HELPER_MODULES = ('qorqut.file_identity', 'qorqut.instance_paths', 'qorqut.native_paths', 'qorqut.posix_files',
+                   'qorqut.private_files', 'qorqut.source_snapshot')
+
+
 @functools.lru_cache(maxsize=1)
 def code_identity():
     """Digest of every source file that can take part in verification, computed once per process."""
+    import importlib
     import qorqut.agentic
     import qorqut_agentic
-    import qorqut.file_identity
-    import qorqut.private_files
     files = []
     for package in (qorqut.agentic, qorqut_agentic):
         for directory in package.__path__:
             base = Path(directory)
             files.extend((package.__name__, path.relative_to(base).as_posix(), path) for path in base.rglob('*.py')
                          if '__pycache__' not in path.parts)
-    for module in (qorqut.file_identity, qorqut.private_files):
-        files.append((module.__name__, '', Path(module.__file__)))
+    for name in _HELPER_MODULES:
+        files.append((name, '', Path(importlib.import_module(name).__file__)))
     hasher = hashlib.sha256()
     for package, name, path in sorted(files):
         hasher.update(f'{package}\0{name}\0'.encode())

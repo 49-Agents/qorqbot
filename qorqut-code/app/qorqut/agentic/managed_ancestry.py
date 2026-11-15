@@ -240,6 +240,15 @@ def _verify_chain(paths, record, raw, evidence, layout_intents, layout_verified,
     cumulative = len(raw)
     # Offline and read-only callers prove everything afresh and leave no cache behind.
     known = None if offline_read_only else managed_verified.load(paths)
+    if known is not None and 'managed_upgrade' in record:
+        # A remembered proof covers the installed bytes; the record parsed from them must be exactly those bytes,
+        # as the full proof's candidate comparison would require.
+        try:
+            same = json.loads(raw, object_pairs_hook=_unique) == record
+        except (TypeError, ValueError):
+            same = False
+        if not same:
+            raise _conflict('Managed candidate bytes differ')
     partial, checked_hash = False, None
     while 'managed_upgrade' in record:
         if len(hashes) >= _LIMIT:
@@ -277,9 +286,12 @@ def _verify_chain(paths, record, raw, evidence, layout_intents, layout_verified,
             node_metadata = _metadata(record)
             read = _read_node(paths, node_metadata, pair)
             prior_raw, intent_raw, journal_raw, journal = read
-            # _read_node checked the prior bytes against this digest.
-            key = managed_verified.node_key(paths, current_hash, node_metadata['prior_binding_sha256'], intent_raw, journal_raw)
-            entry = known.get(key)
+            try:
+                # _read_node checked the prior bytes against this digest.
+                key = managed_verified.node_key(paths, current_hash, node_metadata['prior_binding_sha256'], intent_raw, journal_raw)
+            except Exception:
+                key = None
+            entry = known.get(key) if key is not None else None
             try:
                 hit = entry is not None and _load_known_node(paths, record, node_metadata, journal, entry)
             except Exception:
@@ -295,8 +307,13 @@ def _verify_chain(paths, record, raw, evidence, layout_intents, layout_verified,
                 if candidate_raw != raw:
                     raise _conflict('Managed candidate bytes differ')
                 record, partial = json.loads(prior_raw, object_pairs_hook=_unique), False
-                known[key] = managed_verified.facts(intent, record)
-                managed_verified.remember(paths, key, known[key])
+                try:
+                    fact = None if key is None else managed_verified.facts(intent, record)
+                except Exception:
+                    fact = None
+                if fact is not None:
+                    known[key] = fact
+                    managed_verified.remember(paths, key, fact)
         used.add(pd)
         raw, checked_hash = prior_raw, metadata['prior_binding_sha256']
     if partial:

@@ -242,6 +242,23 @@ class RememberedProofTests(Chain):
         self.verify()
         self.assertEqual(self.full.call_count, 4)
 
+    def test_installed_record_must_be_its_bytes_when_proofs_are_remembered(self):
+        self.verify()
+        other = {**self.records[-1], 'payload': 'parsed from another read'}
+        with self.assertRaises(DomainError):
+            ancestry.verify(self.paths, other, self.raws[-1], layout_intents=[])
+
+    def test_cache_key_failure_falls_back_to_full_proofs(self):
+        with mock.patch.object(managed_verified, 'node_key', side_effect=RuntimeError('boom')):
+            self.assertEqual(self.verify(), set(self.digests))
+            self.assertEqual(self.verify(), set(self.digests))
+        self.assertEqual(self.full.call_count, 4)
+        self.assertEqual(managed_verified.load(self.paths), {})
+
+    def test_code_identity_covers_the_helpers_verification_imports(self):
+        self.assertIn('qorqut.source_snapshot', managed_verified._HELPER_MODULES)
+        self.assertRegex(managed_verified.code_identity(), r'\A[0-9a-f]{64}\Z')
+
     def test_cache_write_failure_does_not_fail_the_check(self):
         with mock.patch.object(managed_verified.tempfile, 'mkstemp', side_effect=OSError('disk full')):
             self.assertEqual(self.verify(), set(self.digests))
