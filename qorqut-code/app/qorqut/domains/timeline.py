@@ -14,11 +14,12 @@ on, to be pinned with ``pin``); ``file`` appends the changes. ``apply`` calls ``
 """
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, ref, schema, timestamp
-from qorqut_operations.contracts import DomainError, plain
+from qorqut_operations.contracts import DomainError, FieldChange, PreviewResource, StructuredPreview, plain
 from qorqut_operations.tasks.scope import task_namespace
 from qorqut_operations.timeline import filing, state as timeline_state
 from qorqut_operations.timeline.schema import ENTRIES, ITEM_TYPES, KINDS, QUESTIONS
@@ -46,7 +47,11 @@ FILE_DESCRIPTION = (
     "question nobody needs answered). sources is up to ten {quote, ref}: the owner's own words behind the change (at most 1000 "
     "characters each) and a link to the message. The entries are never edited or deleted, so file at the most general level that "
     "fits and keep what you file true. The result is the item's new state; when it passes about 3,000 characters it asks you to "
-    "remove what no longer holds.")
+    "remove what no longer holds. During the trial every filing is first held for the owner's review: the call returns "
+    "signoff_required, which means the filing was submitted for the owner's review and is filed by itself when the owner "
+    "approves it, with no further call from you. Do not file it again; timeline_get lists the filings still waiting.")
+REVIEW_NOTICE = ("Submitted for the owner's review. It is filed by itself when the owner approves it; do not file it again. "
+                 "timeline_get lists the filings still waiting.")
 
 ITEM = {"type": "object", "additionalProperties": False, "required": ["type", "id", "business_id"], "properties": {
     "type": {"enum": list(ITEM_TYPES)},
@@ -85,13 +90,18 @@ class Timeline:
         self.runtime, self.app = runtime, runtime.application
 
     def register(self):
-        common = dict(global_capability="read_global_context", supports_signoff=False, exposure=frozenset({"mcp"}))
+        common = dict(global_capability="read_global_context", exposure=frozenset({"mcp"}))
         self.runtime.registry.register(OperationDescriptor(
-            "timeline_get", GET_SCHEMA, description=GET_DESCRIPTION, effect_kind="read", read=self.get,
+            "timeline_get", GET_SCHEMA, description=GET_DESCRIPTION, effect_kind="read", read=self.get, supports_signoff=False,
             scope_kinds=frozenset({"business", "global"}), resolve_namespace=task_namespace, **common))
+        # During the trial a filing is held for the owner's approval and applied by the service as its proposer; an agent override
+        # (``permissions_set``) for the coordinator replaces this standing mode, which is how the trial ends.
         self.runtime.registry.register(OperationDescriptor(
             "timeline_file", FILE_SCHEMA, description=FILE_DESCRIPTION, effect_kind="records", prepare=self.prepare,
-            apply=self.apply, scope_kinds=frozenset({"global"}), resolve_namespace=lambda ctx, args: "global", **common))
+            apply=self.apply, scope_kinds=frozenset({"global"}), resolve_namespace=lambda ctx, args: "global",
+            supports_signoff=True, default_mode="signoff", project_result=self.project, **common))
+        # A removal pins its entry, which has no revision: it is gone for a filing once another filing has removed it.
+        self.app.register_target_resolver(ENTRIES, self.entry_snapshot)
         self.runtime.timeline = self
         return self
 
@@ -175,9 +185,17 @@ class Timeline:
         title = self.readable(ctx, item, uow)
         held = timeline_state.state(uow.connection, item)
         result = {"item": held["item"], "revision": held["revision"]}
-        if not args.get("history"):
-            return {**result, "state": held, "text": timeline_state.render(held, title, self.further_reading(item, uow))}
         cursor = int(args["cursor"]) if args.get("cursor") else 0
+        # The coordinator and the owner also see what already waits for the owner's review, so nothing is filed twice.
+        waiting = self.waiting(ctx, item, uow) if not cursor else []
+        if waiting:
+            result["waiting_for_review"] = waiting
+        if not args.get("history"):
+            text = timeline_state.render(held, title, self.further_reading(item, uow))
+            if waiting:
+                text += "\nFilings waiting for the owner's review (already submitted; do not file them again):\n" + "\n".join(
+                    f"- [{row['id'][:8]}] " + "; ".join(self.sentence(line) for line in row["changes"]) for row in waiting)
+            return {**result, "state": held, "text": text}
         entries, after = timeline_state.history(uow.connection, item, args.get("limit", 50), cursor)
         return {**result, "entries": entries, "next_cursor": str(after) if after else None,
                 **({"links": self.links(item, uow)} if not cursor else {})}
@@ -214,10 +232,87 @@ class Timeline:
             for row in rows:
                 builder.expect(ref(table, row["id"], item["business_id"], tables=builder.tables), row)
 
+    @staticmethod
+    def entry_snapshot(ctx, resource, uow):
+        """The entry a prepared removal named while it still stands; ``None`` once removed (or moved to another item)."""
+        row = uow.connection.execute(
+            f"SELECT * FROM {ENTRIES} WHERE id=? AND business_id IS ? AND action='add' AND NOT EXISTS "
+            f"(SELECT 1 FROM {ENTRIES} r WHERE r.removes_id={ENTRIES}.id)", (resource.resource_id, resource.business_id)).fetchone()
+        return dict(row) if row else None
+
+    @staticmethod
+    def lines(changes, pins):
+        """The changes of a filing as the owner reads them; a removal, answer or drop carries the text it names."""
+        entries = {row["id"]: row for row in pins["entries"]}
+        questions = {row["id"]: row for row in pins["questions"]}
+        lines = []
+        for change in changes:
+            action = change["action"]
+            if action == "add":
+                lines.append({"action": "add", "kind": change["kind"], "text": change["text"]})
+            elif action == "remove":
+                row = entries[change["entry_id"]]
+                lines.append({"action": "remove", "kind": row["kind"], "text": row["text"], "reason": change.get("reason", "")})
+            elif action == "ask":
+                lines.append({"action": "ask", "text": change["text"], "blocking": change["blocking"]})
+            elif action == "answer":
+                lines.append({"action": "answer", "kind": change["kind"], "text": change["text"], "question": questions[change["question_id"]]["text"]})
+            else:
+                lines.append({"action": "drop", "question": questions[change["question_id"]]["text"]})
+        return lines
+
     def prepare(self, ctx, args, options, uow):
-        self.check(ctx, args, uow)
+        title, pins = self.check(ctx, args, uow)
         item = args["item"]
-        return PlanBuilder(ctx, "timeline_file", args, f"File on the timeline of {item['type']} {item['id']}").build()
+        builder = PlanBuilder(ctx, "timeline_file", args, f"File on the timeline of {item['type']} \"{title}\"" if title else "File on the Global timeline")
+        self.pin(builder, item, pins)
+        # What the owner reads: the item, one line per change and the quoted words, ahead of the generic field list.
+        fields = {"item_type": item["type"], "item_id": item["id"], "item_business_id": item["business_id"], "item_title": title or "",
+                  "changes": self.lines(args["changes"], pins), "sources": args.get("sources", [])}
+        resource = PreviewResource("timeline_filing", "filing", "Timeline filing")
+        builder.previews.append(StructuredPreview(resource, tuple(FieldChange(path, None, value) for path, value in fields.items())))
+        builder.resources.append(resource)
+        return builder.build()
+
+    @staticmethod
+    def project(result):
+        """What the coordinator is told when the filing was held for review."""
+        if result.status != "signoff_required":
+            return result
+        return replace(result, warnings=(*result.warnings, REVIEW_NOTICE))
+
+    # -- filings still waiting for review --------------------------------------------------------------------------
+
+    def waiting(self, ctx, item, uow):
+        """The pending ``timeline_file`` approvals on ``item`` as ``{id, changes}``: for the coordinator in person and the owner,
+        never for another agent. Read from the approvals themselves."""
+        current = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
+        owner = current.principal_kind == "human"
+        if not owner and (current.delegation_assignment_id is not None or current.principal_id != configured_ordubashy(uow)):
+            return []
+        found = []
+        for row in uow.connection.execute(
+                "SELECT id, preview_json, created_at FROM signoffs WHERE operation_name='timeline_file' AND state='pending' "
+                "AND superseded_by_id IS NULL ORDER BY created_at, id").fetchall():
+            fields = {}
+            for change in json.loads(row["preview_json"]).get("changes", []):
+                fields.update({field["path"]: field["after"] for field in change.get("fields", [])})
+            if (fields.get("item_type"), fields.get("item_id"), fields.get("item_business_id")) == (item["type"], item["id"], item["business_id"]):
+                found.append({"id": row["id"], "filed_at": row["created_at"], "changes": fields.get("changes", [])})
+        return found
+
+    @staticmethod
+    def sentence(line):
+        action, text = line["action"], line.get("text", "")
+        if action == "add":
+            return f"Add {line['kind']}: {text}"
+        if action == "remove":
+            return f"Remove {line['kind']}: {text}"
+        if action == "ask":
+            return f"Ask ({'blocking' if line['blocking'] else 'not blocking'}): {text}"
+        if action == "answer":
+            return f"Answer \"{line['question']}\" with a {line['kind']}: {text}"
+        return f"Drop question: {line['question']}"
 
     def apply(self, ctx, plan, uow):
         return self.file(plan.principal_id, plan.arguments, uow)
