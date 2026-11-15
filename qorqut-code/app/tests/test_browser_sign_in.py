@@ -108,7 +108,10 @@ class FlowTest(unittest.TestCase):
 
     def test_failed_window_restores_the_browser_and_clears_the_session(self):
         (self.root / AGENT / "stop-requested.json").write_text("{}")
-        with mock.patch.object(sign_in.subprocess, "Popen", side_effect=OSError("nope")), self.assertRaises(OSError):
+        # The window's environment is not under test; outside an installed folder it depends on how deep the system's
+        # temporary directory is.
+        with mock.patch.object(sign_in, "chrome_environment", return_value={}), \
+                mock.patch.object(sign_in.subprocess, "Popen", side_effect=OSError("nope")), self.assertRaises(OSError):
             sign_in.start(self.runtime, AGENT, "slack.com")
         self.assertEqual(self.calls, ["stop", "ensure"])
         self.assertFalse(sign_in.active(AGENT))

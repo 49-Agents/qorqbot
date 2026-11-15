@@ -19,7 +19,6 @@ const engine = new Engine({ payload: path.join(resources, 'qorqbot-payload'), ho
   try {
     assert.equal(engine.bundledVersion, version);
     assert.equal(engine.archiveSha256, archiveSha256);
-    await engine.requirePrerequisites();
     await engine.install();
     assert.equal(engine.installedVersion(), version);
     await engine.run(['verify']);
@@ -34,7 +33,7 @@ const engine = new Engine({ payload: path.join(resources, 'qorqbot-payload'), ho
     assert.equal(await engine.status(), null);
     fs.writeFileSync(report, JSON.stringify({
       version, source_commit: process.env.GITHUB_SHA, archive_sha256: archiveSha256,
-      checks: ['embedded version and checksum', 'prerequisites', 'fresh-home install',
+      checks: ['embedded version and checksum', 'fresh-home install',
         'installed integrity', 'dashboard HTTP 200',
         'stop', 'restart on the same port', 'final stopped status'],
       not_tested: ['Gatekeeper / Open Anyway', 'separate macOS user account',

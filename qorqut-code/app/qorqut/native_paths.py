@@ -48,10 +48,19 @@ def root():
     return path
 
 
+def shipped(name):
+    """A program the installed package ships itself (``runtime/native/bin`` of a self-contained folder), or None."""
+    folder = folder_root()
+    if folder is None:
+        return None
+    path = folder / 'runtime' / 'native' / 'bin' / name
+    return str(path) if path.is_file() and os.access(path, os.X_OK) else None
+
+
 def executable(name, default=None):
     native = root()
     if native is None:
-        return default or name
+        return shipped(name) or default or name
     path = native / 'bin' / name
     if not path.is_file() or not os.access(path, os.X_OK):
         raise FileNotFoundError('Missing bundled tool: ' + str(path))

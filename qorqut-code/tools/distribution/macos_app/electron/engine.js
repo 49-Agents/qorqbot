@@ -1,9 +1,10 @@
 'use strict';
 // Install/start/stop/update engine for the Qorqbot Mac app.
 //
-// The app bundle carries the exact native archive unchanged. Qorqbot runs from
-// a writable folder at a short fixed path (~/Qorqbot/qorqbot), so the first
-// launch unpacks the archive there and runs the folder's own offline setup.
+// The app bundle carries the exact native archive unchanged, including its own
+// runtime. Qorqbot runs from a writable folder at a short fixed path
+// (~/Qorqbot/qorqbot), so the first launch unpacks the archive there and runs
+// the folder's own offline setup.
 // Every server operation goes through that folder's ./qorqbot command; this
 // module never edits the folder's runtime or records itself.
 //
@@ -19,16 +20,9 @@ const os = require('node:os');
 const path = require('node:path');
 const semver = require('semver');
 
-const INSTALL_COMMAND = 'brew install python@3.12 git tmux';
 // native_launch.py refuses roots whose Unix socket paths exceed 104 bytes;
 // '<root>/.run/c/org.chromium.Chromium.XXXXXX/SingletonSocket' needs root <= 50.
 const MAX_ROOT_LENGTH = 50;
-// Agent CLIs are not needed to start Qorqbot, only to bring an agent online, so they never block start-up.
-const AGENT_CLIS = [
-  { id: 'claude', label: 'Claude Code', command: 'claude', url: 'https://docs.anthropic.com/en/docs/claude-code' },
-  { id: 'codex', label: 'Codex', command: 'codex', url: 'https://github.com/openai/codex' },
-];
-const HOMEBREW_URL = 'https://brew.sh';
 const PORT_RANGE = 20;
 const READY_TIMEOUT_MS = 180_000;
 const LOGIN_SHELL_TIMEOUT_MS = 5_000;
@@ -126,14 +120,16 @@ class Engine {
 
   // ---------------------------------------------------------------- environment
 
-  /** Finder-started apps get a minimal PATH; add the login shell's PATH and Homebrew. */
+  /** Finder-started apps get a minimal PATH; add the login shell's PATH so agent programs such as claude are found. */
   async environment() {
     if (this.env) return this.env;
     let extra = '';
     if (this.loginPath) extra = await this.readLoginPath();
     const base = this.baseEnv.PATH || '/usr/bin:/bin:/usr/sbin:/sbin';
     const env = { ...this.baseEnv };
-    env.PATH = [extra, base, '/opt/homebrew/bin', '/usr/local/bin'].filter(Boolean).join(':');
+    const home = this.baseEnv.HOME || os.homedir();
+    // ~/.local/bin is where Claude Code's installer puts claude.
+    env.PATH = [extra, base, path.join(home, '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin'].filter(Boolean).join(':');
     delete env.ELECTRON_RUN_AS_NODE;
     this.env = env;
     return env;
@@ -167,79 +163,31 @@ class Engine {
     });
   }
 
-  which(command, env) {
-    for (const directory of env.PATH.split(':')) {
-      if (!directory) continue;
-      const candidate = path.join(directory, command);
-      try {
-        fs.accessSync(candidate, fs.constants.X_OK);
-        if (fs.statSync(candidate).isFile()) return candidate;
-      } catch { /* keep looking */ }
+  /** Environment for ./qorqbot. Folders from older app versions have no bundled native tools, so their launcher
+   * is told which Python to use. Computed per call because the folder changes during install and update. */
+  async launcherEnv() {
+    const env = { ...(await this.environment()) };
+    if (!fs.existsSync(path.join(this.root, 'runtime', 'native'))) {
+      for (const candidate of [
+        path.join(this.root, 'runtime', 'venv', 'bin', 'python3.12'),
+        path.join(this.root, '.previous-runtime', 'venv', 'bin', 'python3.12'),
+      ]) {
+        try {
+          fs.accessSync(candidate, fs.constants.X_OK);
+          if (!fs.statSync(candidate).isFile()) continue;
+          env.QORQUT_PYTHON = candidate;
+          break;
+        } catch { /* try the next one */ }
+      }
     }
-    return null;
-  }
-
-  pythonUsable(python, env) {
-    return new Promise((resolve) => {
-      const child = spawn(python, ['-c', 'import sys, venv; sys.exit(sys.version_info[:2] != (3, 12))'],
-        { env, stdio: 'ignore' });
-      child.on('error', () => resolve(false));
-      child.on('close', (code) => resolve(code === 0));
-    });
-  }
-
-  /** @returns {{missing: string[], python: string|null}} */
-  async prerequisites({ log = true } = {}) {
-    const env = await this.environment();
-    const missing = [];
-    let python = env.QORQUT_PYTHON || this.which('python3.12', env);
-    if (!python && fs.existsSync('/opt/homebrew/opt/python@3.12/bin/python3.12')) {
-      python = '/opt/homebrew/opt/python@3.12/bin/python3.12';
-    }
-    if (!python || !(await this.pythonUsable(python, env))) {
-      missing.push('Python 3.12');
-      python = null;
-    } else {
-      env.QORQUT_PYTHON = python;
-    }
-    if (!this.which('git', env)) missing.push('git');
-    if (!this.which('tmux', env)) missing.push('tmux');
-    if (missing.length && log) this.log('missing prerequisites: ' + missing.join(', '));
-    return { missing, python };
-  }
-
-  /** Every program the first-run checklist shows. `ready` means Qorqbot can start; agent CLIs are reported but optional.
-   * `command` installs only the missing required programs with Homebrew. */
-  async checklist({ log = true } = {}) {
-    const env = await this.environment();
-    const { missing } = await this.prerequisites({ log });
-    const tools = [
-      { id: 'python', label: 'Python 3.12', formula: 'python@3.12', ok: !missing.includes('Python 3.12') },
-      { id: 'git', label: 'git', formula: 'git', ok: !missing.includes('git') },
-      { id: 'tmux', label: 'tmux, for agent terminals', formula: 'tmux', ok: !missing.includes('tmux') },
-    ];
-    const agents = AGENT_CLIS.map(({ id, label, command, url }) => ({ id, label, command, url, ok: Boolean(this.which(command, env)) }));
-    const absent = tools.filter((tool) => !tool.ok).map((tool) => tool.formula);
-    return {
-      ready: absent.length === 0, homebrew: Boolean(this.which('brew', env)),
-      command: absent.length ? 'brew install ' + absent.join(' ') : '',
-      tools, agents, agentReady: agents.some((agent) => agent.ok),
-    };
-  }
-
-  async requirePrerequisites() {
-    const { missing } = await this.prerequisites();
-    if (missing.length) {
-      throw new EngineError('prerequisites', `Qorqbot needs ${missing.join(', ')} on this Mac.`,
-        { command: INSTALL_COMMAND });
-    }
+    return env;
   }
 
   // ---------------------------------------------------------------- folder commands
 
   /** Run ./qorqbot ARGS in the folder; stream output lines to onLine and the log. */
   async run(args, { onLine = () => {}, allowFailure = false } = {}) {
-    const env = await this.environment();
+    const env = await this.launcherEnv();
     return new Promise((resolve, reject) => {
       const child = spawn('./qorqbot', args, { cwd: this.root, env, stdio: ['ignore', 'pipe', 'pipe'] });
       let output = '';
@@ -329,7 +277,7 @@ class Engine {
     }
     await fsp.rename(path.join(staging, 'qorqbot'), this.root);
     await fsp.rmdir(staging);
-    onLine('Preparing the Python environment (first launch only)');
+    onLine('Setting up Qorqbot');
     try {
       await this.run(['setup'], { onLine });
     } catch (error) {
@@ -390,7 +338,6 @@ class Engine {
   }
 
   async start({ onLine = () => {} } = {}) {
-    await this.requirePrerequisites();
     const saved = this.savedPort();
     let port = saved ?? this.firstPort;
     while (!(await portFree(port))) {
@@ -405,8 +352,8 @@ class Engine {
     this.savePort(port);
     const url = `http://127.0.0.1:${port}`;
     this.log(`starting on ${url}`);
-    onLine('Starting the local server on ' + url);
-    const env = await this.environment();
+    onLine('Starting Qorqbot');
+    const env = await this.launcherEnv();
     const log = fs.openSync(this.logFile, 'a');
     const child = spawn('./qorqbot', ['--port', String(port)], { cwd: this.root, env, stdio: ['ignore', log, log] });
     fs.closeSync(log);
@@ -444,4 +391,4 @@ class Engine {
   }
 }
 
-module.exports = { Engine, EngineError, AGENT_CLIS, HOMEBREW_URL, INSTALL_COMMAND, MAX_ROOT_LENGTH };
+module.exports = { Engine, EngineError, MAX_ROOT_LENGTH };

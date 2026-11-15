@@ -144,8 +144,10 @@ def require_installed(prepared: Path, receipt, factories):
         first_party = [_canonical(name) for name in environment["first_party"]]
     except (KeyError, TypeError, AttributeError) as exc:
         raise InitializationError("The preparation receipt records no host environment with its wheels") from exc
+    # prepared/venv is either a virtual environment or, in a self-contained package, a complete Python with the wheels
+    # installed into it. No other interpreter has that prefix.
     prefix = Path(sys.prefix).resolve()
-    if sys.prefix == sys.base_prefix or prefix != (prepared / "venv").resolve():
+    if prefix != (prepared / "venv").resolve():
         raise InitializationError("The initializer must run in the prepared host environment (prepared/venv), not another interpreter")
     owners, source = metadata.packages_distributions(), (prepared / "src").resolve()
     for module in ("qorqut", "qorqut_agentic", *dict.fromkeys(factory.partition(":")[0].partition(".")[0] for factory in factories)):
@@ -199,9 +201,12 @@ def _require_wheel_origin(prepared: Path, name: str, wheel) -> None:
         raise InitializationError(f"{name} has an unreadable direct-URL record") from None
     if "vcs_info" in origin or "dir_info" in origin or url.scheme != "file":
         raise InitializationError(f"{name} was installed from an editable, VCS or other origin, not from the receipt wheel file")
-    if Path(unquote(url.path)).resolve() != path.resolve():
-        raise InitializationError(f"{name} was installed from {unquote(url.path)}, not from the receipt wheel {wheel['file']}")
     recorded = (origin.get("archive_info") or {}).get("hashes", {}).get("sha256")
+    installed_from = Path(unquote(url.path))
+    # A self-contained package's environment is installed on the build machine, so its origin is that machine's copy of the
+    # receipt wheel: accepted only by the same file name together with pip's recorded SHA-256 of the installed archive.
+    if installed_from.resolve() != path.resolve() and (installed_from.name != path.name or recorded != wheel["sha256"]):
+        raise InitializationError(f"{name} was installed from {unquote(url.path)}, not from the receipt wheel {wheel['file']}")
     if recorded is not None and recorded != wheel["sha256"]:
         raise InitializationError(f"{name} records archive SHA-256 {recorded}, the receipt wheel has {wheel['sha256']}")
 
