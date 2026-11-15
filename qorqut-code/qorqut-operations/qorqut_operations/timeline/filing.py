@@ -9,6 +9,9 @@ transaction. A change is one of::
     {action: ask,    text, blocking, raised_by?}  an open question for the owner (raised_by owner or coordinator)
     {action: answer, question_id, kind, text}    a decision or fact that closes the open question ``question_id``
     {action: drop,   question_id}                closes the open question ``question_id`` without an answer
+
+An add whose kind and text repeat an entry that already stands (for a goal or a progress note: the current one) appends
+nothing and is reported under ``skipped``, so the same filing sent twice never leaves the item saying a thing twice.
 """
 from __future__ import annotations
 
@@ -61,6 +64,28 @@ def check(connection, item, changes):
     return pins
 
 
+def _same(text):
+    return ' '.join(text.split()).casefold()
+
+
+def _standing(connection, item):
+    """``{(kind, normalized text): entry id}`` of what an add would repeat: every standing decision and fact, and the current
+    goal and progress note."""
+    entries = entry_rows(connection, item)
+    gone, found, latest = removed_ids(entries), {}, {}
+    for row in entries:
+        if row['action'] != 'add':
+            continue
+        if row['kind'] in ('goal', 'progress'):
+            latest[row['kind']] = row
+        elif row['id'] not in gone:
+            found[(row['kind'], _same(row['text']))] = row['id']
+    for kind, row in latest.items():
+        if row['id'] not in gone:
+            found[(kind, _same(row['text']))] = row['id']
+    return found
+
+
 def _short_id(connection, table):
     while True:
         identity = secrets.token_hex(4)
@@ -70,10 +95,12 @@ def _short_id(connection, table):
 
 def write(connection, item, changes, sources, *, created_by, at):
     """Re-check and append ``changes`` in the caller's write transaction, in order, each stamped with the next sequence of the
-    shared counter. Returns ``{'entries': [ids appended], 'questions': [ids opened], 'closed': [ids answered or dropped]}``."""
+    shared counter. Returns ``{'entries': [ids appended], 'questions': [ids opened], 'closed': [ids answered or dropped],
+    'skipped': [{kind, text, stands_as} of every add that repeated a standing entry]}``."""
     pins = check(connection, item, changes)
     kinds = {row['id']: row['kind'] for row in pins['entries']}
-    made = {'entries': [], 'questions': [], 'closed': []}
+    made = {'entries': [], 'questions': [], 'closed': [], 'skipped': []}
+    standing = _standing(connection, item)
     attributes = (item['type'], item['id'], item['business_id'])
     quotes = json.dumps(sources)
 
@@ -91,9 +118,17 @@ def write(connection, item, changes, sources, *, created_by, at):
     for change in changes:
         action = change['action']
         if action == 'add':
-            entry('add', change['kind'], change['text'], refs=change.get('refs', []))
+            key = (change['kind'], _same(change['text']))
+            if key in standing:
+                made['skipped'].append({'kind': change['kind'], 'text': change['text'], 'stands_as': standing[key]})
+                continue
+            identity, _ = entry('add', change['kind'], change['text'], refs=change.get('refs', []))
+            if change['kind'] in ('goal', 'progress'):
+                standing = {known: value for known, value in standing.items() if known[0] != change['kind']}
+            standing[key] = identity
         elif action == 'remove':
             entry('remove', kinds[change['entry_id']], change.get('reason', ''), removes_id=change['entry_id'])
+            standing = {known: value for known, value in standing.items() if value != change['entry_id']}
         elif action == 'ask':
             identity = _short_id(connection, QUESTIONS)
             connection.execute(

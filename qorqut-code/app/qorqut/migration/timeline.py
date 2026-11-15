@@ -19,7 +19,7 @@ TABLES = ('timeline_questions', 'timeline_entries')
 OBJECTS = frozenset({*(('table', table) for table in TABLES),
                      ('index', 'timeline_entries_item'), ('index', 'timeline_questions_item'), ('index', 'timeline_questions_sequence'),
                      ('trigger', 'timeline_entries_frozen'), ('trigger', 'timeline_entries_retained'),
-                     ('trigger', 'inbox_capture_timeline_entries_insert'),
+                     ('trigger', 'inbox_capture_timeline_entries_insert'), ('trigger', 'inbox_capture_timeline_entries_update'),
                      ('trigger', 'inbox_capture_timeline_questions_insert'), ('trigger', 'inbox_capture_timeline_questions_update')})
 
 
