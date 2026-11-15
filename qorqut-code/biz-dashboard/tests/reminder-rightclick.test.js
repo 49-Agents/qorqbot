@@ -18,7 +18,7 @@ test('right-click surfaces coalesce an occurrence and retain uncertain request f
   const src=source('core.js');vm.runInContext(src.slice(src.indexOf('const NOTE_MAX'),src.indexOf('// ---------------------------------------------------------------- byte formatting'))+'\nthis.notify=notify;',context);
   context.notify({text:'ordinary'});assert.equal(box.children[0].listeners.contextmenu,undefined);
   context.notify({text:'Due',reminder:true,onClick:()=>opened++,onDismiss:()=>context.dismissDue(reminder)});
-  const toast=box.children[1], chip={dataset:{reminderKey:'r'},closest(s){return s==='[data-reminder-key]'?this:null}};
+  const toast=box.children[1], chip={dataset:{reminderKey:'r'},closest(s){return s==='[data-reminder-key]' || s==='[data-reminder-key],[data-signoff-key]'?this:null}};
   const event={target:chip,currentTarget:host,preventDefault(){this.prevented=true}};
   listeners.contextmenu(event);toast.listeners.contextmenu({preventDefault(){}});listeners.contextmenu(event);await tick();
   assert.equal(event.prevented,true);assert.equal(writes.length,1);assert.equal(writes[0].url,'/biz/project/operations/reminders_dismiss');assert.deepEqual(writes[0].args,{reminder_id:'r',revision:7,occurrence_id:'one',idempotency_key:'key-1'});
@@ -26,7 +26,7 @@ test('right-click surfaces coalesce an occurrence and retain uncertain request f
   await assert.rejects(context.dismissDue(reminder),/unconfirmed/);assert.equal(writes.length,1);
   const retry=context.submit([...context.attempts.values()][0]);await tick();assert.deepEqual(writes[1],writes[0]);resolveWrite({reminder:{...reminder,state:'scheduled',occurrence_id:null}});await retry;
   const next=context.dismissDue({...reminder,revision:8,occurrence_id:'two'});await tick();assert.equal(writes[2].args.occurrence_id,'two');assert.notEqual(writes[2].args.idempotency_key,'key-1');resolveWrite({reminder:{...reminder,state:'scheduled',occurrence_id:null}});await next;
-  listeners.click({target:chip});assert.equal(opened,1);assert.equal(writes.length,3);
+  listeners.click({target:chip,currentTarget:host});assert.equal(opened,1);assert.equal(writes.length,3);
   const ordinary={closest:()=>null};const unrelated={target:ordinary,currentTarget:host,preventDefault(){throw Error('unrelated menu intercepted')}};listeners.contextmenu(unrelated);
   dispose();assert.equal(listeners.contextmenu,undefined);
 });

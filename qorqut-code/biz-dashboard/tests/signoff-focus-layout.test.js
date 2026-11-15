@@ -50,3 +50,40 @@ browserTest('Focus signoff keeps its decision footer visible and preserves guard
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });
+
+
+browserTest('attention selection survives refresh and advances only after a confirmed decision',async()=>{
+  const browser=await chromium.launch({headless:true,executablePath:executable,args:['--allow-file-access-from-files']});
+  try {
+    const page=await browser.newPage({viewport:{width:800,height:700}}), errors=[];
+    page.on('pageerror',error=>errors.push(error.message));
+    await page.goto(fixture);
+    await page.addScriptTag({path:path.join(__dirname,'../js/attention-queue.js')});
+    await page.evaluate(()=>{const host=document.createElement('div');host.className='focus-signoff-queue';document.querySelector('.agfocus').prepend(host);attentionQueue.mountSignoffs(host);});
+    const chip=id=>page.locator(`[data-signoff-key="${id}"]`);
+    await chip('short').click();
+    await page.waitForSelector('.sg-detail-footer [data-sg="approve"]:not([disabled])');
+    assert.equal(await chip('short').getAttribute('aria-current'),'true');
+    assert.equal(await page.locator('.agfocus-surface-title').textContent(),'Send email to Ada');
+    await page.evaluate(()=>attentionQueue.refreshSignoffs());
+    assert.equal(await chip('short').getAttribute('aria-current'),'true');
+    await page.focus('[data-sg-edit-field="body"]');
+    await page.fill('[data-sg-edit-field="body"]','Keep this unsaved text');
+    await chip('action').click();
+    assert.equal(await chip('short').getAttribute('aria-current'),'true');
+    assert.equal(await page.inputValue('[data-sg-edit-field="body"]'),'Keep this unsaved text');
+    const editor=await page.locator('[data-sg-edit-field="body"]').evaluate(e=>{e.focus();const s=getComputedStyle(e);return {edge:s.borderLeftWidth,color:s.borderLeftColor,fg:s.color,padding:s.paddingLeft}});
+    assert.equal(editor.edge,'2px');assert.equal(editor.color,editor.fg);assert.equal(editor.padding,'12px');
+    await page.click('[data-sg="cancel-message"]');
+    await page.click('.sg-detail-footer [data-sg="approve"]');
+    assert.equal(await chip('short').getAttribute('aria-current'),'true');
+    assert.equal(await page.locator('.sg-row[data-id="short"]').count(),1);
+    await page.evaluate(()=>testHarness.releaseWrite());
+    await page.waitForSelector('[data-signoff-key="action"][aria-current="true"]');
+    await page.waitForSelector('.sg-row[data-id="action"] .sg-detail-footer [data-sg="approve"]:not([disabled])');
+    assert.equal(await chip('short').count(),0);
+    await page.click('.agfocus-close');
+    assert.equal(await page.locator('[aria-current="true"]').count(),0);
+    assert.deepEqual(errors,[]);
+  } finally {await browser.close();}
+});
