@@ -24,7 +24,7 @@ from qorqut_operations.timeline import filing, state as timeline_state
 from qorqut_operations.timeline.schema import ENTRIES, ITEM_TYPES, KINDS, QUESTIONS
 
 from qorqut.domains.projects.access import business_participant
-from qorqut.management.identity import configured_ordubashy
+from qorqut.management.identity import configured_ordubashy, installation_owner
 
 GET_DESCRIPTION = (
     "Reads the timeline of a Task, a Project or Global: what holds now, or its whole history. item names it: type (task, project "
@@ -33,13 +33,15 @@ GET_DESCRIPTION = (
     "(the ids timeline_file removes, answers and drops by): the latest goal, every decision and fact added and not removed, the "
     "latest progress note and the open questions for the owner, plus the same as text and the item's revision. With history true it "
     "pages every entry oldest first (limit, cursor), removed ones marked, with the owner's quoted words and their links, and the "
-    "first page lists the item's subtasks, approvals and reports as one-line links. You may read a Task's timeline when you may "
+    "first page lists the questions already answered or dropped and the item's subtasks, approvals and reports as one-line links "
+    "(approval and report titles are shown to the coordinator and the owner only). You may read a Task's timeline when you may "
     "read the Task, a Project's when you take part in the Project, and Global's always. Changes nothing.")
 FILE_DESCRIPTION = (
     "Coordinator write. Changes the timeline of a Task, a Project or Global, which every agent that opens the item is then told. "
     "item names it as in timeline_get. changes is 1 to 10 of: {action: add, kind: goal|decision|fact|progress, text, refs?} "
     "(text 1 to 400 characters, one or two sentences; a goal and a progress note replace the previous one, a decision and a fact "
-    "hold until removed); {action: remove, entry_id, reason?} (takes out an entry that no longer holds; read the ids with "
+    "hold until removed; an add that repeats what already stands is skipped and listed under filed.skipped); {action: remove, "
+    "entry_id, reason?} (takes out an entry that no longer holds, and removing the current goal or progress note leaves none; read the ids with "
     "timeline_get); {action: ask, text, blocking, raised_by?} (an open question for the owner: a point the owner has yet to "
     "decide; blocking says whether work waits on it; raised_by owner or coordinator, default coordinator); {action: answer, "
     "question_id, kind: decision|fact, text} (files the answer and closes the question); {action: drop, question_id} (closes a "
@@ -125,6 +127,11 @@ class Timeline:
         # The ordinary authorized Task read, as a report's Task is checked: whoever may not read the Task has no timeline for it.
         scoped = replace(current, business_id=business, review_business_id=business)
         descriptor = self.app.registry.get("tasks_get")
+        # The item may sit outside the call's own scope, which is all the engine checked: the caller must reach the Task's
+        # Project, or hold the Global read for a Global Task.
+        if not (business in current.allowed_business_ids or business == current.business_id if business
+                else descriptor.global_capability_selected(current.global_capabilities) is not None):
+            raise DomainError("not_found", NOT_READABLE)
         try:
             self.app.authorize(scoped, descriptor, (), uow, namespace="business:" + business if business else "global")
             task = descriptor.read(scoped, {"task_id": item["id"], "scope": "business" if business else "global", "notes_limit": 0},
@@ -146,9 +153,19 @@ class Timeline:
                 "approvals": count("SELECT COUNT(*) FROM signoff_source_links WHERE source_business_id IS ? AND source_type='task' AND source_id=?"),
                 "reports": count("SELECT COUNT(*) FROM signoff_report_tasks WHERE task_business_id IS ? AND task_id=?")}
 
+    def trusted(self, ctx, uow):
+        """Whether the caller is the installation owner or the configured coordinator in person: the two who may read every
+        approval, and so the only ones shown approval and report titles or the filings waiting for review."""
+        current = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
+        if current.principal_kind == "human":
+            return current.principal_id == installation_owner(uow)
+        return current.delegation_assignment_id is None and current.principal_id == configured_ordubashy(uow)
+
     @staticmethod
-    def links(item, uow):
-        """The subtasks, approvals and reports of a Task as one-line links read from their own records."""
+    def links(item, uow, titles=True):
+        """The subtasks, approvals and reports of a Task as one-line links read from their own records. An approval's title
+        can carry what its own read would hide (an email subject, a Global proposal), so ``titles`` false leaves the titles
+        of approvals and reports out; a subtask's title is what the Task read already lists."""
         if item["type"] != "task":
             return {}
         connection, business, identity = uow.connection, item["business_id"], item["id"]
@@ -165,8 +182,8 @@ class Timeline:
             (business, identity, LINKS_LIMIT)).fetchall()
         return {"subtasks": [{"type": "task", "id": row["id"], "business_id": business, "title": row["title"], "status": row["status"]}
                              for row in subtasks],
-                "approvals": [{"type": "signoff", "id": row["id"], "title": row["title"], "state": row["state"]} for row in approvals],
-                "reports": [{"type": "signoff", "id": row["id"], "title": row["title"], "state": row["state"]} for row in reports]}
+                **{name: [{"type": "signoff", "id": row["id"], **({"title": row["title"]} if titles else {}), "state": row["state"]}
+                          for row in rows] for name, rows in (("approvals", approvals), ("reports", reports))}}
 
     # -- reading ---------------------------------------------------------------------------------------------------
 
@@ -180,7 +197,8 @@ class Timeline:
         cursor = int(args["cursor"]) if args.get("cursor") else 0
         entries, after = timeline_state.history(uow.connection, item, args.get("limit", 50), cursor)
         return {**result, "entries": entries, "next_cursor": str(after) if after else None,
-                **({"links": self.links(item, uow)} if not cursor else {})}
+                **({"closed_questions": timeline_state.closed_questions(uow.connection, item, LINKS_LIMIT),
+                    "links": self.links(item, uow, self.trusted(ctx, uow))} if not cursor else {})}
 
     # -- filing ----------------------------------------------------------------------------------------------------
 
@@ -199,11 +217,19 @@ class Timeline:
         self.permit(current.principal_id, uow)
         return current
 
+    @staticmethod
+    def current(item, uow):
+        """Refuse an item in an archived Project: nothing new is filed on work that is no longer current."""
+        business = item["business_id"]
+        if business and uow.connection.execute("SELECT 1 FROM businesses WHERE id=? AND archived_at IS NOT NULL", (business,)).fetchone():
+            raise DomainError("business_archived", "This project is archived; nothing is filed on its timelines")
+
     def check(self, ctx, args, uow):
         """The gate of a filing and the rows its changes depend on: ``(title, pins)`` where ``pins`` lists, as
         ``{'entries': [...], 'questions': [...]}``, the stored rows a removal, answer or drop closes."""
         self.filer(ctx, uow)
         title = self.readable(ctx, args["item"], uow)
+        self.current(args["item"], uow)
         return title, filing.check(uow.connection, args["item"], args["changes"])
 
     @staticmethod
@@ -231,6 +257,7 @@ class Timeline:
         title = self.exists(item, uow)
         if title is None:
             raise DomainError("not_found", "The item no longer exists")
+        self.current(item, uow)
         made = filing.write(uow.connection, item, args["changes"], args.get("sources", []), created_by=principal_id, at=timestamp())
         held = timeline_state.state(uow.connection, item)
         result = {"item": held["item"], "revision": held["revision"], "filed": made, "state": held,

@@ -25,6 +25,7 @@ class TimelineTests(Fixture):
         super().setUp()
         self.tool = Timeline(NS(application=self.app, registry=self.registry)).register()
         self.business = str(uuid4())
+        self.current = frozenset({self.business})
         with self.db.transaction() as uow:
             uow.repository('businesses').insert({'id': self.business, 'name': 'Example project', 'slug': 'example',
                                                  'workspace': 'example', 'hq_path': 'hq'})
@@ -37,8 +38,14 @@ class TimelineTests(Fixture):
         self.addCleanup(patcher.stop)
 
     def ctx(self, who):
-        # The coordinator reaches every project; the worker only the ones in ``reach``.
-        return replace(super().ctx(who), allowed_business_ids=frozenset({self.business}) if who == self.lead else self.reach)
+        # The coordinator reaches every current project; the worker only the ones in ``reach``.
+        return replace(super().ctx(who), allowed_business_ids=self.current if who == self.lead else self.reach)
+
+    def inside(self, title):
+        """A Task created in the project, as the item that names its timeline."""
+        made = self.app.invoke(replace(self.ctx(self.lead), business_id=self.business), 'tasks_create', {'title': title},
+                               {'idempotency_key': str(uuid4())})
+        return {'type': 'task', 'id': self.ok(made)['task']['id'], 'business_id': self.business}
 
     def ok(self, result):
         return plain(super().ok(result))
@@ -104,8 +111,32 @@ class TimelineTests(Fixture):
         self.add('progress', 'Half done.')
         held = self.read(self.item)['state']
         self.assertEqual((held['goal']['text'], held['progress']['text']), ('Second goal.', 'Half done.'))
+        # A replaced goal is gone for good: removing the current one leaves none, and never brings the older one back.
         self.filed(self.item, [{'action': 'remove', 'entry_id': second}])
-        self.assertEqual(self.read(self.item)['state']['goal']['text'], 'First goal.')
+        held = self.read(self.item)['state']
+        self.assertEqual((held['goal'], held['progress']['text']), (None, 'Half done.'))
+        self.assertNotIn('Goal:', self.read(self.item)['text'])
+        self.add('goal', 'Third goal.')
+        self.assertEqual(self.read(self.item)['state']['goal']['text'], 'Third goal.')
+
+    def test_an_add_that_repeats_what_stands_is_skipped(self):
+        fact, goal = self.add('fact', 'The hold was cleared.'), self.add('goal', 'Pay every creator.')
+        again = self.filed(self.item, [{'action': 'add', 'kind': 'fact', 'text': '  the hold was  cleared. '},
+                                       {'action': 'add', 'kind': 'goal', 'text': 'Pay every creator.'},
+                                       {'action': 'add', 'kind': 'decision', 'text': 'The hold was cleared.'},
+                                       {'action': 'add', 'kind': 'fact', 'text': 'New.'}, {'action': 'add', 'kind': 'fact', 'text': 'New.'}])
+        self.assertEqual([(row['kind'], row['stands_as']) for row in again['filed']['skipped'][:2]], [('fact', fact), ('goal', goal)])
+        self.assertEqual((len(again['filed']['entries']), len(again['filed']['skipped'])), (2, 3))
+        self.assertEqual([row['text'] for row in again['state']['facts']], ['The hold was cleared.', 'New.'])
+        # A removed entry, and a goal that was replaced, no longer stand: filing the same words again adds them.
+        self.filed(self.item, [{'action': 'remove', 'entry_id': fact}])
+        self.add('goal', 'Another goal.')
+        back = self.filed(self.item, [{'action': 'add', 'kind': 'fact', 'text': 'The hold was cleared.'},
+                                      {'action': 'add', 'kind': 'goal', 'text': 'Pay every creator.'}])
+        self.assertEqual((len(back['filed']['entries']), back['filed']['skipped']), (2, []))
+        # Nothing but repeats: nothing is appended and the revision stays.
+        before = self.read(self.item)['revision']
+        self.assertEqual(self.filed(self.item, [{'action': 'add', 'kind': 'fact', 'text': 'New.'}])['revision'], before)
 
     def test_a_question_is_answered_by_a_filed_entry_or_dropped(self):
         result = self.filed(self.item, [{'action': 'ask', 'text': 'Dollars or local currency?', 'blocking': True},
@@ -129,6 +160,11 @@ class TimelineTests(Fixture):
             self.assertEqual(self.code(self.file(self.lead, self.item, [closed])), 'validation_error')
         self.assertEqual(self.code(self.file(self.lead, self.item, [{'action': 'answer', 'question_id': first, 'kind': 'goal', 'text': 'x'}])),
                          'validation_error')
+        # The closed questions stay readable on the first page of the history, latest closed first.
+        closed = self.read(self.item, history=True)['closed_questions']
+        self.assertEqual([(row['id'], row['state'], row['answer_entry_id']) for row in closed],
+                         [(second, 'dropped', None), (first, 'answered', answered['filed']['entries'][0])])
+        self.assertEqual(closed[1]['text'], 'Dollars or local currency?')
 
     def test_one_sequence_orders_entries_and_question_changes_and_is_the_revision(self):
         self.add('fact', 'One.')
@@ -248,6 +284,48 @@ class TimelineTests(Fixture):
         self.assertEqual(self.code(self.get(self.worker, self.item)), 'not_found')
         self.assertEqual(self.read(self.item)['revision'], 1)
         self.assertEqual(self.code(self.get(self.lead, {**self.item, 'id': 'missing'})), 'not_found')
+
+    def test_a_task_in_a_project_needs_the_callers_reach_of_that_project(self):
+        inside = self.inside('Inside')
+        self.add('fact', 'Inside the project.', inside)
+        self.assertEqual(self.read(inside)['state']['facts'][0]['text'], 'Inside the project.')
+        self.assertEqual(self.code(self.get(self.worker, inside)), 'not_found')
+        self.reach = frozenset({self.business})
+        self.assertEqual(self.read(inside, self.worker)['state']['facts'][0]['text'], 'Inside the project.')
+
+    def test_approval_and_report_titles_are_for_the_coordinator_and_the_owner(self):
+        approval = str(uuid4())
+        with self.db.transaction() as uow:
+            uow.connection.execute(
+                "INSERT INTO signoffs(id,review_business_id,review_scope_kind,proposer_principal_id,operation_name,operation_version,"
+                "proposal_revision,payload_hash,change_set,preview_json,expected_targets_json,policy_binding_json,affected_scope_json,"
+                "state,updated_sequence,created_at,updated_at,category) VALUES(?,NULL,'global',?,'owner_input_request',1,1,'hash',x'00',"
+                "'{\"title\":\"Send the offer to Northwind\"}','[]','{}','{}','pending',1,?,?,'input_request')", (approval, self.lead, DAY, DAY))
+            uow.connection.execute(
+                "INSERT INTO signoff_source_links(id,signoff_id,source_type,source_id,source_business_id,source_namespace,created_by,"
+                "created_at) VALUES(?,?,'task',?,NULL,'global',?,?)", (str(uuid4()), approval, self.work['id'], self.lead, DAY))
+        full = {'type': 'signoff', 'id': approval, 'title': 'Send the offer to Northwind', 'state': 'pending'}
+        self.assertEqual(self.read(self.item, history=True)['links']['approvals'], [full])
+        self.assertEqual(self.read(self.item, self.owner, history=True)['links']['approvals'], [full])
+        self.assertEqual(self.read(self.item, self.worker, history=True)['links']['approvals'],
+                         [{'type': 'signoff', 'id': approval, 'state': 'pending'}])
+        self.add('fact', 'Offer drafted.')
+        self.assertIn('Further reading: 1 approval', self.read(self.item, self.worker)['text'])
+
+    def test_nothing_is_filed_on_an_archived_project(self):
+        inside = self.inside('Inside')
+        with self.db.transaction() as uow:
+            uow.connection.execute('UPDATE businesses SET archived_at=? WHERE id=?', (DAY, self.business))
+        # An archived project is no longer in anyone's reach, so the call is refused before anything is checked...
+        self.current = frozenset()
+        change = [{'action': 'add', 'kind': 'fact', 'text': 'Late.'}]
+        for item in (self.project, inside):
+            self.assertEqual(self.code(self.file(self.lead, item, change)), 'not_found', item)
+            # ...and a filing prepared while the project was current is not applied after it was archived.
+            with self.assertRaises(DomainError) as refused, self.db.transaction() as uow:
+                self.tool.file(self.lead, {'item': item, 'changes': change}, uow)
+            self.assertEqual(refused.exception.code, 'business_archived')
+        self.assertEqual(self.rows('SELECT COUNT(*) FROM timeline_entries'), [(0,)])
 
     def test_a_project_timeline_needs_a_participant_and_global_is_open(self):
         self.add('decision', 'Ship in spring.', self.project)
