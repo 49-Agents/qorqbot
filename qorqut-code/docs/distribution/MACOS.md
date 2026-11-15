@@ -1,21 +1,17 @@
 # Qorqbot for Mac — native preparation
 
-First target: Apple silicon (M1 or newer), macOS 14 or newer, Python 3.12.
+First target: Apple silicon (M1 or newer), macOS 14 or newer.
 This is a native Python application in a folder, with the existing browser UI.
 It does not use a Linux VM. Native Mac acceptance is pending; do not present the
 prepared archive as a tested Mac release until the Mac check passes.
 
-Install Python 3.12, Git and, for agent terminals, tmux yourself. With Homebrew:
-
-```sh
-brew install python@3.12 git tmux
-```
-
-Use your normal Terminal with those commands on PATH. If Python is not on PATH,
-set `QORQUT_PYTHON` to its executable, for example
-`export QORQUT_PYTHON="$(brew --prefix python@3.12)/bin/python3.12"`.
+The Mac archive is self-contained: it carries its own Python 3.12 with the
+libraries already installed, plus tmux, git and the agent-browser tool, in
+`runtime/venv` and `runtime/native`. Nothing has to be installed first; it does
+not need Homebrew or Apple's developer tools. Setting `QORQUT_PYTHON` still
+selects another Python 3.12 for the launcher itself.
 Install and authenticate your chosen Codex or Claude Code client separately.
-Browser automation needs your installed Google Chrome and agent-browser.
+Browser automation needs your installed Google Chrome.
 Standard Chrome in `/Applications/Google Chrome.app` is detected; an explicit
 `QORQUT_CHROME_EXECUTABLE` overrides it. Browser sandboxing remains enabled.
 
@@ -29,9 +25,10 @@ cd qorqbot
 ```
 
 Your browser opens the printed localhost address (`--no-open` skips that;
-`--port` picks another port and later starts reuse it). First launch creates a local virtual
-environment and installs the included Python libraries offline. The Mac archive
-contains Mac-compatible wheels, not Linux libraries or bundled system tools.
+`--port` picks another port and later starts reuse it). First launch checks the
+shipped programs against the package's checksums and creates your records; it
+builds and downloads nothing. The shipped programs come before your own on the
+PATH Qorqbot and its agent terminals use.
 Application files are in `runtime/`; records/work are in `instance/operations/`.
 Keep the initialized folder at the same path. Roughly 50 bytes or fewer is
 recommended because Unix sockets have short path limits.
@@ -75,22 +72,44 @@ platform limitations where Linux kernel facilities have no verified equivalent.
 The Mac check must record these limits; passing static checks is not native
 acceptance. Existing Linux archives remain unchanged.
 
-For the maintainer: export one reviewed source commit, run prepare-local.py and
-native_build.py with `--target macos14-arm64`, then run `check_posix.py` against
-the exact archive on an Apple silicon Mac. The prepared Mac workflow performs
-that sequence. The command-line distribution itself adds no installer
-service, updater feed or VM.
+For the maintainer: export one reviewed source commit, run prepare-local.py,
+build the shipped programs once with `macos_tools.py` (pinned, checksummed
+sources; a few minutes, needs only Apple's developer tools), run
+native_build.py with `--target macos14-arm64 --bundled-tools TOOLS_FOLDER`,
+then run `check_posix.py` against the exact archive on an Apple silicon Mac.
+The prepared Mac workflow performs that sequence, then opens the built disk
+image on clean Macs that have no Homebrew, Python, tmux or developer tools and
+requires the sign-in screen (`macos_app/first_open_check.sh`). The command-line
+distribution itself adds no installer service, updater feed or VM.
+
+What `--bundled-tools` adds to the archive:
+
+- `runtime/venv`: a complete Python 3.12 (python-build-standalone) with every
+  library from `requirements.lock` installed and precompiled. It is not a
+  virtual environment, so it works wherever the folder is unpacked.
+- `runtime/native`: tmux (with libevent, utf8proc and jemalloc), git and
+  agent-browser, their licenses in `native/licenses`, and `native/TOOLS.json`
+  with the source of each. `macos_tools.py` refuses a program that links
+  against anything outside macOS itself.
+- `PAYLOAD.json` records one checksum for each of the two folders. `verify`
+  always checks `native`; it checks `venv` until first use, because optional
+  extensions are installed into it afterwards.
+
+Without `--bundled-tools` the Mac archive is the earlier kind, which uses the
+computer's own Python 3.12, git and tmux and builds a virtual environment on
+first launch.
 
 ## Qorqbot.app and DMG
 
 `tools/distribution/macos_app/build_dmg.py` wraps the exact checked archive in
 `Qorqbot.app`, a desktop app built with Electron, and a drag-to-Applications
 DMG. The app shows Qorqbot in its own window. It carries the archive unchanged
-in `Contents/Resources/qorqbot-payload`; it bundles no Python, git or tmux.
+in `Contents/Resources/qorqbot-payload`; the archive brings its own Python, git
+and tmux, so the app needs nothing installed on the Mac.
 
-- First open: a set-up screen shows each step and its log while the app checks
-  prerequisites, verifies the archive, unpacks it to `~/Qorqbot/qorqbot` (a
-  short path, see above) and runs `./qorqbot setup`. Then it starts the server
+- First open: a short "Setting up Qorqbot" screen while the app verifies the
+  archive, unpacks it to `~/Qorqbot/qorqbot` (a short path, see above) and runs
+  `./qorqbot setup`; this takes a few seconds. Then it starts the server
   on port 1049 (or the next free port on the first launch) and shows the dashboard.
   It remembers that port across restarts so existing agents keep their server address.
   If the saved port is occupied, close the other program and retry.
@@ -101,8 +120,8 @@ in `Contents/Resources/qorqbot-payload`; it bundles no Python, git or tmux.
   **Help > How Qorqbot Works** explains all of this, including removal.
 - A newer app offers to update the installed folder through its own
   `./qorqbot update` with the bundled archive and checksum.
-- Missing Python 3.12, git or tmux, and any failure, are shown in the window
-  with Copy Command, Try Again and Show Log actions.
+- A failure is shown in the window with its details and Try Again, Copy
+  Details and Show Log actions. The log is shown only then.
 - Links to the dashboard's own pages open new app windows; other links open in
   the default browser. **View > Open in Browser** shows the dashboard there.
 - The app log is `~/Qorqbot/launcher.log`; the server log stays in

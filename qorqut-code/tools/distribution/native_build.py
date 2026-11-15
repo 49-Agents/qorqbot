@@ -135,7 +135,7 @@ def ready_made_environment(tools, runtime, platform_tag):
         env = {'PATH': '/usr/bin:/bin', 'HOME': home, 'LANG': 'C.UTF-8', 'PIP_CONFIG_FILE': os.devnull, 'PIP_NO_INDEX': '1',
                'PIP_DISABLE_PIP_VERSION_CHECK': '1', 'PIP_CACHE_DIR': str(Path(home) / 'pip-cache'), 'PYTHONDONTWRITEBYTECODE': '1'}
         # The same command a Linux package runs on the user's computer, run here once for everyone.
-        subprocess.run([python, '-I', '-B', '-m', 'pip', 'install', '--no-index', '--no-compile',
+        subprocess.run([python, '-I', '-B', '-m', 'pip', 'install', '--quiet', '--no-index', '--no-compile',
                         '--find-links', runtime / 'wheelhouse', '--find-links', runtime / 'wheels',
                         '--require-hashes', '-r', runtime / 'requirements.lock'], env=env, cwd=package_root, check=True)
         subprocess.run([python, '-I', '-B', '-m', 'pip', 'check'], env=env, cwd=package_root, check=True)
