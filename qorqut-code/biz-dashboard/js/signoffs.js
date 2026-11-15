@@ -333,6 +333,32 @@ function sgMessageFieldError(s,key,value) {
   if(custom)return custom.fieldError(key,value);
   return 'This field cannot be edited.';
 }
+// The coordinator's filing on a timeline during the review trial: the item, one line per change, the owner's quoted words.
+const SG_TIMELINE_TYPES = { task: 'Task', project: 'Project', global: 'Global' };
+function sgTimelineLine(c) {
+  const text = sgNonblank(c?.text) ? c.text : '', question = sgNonblank(c?.question) ? c.question : '';
+  if (c?.action === 'add') return sgNonblank(c.kind) && text ? `Add ${c.kind}: ${text}` : null;
+  if (c?.action === 'remove') return text ? `Remove: ${text}` : null;
+  if (c?.action === 'ask') return text ? `Ask${c.blocking ? ' (blocking)' : ''}: ${text}` : null;
+  if (c?.action === 'answer') return question && text ? `Answer ${question}: ${text}` : null;
+  if (c?.action === 'drop') return question ? `Drop: ${question}` : null;
+  return null;
+}
+function sgTimelineFiling(preview) {
+  const f = sgFrozenFields(preview, 'timeline_filing');
+  const type = f?.get('item_type'), changes = f?.get('changes'), sources = f?.get('sources');
+  const lines = Array.isArray(changes) ? changes.map(sgTimelineLine) : [];
+  if (!SG_TIMELINE_TYPES[type] || !lines.length || lines.includes(null) || !Array.isArray(sources)) return sgUnavailable('timeline filing');
+  const title = f.get('item_title'), item = type === 'global' ? 'Global' : `${SG_TIMELINE_TYPES[type]}: ${sgNonblank(title) ? title : f.get('item_id')}`;
+  const quotes = sources.filter(q => sgNonblank(q?.quote));
+  return { ok: true, hiddenResources: ['timeline_filing'], html: `<section class="sg-content sg-timeline" aria-label="Proposed timeline filing">`
+    + sgField('Item', `<strong>${esc(item)}</strong>`)
+    + `<ul class="sg-timeline-changes">${lines.map(line => `<li>${esc(line)}</li>`).join('')}</ul>`
+    + (quotes.length ? `<span class="sg-content-label">Your words</span>${quotes.map(q => `<blockquote class="sg-timeline-quote">${esc(q.quote)}</blockquote>`).join('')}` : '')
+    + `</section>` };
+}
+registerSignoffRenderer('timeline_file', { preview: sgTimelineFiling, values: () => null, fieldError: () => 'This field cannot be edited.' });
+
 // Returns {ok, html} for operations with an exact-content renderer, or null for generic changes.
 function sgProposal(s, effects) {
   const custom=SG_MESSAGE_RENDERERS.get(s.operation_name);

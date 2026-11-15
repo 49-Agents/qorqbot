@@ -130,6 +130,15 @@ class TimelineReviewTests(Fixture):
         self.assertEqual((late.status, self.state_of(second)), ('error', 'conflicted'))
         self.assertEqual(self.rows("SELECT action FROM timeline_entries WHERE removes_id=?", entry), [('remove',)])
 
+    def test_two_removals_approved_together_before_either_applies_the_second_does_not_apply(self):
+        entry = self.add('decision', 'Old rule.')
+        first, second = self.held([{'action': 'remove', 'entry_id': entry}]), self.held([{'action': 'remove', 'entry_id': entry}])
+        self.assertEqual((self.decision(first, 'approve').status, self.decision(second, 'approve').status), ('accepted', 'accepted'))
+        self.signoffs.run_one(first['id'])
+        self.signoffs.run_one(second['id'])
+        self.assertEqual((self.state_of(first), self.state_of(second)), ('applied', 'conflicted'))
+        self.assertEqual(self.rows('SELECT COUNT(*) FROM timeline_entries WHERE removes_id=?', entry), [(1,)])
+
     def test_two_filings_answering_one_question_the_second_conflicts(self):
         self.assertEqual(self.approve(self.held([{'action': 'ask', 'text': 'Which currency?', 'blocking': False}])).status, 'accepted')
         question = self.rows('SELECT id FROM timeline_questions')[0][0]

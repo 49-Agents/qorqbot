@@ -170,6 +170,56 @@ const attentionQueue=(()=>{
   function acceptQueue(data){queueRows=data.items || [];items=distinctDestinations(queueRows);sideChats=data.side_chats || [];discardedKeys=new Set(data.discarded || []);}
   const calendarIcon=()=>typeof T_VIEW_ICON==='object' ? T_VIEW_ICON.calendar || '' : '';
   const calendarVisible=()=>{const now=Date.now();return calendarRows.filter(row=>row.appear<=now && !(row.retire<=now) && !discardedKeys.has(row.key) && !pendingDiscards.has(row.key));};
+  // The coordinator's timeline filings during the review trial: two or more collapse into one chip that opens them together.
+  const isFiling=s=>s.operation_name==='timeline_file';
+  const filingsChip=()=>{const list=signoffs.filter(isFiling);return `<button type="button" class="focus-signoff-chip focus-filings-chip" data-filings-group aria-label="Filings to review · ${list.length}" title="Filings to review (${list.length})">${signoffIcon(list[0])}<span class="focus-filings-count">${list.length}</span></button>`;};
+  // Approve all calls the ordinary approve route once per filing, in order; each failure is reported against its own card.
+  function filingsOpen(){
+    return window.focusExpansion.open({title:'Filings to review',mount(host){
+      const box=document.createElement('div');box.className='filings-review';host.append(box);
+      const cards=new Map(),renderer=window.signoffMessageRenderer?.('timeline_file');
+      let busy=false,alive=true,summary='',loadError='';
+      const preview=c=>renderer?.preview(c.s.preview);
+      const approvable=c=>!!c.s && c.s.state==='pending' && !c.done && preview(c)?.ok===true;
+      function paint(){
+        if(!alive)return;
+        const list=[...cards.values()],ready=list.filter(approvable).length;
+        box.innerHTML=`<div class="filings-bar"><button type="button" class="sg-approve" data-filings-approve-all${busy||!ready?' disabled':''}>${busy?'Approving…':`Approve all (${ready})`}</button></div>`
+          +(loadError?`<p class="sg-notice" role="alert">${esc(loadError)}</p>`:'')+(summary?`<p class="sg-notice" role="status">${esc(summary)}</p>`:'')
+          +list.map(c=>`<section class="filing-card" data-filing="${esc(c.id)}"><h3>${esc(c.s?.title||'Filing')}</h3>${c.s?preview(c)?.html||'':''}${c.status?`<p class="filing-status" role="status">${esc(c.status)}</p>`:''}</section>`).join('');
+      }
+      async function approveAll(){
+        if(busy)return;busy=true;summary='';paint();
+        let approved=0,failed=0;
+        for(const c of cards.values()){
+          if(!alive)break;
+          if(!approvable(c))continue;
+          const s=c.s;
+          try{
+            coreData(await post('/root/signoffs/'+encodeURIComponent(c.id)+'/approve',{proposal_revision:s.proposal_revision,payload_hash:s.payload_hash,expected_status_revision:s.status_revision,idempotency_key:newRequestId(),feedback:null}));
+            c.done=true;c.status='Approved';approved++;
+          }catch(e){c.status='Not approved: '+(e?.message||'the request failed');failed++;}
+          paint();
+        }
+        busy=false;summary=`${approved} approved${failed?`, ${failed} not approved`:''}.`;paint();void refreshSignoffs();
+      }
+      const click=event=>{if(event.target.closest('[data-filings-approve-all]'))void approveAll();};
+      box.addEventListener('click',click);
+      (async()=>{
+        const ids=signoffs.filter(isFiling).map(s=>s.id);
+        for(const id of ids)cards.set(id,{id,s:null,status:'Loading…'});
+        paint();
+        await Promise.all(ids.map(async id=>{
+          const c=cards.get(id);
+          try{c.s=coreData(await api('/root/signoffs/'+encodeURIComponent(id))).signoff;c.status='';}
+          catch(e){c.status='Could not load this filing: '+(e?.message||'the request failed');}
+        }));
+        if(!ids.length)loadError='No filings are waiting.';
+        paint();
+      })();
+      return ()=>{alive=false;box.removeEventListener('click',click);};
+    }});
+  }
   function paintSignoffs(){
     for(const [host,mount] of signoffMounts){
       if(!host.isConnected){signoffMounts.delete(host);continue;}
@@ -195,7 +245,8 @@ const attentionQueue=(()=>{
         const divider=chatHost.parentElement?.querySelector('.agfocus-divider');
         if(divider)divider.hidden=!chats;
       }
-      const markup=(mount.sideChatHost?'':chats)+due+recovery+[...signoffs.filter(s=>!toRead(s)),...signoffs.filter(toRead)].map(s=>{const title=mount.name?.(s.id)||s.title,unread=signoffUnread(s.id);return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" data-unread="${unread}" aria-label="${toRead(s)?'Read':'Review'} ${esc(title)}${unread?' · Unread':''}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
+      const grouped=signoffs.filter(isFiling).length>1;
+      const markup=(mount.sideChatHost?'':chats)+due+recovery+(grouped?filingsChip():'')+[...signoffs.filter(s=>!toRead(s) && !(grouped && isFiling(s))),...signoffs.filter(toRead)].map(s=>{const title=mount.name?.(s.id)||s.title,unread=signoffUnread(s.id);return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" data-unread="${unread}" aria-label="${toRead(s)?'Read':'Review'} ${esc(title)}${unread?' · Unread':''}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
       const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'')+(remindersError?'<button type="button" class="quiet" data-reminders-retry>Retry reminders</button>':'')+(calendarError?'<button type="button" class="quiet" data-calendar-retry title="'+esc(calendarError)+'">Retry calendar</button>':'');
       if(host._signoffHTML!==html){
         const focused=document.activeElement, key=host.contains?.(focused) && focused?.matches?.('[data-signoff-key],[data-reminder-key]') ? chipKey(focused) : null;
@@ -284,6 +335,7 @@ const attentionQueue=(()=>{
       if(row)void Promise.resolve(calendarOpen(row.event,calendarCalendars,()=>{},row.event,calendarChip)).catch(e=>toast(e.message));
       return;
     }
+    if(event.target.closest('[data-filings-group]')){void filingsOpen().catch(e=>toast(e.message));return;}
     const chip=event.target.closest('[data-reminder-key],[data-signoff-key]');
     const entry=chip && entries().find(item=>entryKey(item)===chipKey(chip));
     if(entry)void selectEntry(entry,event.currentTarget);
