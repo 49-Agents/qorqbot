@@ -4,6 +4,8 @@ const MARKS = { done: '✓', failed: '✕' };
 
 function render(state) {
   if (!state) return;
+  // Nothing is drawn until the app's real state is known, so a first launch never flashes another title.
+  $('status').hidden = false;
   $('title').textContent = state.title;
   $('subtitle').textContent = {
     error: 'Nothing was changed that you need to undo.',

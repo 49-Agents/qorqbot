@@ -111,7 +111,7 @@ else
   OPENED="$(now)"
   open "$APP" >>"$OUT/errors.txt" 2>&1 &
 fi
-sleep 2
+sleep 4
 shot 01-setting-up
 READY=""
 while [ "$(since "$OPENED" | cut -d . -f 1)" -lt "$READY_LIMIT" ]; do
