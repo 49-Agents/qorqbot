@@ -84,10 +84,13 @@ note "opened $(basename "$DMG") ($(stat -f %z "$DMG") bytes)"
 sleep 3
 shot 00-disk-image
 # The same window with the dark appearance, where Finder draws the icon names in white.
-defaults write -g AppleInterfaceStyle -string Dark
+# (best effort: the picture shows whether this Mac let the appearance be changed)
+/usr/bin/perl -e 'alarm 15; exec @ARGV' /usr/bin/osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' >>"$OUT/errors.txt" 2>&1 \
+  || defaults write -g AppleInterfaceStyle -string Dark
 killall Finder 2>/dev/null; sleep 3
 open "$VOLUME" >>"$OUT/errors.txt" 2>&1; sleep 3
 shot 00-disk-image-dark
+/usr/bin/perl -e 'alarm 15; exec @ARGV' /usr/bin/osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to false' >>"$OUT/errors.txt" 2>&1
 defaults delete -g AppleInterfaceStyle 2>/dev/null
 killall Finder 2>/dev/null; sleep 2
 
@@ -113,6 +116,8 @@ else
 fi
 sleep 4
 shot 01-setting-up
+sleep 4
+shot 01-setting-up-later
 READY=""
 while [ "$(since "$OPENED" | cut -d . -f 1)" -lt "$READY_LIMIT" ]; do
   if grep -q "ready at" "$LAUNCHER_LOG" 2>/dev/null; then READY="$(since "$OPENED")"; break; fi
