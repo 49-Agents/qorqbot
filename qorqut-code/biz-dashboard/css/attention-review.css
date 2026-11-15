@@ -28,7 +28,7 @@
 /* Use the native choice buttons and semantics as a compact radio/checkbox list. */
 .agfocus-review-open .sg .sg-choices > div { display:flex; flex-direction:column; align-items:flex-start; gap:2px; }
 .agfocus-review-open .sg .sg-choice { position:relative; display:flex; justify-content:flex-start; align-items:center; gap:10px; width:auto; max-width:100%; min-height:34px; height:auto; padding:6px 0; border:0; border-radius:0; background:transparent; color:var(--fg); font-weight:400; text-align:left; transform:none; }
-.agfocus-review-open .sg .sg-choice-name { font-size:13px; line-height:20px; font-weight:400; }
+.agfocus-review-open .sg .sg-choice-name { flex:0 0 auto; max-width:35%; font-size:13px; line-height:20px; font-weight:400; overflow-wrap:break-word; }
 .agfocus-review-open .sg .sg-choice::before { content:""; box-sizing:border-box; flex:none; display:block; width:15px; height:15px; border:1px solid var(--fg-2); border-radius:50%; background:transparent; }
 .agfocus-review-open .sg .sg-choice:hover::before { border-color:var(--fg); }
 .agfocus-review-open .sg .sg-choice[aria-checked="true"] { background:transparent; color:var(--fg); }
@@ -52,7 +52,11 @@
 .agfocus-review-open .sg-focus.sg-single .sg-detail-body{padding:0 4px 16px 0}
 .agfocus-review-open .sg-focus.sg-single .sg-detail-footer{padding:12px 0 0}
 .agfocus-review-open .sg .sg-choice-marker{display:none}
-.agfocus-review-open .sg .sg-choice-explanation{display:block;max-height:none;color:var(--fg-2);font-size:12px;font-weight:400}
+.agfocus-review-open .sg .sg-choice-explanation{display:block;flex:1 1 0;min-width:0;max-height:none;color:var(--fg-2);font-size:12px;font-weight:400}
+/* A long description wraps beside its label; the button and its circle line up with the first line. */
+.agfocus-review-open .sg .sg-question .sg-choice{align-items:flex-start}
+.agfocus-review-open .sg .sg-question .sg-choice::before{margin-top:2.5px}
+.agfocus-review-open .sg .sg-question .sg-choice[role="checkbox"][aria-checked="true"]::after{top:12px}
 .agfocus-review-open .sg .sg-question .sg-choice[aria-checked="true"]{box-shadow:none}
 .agfocus-review-open .sg .sg-question-choices{display:flex;flex-direction:column;align-items:flex-start;gap:2px}
 .agfocus-review-open .sg .sg-question legend{font-weight:400}
