@@ -40,7 +40,6 @@ Loading a page never acknowledges any event or claims a watcher lease.
 
 When startup's remaining context budget cannot hold the index, the shared startup
 instructions require an explicit inventory read and full pagination before work.
-Saved working memory remains available through ordinary `agent_context_get`.
 No claim is made that arbitrary queue sizes fit inside one model context window
 or that model compliance follows merely from delivering instructions.
 

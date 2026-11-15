@@ -24,7 +24,7 @@ repair it only after rechecking the receipt, claims, document record and file fa
    byte versions privately. Retain both versions even after recovery succeeds.
 2. Use installation maintenance/writer admission and the receipt's application
    and file locks. Recheck the recorded revision, current after hash and absence
-   of a newer working-memory import. Stop on any difference.
+   of a newer revision. Stop on any difference.
 3. Restore the proven before bytes with an expected-current-hash check. Use the
    existing `release_unchanged` bookkeeping to release the old receipt's claims
    and restore document availability. Do not mark its old mutation applied, edit
@@ -34,6 +34,5 @@ repair it only after rechecking the receipt, claims, document record and file fa
    document revision and a new idempotency key. If current policy rejects it, leave
    the committed document readable and retain the intended update for owner review;
    never weaken policy to force it through.
-5. Verify reads and working-memory recovery. Import through the normal working-memory
-   operation only with current evidence/revision bindings. Do not wake the agent or
+5. Verify reads. Do not wake the agent or
    alter paused tasks/inbox state as a side effect.

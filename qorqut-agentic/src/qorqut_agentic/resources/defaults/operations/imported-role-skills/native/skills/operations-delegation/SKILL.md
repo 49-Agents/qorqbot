@@ -248,8 +248,8 @@ Do not infer delivery or continuation from message attribution alone.
 
 Delegated workers do not contact the owner, approve/reject Signoffs, bypass outbound
 approval, change grants, use owner HTTP, start another registered global peer,
-run a root watcher, spawn nested helpers, overwrite the parent agent's current-work or
-working-memory declaration, or implement software/design. Follow the worker's
+run a root watcher, spawn nested helpers, overwrite the parent agent's current-work
+declaration, or implement software/design. Follow the worker's
 assignment rather than bootstrapping the complete role. The operating system
 identity is shared, so rely on server-side application binding for data
 permissions; never describe process-level isolation that the runtime does not

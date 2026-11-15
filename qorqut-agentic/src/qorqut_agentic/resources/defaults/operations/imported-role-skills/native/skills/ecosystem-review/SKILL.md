@@ -151,7 +151,7 @@ Do not substitute a routine task, ordinary notification, or separate inbox messa
 
 Direct the owner to complete authentication in the provider's trusted interface.
 Never record one-time codes, recovery codes, passwords or session tokens in the
-signoff, notes, or working memory. Do not bypass two-factor authentication.
+signoff or notes. Do not bypass two-factor authentication.
 After the owner's response, verify that access works before resuming; the response
 is not permission for an otherwise protected action.
 

@@ -815,10 +815,6 @@ class Inventory:
             return self.read(ctx, "assets_get", {"asset_id": item["id"]}, uow)
         if kind == "data_upload":
             return self.read(ctx, "data_uploads_get", {"upload_id": item["id"]}, uow)
-        if kind == "plan":
-            if not row.get("owning_agent_id"):
-                raise DomainError("not_found", "Plan is not available")
-            return self.read(ctx, "plans_get", {"agent_id": row["owning_agent_id"]}, uow)
         if table == "context_entities":
             return self.read(ctx, "context_items_get", {"item": item}, uow)
         if kind == "context_person":

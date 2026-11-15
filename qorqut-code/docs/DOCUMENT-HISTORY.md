@@ -77,8 +77,8 @@ mismatch aborts the whole migration with `migration_conflict`, listing the probl
 Nothing is repaired or renumbered. The legacy table and its rows stay as recovery
 evidence; new versions are no longer added to it. The public memory version is still the
 document revision. A receipt frozen before the upgrade that still inserts a legacy row is
-finalised from that row. `working_memory_get`, its source-visibility checks and the
-repair flow are unchanged; the generic reader refuses working memory.
+finalised from that row. Working memory has since been removed as a feature: its rows stay in the
+store, unread, and the generic reader still refuses them.
 
 ### Business activity
 

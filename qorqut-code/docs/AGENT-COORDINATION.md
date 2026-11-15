@@ -2,7 +2,7 @@
 
 Coordination reuses tasks, their append-only notes, relationships and the inbox.
 Stories keep their existing flexible links and timeline; there is no new hierarchy
-or separate progress-event system. Private working memory remains private.
+or separate progress-event system.
 
 ## Presence and current work
 

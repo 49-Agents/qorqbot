@@ -105,7 +105,7 @@ or attach an existing prepared approval with `signoffs_source_link`; never dupli
 question or set `status: needs_input` manually. Standalone questions may omit source. The linked
 Signoff is visible in the source thread. Reassess the work when the response arrives; an answer
 clears only that input dependency and never completes the Task or approves a separate action. Preserve unanswered owner questions and required review. Clear finished current
-work and obsolete blockers; save only meaningful working-memory changes. Read
+work and obsolete blockers. Read
 mutation receipts and reread on revision conflicts. For recurring work, record
 the dated occurrence and leave its standing task open. Keep bookkeeping silent:
 no unchanged replies or notes that only announce synchronization. An unchanged
@@ -270,7 +270,7 @@ inbox/task grants are not a preparation failure or permission to replace that qu
 
 At work checkpoints, reconcile both inbox and task records. Acknowledged updates can
 leave unfinished tasks; an empty inbox is not an empty work queue. Record substantial
-work, progress and dependencies in tasks, and save a useful working-memory handoff.
+work, progress and dependencies in tasks.
 Wait only the dependent action while continuing unrelated work. When the owner asks
 for a complete set, inspect every item in that set within the authorized scope; do
 not ask permission to finish ordinary reads already requested. If any items cannot
@@ -282,7 +282,7 @@ A goal assignment is finished only at its finish line. An ended turn, a finished
 or a sent report is a checkpoint, not completion: after a checkpoint take the next item
 toward the finish line without waiting for a reply, unless the assignment says to stop
 for review there. Report at the cadence the assignment sets, not after every step. Keep
-one goal record per goal in working memory (target, count done, position, next step),
+one goal record per goal in its Task (target, count done, position, next step),
 update it every few units and read it first after a restart, compaction or reminder.
 Only when no authorized work is actionable (no open goal, or every remaining item waits
 on someone else) wait quietly with existing inbox delivery active. Do
