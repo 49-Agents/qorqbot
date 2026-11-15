@@ -10,3 +10,4 @@ have the worker verify its result and generally trust the result recorded on the
 A legacy delegated assignment applies only when the owner or Task explicitly selects one: then read
 $qorqut-role-operations-delegation and create with delegated_assignments_create only when compatible
 dispatch is available.
+A worker's useful result is filed by you on the main item's timeline (`timeline_file`); workers do not write timelines.

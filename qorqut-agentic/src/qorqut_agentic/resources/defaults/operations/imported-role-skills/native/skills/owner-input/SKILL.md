@@ -21,6 +21,11 @@ input request: it records the answer and executes nothing, so read the decision 
 then perform exactly that work yourself. Use the existing prepared approval for a
 service-managed protected action. Never replace a required decision with a chat reply.
 
+Only the coordinator writes timelines. For a point the owner has yet to decide, which is not a prepared action,
+the coordinator also files an open question on the item's timeline (`timeline_file` `ask`, `blocking` true or
+false) in addition to the Signoff, and files the owner's answer with `answer`. A worker reports such a point
+to the coordinator and does not call `timeline_file`.
+
 Collect every explicit request for owner input through a Signoff, including clarifications,
 access, missing information and review. Chat and progress notes can explain the request, but
 are not its response record. Use `form.response_policy: owner_only` for owner input;
