@@ -256,9 +256,13 @@ class SharedContextReader:
         selected = order[offset:offset + limit]
         more = offset + len(selected) < len(order)
         totals = graph.totals()
+        # The owner's own record travels whole on every page, so one read answers "what do we already know about
+        # the owner" without a second call that a reader may skip.
+        personal = (graph.record("node", graph.snapshot.personal_context_node)
+                    if graph.snapshot.personal_context_node else None)
         return {"status": "ready", "revision": graph.revision, "empty": totals["nodes"] == 0 and totals["edges"] == 0,
-                "personal_context": ({"ref": make_ref("node", graph.snapshot.personal_context_node)}
-                                     if graph.snapshot.personal_context_node else None),
+                "personal_context": ({"ref": personal["ref"], "summary": personal["summary"],
+                                      "attributes": personal["attributes"]} if personal else None),
                 "totals": totals, "nodes": [graph.home_node(node_id) for node_id in selected],
                 "page": _page(len(selected), limit, more,
                               cursors.encode("context_home", {}, graph.revision, offset + len(selected)) if more else None)}

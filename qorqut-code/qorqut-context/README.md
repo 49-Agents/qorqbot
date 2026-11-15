@@ -25,9 +25,13 @@ names, aliases, contacts, links, birthdate, background, goals and current work n
 no additional profile schema. The seed and later edits have normal source evidence
 and Git history. Existing graphs are not migrated or backfilled.
 
-`context_home` returns `personal_context: {ref: "node:ID"}` independently of its
-node page, or `null` for an older graph without a profile. Agent startup includes
-the pointer, not the profile contents; agents use `context_object` on demand.
+`context_home` returns `personal_context: {ref, summary, attributes}`, the
+owner's whole record, independently of its node page, or `null` for an older
+graph without a profile. Agent startup renders the same record into the Context
+Home text (shortest entries first, within their own bound, with cut or omitted
+entries named), so no agent asks the owner for what the record holds; agents
+read `context_object` for the current record and its history before asking the
+owner anything about themselves.
 The host permits only its currently configured Ordubashy to edit the profile or
 its incident relationships through `context_edit`, rechecking queued edits before
 publication. Other agents relay facts through the existing inbox. The ordinary
