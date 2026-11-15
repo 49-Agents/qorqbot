@@ -1,5 +1,5 @@
 'use strict';
-// Install/start/stop/update engine for the Qorqbot Mac app.
+// Install/start/stop/update engine for the Qorqbot desktop app (macOS and Ubuntu).
 //
 // The app bundle carries the exact native archive unchanged, including its own
 // runtime. Qorqbot runs from a writable folder at a short fixed path
@@ -19,6 +19,7 @@ const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const semver = require('semver');
+const { platformFor } = require('./platform');
 
 // native_launch.py refuses roots whose Unix socket paths exceed 104 bytes;
 // '<root>/.run/c/org.chromium.Chromium.XXXXXX/SingletonSocket' needs root <= 50.
@@ -78,8 +79,10 @@ class Engine {
    * @param {number} [options.firstPort]
    * @param {object} [options.env]     base environment (default process.env)
    * @param {boolean} [options.loginPath] read PATH from the login shell (default true)
+   * @param {object} [options.platform] per-platform values (default platformFor())
    */
-  constructor({ payload, home, firstPort = 1049, env = process.env, loginPath = true }) {
+  constructor({ payload, home, firstPort = 1049, env = process.env, loginPath = true, platform = platformFor() }) {
+    this.platform = platform;
     this.payload = payload;
     this.installParent = home || path.join(os.homedir(), 'Qorqbot');
     this.root = path.join(this.installParent, 'qorqbot');
@@ -120,7 +123,7 @@ class Engine {
 
   // ---------------------------------------------------------------- environment
 
-  /** Finder-started apps get a minimal PATH; add the login shell's PATH so agent programs such as claude are found. */
+  /** Apps started from the desktop get a minimal PATH; add the login shell's PATH and the platform's usual folders so agent programs such as claude are found. */
   async environment() {
     if (this.env) return this.env;
     let extra = '';
@@ -129,14 +132,14 @@ class Engine {
     const env = { ...this.baseEnv };
     const home = this.baseEnv.HOME || os.homedir();
     // ~/.local/bin is where Claude Code's installer puts claude.
-    env.PATH = [extra, base, path.join(home, '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin'].filter(Boolean).join(':');
+    env.PATH = [extra, base, path.join(home, '.local', 'bin'), ...this.platform.extraPath].filter(Boolean).join(':');
     delete env.ELECTRON_RUN_AS_NODE;
     this.env = env;
     return env;
   }
 
   readLoginPath() {
-    const shell = this.baseEnv.SHELL || '/bin/zsh';
+    const shell = this.baseEnv.SHELL || this.platform.defaultShell;
     return new Promise((resolve) => {
       let output = '';
       let finished = false;

@@ -11,7 +11,7 @@ function render(state) {
     error: 'Nothing was changed that you need to undo.',
     stopped: 'Start it again whenever you like.',
     stopping: 'Waiting for the local server to finish.',
-  }[state.phase] || 'Qorqbot runs on this Mac. Nothing is sent anywhere during set-up.';
+  }[state.phase] || `Qorqbot runs on ${window.qorqbot.platform === 'linux' ? 'this computer' : 'this Mac'}. Nothing is sent anywhere during set-up.`;
 
   const steps = $('steps');
   steps.replaceChildren(...state.steps.map((item) => {

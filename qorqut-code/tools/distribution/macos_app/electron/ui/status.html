@@ -5,6 +5,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'">
 <title>Qorqbot</title>
 <link rel="stylesheet" href="style.css">
+<script src="platform.js"></script>
 </head>
 <body>
 <main id="status" hidden>
@@ -12,7 +13,7 @@
     <img src="mark.svg" alt="">
     <div>
       <h1 id="title">Starting Qorqbot</h1>
-      <p class="sub" id="subtitle">Qorqbot runs on this Mac. Nothing is sent anywhere during set-up.</p>
+      <p class="sub" id="subtitle"><span class="mac-only">Qorqbot runs on this Mac.</span><span class="linux-only">Qorqbot runs on this computer.</span> Nothing is sent anywhere during set-up.</p>
     </div>
   </div>
 
@@ -47,7 +48,7 @@
     <details id="log-details"><summary>Progress log</summary><pre id="log"></pre></details>
   </section>
 
-  <p class="hint" id="footer-hint" hidden>Quit Qorqbot (&#8984;Q) to stop it. The <b>Server</b> menu can restart it, show logs or open your
+  <p class="hint" id="footer-hint" hidden>Quit Qorqbot (<span class="mac-only">&#8984;Q</span><span class="linux-only">Ctrl+Q</span>) to stop it. The <b>Server</b> menu can restart it, show logs or open your
     install folder. <a href="#" data-action="help">How Qorqbot works</a></p>
 </main>
 <script src="status.js"></script>

@@ -1,7 +1,8 @@
 'use strict';
 // Engine tests against a fake Qorqbot folder whose ./qorqbot has the same CLI
 // surface (setup, status, stop, update, --port) and serves HTTP with Python.
-//   npm test   (macOS, needs python3.12 on PATH)
+//   npm test   (macOS or Ubuntu, needs python3.12 on PATH)
+// Engines use the macOS platform values unless a test passes another platform.
 const assert = require('node:assert/strict');
 const { execFileSync, spawnSync } = require('node:child_process');
 const crypto = require('node:crypto');
@@ -10,6 +11,7 @@ const net = require('node:net');
 const path = require('node:path');
 const { test, beforeEach, afterEach } = require('node:test');
 const { Engine, EngineError } = require('../engine');
+const { platformFor } = require('../platform');
 
 // String.raw keeps \${ literally; it is unescaped below so bash sees ${.
 const FAKE_QORQBOT = String.raw`#!/bin/bash
@@ -75,7 +77,8 @@ function freePort() {
 async function engineFor(payload, extra = {}) {
   const engine = new Engine({
     payload, home: path.join(base, 'h'), firstPort: await freePort(),
-    env: { PATH: process.env.PATH, HOME: base, QORQUT_PYTHON: PYTHON, ...extra.env }, loginPath: false, ...extra.options,
+    env: { PATH: process.env.PATH, HOME: base, QORQUT_PYTHON: PYTHON, ...extra.env }, loginPath: false,
+    platform: platformFor('darwin'), ...extra.options,
   });
   engines.push(engine);
   return engine;
@@ -332,4 +335,25 @@ test('launcherEnv falls back to the previous runtime of an older folder', async 
   const engine = await engineFor(makePayload('1.0.0').payload, { env: { QORQUT_PYTHON: undefined } });
   const python = fakePython(path.join(engine.root, '.previous-runtime', 'venv', 'bin', 'python3.12'));
   assert.equal((await engine.launcherEnv()).QORQUT_PYTHON, python);
+});
+
+// ---------------------------------------------------------------- Ubuntu
+
+test('on Ubuntu PATH ends with /usr/local/bin and has no Homebrew folder', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload, {
+    env: { PATH: '/base/bin', HOME: '/home/someone' }, options: { platform: platformFor('linux') },
+  });
+  const env = await engine.environment();
+  assert.equal(env.PATH, '/base/bin:/home/someone/.local/bin:/usr/local/bin');
+  assert.doesNotMatch(env.PATH, /homebrew/);
+});
+
+test('on Ubuntu the login shell defaults to bash and its PATH comes first', async () => {
+  // A stand-in shell proves which program was asked: it only answers when started as the default shell would be.
+  const shell = path.join(base, 'bash');
+  fs.writeFileSync(shell, '#!/bin/sh\nprintf "__QBPATH__/login/bin__QBPATH__"\n', { mode: 0o755 });
+  const engine = await engineFor(makePayload('1.0.0').payload, {
+    env: { SHELL: shell, PATH: '/bin' }, options: { loginPath: true, platform: platformFor('linux') },
+  });
+  assert.equal((await engine.environment()).PATH, `/login/bin:/bin:${base}/.local/bin:/usr/local/bin`);
 });

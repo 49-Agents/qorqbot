@@ -46,3 +46,7 @@ td { padding: 6px 8px 6px 0; vertical-align: top; border-top: 1px solid var(--li
 td:first-child { color: var(--muted); white-space: nowrap; width: 34%; }
 [hidden] { display: none !important; }
 .spaced { margin-top: 12px; }
+
+/* Wording that differs per desktop; platform.js sets data-platform on <html>. */
+html[data-platform="linux"] .mac-only { display: none; }
+html[data-platform="darwin"] .linux-only { display: none; }
