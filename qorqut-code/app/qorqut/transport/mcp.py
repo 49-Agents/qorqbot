@@ -612,11 +612,13 @@ class MCPTransport:
                     request = self.server.request_context
                     task = (result.to_dict().get("data") or {}).get("task")
                     delivery = getattr(self.runtime, "timeline_delivery", None)
-                    if delivery and isinstance(task, dict) and isinstance(presented.get("data"), dict) \
-                            and not presented["data"].get("not_modified"):
-                        chain = await anyio.to_thread.run_sync(delivery.chain, actor.principal.id,
+                    if delivery and isinstance(task, dict) and isinstance(presented.get("data"), dict):
+                        # A not_modified re-read gets the chain only when some level changed for this conversation.
+                        send = delivery.chain_if_changed if presented["data"].get("not_modified") else delivery.chain
+                        chain = await anyio.to_thread.run_sync(send, actor.principal.id,
                             conversation_id(request.request.headers, request.meta), task)
-                        presented = {**presented, "data": {**presented["data"], "timeline": chain}}
+                        if chain is not None:
+                            presented = {**presented, "data": {**presented["data"], "timeline": chain}}
                 except Exception:
                     logger.exception("Timeline delivery failed for %s", request_id)
             if presented.get("status") == "ok":

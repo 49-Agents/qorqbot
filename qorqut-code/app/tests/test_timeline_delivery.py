@@ -26,6 +26,9 @@ class Headers:
     def getlist(self, name):
         return [self.values[name]] if name in self.values else []
 
+    def get(self, name, default=None):
+        return self.values.get(name, default)
+
 
 class Caller(mcp.RegisteredAgentCaller):
     """The agent route's caller with its gates open: these tests are about what the read carries."""
@@ -79,6 +82,14 @@ class DeliveryTests(Fixture):
         """The agent route's tasks_get call as the model receives it (the result data)."""
         value = asyncio.run(self.transport._single_result_timed(
             'tasks_get', {'scope': 'global', 'task_id': task_id}, NS(principal=Principal(self.worker, 'agent')), 'request', {}))
+        return plain(value)
+
+    def reread(self, task_id, token=''):
+        """A tasks_get with ``if_read_token``: the whole result, whose ``read_state`` carries the token to echo next time."""
+        value = asyncio.run(self.transport._single_result_timed(
+            'tasks_get', {'scope': 'global', 'task_id': task_id, 'if_read_token': token},
+            NS(principal=Principal(self.worker, 'agent'), credential_id='credential', registration_id='registration'),
+            'request', {}))
         return plain(value)
 
     def chain(self, task_id, **more):
@@ -296,6 +307,101 @@ class DeliveryTests(Fixture):
             result = AgentResolver._bootstrap(resolver, Principal(self.worker, 'agent'), registration_id='reg', session_id=FIRST,
                                               event='compact', last_effective_config_id=None, runtime='codex')
         self.assertFalse(result['ready'])
+        self.assertEqual(len(self.recorded()), 1)
+
+    # -- a re-read with a read token -----------------------------------------------------------------------------------
+
+    def test_a_not_modified_reread_carries_the_chain_only_when_a_level_changed_for_the_conversation(self):
+        parent = self.task(self.lead, 'Pay creators')
+        child = self.task(self.lead, 'Pay October creators', parent_id=parent['id'])
+        self.file(self.item(parent), 'decision', 'One provider only.')
+        self.file(self.item(child), 'progress', '9 of 14 paid.')
+        self.conversation()
+        first = self.reread(child['id'])
+        token = first['read_state']['token']
+        self.assertIn('what holds now', first['data']['timeline'])
+        # Every level was sent and nothing changed: the short result stays short.
+        second = self.reread(child['id'], token)
+        self.assertEqual(second['data'], {'not_modified': True})
+        # The Task is unchanged, but a decision filed on its parent since is told, the rest as one-line markers.
+        self.clock[0] = '2026-11-13T15:30:00.000000Z'
+        self.file(self.item(parent), 'decision', 'Pay on the 20th.')
+        third = self.reread(child['id'], token)
+        self.assertTrue(third['data']['not_modified'])
+        lines = third['data']['timeline'].split('\n\n')
+        self.assertEqual(lines[0], 'Global')
+        self.assertIn('Pay on the 20th.', lines[1])
+        self.assertTrue(lines[2].startswith('Task "Pay October creators": unchanged since 14:02'))
+        # It was recorded, so the next re-read is short again.
+        self.assertEqual(self.reread(child['id'], token)['data'], {'not_modified': True})
+
+    def test_a_not_modified_reread_from_an_unknown_conversation_carries_the_full_chain(self):
+        task = self.task(self.lead, 'Pay creators')
+        self.file(self.item(task), 'fact', 'The hold was cleared.')
+        self.conversation(None)
+        token = self.reread(task['id'])['read_state']['token']
+        again = self.reread(task['id'], token)
+        self.assertTrue(again['data']['not_modified'])
+        self.assertIn('The hold was cleared.', again['data']['timeline'])
+        self.assertEqual(self.recorded(), [])
+
+    def test_a_failed_record_still_sends_every_level_in_full(self):
+        task = self.task(self.lead, 'Pay creators')
+        self.file(self.item(task), 'fact', 'The hold was cleared.')
+        self.conversation()
+        with patch.object(TimelineDelivery, 'record', side_effect=RuntimeError('database is locked')), \
+                self.assertLogs('qorqut.domains.timeline_delivery', 'ERROR'):
+            self.assertIn('The hold was cleared.', self.chain(task['id']))
+        self.assertEqual(self.recorded(), [])
+        # Nothing was recorded, so the next read sends it in full again.
+        self.assertIn('The hold was cleared.', self.chain(task['id']))
+
+    def test_a_chain_that_cannot_be_built_is_dropped_and_the_read_still_succeeds(self):
+        task = self.task(self.lead, 'Pay creators')
+        self.conversation()
+        with patch.object(TimelineDelivery, 'build', side_effect=RuntimeError('broken')), self.assertLogs('qorqut.transport.mcp', 'ERROR'):
+            value = self.tasks_get(task['id'])
+        self.assertEqual(value['status'], 'ok')
+        self.assertNotIn('timeline', value['data'])
+
+    def test_a_reset_drops_the_agents_rows_older_than_thirty_days(self):
+        task = self.task(self.lead, 'Pay creators')
+        self.file(self.item(task), 'fact', 'The hold was cleared.')
+        self.conversation(SECOND)
+        self.chain(task['id'])
+        self.clock[0] = '2026-12-20T09:00:00.000000Z'
+        self.conversation(FIRST)
+        self.chain(task['id'])
+        self.delivery.start(self.worker, FIRST, 'startup', None)
+        self.assertEqual(self.recorded(), [])
+        self.clock[0] = '2026-12-20T09:00:00.000000Z'
+        self.chain(task['id'])
+        self.clock[0] = '2026-12-25T09:00:00.000000Z'
+        self.delivery.start(self.worker, SECOND, 'resume', 'c')
+        self.assertEqual(len(self.recorded()), 1)
+
+    def test_a_failing_start_or_briefing_does_not_fail_the_start_hook(self):
+        self.file(GLOBAL, 'decision', 'Reply to the owner in plain words.')
+        with patch.object(TimelineDelivery, 'start', side_effect=RuntimeError('locked')), self.assertLogs('qorqut.agents.resolver', 'ERROR'):
+            result = self.bootstrap('startup', None)
+        self.assertTrue(result['ready'])
+        self.assertIn('Briefing.', result['work_briefing']['rendered'])
+        with patch.object(TimelineDelivery, 'compose', side_effect=RuntimeError('locked')), self.assertLogs('qorqut.agents.resolver', 'ERROR'):
+            result = self.bootstrap('startup', None)
+        self.assertTrue(result['ready'])
+        self.assertEqual(result['work_briefing']['rendered'], 'Briefing.')
+
+    def test_global_is_recorded_only_when_its_text_is_kept_in_the_briefing(self):
+        self.file(GLOBAL, 'decision', 'Reply to the owner in plain words.')
+        with patch('qorqut.agents.resolver.MAX_CONTEXT_CHARACTERS', 2048 + len('Mandatory.') + 20):
+            result = self.bootstrap('startup', None)
+        self.assertNotIn('Global', result['work_briefing']['rendered'])
+        self.assertEqual(self.recorded(), [])
+        # A record that fails after the text was kept does not take the text away.
+        with patch.object(TimelineDelivery, 'record', side_effect=RuntimeError('locked')), self.assertLogs('qorqut.agents.resolver', 'ERROR'):
+            result = self.bootstrap('startup', None)
+        self.assertIn('Reply to the owner in plain words.', result['work_briefing']['rendered'])
+        self.assertTrue(self.bootstrap('startup', None)['work_briefing']['rendered'].startswith('Briefing.\n\nGlobal'))
         self.assertEqual(len(self.recorded()), 1)
 
     # -- the three replays ------------------------------------------------------------------------------------------

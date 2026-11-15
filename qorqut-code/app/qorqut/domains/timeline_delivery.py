@@ -8,6 +8,9 @@ identified gets every level in full and nothing is recorded. Global's state is a
 """
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timedelta
+
 from qorqut_operations.application import Application
 from qorqut_operations.application.plans import timestamp
 from qorqut_operations.timeline import state as timeline_state
@@ -17,6 +20,8 @@ from qorqut.domains.timeline import Timeline
 GLOBAL = {"type": "global", "id": "global", "business_id": None}
 MAX_DEPTH = 50
 RESET_EVENTS = frozenset({"startup", "clear", "compact", "fork"})
+RETENTION = timedelta(days=30)
+logger = logging.getLogger(__name__)
 
 
 class TimelineDelivery:
@@ -26,9 +31,14 @@ class TimelineDelivery:
     def start(self, agent_id, conversation_id, event, last_effective_config_id):
         """The conversation's start hook reported ``event``. A new context (startup, clear, compact, fork) or a recovering
         session (a prompt that sends no earlier configuration) holds nothing of what earlier Task reads sent, so its record
-        goes; a resume and an ordinary prompt keep it."""
+        goes; a resume and an ordinary prompt keep it. A reset also drops the agent's rows older than 30 days, so conversations
+        that never come back do not leave their record behind for good."""
         if event in RESET_EVENTS or (event == "prompt" and last_effective_config_id is None):
             self.reset(agent_id, conversation_id)
+            cutoff = (datetime.fromisoformat(timestamp().replace("Z", "+00:00")) - RETENTION).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+            with self.database.transaction() as uow:
+                Application.ensure_writes_open(uow)
+                uow.connection.execute("DELETE FROM timeline_deliveries WHERE agent_id=? AND delivered_at<?", (agent_id, cutoff))
 
     def reset(self, agent_id, conversation_id):
         with self.database.transaction() as uow:
@@ -88,8 +98,9 @@ class TimelineDelivery:
                     "DO UPDATE SET revision=excluded.revision, delivered_at=excluded.delivered_at",
                     (agent, conversation, item["type"], item["id"], item["business_id"] or "", revision, now))
 
-    def chain(self, agent, conversation, task):
-        """The text of the levels above and including ``task`` (a Task read's ``{id, business_id, parent_id, title}``)."""
+    def build(self, agent, conversation, task):
+        """``(lines, sent)``: the text of each level above and including ``task`` and the ``(item, revision)`` pairs sent in
+        full, which are what a record must hold. Reads only."""
         sent, lines = [], []
         with self.database.read() as uow:
             for item, title in self.levels(task, uow):
@@ -97,16 +108,43 @@ class TimelineDelivery:
                 lines.append(text)
                 if revision is not None:
                     sent.append((item, revision))
-        self.record(agent, conversation, sent)
+        return lines, sent
+
+    def deliver(self, agent, conversation, lines, sent):
+        """The chain text, recorded as sent. A record that cannot be written is logged and does not cost the agent the text:
+        the levels it holds in full are still true, and the next read sends them again."""
+        try:
+            self.record(agent, conversation, sent)
+        except Exception:
+            logger.exception("Timeline delivery record failed for agent %s", agent)
         return "\n\n".join(lines)
 
-    def brief(self, agent, conversation, reserve):
-        """Global's state for the start-up briefing and a delivery record of it; '' when Global holds nothing, the
-        conversation is unknown or the text would not fit in ``reserve`` characters."""
+    def chain(self, agent, conversation, task):
+        """The text of the levels above and including ``task`` (a Task read's ``{id, business_id, parent_id, title}``)."""
+        lines, sent = self.build(agent, conversation, task)
+        return self.deliver(agent, conversation, lines, sent)
+
+    def chain_if_changed(self, agent, conversation, task):
+        """The chain for a read that came back ``not_modified``: the Task itself is unchanged, but a parent Task, the Project or
+        Global may not be. ``None`` when this conversation already holds every level as it is now, so the short result stays
+        short; the full chain when the conversation is unknown, as for an ordinary read."""
+        lines, sent = self.build(agent, conversation, task)
+        if conversation and not sent:
+            return None
+        return self.deliver(agent, conversation, lines, sent)
+
+    def compose(self, agent, conversation, reserve):
+        """``(text, sent)`` for Global's state in the start-up briefing: ``('', [])`` when Global holds nothing, the conversation
+        is unknown or the text would not fit in ``reserve`` characters. Records nothing: the caller records ``sent`` with
+        ``record`` once the text is part of what the hook returns."""
         with self.database.read() as uow:
             text, revision = self.level(uow, agent, conversation, GLOBAL, None)
         if revision is None or not conversation or len(text) > reserve:
-            return ""
-        self.record(agent, conversation, [(GLOBAL, revision)])
-        return text
+            return "", []
+        return text, [(GLOBAL, revision)]
 
+    def brief(self, agent, conversation, reserve):
+        """``compose`` and record at once, for a caller that always keeps the text."""
+        text, sent = self.compose(agent, conversation, reserve)
+        self.record(agent, conversation, sent)
+        return text
