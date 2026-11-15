@@ -35,6 +35,16 @@ def verify_event(conn, intent, commit):
     return wanted
 
 
+def verify_recorded_event(conn, event):
+    """The feed still holds exactly one event equal to one already proven equal to ``expected(intent, commit)``."""
+    if not isinstance(event, dict) or not isinstance(event.get('change_id'), str):
+        raise _conflict('Managed feed event differs from fixed evidence')
+    rows = conn.execute('SELECT * FROM changes WHERE change_id=?', (event['change_id'],)).fetchall()
+    if len(rows) != 1 or event_dict(conn, rows[0]) != event:
+        raise _conflict('Managed feed event differs from fixed evidence')
+    return event
+
+
 def verify_effects(conn, intent, commit):
     wanted = verify_event(conn, intent, commit)
     changes = intent['plan']['changes']

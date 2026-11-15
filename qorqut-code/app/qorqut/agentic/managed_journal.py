@@ -21,7 +21,16 @@ _KEYS = {'schema_version', 'phase', 'plan_digest', 'intent_sha256', 'attribution
 
 
 def read(path):
+    return read_raw(path)[1]
+
+
+def read_raw(path):
+    """The validated journal together with the exact bytes it was parsed from."""
     raw = read_private_file(path, max_bytes=MAX_INTENT_BYTES)
+    return raw, _parse(path, raw)
+
+
+def _parse(path, raw):
     try:
         value = json.loads(raw, object_pairs_hook=_unique)
         if (not isinstance(value, dict) or set(value) != _KEYS or type(value['schema_version']) is not int
