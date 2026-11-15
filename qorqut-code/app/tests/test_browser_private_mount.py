@@ -58,6 +58,7 @@ class OutsidePrivateMountsTest(unittest.TestCase):
             self.assertEqual(outside_private_mounts(Path(directory)), Path(directory))
 
 
+@unittest.skipUnless(sys.platform == "linux", "user service units are a Linux feature")
 class UserUnitLauncherTest(unittest.TestCase):
     def start(self, directory, outside):
         calls = []
