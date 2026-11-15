@@ -350,6 +350,10 @@ owner table page. Checks: `tests/test_agent_viewbox_browser.js` (stub API) and
 - **Inbox** shows a green dot while the watcher holds a valid lease. Check:
   `tests/test_agent_inbox_browser.js`.
 
+## Timelines
+
+`js/timeline-panel.js` draws the owner's read-only view of an item's timeline: what holds now (goal, decisions, facts, latest progress, open questions) with a History switch that lists every entry, removed ones struck through, the owner's quoted words, closed questions, and links to subtasks, approvals and reports. `js/conversation.js` mounts it above the messages of a Task or Project thread from the first page of `owner_conversation_related`; `globalTimelineBlockMount` (`js/workflow-panel.js`) mounts the Global block in Ordubashy's chat and reads `timeline_view` at most every 20 seconds. Ordubashy's agent pane also has an Open questions view (`js/agent-questions.js`, `timeline_questions_list`): every open question across Global, the Projects and the Tasks the owner can read, blocking first, each opening the thread it belongs to. When the server cut the list off it shows "Showing the first N open questions." All text goes through `timelineEsc`. Tests: `tests/timeline-panel.test.js`.
+
 ## Calendar
 
 Global Calendar shows the owner's provider events together on an hourly

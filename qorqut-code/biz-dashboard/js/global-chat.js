@@ -198,7 +198,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   let stream = null, retryTimer = null, retryDelay = 1000, readTimer = null, streamDown = false;
   let disposed = false, loading = false, again = false, generation = 0, finished = false, reading = 0;
   let bannerText = '', reconnecting = false, olderBusy = false, view = null;
-  let contextStatus = null;
+  let contextStatus = null, timelineBlock = null;
   let pairedHost = null, pairedConversation = null, pairedGeneration = 0;
   // A thread or side chat can take over this Chat area under a small header whose "Chat" button returns here.
   let takeover = null;   // {kind: 'paired'|'side', node, dead, beforeLeave, cleanups}
@@ -624,6 +624,14 @@ function mountGlobalChat(pane, agent, options = {}) {
     contextStatus=chatFocusPanelMount(view.elements.composer,agentId,{agent,visible:contextVisible,onChange:paintSession,workingTag});
     cleanups.push(()=>contextStatus.dispose());
   }
+  // Ordubashy's chat shows what holds now at the Global level above the messages.
+  if (agent.role?.id === 'ordubashy' && typeof globalTimelineBlockMount === 'function' && view.root?.parentNode) {
+    const block = document.createElement('section');
+    view.root.before(block);
+    timelineBlock = globalTimelineBlockMount(block, {visible: () => live() && root.isConnected});
+    cleanups.push(() => { timelineBlock.dispose(); block.remove(); });
+    void timelineBlock.refresh(true);
+  }
 
   // ---- loading: a state fetch is idempotent, so every "changed" event just reads it again (coalesced)
   // Terminal owns conversation selection; Chat always follows the backend's current conversation.
@@ -649,6 +657,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (fresh) showBanner('');
       paintEntries(fresh ? 'bottom' : 'auto');
       void contextStatus?.refresh();
+      void timelineBlock?.refresh();
       if (!stream) connect();
     } catch (problem) {
       if (live() && mine === generation) { paintSession(); showBanner("Couldn't load. Retry"); retry(() => load()); }

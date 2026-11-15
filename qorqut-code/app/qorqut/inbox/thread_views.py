@@ -62,6 +62,19 @@ def task_context(service, ctx, source, uow, audience=None):
             **({'plan_steps': task['plan_steps']} if task.get('plan_steps') else {})}
 
 
+def timeline_part(service, ctx, item, uow):
+    """``{'timeline': ...}``: what holds now on the item, shown above its thread; nothing when it has none to show."""
+    owner = getattr(service.app, 'timeline_owner', None)
+    if owner is None:
+        return {}
+    try:
+        return {'timeline': owner.view(ctx, item, uow)}
+    except DomainError as error:
+        if error.code == 'not_found':
+            return {}
+        raise
+
+
 def directory(service, ctx, args, uow):
     ctx = owner_context(service, ctx, uow)
     limit = args.get('limit', 50)
@@ -100,7 +113,10 @@ def related(service, ctx, args, uow):
         projects = getattr(service.app, 'projects', None)
         if projects is None:
             raise DomainError('operation_unavailable', 'Project records are not installed')
-        return {**projects.related(ctx, source['id'], args, uow), 'input_requests': inputs}
+        result = {**projects.related(ctx, source['id'], args, uow), 'input_requests': inputs}
+        if not args.get('offset', 0):
+            result.update(timeline_part(service, ctx, {'type': 'project', 'id': source['id'], 'business_id': source['id']}, uow))
+        return result
     kind, identity, business = source['type'], source['id'], source['business_id']
     # All candidates come from stored links, never guessed from matching titles/text. Each candidate is independently
     # authorized below. UNION/GROUP BY collapse records linked in several ways; the earliest stored link places the row.
@@ -152,4 +168,5 @@ def related(service, ctx, args, uow):
               'input_requests': inputs}
     if kind == 'task' and not args.get('offset', 0):
         result['context'] = task_context(service, ctx, source, uow, args.get('notes_audience'))
+        result.update(timeline_part(service, ctx, {'type': 'task', 'id': source['id'], 'business_id': business}, uow))
     return result

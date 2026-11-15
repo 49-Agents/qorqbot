@@ -41,6 +41,12 @@ A report (a read-and-acknowledge Signoff) has no conversation of its own: it bel
 
 Ordubashy can list, pin and unpin threads in the owner's pinned-threads row (`thread_pins_list`, `thread_pins_set`), only when the owner asks. Only the owner and the configured coordinator in person may call them. A pin needs a record the caller may read, and is stored under the record's canonical identity in the owner's own pin file. A change emits the `thread_pins` change kind, and the dashboard rereads the row.
 
+## Timeline panel and Open questions
+
+Every Task, Project and Global has a timeline (entries of kind goal, decision, fact and progress, each an add or a removal that names the entry it removes, plus open questions for the owner). Only Ordubashy writes it. The owner reads it through `timeline_view` (owner only, dashboard only), which returns the title, the state and, with `history: true`, the entries oldest first. Each entry carries `removed_by`, the id of its removal computed over the whole item, and the quoted words (`sources`). The first history page also carries the item's links (subtasks, approvals, reports) and `closed_questions` (answered or dropped, latest first). The thread view (`owner_conversation_related`, first page) attaches `timeline` for a Task or Project the owner can read, and leaves it out when there is none.
+
+`timeline_questions_list` lists the open questions of Global, every Project and every Task the owner can read, blocking first, with the item each belongs to. It returns at most 200 rows (or `limit`); `truncated` is true only when more readable open questions exist than were returned.
+
 ## Shared Chat presentation
 
 Main Chat, Threads and Focus task conversations use the same message/reference/composer components. `sgChatMount` mounts the existing verified signoff view, including full WhatsApp/email content, decisions and private comments. A signoff shown inside its own thread omits its nested conversation so that its channel has one composer. Other related signoffs retain their own correctly scoped comments. The custom thread-preview renderer, its fetching layer and message-style overrides have been removed.
