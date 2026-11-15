@@ -1,8 +1,10 @@
 """Bounded Markdown for agent and owner bootstrap, derived from the same pinned graph DTO ``context_home`` returns.
 
-``home_text`` renders one page of ``SharedContextReader.home`` and nothing else: the published revision, the totals,
-node and relationship references (``node:ID`` / ``edge:ID``) with their summaries, and an explicit statement for the
-states that are not a graph (``not_initialized``, ``unavailable``) or an empty one. The published graph is shared by
+``home_text`` renders one page of ``SharedContextReader.home``: the published revision, the totals, node and
+relationship references (``node:ID`` / ``edge:ID``) with their summaries, and an explicit statement for the states that
+are not a graph (``not_initialized``, ``unavailable``) or an empty one. When the graph has a personal context node, the
+text also carries that record's facts from the same page, within their own bound, so every agent starts with what the
+owner already said about themselves and does not ask for it again. The published graph is shared by
 every registered agent, so the text never depends on who asks or on a business; the business argument exists only to
 satisfy the host's text-provider call shape and is ignored. Rendering never raises: a failed read is reported as
 ``unavailable`` text, never as an empty graph."""
@@ -20,6 +22,10 @@ ATTRIBUTE_MEMBERS = 4
 ATTRIBUTE_CHARS = 80
 SUMMARY_CHARS = 240
 MAX_CHARACTERS = 6000
+PERSONAL_CHARACTERS = 3000
+PERSONAL_MEMBERS = 8
+PERSONAL_MEMBER_CHARS = 220
+PERSONAL_HIDDEN = frozenset({"basic_entity_type"})
 TRUNCATED = "\n[truncated; read the rest with context_home, context_find, context_object and context_expand]"
 READS = ("Read more with context_home (follow page.next_cursor), context_find, context_object(ref) and "
          "context_expand(ref); every response names the published revision it was read at. Notes are separate records, "
@@ -58,9 +64,43 @@ def _node_lines(node):
     return lines
 
 
+def _personal_lines(ref, record, characters=PERSONAL_CHARACTERS):
+    """The owner's recorded facts, shortest entries first so that names, contacts and dates always fit; whatever is
+    cut or left out is named, so a reader knows the full record holds more."""
+    rule = (f"About the owner (personal record {ref}): the one store of what the owner has told us about themselves. "
+            "Use it. Never ask the owner for a fact this record holds. Before you ask the owner anything about "
+            f"themselves, or build a form of such questions, read context_object(ref='{ref}') fresh, fill in what it "
+            "holds and ask only for what is missing. Ordubashy maintains it; other agents pass new personal facts to "
+            "Ordubashy through the existing inbox, with the source and date.")
+    entries, more = [], []
+    for name, members in (record.get("attributes") or {}).items():
+        if name in PERSONAL_HIDDEN or not members:
+            continue
+        cut = len(members) > PERSONAL_MEMBERS or any(
+            len(" ".join(str(member).split())) > PERSONAL_MEMBER_CHARS for member in members)
+        entries.append((f"- {name}: " + "; ".join(_clip(member, PERSONAL_MEMBER_CHARS)
+                                                 for member in members[:PERSONAL_MEMBERS]), name, cut))
+    lines, used = [rule], len(rule)
+    summary = _clip(record.get("summary") or "", SUMMARY_CHARS)
+    if summary:
+        lines.append(summary)
+        used += len(summary) + 1
+    for line, name, cut in sorted(entries, key=lambda entry: (len(entry[0]), entry[1])):
+        if used + len(line) + 1 > characters:
+            more.append(name)
+            continue
+        lines.append(line)
+        used += len(line) + 1
+        if cut:
+            more.append(name)
+    if more:
+        lines.append(f"The record holds more under: {', '.join(sorted(more))}. Open {ref} for all of it.")
+    return lines
+
+
 def render_home(dto, *, characters=MAX_CHARACTERS) -> str:
     """The bounded text of one ``context_home`` DTO (or of a not-ready status DTO); it opens with a plain title line so
-    it nests under a host section heading."""
+    it nests under a host section heading. The owner's record takes its own bound, on top of ``characters``."""
     state = dto.get("status")
     head = "Shared Context (published graph)"
     if state == "not_initialized":
@@ -76,24 +116,24 @@ def render_home(dto, *, characters=MAX_CHARACTERS) -> str:
     if dto["empty"]:
         return (f"{head}\n{summary}\nInitialized and empty: no nodes or relationships are published yet. "
                 "The same published graph is shared by every registered agent.")
-    personal = dto.get("personal_context")
-    personal_ref = personal["ref"] if personal else None
+    pointer = dto.get("personal_context")
+    personal_ref = pointer["ref"] if pointer else None
     shown = [node for node in dto["nodes"][:NODES] if node["ref"] != personal_ref]
     lines = [head, summary,
              "One published graph shared by every registered agent; drafts are never shown. "
              f"Showing {len(shown)} of {totals['nodes']} nodes, most connected first."]
-    if personal_ref:
-        lines.insert(1, f"Personal context: {personal_ref}. This is the one canonical store of information about the user. "
-                     f"Read context_object(ref='{personal_ref}') on demand. Ordubashy maintains it; other agents read it "
-                     "and pass new personal facts to Ordubashy through the existing inbox, with the source and date.")
     for node in shown:
-        # Startup is an index, not an implicit profile read (including incident relationship summaries).
+        # The owner's record is rendered once, above; the index does not repeat it or its relationships.
         visible = [edge for edge in node["relationships"]
                    if personal_ref not in (edge["from"]["ref"], edge["to"]["ref"])]
         lines.extend(_node_lines({**node, "relationships": visible}))
     lines.append(READS)
     text = "\n".join(lines)
-    return text if len(text) <= characters else text[:characters - len(TRUNCATED)].rstrip() + TRUNCATED
+    text = text if len(text) <= characters else text[:characters - len(TRUNCATED)].rstrip() + TRUNCATED
+    if personal_ref:
+        head_line, _, rest = text.partition("\n")
+        text = "\n".join([head_line, *_personal_lines(personal_ref, pointer), rest])
+    return text
 
 
 class PublishedContextText:
