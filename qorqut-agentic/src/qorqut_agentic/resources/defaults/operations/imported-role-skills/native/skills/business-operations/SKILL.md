@@ -75,13 +75,9 @@ has no category.
   does not replace a required record revision.
 - Read a project note with `notes_get(document_id=...)` in that project's scope; the
   read takes no `target_business_id`.
-- Never combine `target_business_id` with an agent-note selector such as
-  `target_agent_id` on a targeted project-note operation: the host rejects the
-  combination.
-- Private agent notes stay in your agent-note scope, and owner journal entries keep
-  their own rules (owner-journal). Leaving out `target_business_id` is not a privacy
-  selector for every notes operation: use the scope and arguments that fit the kind
-  of note you mean.
+- You no longer create private notes: `notes_create` without `target_business_id`
+  is refused for agents. Existing private notes stay readable, and owner journal
+  entries keep their own rules (owner-journal).
 - Label a note with ordinary document tags (the `tags` list in its metadata) and
   narrow `notes_list` with the `tag` filter. A tag is only a label: it fixes no
   category, picks no author and grants nothing.

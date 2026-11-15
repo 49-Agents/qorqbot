@@ -47,7 +47,7 @@ have fixed types; origin is immutable. Notes/plans retain their dedicated tools.
 Asset bytes use the registered file target after scoped authorization. `notes_list`
 defaults to the agent's own notes or the human's business notes; `agent_id` selects
 same-business teammate reads. Agents may update only their own plans/notes.
-`notes_create.target_agent_id` is a worker-only, claimed-job output selector.
+Agents no longer create private notes with `notes_create`; existing ones stay readable.
 
 Out-of-band authored edits are readable with `metadata_stale: true`. An update
 must then supply the observed `expected_content_hash` as well as its indexed

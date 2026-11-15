@@ -137,6 +137,21 @@ class JournalLoadingTests(unittest.TestCase):
             with self.assertRaises(DomainError):
                 split_document(bad)
 
+    def test_agents_cannot_create_private_notes_but_existing_ones_stay_readable(self):
+        agent_id = new_id()
+        agent = InvocationContext(Principal(agent_id, 'agent'), source='mcp')
+        with self.database.read() as uow:
+            with self.assertRaises(DomainError) as refused:
+                self.sources.prepare('notes_create', agent, {'title': 'Mine', 'body': 'Text'}, {}, uow)
+        self.assertEqual(refused.exception.code, 'forbidden')
+        with self.database.transaction() as uow:
+            existing = self.add_document(uow, 'agent_note', {'title': 'Old'})
+        with self.database.read() as uow:
+            row = self.sources.read('notes_get', self.owner, {'document_id': existing}, uow)
+        self.assertEqual(row['document']['id'], existing)
+
+
 
 if __name__ == '__main__':
     unittest.main()
+
