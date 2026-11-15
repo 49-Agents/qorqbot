@@ -2,8 +2,7 @@
 
 The readers are generic and live in ``qorqut_operations.document_history.reads``; this host adapter supplies what only the host
 knows: the learning sources (each resolved through its own repository, with a deleted row keeping its history only in the scope
-that owned it) and the private-memory exclusion (working-memory history is read with ``working_memory_get`` alone, which keeps
-its source-visibility checks). The shared Context's history is its published Git graph and is read with ``context_object`` and
+that owned it) and the private-memory exclusion (retained working-memory history is never read). The shared Context's history is its published Git graph and is read with ``context_object`` and
 ``context_changes``, not here."""
 
 from __future__ import annotations
@@ -38,4 +37,4 @@ def learning_source(kind):
 class DocumentHistory(DocumentHistoryReads):
     def __init__(self, documents):
         super().__init__(documents.store, source_resolvers={kind: learning_source(kind) for kind in SOURCE_KINDS[1:]},
-                         private_kinds={history.WORKING_MEMORY: "Working-memory history is read with working_memory_get"})
+                         private_kinds={history.WORKING_MEMORY: "Working-memory history is not readable"})

@@ -27,6 +27,10 @@ from qorqut.extensions import NO_EXTENSIONS
 ENGINE_ENTRIES = (*SIGNOFF_ENTRIES, *ROUTINE_ENTRIES, *RELATIONSHIP_ENTRIES, *TAG_ENTRIES, *TASK_ENTRIES, *ACTION_ENTRIES,
                   *CRM_ENTRIES, *CONTEXT_ENTRIES)
 
+# Working memory and the agent plan files (``working_memory_get``/``working_memory_update``, ``plans_list``/``plans_get``/
+# ``plans_set``) are removed as features and have no handler installed, so they are never offered or callable. Their names stay
+# declared here because published roles and saved profiles still name some of them, and a permission map that names an operation
+# the registry does not know is refused as a whole.
 _READS = """
 business_progress_get
 business_briefing

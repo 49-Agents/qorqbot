@@ -24,7 +24,7 @@ their plugin-controlled conversation tool. `materials_update` changes type/tags
 with revision checks and never rewrites file bytes. Origin is not editable;
 email's conversation type, published content's type and raw uploads' mixed type
 are fixed. Registry classification overrides legacy frontmatter classification.
-Per-agent notes/plans, owner notes/checklists and Learnings retain their existing
+Per-agent notes, owner notes/checklists and Learnings retain their existing
 stores, tools and behavior and are excluded from this classification editor.
 
 There is no dedicated Research domain or toolset. Former research documents are

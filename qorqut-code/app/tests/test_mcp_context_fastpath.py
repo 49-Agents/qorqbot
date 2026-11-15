@@ -67,9 +67,8 @@ class Resolver:
                                  profile_revision=3, policy_revision=3, source='mcp')
 
 
-def memory(app, resolver):
-    sources = SimpleNamespace(authorize=lambda ctx, operation, uow: None)
-    return SimpleNamespace(app=app, resolver=resolver, sources=sources)
+def agent_context(app, resolver):
+    return SimpleNamespace(app=app, resolver=resolver, authorize=lambda ctx, operation, uow: None)
 
 
 def agent_ctx(*, business_id=None, allowed=(A, B), principal_id=AGENT):
@@ -84,7 +83,7 @@ class StartupInventoryContextTests(unittest.TestCase):
     def test_authenticated_agent_refreshes_its_own_context_without_resolving_again(self):
         app, resolver = App({A, C}), Resolver({A, B})
         ctx = agent_ctx(allowed=(A, B))
-        inventory = StartupInventory(memory(app, resolver), ctx, AGENT, object())
+        inventory = StartupInventory(agent_context(app, resolver), ctx, AGENT, object())
         self.assertEqual(resolver.calls, [])
         self.assertEqual(app.refreshed, [ctx])
         # Refreshed scope decides: B is revoked and not restored, C is newly granted.
@@ -97,13 +96,13 @@ class StartupInventoryContextTests(unittest.TestCase):
     def test_revoked_selected_project_is_not_restored(self):
         app, resolver = App({A}), Resolver({A, B})
         with self.assertRaises(DomainError) as raised:
-            StartupInventory(memory(app, resolver), agent_ctx(business_id=B), AGENT, object())
+            StartupInventory(agent_context(app, resolver), agent_ctx(business_id=B), AGENT, object())
         self.assertEqual(raised.exception.code, 'forbidden')
         self.assertEqual(resolver.calls, [])
 
     def test_selected_project_scope_is_unchanged(self):
         app = App({A, B})
-        inventory = StartupInventory(memory(app, Resolver(())), agent_ctx(business_id=A), AGENT, object())
+        inventory = StartupInventory(agent_context(app, Resolver(())), agent_ctx(business_id=A), AGENT, object())
         self.assertEqual(inventory.scopes, [A])
         self.assertEqual(inventory.ctx.business_id, A)
 
@@ -111,7 +110,7 @@ class StartupInventoryContextTests(unittest.TestCase):
         app, resolver = App({A, B}), Resolver({A, B})
         owner = InvocationContext(Principal(OWNER, 'human'), business_id=A, allowed_business_ids=frozenset({A, B}),
                                   source='mcp')
-        inventory = StartupInventory(memory(app, resolver), owner, AGENT, object())
+        inventory = StartupInventory(agent_context(app, resolver), owner, AGENT, object())
         self.assertEqual(resolver.calls, [(Principal(AGENT, 'agent'), A)])
         self.assertEqual(len(app.refreshed), 1)
         self.assertEqual(app.refreshed[0].principal_id, AGENT)
@@ -120,7 +119,7 @@ class StartupInventoryContextTests(unittest.TestCase):
 
     def test_a_different_agent_identity_still_resolves_the_target_agent(self):
         app, resolver = App({A}), Resolver({A})
-        inventory = StartupInventory(memory(app, resolver), agent_ctx(principal_id=OTHER_AGENT), AGENT, object())
+        inventory = StartupInventory(agent_context(app, resolver), agent_ctx(principal_id=OTHER_AGENT), AGENT, object())
         self.assertEqual(resolver.calls, [(Principal(AGENT, 'agent'), None)])
         self.assertEqual(inventory.ctx.principal_id, AGENT)
         self.assertEqual(inventory.ctx.delegation_binding_id, None)
@@ -129,7 +128,7 @@ class StartupInventoryContextTests(unittest.TestCase):
     def test_pages_refresh_every_scope_and_return_the_same_shape(self):
         app = App({A, C})
         ctx = agent_ctx(allowed=(A, B))
-        inventory = StartupInventory(memory(app, Resolver(())), ctx, AGENT, object())
+        inventory = StartupInventory(agent_context(app, Resolver(())), ctx, AGENT, object())
         page = inventory.page(limit=5)
         # One refresh for construction, then one per queue and scope.
         self.assertEqual(len(app.refreshed), 1 + 2 * 3)

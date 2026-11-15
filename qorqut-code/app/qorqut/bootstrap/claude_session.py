@@ -179,11 +179,9 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
         raise DomainError("invalid_bootstrap", "Work briefing must be text")
     if (response.get('work_briefing', {}).get('compact')
             and len(context) + len(briefing) + reminder_size + 2 > BOOTSTRAP_BUDGET):
-        # Preserve mandatory rules and runtime consumer binding in full. Memory
+        # Preserve mandatory rules and runtime consumer binding in full. The briefing
         # is an optional projection and remains available through its scoped tool.
-        briefing = instructions.render("startup-inventory")
-        if len(context) + len(briefing) + reminder_size + 2 > BOOTSTRAP_BUDGET:
-            briefing = ''
+        briefing = ''
     if briefing:
         context += "\n\n" + briefing
     inventory = bootstrap_environment_context(response.get("environment"), instructions=instructions,

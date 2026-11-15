@@ -8,14 +8,14 @@ Every document operation has exactly one owner and is registered by it:
 * ``qorqut_operations.documents.journal.JournalOperations`` (Operations): ``journal_entries_list``, ``journal_entry_get``;
 * ``qorqut_context.integration.filing.operations.FilingOperations`` (Context): ``context_upload``, ``notes_upload``,
   ``journal_upload_to_filer``, ``context_retry``, ``context_retract``, ``context_filing_receipt``;
-* ``plans.PlanOperations`` (host, permanent): ``plans_*``, ``shared_instructions_update``;
+* ``shared_instructions.SharedInstructions`` (host, permanent): ``shared_instructions_update``;
 * ``business_config.BusinessConfigOperations`` (the host's binding of ``qorqut_operations.projects.settings_operations``, which owns the
   generic Project settings operations; the host supplies only its guards through ``HostSettings``): ``business_config_*``.
 
 The aggregate holds no behavior of its own. The attributes other host code reads (``store``, ``library``, ``filing``, ``clock``)
-and the few filing projections they share are plain, explicit delegations; there is no attribute forwarding. The working
-memory and the published Context reader are host services built after the documents; ``register`` takes them explicitly, so a
-composition that forgot either fails here instead of silently skipping a check."""
+and the few filing projections they share are plain, explicit delegations; there is no attribute forwarding. The published
+Context reader is a host service built after the documents; ``register`` takes it explicitly, so a composition that forgot it
+fails here instead of silently skipping a check."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ from qorqut_context.integration.filing.publication import ContextPublication
 from qorqut.composition.locations import agent_workspace, document_root, scope_root
 from qorqut.management.identity import configured_ordubashy
 from .business_config import BusinessConfigOperations
-from .plans import PlanOperations
+from .shared_instructions import SharedInstructions
 
 
 class DocumentOperations:
@@ -54,16 +54,16 @@ class DocumentOperations:
             global_upload_agent=lambda uow: configured_ordubashy(uow))
         self.business_config = BusinessConfigOperations(paths, clock=clock)
         self.journal = JournalOperations(self.store, lambda uow: configured_ordubashy(uow), sources=self.sources)
-        self.plans = self.working_memory = self.shared_context = None
+        self.shared_instructions = self.shared_context = None
 
-    def register(self, registry, application, *, working_memory, shared_context):
-        if working_memory is None or shared_context is None:
-            raise TypeError("The document domain needs the host's working memory and published Context reader to register")
-        self.working_memory, self.shared_context = working_memory, shared_context
-        self.plans = PlanOperations(self.sources, working_memory)
+    def register(self, registry, application, *, shared_context):
+        if shared_context is None:
+            raise TypeError("The document domain needs the host's published Context reader to register")
+        self.shared_context = shared_context
+        self.shared_instructions = SharedInstructions(self.sources)
         self.sources.register(registry, application)
         self.filing_operations.register(registry)
-        self.plans.register(registry)
+        self.shared_instructions.register(registry)
         self.business_config.register(registry)
         self.journal.register(registry)
         return self

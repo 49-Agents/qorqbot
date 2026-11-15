@@ -17,7 +17,7 @@ from .context import MAX_CONTEXT_CHARACTERS
 
 UNAVAILABLE = {"forbidden", "policy_denied", "not_found", "operation_unavailable",
                "scope_required", "document_unavailable", "document_conflict",
-               "context_unavailable", "context_index_unavailable", "busy", "memory_drift", "memory_sources_unavailable"}
+               "context_unavailable", "context_index_unavailable", "busy"}
 
 GUIDANCE = (
     ("Tasks", ("tasks_list", "tasks_get", "tasks_create", "tasks_update", "tasks_assign", "tasks_comment", "tasks_complete",
@@ -27,7 +27,7 @@ GUIDANCE = (
     ("Tables", ("tables_list", "tables_get", "tables_rows_list", "tables_create", "tables_update", "tables_rows_write",
                 "tables_thread_get", "tables_comment", "tables_follow",
                 "crm_entries_list", "crm_entries_add", "crm_entries_update", "crm_entries_remove")),
-    ("Own plan and notes", ("plans_get", "plans_set", "notes_list", "notes_get", "notes_update")),
+    ("Own notes", ("notes_list", "notes_get", "notes_update")),
     ("Relationships", ("relationship_roles_list", "relationships_list", "relationships_get", "relationships_create", "relationships_update", "relationships_remove")),
     ("Context review", ("context_reviews_list", "context_review", "context_review_reopen")),
     ("Decisions and outcomes", ("signoffs_list", "signoffs_get")),
@@ -169,10 +169,6 @@ class _Briefing:
             people = self.read("assignees_list").get("assignees", [])
             self.add("Team", "Human collaborators", [p for p in people if p["kind"] == "human"],
                      reason="tasks can also be assigned to the owner or human teammates", read="assignees_list", limit=2000)
-        plan = self.read("plans_get").get("document")
-        if plan:
-            self.add("Own Plan", "Current registered plan", select(plan, ("id", "revision", "updated_at", "body")),
-                     reason="your written approach and priorities, not a replacement for task records", read="plans_get", limit=8000)
         if self.ctx.business_id:
             # Own work comes first, even for managers; broader work is explicitly labelled.
             for task in self.listing("tasks_list", "tasks", {"assignee_id": self.ctx.agent_id, "include_closed": False}, limit=40):
@@ -236,7 +232,7 @@ class _Briefing:
         # Reserve room for truthful omissions; never truncate the mandatory configuration.
         remaining = max(0, budget - len(header) - 5000)
         parts, counts, omitted = [header], {}, {}
-        quotas = {"Team": 6500, "Own Plan": 8500, "Current Work": 28000, "Decisions And Outcomes": 6500,
+        quotas = {"Team": 6500, "Current Work": 28000, "Decisions And Outcomes": 6500,
                   "Needs Context Review": 5000, "Associations": 6500, "Related Context": 16000}
         selected, deferred = {}, {}
         for section in quotas:

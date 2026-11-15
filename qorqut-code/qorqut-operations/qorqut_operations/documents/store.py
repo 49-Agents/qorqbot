@@ -191,7 +191,7 @@ class DocumentStore:
         if kind in JOURNAL_KINDS or before and before["kind"] in JOURNAL_KINDS:
             require_writer(builder.ctx, uow, builder.operation)
         if before and before['kind'] == 'plan' and before['metadata_json'].get('working_memory_id'):
-            raise DomainError('plan_migrated', 'Legacy plan is frozen; use working_memory_update')
+            raise DomainError('plan_migrated', 'Legacy plan is frozen')
         business_id = builder.ctx.business_id if business_id is UNSET else business_id
         business_notes.require_project_access(builder.ctx, before, kind, business_id)
         identity = identity or (before["id"] if before else new_id())

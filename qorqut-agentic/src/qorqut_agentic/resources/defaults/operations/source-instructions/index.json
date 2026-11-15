@@ -115,10 +115,6 @@
     },
     {
       "source": "host",
-      "path": "app/qorqut/agentic/assets/legacy-working-memory.md"
-    },
-    {
-      "source": "host",
       "path": "app/qorqut/agentic/assets/operation-batches.md"
     },
     {
@@ -204,10 +200,6 @@
     {
       "source": "host",
       "path": "app/qorqut/agentic/assets/viewbox-guidance.md"
-    },
-    {
-      "source": "host",
-      "path": "app/qorqut/agentic/assets/working-memory.md"
     },
     {
       "source": "host",
