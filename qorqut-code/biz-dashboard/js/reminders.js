@@ -35,12 +35,7 @@ function remLocalInput(value) {
   if (!value || !Number.isFinite(date.getTime())) return '';
   return `${date.getFullYear()}-${remPad(date.getMonth() + 1)}-${remPad(date.getDate())}T${remPad(date.getHours())}:${remPad(date.getMinutes())}`;
 }
-function remFormatTime(value, zone) {
-  if (!value || !Number.isFinite(Date.parse(value))) return '—';
-  const options = {weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZoneName: 'short'};
-  try { return new Intl.DateTimeFormat('en-US', {...options, ...(zone ? {timeZone: zone} : {})}).format(new Date(value)); }
-  catch (_) { return new Intl.DateTimeFormat('en-US', options).format(new Date(value)); }
-}
+function remFormatTime(value) { return relativeDueTime(value); }
 // Simple daily/weekly schedules map onto the existing five-field cron; anything else is edited as custom cron.
 function remCronParts(schedule) {
   const match = /^(\d{1,2}) (\d{1,2}) \* \* (\*|[0-6])$/.exec(String(schedule || '').trim());
@@ -205,6 +200,11 @@ function remindersDetailMount(host, initial, opts = {}) {
     box.append(actions);
     if (confirmCancel) box.append(node('p', 'muted rem-note', r.recurrence ? 'This stops the whole repeating reminder.' : 'This cancels the reminder.'));
     if (snoozeOpen) box.append(snoozePicker());
+    if (opts.reviewLayout) {
+      const body=node('div','rem-detail-body');
+      for (const child of [...box.children]) if (child!==actions) body.append(child);
+      box.prepend(body); box.append(actions);
+    }
   }
   function snoozePicker() {
     const picker = node('div', 'rem-snooze');
@@ -295,12 +295,14 @@ function remindersDetailMount(host, initial, opts = {}) {
 
 // A detail dialog for one reminder; closing it never changes the reminder.
 function remindersOpenDetail(reminder, opts = {}) {
-  return window.focusExpansion.open({title:'Reminder', mount(host, session) {
+  return window.focusExpansion.open({title:reminder.text || 'Reminder', mount(host, session) {
     let view, child;
+    const surface = host.closest('.agfocus-surface');
+    surface?.classList.add('agfocus-review-open', 'agfocus-reminder-open');
     const show = current => {
-      session.setTitle('Reminder');
+      session.setTitle(current.text || 'Reminder');
       host.replaceChildren();
-      view = remindersDetailMount(host, current, {...opts, onEdit: (item, editOpts) => {
+      view = remindersDetailMount(host, current, {...opts, reviewLayout:true, onChange:(next, op)=>{ if(next?.text)session.setTitle(next.text);opts.onChange?.(next,op); }, onEdit: (item, editOpts) => {
         view.dispose();
         remindersEditor(item, {...editOpts, host, session, onCancel: () => show(item), onSaved: saved => {
           if (saved) editOpts.onSaved?.(saved); show(saved || item);
@@ -309,7 +311,7 @@ function remindersOpenDetail(reminder, opts = {}) {
       session.setBeforeLeave(async () => !view.isBusy());
     };
     show(reminder);
-    return () => { view?.dispose(); child?.dispose?.(); opts.onClose?.(); };
+    return () => { view?.dispose(); child?.dispose?.(); surface?.classList.remove('agfocus-review-open', 'agfocus-reminder-open'); opts.onClose?.(); };
   }});
 }
 

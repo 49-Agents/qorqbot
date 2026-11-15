@@ -84,7 +84,7 @@ test('signoff pending-write check is scoped to content and includes uncertain re
 });
 
 test('Focus signoff host guards drafts and writes and keeps cancellation confirmation inline', async () => {
-  class Node { constructor(){this.children=[];this.isConnected=true;this.hidden=false;} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} setAttribute(){} focus(){} }
+  class Node { constructor(){this.children=[];this.isConnected=true;this.hidden=false;} closest(){return null;} prepend(...n){this.children.unshift(...n);} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} setAttribute(){} focus(){} }
   let spec, guard, viewOptions, dirty=false, pending=false, disposed=false;
   const context={window:{focusExpansion:{open(s){spec=s;return Promise.resolve({});}}},document:{createElement:()=>new Node()},embeddedAgentPane:true,
     sgCreateView(options){viewOptions=options;return {paint(){},dispose(){disposed=true;},hasUnsaved:()=>dirty,hasPendingWrite:()=>pending};}};
@@ -119,7 +119,7 @@ test('attention overflow opens without acknowledging unrelated unread entries', 
 });
 
 test('reminder Focus opening and disposal do not dismiss the reminder', async () => {
-  class Node { constructor(){this.children=[];this.isConnected=true;this.dataset={};} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){} getClientRects(){return [];} }
+  class Node { constructor(){this.children=[];this.isConnected=true;this.dataset={};} closest(){return null;} prepend(...n){this.children.unshift(...n);} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){} getClientRects(){return [];} }
   const calls=[]; let spec, guard;
   const reminder={reminder_id:'r',revision:2,state:'due',occurrence_id:'o',text:'Due'};
   const context={document:{createElement:()=>new Node(),dispatchEvent(){},addEventListener(){},removeEventListener(){}},window:{focusExpansion:{async open(s){spec=s;return {};}},addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,
@@ -149,7 +149,7 @@ test('embedded task and project signoff links dispatch canonical identity to par
 });
 
 test('uncertain reminder dismissal remains retryable after disposal with identical request', async () => {
-  class Node {constructor(){this.children=[];this.isConnected=true;this.dataset={};} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){} getClientRects(){return [];}}
+  class Node {constructor(){this.children=[];this.isConnected=true;this.dataset={};} closest(){return null;} prepend(...n){this.children.unshift(...n);} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){} getClientRects(){return [];}}
   const reminder={reminder_id:'r',business_id:'b',revision:7,state:'due',occurrence_id:'occ-1',text:'Due'};
   const writes=[];let tries=0;
   const context={document:{createElement:()=>new Node(),dispatchEvent(){},addEventListener(){},removeEventListener(){}},window:{addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,state:{session:{principal_id:'owner'},bizs:[{id:'b',slug:'project'}]},
@@ -213,7 +213,7 @@ test('reminder attempts require a fresh human owner and retain uncertain timeout
 });
 
 test('unconfirmed list recovers a disappeared reminder without writes on open', async () => {
-  class Node {constructor(){this.children=[];this.isConnected=true;} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} setAttribute(){} }
+  class Node {constructor(){this.children=[];this.isConnected=true;} closest(){return null;} prepend(...n){this.children.unshift(...n);} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} setAttribute(){} }
   let spec,session={principal_id:'owner',principal_kind:'human',is_owner:true},fail=true,writes=[];
   const context={document:{createElement:()=>new Node(),dispatchEvent(){}},Event:class{},embeddedAgentPane:true,
     window:{focusExpansion:{async open(s){spec=s;return {}; }},addEventListener(){},removeEventListener(){}},
@@ -288,7 +288,7 @@ test('separate side chat and attention hosts refresh, open and dispose with fall
 test('ordinary reminder Create prompts for retry or deliberate separate creation after an uncertain result', async () => {
   class Node {
     constructor(){this.children=[];this.isConnected=true;this.hidden=false;this.disabled=false;}
-    append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} setAttribute(){} focus(){}
+    closest(){return null;} prepend(...n){this.children.unshift(...n);} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} setAttribute(){} focus(){}
   }
   const makeHost=()=>{
     const host=new Node(),form=new Node(),message=new Node(),pending=new Node(),confirm=new Node(),save=new Node(),cancel=new Node(),stay=new Node(),discard=new Node();
@@ -329,7 +329,7 @@ test('ordinary reminder Create prompts for retry or deliberate separate creation
 });
 
 test('ordinary dismissal of a different recurring occurrence uses a separate request', async () => {
-  class Node {constructor(){this.children=[];this.isConnected=true;this.dataset={};} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){} getClientRects(){return [];}}
+  class Node {constructor(){this.children=[];this.isConnected=true;this.dataset={};} closest(){return null;} prepend(...n){this.children.unshift(...n);} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){} getClientRects(){return [];}}
   let current={reminder_id:'r',revision:4,state:'due',occurrence_id:'one',text:'Repeat'}, key=0;const writes=[];
   const context={document:{createElement:()=>new Node(),dispatchEvent(){},addEventListener(){},removeEventListener(){}},window:{addEventListener(){},removeEventListener(){}},Event:class{},embeddedAgentPane:true,
     state:{session:{principal_id:'owner'},bizs:[]},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),newRequestId:()=>`key-${++key}`,

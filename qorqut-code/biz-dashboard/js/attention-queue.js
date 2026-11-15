@@ -18,6 +18,95 @@ const attentionQueue=(()=>{
     catch (_) { if(request===recoveryGeneration) recoveryError=remAttempts.size>0; }
     if(request===recoveryGeneration)paintSignoffs();
   }
+  let selected = null;
+  const resolved = new Set();
+  const entryKey = entry => `${entry.kind}:${entry.id}`;
+  const occurrenceKey = entry => entry.kind === 'signoff'
+    ? `${entryKey(entry)}:${entry.item.proposal_revision}:${entry.item.payload_hash}`
+    : `${entryKey(entry)}:${entry.item.occurrence_id}`;
+  const entries = () => [
+    ...[...dueReminders].sort((a,b)=>(Date.parse(a.due_at || a.at)||0)-(Date.parse(b.due_at || b.at)||0))
+      .map(item=>({kind:'reminder',id:item.reminder_id,item})),
+    ...[...signoffs.filter(s=>!toRead(s)),...signoffs.filter(toRead)]
+      .map(item=>({kind:'signoff',id:item.id,item})),
+  ];
+  const chipKey = chip => chip.dataset.reminderKey ? `reminder:${chip.dataset.reminderKey}` : `signoff:${chip.dataset.signoffKey}`;
+  function paintSelection() {
+    for (const host of signoffMounts.keys()) for (const chip of host.querySelectorAll?.('[data-signoff-key],[data-reminder-key]') || []) {
+      if (selected?.host === host && selected.key === chipKey(chip)) chip.setAttribute('aria-current','true');
+      else chip.removeAttribute('aria-current');
+    }
+  }
+  function clearSelection(session) {
+    if (selected !== session) return;
+    selected = null; paintSelection();
+  }
+  async function finishEntry(session) {
+    if (session.resolved) return;
+    session.resolved = true;
+    const before = entries(), order = before.some(entry=>entryKey(entry)===session.key) ? before.map(entryKey) : session.order;
+    const index = order.indexOf(session.key);
+    resolved.add(occurrenceKey(session.entry));
+    dueReminders = dueReminders.filter(item=>!resolved.has(occurrenceKey({kind:'reminder',id:item.reminder_id,item})));
+    signoffs = signoffs.filter(item=>!resolved.has(occurrenceKey({kind:'signoff',id:item.id,item})));
+    paintSignoffs();
+    await session.opening;
+    // A late completion never takes over another selection, a closed surface, or a hidden tab.
+    if (selected === session && session.host.isConnected && session.handle?.isCurrent?.() && !document.hidden) {
+      await session.handle.close();
+      if (!session.handle.isCurrent() && (!selected || selected === session)) {
+        clearSelection(session);
+        const pending = entries(), candidates = [...order.slice(index+1),...order.slice(0,index)];
+        const next = candidates.map(key=>pending.find(entry=>entryKey(entry)===key)).find(Boolean) || pending[0];
+        if (next) await selectEntry(next,session.host);
+        else if (!signoffsError && !remindersError) toast('All caught up.');
+      }
+    }
+    void refreshSignoffs(); void refresh();
+  }
+  function selectedSignoff(session,item) {
+    if (session.resolved || !item) return;
+    const next = {kind:'signoff',id:item.id,item};
+    if (occurrenceKey(next) !== occurrenceKey(session.entry)) {
+      const oldKey = session.key, index = signoffs.findIndex(s=>s.id===session.entry.id);
+      resolved.add(occurrenceKey(session.entry));
+      signoffs = signoffs.filter(s=>s.id!==session.entry.id && s.id!==item.id);
+      session.entry = next; session.key = entryKey(next);
+      session.order = session.order.map(key=>key===oldKey?session.key:key);
+      if (item.state === 'pending') signoffs.splice(index<0?signoffs.length:index,0,item);
+      paintSignoffs();
+    }
+  }
+  async function selectEntry(entry,host) {
+    if (selected?.host === host && selected.key === entryKey(entry) && selected.handle?.isCurrent?.()) return;
+    const previous = selected, session = {entry,host,key:entryKey(entry),order:entries().map(entryKey),handle:null};
+    selected = session; paintSelection();
+    const hooks = {onClose:()=>clearSelection(session),onResolved:()=>void finishEntry(session),onSelectedItem:item=>selectedSignoff(session,item)};
+    session.opening = (async()=>{
+      const item = entry.item, mount = signoffMounts.get(host);
+      if (entry.kind === 'reminder') return remindersOpenDetail(item,{onClose:hooks.onClose,onChange:(next,op)=>{
+        if (next && (next.state !== 'due' || next.occurrence_id !== item.occurrence_id)) hooks.onResolved();
+        if (op !== 'reminders_get') void refreshSignoffs();
+      }});
+      if (mount?.opener) return mount.opener({type:'signoff',id:item.id,title:item.title,label:item.title,
+        review_business_id:item.review_business_id??null,business_id:item.review_business_id??null,
+        category:item.category,review_scope:item.review_scope,status_revision:item.status_revision},hooks);
+      return sgFocusOpen(item.title || 'Signoff',{workspace:()=> 'scope:global',global:true,
+        category:item.category,item:()=>({id:session.entry.id,businessId:session.entry.item.review_business_id}),
+        waitingOnly:false,execution:true,onResolved:hooks.onResolved,onSelectedItem:hooks.onSelectedItem,
+        ...(item.proposal_revision != null && item.payload_hash ? {expectedBinding:{signoff_id:item.id,
+          proposal_revision:item.proposal_revision,payload_hash:item.payload_hash,actionable:item.actionable!==false}} : {})},
+        ()=>{hooks.onClose();void refreshSignoffs();});
+    })();
+    try {
+      session.handle = await session.opening;
+      if (!session.handle && selected === session) { selected = previous?.handle?.isCurrent?.()?previous:null; paintSelection(); }
+      else session.handle?.onDispose?.(hooks.onClose);
+    } catch (error) {
+      if (selected === session) { selected = previous?.handle?.isCurrent?.()?previous:null; paintSelection(); }
+      toast(error.message);
+    }
+  }
   const reminderIcon=typeof SG_BELL==='string' ? SG_BELL : '';
   const pinIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6l-1 6 4 4H6l4-4zM12 13v8"/></svg>';
   const viewedIds=item=>item.viewed_ids?.length?item.viewed_ids:[item.id];
@@ -107,9 +196,14 @@ const attentionQueue=(()=>{
       }
       const markup=(mount.sideChatHost?'':chats)+due+recovery+[...signoffs.filter(s=>!toRead(s)),...signoffs.filter(toRead)].map(s=>{const title=mount.name?.(s.id)||s.title,unread=signoffUnread(s.id);return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" data-unread="${unread}" aria-label="${toRead(s)?'Read':'Review'} ${esc(title)}${unread?' · Unread':''}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
       const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'')+(remindersError?'<button type="button" class="quiet" data-reminders-retry>Retry reminders</button>':'')+(calendarError?'<button type="button" class="quiet" data-calendar-retry title="'+esc(calendarError)+'">Retry calendar</button>':'');
-      if(host._signoffHTML!==html){host.innerHTML=html;host._signoffHTML=html;}
+      if(host._signoffHTML!==html){
+        const focused=document.activeElement, key=host.contains?.(focused) && focused?.matches?.('[data-signoff-key],[data-reminder-key]') ? chipKey(focused) : null;
+        host.innerHTML=html;host._signoffHTML=html;
+        if(key)[...host.querySelectorAll('[data-signoff-key],[data-reminder-key]')].find(chip=>chipKey(chip)===key)?.focus({preventScroll:true});
+      }
       host.hidden=!markup && !signoffsError && !remindersError && !calendarError;
     }
+    paintSelection();
   }
   async function loadSignoffs(){
     signoffsLoading=true;
@@ -123,13 +217,13 @@ const attentionQueue=(()=>{
         if(cursor && seen.has(cursor))throw new Error('Repeated signoff page');
         seen.add(cursor);
       }while(cursor);
-      signoffs=[...new Map(rows.filter(s=>s.state==='pending').map(s=>[s.id,s])).values()];signoffsError='';signoffOkAt=Date.now();
+      signoffs=[...new Map(rows.filter(s=>s.state==='pending' && !resolved.has(occurrenceKey({kind:'signoff',id:s.id,item:s}))).map(s=>[s.id,s])).values()];signoffsError='';signoffOkAt=Date.now();
     }catch(e){signoffsError=e.message;if(accessLost(e)){signoffs=[];signoffOkAt=0;}}
     finally{signoffsLoading=false;paintSignoffs();}
   }
   // A failed or denied reminder read keeps the last list; losing access hides reminders entirely.
   async function loadReminders(){
-    try{dueReminders=await remindersOwnerDue();remindersError='';}
+    try{dueReminders=(await remindersOwnerDue()).filter(item=>!resolved.has(occurrenceKey({kind:'reminder',id:item.reminder_id,item})));remindersError='';}
     catch(e){
       if(accessLost(e)){dueReminders=[];remindersError='';}
       else remindersError=e.message||'Reminders unavailable';
@@ -189,25 +283,11 @@ const attentionQueue=(()=>{
       if(row)void Promise.resolve(calendarOpen(row.event,calendarCalendars,()=>{},row.event,calendarChip)).catch(e=>toast(e.message));
       return;
     }
-    const reminderKey=event.target.closest('[data-reminder-key]')?.dataset.reminderKey;
-    if(reminderKey){
-      const reminder=dueReminders.find(r=>r.reminder_id===reminderKey);
-      if(reminder)remindersOpenDetail(reminder,{onChange:(next,op)=>{if(op!=='reminders_get' || next?.state!=='due' || next.occurrence_id!==reminder.occurrence_id)void refreshSignoffs();}});
-      return;
-    }
-    const key=event.target.closest('[data-signoff-key]')?.dataset.signoffKey,s=signoffs.find(item=>item.id===key);
-    if(!s)return;
-    const mount=signoffMounts.get(event.currentTarget);
-    if(mount?.opener){
-      // A caller may supply an opener that owns selection. It receives this canonical summary; without one the
-      // queue opens the standard Signoff review modal below from the same source identity.
-      const summary={type:'signoff',id:s.id,title:s.title,label:s.title,review_business_id:s.review_business_id??null,
-        business_id:s.review_business_id??null,category:s.category,review_scope:s.review_scope,status_revision:s.status_revision};
-      void Promise.resolve(mount.opener(summary)).catch(()=>{});
-      return;
-    }
-    void open({kind:'signoff',signoff_id:s.id,business_id:s.review_business_id,category:s.category,globalReview:true,proposal_revision:s.proposal_revision,payload_hash:s.payload_hash,actionable:s.actionable}).catch(e=>toast(e.message));
+    const chip=event.target.closest('[data-reminder-key],[data-signoff-key]');
+    const entry=chip && entries().find(item=>entryKey(item)===chipKey(chip));
+    if(entry)void selectEntry(entry,event.currentTarget);
   }
+
   async function loadQueue(){
     loading=true;const request=++generation;
     try{const data=coreData(await api('/root/attention-queue'));if(request===generation){acceptQueue(data);error='';queueOkAt=Date.now();}}
@@ -339,7 +419,7 @@ const attentionQueue=(()=>{
   return {signoffViewed,reminderViewed,viewboxViewed,refresh,refreshSignoffs,paintSignoffs,
     sideChat:id=>sideChats.find(s=>s.id===id) || null,
     mountSignoffs(host,name,opener,options={}){const sideChatHost=options.sideChatHost;const calendarListener=()=>void refreshSignoffs();if(typeof calendarChanges!=='undefined')calendarChanges.add(calendarListener);signoffMounts.set(host,{name,opener,sideChatHost,calendarListener});host.addEventListener('click',signoffClick);sideChatHost?.addEventListener('click',signoffClick);sideChatHost?.addEventListener('contextmenu',pinContextMenu);const pinWatch=typeof threadPins!=='undefined'?threadPins.subscribe(paintSignoffs):null;if(pinWatch && !threadPins.isLoaded())void threadPins.load();host.addEventListener('contextmenu',reminderContextMenu);paintSignoffs();void refreshSignoffs(true);void refresh(true);void refreshReminderRecovery();
-      return ()=>{if(typeof calendarChanges!=='undefined')calendarChanges.delete(calendarListener);signoffMounts.delete(host);host.removeEventListener('click',signoffClick);sideChatHost?.removeEventListener('click',signoffClick);sideChatHost?.removeEventListener('contextmenu',pinContextMenu);pinWatch?.();host.removeEventListener('contextmenu',reminderContextMenu);delete host._signoffHTML;if(sideChatHost)delete sideChatHost._signoffHTML;if(!signoffMounts.size){clearTimeout(signoffTimer);if(!mounts.size)clearTimeout(timer);}};},
+      return ()=>{if(typeof calendarChanges!=='undefined')calendarChanges.delete(calendarListener);if(selected?.host===host)clearSelection(selected);signoffMounts.delete(host);host.removeEventListener('click',signoffClick);sideChatHost?.removeEventListener('click',signoffClick);sideChatHost?.removeEventListener('contextmenu',pinContextMenu);pinWatch?.();host.removeEventListener('contextmenu',reminderContextMenu);delete host._signoffHTML;if(sideChatHost)delete sideChatHost._signoffHTML;if(!signoffMounts.size){clearTimeout(signoffTimer);if(!mounts.size)clearTimeout(timer);}};},
     mount(host){mounts.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);paint(host);void refresh(true);
     return ()=>{mounts.delete(host);host.removeEventListener('click',clicks);host.removeEventListener('contextmenu',dismiss);if(!mounts.size && !signoffMounts.size)clearTimeout(timer);};}};
 })();

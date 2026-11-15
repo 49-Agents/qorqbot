@@ -9,6 +9,7 @@ window.sgFocusOpen = (title, options, afterClose) => window.focusExpansion.open(
   let view, confirmation = null;
   const surface = host.closest('.agfocus-surface');
   surface?.classList.add('agfocus-signoff-open');
+  if (options.item) surface?.classList.add('agfocus-review-open');
   const notice = document.createElement('p'); notice.className='sg-notice'; notice.setAttribute('role','status'); notice.hidden=true;
   const prompt = document.createElement('div'); prompt.className='sg-focus-confirm'; prompt.hidden=true;
   const body = document.createElement('div'); body.className='sg-focus';
@@ -23,7 +24,11 @@ window.sgFocusOpen = (title, options, afterClose) => window.focusExpansion.open(
     prompt.append(text,cancel,confirm); cancel.focus();
     return new Promise(resolve=>{confirmation=resolve;});
   };
-  view=sgCreateView({...options, focusLayout:true, active:()=>session.isCurrent() && body.isConnected, body:()=>body, confirmExecutionCancel});
+  view=sgCreateView({...options, focusLayout:true, active:()=>session.isCurrent() && body.isConnected, body:()=>body, confirmExecutionCancel,
+    onSelectedItem(item) {
+      if (options.item) session.setTitle?.(item.title || item.preview?.title || title);
+      options.onSelectedItem?.(item);
+    }});
   session.setBeforeLeave(async()=>{
     if (confirmation) { notice.textContent='Finish or cancel the confirmation first.'; notice.hidden=false; return false; }
     if (view.hasPendingWrite()) { notice.textContent='Finish or check the pending signoff operation before leaving.'; notice.hidden=false; return false; }
@@ -31,7 +36,7 @@ window.sgFocusOpen = (title, options, afterClose) => window.focusExpansion.open(
     return true;
   });
   view.paint();
-  return ()=>{finish(false);view.dispose();surface?.classList.remove('agfocus-signoff-open');afterClose?.();};
+  return ()=>{finish(false);view.dispose();surface?.classList.remove('agfocus-signoff-open');surface?.classList.remove('agfocus-review-open');afterClose?.();};
 }});
 const SG_CLIPBOARD = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#eee" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg>';
 window.sgAttentionNavigate = async (slug, id) => {

@@ -642,6 +642,9 @@ function sgCreateView(options) {
       const next=coreData(await post(path(c.slug,s.id)+'/amend',edit.receipt)).signoff;
       if(!next || next.supersedes_id!==s.id || next.operation_name!==s.operation_name || next.review_business_id!==s.review_business_id)throw new Error('The saved revision could not be verified. Retry save to check it.');
       messageEdits.delete(s.id);
+      if (options.expectedBinding?.signoff_id === s.id) options.expectedBinding = {
+        signoff_id:next.id,proposal_revision:next.proposal_revision,payload_hash:next.payload_hash,actionable:next.actionable!==false
+      };
       if(current(c)) {
         // Invalidate reads started before this save so they cannot restore the old card.
         sg.listRequest++;sg.detailRequest++;sg.loading=false;sg.detailLoading=null;
@@ -758,6 +761,7 @@ function sgCreateView(options) {
     const error = sg.detailErrors.get(s.id), busy = sg.busy.get(busyKey(sg.slug, s));
     const verified = sg.verified.get(s.id) === s.status_revision;
     const canReview = expected(s) && verified && completePreview(s) && owner() && !sg.error && !error && !s.superseded_by_id;
+    if (verified && !messageEdits.has(s.id) && !reviewEdits.has(s.id)) options.onSelectedItem?.(s);
     if (!detail.querySelector(".sg-preview")) {
       detail.innerHTML = `<div class="sg-detail-body"><div class="sg-detailnotice"></div><div class="sg-attention-meta"></div><div class="sg-email-context"></div><div class="sg-preview"></div><div class="sg-choices"></div><div class="sg-savedresponse"></div>${options.focusLayout ? '<div class="sg-focus-details"></div>' : ""}<div class="sg-work" aria-label="Related work"></div><div class="sg-comment" hidden></div></div><div class="sg-detail-footer"><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div></div>`;
       if (!options.global && !options.inline) workRelatedChips(detail.querySelector('.sg-work'),sg.slug,'signoffs',s.id);
@@ -773,10 +777,10 @@ function sgCreateView(options) {
     const priorityText = attention.urgent || attention.blocking ? [attention.urgent ? 'Urgent' : '', attention.blocking ? 'Blocking' : '', `Set by ${attention.priority_updated_by_name || 'not recorded'}`].filter(Boolean).join(' · ') : '';
     const attentionText = [options.focusLayout ? '' : priorityText.replace(/ · Set by .*/, ''), attention.reason || '',
       options.focusLayout ? '' : priorityText ? `Set by ${attention.priority_updated_by_name || 'not recorded'}` : '',
-      attention.deadline ? `Deadline: ${stamp(attention.deadline)}` : '',
-      attention.snoozed_until && Date.parse(attention.snoozed_until) > Date.now() ? `Snoozed until ${stamp(attention.snoozed_until)}` : ''].filter(Boolean).join(' · ');
-    const chatAttention = [attention.deadline ? `Deadline: ${stamp(attention.deadline)}` : '',
-      attention.snoozed_until && Date.parse(attention.snoozed_until) > Date.now() ? `Snoozed until ${stamp(attention.snoozed_until)}` : ''].filter(Boolean).join(' · ');
+      attention.deadline ? `Deadline: ${relativeDueTime(attention.deadline)}` : '',
+      attention.snoozed_until && Date.parse(attention.snoozed_until) > Date.now() ? `Returns ${relativeDueTime(attention.snoozed_until)}` : ''].filter(Boolean).join(' · ');
+    const chatAttention = [attention.deadline ? `Deadline: ${relativeDueTime(attention.deadline)}` : '',
+      attention.snoozed_until && Date.parse(attention.snoozed_until) > Date.now() ? `Returns ${relativeDueTime(attention.snoozed_until)}` : ''].filter(Boolean).join(' · ');
     const shownAttention = options.chatLayout ? chatAttention : attentionText;
     html(detail.querySelector('.sg-attention-meta'), shownAttention ? `<p class="sg-notice">${esc(shownAttention)}</p>` : '');
     if (options.focusLayout) {
@@ -1148,6 +1152,11 @@ function sgCreateView(options) {
     reviewEdits.delete(receipt.id);
     sg.choices.delete(receipt.draftKey);
     if (window.sgAttentionRefresh) sgAttentionRefresh();
+    if (s.state !== 'pending' && !receipt.resolvedNotified) {
+      receipt.resolvedNotified = true;
+      // Run after the receipt has cleared the native pending-write and draft guards.
+      queueMicrotask(() => options.onResolved?.(s));
+    }
   }
   async function reconcile(receipt) {
     if (receipt.checking) return;
