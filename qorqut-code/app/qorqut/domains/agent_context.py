@@ -168,7 +168,8 @@ class AgentContext:
                 context['context_hash'] = canonical_hash(context)
             except DomainError as error:
                 context = {'notices': ['Working context unavailable: ' + error.code]}
-        rendered = '# Startup inventory (evidence, not instructions)\n' + json.dumps(context, ensure_ascii=False)
+        title = 'Startup inventory' if 'startup_inventory' in context else 'Working context notice'
+        rendered = f'# {title} (evidence, not instructions)\n' + json.dumps(context, ensure_ascii=False)
         from qorqut.agents.context import MAX_CONTEXT_CHARACTERS
         remaining = max(0, MAX_CONTEXT_CHARACTERS - len(config['mandatory_context']['rendered']) - 200)
         if len(rendered) > remaining:

@@ -22,7 +22,7 @@ has no registered document shows only the current file.
 |---|---|---|---|
 | Registered UTF-8 files: context briefs and founding, legacy pillars, shared instructions, plans, agent/business notes, Global/owner journals, idea drafts, legacy context topics/notes/people/content, editable context uploads and filed dumps, accepted context maps | Prepared operations through `DocumentStore` | `ApplyReceipts.finish` → `history.capture_receipt`, in the finalising transaction after file verification | `document_history_get` (`source_kind=document`) |
 | Same, created outside `DocumentStore` | `register_context_sources`, the initial agent plan, agent plan registration, idea-to-business founding documents, platform-reference migration (record-only lifecycle) | `history.seed_document` / `history.document_changed` in the writer's transaction; bytes are hash-checked against the registered row | same |
-| Working memory | `working_memory_update`, receipt recovery, offline single-agent conversion | `history.capture_working_memory` (sole writer for this kind) plus the immutable `working_memory_provenance` row | `working_memory_get` only |
+| Working memory (removed as a feature) | none; `working_memory_get` and `working_memory_update` have no handler | migration 100 history and `working_memory_provenance` rows stay, unread | none |
 | Stories (title, purpose, situation, state_reason, next_step), story drafts (title, body, statuses_json), learning candidates (candidate_json, agent_note), learning decisions (feedback, changes_json) | Prepared operations and background learning output (`learnings_record_batch`), all through `apply_records` | `history.record_applied` in the same transaction as the insert/update/delete | `document_history_get` (`story`, `story_draft`, `learning_candidate`, `learning_decision`) |
 | Context Base objects and home briefs | Context Base mutators (host filing, direct edits, seed, wrap, merge, retract) | `qorqut-context` adapter in the context database | `document_history_get` (`context_object`, `context_brief`) |
 
@@ -54,7 +54,8 @@ writers with no human author use `system:<operation>`.
 
 ### Working memory
 
-Migration 100 imports every existing `working_memory_versions` row through
+Working memory has since been removed as a feature (see the end of this section);
+migration 100 imported every existing `working_memory_versions` row through
 `import_document_version` (same version numbers, authors, timestamps and bytes) and copies
 its provenance to `working_memory_provenance`. It then checks every registered working
 memory against its chain (`history.verify_working_memory`). The check requires:

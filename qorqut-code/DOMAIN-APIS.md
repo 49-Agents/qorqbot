@@ -43,10 +43,10 @@ Business Materials additionally expose `material_type`, `origin`, and `tags`.
 accepts `material_id`, `changes: {material_type?, tags?}`, and an expected revision.
 It edits classification metadata only, never source bytes or permission policy.
 Tags replace the whole list. Raw uploads and published content
-have fixed types; origin is immutable. Notes/plans retain their dedicated tools.
+have fixed types; origin is immutable. Notes retain their dedicated tools; the old plan-file tools were removed.
 Asset bytes use the registered file target after scoped authorization. `notes_list`
 defaults to the agent's own notes or the human's business notes; `agent_id` selects
-same-business teammate reads. Agents may update only their own plans/notes.
+same-business teammate reads. Agents may update only their own notes.
 `notes_create.target_agent_id` is a worker-only, claimed-job output selector.
 
 Out-of-band authored edits are readable with `metadata_stale: true`. An update
@@ -71,7 +71,7 @@ evidence. See [Context Relativity](docs/CONTEXT-RELATIVITY.md) for the shared mo
 archive behavior, source fidelity and review semantics.
 
 MCP `context_list`, `context_search` and `context_get` use bounded library
-projections, excluding private Notes, agent plans and raw inbox/transcript files.
+projections, excluding private Notes and raw inbox/transcript files.
 Dashboard and worker document reads retain their full projections. Accepted
 context-bucket learnings enter the existing filer atomically with owner review;
 delta-bucket learnings use `learnings_work_*` state and note operations. See
