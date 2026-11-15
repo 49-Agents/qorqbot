@@ -170,6 +170,78 @@ const attentionQueue=(()=>{
   function acceptQueue(data){queueRows=data.items || [];items=distinctDestinations(queueRows);sideChats=data.side_chats || [];discardedKeys=new Set(data.discarded || []);}
   const calendarIcon=()=>typeof T_VIEW_ICON==='object' ? T_VIEW_ICON.calendar || '' : '';
   const calendarVisible=()=>{const now=Date.now();return calendarRows.filter(row=>row.appear<=now && !(row.retire<=now) && !discardedKeys.has(row.key) && !pendingDiscards.has(row.key));};
+  // The coordinator's timeline filings during the review trial: two or more collapse into one chip that opens them together.
+  const isFiling=s=>s.operation_name==='timeline_file';
+  const filingsChip=()=>{const list=signoffs.filter(isFiling);return `<button type="button" class="focus-signoff-chip focus-filings-chip" data-filings-group aria-label="Filings to review · ${list.length}" title="Filings to review (${list.length})">${signoffIcon(list[0])}<span class="focus-filings-count">${list.length}</span></button>`;};
+  // Each filing has its own Approve and Reject with an optional note to the coordinator; Approve all calls the ordinary approve
+  // route once per filing still waiting, in order. Each failure is reported against its own card.
+  function filingsOpen(){
+    return window.focusExpansion.open({title:'Filings to review',mount(host){
+      const box=document.createElement('div');box.className='filings-review';host.append(box);
+      const cards=new Map(),renderer=window.signoffMessageRenderer?.('timeline_file');
+      let busy=false,alive=true,summary='',loadError='';
+      const preview=c=>renderer?.preview(c.s.preview);
+      const approvable=c=>!!c.s && c.s.state==='pending' && !c.done && preview(c)?.ok===true;
+      const actions=c=>approvable(c)?`<div class="filing-actions"><input type="text" class="filing-note" data-filing-note maxlength="2000" placeholder="${c.s.rejection_requires_message?'Reason (required to reject)':'Note to the coordinator (optional)'}" aria-label="Note to the coordinator" value="${esc(c.note||'')}"${busy?' disabled':''}><button type="button" class="sg-reject" data-filing-decide="reject"${busy?' disabled':''}>Reject</button><button type="button" class="sg-approve" data-filing-decide="approve"${busy?' disabled':''}>Approve</button></div>`:'';
+      function paint(){
+        if(!alive)return;
+        const list=[...cards.values()],ready=list.filter(approvable).length;
+        box.innerHTML=`<div class="filings-bar"><button type="button" class="sg-approve" data-filings-approve-all${busy||!ready?' disabled':''}>${busy?'Working…':`Approve all (${ready})`}</button></div>`
+          +(loadError?`<p class="sg-notice" role="alert">${esc(loadError)}</p>`:'')+(summary?`<p class="sg-notice" role="status">${esc(summary)}</p>`:'')
+          +list.map(c=>`<section class="filing-card" data-filing="${esc(c.id)}"><h3>${esc(c.s?.title||'Filing')}</h3>${c.s?preview(c)?.html||'':''}${actions(c)}${c.status?`<p class="filing-status" role="status">${esc(c.status)}</p>`:''}</section>`).join('');
+      }
+      // One decision through the ordinary route; the answer must be this filing, no longer pending.
+      async function send(c,action,feedback){
+        const s=c.s;
+        const decided=coreData(await post('/root/signoffs/'+encodeURIComponent(c.id)+'/'+action,{proposal_revision:s.proposal_revision,payload_hash:s.payload_hash,expected_status_revision:s.status_revision,idempotency_key:newRequestId(),feedback}))?.signoff;
+        if(!decided || decided.id!==c.id || decided.state==='pending')throw new Error('the decision could not be verified');
+        c.done=true;
+      }
+      async function approveAll(){
+        if(busy)return;busy=true;summary='';paint();
+        let approved=0,failed=0;
+        for(const c of cards.values()){
+          if(!alive)break;
+          if(!approvable(c))continue;
+          try{await send(c,'approve',null);c.status='Approved';approved++;}
+          catch(e){c.status='Not approved: '+(e?.message||'the request failed');failed++;}
+          paint();
+        }
+        busy=false;summary=`${approved} approved${failed?`, ${failed} not approved`:''}.`;paint();void refreshSignoffs();
+      }
+      async function decide(c,action){
+        if(busy||!approvable(c))return;
+        const note=(c.note||'').trim()||null,reject=action==='reject';
+        if(reject && c.s.rejection_requires_message && !note){c.status='Add a reason to reject.';paint();return;}
+        busy=true;summary='';c.status=reject?'Rejecting…':'Approving…';paint();
+        try{await send(c,action,note);c.status=reject?'Rejected':'Approved';}
+        catch(e){c.status=(reject?'Not rejected: ':'Not approved: ')+(e?.message||'the request failed');}
+        busy=false;paint();void refreshSignoffs();
+      }
+      const card=target=>cards.get(target.closest('[data-filing]')?.dataset?.filing);
+      const click=event=>{
+        if(event.target.closest('[data-filings-approve-all]')){void approveAll();return;}
+        const button=event.target.closest('[data-filing-decide]'),c=button && card(button);
+        if(c)void decide(c,button.dataset.filingDecide==='reject'?'reject':'approve');
+      };
+      // The note is kept on its card so a repaint (another card's decision) does not lose what was typed.
+      const input=event=>{const field=event.target.closest?.('[data-filing-note]'),c=field && card(field);if(c)c.note=field.value;};
+      box.addEventListener('click',click);box.addEventListener('input',input);
+      (async()=>{
+        const ids=signoffs.filter(isFiling).map(s=>s.id);
+        for(const id of ids)cards.set(id,{id,s:null,status:'Loading…'});
+        paint();
+        await Promise.all(ids.map(async id=>{
+          const c=cards.get(id);
+          try{c.s=coreData(await api('/root/signoffs/'+encodeURIComponent(id))).signoff;c.status='';}
+          catch(e){c.status='Could not load this filing: '+(e?.message||'the request failed');}
+        }));
+        if(!ids.length)loadError='No filings are waiting.';
+        paint();
+      })();
+      return ()=>{alive=false;box.removeEventListener('click',click);box.removeEventListener('input',input);};
+    }});
+  }
   function paintSignoffs(){
     for(const [host,mount] of signoffMounts){
       if(!host.isConnected){signoffMounts.delete(host);continue;}
@@ -195,7 +267,8 @@ const attentionQueue=(()=>{
         const divider=chatHost.parentElement?.querySelector('.agfocus-divider');
         if(divider)divider.hidden=!chats;
       }
-      const markup=(mount.sideChatHost?'':chats)+due+recovery+[...signoffs.filter(s=>!toRead(s)),...signoffs.filter(toRead)].map(s=>{const title=mount.name?.(s.id)||s.title,unread=signoffUnread(s.id);return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" data-unread="${unread}" aria-label="${toRead(s)?'Read':'Review'} ${esc(title)}${unread?' · Unread':''}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
+      const grouped=signoffs.filter(isFiling).length>1;
+      const markup=(mount.sideChatHost?'':chats)+due+recovery+(grouped?filingsChip():'')+[...signoffs.filter(s=>!toRead(s) && !(grouped && isFiling(s))),...signoffs.filter(toRead)].map(s=>{const title=mount.name?.(s.id)||s.title,unread=signoffUnread(s.id);return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" data-unread="${unread}" aria-label="${toRead(s)?'Read':'Review'} ${esc(title)}${unread?' · Unread':''}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
       const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'')+(remindersError?'<button type="button" class="quiet" data-reminders-retry>Retry reminders</button>':'')+(calendarError?'<button type="button" class="quiet" data-calendar-retry title="'+esc(calendarError)+'">Retry calendar</button>':'');
       if(host._signoffHTML!==html){
         const focused=document.activeElement, key=host.contains?.(focused) && focused?.matches?.('[data-signoff-key],[data-reminder-key]') ? chipKey(focused) : null;
@@ -284,6 +357,7 @@ const attentionQueue=(()=>{
       if(row)void Promise.resolve(calendarOpen(row.event,calendarCalendars,()=>{},row.event,calendarChip)).catch(e=>toast(e.message));
       return;
     }
+    if(event.target.closest('[data-filings-group]')){void filingsOpen().catch(e=>toast(e.message));return;}
     const chip=event.target.closest('[data-reminder-key],[data-signoff-key]');
     const entry=chip && entries().find(item=>entryKey(item)===chipKey(chip));
     if(entry)void selectEntry(entry,event.currentTarget);

@@ -68,13 +68,13 @@ WORKSPACE_OPERATIONS = frozenset({"workspace_types", "workspace_get", "workspace
 # So do owner_inputs_list and owner_input_get, the read of the owner's own messages, and work_review_get, what was done.
 # So do thread_pins_list and thread_pins_set, the owner's pinned-threads row in Focus: the handler admits only the owner or the
 # configured coordinator in person, writes only the owner's file, and pins only a record the caller may read.
-# So do timeline_get and timeline_file, the timelines of Tasks, Projects and Global: the reader needs the ordinary read of the item, and
-# the handler admits only the configured coordinator in person to file.
+# So does timeline_get, the timelines of Tasks, Projects and Global: the reader needs the ordinary read of the item. timeline_file
+# is not here: it declares its own standing mode (approval during the trial) and the handler admits only the coordinator in person.
 CORE_DEFAULT_ALLOWED = frozenset({"environment_list", "operations_batch", "operations_describe", "agent_runtime_get",
                                   "working_memory_get", "working_memory_update", "agent_context_get",
                                   "agents_activity_list", "agent_work_update", "business_briefing", "files_link", "agentic_access",
                                   "records_health", "records_reconcile", "owner_inputs_list", "owner_input_get",
-                                  "work_review_get", "thread_pins_list", "thread_pins_set", "timeline_get", "timeline_file"})
+                                  "work_review_get", "thread_pins_list", "thread_pins_set", "timeline_get"})
 
 
 
