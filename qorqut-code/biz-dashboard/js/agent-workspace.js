@@ -164,7 +164,7 @@ function agentWorkspaceDefault(p) {
 }
 
 let agentWorkspaceDocument = null;
-let agentWorkspacePairedGeneration = 0, agentWorkspacePairedFrame = null;
+let agentWorkspacePairedGeneration = 0, agentWorkspacePairedRequest = 0, agentWorkspacePairedFrame = null;
 const AGENT_WORKSPACE_PRIVATE_TYPES = new Set(['task','table','reference','signoff','project']);
 function agentWorkspacePairedValidSource(source) {
   return !!source && AGENT_WORKSPACE_PRIVATE_TYPES.has(source.type) && typeof source.id === 'string'
@@ -181,45 +181,68 @@ function agentWorkspacePairedCurrent(child) {
 }
 // Same-origin request from the exact selected Focus frame. It has no transport fallback:
 // detached, stale, foreign or malformed callers are ignored.
-function agentWorkspacePairedRecord(child, source, parentTable = null) {
+async function agentWorkspacePairedRecord(child, source, parentTable = null) {
   if (!agentWorkspacePairedCurrent(child)) return false;
+  const previousGeneration = agentWorkspacePairedGeneration, previousFrame = agentWorkspacePairedFrame;
+  const finish = async (result, generation) => {
+    const restore = () => {
+      if (agentWorkspacePairedGeneration === generation) {
+        agentWorkspacePairedGeneration = previousGeneration; agentWorkspacePairedFrame = previousFrame;
+      }
+    };
+    try {
+      const accepted = await result;
+      if (accepted === false) restore();
+      return accepted;
+    } catch (error) { restore(); throw error; }
+  };
   if (source == null) {
-    const generation = ++agentWorkspacePairedGeneration;
+    const generation = agentWorkspacePairedGeneration = ++agentWorkspacePairedRequest;
     agentWorkspacePairedFrame = child === window ? null : child;
-    return globalAgentViewActive?.clearPairedSource?.(generation) ?? false;
+    return finish(globalAgentViewActive?.clearPairedSource?.(generation) ?? false, generation);
   }
   if (!agentWorkspacePairedValidSource(source)) return false;
   if (parentTable != null && (!agentWorkspacePairedValidSource({...parentTable, type: 'table'})
       || parentTable.type !== 'table' || source.type !== 'task')) return false;
-  const generation = ++agentWorkspacePairedGeneration;
+  const generation = agentWorkspacePairedGeneration = ++agentWorkspacePairedRequest;
   agentWorkspacePairedFrame = child === window ? null : child;
   const canonical = {type: source.type, id: source.id, business_id: source.business_id ?? null,
     label: typeof source.label === 'string' ? source.label.slice(0, 200) : null};
-  return globalAgentViewActive?.selectPairedSource?.(canonical, generation, () => {
-    if (generation === agentWorkspacePairedGeneration && agentWorkspacePairedCurrent(child)) {
-      if (typeof child.agentWorkspacePairedUnavailable === 'function') return child.agentWorkspacePairedUnavailable(canonical);
-      return agentWorkspacePairedRecord(child, null, null);
-    }
-    return false;
+  const live = () => generation === agentWorkspacePairedGeneration && agentWorkspacePairedCurrent(child);
+  return finish(globalAgentViewActive?.selectPairedSource?.(canonical, generation, async () => {
+    if (!live()) return false;
+    // The thread is independent of the record on the right: that record closes only if it is
+    // the same one, and the Chat area always leaves the thread that is gone.
+    if (typeof child.agentWorkspacePairedUnavailable === 'function') await child.agentWorkspacePairedUnavailable(canonical);
+    if (!live()) return false;
+    const cleared = await agentWorkspacePairedRecord(child, null, null);
+    if (cleared !== false && typeof toast === 'function') toast('This thread is no longer available.');
+    return cleared;
   }, ref => {
     if (generation === agentWorkspacePairedGeneration && agentWorkspacePairedCurrent(child))
       return child.agentWorkspacePairedReference?.(ref) ?? false;
     return false;
   }, () => {
-    // "Chat" above the thread closes the record on the right, which hands the Chat area back.
+    // Returning to the main chat leaves the record dashboard on the right intact.
     if (generation === agentWorkspacePairedGeneration && agentWorkspacePairedCurrent(child))
-      return child.agentWorkspacePairedClose?.() ?? false;
+      return agentWorkspacePairedRecord(child, null, null);
     return false;
-  }) ?? false;
+  }) ?? false, generation);
 }
 function agentWorkspacePairedDetach(frame) {
   if (!frame || frame !== agentWorkspacePairedFrame) return false;
   agentWorkspacePairedFrame = null;
-  const generation = ++agentWorkspacePairedGeneration;
+  const generation = agentWorkspacePairedGeneration = ++agentWorkspacePairedRequest;
   return globalAgentViewActive?.clearPairedSource?.(generation) ?? false;
+}
+// A thread in the Chat area that is still sending or holds an unsaved inline signoff. Leaving Focus
+// would close it, so every Focus leave guard waits for it instead.
+function agentWorkspacePairedBusy() {
+  return typeof globalAgentViewActive !== 'undefined' && globalAgentViewActive?.pairedCanLeave?.() === false;
 }
 window.agentWorkspacePairedRecord = agentWorkspacePairedRecord;
 window.agentWorkspacePairedDetach = agentWorkspacePairedDetach;
+window.agentWorkspacePairedBusy = agentWorkspacePairedBusy;
 function agentWorkspaceLoadDocument() {
   if (!agentWorkspaceDocument) agentWorkspaceDocument = fetch('/', {credentials: 'same-origin'})
     .then(response => {
@@ -365,6 +388,11 @@ function agentWorkspaceMount(p, view) {
 
 // Native editors retain their save/leave contract when hosted in a pane.
 async function agentWorkspaceCanLeave(p) {
+  // Leaving Focus closes the thread it opened in the Chat area, which must not drop a send or a signoff.
+  if ((p?.view === 'focus' || p?.workspaceFrame) && typeof agentWorkspacePairedBusy === 'function' && agentWorkspacePairedBusy()) {
+    if (typeof toast === 'function') toast(typeof PAIRED_THREAD_BUSY === 'string' ? PAIRED_THREAD_BUSY : 'Wait for the message to send, or save the signoff, before leaving this thread.');
+    return false;
+  }
   if (p?.view === 'focus' && !await agpadFocusCanLeave(p)) return false;
   if (p?.journalMount) return p.journalMount.flush();
   const child = p?.workspaceFrame?.contentWindow;

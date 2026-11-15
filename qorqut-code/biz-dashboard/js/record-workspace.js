@@ -286,6 +286,7 @@ function recordWorkspaceMount(host, options = {}) {
       <button type="button" class="quiet rw-back" aria-label="Back" hidden>← Back</button>
       <span class="rw-context" hidden>CRM /</span><span class="rw-title" role="heading" aria-level="2"></span>
       <button type="button" class="quiet rw-move" hidden>Move to project…</button>
+      <button type="button" class="quiet rw-open-thread" hidden>Open thread</button>
       <button type="button" class="quiet rw-pin" aria-pressed="false" hidden>${RW_PIN_ICON}</button>
       <div class="rw-tabs" role="tablist" aria-label="Record views"></div>${closeIcon}
     </header><div class="rw-body"><div class="rw-pane rw-dashboard" role="tabpanel" tabindex="0"></div><div class="rw-pane rw-activity" role="tabpanel" tabindex="0" hidden></div><div class="rw-pane rw-chat" role="tabpanel" tabindex="0" hidden><div class="agfocus-conversation rw-conversation"></div></div></div>`;
@@ -306,6 +307,15 @@ function recordWorkspaceMount(host, options = {}) {
     item.moveButton = item.recordEl.querySelector('.rw-move');
     item.moveButton.onclick = () => { void moveRecord(item); };
     paintMove(item);
+    const openThread = item.recordEl.querySelector('.rw-open-thread');
+    openThread.hidden = !(options.paired && options.independentChat && record.can_thread);
+    openThread.onclick = async () => {
+      if (openThread.disabled) return;
+      openThread.disabled = true;
+      try { await options.onPairedSource?.(item.record, item.pairedParent); }
+      catch (error) { toast(error.message || 'This thread is unavailable.'); }
+      finally { if (item.alive) openThread.disabled = false; }
+    };
     item.pinButton = item.recordEl.querySelector('.rw-pin');
     item.pinButton.onclick = () => { void togglePin(item); };
     item.unpinWatch = typeof threadPins !== 'undefined' ? threadPins.subscribe(() => paintPin(item)) : null;
@@ -689,7 +699,7 @@ function recordWorkspaceMount(host, options = {}) {
     }
   }
   async function pairedSelect(record, parentTable) {
-    if (!options.paired || typeof options.onPairedSource !== 'function') return true;
+    if (!options.paired || options.independentChat || typeof options.onPairedSource !== 'function') return true;
     return (await options.onPairedSource(record || null, parentTable || null)) !== false;
   }
   async function invalidate(record) {

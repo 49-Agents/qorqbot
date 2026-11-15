@@ -117,6 +117,8 @@ function globalChatViewToggle(terminal = false) {
 // Keep the current agent’s two views mounted across toggles; navigation/dispose releases both streams.
 // opts: {terminal: {key, base?}, isCurrent(): bool, onTerminalStatus(status), view: 'chat'|'terminal'}
 let globalAgentViewActive = null;
+// Shown when a thread in the Chat area cannot close yet (Chat, another thread, or leaving Focus).
+const PAIRED_THREAD_BUSY = 'Wait for the message to send, or save the signoff, before leaving this thread.';
 function agentViewDispose() { globalAgentViewActive?.dispose(); }
 function mountAgentView(pane, agent, opts) {
   agentViewDispose();
@@ -172,6 +174,7 @@ function mountAgentView(pane, agent, opts) {
       if (!chat) return false;
       return chat.clearPairedSource?.(generation) ?? false;
     },
+    pairedCanLeave() { return chat?.pairedCanLeave?.() ?? true; },
     dispose() {
     if (disposed) return;
     disposed = true; clearInterval(watcher);
@@ -718,6 +721,11 @@ function mountGlobalChat(pane, agent, options = {}) {
     node.querySelector('.gchat-takeover-back').onclick = () => onBack?.();
     return {node, head: node.firstElementChild, title: titleNode, body: node.lastElementChild};
   }
+  function pairedLeavable() {
+    if (pairedConversation?.canLeave?.() !== false) return true;
+    toast(PAIRED_THREAD_BUSY);
+    return false;
+  }
   function endTakeover(t) {
     if (!t || t.dead) return;
     t.dead = true;
@@ -744,6 +752,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     async selectPairedSource(source, generation, onUnavailable, onReference, onBack) {
       if (!live() || !source || !source.type || !source.id) return false;
       if (generation < pairedGeneration) return false;
+      if (pairedConversation?.canLeave?.() === false) return false;
       pairedGeneration = generation;
       if (takeover?.kind === 'side' && (!await leaveSide() || generation !== pairedGeneration || disposed)) return false;
       const biz=source.business_id == null ? null : (state.bizs || []).find(project =>
@@ -751,8 +760,28 @@ function mountGlobalChat(pane, agent, options = {}) {
       if(source.business_id != null && !biz)return false;
       pairedConversation?.dispose?.(); pairedConversation = null;
       endTakeover(takeover);
-      const shell = takeoverShell('paired', source.label || '', () => onBack?.());
-      takeover = {kind: 'paired', node: shell.node, dead: false, beforeLeave: null, cleanups: []};
+      let thread = null;
+      // Chat always returns to the main conversation from the thread it shows, even once the Focus
+      // view that opened it has gone; a send or unsaved signoff still keeps the thread open.
+      const shell = takeoverShell('paired', source.label || '', async () => {
+        if (!pairedLeavable()) return;
+        if (await onBack?.() !== false || takeover !== thread || thread.dead || disposed) return;
+        this.clearPairedSource();
+      });
+      takeover = thread = {kind: 'paired', node: shell.node, dead: false, beforeLeave: null, cleanups: []};
+      if (typeof threadPins !== 'undefined') {
+        const pin = document.createElement('button'); pin.type='button'; pin.className='quiet gchat-thread-pin';
+        pin.innerHTML=typeof RW_PIN_ICON==='string'?RW_PIN_ICON:'Pin';
+        const paintPin=()=>{const pinned=threadPins.isPinned(source);pin.setAttribute('aria-pressed',String(pinned));pin.title=pinned?'Unpin thread':'Pin thread';pin.setAttribute('aria-label',pin.title);};
+        pin.onclick=async()=>{pin.disabled=true;try{await threadPins.set(source,source.label,!threadPins.isPinned(source));}finally{pin.disabled=false;paintPin();}};
+        paintPin();shell.head.append(pin);takeover.cleanups.push(threadPins.subscribe(paintPin));
+        if(!threadPins.isLoaded())void threadPins.load();
+      }
+      if (onReference) {
+        const details=document.createElement('button');details.type='button';details.className='quiet gchat-thread-details';
+        details.textContent=source.type==='project'?'Open project':'Open details';
+        details.onclick=()=>onReference({...source});shell.head.append(details);
+      }
       pairedHost = document.createElement('div'); pairedHost.className = 'gchat-paired-record';
       shell.body.append(pairedHost);
       pane.replaceChildren(shell.node);
@@ -767,8 +796,10 @@ function mountGlobalChat(pane, agent, options = {}) {
       pairedConversation?.expand?.();
       return true;
     },
+    pairedCanLeave() { return pairedConversation?.canLeave?.() !== false; },
     clearPairedSource(generation) {
       if (generation != null && generation < pairedGeneration) return false;
+      if (pairedConversation?.canLeave?.() === false) return false;
       pairedGeneration = generation ?? pairedGeneration + 1;
       const hadPair = !!(pairedConversation || pairedHost);
       pairedConversation?.dispose?.(); pairedConversation = null; pairedHost = null;

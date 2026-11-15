@@ -97,3 +97,75 @@ test('opening a side chat from the Terminal view shows it in the Chat area', {sk
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });
+
+test('project details and pinned Chat threads open and close independently', {skip: !available}, async () => {
+  const browser = await chromium.launch({headless: true, executablePath: executable});
+  try {
+    const {page, errors} = await fixture(browser);
+    await page.addScriptTag({path: path.join(root, 'js/record-workspace.js')});
+    await page.addScriptTag({path: path.join(root, 'js/thread-pins.js')});
+    await page.evaluate(() => {
+      state.bizs=[{id:'demo',slug:'demo'}];window.taskTypeIcon=()=>'';window.T_VIEW_ICON={tasks:'',signoffs:''};
+      window.threadState={allow:true,disposed:0};
+      window.conversationMount=(host,source)=>{host.textContent='Thread '+source.id;return {canLeave:()=>threadState.allow,expand(){},dispose(){threadState.disposed++;host.replaceChildren();}};};
+      const originalPost=post;let pins=[];
+      window.post=async(url,body)=>{
+        if(url==='/root/thread-pins'){pins=body.pinned?[{source:body.source,title:body.title}]:[];return {threads:pins};}
+        if(url.endsWith('/project_record_get'))return {project:{id:body.project_id,name:'Demo',summary:'Synthetic project'}};
+        if(url.endsWith('/project_items_list'))return {items:[]};
+        return originalPost(url,body);
+      };
+      const originalApi=api;window.api=async url=>url==='/root/thread-pins'?{threads:pins}:originalApi(url);
+      const host=document.createElement('aside');host.id='project';document.body.append(host);
+      window._agpad={focusMount:host,workspaceRole:'ordubashy'};window.agfocusLeftChatReady=()=>true;let generation=0;
+      window.agfocusPairedSource=record=>controller.selectPairedSource({...record.source,label:record.label},++generation,()=>{},()=>{},()=>controller.clearPairedSource(++generation));
+      window.workspace=recordWorkspaceMount(host,{entry:'focus',paired:true,independentChat:true,onPairedSource:agfocusPairedSource});
+      window.record=rwRecordFromItem({source:{type:'project',id:'demo',business_id:'demo',label:'Demo'},can_thread:true});
+      window.openProject=()=>workspace.open(record,{root:true});
+    });
+    await page.evaluate(()=>openProject());
+    assert.equal(await page.locator('.gchat-paired-record').count(),0);
+    await page.click('.rw-open-thread');
+    await page.locator('.gchat-paired-record').waitFor();
+    await page.click('.gchat-thread-pin');
+    assert.equal(await page.evaluate(()=>threadPins.list().length),1);
+    await page.click('.rw-close');
+    assert.equal(await page.locator('.rw-record').count(),0);
+    assert.equal(await page.locator('.gchat-paired-record').textContent(),'Thread demo');
+    assert.equal(await page.evaluate(()=>threadState.disposed),0);
+    await page.evaluate(()=>{threadState.allow=false});
+    await page.click('.gchat-takeover-back');
+    assert.equal(await page.locator('.gchat-paired-record').count(),1);
+    await page.evaluate(()=>{threadState.allow=true});
+    await page.click('.gchat-takeover-back');
+    await page.locator('.gchat-msg').first().waitFor();
+    await page.evaluate(()=>threadPins.open(threadPins.list()[0]));
+    assert.equal(await page.locator('.rw-record').count(),0);
+    assert.equal(await page.locator('.gchat-paired-record').textContent(),'Thread demo');
+    assert.deepEqual(errors,[]);
+  } finally {await browser.close();}
+});
+
+test('Chat leaves a thread whose Focus view has gone, but not while it is busy', {skip: !available}, async () => {
+  const browser = await chromium.launch({headless: true, executablePath: executable});
+  try {
+    const {page, errors} = await fixture(browser);
+    await page.evaluate(() => {
+      window.threadState={allow:true,toasts:[]};window.toast=message=>threadState.toasts.push(message);
+      window.conversationMount=(host,source)=>{host.textContent='Thread '+source.id;return {canLeave:()=>threadState.allow,expand(){},dispose(){host.replaceChildren();}};};
+      // The Focus callback refuses once Focus has gone, as it does after the pane left Focus.
+      void controller.selectPairedSource({type:'project',id:'demo',label:'Demo'},1,()=>{},null,()=>false);
+    });
+    await page.locator('.gchat-paired-record').waitFor();
+    await page.evaluate(()=>{threadState.allow=false});
+    await page.click('.gchat-takeover-back');
+    assert.equal(await page.locator('.gchat-paired-record').count(),1);
+    assert.match((await page.evaluate(()=>threadState.toasts)).join('\n'),/before leaving this thread/);
+    assert.equal(await page.evaluate(()=>controller.pairedCanLeave()),false);
+    await page.evaluate(()=>{threadState.allow=true});
+    await page.click('.gchat-takeover-back');
+    await page.locator('.gchat-msg').first().waitFor();
+    assert.equal(await page.locator('.gchat-paired-record').count(),0);
+    assert.deepEqual(errors,[]);
+  } finally {await browser.close();}
+});
