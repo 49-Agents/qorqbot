@@ -33,7 +33,7 @@ Focused coverage: `app/tests/test_thread_views.py`, dashboard `tests/test_thread
 
 In Focus, opening a Project or another record opens its details on the right without replacing the current Chat. **Open thread** selects its conversation on the left. **Open project** (or **Open details**) in the thread header opens the record on the right. Closing the right-hand record leaves the thread and its draft in place; **Chat** in the thread header returns to the main conversation without closing the record.
 
-The pin button in either header saves that thread to the Focus row. Opening a pinned thread changes only the left Chat. Pins use the existing owner thread-pin preferences, and normal conversation access checks still apply. A pending send or unsaved inline signoff prevents leaving its thread; message drafts remain keyed by source when switching conversations.
+The pin button in either header saves that thread to the Focus row. Opening a pinned thread changes only the left Chat. Pins use the existing owner thread-pin preferences, and normal conversation access checks still apply. A pending send or unsaved inline signoff prevents leaving its thread, including leaving Focus for another view or agent, and says why; message drafts remain keyed by source when switching conversations. **Chat** in the thread header always returns to the main conversation, even after the Focus view that opened the thread has gone. A thread that becomes unavailable leaves the Chat area whether or not its record is open on the right. A Focus without a Chat area beside it (a permanent worker's) opens a pinned thread as its record, Chat first.
 
 ## Shared Chat presentation
 

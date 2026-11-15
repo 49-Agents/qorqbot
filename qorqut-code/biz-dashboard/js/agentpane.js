@@ -482,7 +482,8 @@ function agpadSetView(p, view, leaveChecked = false) {
     if (AGPAD_FOCUS_SURFACES.has(view)) return agpadSurfaceRequest(p, view, leaveChecked);
     if (view === "focus" && p.view === "focus" && p.surface) return agpadSurfaceClose(p);
   }
-  if (!leaveChecked && (p.workspaceFrame || p.journalMount || p.surface?.beforeLeave || p.focusWorkspace?.isOpen?.()) && typeof agentWorkspaceCanLeave === 'function') {
+  if (!leaveChecked && (p.workspaceFrame || p.journalMount || p.surface?.beforeLeave || p.focusWorkspace?.isOpen?.()
+      || (p.view === 'focus' && typeof agentWorkspacePairedBusy === 'function' && agentWorkspacePairedBusy())) && typeof agentWorkspaceCanLeave === 'function') {
     // Resume only against the exact screen the guard inspected: a replaced frame or Journal mount was
     // never checked for unsaved edits, so its own guard has to run instead of this one's result.
     const frame = p.workspaceFrame, journal = p.journalMount, surface = p.surface, priorView = p.view;

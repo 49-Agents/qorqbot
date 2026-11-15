@@ -32,13 +32,22 @@ const threadPins = (() => {
     writes = run.catch(() => {});
     return run;
   }
-  // A pinned thread opens only in Chat; the record dashboard keeps its own selection.
+  // Ordubashy opens a pinned thread only in the Chat area beside Focus, leaving the record on the right
+  // as it is. A Focus with no such Chat area (a permanent worker's) opens it as its record, Chat first.
   async function open(item) {
     const pane = typeof _agpad === 'undefined' ? null : _agpad;
     if (!pane || !pane.focusMount?.isConnected) return;
     try {
+      if (pane.workspaceRole !== 'ordubashy' || typeof agfocusLeftChatReady !== 'function' || !agfocusLeftChatReady()) {
+        const opened = await agfocusOpenTarget(pane, {source: {...item.source, label: item.title || null}, can_thread: true}, {root: true, paired: false});
+        if (opened === false && !pane.focusWorkspace?.isOpen?.()) toast('This thread is unavailable.');
+        return opened;
+      }
       const opened = await agfocusPairedSource({source:item.source,label:item.title || null},null);
-      if (opened === false) toast('This thread cannot open yet. Finish the current conversation action and try again.');
+      if (opened === false) {
+        const host = window.parent !== window ? window.parent : window;
+        toast(host.agentWorkspacePairedBusy?.() ? 'Wait for the message to send, or save the signoff, before leaving this thread.' : 'This thread is unavailable.');
+      }
       return opened;
     } catch (e) { toast(e.message || 'This thread is unavailable.'); return false; }
   }

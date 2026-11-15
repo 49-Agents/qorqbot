@@ -117,7 +117,7 @@ test('project details and pinned Chat threads open and close independently', {sk
       };
       const originalApi=api;window.api=async url=>url==='/root/thread-pins'?{threads:pins}:originalApi(url);
       const host=document.createElement('aside');host.id='project';document.body.append(host);
-      window._agpad={focusMount:host};let generation=0;
+      window._agpad={focusMount:host,workspaceRole:'ordubashy'};window.agfocusLeftChatReady=()=>true;let generation=0;
       window.agfocusPairedSource=record=>controller.selectPairedSource({...record.source,label:record.label},++generation,()=>{},()=>{},()=>controller.clearPairedSource(++generation));
       window.workspace=recordWorkspaceMount(host,{entry:'focus',paired:true,independentChat:true,onPairedSource:agfocusPairedSource});
       window.record=rwRecordFromItem({source:{type:'project',id:'demo',business_id:'demo',label:'Demo'},can_thread:true});
@@ -142,6 +142,30 @@ test('project details and pinned Chat threads open and close independently', {sk
     await page.evaluate(()=>threadPins.open(threadPins.list()[0]));
     assert.equal(await page.locator('.rw-record').count(),0);
     assert.equal(await page.locator('.gchat-paired-record').textContent(),'Thread demo');
+    assert.deepEqual(errors,[]);
+  } finally {await browser.close();}
+});
+
+test('Chat leaves a thread whose Focus view has gone, but not while it is busy', {skip: !available}, async () => {
+  const browser = await chromium.launch({headless: true, executablePath: executable});
+  try {
+    const {page, errors} = await fixture(browser);
+    await page.evaluate(() => {
+      window.threadState={allow:true,toasts:[]};window.toast=message=>threadState.toasts.push(message);
+      window.conversationMount=(host,source)=>{host.textContent='Thread '+source.id;return {canLeave:()=>threadState.allow,expand(){},dispose(){host.replaceChildren();}};};
+      // The Focus callback refuses once Focus has gone, as it does after the pane left Focus.
+      void controller.selectPairedSource({type:'project',id:'demo',label:'Demo'},1,()=>{},null,()=>false);
+    });
+    await page.locator('.gchat-paired-record').waitFor();
+    await page.evaluate(()=>{threadState.allow=false});
+    await page.click('.gchat-takeover-back');
+    assert.equal(await page.locator('.gchat-paired-record').count(),1);
+    assert.match((await page.evaluate(()=>threadState.toasts)).join('\n'),/before leaving this thread/);
+    assert.equal(await page.evaluate(()=>controller.pairedCanLeave()),false);
+    await page.evaluate(()=>{threadState.allow=true});
+    await page.click('.gchat-takeover-back');
+    await page.locator('.gchat-msg').first().waitFor();
+    assert.equal(await page.locator('.gchat-paired-record').count(),0);
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });
