@@ -20,27 +20,6 @@
     <ol class="steps" id="steps"></ol>
   </section>
 
-  <section class="card" id="checklist-card" hidden>
-    <h2 class="checklist-title">Needed to run Qorqbot</h2>
-    <ol class="steps" id="checklist-tools"></ol>
-    <div id="homebrew-block" hidden>
-      <p class="message">Homebrew is not installed. Install it from brew.sh first, then run the command below.</p>
-      <div class="actions spaced-bottom"><button data-action="open-homebrew">Open brew.sh</button></div>
-    </div>
-    <div id="checklist-command-block" hidden>
-      <p class="hint">Run this in Terminal:</p>
-      <pre id="checklist-command"></pre>
-      <div class="actions">
-        <button class="primary" data-action="copy-command">Copy Command</button>
-        <button data-action="open-terminal">Open Terminal</button>
-      </div>
-    </div>
-    <h2 class="checklist-title">Needed to chat with an agent</h2>
-    <p class="hint">Install one or both and sign in once in Terminal. You can do this later; the walkthrough shows when.</p>
-    <ol class="steps" id="checklist-agents"></ol>
-    <p class="hint checking">This list updates by itself. Qorqbot starts as soon as everything needed to run it is installed.</p>
-  </section>
-
   <section class="card" id="choice-card" hidden>
     <p class="message" id="choice-message"></p>
     <div class="actions" id="choice-buttons"></div>
@@ -48,14 +27,9 @@
 
   <section class="card error" id="error-card" hidden>
     <p class="message" id="error-message"></p>
-    <div id="command-block" hidden>
-      <pre id="command"></pre>
-    </div>
     <details id="detail-block" hidden><summary>Details</summary><pre id="detail"></pre></details>
     <div class="actions">
       <button class="primary" data-action="retry">Try Again</button>
-      <button data-action="copy-command" id="copy-command" hidden>Copy Command</button>
-      <button data-action="open-terminal" id="open-terminal" hidden>Open Terminal</button>
       <button data-action="copy-details">Copy Details</button>
       <button data-action="show-log">Show Log</button>
     </div>
@@ -73,7 +47,7 @@
     <details id="log-details"><summary>Progress log</summary><pre id="log"></pre></details>
   </section>
 
-  <p class="hint">Quit Qorqbot (&#8984;Q) to stop it. The <b>Server</b> menu can restart it, show logs or open your
+  <p class="hint" id="footer-hint" hidden>Quit Qorqbot (&#8984;Q) to stop it. The <b>Server</b> menu can restart it, show logs or open your
     install folder. <a href="#" data-action="help">How Qorqbot works</a></p>
 </main>
 <script src="status.js"></script>

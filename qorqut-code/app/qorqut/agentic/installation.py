@@ -133,7 +133,8 @@ def prepare_installation(export_root, selected_extensions):
         if not {"agentic.yaml", "SKILL.md"} <= preferences.keys():
             raise _failure("Missing required user preferences defaults")
         from qorqut import native_paths
-        git = (native_paths.executable("git") if native_paths.root() else shutil.which("git", path=os.defpath))
+        git = (native_paths.executable("git") if native_paths.root()
+               else native_paths.shipped("git") or shutil.which("git", path=os.defpath))
         if git is None:
             raise _failure("Git is required for agentic initialization")
         return {"inventory": inventory, "plan": plan, "seed": seed, "overseer_seed": overseer, "git": git,

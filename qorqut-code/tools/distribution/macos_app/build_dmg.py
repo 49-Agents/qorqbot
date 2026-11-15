@@ -2,8 +2,8 @@
 
 Build tooling only; runs on macOS with Node.js/npm. The app is an Electron shell
 (``electron/``) that installs, runs and shows the local Qorqbot server in its own
-window. It carries the archive unchanged in ``Contents/Resources/qorqbot-payload``
-and does not bundle Python, git or tmux.
+window. It carries the archive unchanged in ``Contents/Resources/qorqbot-payload``;
+a self-contained archive brings its own Python, git and tmux, so the app adds none.
 
 Signing: ``--identity -`` (default) applies an ad-hoc signature. Downloaded
 copies then show the Gatekeeper prompt once; users open it through System

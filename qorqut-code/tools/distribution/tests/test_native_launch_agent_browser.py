@@ -97,7 +97,8 @@ class AgentBrowserInstallTests(unittest.TestCase):
         name = native_launch.agent_browser_binary_name
         self.assertEqual(name('Darwin', 'arm64'), 'agent-browser-darwin-arm64')
         self.assertEqual(name('Linux', 'x86_64'), 'agent-browser-linux-x64')
-        self.assertIsNone(name('Darwin', 'x86_64'))
+        self.assertEqual(name('Darwin', 'x86_64'), 'agent-browser-darwin-x64')
+        self.assertIsNone(name('Linux', 'riscv64'))
         path, problem = self.install(FakeDownload(error=AssertionError('no download')), system='Linux', machine='ppc64le')
         self.assertIsNone(path)
         self.assertIn('not available', problem)
