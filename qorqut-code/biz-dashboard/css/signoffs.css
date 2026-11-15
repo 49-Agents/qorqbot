@@ -296,7 +296,7 @@
 .sg-focus .sg-choice > span:not(.sg-choice-marker):not(.sg-choice-name):not(.sg-choice-explanation) { display: none; }
 .sg-focus .sg-choice-marker { grid-row: 1 / span 2; margin-top: 1px; }
 .sg-focus .sg-choice-name { grid-column: 2; font-size: 14px; line-height: 20px; color: var(--fg); }
-.sg-focus .sg-choice-explanation { grid-column: 2; height: auto; display: block; overflow: visible; font-size: 14px; line-height: 1.55; color: var(--fg-2); }
+.sg-focus .sg-choice-explanation { grid-column: 2; height: auto; max-height: none; display: block; overflow: visible; font-size: 14px; line-height: 1.55; color: var(--fg-2); }
 .sg-focus .sg .sg-choice[aria-checked="true"] { border-color: var(--fg-2); }
 .sg-focus .sg-feedbackwrap { margin-top: 20px; }
 .sg-focus .sg-label { font-size: 12px; margin-bottom: 8px; }
