@@ -10,7 +10,7 @@ from qorqut import file_identity
 from qorqut.private_files import read_private_file
 from qorqut_agentic.store import Store, _verify_layout
 from qorqut_agentic.changes import package_ids_of
-from . import managed_binding, managed_feed, managed_files, managed_git, managed_intent, managed_journal
+from . import managed_binding, managed_feed, managed_files, managed_git, managed_intent, managed_journal, managed_verified
 from . import layout_git
 from .installation import MAX_RECORD, _validate_binding
 from .layout_activation import _validate_completed_record
@@ -31,7 +31,7 @@ def _identity(paths, record, expected):
             raise _conflict('Unsafe managed instance identity')
 
 
-def _load_node(paths, record, evidence, *, offline_read_only=False):
+def _metadata(record):
     metadata = record.get('managed_upgrade')
     if (not isinstance(metadata, dict) or set(metadata) != {'format_version', 'plan_digest', 'prior_binding_sha256',
                                                            'intent_sha256', 'resulting_commit'}
@@ -40,16 +40,24 @@ def _load_node(paths, record, evidence, *, offline_read_only=False):
                    for k in ('plan_digest', 'prior_binding_sha256', 'intent_sha256'))
             or not isinstance(metadata['resulting_commit'], str) or not re.fullmatch(r'[0-9a-f]{40}', metadata['resulting_commit'])):
         raise _conflict('Malformed managed binding metadata')
-    pd = metadata['plan_digest']
-    pair = evidence.get(pd)
-    if not pair or set(pair) != {'intent', 'journal'}:
-        raise _conflict('Managed completion evidence is missing')
+    return metadata
+
+
+def _read_node(paths, metadata, pair):
+    """The exact retained bytes of one node: prior binding, intent and journal."""
     prior_raw = read_private_file(history_snapshot(paths, metadata['prior_binding_sha256']), max_bytes=MAX_RECORD)
     if digest(prior_raw) != metadata['prior_binding_sha256']:
         raise _conflict('Managed prior binding changed')
     intent_raw = read_private_file(pair['intent'], max_bytes=MAX_INTENT_BYTES)
-    intent = managed_intent._read_retained(paths, intent_raw, prior_raw)
-    journal = managed_journal.read(pair['journal'])
+    journal_raw, journal = managed_journal.read_raw(pair['journal'])
+    return prior_raw, intent_raw, journal_raw, journal
+
+
+def _check_identities(paths, record, intent, journal):
+    """Current directories and Git match the retained identities, or an explicit copy receipt accepts them.
+
+    ``intent`` needs only ``plan.plan_digest``, ``plan.identity`` and ``receipt_sha256``.
+    """
     from .copy_identity import accepts
     copied = accepts(paths, record, intent, journal)
     for name, path in (('root', paths.agentic_root), ('state', paths.agentic_runtime)):
@@ -67,6 +75,24 @@ def _load_node(paths, record, evidence, *, offline_read_only=False):
             raise _conflict('Managed Git or authored root identity changed')
     finally:
         os.close(rootfd)
+
+
+def _check_ancestor(paths, commit):
+    runner = layout_git._runner(paths.agentic_root, history_directory(paths))
+    if runner.run(['merge-base', '--is-ancestor', commit, 'HEAD'], check=False,
+                  env={'GIT_NO_REPLACE_OBJECTS': '1'}, timeout=30).returncode != 0:
+        raise _conflict('Managed completion commit is not in current Git ancestry')
+
+
+def _load_node(paths, record, evidence, *, offline_read_only=False, _read=None):
+    metadata = _metadata(record)
+    pd = metadata['plan_digest']
+    pair = evidence.get(pd)
+    if not pair or set(pair) != {'intent', 'journal'}:
+        raise _conflict('Managed completion evidence is missing')
+    prior_raw, intent_raw, _, journal = _read if _read is not None else _read_node(paths, metadata, pair)
+    intent = managed_intent._read_retained(paths, intent_raw, prior_raw)
+    _check_identities(paths, record, intent, journal)
     if (intent['receipt_sha256'] != metadata['intent_sha256'] or intent['plan']['plan_digest'] != pd
             or journal['phase'] != 'complete' or journal['plan_digest'] != pd
             or journal['intent_sha256'] != intent['receipt_sha256']
@@ -106,10 +132,7 @@ def _load_node(paths, record, evidence, *, offline_read_only=False):
             raise _conflict('Managed event receipt differs')
     elif commit != intent['head'] or journal['git'] is not None or journal['feed'] is not None or journal['index_publication'] is not None:
         raise _conflict('Managed binding-only completion has file effects')
-    runner = layout_git._runner(paths.agentic_root, history_directory(paths))
-    if runner.run(['merge-base', '--is-ancestor', commit, 'HEAD'], check=False,
-                  env={'GIT_NO_REPLACE_OBJECTS': '1'}, timeout=30).returncode != 0:
-        raise _conflict('Managed completion commit is not in current Git ancestry')
+    _check_ancestor(paths, commit)
     candidate, candidate_raw, candidate_sha = managed_binding.derive(prior_raw, intent, commit)
     if record != candidate or journal['candidate_sha256'] != candidate_sha:
         raise _conflict('Managed candidate differs from retained proof')
@@ -156,6 +179,36 @@ def _load_node(paths, record, evidence, *, offline_read_only=False):
     return prior_raw, intent, journal, candidate_raw
 
 
+def _load_known_node(paths, record, metadata, journal, known):
+    """Current-state checks for a node whose exact retained bytes already passed ``_load_node``.
+
+    The skipped re-derivation depends only on those bytes. Everything that can change without them changing is
+    checked again here exactly as ``_load_node`` checks it: directory and Git identities (or the copy receipt), the
+    feed event, and that the resulting commit is still in the current Git ancestry.
+    """
+    pd = metadata['plan_digest']
+    if (known['plan_digest'] != pd or known['receipt_sha256'] != metadata['intent_sha256']
+            or journal['phase'] != 'complete' or journal['plan_digest'] != pd
+            or journal['intent_sha256'] != known['receipt_sha256']
+            or journal['prior_binding_sha256'] != metadata['prior_binding_sha256']):
+        raise _conflict('Managed completion evidence differs')
+    view = {'plan': {'plan_digest': pd, 'identity': known['identity']}, 'receipt_sha256': known['receipt_sha256']}
+    _check_identities(paths, record, view, journal)
+    commit = metadata['resulting_commit']
+    if known['changes']:
+        if journal['git'] is None or journal['git']['commit'] != commit or journal['feed'] is None:
+            raise _conflict('Managed Git proof is missing')
+        store = Store(paths.agentic_runtime)
+        with store.reader() as conn:
+            conn.execute('BEGIN')
+            _verify_layout(conn, '3')
+            managed_feed.verify_recorded_event(conn, journal['feed'])
+    elif journal['git'] is not None or journal['feed'] is not None or journal['index_publication'] is not None:
+        raise _conflict('Managed binding-only completion has file effects')
+    _check_ancestor(paths, commit)
+    return True
+
+
 def verify(paths, record, raw, *, layout_intents, layout_verified=None, offline_read_only=False):
     """Verify every complete node and reject orphan or incomplete retained operations."""
     evidence = managed_journal.discover(paths)
@@ -185,10 +238,14 @@ def _verify_chain(paths, record, raw, evidence, layout_intents, layout_verified,
                 or meta.get('instance_id') != initial.get('instance_id') or not meta.get('initialized_at')):
             raise _conflict('Managed runtime identity differs')
     cumulative = len(raw)
+    # Offline and read-only callers prove everything afresh and leave no cache behind.
+    known = None if offline_read_only else managed_verified.load(paths)
+    partial, checked_hash = False, None
     while 'managed_upgrade' in record:
         if len(hashes) >= _LIMIT:
             raise _conflict('Managed ancestry exceeds its bound')
-        current_hash = digest(raw)
+        # After the first node, raw is a prior binding whose bytes were already checked against this digest.
+        current_hash = checked_hash or digest(raw)
         if current_hash in hashes:
             raise _conflict('Managed ancestry contains a cycle')
         hashes.add(current_hash)
@@ -211,12 +268,39 @@ def _verify_chain(paths, record, raw, evidence, layout_intents, layout_verified,
                 raise _conflict('Managed ancestry evidence is missing') from exc
             if cumulative > MAX_INTENT_BYTES:
                 raise _conflict('Managed ancestry exceeds cumulative evidence bound')
-        prior_raw, intent, journal, candidate_raw = _load_node(paths, record, evidence, offline_read_only=offline_read_only)
-        if candidate_raw != raw:
-            raise _conflict('Managed candidate bytes differ')
+        if known is None:
+            prior_raw, intent, journal, candidate_raw = _load_node(paths, record, evidence, offline_read_only=offline_read_only)
+            if candidate_raw != raw:
+                raise _conflict('Managed candidate bytes differ')
+            record = json.loads(prior_raw, object_pairs_hook=_unique)
+        else:
+            node_metadata = _metadata(record)
+            read = _read_node(paths, node_metadata, pair)
+            prior_raw, intent_raw, journal_raw, journal = read
+            # _read_node checked the prior bytes against this digest.
+            key = managed_verified.node_key(paths, current_hash, node_metadata['prior_binding_sha256'], intent_raw, journal_raw)
+            entry = known.get(key)
+            try:
+                hit = entry is not None and _load_known_node(paths, record, node_metadata, journal, entry)
+            except Exception:
+                # The full proof below decides: it raises the real failure, or replaces a bad entry.
+                hit = False
+            if hit:
+                # Only the fields the walk reads; the base binding is parsed whole after the loop.
+                record, partial = dict(entry['prior']), True
+            else:
+                if partial:
+                    record = json.loads(raw, object_pairs_hook=_unique)
+                _, intent, _, candidate_raw = _load_node(paths, record, evidence, _read=read)
+                if candidate_raw != raw:
+                    raise _conflict('Managed candidate bytes differ')
+                record, partial = json.loads(prior_raw, object_pairs_hook=_unique), False
+                known[key] = managed_verified.facts(intent, record)
+                managed_verified.remember(paths, key, known[key])
         used.add(pd)
-        record = json.loads(prior_raw, object_pairs_hook=_unique)
-        raw = prior_raw
+        raw, checked_hash = prior_raw, metadata['prior_binding_sha256']
+    if partial:
+        record = json.loads(raw, object_pairs_hook=_unique)
     if set(evidence) != used:
         raise _conflict('Unfinished or orphan managed update requires explicit offline resume')
     _identity(paths, record, initial)
