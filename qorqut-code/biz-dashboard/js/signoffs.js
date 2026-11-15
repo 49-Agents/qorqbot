@@ -704,7 +704,10 @@ function sgCreateView(options) {
     if (s.platform?.available === false) return '<p class="sg-notice">This action’s integration is no longer installed. This is saved history; execution is disabled.</p>'
       + (preview?.rationale ? `<div class="sg-rationale"><p>${renderSafeLinks(preview.rationale)}</p></div>` : '')
       + (Array.isArray(preview?.changes) ? sgChangesHtml(preview) : '');
-    if (s.input) return sgIsAcknowledge(s) ? sgReportHtml(s.input.explanation) : sgInputExplanation(s.input.explanation);
+    // A daily report shows the timeline of its day under the text, so the text need not retell what was done.
+    if (s.input) return sgIsAcknowledge(s) ? sgReportHtml(s.input.explanation) + (s.request_key === 'daily-report' && typeof ownerTimelineReportMount === 'function'
+      ? `<section class="sg-report-timeline" data-report-timeline data-until="${esc(s.created_at || '')}" aria-label="Timeline of this report"></section>` : '')
+      : sgInputExplanation(s.input.explanation);
     if (!preview || !Array.isArray(preview.changes)) return "";
     const effects = (preview.effects || []).map(effect => typeof effect === "string" ? effect : effect && effect.description).filter(effect => typeof effect === "string");
     const proposal = sgProposal(s, effects);
@@ -781,6 +784,8 @@ function sgCreateView(options) {
       html(detail.querySelector('.sg-focus-details'), facts ? `<details><summary>Details</summary>${facts}</details>` : '');
     }
     if(!messageEdits.has(s.id) || !detail.querySelector(".sg-message-editor"))html(detail.querySelector(".sg-preview"), sgEmailOutcomeHtml(s) + previewHtml(s));
+    const reportTimeline = detail.querySelector('[data-report-timeline]');
+    if (reportTimeline && !reportTimeline.dataset.mounted) void ownerTimelineReportMount(reportTimeline);
     // The collapsed class must settle first so an expanding editor is measured while visible.
     const collapsible = compactEmail && (sgIsEmail(s) || sgIsDraftReview(s));
     row.classList.toggle('sg-email-collapsed', collapsible && !emailExpanded.has(s.id));

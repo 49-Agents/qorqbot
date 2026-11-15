@@ -103,7 +103,7 @@ function agentTimelineMount(p) {
   if (!body || !p.agentId || !agentPaneViewAllowed(p.workspaceRole, 'timeline')) return;
   body.innerHTML = `<section class="agent-timeline" aria-label="Ordubashy action timeline">
     <header class="agent-timeline-header">
-      <h2 class="agent-timeline-heading">Timeline</h2>
+      <div class="agent-timeline-title"><h2 class="agent-timeline-heading">Timeline</h2>${typeof ownerTimelineToggleHtml === 'function' ? ownerTimelineToggleHtml() : ''}</div>
       <div class="agent-timeline-nav" role="group" aria-label="Timeline date">
         <button type="button" class="quiet" data-day="previous" aria-label="Previous day" title="Previous day">${AGENT_TIMELINE_CHEVRON}</button>
         <input class="inp" type="date" aria-label="Action date" disabled>
@@ -118,7 +118,7 @@ function agentTimelineMount(p) {
     <button type="button" class="quiet" data-more hidden>Load more</button>
   </section>`;
   const root = body.firstElementChild;
-  const timeline = p.timeline = {root, date: p.timelineDate || '', ready: false, loading: false, seq: 0, next: 0, rows: null, cursor:null, cursors:new Set(), moreFailed:false, signature: '', error: ''};
+  const timeline = p.timeline = {root, date: p.timelineDate || '', ready: false, loading: false, seq: 0, next: 0, rows: null, cursor:null, cursors:new Set(), moreFailed:false, signature: '', error: '', messages: null, messagesAt: 0, messagesDate: '', messagesError: ''};
   root.addEventListener('click', event => {
     const button = event.target.closest('[data-evidence-key]');
     if (button && !button.disabled) void agentTimelineOpenEvidence(p, button);
@@ -128,6 +128,7 @@ function agentTimelineMount(p) {
     if (!date || date > sjToday()) { input.value = timeline.date; return; }
     p.timelineDate = timeline.date = date;
     timeline.rows = null; timeline.cursor=null; timeline.cursors.clear(); timeline.signature = ''; timeline.error = '';
+    timeline.messages = null; timeline.messagesAt = 0; timeline.messagesError = '';
     timeline.seq++; timeline.loading = false;
     root.querySelector('ol').innerHTML = '';
     void agentTimelineRefresh(p);
@@ -152,7 +153,10 @@ function agentTimelineMount(p) {
       timeline.loading = false; timeline.error = uiFailure(error, {load: true}); agentTimelinePaint(p);
     }
   };
-  p.workspaceDispose = () => { timeline.seq++; if (p.timeline === timeline) p.timeline = null; };
+  // Turning your messages on or off repaints at once; turning them on reads them if this day has not been read yet.
+  const toggled = () => { timeline.signature = ''; timeline.messagesAt = 0; agentTimelinePaint(p); void agentTimelineRefresh(p); };
+  document.addEventListener('owner-timeline-toggle', toggled);
+  p.workspaceDispose = () => { timeline.seq++; document.removeEventListener('owner-timeline-toggle', toggled); if (p.timeline === timeline) p.timeline = null; };
   const initialize = async () => {
     const seq = ++timeline.seq;
     timeline.error = ''; timeline.loading = true; agentTimelinePaint(p);
@@ -190,22 +194,28 @@ function agentTimelinePaint(p) {
   t.root.querySelector('[data-latest]').disabled = !t.ready || t.loading;
   t.root.querySelector('[data-zone]').textContent = t.ready ? SJ_ZONE : '';
   t.root.querySelector('[data-zone]').title = 'Times use the installation timezone. Newest first.';
+  const messages = agentTimelineMessages(t);
   t.root.querySelector('[data-status]').textContent = t.rows === null
     ? (t.loading ? 'Loading actions…' : '')
-    : t.rows.length ? `${t.rows.length} recorded action${t.rows.length === 1 ? '' : 's'}`
-      : 'No actions recorded for this day.';
+    : (t.rows.length ? `${t.rows.length} recorded action${t.rows.length === 1 ? '' : 's'}` : 'No actions recorded for this day.')
+      + (messages.length ? ` · ${messages.length} of your message${messages.length === 1 ? '' : 's'}` : '')
+      + (t.messagesError && agentTimelineShowsMessages() ? ` · ${t.messagesError}` : '');
   t.root.querySelector('.agent-timeline-empty').hidden = t.rows === null || t.rows.length > 0 || !!t.error;
   t.root.querySelector('.agent-timeline-error').hidden = !t.error;
   t.root.querySelector('[role="alert"]').textContent = t.error;
   t.root.querySelector('[data-retry]').disabled = t.loading;
   const more=t.root.querySelector('[data-more]');more.hidden=!t.cursor;more.disabled=t.loading;more.textContent=t.loading?'Loading…':'Load more';
   if (t.rows !== null) {
-    const signature = JSON.stringify(t.rows);
+    const signature = JSON.stringify([t.rows, messages]);
     if (signature !== t.signature) {
       // Keep evidence open when new activity arrives as well as on unchanged polls.
-      const expanded = new Set([...t.root.querySelectorAll('details[open]')].map(detail => detail.closest('[data-action-id]').dataset.actionId).filter(Boolean));
-      t.root.querySelector('ol').innerHTML = t.rows.map(agentTimelineRow).join('');
-      t.root.querySelectorAll('details').forEach(detail => { detail.open = expanded.has(detail.closest('[data-action-id]').dataset.actionId); });
+      // Your grouped messages keep their own open state the same way.
+      const key = detail => { const row = detail.closest('[data-action-id],[data-owner-message]'); return row ? row.dataset.actionId || 'message:' + row.dataset.ownerMessage : ''; };
+      const expanded = new Set([...t.root.querySelectorAll('details[open]')].map(key).filter(Boolean));
+      t.root.querySelector('ol').innerHTML = messages.length
+        ? ownerTimelineMerge(t.rows, messages).map(entry => entry.kind === 'action' ? agentTimelineRow(entry.action) : ownerTimelineRow(entry)).join('')
+        : t.rows.map(agentTimelineRow).join('');
+      t.root.querySelectorAll('details').forEach(detail => { detail.open = expanded.has(key(detail)); });
       t.signature = signature;
     }
   }
@@ -239,11 +249,38 @@ async function agentTimelineRefresh(p, more=false) {
     if(cursor)t.cursors.add(cursor);
     const rows=more?[...t.rows,...data.actions]:data.actions;
     t.rows=[...new Map(rows.map(row=>[row.action_id,row])).values()];t.cursor=data.next_cursor;
+    if(!more)await agentTimelineReadMessages(p,t,seq,date);
   } catch(error) {
     if(!agentTimelineCurrent(p,t)||seq!==t.seq)return;
     t.error=uiFailure(error,{load:true});
   } finally {
     if(agentTimelineCurrent(p,t)&&seq===t.seq){t.loading=false;t.next=Date.now()+AGPAD_POLL_MS;agentTimelinePaint(p);}
+  }
+}
+
+function agentTimelineShowsMessages() {
+  return typeof ownerTimelineIsShown === 'function' && ownerTimelineIsShown();
+}
+// Your messages for the shown day. While older actions are still unloaded, messages older than the oldest loaded action wait
+// for them, so a message never sits below actions that came before it.
+function agentTimelineMessages(t) {
+  if (!agentTimelineShowsMessages() || !Array.isArray(t.messages) || t.messagesDate !== t.date) return [];
+  if (!t.cursor || !t.rows?.length) return t.messages;
+  const oldest = Math.min(...t.rows.map(ownerTimelineActionAt));
+  return t.messages.filter(item => Date.parse(item.at) >= oldest);
+}
+// Messages are read at most once a minute: each read takes the text from the chat archive.
+async function agentTimelineReadMessages(p, t, seq, date) {
+  if (!agentTimelineShowsMessages() || (t.messagesDate === date && Date.now() - t.messagesAt < 60000)) return;
+  const start = sjInstant(date), end = Math.min(Date.now(), sjInstant(sjAddDays(date, 1)).getTime() - 1);
+  if (!Number.isFinite(start.getTime())) return;
+  try {
+    const items = await ownerTimelineLoad({since: start.toISOString(), until: new Date(end).toISOString()});
+    if (!agentTimelineCurrent(p, t) || seq !== t.seq) return;
+    t.messages = items; t.messagesDate = date; t.messagesAt = Date.now(); t.messagesError = '';
+  } catch (error) {
+    if (!agentTimelineCurrent(p, t) || seq !== t.seq) return;
+    t.messagesAt = Date.now(); t.messagesError = 'Your messages are unavailable';
   }
 }
 

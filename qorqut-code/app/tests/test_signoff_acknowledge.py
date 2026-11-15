@@ -60,6 +60,8 @@ class AcknowledgeTests(unittest.TestCase):
     def test_only_the_coordinator_posts_one(self):
         signoff = self.posted(self.coordinator())
         self.assertEqual((signoff['category'], signoff['input_kind'], signoff['state']), ('input_request', 'acknowledge', 'pending'))
+        # The dashboard tells a daily report from other reports by its request key.
+        self.assertEqual(signoff['request_key'], 'daily-report')
         # It is the owner's alone and announces itself without being asked to.
         self.assertEqual(signoff['input']['response_policy'], 'owner_only')
         self.assertEqual((signoff['attention']['notify'], signoff['attention']['urgent'], signoff['attention']['blocking']), (1, 0, 0))

@@ -224,6 +224,8 @@ class SignoffService:
         value["email_context"] = (self.ports.email.email_context(row,uow)
                                   if row["category"]=="input_request" and self.ports.email is not ABSENT else None)
         value["category"] = row["category"]
+        # The caller's own key for an input request (for example "daily-report"), so a reader can tell recurring kinds apart.
+        value["request_key"] = row["request_key"]
         value["input"] = row["preview_json"].get("input")
         if value["input"]:
             value["input_kind"] = value["input"].get("kind")
