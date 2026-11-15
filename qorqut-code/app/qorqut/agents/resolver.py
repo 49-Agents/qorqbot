@@ -859,6 +859,9 @@ class AgentConfigResolver:
             return {"ready": False, "effective_config_id": config.effective_config_id,
                     "error": {"code": "reprepare_required", "message": message},
                     "preparation": preparation}
+        delivery = getattr(self, 'timeline_delivery', None)
+        if delivery:
+            delivery.start(principal.id, session_id, event, last_effective_config_id)
         changed = last_effective_config_id != config.effective_config_id or data["context_refresh_required"]
         result = {"ready": True, "effective_config_id": config.effective_config_id, "agentic_catalog_revision": data["agentic_catalog_revision"], "refresh_required": changed,
                   "reload_skills": event != "prompt", "preparation": data["preparation"]}
@@ -888,6 +891,14 @@ class AgentConfigResolver:
                         rendered = 'Before work, finish agent_context_get(inventory=true) and agents_activity_list continuation pages; read your saved handoff.'
                     result['work_briefing'] = {**briefing, 'rendered': rendered,
                         'character_count': len(rendered), 'bundle_hash': content_hash(rendered.encode())}
+        if delivery and (event != "prompt" or changed):
+            # Global's timeline rides with the briefing and is recorded as sent to this conversation.
+            reserve = MAX_CONTEXT_CHARACTERS - len(data['mandatory_context']['rendered']) - 2048
+            held = delivery.brief(principal.id, session_id, reserve - len(result['work_briefing'].get('rendered', '')))
+            if held:
+                rendered = result['work_briefing'].get('rendered', '') + '\n\n' + held
+                result['work_briefing'] = {**result['work_briefing'], 'rendered': rendered,
+                    'character_count': len(rendered), 'bundle_hash': content_hash(rendered.encode())}
         # On every event, prompts included: the hook puts it first at startup and adds it to each prompt, so it reaches
         # the model even when a CLI shows only the start of a long startup context.
         management = getattr(self, 'management', None)

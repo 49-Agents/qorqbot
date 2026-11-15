@@ -88,6 +88,21 @@ def attention_binding(headers):
         raise DomainError('inbox_generation_stale', 'The native session binding is malformed') from None
     return session, number
 
+def conversation_id(headers, meta):
+    """The calling conversation, or None when it cannot be told. Never refuses: the bridge's native session when it sends
+    exactly one valid id, else the Codex thread of a shared app-server call. A timeline delivery only dedupes by it."""
+    sessions = headers.getlist('x-qorqut-native-session')
+    values = meta.model_dump() if hasattr(meta, 'model_dump') else meta
+    thread = values.get('threadId') if isinstance(values, dict) else None
+    for candidate in (sessions[0] if len(sessions) == 1 else None, thread):
+        try:
+            if isinstance(candidate, str) and str(UUID(candidate)) == candidate:
+                return candidate
+        except ValueError:
+            pass
+    return None
+
+
 OPTION_SCHEMAS = {
     "expected_revision": {"type": "integer", "minimum": 1},
     "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 200},
@@ -590,6 +605,20 @@ class MCPTransport:
                     "delegation_generation": context.delegation_generation}
                 presented = self.read_revalidation.present(requested=read_token, binding=binding,
                     canonical=result.to_dict(), presented=presented)
+            if canonical_name == "tasks_get" and result.status == "ok" and isinstance(self.caller, RegisteredAgentCaller):
+                # The timelines above the Task ride with the read: Global, the Project, each parent Task, the Task. Agent
+                # reads only; the dashboard's and internal reads of a Task stay as they are. Best effort after the read.
+                try:
+                    request = self.server.request_context
+                    task = (result.to_dict().get("data") or {}).get("task")
+                    delivery = getattr(self.runtime, "timeline_delivery", None)
+                    if delivery and isinstance(task, dict) and isinstance(presented.get("data"), dict) \
+                            and not presented["data"].get("not_modified"):
+                        chain = await anyio.to_thread.run_sync(delivery.chain, actor.principal.id,
+                            conversation_id(request.request.headers, request.meta), task)
+                        presented = {**presented, "data": {**presented["data"], "timeline": chain}}
+                except Exception:
+                    logger.exception("Timeline delivery failed for %s", request_id)
             if presented.get("status") == "ok":
                 self._report_transport_success(operation=canonical_name, request_id=request_id,
                     actor=actor, context=context)
