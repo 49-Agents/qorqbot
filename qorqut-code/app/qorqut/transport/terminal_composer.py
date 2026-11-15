@@ -64,6 +64,8 @@ FOOTER_PHRASES = (
     "plan mode", "bypass permissions", "auto-accept", "tokens", "/status", "? for",
     # Codex 0.166 keeps "⚠ N warnings · f2 to view" on its own bottom row while the composer holds text.
     "f2 to view",
+    # Claude Code 2.1 replaces its footer with this hint for a few seconds after it collapses a paste into a placeholder.
+    "paste again to expand",
 )
 # Codex's configurable status line (``  <model> · <directory>``), drawn in explicit 256-colour/RGB tints below the
 # composer and its blank separator row. Its colours are not the gray "dim" range, so it is recognized by shape instead.
