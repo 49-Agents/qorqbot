@@ -233,6 +233,15 @@ def catalog(extensions=()):
                 'category': Text(),
                 'execution_job_id': Text(nullable=True),
             }, ('id',)),
+            # The Task a read-and-acknowledge report belongs to: identities only, no report text.
+            TableExport('signoff_report_tasks', {
+                'signoff_id': Text(),
+                'task_id': Text(),
+                'task_business_id': Text(nullable=True),
+                'revision': Integer(),
+                'created_by': Text(),
+                'created_at': Text(),
+            }, ('signoff_id',)),
             TableExport('signoff_notes', {
                 'sequence': Integer(),
                 'id': Text(),
