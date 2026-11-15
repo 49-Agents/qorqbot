@@ -169,3 +169,49 @@ test('Chat leaves a thread whose Focus view has gone, but not while it is busy',
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });
+
+test('a report opens and pins the thread of the Task it belongs to', {skip: !available}, async () => {
+  const browser = await chromium.launch({headless: true, executablePath: executable});
+  try {
+    const {page, errors} = await fixture(browser);
+    await page.addScriptTag({path: path.join(root, 'js/record-workspace.js')});
+    await page.addScriptTag({path: path.join(root, 'js/thread-pins.js')});
+    await page.evaluate(() => {
+      state.bizs=[{id:'demo',slug:'demo'}];window.taskTypeIcon=()=>'';window.T_VIEW_ICON={tasks:'',signoffs:''};
+      window.conversationMount=(host,source)=>{host.textContent='Thread '+source.type+' '+source.id;return {canLeave:()=>true,expand(){},dispose(){host.replaceChildren();}};};
+      const originalPost=post;let pins=[];
+      window.post=async(url,body)=>{
+        if(url==='/root/thread-pins'){pins=body.pinned?[...pins.filter(p=>p.source.id!==body.source.id),{source:body.source,title:body.title}]:pins.filter(p=>p.source.id!==body.source.id);return {threads:pins};}
+        return originalPost(url,body);
+      };
+      const originalApi=api;window.api=async url=>url==='/root/thread-pins'?{threads:pins}:originalApi(url);
+      // The report view announces its Task once the Signoff has loaded; 'old' is a report from before Tasks were required.
+      window.rwDashboardMount=async(host,record,ctx)=>{host.textContent='Report '+record.source.id;
+        ctx.report(record.source.id==='old'?null:{id:'t1',business_id:'demo',title:'Launch'});return {dirty:()=>false};};
+      const host=document.createElement('aside');host.id='project';document.body.append(host);
+      window._agpad={focusMount:host,workspaceRole:'ordubashy'};window.agfocusLeftChatReady=()=>true;let generation=0;
+      window.agfocusPairedSource=record=>controller.selectPairedSource({...record.source,label:record.label},++generation,()=>{},()=>{},()=>controller.clearPairedSource(++generation));
+      window.workspace=recordWorkspaceMount(host,{entry:'focus',paired:true,independentChat:true,onPairedSource:agfocusPairedSource});
+      window.report=id=>rwRecordFromItem({source:{type:'signoff',id,business_id:'demo',label:'Launch report'},can_thread:true});
+    });
+    await page.evaluate(()=>workspace.open(report('r1'),{root:true}));
+    await page.locator('.gchat-paired-record').waitFor();
+    assert.equal(await page.locator('.gchat-paired-record').textContent(),'Thread task t1');
+    assert.equal(await page.locator('.rw-record [data-rw-tab="chat"]').count(),0);
+    assert.equal(await page.locator('.rw-open-thread').isVisible(),true);
+    await page.click('.rw-pin');
+    assert.deepEqual(await page.evaluate(()=>threadPins.list().map(p=>p.source)),[{type:'task',id:'t1',business_id:'demo'}]);
+    assert.equal(await page.locator('.rw-pin').getAttribute('aria-pressed'),'true');
+    await page.click('.gchat-takeover-back');
+    await page.locator('.gchat-msg').first().waitFor();
+    await page.click('.rw-open-thread');
+    await page.locator('.gchat-paired-record').waitFor();
+    assert.equal(await page.locator('.gchat-paired-record').textContent(),'Thread task t1');
+    // A report with no Task has no thread to open or pin.
+    await page.evaluate(()=>workspace.open(report('old'),{root:true}));
+    await page.waitForFunction(()=>document.querySelector('.rw-record .rw-dashboard')?.textContent==='Report old');
+    assert.equal(await page.locator('.rw-open-thread').isVisible(),false);
+    assert.equal(await page.locator('.rw-pin').isVisible(),false);
+    assert.deepEqual(errors,[]);
+  } finally {await browser.close();}
+});

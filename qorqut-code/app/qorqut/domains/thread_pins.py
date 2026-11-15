@@ -27,7 +27,7 @@ LIST_DESCRIPTION = (
 SET_DESCRIPTION = (
     "Owner and coordinator write. Pins or unpins one thread in the pinned-threads row at the top of the owner's Focus dashboard; "
     "this changes what the owner sees there, so use it only when the owner asks you to. source names the record whose thread "
-    "it is: type (for example task, table, project, signoff or focus_card), id, and business_id (the Project's id, or null "
+    "it is: type (task, project, table, reference or signoff), id, and business_id (the Project's id, or null "
     "for a Global record). pinned true pins it, false unpins it; the call sets that state and repeating it changes nothing. "
     "Pinning needs a record that exists and that you may read, and refuses otherwise; unpinning is always allowed. title is "
     "optional (at most 200 characters; the record's own title is used when omitted). At most 50 threads can be pinned, and a "
@@ -83,14 +83,25 @@ class ThreadPins:
         return {"kind": source["type"], "identity": source["id"], "business_id": source["business_id"]}
 
     def check(self, ctx, args, uow):
-        """The caller, and for a pin the record's title through the caller's own read; unpinning needs no read."""
+        """The caller, the source to store and its title. A pin reads the record through the caller's own read and stores the
+        record's canonical identity, so one record is never pinned twice under two spellings; unpinning needs no read."""
         reading = self.caller(ctx, uow)
+        given = args["source"]
         if not args["pinned"]:
-            return reading, args.get("title", "")
-        shown = reading.source(**self.key(args["source"]))
+            return reading, self.canonical(reading, given, uow) or given, args.get("title", "")
+        shown = reading.source(**self.key(given))
         if shown is None:
             raise DomainError("not_found", "This record does not exist or you may not read it, so its thread cannot be pinned")
-        return reading, args["title"] if "title" in args else (shown["title"] or "")[:200]
+        return reading, self.canonical(reading, given, uow) or given, args["title"] if "title" in args else (shown["title"] or "")[:200]
+
+    def canonical(self, reading, given, uow):
+        try:
+            _, resolved = self.runtime.private_conversations.resolve(reading.ctx, {"source": dict(given)}, uow)
+        except DomainError:
+            return None
+        if not isinstance(resolved, dict) or resolved.get("type") != given["type"] or not resolved.get("id"):
+            return None
+        return {"type": resolved["type"], "id": resolved["id"], "business_id": resolved.get("business_id")}
 
     def prepare(self, ctx, args, options, uow):
         self.check(ctx, args, uow)
@@ -98,7 +109,7 @@ class ThreadPins:
 
     def apply(self, ctx, plan, uow):
         args = plan.arguments
-        reading, title = self.check(ctx, args, uow)
-        source = {"type": args["source"]["type"], "id": args["source"]["id"], "business_id": args["source"]["business_id"]}
+        reading, source, title = self.check(ctx, args, uow)
+        source = {"type": source["type"], "id": source["id"], "business_id": source["business_id"]}
         saved = thread_pins(self.runtime.paths.runtime, reading.owner, {"source": source, "title": title, "pinned": args["pinned"]})
         return {"source": source, "pinned": args["pinned"], "pinned_count": len(saved["threads"]), "limit": MAX_THREAD_PINS}
