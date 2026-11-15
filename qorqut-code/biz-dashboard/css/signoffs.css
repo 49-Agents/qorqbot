@@ -378,4 +378,7 @@
 .sg-focus .sg-detail-body > :empty,.sg-focus .sg-detail-body > [hidden]{display:none}
 .sg-focus .sg-detail-body > .sg-attention-meta:not(:empty){margin-top:4px}
 .sg-focus.sg-single .sg-urgent:not([hidden]) + .sg-waiting{margin-top:0}
+/* One item has no section above it to be spaced from: its heading sits right under the Close bar. */
+.sg-focus.sg-single .sg-toread:not([hidden]){margin-top:0}
+.sg-focus.sg-single .sg > section:not([hidden]) > h2{margin-top:0}
 .sg-focus.sg-single .sg-detail > .sg-detail-footer{margin-top:0}
