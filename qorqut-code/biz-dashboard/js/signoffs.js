@@ -340,7 +340,7 @@ function sgTimelineLine(c) {
   if (c?.action === 'add') return sgNonblank(c.kind) && text ? `Add ${c.kind}: ${text}` : null;
   if (c?.action === 'remove') return text ? `Remove: ${text}` : null;
   if (c?.action === 'ask') return text ? `Ask${c.blocking ? ' (blocking)' : ''}: ${text}` : null;
-  if (c?.action === 'answer') return question && text ? `Answer ${question}: ${text}` : null;
+  if (c?.action === 'answer') return question && text ? `Answer “${question}”: ${text}` : null;
   if (c?.action === 'drop') return question ? `Drop: ${question}` : null;
   return null;
 }

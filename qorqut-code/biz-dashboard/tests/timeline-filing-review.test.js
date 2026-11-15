@@ -41,7 +41,7 @@ test('a timeline filing card shows the item, one line per change and the owner\'
   assert.match(card.html, /Task: Pay creators/);
   const lines = [...card.html.matchAll(/<li>(.*?)<\/li>/g)].map(m => m[1]);
   assert.deepEqual(lines, ['Add decision: One provider only.', 'Remove: The hold stands.', 'Ask (blocking): Dollars or local currency?',
-    'Ask: Which month next?', 'Answer Which currency?: Pay in dollars.', 'Drop: Old question?']);
+    'Ask: Which month next?', 'Answer “Which currency?”: Pay in dollars.', 'Drop: Old question?']);
   assert.match(card.html, /<blockquote class="sg-timeline-quote">Pay one provider only\.<\/blockquote>/);
   assert.equal(r.values({}), null);
 });
