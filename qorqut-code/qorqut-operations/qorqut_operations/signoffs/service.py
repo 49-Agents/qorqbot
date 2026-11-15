@@ -29,6 +29,7 @@ from .notes import SignoffNotes, eligible
 from .notifications import SignoffNotifications
 from .ports import ABSENT, SignoffPorts, checked_narrowing
 from .rejection import Rejection
+from .reports import ReportTasks
 from .sources import SignoffSources
 
 CATEGORIES = ("internal_change", "platform_action", "input_request", "side_chat")
@@ -97,6 +98,7 @@ class SignoffService:
         self.notes = SignoffNotes(self)
         self.inputs = InputRequests(self)
         self.sources = SignoffSources(self)
+        self.reports = ReportTasks(self)
         self.drafts = DraftReviews(self)
         self.rejection = Rejection(self)
         self._next_notification_tick = 0
@@ -229,6 +231,9 @@ class SignoffService:
         value["input"] = row["preview_json"].get("input")
         if value["input"]:
             value["input_kind"] = value["input"].get("kind")
+            if acknowledges(value["input"]):
+                # The Task a report belongs to; None for a report posted before reports had one.
+                value["report_task"] = self.reports.view(row, uow)
         attention = uow.connection.execute("SELECT * FROM signoff_attention WHERE signoff_id=?", (row["id"],)).fetchone()
         value["attention"] = dict(attention) if attention else {"notify": False, "urgent": False, "blocking": False}
         if attention and attention["priority_updated_by"]:

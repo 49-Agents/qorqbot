@@ -140,8 +140,12 @@ the appropriate separate action approval when needed.
 
 `form.kind: acknowledge` asks the owner nothing. It puts a report or a document in
 front of them and records that they read it. Only Ordubashy can post one. A worker
-with a report or document the owner must see hands it to Ordubashy, with the file
-and the reason the owner needs it.
+with a report or document the owner must see hands it to Ordubashy, with the file,
+the Task it belongs to and the reason the owner needs it.
+
+Every report belongs to a Task: `report_task` names it, and a report without one is
+refused. One Task can hold many reports. Name the real Task whose work the report
+is about, in its Project or Global; never create a Task only to hold a report.
 
 Use it only when you need to know the owner saw something: the daily report, or a
 document that changes what they should do or expect. Routine results stay in the
@@ -158,9 +162,9 @@ the explanation itself. Choices, required notes, `source`, `urgent` and `blockin
 are refused: nothing can wait on it, and it never shows as Needs your input.
 
 It notifies the owner once when it is posted and then waits in the dashboard's
-**To read** group, apart from decisions. The owner clicks **Acknowledge**, and
-writes any comment in the Signoff's own conversation with you: read it with
-`owner_conversation_get` and treat a comment as a new owner input. Posting another
+**To read** group, apart from decisions. The owner clicks **Acknowledge**. A report
+has no conversation of its own: opening it opens its Task's thread beside it, so
+the owner writes any comment there; treat a comment as a new owner input. Posting another
 one with the same `request_key` replaces the one the owner has not acknowledged
 yet, so a recurring report keeps one key. One the owner already acknowledged is
 kept as it is.

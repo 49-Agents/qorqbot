@@ -70,24 +70,23 @@ const row=id=>[...hosts.list.querySelectorAll('.sg-row')].find(node=>node.datase
     const actions=[...card.querySelectorAll('.sg-detail button[data-sg]')];
     out.oneButton=actions.length===1 && actions[0].dataset.sg==='respond' && actions[0].textContent==='Acknowledge' && !actions[0].disabled;
     out.noAnswerField=!card.querySelector('.sg-feedback') && !card.querySelector('.sg-choice');
-    out.commentBox=comments.length===1 && comments[0].source.type==='signoff' && comments[0].source.id==='report' && comments[0].expanded
-      && comments[0].adapter.inlineComposer===true && comments[0].adapter.privateSource.id==='report' && !card.querySelector('.sg-comment').hidden
-      && !!card.querySelector('.sg-comment .comment-box');
+    // A report has no comment box of its own: its conversation is its Task's thread.
+    out.commentBox=comments.length===0 && !card.querySelector('.sg-comment');
     // A question keeps its answer field and gets no comment box of its own.
     row('question').querySelector('.sg-rowhead').click();await wait(200);
     out.questionUnchanged=!!row('question').querySelector('.sg-feedback') && row('question').querySelector('[data-sg="respond"]').textContent==='Submit'
-      && row('question').querySelector('.sg-comment').hidden && comments.length===1;
+      && !row('question').querySelector('.sg-comment') && comments.length===0;
     row('report').querySelector('.sg-rowhead').click();await wait(200);
     row('report').querySelector('[data-sg="respond"]').click();await wait(200);
     out.payload=posts[0];
     const done=row('report');
     out.acknowledged=!!done && JSON.stringify(rows('toread'))==='["report"]' && !done.querySelector('[data-sg="respond"]')
-      && /^Acknowledged /.test(done.querySelector('.sg-savedresponse').textContent) && !done.querySelector('.sg-comment').hidden && !comments[0].disposed;
+      && /^Acknowledged /.test(done.querySelector('.sg-savedresponse').textContent) && !done.querySelector('.sg-comment') && comments.length===0;
     out.onePost=posts.length===1;
     // An inline card sits in a conversation already: the button, no nested comment box.
     out.inlineCard=q('card','[data-sg="respond"]')?.textContent==='Acknowledge' && q('card','.sg-chat-status')?.textContent==='To read'
-      && q('card','.sg-comment').hidden && !q('card','.sg-feedback') && comments.length===1 && !!q('card','.sg-report .gc-heading');
-    views.list.dispose();out.disposed=comments[0].disposed;
+      && !q('card','.sg-comment') && !q('card','.sg-feedback') && comments.length===0 && !!q('card','.sg-report .gc-heading');
+    views.list.dispose();out.disposed=comments.length===0;
   } catch(error) {out.error=error.stack;}
   document.getElementById('out').textContent=JSON.stringify(out);
 })();

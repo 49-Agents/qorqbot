@@ -63,7 +63,7 @@ function sgItemStatus(s, labels) {
   return s.category === "platform_action" ? sgPlatformStatus(s) : sgEmailStatus(s) ?? labels[s.state];
 }
 function sgIsDraftReview(s) { return s.category === 'input_request' && s.input?.kind === 'draft_review'; }
-// A report or document to read: one Acknowledge button and no answer. Comments go in the Signoff's private conversation.
+// A report or document to read: one Acknowledge button and no answer. Its conversation is the thread of the Task it belongs to.
 function sgIsAcknowledge(s) { return s.category === 'input_request' && s.input?.kind === 'acknowledge'; }
 function sgReportHtml(text) {
   return typeof chatViewMarkdown === 'function' ? `<div class="sg-report">${chatViewMarkdown(text)}</div>` : sgInputExplanation(text);
@@ -763,7 +763,7 @@ function sgCreateView(options) {
     const canReview = expected(s) && verified && completePreview(s) && owner() && !sg.error && !error && !s.superseded_by_id;
     if (verified && !messageEdits.has(s.id) && !reviewEdits.has(s.id)) options.onSelectedItem?.(s);
     if (!detail.querySelector(".sg-preview")) {
-      detail.innerHTML = `<div class="sg-detail-body"><div class="sg-detailnotice"></div><div class="sg-attention-meta"></div><div class="sg-email-context"></div><div class="sg-preview"></div><div class="sg-choices"></div><div class="sg-savedresponse"></div>${options.focusLayout ? '<div class="sg-focus-details"></div>' : ""}<div class="sg-work" aria-label="Related work"></div><div class="sg-comment" hidden></div></div><div class="sg-detail-footer"><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div></div>`;
+      detail.innerHTML = `<div class="sg-detail-body"><div class="sg-detailnotice"></div><div class="sg-attention-meta"></div><div class="sg-email-context"></div><div class="sg-preview"></div><div class="sg-choices"></div><div class="sg-savedresponse"></div>${options.focusLayout ? '<div class="sg-focus-details"></div>' : ""}<div class="sg-work" aria-label="Related work"></div></div><div class="sg-detail-footer"><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div></div>`;
       if (!options.global && !options.inline) workRelatedChips(detail.querySelector('.sg-work'),sg.slug,'signoffs',s.id);
     }
     // A question once tied to an email conversation keeps a historical note; the conversation itself is never fetched.
@@ -880,34 +880,7 @@ function sgCreateView(options) {
         edit.dataset.sg = 'edit-message'; edit.textContent = 'Edit'; actions.append(edit);
       }
     }
-    paintComment(detail, s);
   }
-  // The comment box of something to read is the Signoff's private conversation with Ordubashy, apart from acknowledging.
-  // An inline card already sits in a conversation or beside its record's Chat tab, so it mounts none.
-  function paintComment(detail, s) {
-    const host = detail.querySelector('.sg-comment');
-    const business = s.review_business_id ?? null;
-    const biz = business == null ? null : (state.bizs || []).find(b => b.id === business || b.business_id === business)?.slug || null;
-    if (!sgIsAcknowledge(s) || options.inline || typeof conversationMount !== 'function' || !owner() || (business != null && !biz)) {
-      if (!host.hidden) { dropComment(host); host.replaceChildren(); host.hidden = true; }
-      return;
-    }
-    host.hidden = false;
-    const source = {type: 'signoff', id: s.id, ...(business == null ? {} : {business_id: business})};
-    const fresh = !host._conversation;
-    const comments = conversationMount(host, {...source, biz}, {privateSource: source, privateGlobal: true, inlineComposer: true, dismissOnOutside: false,
-      placeholder: 'Comment to Ordubashy…', ariaLabel: 'Comment on this report', sourceTitle: s.title || 'Report',
-      isVisible: () => active() && host.isConnected && !host.closest('[hidden]') && !document.hidden});
-    // Opened with the card so earlier comments and Ordubashy's replies are in view; reread at most every ten seconds
-    // as the card repaints, since the conversation does not poll by itself.
-    if (fresh) { comments?.expand?.(); host._sgRead = Date.now(); }
-    else if (Date.now() - (host._sgRead || 0) > 10000) { host._sgRead = Date.now(); void comments?.refresh?.({acknowledge: true}); }
-  }
-  function dropComment(host) {
-    host?._conversation?.dispose?.();
-    if (host) { delete host._conversation; delete host.dataset.conversation; }
-  }
-  function dropComments(root) { root?.querySelectorAll?.('.sg-comment').forEach(dropComment); }
   function render() {
     if (!active() || !sg.mount || !sg.mount.isConnected) return;
     const scroll = sg.mount.scrollTop;
@@ -982,7 +955,7 @@ function sgCreateView(options) {
         quick.hidden = !quickReview;
         detailPaint(row, s);
       });
-      [...content.children].forEach(row => { if (!groups[name].some(s => s.id === row.dataset.id)) { dropComments(row); row.remove(); } });
+      [...content.children].forEach(row => { if (!groups[name].some(s => s.id === row.dataset.id)) row.remove(); });
     }
     const foreign = [];
     const urgentSection = sg.mount.querySelector('.sg-urgent');
@@ -1338,7 +1311,6 @@ function sgCreateView(options) {
     body.classList.toggle("sg-inline", !!options.inline);
     body.classList.toggle("sg-chat", !!options.chatLayout);
     body.classList.toggle("sg-single", !!options.item);
-    dropComments(body);
     body.innerHTML = `<div class="sg"><div class="sg-listnotice"></div><section class="sg-urgent"><h2>Urgent / blocking · All projects</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div><div class="sg-foreign"></div></section><section class="sg-waiting"><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section><section class="sg-toread" hidden><h2>To read</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>${options.execution ? '<section class="sg-execution"><h2>Execution and history</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>' : ""}<button type="button" class="sg-command sg-more" data-sg="more" hidden>Load more</button></div>`;
     body.onclick = event => {
       if (event.target.matches('.sg-draft-editor')) return;
@@ -1508,7 +1480,7 @@ function sgCreateView(options) {
       const textarea = row && row.querySelector(".sg-feedbackwrap .sg-feedback");
       if (selected && draftKey(selected) === key && textarea && textarea.value !== value) { textarea.value = value; if (selected.input && (options.inline || sgIsDraftReview(selected))) fitFeedback(textarea); }
     },
-    suspend() { dropComments(sg.mount);readObserver?.disconnect();readTarget=null;readVisible=false;sg.generation++; sg.mount = null; sg.loading = false; sg.detailLoading = null; },
+    suspend() { readObserver?.disconnect();readTarget=null;readVisible=false;sg.generation++; sg.mount = null; sg.loading = false; sg.detailLoading = null; },
     dispose() { clearInterval(ageTimer); this.suspend();window.removeEventListener('focus',markSelectedRead);document.removeEventListener('visibilitychange',markSelectedRead);window.removeEventListener('resize',resizeMessages); sgViews.delete(view); document.removeEventListener('click', outsideClick); document.removeEventListener('pointerdown', outsidePointer, true); },
     livePaint(slug, live) {
       if (slug !== workspace() || slug !== sg.slug || active() || !live || !Number.isInteger(live.signoffs_pending)) return;

@@ -177,8 +177,9 @@ const attentionQueue=(()=>{
       const sideChatHTML=sideChats.map(s=>`<button type="button" class="focus-signoff-chip focus-side-chat-chip" data-side-chat-key="${esc(s.id)}" data-unread="${!!s.unread}" aria-label="${esc(s.title)}${s.unread?' · Unread':''}" title="${esc(s.title+'\n'+s.preview)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="${signoffPaths.message}"/></svg></button>`).join('');
       // Pinned threads follow the open side chats; a side chat that is also pinned shows once.
       const pinned=typeof threadPins==='undefined'?'':threadPins.list().filter(t=>!(t.source.type==='signoff' && sideChats.some(s=>s.id===t.source.id))).map(t=>{
-        const unread=typeof replyNotifications!=='undefined' && !!replyNotifications.unread(t.source),title=t.title || 'Pinned thread';
-        return `<button type="button" class="focus-signoff-chip focus-side-chat-chip focus-pinned-thread-chip" data-thread-pin="${esc(threadPins.key(t.source))}" data-unread="${unread}" aria-label="${esc(title)} · Pinned thread${unread?' · Unread':''}" title="${esc(title+'\nPinned thread · Right-click to unpin')}">${pinIcon}</button>`;
+        const unread=typeof replyNotifications!=='undefined' && !!replyNotifications.unread(t.source),name=String(t.title || '').trim(),title=name || 'Pinned thread';
+        // Hovering shows the thread's title at once (the shared data-tip), when the pin has one.
+        return `<button type="button" class="focus-signoff-chip focus-side-chat-chip focus-pinned-thread-chip" data-thread-pin="${esc(threadPins.key(t.source))}" data-unread="${unread}" aria-label="${esc(name?name+' · Pinned thread':title)}${unread?' · Unread':''}"${name?` data-tip="${esc(name)}"`:''}>${pinIcon}</button>`;
       }).join('');
       const chats=sideChatHTML+pinned;
       // Due reminders and calendar events share one run, oldest first; a calendar chip stays until two hours after its end or a discard.

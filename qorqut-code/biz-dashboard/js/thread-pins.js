@@ -56,3 +56,6 @@ const threadPins = (() => {
     find: k => items.find(item => key(item.source) === k) || null,
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }};
 })();
+// Ordubashy pins and unpins threads when the owner asks (thread_pins_set). The row follows his change, and rereads after a
+// reconnect, which fires every change listener.
+if (typeof onChange === 'function') onChange(['thread_pins'], null, () => { if (threadPins.isLoaded()) void threadPins.load(); });

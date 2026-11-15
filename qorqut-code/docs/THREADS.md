@@ -35,6 +35,12 @@ In Focus, opening a Project or another record opens its details on the right wit
 
 The pin button in either header saves that thread to the Focus row. Opening a pinned thread changes only the left Chat. Pins use the existing owner thread-pin preferences, and normal conversation access checks still apply. A pending send or unsaved inline signoff prevents leaving its thread, including leaving Focus for another view or agent, and says why; message drafts remain keyed by source when switching conversations. **Chat** in the thread header always returns to the main conversation, even after the Focus view that opened the thread has gone. A thread that becomes unavailable leaves the Chat area whether or not its record is open on the right. A Focus without a Chat area beside it (a permanent worker's) opens a pinned thread as its record, Chat first.
 
+## Reports and pins by Ordubashy
+
+A report (a read-and-acknowledge Signoff) has no conversation of its own: it belongs to a Task (`report_task`), and one Task can hold many reports. Opening a report in Focus shows it on the right and opens its Task's thread in the Chat area. **Open thread** and the pin button on a report act on that Task's thread, and the report has no Chat tab or comment box. An older report with no Task has no thread. Daily reports all belong to Ordubashy's standing "Daily report" Task.
+
+Ordubashy can list, pin and unpin threads in the owner's pinned-threads row (`thread_pins_list`, `thread_pins_set`), only when the owner asks. Only the owner and the configured coordinator in person may call them. A pin needs a record the caller may read, and is stored under the record's canonical identity in the owner's own pin file. A change emits the `thread_pins` change kind, and the dashboard rereads the row.
+
 ## Shared Chat presentation
 
 Main Chat, Threads and Focus task conversations use the same message/reference/composer components. `sgChatMount` mounts the existing verified signoff view, including full WhatsApp/email content, decisions and private comments. A signoff shown inside its own thread omits its nested conversation so that its channel has one composer. Other related signoffs retain their own correctly scoped comments. The custom thread-preview renderer, its fetching layer and message-style overrides have been removed.

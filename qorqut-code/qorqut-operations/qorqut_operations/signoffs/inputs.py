@@ -16,6 +16,7 @@ from qorqut_operations.conversations import SUMMARY
 from qorqut_operations.storage.repositories import decode_row
 from .ports import ABSENT
 from .sources import SOURCE
+from .reports import MISSING, REPORT_TASK
 from . import questions
 from .questions import TEXT, CHOICE
 
@@ -120,7 +121,7 @@ class InputRequests:
         descriptors = []
         for name, properties, required, description in (
             ('signoffs_input_create', {'request_key': {"type": "string", "minLength": 1, "maxLength": 200},
-                'form': FORM, 'attention': ATTENTION,
+                'form': FORM, 'attention': ATTENTION, 'report_task': REPORT_TASK,
                 **({'source': SOURCE} if self.service.ports.sources is not ABSENT else {})}, ('request_key', 'form'),
                 instruction_text('inputs-ask-the-owner-a-question-or-request-input')),
             ('signoffs_attention_set', {'signoff_id': {"type": "string", "format": "uuid"}, 'attention': ATTENTION},
@@ -157,6 +158,11 @@ class InputRequests:
                     raise DomainError('forbidden', 'Only Ordubashy posts read-and-acknowledge requests; hand the document to Ordubashy')
                 if 'source' in args:
                     raise DomainError('validation_error', 'A read-and-acknowledge request cannot be what a Task or record waits on')
+                if 'report_task' not in args:
+                    raise DomainError('validation_error', MISSING)
+                self.service.reports.check(ctx, args['report_task'], uow)
+            elif 'report_task' in args:
+                raise DomainError('validation_error', 'report_task belongs only to a read-and-acknowledge report')
             if 'source' in args:
                 self.service.sources.check_source(ctx, args['source'], uow)
                 if form['response_policy'] != 'owner_only':
@@ -176,10 +182,15 @@ class InputRequests:
                 if not acknowledge or not acknowledges(row['preview_json'].get('input')):
                     raise DomainError('request_conflict', 'This request key already has a different pending question; withdraw it before replacing')
                 replaced, row = row, None
+            if row and acknowledge:
+                link = self.service.reports.find(row['id'], uow)
+                if link and (link['task_id'], link['task_business_id']) != (args['report_task']['id'], args['report_task']['business_id']):
+                    raise DomainError('request_conflict', 'This report already belongs to another Task; use a new request_key for a report on a different Task')
             identity = row['id'] if row else new_id()
             builder.record('signoffs', identity, row, {'form': form, 'request_key': args['request_key'],
                 **({'attention': attention} if not row or 'attention' in args else {}),
-                **({'replaces_id': replaced['id']} if replaced else {})}, action='input_create')
+                **({'replaces_id': replaced['id']} if replaced else {}),
+                **({'report_task': args['report_task']} if acknowledge else {})}, action='input_create')
             if replaced:
                 builder.record('signoffs', replaced['id'], replaced, {'state': 'cancelled'}, action='input_replace')
         else:
@@ -264,6 +275,10 @@ class InputRequests:
                 'expected_targets_json': [], 'policy_binding_json': plain(plan.policy_binding),
                 'affected_scope_json': plain(plan.affected_scope), 'state': 'pending',
                 'updated_sequence': uow.next_sequence('signoffs'), 'created_at': self.service.clock()})
+            if acknowledges(form):
+                scoped = replace(ctx, business_id=change.resource.business_id, review_business_id=change.resource.business_id)
+                self.service.reports.check(scoped, values['report_task'], uow)
+                self.service.reports.link(ctx, identity, values['report_task'], uow)
             if self.service.ports.management is not ABSENT:
                 self.service.ports.management.auto_route_input(ctx, row, uow)
         elif change.action == 'input_cancel':

@@ -108,6 +108,8 @@ COARSE_KIND_BY_OPERATION_PREFIX = (
     (("routine", "job"), "jobs_routines"),
     (("learning",), "learnings"),
     (("signoffs_notification",), "signoffs"),
+    # The owner's pinned-threads row is a preference file, not a table: the coordinator's pin or unpin bumps this kind.
+    (("thread_pins",), "thread_pins"),
 )
 
 # The Context queue's status (exact input states, the blocked head, publication and completion receipts) lives in tables with no
@@ -126,7 +128,7 @@ CONTEXT_QUEUE_OPERATION_PREFIXES = ("context_", "actions_", "notes_upload", "jou
 # scope, which would never see a bump and would 304 forever.
 # "context_queue" is global because a blocked head holds back every namespace's later work; what a route then shows of it stays
 # authorized and namespace-limited by the route's own read.
-GLOBAL_ONLY_KINDS = frozenset({"jobs_routines", "learnings", CONTEXT_QUEUE_KIND})
+GLOBAL_ONLY_KINDS = frozenset({"jobs_routines", "learnings", "thread_pins", CONTEXT_QUEUE_KIND})
 # Kinds that are mostly trigger-covered with a real per-row business_id, but
 # also have at least one contributing source that always lands at
 # GLOBAL_SCOPE: "signoffs" via `signoff_attention` (no scope column captured,
@@ -294,7 +296,7 @@ class ChangeFeed:
         for row in captured:
             kinds_by_scope.setdefault(row["scope"], set()).update(row["kinds"])
             # A Signoff may have dependants in any project. Input state is independent of Task revisions.
-            if row['table'] in {'signoffs', 'signoff_source_links'}:
+            if row['table'] in {'signoffs', 'signoff_source_links', 'signoff_report_tasks'}:
                 kinds_by_scope.setdefault(GLOBAL_SCOPE, set()).update({'tasks', 'signoffs'})
         # A coarse kind has no row to prove a write happened (handoff 4.2): the
         # routine scheduler and job admission tag every tick this way whether or
