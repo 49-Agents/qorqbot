@@ -87,7 +87,7 @@ const fill=id=>{enter(id,'location','Use the garden.');enter(id,'materials','Bri
     out.pollKeepsCaret=stable===field('main','materials') && document.activeElement===stable && stable.selectionStart===4 && stable.selectionEnd===8;
     button('main','location','no').click();out.singleChoice=button('main','location','yes').getAttribute('aria-checked')==='false';
     q('main','[data-question-id="location"] [data-question-clear]').click();enter('main','location','Use the garden instead.');
-    out.unsubmitted=posts.length===0 && /Not submitted/.test(q('main','.sg-question-progress').textContent);
+    out.unsubmitted=posts.length===0 && q('main','.sg-question-progress').hidden && !q('main','.sg-question-progress').textContent;
     const shared=field('main','materials').value;views.main.dispose();hosts.main.replaceChildren();views.main=sgChatMount({id:'main',business_id:'b1',business_slug:'demo'},hosts.main);await wait(100);
     out.remountKeepsDraft=field('main','materials').value===shared;
     hosts.main.style.width='300px';window.dispatchEvent(new Event('resize'));
