@@ -1,0 +1,96 @@
+// What holds now on a Task, a Project or Global: goal, decisions, facts, latest progress and open questions, with a History
+// switch that shows every entry (removed ones struck, the owner's quoted words, links to subtasks, approvals and reports).
+// Read-only: only Ordubashy writes timelines. An item with no timeline shows nothing.
+const TIMELINE_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const TIMELINE_KINDS = {goal: 'Goal', decision: 'Decision', fact: 'Fact', progress: 'Progress'};
+const timelineEsc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
+function timelineDay(stamp) {
+  const match = /^\d{4}-(\d\d)-(\d\d)/.exec(String(stamp || ''));
+  return match && TIMELINE_MONTHS[Number(match[1]) - 1] ? `${Number(match[2])} ${TIMELINE_MONTHS[Number(match[1]) - 1]}` : '';
+}
+// True when nothing holds now and nothing was ever filed.
+function timelineEmpty(data) {
+  const s = data?.state;
+  return !s || !(s.goal || s.decisions?.length || s.facts?.length || s.progress || s.questions?.length || data.revision > 0);
+}
+const timelineStanding = state => !!(state.goal || state.decisions?.length || state.facts?.length || state.progress || state.questions?.length);
+const timelineLine = row => `<li>${timelineEsc(row.text)}${timelineDay(row.created_at) ? ` <span class="tlp-day">${timelineEsc(timelineDay(row.created_at))}</span>` : ''}</li>`;
+function timelineStateHtml(state) {
+  if (!timelineStanding(state)) return '<p class="tlp-none">Nothing holds now.</p>';
+  const list = (label, rows) => rows?.length ? `<section class="tlp-block"><h4>${label}</h4><ul>${rows.map(timelineLine).join('')}</ul></section>` : '';
+  const one = (label, row) => row ? `<section class="tlp-block"><h4>${label}</h4><p>${timelineEsc(row.text)}${timelineDay(row.created_at) && label === 'Progress' ? ` <span class="tlp-day">${timelineEsc(timelineDay(row.created_at))}</span>` : ''}</p></section>` : '';
+  const questions = state.questions?.length ? `<section class="tlp-block"><h4>Open questions</h4><ul>${state.questions.map(q =>
+    `<li class="${q.blocking ? 'tlp-blocking' : ''}">${q.blocking ? '<span class="tlp-flag">Blocks work</span> ' : ''}${timelineEsc(q.text)}</li>`).join('')}</ul></section>` : '';
+  return one('Goal', state.goal) + list('Decisions', state.decisions) + list('Facts', state.facts) + one('Progress', state.progress) + questions;
+}
+function timelineHistoryHtml(history) {
+  const entries = history?.entries || [], byId = new Map(entries.map(row => [row.id, row]));
+  const rows = entries.filter(row => row.action === 'add' || !byId.has(row.removes_id)).map(row => {
+    const by = row.removed_by && byId.get(row.removed_by);
+    const quotes = (row.sources || []).map(source => `<blockquote class="tlp-quote">${timelineEsc(source.quote)}</blockquote>`).join('');
+    if (row.action === 'remove')
+      return `<li class="tlp-removal"><span class="tlp-kind">Removed</span> an earlier entry${row.text ? `: ${timelineEsc(row.text)}` : ''} <span class="tlp-day">${timelineEsc(timelineDay(row.created_at))}</span>${quotes}</li>`;
+    const gone = by ? `<p class="tlp-gone">Removed ${timelineEsc(timelineDay(by.created_at))}${by.text ? `: ${timelineEsc(by.text)}` : ''}</p>` : '';
+    return `<li class="${by ? 'tlp-removed' : ''}"><span class="tlp-kind">${timelineEsc(TIMELINE_KINDS[row.kind] || row.kind)}</span> ${by ? `<s>${timelineEsc(row.text)}</s>` : timelineEsc(row.text)} <span class="tlp-day">${timelineEsc(timelineDay(row.created_at))}</span>${gone}${quotes}</li>`;
+  });
+  const links = history?.links || {};
+  const group = (label, items, open) => items?.length ? `<section class="tlp-block"><h4>${label}</h4><ul>${items.map(item => {
+    const name = timelineEsc(item.title || 'Untitled'), note = timelineEsc(item.status || item.state || '');
+    return `<li>${open && item.type === 'task' ? `<button type="button" class="quiet tlp-open" data-tlp-open="${timelineEsc(item.id)}" data-tlp-business="${timelineEsc(item.business_id ?? '')}">${name}</button>` : name}${note ? ` <span class="tlp-day">${note}</span>` : ''}</li>`;
+  }).join('')}</ul></section>` : '';
+  return (rows.length ? `<ol class="tlp-history" aria-label="Every entry, oldest first">${rows.join('')}</ol>` : '<p class="tlp-none">Nothing has been filed yet.</p>')
+    + (history?.next_cursor ? `<button type="button" class="quiet tlp-more" data-tlp-more>${history.busy ? 'Loading…' : 'Load more'}</button>` : '')
+    + group('Subtasks', links.subtasks, true) + group('Approvals', links.approvals, false) + group('Reports', links.reports, false);
+}
+// The whole panel as markup; ``view`` is {history, open, error}. Empty string when the item has no timeline.
+function timelineHtml(data, view = {}) {
+  if (timelineEmpty(data)) return '';
+  const open = !!view.open;
+  return `<div class="tlp-head"><h3 class="tlp-title">What holds now</h3><button type="button" class="quiet tlp-switch" data-tlp-switch aria-pressed="${open}">${open ? 'Hide history' : 'History'}</button></div>`
+    + (open ? (view.history ? timelineHistoryHtml(view.history) : view.error ? '' : '<p class="tlp-none">Loading…</p>') : timelineStateHtml(data.state))
+    + (view.error ? `<p class="tlp-error" role="alert">${timelineEsc(view.error)}</p>` : '');
+}
+// Owns one host element. ``readHistory({cursor})`` returns the history read of the same item; ``openTask`` opens a subtask.
+function timelinePanelMount(host, {readHistory, openTask} = {}) {
+  let data = null, history = null, open = false, error = '', generation = 0, disposed = false;
+  const paint = () => {
+    const html = timelineHtml(data, {open, history, error});
+    host.hidden = !html;
+    host.innerHTML = html;
+  };
+  async function load(more) {
+    if (!open || !readHistory) return;
+    const mine = ++generation;
+    if (more && history) { history = {...history, busy: true}; paint(); }
+    try {
+      const page = await readHistory(more && history?.next_cursor ? {cursor: history.next_cursor} : {});
+      if (disposed || mine !== generation) return;
+      history = more && history ? {entries: [...history.entries, ...(page.entries || [])], links: history.links, next_cursor: page.next_cursor || null, revision: page.revision}
+        : {entries: page.entries || [], links: page.links || {}, next_cursor: page.next_cursor || null, revision: page.revision};
+      error = '';
+    } catch (_) {
+      if (disposed || mine !== generation) return;
+      error = "Couldn't load the history. Try again";
+      if (history) history = {...history, busy: false};
+    }
+    paint();
+  }
+  host.addEventListener('click', event => {
+    const target = event.target.closest?.('button');
+    if (!target || !host.contains(target)) return;
+    if (target.hasAttribute('data-tlp-switch')) { open = !open; if (open) { history = null; paint(); void load(false); } else { generation++; paint(); } }
+    else if (target.hasAttribute('data-tlp-more')) void load(true);
+    else if (target.hasAttribute('data-tlp-open')) openTask?.({id: target.dataset.tlpOpen, business_id: target.dataset.tlpBusiness || null});
+  });
+  return {
+    update(next) {
+      const changed = !data || next?.revision !== data.revision;
+      data = next || null;
+      if (timelineEmpty(data)) { open = false; history = null; generation++; }
+      paint();
+      if (open && changed) void load(false);
+    },
+    dispose() { disposed = true; generation++; host.replaceChildren(); host.hidden = true; },
+  };
+}
+if (typeof window !== 'undefined') Object.assign(window, {timelineHtml, timelinePanelMount});
