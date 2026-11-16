@@ -25,6 +25,8 @@ const desktopNotify = (() => {
     try {
       const note = new Notification(title, {body: String(body).slice(0, 240), tag, silent: false});
       note.onclick = () => { try { window.focus(); } catch (_) { /* Focus is best effort. */ } note.close(); onClick?.(); };
+      // Closed after the same 10 seconds as the in-page notes, also where the system would keep it on screen.
+      setTimeout(() => { try { note.close(); } catch (_) { /* Already gone. */ } }, 10000);
       return note;
     } catch (_) { return null; }
   }

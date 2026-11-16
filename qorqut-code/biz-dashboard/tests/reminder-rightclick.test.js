@@ -49,3 +49,17 @@ test('incomplete, inaccessible and wrong-owner reminders cannot be dismissed',as
   await assert.rejects(ctx.dismissDue({...r,business_id:'missing'}),/project/);
   await assert.rejects(ctx.dismissDue({...r,recipient_id:'other'}),/owner/);assert.equal(writes,0);
 });
+
+test('every note has a close button that only closes it, and notes last 10 seconds',async()=>{
+  class Node {constructor(){this.listeners={};this.style={setProperty(){}};this.classList={add(){},remove(){}};} addEventListener(n,f){this.listeners[n]=f} setAttribute(){} remove(){} }
+  const box={children:[],appendChild(n){this.children.push(n)}},calls=[],timers=[];
+  const ctx={document:{createElement:()=>new Node()},$:()=>box,esc:String,agentGlyph:()=>'',requestAnimationFrame(){},setTimeout:(fn,ms)=>{timers.push({fn,ms});return timers.length},clearTimeout(){},Date,Promise};
+  vm.createContext(ctx);const s=source('core.js');vm.runInContext(s.slice(s.indexOf('const NOTE_MAX'),s.indexOf('// ---------------------------------------------------------------- byte formatting'))+'\nthis.notify=notify;',ctx);
+  ctx.notify({text:'reply',replyAgentId:'a',onClick:()=>calls.push('open')});ctx.notify({text:'plain'});
+  for(const el of box.children){assert.match(el.innerHTML,/class="toast-x" aria-label="Close notification"/);assert.match(el.className,/has-x/);}
+  assert.equal(timers[0].ms,10000-260);
+  let stopped=false;const x={closest:sel=>sel==='.toast-x'?x:null};
+  box.children[0].listeners.click({target:x,stopPropagation(){stopped=true}});await tick();
+  assert.equal(stopped,true);assert.deepEqual(calls,[]);
+  box.children[0].listeners.click({target:{closest:()=>null}});await tick();assert.deepEqual(calls,[]);
+});
