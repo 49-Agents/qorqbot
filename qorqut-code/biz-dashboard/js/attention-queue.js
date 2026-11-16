@@ -242,6 +242,32 @@ const attentionQueue=(()=>{
       return ()=>{alive=false;box.removeEventListener('click',click);box.removeEventListener('input',input);};
     }});
   }
+  // Rows are updated in place: a chip keeps its element while its unread dot, label or title changes, so a repaint
+  // landing between press and release (a reply refresh right after opening a thread) cannot turn the click into a miss.
+  const CHIP_KEYS=['data-side-chat-key','data-thread-pin','data-reminder-key','data-calendar-key','data-signoff-key'];
+  const chipIdentity=el=>{
+    for(const name of CHIP_KEYS)if(el.hasAttribute(name))return name+'='+el.getAttribute(name);
+    return el.tagName+'|'+el.className+'|'+[...el.attributes].map(a=>a.name).filter(n=>n.startsWith('data-')).sort().join(',');
+  };
+  function patchChips(host,html){
+    if(typeof document.createElement!=='function' || !host.children){host.innerHTML=html;return;} // a host without real elements
+    const next=document.createElement('template');next.innerHTML=html;
+    const old=new Map();
+    for(const el of [...host.children]){const k=chipIdentity(el);if(old.has(k))el.remove();else old.set(k,el);}
+    const wanted=[...next.content.children].map(fresh=>{
+      const el=old.get(chipIdentity(fresh));
+      if(!el)return fresh;
+      old.delete(chipIdentity(fresh));
+      for(const a of [...el.attributes])if(!fresh.hasAttribute(a.name))el.removeAttribute(a.name);
+      for(const a of [...fresh.attributes])if(el.getAttribute(a.name)!==a.value)el.setAttribute(a.name,a.value);
+      if(el.innerHTML!==fresh.innerHTML)el.innerHTML=fresh.innerHTML;
+      return el;
+    });
+    for(const el of old.values())el.remove();
+    // Only chips out of place move; a kept chip in its place is never detached.
+    wanted.forEach((el,i)=>{if(host.children[i]!==el)host.insertBefore(el,host.children[i] || null);});
+    for(const node of [...host.childNodes])if(node.nodeType!==1)node.remove();
+  }
   function paintSignoffs(){
     for(const [host,mount] of signoffMounts){
       if(!host.isConnected){signoffMounts.delete(host);continue;}
@@ -262,7 +288,7 @@ const attentionQueue=(()=>{
       const recovery=recoveryCount ? '<button type="button" class="quiet" data-reminder-recovery>Unconfirmed reminder changes</button>' : recoveryError ? '<button type="button" class="quiet" data-reminder-recovery-check>Retry reminder session</button>' : '';
       if(mount.sideChatHost){
         const chatHost=mount.sideChatHost;
-        if(chatHost._signoffHTML!==chats){chatHost.innerHTML=chats;chatHost._signoffHTML=chats;}
+        if(chatHost._signoffHTML!==chats){patchChips(chatHost,chats);chatHost._signoffHTML=chats;}
         chatHost.hidden=!chats;
         const divider=chatHost.parentElement?.querySelector('.agfocus-divider');
         if(divider)divider.hidden=!chats;
@@ -272,7 +298,7 @@ const attentionQueue=(()=>{
       const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'')+(remindersError?'<button type="button" class="quiet" data-reminders-retry>Retry reminders</button>':'')+(calendarError?'<button type="button" class="quiet" data-calendar-retry title="'+esc(calendarError)+'">Retry calendar</button>':'');
       if(host._signoffHTML!==html){
         const focused=document.activeElement, key=host.contains?.(focused) && focused?.matches?.('[data-signoff-key],[data-reminder-key]') ? chipKey(focused) : null;
-        host.innerHTML=html;host._signoffHTML=html;
+        patchChips(host,html);host._signoffHTML=html;
         if(key)[...host.querySelectorAll('[data-signoff-key],[data-reminder-key]')].find(chip=>chipKey(chip)===key)?.focus({preventScroll:true});
       }
       host.hidden=!markup && !signoffsError && !remindersError && !calendarError;
