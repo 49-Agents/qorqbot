@@ -1,13 +1,13 @@
 ---
 name: qorqut-role-chat-references
-description: Show the owner a message in Chat with pending Signoffs, configured browsers, Tasks or registered agents right below it (request_user_input), and select an exact browser with browser_turn action=list and browser_id.
+description: Show the owner a message in Chat with clickable cards for Projects, Tasks, pending Signoffs, configured browsers or registered agents right below it (request_user_input), also whenever the owner asks to refer, link or open one, and select an exact browser with browser_turn action=list and browser_id.
 ---
 
 # Chat references
 
 Use `request_user_input` when the owner should look at, decide or act on existing records
-while reading your message: a Signoff to decide, a browser to log in or act in, a Task
-whose state matters, an agent you are talking about. It returns at once. It creates no request, waits for no answer and
+while reading your message: a Project to open, a Signoff to decide, a browser to log in or act in,
+a Task whose state matters, an agent you are talking about. It returns at once. It creates no request, waits for no answer and
 grants no approval, so keep working on whatever does not depend on the owner's reply.
 
 ```
@@ -16,6 +16,8 @@ request_user_input(message="Please sign in to the bank in the browser below, the
 request_user_input(message="Two decisions are ready for you.",
                    references=[{"type": "signoff", "id": "<signoff uuid>", "business_id": "<project uuid>"},
                                {"type": "task", "id": "<task uuid>"}])
+request_user_input(message="Here is the cold outreach project.",
+                   references=[{"type": "project", "id": "<project uuid>", "business_id": "<same project uuid>"}])
 request_user_input(message="The new worker takes this on next.",
                    references=[{"type": "agent", "id": "<agent uuid>"}])
 ```
@@ -25,10 +27,18 @@ request_user_input(message="The new worker takes this on next.",
   `{type, id, business_id}`: no URL, label or other field.
   - `task` and `signoff`: the record's UUID, read first so the id is exact. `business_id`
     is the owning project, omitted (or null) for a Global record.
+  - `project`: the Project's UUID as both `id` and `business_id`. The card opens the
+    project in the dashboard.
   - `browser`: the exact configured browser `id` from `browser_turn` `action=list`, only
     `{type, id}`; there is no project selector.
   - `agent`: the registered agent's UUID, only `{type, id}` (no `business_id`, name or icon);
     the owner sees its current name and icon. Only agents your existing agent read allows.
+- When the owner asks you to refer, link, open or show a Project, Task or Signoff ("refer the
+  project", "where is the thread"), answer with its card. Chat makes only file links from
+  `files_link`, `/tables/view` links and website addresses clickable; a Project or Signoff
+  has no written link, so a file, a folder or another record is never a substitute.
+- The card asks nothing and waits for nothing, so it is not one of the owner's questions:
+  showing records this way is allowed even when the owner wants questions only as Signoffs.
 - An unknown, deleted or unreadable record, a wrong `business_id` or a malformed field is
   refused and nothing is shown. Never guess an id.
 - The owner sees current records: a Task's title and state, a Signoff decided in its own card,
