@@ -1,5 +1,11 @@
 # Agent Viewbox
 
+> **Retired (2026-11-16).** Agents can no longer place links: `viewbox_place` stays declared in the operation catalog
+> without a handler, so it is never offered or callable, and the guidance that told agents to use it is no longer
+> composed into their context (it was offered only with the tool). The owner's dashboard had no way left to open a
+> Viewbox board, so agents were putting files where the owner could not see them. Boards already placed stay stored
+> and readable through the owner-only board read. The rest of this page describes the feature as it was.
+
 A Viewbox tab in every registered agent's right-hand pane (Global agents, business agents, and business agents
 selected on Global). The agent places links; the owner opens them beside the session.
 
