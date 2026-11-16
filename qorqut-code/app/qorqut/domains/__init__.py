@@ -91,7 +91,7 @@ def register_business_domains(registry, application, paths, *, agent_resolver, q
     assets = AssetOperations(documents.store, additional_references=no_additional_asset_references, clock=clock)
     data_uploads = DataUploadOperations(documents.store, clock=clock)
     DevTickets().register(registry)
-    viewbox = AgentViewbox(application, clock=clock).register(registry)
+    viewbox = AgentViewbox(application, clock=clock)
     IncidentOperations(application).register(registry)
     BusinessProgress(clock=clock).register(registry)
     BusinessBriefing(application, clock=clock).register(registry)

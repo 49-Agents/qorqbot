@@ -143,10 +143,6 @@ def _context_questions(name, defaults, overrides, registry, *, role_id, scope, r
 
 
 def _standing_defaults(name, defaults, overrides, registry, *, role_id, scope, resolve):
-    if name == "viewbox_place":
-        # Every active registered agent may place on its own board; the handler derives the board from the
-        # authenticated principal. An explicit deny override was already honored above.
-        return PolicyDecision("allow", "core_default")
     if name in INTERNAL_TICKET_READS:
         return PolicyDecision("allow", "core_default")
     if name == "signoffs_input_answer_delegated":
