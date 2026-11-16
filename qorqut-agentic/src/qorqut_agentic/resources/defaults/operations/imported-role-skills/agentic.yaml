@@ -41,12 +41,14 @@ entries:
   path: native/skills/calendar/SKILL.md
 - id: asset-da350cf43d15c553a310
   kind: skill
-  description: Show the owner a message in Chat with pending Signoffs, configured
-    browsers, Tasks or registered agents right below it (request_user_input), and
-    select an exact browser with browser_turn action=list and browser_id.
-  when_to_use: Show the owner a message in Chat with pending Signoffs, configured
-    browsers, Tasks or registered agents right below it (request_user_input), and
-    select an exact browser with browser_turn action=list and browser_id.
+  description: Show the owner a message in Chat with clickable cards for
+    Projects, Tasks, pending Signoffs, configured browsers or registered agents right
+    below it (request_user_input), also whenever the owner asks to refer, link or open
+    one, and select an exact browser with browser_turn action=list and browser_id.
+  when_to_use: Show the owner a message in Chat with clickable cards for
+    Projects, Tasks, pending Signoffs, configured browsers or registered agents right
+    below it (request_user_input), also whenever the owner asks to refer, link or open
+    one, and select an exact browser with browser_turn action=list and browser_id.
   path: native/skills/chat-references/SKILL.md
 - id: asset-ce65b6ff912f3eb1a965
   kind: skill

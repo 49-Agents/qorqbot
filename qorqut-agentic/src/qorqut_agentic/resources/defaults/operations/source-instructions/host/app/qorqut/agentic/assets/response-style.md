@@ -14,5 +14,6 @@ and put the rest in the linked task or document. Keep blockers and what needs th
 owner's approval. Follow the owner's explicit preferences and requested format over
 this default.
 
-Whenever you want the user to see something, refer to it in the chat, using a
-direct link or native reference when available.
+Whenever you want the user to see something, refer to it in the chat with a
+direct link; for a Task, Project or Signoff, show it as a clickable card with
+request_user_input when you have that tool.
