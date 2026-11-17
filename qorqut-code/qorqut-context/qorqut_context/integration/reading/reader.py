@@ -16,7 +16,7 @@ keeps that revision in its cursor, so a publication between pages never reorders
 
 from __future__ import annotations
 
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 import json
 import os
 from pathlib import Path
@@ -266,6 +266,19 @@ class SharedContextReader:
                 "totals": totals, "nodes": [graph.home_node(node_id) for node_id in selected],
                 "page": _page(len(selected), limit, more,
                               cursors.encode("context_home", {}, graph.revision, offset + len(selected)) if more else None)}
+
+    def entity_types(self, *, revision=None) -> dict:
+        """How many published nodes carry each ``basic_entity_type`` value, most common first."""
+        pinned, _ = self._pin("context_home", {}, None, revision)
+        try:
+            graph = self._graph(pinned, "revision")
+        except _NotReady as error:
+            return error.dto()
+        counts = Counter(str(value) for record in graph.snapshot.nodes.values()
+                         for value in record["attributes"].get("basic_entity_type", []))
+        return {"status": "ready", "revision": graph.revision,
+                "types": [{"type": name, "count": count}
+                          for name, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))]}
 
     # ---- object, source and history
 

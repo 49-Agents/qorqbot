@@ -43,12 +43,13 @@ class OwnerRecordInStartupTextTests(unittest.TestCase):
         # Whatever was cut or left out is named, so a reader knows the record holds more and where.
         self.assertIn(f"The record holds more under: notes, work_history. Open {REF} for all of it.", owner)
 
-    def test_the_owner_record_does_not_shrink_the_graph_index(self):
+    def test_the_owner_record_does_not_shrink_the_graph_pointer(self):
         node = {"kind": "node", "id": "n0001", "ref": "node:n0001", "summary": "A company.", "attributes": {},
                 "truncated": False, "relationship_count": 0, "relationships": [], "relationships_truncated": False}
         without = render_home({**home({}, nodes=[node]), "personal_context": None})
         with_owner = render_home(home({"phone": ["+1 555 0100"]}, nodes=[node]))
-        self.assertIn("- node:n0001 — A company.", with_owner)
+        self.assertNotIn("node:n0001", with_owner)                 # the graph's nodes are looked up, never listed
+        self.assertIn("context_find(query)", with_owner)
         self.assertEqual(without.split("\n", 1)[1], "Revision " + with_owner.split("Revision ", 1)[1])
 
     def test_a_graph_without_an_owner_record_says_nothing_about_one(self):

@@ -13,7 +13,7 @@ Branch `v1.2/shared-context`. Two source checkpoints: `cd9dab2` (the reader, its
 | `cursor.py` | Opaque continuation tokens that pin a revision. |
 | `schemas.py` | Request bounds and the explicit JSON Schemas (Draft 2020-12) of the five operations' inputs and outputs. |
 | `operations.py` | `SharedContextOperations(reader)` and `shared_context_contribution(reader)`: the typed `CatalogContribution` (owner `shared-context`). |
-| `text.py` | `render_home(dto)` and `PublishedContextText(reader)`: bounded text of one `context_home` page for human and agent bootstrap, plus the reader's `status`. |
+| `text.py` | `render_home(dto, types=...)` and `PublishedContextText(reader)`: bounded text for human and agent bootstrap that says what the published graph holds (revision, totals, node counts by `basic_entity_type` from `reader.entity_types`) and how to read it, and lists none of its nodes; plus the reader's `status`. |
 
 Tests: `app/tests/shared_context_support.py` (synthetic graph builder, no tests), `test_shared_context_reader.py` (reader, 30 cases) and `test_shared_context_operations.py` (host composition and consumers, 20 cases).
 
