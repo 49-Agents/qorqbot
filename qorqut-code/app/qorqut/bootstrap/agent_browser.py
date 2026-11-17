@@ -38,6 +38,11 @@ def command(executable, session, endpoint, directory, args):
             raise ValueError("find requires one text query")
         # Read matching text without clicking a guessed target.
         translated = ["find", "text", values[0], "text"]
+    elif action == "frame":
+        # Switch into an iframe (selector or ref) or back with "frame main".
+        if len(values) != 1:
+            raise ValueError("Use frame <selector|ref> to enter an iframe, or frame main to return.")
+        translated = ["frame", values[0]]
     elif action == "eval" and len(values) == 1:
         translated = ["eval", "(" + values[0] + ")()"]
     else:
@@ -52,7 +57,7 @@ def command(executable, session, endpoint, directory, args):
     for value in values:
         if value.startswith("-") and value.split("=", 1)[0] not in allowed:
             raise ValueError("Unsupported command option; browser/session overrides are disabled.")
-    if action in {"click", "dblclick", "fill", "hover", "select", "upload", "check", "uncheck"}:
+    if action in {"click", "dblclick", "fill", "hover", "select", "upload", "check", "uncheck", "frame"}:
         if len(translated) > 1 and re.fullmatch(r"e\d+", translated[1]):
             translated[1] = "@" + translated[1]
     config = Path(directory) / "agent-browser.json"
