@@ -182,7 +182,7 @@ HOME_OUTPUT = _output({"empty": {"type": "boolean"}, "totals": _TOTALS,
                        "personal_context": {"oneOf": [{"type": "null"}, object_schema({
                            "ref": _REF("node"), "summary": _STRING, "attributes": _ATTRIBUTES})]},
                        "nodes": {"type": "array", "items": _ref("home_node")}, "page": _ref("page")})
-FIND_OUTPUT = _output({"query": _STRING, "items": {"type": "array", "items": {
+FIND_OUTPUT = _output({"query": _STRING, "match": {"enum": ["all_words", "any_word", "browse"]}, "items": {"type": "array", "items": {
     "oneOf": [_ref("node"), _ref("relationship"), _ref("note"), _ref("source")]}}, "page": _ref("page")})
 EXPAND_OUTPUT = _output({"origin": _ref("node"), "depth": {"type": "integer", "minimum": 1, "maximum": 3},
                          "direction": {"enum": ["out", "in", "both"]}, "total": {"type": "integer", "minimum": 0},

@@ -359,7 +359,9 @@ class SharedContextReader:
     # ---- search
 
     def find(self, query="", *, kind=None, attributes=None, limit=None, cursor=None, revision=None) -> dict:
-        """Literal word/prefix search over published summaries, attributes, note text and source text; empty browses."""
+        """Literal word/prefix search over published summaries, attributes, note text and source text, most relevant
+        first: records holding every word, then records holding only some. ``match`` is ``all_words`` when at least
+        one record holds every word and ``any_word`` when none does; an empty query browses."""
         limit = _bounded(limit, "limit", FIND_LIMIT)
         if not isinstance(query, str) or len(query) > 2000:
             raise _invalid("query", "query must be text of at most 2000 characters")
@@ -378,14 +380,15 @@ class SharedContextReader:
             return error.dto()
         window = min(offset + limit + 1, MAX_SEARCH_WINDOW)
         try:
-            hits = index.search(graph.revision, query, kind=kind, attributes=filters or None, limit=window)
+            hits, match = index.matched(graph.revision, query, kind=kind, attributes=filters or None, limit=window)
         except (ContextError, OSError) as error:
             raise DomainError("operation_unavailable", "Context search is unavailable", retryable=True) from error
         selected = hits[offset:offset + limit]
         more = len(hits) > offset + limit
         exhausted = not more and len(hits) >= MAX_SEARCH_WINDOW
         items = [graph.entity(hit.kind, hit.id) for hit in selected]
-        return {"status": "ready", "revision": graph.revision, "query": query, "items": items,
+        return {"status": "ready", "revision": graph.revision, "query": query,
+                "match": {"all": "all_words", "any": "any_word", "browse": "browse"}[match], "items": items,
                 "page": _page(len(items), limit, more,
                               cursors.encode("context_find", scope, graph.revision, offset + len(selected)) if more else None,
                               window_exhausted=exhausted)}

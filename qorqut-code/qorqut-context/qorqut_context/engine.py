@@ -1131,9 +1131,13 @@ class Context:
                                                       audit=audit, offset=offset, limit=limit)
 
     def search(self, query="", *, revision=None, kind=None, attributes=None, limit=20):
+        return self.search_matched(query, revision=revision, kind=kind, attributes=attributes, limit=limit)[0]
+
+    def search_matched(self, query="", *, revision=None, kind=None, attributes=None, limit=20):
+        """``search`` with how the query matched: ``all`` (some record holds every word), ``any`` (none does) or ``browse``."""
         with self._lock():
             snapshot = self.snapshot(revision)
             self._ensure_index(snapshot)
-            hits = self.index.search(snapshot.revision, query, kind=kind, attributes=attributes, limit=limit)
+            hits, match = self.index.matched(snapshot.revision, query, kind=kind, attributes=attributes, limit=limit)
             return [replace(hit, input_mode=snapshot.input_mode(snapshot.sources[hit.id]))
-                    if hit.kind == "source" else hit for hit in hits]
+                    if hit.kind == "source" else hit for hit in hits], match
