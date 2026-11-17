@@ -53,5 +53,63 @@ class RetainedAliases(unittest.TestCase):
             self.assertEqual(replay.read(host, self.root + '/new.md'), b'old physical text')
 
 
+class RetiredAliases(unittest.TestCase):
+    """A retired alias keeps re-verifying the intents that used it, and adds nothing to a new inventory."""
+    root = 'app/qorqut/agentic/assets'
+    prefix = 'operations/source-instructions/host/'
+
+    def setUp(self):
+        self.kept, self.gone = self.root + '/kept.md', self.root + '/gone.md'
+        aliases = {('host', path): self.prefix + path for path in (self.kept, self.gone)}
+        patches = [patch.object(inventory.instruction_sources, 'locations', return_value=aliases),
+                   patch.object(inventory.instruction_sources, 'retired', return_value=frozenset({('host', self.gone)}))]
+        for item in patches:
+            item.start()
+            self.addCleanup(item.stop)
+
+    def sources(self, owner):
+        host = Snapshot('host', {})
+        roles = Snapshot('roles', {self.prefix + self.kept: b'kept text', self.prefix + self.gone: b'retained text'})
+        owner.sources = {'host': host, 'roles': roles}
+        return host
+
+    def test_replay_resolves_a_retired_alias_from_its_witness(self):
+        replay = _WitnessInventory()
+        host = self.sources(replay)
+        self.assertEqual(replay.source_paths(host, self.root), [self.gone, self.kept])
+        self.assertEqual(replay.read(host, self.gone), b'retained text')
+
+    def test_new_inventory_takes_nothing_from_a_retired_alias(self):
+        current = inventory.Inventory()
+        host = self.sources(current)
+        self.assertEqual(current.source_paths(host, self.root), [self.kept])
+
+
+class AliasIndex(unittest.TestCase):
+    """The shipped alias index: entries are only ever retired, never deleted."""
+
+    def test_retired_aliases_resolve_but_supply_nothing(self):
+        from qorqut_agentic.behavior import sources
+        assets = 'app/qorqut/agentic/assets'
+        for name in ('working-memory.md', 'legacy-working-memory.md'):
+            path = assets + '/' + name
+            with self.subTest(path=path):
+                self.assertIn(('host', path), sources.retired())
+                self.assertEqual(sources.location('host', path), sources.ROOT + '/host/' + path)
+                self.assertNotIn(path, sources.paths('host', assets))
+                self.assertIn(path, sources.paths('host', assets, include_retired=True))
+                with self.assertRaisesRegex(ValueError, 'Retired'):
+                    sources.seed_bytes('host', path)
+
+    def test_every_active_alias_has_its_text(self):
+        from importlib.resources import files
+        from qorqut_agentic.behavior import sources
+        base = files('qorqut_agentic').joinpath('resources/defaults')
+        for key, target in sources.locations().items():
+            if key not in sources.retired():
+                with self.subTest(alias=key):
+                    self.assertTrue(base.joinpath(target).is_file())
+
+
 if __name__ == '__main__':
     unittest.main()
