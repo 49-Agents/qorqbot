@@ -25,11 +25,18 @@ LIFECYCLE_EVENTS = frozenset({"startup", "resume", "clear", "compact", "fork"})
 # Claude Code saves hook output longer than 10,000 characters to a file and shows the model only its first 2,000.
 CLAUDE_HOOK_LIMIT = 9_500
 STARTUP_CONTEXT = ".qorqut/startup-context.md"
+STARTUP_SKILLS = ".qorqut/startup-skills.md"
+# A prompt's short operational reminder stays in the hook output; anything longer is the always-loaded skill text.
+INLINE_SKILLS_LIMIT = 1_000
 INSTRUCTIONS_CHANGED = (f"Your managed instructions changed after this session loaded them. Read {STARTUP_INSTRUCTIONS} "
                         "in full before acting; it replaces the copy in your project instructions.")
 CONTEXT_IN_FILE = ("This session's startup context ({lines} lines: your identity, projects, Context Home, open work, "
                    f"environment and the guides for your tools) is in {STARTUP_CONTEXT}. Before acting, read the whole "
                    "file with one Read call and no limit or offset; a partial read leaves out rules you must follow.")
+# The always-loaded skills are far longer than the rest and used to come first in the one file, so a single read
+# stopped before the identity, projects, Context Home and saved handoff. They now have their own file.
+SKILLS_IN_FILE = ("Your always-loaded skills ({lines} lines) are in " + STARTUP_SKILLS + ". Read that file to its end "
+                  "as well, continuing with offset when one Read call does not return all of it.")
 
 
 def keep_instructions(workspace: Path, rules: str) -> str:
@@ -181,9 +188,11 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
         if runtime == "claude-code":
             # Claude Code reads the instructions through CLAUDE.md's import of STARTUP_INSTRUCTIONS.
             notice, rules = keep_instructions(workspace, rules), ""
-        context = '\n\n'.join(filter(None, (first, notice, rules, skills, setup, facts)))
+        lead, rest = (first, notice, rules), (setup, facts)
     else:
-        context = '\n\n'.join(filter(None, (first, skills, setup, context)))
+        lead, rest = (first,), (setup, context)
+    context = '\n\n'.join(filter(None, (*lead, skills, *rest)))
+    without_skills, assembled = '\n\n'.join(filter(None, (*lead, *rest))), len(context)
     briefing = response.get("work_briefing", {}).get("rendered", "")
     if not isinstance(briefing, str):
         raise DomainError("invalid_bootstrap", "Work briefing must be text")
@@ -204,8 +213,16 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
         raise DomainError("invalid_bootstrap", "Combined bootstrap exceeds its character budget")
     if runtime == "claude-code" and len(context) > CLAUDE_HOOK_LIMIT:
         # Too long for Claude Code to show: the whole context goes to a file, and the lines that must be read now stay.
-        write_text_private(workspace / STARTUP_CONTEXT, context)
-        context = '\n\n'.join(filter(None, (first, notice, setup, CONTEXT_IN_FILE.format(lines=context.count('\n') + 1), reminder)))
+        # The briefing, environment and reminder were appended after the assembled part; they stay with the context.
+        body, inline, pointer = without_skills + context[assembled:], "", ""
+        if len(skills) > INLINE_SKILLS_LIMIT:
+            write_text_private(workspace / STARTUP_SKILLS, skills)
+            pointer = SKILLS_IN_FILE.format(lines=skills.count('\n') + 1)
+        else:
+            inline = skills
+        write_text_private(workspace / STARTUP_CONTEXT, body)
+        context = '\n\n'.join(filter(None, (first, notice, inline, setup,
+                                             CONTEXT_IN_FILE.format(lines=body.count('\n') + 1), pointer, reminder)))
     output = {"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}}
     if event == "SessionStart" and runtime == "claude-code":
         output["hookSpecificOutput"]["reloadSkills"] = bool(response.get("reload_skills", True))
