@@ -1,13 +1,14 @@
-"""Bounded Markdown for agent and owner bootstrap, derived from the same pinned graph DTO ``context_home`` returns.
+"""Bounded text for agent and owner bootstrap, derived from the same pinned graph ``context_home`` reads.
 
-``home_text`` renders one page of ``SharedContextReader.home``: the published revision, the totals, node and
-relationship references (``node:ID`` / ``edge:ID``) with their summaries, and an explicit statement for the states that
-are not a graph (``not_initialized``, ``unavailable``) or an empty one. When the graph has a personal context node, the
-text also carries that record's facts from the same page, within their own bound, so every agent starts with what the
-owner already said about themselves and does not ask for it again. The published graph is shared by
-every registered agent, so the text never depends on who asks or on a business; the business argument exists only to
-satisfy the host's text-provider call shape and is ignored. Rendering never raises: a failed read is reported as
-``unavailable`` text, never as an empty graph."""
+``home_text`` says what the published graph holds and how to read it, and lists none of its nodes: the published
+revision, the totals, how many nodes there are of each type, and the four reads. It used to list the twelve most
+connected nodes; those are hubs, so the people, companies and terms an agent needs to place were almost never among
+them, and the list read as if it were what is known. When the graph has a personal context node, the text also carries
+that record's facts, within their own bound, so every agent starts with what the owner already said about themselves
+and does not ask for it again. It states plainly the states that are not a graph (``not_initialized``,
+``unavailable``) or an empty one. The published graph is shared by every registered agent, so the text never depends
+on who asks or on a business; the business argument exists only to satisfy the host's text-provider call shape and is
+ignored. Rendering never raises: a failed read is reported as ``unavailable`` text, never as an empty graph."""
 
 from __future__ import annotations
 
@@ -15,11 +16,8 @@ from qorqut_operations.contracts import DomainError
 
 from .reader import SharedContextReader
 
-NODES = 12
-RELATIONSHIPS = 3
-ATTRIBUTE_NAMES = 6
-ATTRIBUTE_MEMBERS = 4
-ATTRIBUTE_CHARS = 80
+TYPES = 8
+TYPE_CHARS = 30
 SUMMARY_CHARS = 240
 MAX_CHARACTERS = 6000
 PERSONAL_CHARACTERS = 3000
@@ -27,9 +25,14 @@ PERSONAL_MEMBERS = 8
 PERSONAL_MEMBER_CHARS = 220
 PERSONAL_HIDDEN = frozenset({"basic_entity_type"})
 TRUNCATED = "\n[truncated; read the rest with context_home, context_find, context_object and context_expand]"
-READS = ("Read more with context_home (follow page.next_cursor), context_find, context_object(ref) and "
-         "context_expand(ref); every response names the published revision it was read at. Notes are separate records, "
-         "not graph nodes: find them with context_find(kind=note) and open note:ID with context_object.")
+HOLDS = ("One published graph shared by every registered agent; drafts are never shown. It records the people, companies, "
+         "projects, terms and other things that have been filed, how they relate, and the notes and sources about them.")
+READS = ("None of its nodes are listed here. When a message names someone or something you cannot place, look it up "
+         "before asking: context_find(query) takes a name or a question and returns the most relevant records first; "
+         "context_object(ref) reads one record with its relationships; context_expand(ref) shows what a node is "
+         "connected to; context_home pages every node (follow page.next_cursor). Every response names the published "
+         "revision it was read at. Notes are separate records, not graph nodes: find them with context_find(kind=note) "
+         "and open note:ID with context_object.")
 
 
 def _clip(text, limit):
@@ -37,31 +40,11 @@ def _clip(text, limit):
     return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
 
 
-def _attributes(view):
-    shown = []
-    for name, members in view["attributes"].items():
-        if members == [view["summary"]]:
-            continue
-        shown.append(f"{name}: " + ", ".join(_clip(member, ATTRIBUTE_CHARS) for member in members[:ATTRIBUTE_MEMBERS])
-                     + (", …" if len(members) > ATTRIBUTE_MEMBERS else ""))
-        if len(shown) == ATTRIBUTE_NAMES:
-            break
-    omitted = len(view["attributes"]) > len(shown) and len(shown) == ATTRIBUTE_NAMES
-    return (" [" + "; ".join(shown) + ("; …" if omitted else "") + "]") if shown else ""
-
-
-def _node_lines(node):
-    count = node["relationship_count"]
-    lines = [f"- {node['ref']} — {_clip(node['summary'], SUMMARY_CHARS)}{_attributes(node)}"
-             f" · {count} relationship{'' if count == 1 else 's'}"]
-    for edge in node["relationships"][:RELATIONSHIPS]:
-        other = edge["to"] if edge["direction"] != "in" else edge["from"]
-        arrow = {"out": "→", "in": "←", "self": "↺"}[edge["direction"]]
-        lines.append(f"  - {edge['ref']} {arrow} {other['ref']} ({_clip(other['summary'] or '', 80)}): "
-                     f"{_clip(edge['summary'], SUMMARY_CHARS)}")
-    if count > min(len(node["relationships"]), RELATIONSHIPS):
-        lines.append(f"  - … {count - min(len(node['relationships']), RELATIONSHIPS)} more; open {node['ref']} for all")
-    return lines
+def _types(types):
+    shown = [f"{_clip(item['type'], TYPE_CHARS)} {item['count']}" for item in (types or [])[:TYPES]]
+    if not shown:
+        return None
+    return "Nodes by type: " + ", ".join(shown) + ("; other types fewer." if len(types) > TYPES else ".")
 
 
 def _personal_lines(ref, record, characters=PERSONAL_CHARACTERS):
@@ -98,9 +81,10 @@ def _personal_lines(ref, record, characters=PERSONAL_CHARACTERS):
     return lines
 
 
-def render_home(dto, *, characters=MAX_CHARACTERS) -> str:
-    """The bounded text of one ``context_home`` DTO (or of a not-ready status DTO); it opens with a plain title line so
-    it nests under a host section heading. The owner's record takes its own bound, on top of ``characters``."""
+def render_home(dto, *, characters=MAX_CHARACTERS, types=None) -> str:
+    """The bounded text for one ``context_home`` DTO (or a not-ready status DTO) and, when known, the node counts by
+    type; it opens with a plain title line so it nests under a host section heading. The owner's record takes its own
+    bound, on top of ``characters``."""
     state = dto.get("status")
     head = "Shared Context (published graph)"
     if state == "not_initialized":
@@ -118,17 +102,7 @@ def render_home(dto, *, characters=MAX_CHARACTERS) -> str:
                 "The same published graph is shared by every registered agent.")
     pointer = dto.get("personal_context")
     personal_ref = pointer["ref"] if pointer else None
-    shown = [node for node in dto["nodes"][:NODES] if node["ref"] != personal_ref]
-    lines = [head, summary,
-             "One published graph shared by every registered agent; drafts are never shown. "
-             f"Showing {len(shown)} of {totals['nodes']} nodes, most connected first."]
-    for node in shown:
-        # The owner's record is rendered once, above; the index does not repeat it or its relationships.
-        visible = [edge for edge in node["relationships"]
-                   if personal_ref not in (edge["from"]["ref"], edge["to"]["ref"])]
-        lines.extend(_node_lines({**node, "relationships": visible}))
-    lines.append(READS)
-    text = "\n".join(lines)
+    text = "\n".join(filter(None, (head, summary, HOLDS, _types(types), READS)))
     text = text if len(text) <= characters else text[:characters - len(TRUNCATED)].rstrip() + TRUNCATED
     if personal_ref:
         head_line, _, rest = text.partition("\n")
@@ -149,8 +123,12 @@ class PublishedContextText:
         return self.reader.status()
 
     def home_text(self, business_id=None) -> str:
+        types = None
         try:
-            dto = self.reader.home(limit=NODES)
+            dto = self.reader.home(limit=1)
+            if dto.get("status") == "ready" and not dto["empty"]:
+                counted = self.reader.entity_types(revision=dto["revision"])
+                types = counted["types"] if counted.get("status") == "ready" else None
         except (DomainError, OSError):
             dto = {"status": "unavailable", "revision": None, "reason": {"code": "read_failed", "message": ""}}
-        return render_home(dto, characters=self.characters)
+        return render_home(dto, characters=self.characters, types=types)

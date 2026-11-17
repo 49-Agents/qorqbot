@@ -872,6 +872,9 @@ class AgentConfigResolver:
         result["inbox_available"] = any(tool["canonical_operation"] == "inbox_list" and tool["available"] for tool in data["tools"])
         if result["inbox_available"]:
             result["inbox_session_note"] = data["inbox_session_note"]
+        # The per-prompt Context lookup reminder is for agents that can act on it: all four graph reads are available.
+        result["context_reads_available"] = {"context_expand", "context_find", "context_home", "context_object"} <= {
+            tool["canonical_operation"] for tool in data["tools"] if tool["available"]}
         if event != "prompt" or changed:
             result["mandatory_context"] = data["mandatory_context"]
             startup = getattr(self, 'startup_context', None)

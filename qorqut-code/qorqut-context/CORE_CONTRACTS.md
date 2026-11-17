@@ -683,7 +683,12 @@ Search projects sources and current nodes, edges and notes into `SearchRecord` v
 kind, stable ID, text, attributes (empty for a note), and a content digest. Requests/results pin a
 published revision. The initial SQLite backend provides literal word/prefix
 search and exact attribute-member filters; multiple filters/members must all
-match. Numeric/boolean/string matches stay distinct. Search limits are explicit.
+match. Records holding every query word come first, ordered by bm25 relevance
+then key; records holding only some of the words follow in the same order, and
+one- and two-letter words are left out of that partial match when the query has
+longer ones. `matched` also reports `all` (some record holds every word), `any`
+(none does) or `browse` (empty query, key order). The order never depends on
+the limit. Numeric/boolean/string matches stay distinct. Search limits are explicit.
 
 The search backend boundary supports `rebuild`, `apply` (changed/removed records
 and an expected base revision), and `search`. A future vector backend can use

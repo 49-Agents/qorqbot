@@ -131,6 +131,43 @@ class ResponseStyleHookTests(unittest.TestCase):
         self.assertEqual(output['hookSpecificOutput']['additionalContext'], 'Current managed reminder.')
         self.assertIsNone(receipt)
 
+    def test_context_lookup_reminder_precedes_style_only_with_context_reads(self):
+        self.cached_receipt()
+        lookup = self.instructions.render('context-lookup-reminder').strip()
+        self.assertIn('context_find', lookup)
+        for runtime in ('claude-code', 'codex'):
+            with self.subTest(runtime=runtime):
+                self.response['context_reads_available'] = True
+                output, receipt, _ = self.deliver(runtime)
+                self.assertEqual(output['hookSpecificOutput']['additionalContext'], lookup + '\n\n' + self.reminder)
+                self.assertIsNone(receipt)
+                self.response['context_reads_available'] = False
+                output, _, _ = self.deliver(runtime)
+                self.assertEqual(output['hookSpecificOutput']['additionalContext'], self.reminder)
+
+    def test_context_lookup_reminder_is_not_added_at_startup(self):
+        self.response['context_reads_available'] = True
+        lookup = self.instructions.render('context-lookup-reminder').strip()
+        output, _, _ = self.deliver('codex', 'SessionStart', source='startup')
+        self.assertNotIn(lookup, output['hookSpecificOutput']['additionalContext'])
+
+    def test_snapshot_without_the_lookup_message_still_delivers_the_style_reminder(self):
+        self.cached_receipt()
+        self.response['context_reads_available'] = True
+        del self.instructions.document['messages']['context-lookup-reminder']
+        (self.root / 'runtime-instructions.json').write_bytes(self.instructions.bytes())
+        output, _, _ = self.deliver('codex')
+        self.assertEqual(output['hookSpecificOutput']['additionalContext'], self.reminder)
+
+    def test_oversized_lookup_reminder_is_rejected(self):
+        self.cached_receipt()
+        self.response['context_reads_available'] = True
+        self.instructions.document['messages']['context-lookup-reminder']['body'] = 'x' * 1001
+        (self.root / 'runtime-instructions.json').write_bytes(self.instructions.bytes())
+        with self.assertRaises(DomainError) as caught:
+            self.deliver('codex')
+        self.assertEqual(caught.exception.code, 'invalid_bootstrap')
+
     def test_style_is_an_instruction_before_user_preferences(self):
         rules, facts = split_sections('Configuration', [
             ('User Preferences', 'Personal preferences'),

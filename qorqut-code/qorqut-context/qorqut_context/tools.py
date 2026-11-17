@@ -119,7 +119,7 @@ class EventTools:
         return [deepcopy(spec) for spec, _ in self._registry.values()]
 
     def _register(self):
-        self._add("search_context", "Search the published base (draft excluded) by literal words/prefixes and exact attribute members across nodes, edges, notes and sources. Filter by kind to search only notes. Default limit 20, maximum 100; has_more invites a narrower query, not pagination.",
+        self._add("search_context", "Search the published base (draft excluded) by literal words/prefixes and exact attribute members across nodes, edges, notes and sources, most relevant first. Records holding every word come first, then records holding only some of the words; a notice says when no record holds them all. Filter by kind to search only notes. Default limit 20, maximum 100; has_more invites a narrower query, not pagination.",
                   obj({"query": STRING, "kind": {"type": "string", "enum": ["node", "edge", "note", "source"]},
                        "attributes": ATTRIBUTES, "limit": PAGE["limit"]}), self._search)
         self._add("read_object", "Read an effective node/edge/note with current support, including staged puts/removals; creation IDs are immediately readable. A node or edge also lists the IDs of notes that link it; a note lists its links and whether each is still a current graph object.",
@@ -230,11 +230,16 @@ class EventTools:
                 "revision": self.base.revision, **data}
 
     def _search(self, query="", kind=None, attributes=None, limit=20):
-        hits = self.context.search(query, revision=self.base.revision, kind=kind,
-                                   attributes=attributes, limit=limit + 1)
+        hits, match = self.context.search_matched(query, revision=self.base.revision, kind=kind,
+                                                  attributes=attributes, limit=limit + 1)
+        notices = []
+        if match == "any":
+            notices.append("No record holds every word; these hold at least one of them, most relevant first.")
+        if len(hits) > limit:
+            notices.append("Narrow the query to explore more matches.")
         return self._view({"items": [asdict(hit) for hit in hits[:limit]],
                            "has_more": len(hits) > limit,
-                           "notice": "Narrow the query to explore more matches." if len(hits) > limit else None}, published=True)
+                           "notice": " ".join(notices) or None}, published=True)
 
     def _read_object(self, kind, id):
         draft, objects, support = self._effective()
