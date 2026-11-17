@@ -29,6 +29,7 @@ COMMANDS = frozenset("""
 attach detach goto type click dblclick fill drag hover select upload check
 uncheck snapshot find eval dialog-accept dialog-dismiss resize go-back go-forward
 reload press screenshot pdf tab-list tab-new tab-close tab-select console observe
+frame
 """.split())
 GLOBAL_OPTIONS = {"--session", "-s", "--cdp", "--endpoint", "--extension", "--config",
                   "--browser", "--profile", "--persistent", "--headed", "--isolated"}
@@ -825,7 +826,10 @@ def validate_arguments(args: list[str]) -> None:
     except ValueError as exc:
         raise BrowserError(str(exc)) from exc
     if not args or args[0] not in COMMANDS:
-        raise BrowserError("Use attach, detach, or a supported page command; browser launch, shutdown and global management are disabled.")
+        name = repr(args[0]) if args else "An empty command"
+        raise BrowserError(f"{name} is not a supported browser command. Supported: "
+                           f"{' '.join(sorted(COMMANDS))}. Browser launch, shutdown and "
+                           "global management stay disabled.")
     if args[0] in {"attach", "detach"} and len(args) != 1:
         raise BrowserError("attach/detach take no arguments; the workspace selects the target.")
     for arg in args[1:]:
