@@ -558,7 +558,7 @@ class TaskOperations:
             current["fields_json" if key == "fields" else key] = value
         if current["status"] == "done" and (before is None or before["status"] != "done"):
             current["latest_completed_at"] = builder.at
-        validate_task(current, fields)
+        validate_task(current, fields, before)
         if attributes(current)["email_conversation_id"] != attributes(before or {})["email_conversation_id"]:
             self.email_reference(ctx, current, uow, builder)
         parents = self.parents(ctx, uow)
@@ -666,7 +666,7 @@ class TaskOperations:
         task_change = next((change for change in plan.changes if change.resource.resource_type == "tasks"), None)
         current = uow.repository("tasks", business_id=ctx.business_id).get(task_id) or {}
         proposed = {**current, **plain(task_change.values)} if task_change else current
-        validate_task(proposed, fields)
+        validate_task(proposed, fields, current)
         worker_changes = plan.arguments.get("worker_ids") if plan.operation_name == "tasks_create" else plan.arguments.get("changes", {}).get("worker_ids")
         if plan.operation_name == "tasks_delegate":
             worker_changes = [plan.arguments["worker_id"]]
