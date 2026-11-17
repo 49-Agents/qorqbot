@@ -89,6 +89,17 @@ phrase. A poorly understood named subject can use the broad type entity. Summari
 are readable overviews of useful knowledge. Do not store activities, intentions or
 uncertain details as attributes, and never store questions in the graph.
 
+### Names and aliases
+
+Later readers find an entity by searching for whatever name they were given, so
+record every name the source uses for it. Put the fullest name in `name` and each
+other form in `aliases`: short forms and nicknames, initials, former names, other
+spellings and transliterations, and a title or description when the source uses it
+as the name of exactly that one person, company, product or project. When a source
+uses a new form for an existing entity, add it to that entity's `aliases`; this
+alone is a change worth making. Do not record a description that could fit
+several entities, and do not record a form the source does not use.
+
 ### Questions
 
 Emit a question for a contradiction, an unclear identity or detail, or missing
