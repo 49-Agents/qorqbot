@@ -10,7 +10,8 @@ import uuid
 
 from . import bootstrap, controlled, usage
 from .engine import atomic_write, file_lock
-from .runner import AppServerRunner, RunnerConfig
+from .runner import RunnerConfig
+from .claude_runner import runner_for
 from .schema import Conflict, ContextError, RECORD_KINDS, digest, encode, identifier
 from .tools import EventTools
 from .input_modes import GENERAL, ACTION
@@ -41,7 +42,7 @@ class Pipeline:
     def __init__(self, context, *, runner=None, config=None, rng=None, on_event=None):
         self.context = context
         self.config = config or getattr(runner, "config", None) or RunnerConfig()
-        self.runner = runner or AppServerRunner(self.config)
+        self.runner = runner or runner_for(self.config)
         if getattr(self.runner, "config", self.config) != self.config:
             raise ContextError("Runner and pipeline configuration must match")
         self.rng, self.on_event = rng, on_event
