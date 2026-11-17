@@ -144,6 +144,16 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     reminder = instructions.render("response-style-reminder").strip() if event == "UserPromptSubmit" else ""
     if len(reminder) > 1000:
         raise DomainError("invalid_bootstrap", "Response style reminder exceeds its character budget")
+    if event == "UserPromptSubmit" and response.get("context_reads_available") is True:
+        # Sent on every prompt, to every agent that has the Context read tools. A prepared snapshot from before this
+        # message existed simply has no such reminder.
+        try:
+            lookup = instructions.render("context-lookup-reminder").strip()
+        except KeyError:
+            lookup = ""
+        if len(lookup) > 1000:
+            raise DomainError("invalid_bootstrap", "Context lookup reminder exceeds its character budget")
+        reminder = "\n\n".join(filter(None, (lookup, reminder)))
     reminder_size = len(reminder) + 2 if reminder else 0
     # Ordubashy's FIRST CONVERSATION line goes first: a CLI may show the model only the start of a long startup context.
     first = response.get('first_conversation')

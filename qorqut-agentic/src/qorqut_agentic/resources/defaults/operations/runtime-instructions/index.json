@@ -883,6 +883,15 @@
       "trigger": "Ordubashy input hook",
       "audience": "configured Ordubashy",
       "previous_source": "owner-approved operational workflow"
+    },
+    {
+      "id": "context-lookup-reminder",
+      "path": "messages/context-lookup-reminder.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "successful UserPromptSubmit when the four Context read tools are available",
+      "audience": "all registered agents on Claude Code and Codex",
+      "previous_source": "owner-approved context retrieval change"
     }
   ]
 }

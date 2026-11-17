@@ -661,6 +661,13 @@
       "path": "messages/operational-intake.md",
       "description": "operational intake",
       "when_to_use": "Ordubashy startup and input reconciliation"
+    },
+    {
+      "id": "context-lookup-reminder",
+      "kind": "instruction",
+      "path": "messages/context-lookup-reminder.md",
+      "description": "Look names up in Context before asking the owner",
+      "when_to_use": "Every successful user prompt for agents that have the Context read tools."
     }
   ]
 }
