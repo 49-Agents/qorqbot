@@ -64,6 +64,38 @@ def _blocked_episode(uow, agent_id, state):
     return (focus['id'], row['blocked_since']) if row and row['blocked_since'] else None
 
 
+# The coordinator's own short reply to a reminder is not work: activity this soon after one changes nothing.
+REMINDER_REPLY = timedelta(minutes=3)
+
+
+def _backoff(uow, agent_id, state, event, at):
+    """What the coordinator's reminder back-off needs, or None for every other board.
+
+    ``previous_delivery_at`` is the last reminder delivered before this event. ``changed_at`` is the latest of an
+    owner message, the start of the current focus, an inbox event addressed to him that someone else caused (a
+    result, a blocker, a message; not a Task edit he merely follows), and the coordinator's own
+    activity when it came later than a short reply to that reminder would."""
+    from qorqut.management.identity import configured_ordubashy
+    if agent_id != configured_ordubashy(uow):
+        return None
+    row = uow.connection.execute("SELECT max(delivered_at) FROM attention_reminders WHERE agent_id=? "
+        "AND state='submitted' AND kind IN ('focus','board_normal','board_reassess') AND delivered_at<?",
+        (agent_id, at)).fetchone()
+    delivered = row[0] if row else None
+    moments = [state.get('last_owner_message_at'), state.get('focus_started_at')]
+    if event == 'owner_message':
+        moments.append(at)
+    activity = max(filter(None, (state.get('last_agent_activity_at'), at if event == 'agent_activity' else None)),
+                   key=_time, default=None)
+    if activity and (delivered is None or _time(activity) > _time(delivered) + REMINDER_REPLY):
+        moments.append(activity)
+    row = uow.connection.execute('SELECT e.created_at FROM inbox_deliveries d JOIN inbox_events e ON e.id=d.event_id '
+        'WHERE d.agent_id=? AND d.required=1 AND e.actor_id IS NOT ? ORDER BY d.event_id DESC LIMIT 1', (agent_id, agent_id)).fetchone()
+    if row:
+        moments.append(row[0])
+    return {'previous_delivery_at': delivered, 'changed_at': max(filter(None, moments), key=_time, default=None)}
+
+
 def clock_advice(uow, agent_id, attention, now, *, event=None, event_at=None, delivered_kind=None,
                  ignore_episode_receipt=False):
     """Advance only the shared clock columns; never replace focus or intent."""
@@ -88,7 +120,8 @@ def clock_advice(uow, agent_id, attention, now, *, event=None, event_at=None, de
     mode = stored['board_mode'] if focus and stored['board_mode'] else attention.board_mode(uow, agent_id)
     result = advance(state, now=now, mode=mode, focused=bool(focus),
         focus_generation=state['focus_generation'], focus_started_at=state.get('focus_started_at'),
-        blocked_since=blocked, event=event, event_at=event_at)
+        blocked_since=blocked, event=event, event_at=event_at,
+        backoff=_backoff(uow, agent_id, state, event, event_at or now))
     attention.update_clock(uow, agent_id, {key: result[key] for key in _CLOCK_FIELDS
                                          if key in result and result[key] != stored[key]})
     return result
@@ -133,13 +166,13 @@ class AttentionRuntime:
         from qorqut_operations.tasks.types import attributes
         from qorqut_operations.tasks.workers import project_workers
         from qorqut.agents import attention_prompt as prompt
-        from qorqut.agents.attention import UNREADABLE, acts_on
+        from qorqut.agents.attention import UNREADABLE, acts_on, task_workers
         from qorqut.management.identity import configured_ordubashy
         coordinator = configured_ordubashy(uow)
         work_ref = state.get('work_task_json')
         snapshot = {'focus': {key: focus.get(key) for key in ('type', 'id', 'business_id')} if focus else None,
                     'focused_for': _age(state.get('focus_started_at'), self._now()) if focus else None,
-                    'work': None, 'intent': None, 'next_step': None, 'candidates': None, 'more': False}
+                    'work': None, 'intent': None, 'next_step': None, 'candidates': None, 'more': False, 'team': None}
         try:
             ctx = self.runtime.application.policy.context_for(agent_id, business_id=None, review_business_id=None, uow=uow)
         except DomainError:
@@ -174,11 +207,16 @@ class AttentionRuntime:
             # Filter on lifecycle first; Workers are projected only for tasks that will be shown.
             if task is None or task['status'] not in ('open', 'working') or not acts_on(task, agent_id, coordinator):
                 continue
+            # The coordinator is offered what he could hand over; a Task a worker already holds is the team's.
+            if agent_id == coordinator and task_workers(task) - {coordinator}:
+                continue
             if len(candidates) == prompt.CANDIDATES:
                 snapshot['more'] = True
                 break
             candidates.append(prompt.describe(ref, task, project_workers(uow, task)))
         snapshot['candidates'] = candidates
+        if agent_id == coordinator:
+            snapshot['team'] = self.attention.team(uow, coordinator, self._now())
         return snapshot
 
     def _verified_consumer(self, agent_id, consumer_id):

@@ -121,6 +121,58 @@
       "previous_source": "agents/attention_prompt.py"
     },
     {
+      "id": "attention-handover",
+      "path": "messages/attention-handover.md",
+      "parameters": [
+        "COUNT"
+      ],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "the configured coordinator; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-oversight",
+      "path": "messages/attention-oversight.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "the configured coordinator; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-team-available",
+      "path": "messages/attention-team-available.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "the configured coordinator; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-team-blocked",
+      "path": "messages/attention-team-blocked.md",
+      "parameters": [
+        "COUNT"
+      ],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "the configured coordinator; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-team-stalled",
+      "path": "messages/attention-team-stalled.md",
+      "parameters": [
+        "COUNT",
+        "MINUTES"
+      ],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "the configured coordinator; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
       "id": "background-recovered",
       "path": "messages/background-recovered.md",
       "parameters": [],
