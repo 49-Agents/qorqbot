@@ -24,8 +24,10 @@ service-managed protected action. Never replace a required decision with a chat 
 A question Signoff is the item's open question: the owner sees it in the item's "what holds now" and answers it in
 the sign-off queue, so never file it on the timeline as well. Link it to the item with `source`, and offer the likely
 answers as choices; the owner can always write something else. Only the coordinator writes timelines: once the owner
-answers, the coordinator files the answer with `timeline_file_answer` (a decision or a fact, filed at once without
-review). A worker reports such a point to the coordinator and does not call `timeline_file`.
+answers, the coordinator is told the Signoff, the question and the answer as given, and decides what it means: the
+owner may answer, or say the question is not needed or was settled already. When it settles a decision or a fact, the
+coordinator files it in its own words with `timeline_file_answer` (filed at once without review); otherwise it files
+nothing. If unclear, please ask the user. A worker reports such a point to the coordinator and does not call `timeline_file`.
 
 Collect every explicit request for owner input through a Signoff, including clarifications,
 access, missing information and review. Chat and progress notes can explain the request, but

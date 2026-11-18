@@ -163,9 +163,30 @@ class HostEventRouting:
             allowed = reaches_business(uow.connection, agent, business)
         return bool(allowed)
 
-    def presentation_summary(self, record):
-        return record.get('focus_summary')
+    def presentation_summary(self, record, uow):
+        return record.get('focus_summary') or answered_question(record, uow)
 
 
 def finalize_events(uow, sources=NO_SOURCES):
     EventFinalizer(sources=sources, item_types=ITEM_TYPES, feed_only=FEED_ONLY, host=HostEventRouting()).finalize(uow)
+
+
+def answered_question(record, uow):
+    """What an answered question Signoff tells the agents it reaches: the Signoff, the question and the owner's answer as given.
+    The owner may answer, or say the question is not needed or was settled already; the agent decides what that means."""
+    if record.get('state') != 'answered' or record.get('category') != 'input_request' or 'preview_json' not in record:
+        return None
+    preview = json.loads(record['preview_json']) if isinstance(record['preview_json'], str) else record['preview_json']
+    if (preview.get('input') or {}).get('kind') not in ('question', 'request'):
+        return None
+    from qorqut_operations.contracts import DomainError
+    from qorqut.domains.timeline import Timeline
+    try:
+        answer = Timeline.owner_words(record, uow)
+    except (DomainError, ValueError):
+        answer = '(no words or choices)'
+    head, tail = f'The owner answered question Signoff {record["id"]}: "{preview.get("title", "")}". Answer: ', ' If unclear, please ask the user.'
+    room = 500 - len(head) - len(tail)
+    if len(answer) > room:
+        answer = answer[:max(room - 40, 0)] + '… (full answer in signoffs_get)'
+    return head + answer + tail

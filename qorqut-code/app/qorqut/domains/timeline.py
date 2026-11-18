@@ -57,7 +57,9 @@ ANSWER_DESCRIPTION = (
     "since the words are the owner's: signoff_id is the answered question (signoffs_input_create, now answered), kind is "
     "decision or fact, text is the answer as it should hold (1 to 400 characters, one or two sentences). item names where it "
     "holds as in timeline_get; without it, the Task or Project the question was asked about, else Global or the Signoff's "
-    "Project. The owner's own answer is quoted on the entry and linked to the Signoff. Each answer is filed once.")
+    "Project. The owner's own answer is quoted on the entry and linked to the Signoff. Each answer is filed once. File only "
+    "an answer that settles a decision or fact; when the owner says the question is not needed or was settled already, file "
+    "nothing. If unclear, please ask the user.")
 REVIEW_NOTICE = ("Submitted for the owner's review. It is filed by itself when the owner approves it; do not file it again. "
                  "timeline_get lists the filings still waiting.")
 

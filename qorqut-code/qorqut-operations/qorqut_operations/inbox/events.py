@@ -93,7 +93,7 @@ class EventRouting(Protocol):
     def recipient_allowed(self, uow, agent, business, table, guard) -> bool:
         """Whether the host delivers an event of ``table`` in ``business`` to ``agent`` now."""
 
-    def presentation_summary(self, record):
+    def presentation_summary(self, record, uow):
         """The event summary the host composes for ``record``, or None for the generic one."""
 
 
@@ -272,7 +272,7 @@ class EventFinalizer:
             for agent in recipients:
                 if self.host.recipient_allowed(uow, agent, business, table, guard): active.add(agent)
             if not active: continue
-            title = self.host.presentation_summary(record) or source_summary(record, table)
+            title = self.host.presentation_summary(record, uow) or source_summary(record, table)
             visibility = {k: record[k] for k in ('kind', 'owning_agent_id', 'path') if k in record}
             # The decision already communicates a combined closing message; one
             # existing response event remains sufficient for consumers.
