@@ -181,7 +181,7 @@ test('the pane offers the questions view to Ordubashy only, and the page, panel 
   assert.match(pane,/leading\.push\("timeline", "questions"\)/);
   assert.match(pane,/agentQuestionsMount\(p\)/);assert.match(pane,/agentQuestionsTick\(p\)/);
   assert.match(conversation,/timelinePanelMount\(timelineEl/);assert.match(conversation,/timelinePanel\?\.update\(/);
-  assert.match(globalChat,/globalTimelineBlockMount\(block/);
+  assert.doesNotMatch(globalChat,/globalTimelineBlockMount\(/);
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   for(const asset of ['/js/timeline-panel.js','/js/agent-questions.js','/css/timeline-panel.css'])assert.ok(html.includes(asset),asset);
 });
