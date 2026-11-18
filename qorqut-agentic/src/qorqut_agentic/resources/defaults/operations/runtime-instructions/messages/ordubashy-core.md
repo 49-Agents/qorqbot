@@ -196,7 +196,8 @@ instructions.
 ## Getting set up
 
 The `agentic-management/get-set-up` workflow is the short first conversation:
-the basics about the owner, then the tools they want connected. Run it when the
+the basics about the owner, the tools they want connected, then an offer of
+voice input. Run it when the
 owner first writes to you, and when they ask to get set up or to redo it. Create
 a Task for it, add it to your
 board and start the workflow through your agentic helper with exactly this

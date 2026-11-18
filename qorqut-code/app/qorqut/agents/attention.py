@@ -10,6 +10,7 @@ to one of the board's Tasks, and focusing on an open Task marks it working.
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 from dataclasses import replace
+from datetime import datetime, timedelta
 import json
 
 from qorqut_operations.application import OperationDescriptor
@@ -23,6 +24,9 @@ REF = schema({'type': ID, 'id': ID, 'business_id': {'type': ['string', 'null']}}
 TASK = schema({'type': {'const': 'task'}, 'id': ID, 'business_id': {'type': ['string', 'null']}}, ('type', 'id', 'business_id'))
 REV = {'type': 'integer', 'minimum': 0}
 OPEN_WORK_LIMIT = 50
+# Delegated work the coordinator's reminder calls quiet, and how many such Tasks it lists.
+STALLED_AFTER = timedelta(minutes=10)
+STALLED_LIMIT = 10
 OPEN_WORK = ("SELECT t.business_id,t.id,t.title,t.status,t.updated_at,t.due,t.snoozed_until,t.worker_ids_json,t.fields_json "
              "FROM tasks t WHERE t.archived=0 AND t.status NOT IN ('done','cancelled') "
              "AND coalesce(json_extract(t.fields_json,'$.\"$task\".task_type'),'task')='task' "
@@ -74,14 +78,14 @@ def acts_on(task, agent_id, coordinator):
     """Whether a board Task is this agent's to move.
 
     Ordubashy answers for everything on his board. A worker moves a Task only while it is one of its Workers (who must
-    act next) or nobody is named yet; a Task that names someone else is waiting on them, however long it stays listed,
-    so it neither drives that worker's reminders nor is offered to it as a candidate."""
+    act next); a Task that names someone else is waiting on them and one that names nobody is not assigned work,
+    however long either stays listed, so it neither drives that worker's reminders nor is offered to it as a candidate."""
     if agent_id == coordinator:
         return True
     workers = task.get('worker_ids_json') or []
     if isinstance(workers, str):
         workers = json.loads(workers)
-    return not workers or agent_id in workers
+    return agent_id in workers
 
 
 def task_workers(row):
@@ -702,6 +706,38 @@ class Attention:
         return {'held_by_others': {'count': len(held), 'tasks': held[:OPEN_WORK_LIMIT]},
                 'unowned': {'count': len(unowned), 'tasks': unowned[:OPEN_WORK_LIMIT]}}
 
+    def team(self, uow, coordinator, now):
+        """What the coordinator oversees, for his reminder: who is free and which delegated work has gone quiet.
+
+        ``available``: active workers that no open or working Task names. ``stalled``: open or working Tasks held by an
+        active worker (not only by a person) and not by the coordinator, not snoozed, with no update for STALLED_AFTER, oldest first.
+        ``blocked``: blocked Tasks held the same way, whenever they were last updated, so one that stays blocked keeps
+        being shown. Read from the
+        Tasks like ``open_work``; nothing here is written."""
+        from qorqut.agents.global_scope import active_role_holders
+        from qorqut.agents.roles import GLOBAL_WORKER_ROLE
+        names = {row[0]: row[1] for row in uow.connection.execute('SELECT id, display_name FROM principals')}
+        workers = active_role_holders(uow.connection, GLOBAL_WORKER_ROLE)
+        cutoff = timestamp(lambda: datetime.fromisoformat(now.replace('Z', '+00:00')) - STALLED_AFTER)
+        busy, stalled, blocked = set(), [], []
+        for row in uow.connection.execute(OPEN_WORK):
+            if row['status'] not in ('open', 'working', 'blocked'):
+                continue
+            held = json.loads(row['worker_ids_json'] or '[]')
+            if row['status'] != 'blocked':
+                busy.update(held)
+            if not set(held) & set(workers) or coordinator in held or (row['snoozed_until'] or '') > now:
+                continue
+            entry = {'id': row['id'], 'business_id': row['business_id'], 'title': row['title'], 'status': row['status'],
+                     'workers': [names.get(worker) or '' for worker in held], 'updated_at': row['updated_at']}
+            if row['status'] == 'blocked':
+                blocked.append(entry)
+            elif row['updated_at'] <= cutoff:
+                stalled.append(entry)
+        return {'available': [names.get(agent) or agent for agent in workers if agent not in busy],
+                'stalled': stalled[:STALLED_LIMIT], 'stalled_count': len(stalled),
+                'blocked': blocked[:STALLED_LIMIT], 'blocked_count': len(blocked)}
+
     def prepare(self, op, ctx, args, uow):
         self.validate(op, ctx, args, uow)
         return PlanBuilder(ctx, op, args, 'Update Todo', namespace='global', affected_scope={'kind':'global'}).build()
@@ -729,6 +765,12 @@ class Attention:
                     raise DomainError('validation_error', 'A worker focuses on its exact Todo Task; use the same Task reference for focus and task')
                 membership = self.task_membership(uow, agent, args['task'])
                 if not membership or membership['task_created_at'] != task['created_at']: raise DomainError('not_found', 'Work item is not on Todo')
+                # Focus says the agent is working on the Task, so a paused Task cannot take a plain Task focus; writing
+                # it as paused clears one (``release_focus``). A workflow focus keeps its own pause and detach rules.
+                if args['focus']['type'] == 'task' and task.get('status') in PAUSED:
+                    label = {'waiting': 'waiting', 'blocked': 'blocked', 'needs_input': 'needs input'}[task['status']]
+                    raise DomainError('validation_error', f'This Task is {label}. If you are resuming it, set its status '
+                                      'to working first, then focus on it.')
                 if not isinstance(args.get('intent', ''), str) or len(args.get('intent', '')) > 1000: raise DomainError('validation_error', 'Intent must contain at most 1000 characters')
                 self.resolve(self.board_context(ctx, agent, uow), agent, args['focus'], uow)
                 if args['focus']['type'] == 'workflow':

@@ -42,6 +42,13 @@ Timing rules:
   marker survives an unfocused gap so the same unresolved episode is never nudged twice; clearing the
   episode while Focused, or replacing it with a new start, resets it.
 
+- Coordinator back-off (``backoff`` given): the coordinator oversees rather than executes, so a reminder that
+  finds nothing new is not repeated at the working pace. A delivered focus or board reminder rearms 60 minutes
+  later, and 180 minutes later when the previous reminder was itself delivered at least 55 minutes before with
+  no change since. A change after the last delivery (``changed_at``: an owner message, a new focus, an inbox
+  event from someone else, or the coordinator's own work beyond the short reply to a reminder) brings the next
+  reminder forward to the ordinary interval after that change. The owner-message buffer still applies.
+
 Unfocusing or changing focus invalidates the old focus deadline and rebuilds the board deadline from the
 current moment, so accumulated deadlines are never replayed. Older duplicate activity is inert. The
 reducer only advises delivery: it never changes focus, resumes a workflow or starts a model turn.
@@ -60,6 +67,9 @@ BOARD_KINDS = frozenset(BOARD_KIND.values())
 OCCURRENCE_KINDS = BOARD_KINDS | {'focus', 'workflow_detach'}
 OWNER_MESSAGE_BUFFER = timedelta(minutes=15)
 FOCUS_INTERVAL = timedelta(minutes=5)
+BACKOFF_INTERVALS = (timedelta(minutes=60), timedelta(minutes=180))
+# A reminder that follows the previous one sooner than this was brought forward by a change, so it starts over.
+BACKOFF_SETTLED = timedelta(minutes=55)
 FOCUS_CHAT_GRACE = timedelta(minutes=3)
 WORKFLOW_DETACH_GRACE = timedelta(minutes=30)
 _STORED_TIMESTAMPS = ('board_due_at', 'focus_due_at', 'last_agent_activity_at', 'last_owner_message_at',
@@ -121,7 +131,7 @@ def _arm(mode, moment, owner_at):
 
 
 def advance(state, *, now, mode, focused, focus_generation, focus_started_at=None, blocked_since=None,
-        event=None, event_at=None):
+        event=None, event_at=None, backoff=None):
     """Return the next stored clock mapping plus the current occurrence's delivery advice.
 
     ``state`` is the stored mapping (see the module docstring); ``now`` is the current UTC moment and
@@ -129,6 +139,8 @@ def advance(state, *, now, mode, focused, focus_generation, focus_started_at=Non
     the board mode derived from unfinished board work, ``focused`` the current attention state and
     ``focus_generation`` the caller's focus generation. ``focus_started_at`` is the start of the current
     focus episode and ``blocked_since`` the start of the focused workflow's unresolved blocking episode.
+    ``backoff`` is given for the coordinator only: a mapping with ``previous_delivery_at`` (the last reminder
+    delivered before this event, or ``None``) and ``changed_at`` (the latest change, or ``None``).
     """
     if mode not in BOARD_MODES:
         raise ValueError(f'mode must be one of {BOARD_MODES}')
@@ -158,6 +170,16 @@ def advance(state, *, now, mode, focused, focus_generation, focus_started_at=Non
     if message:
         owner_at = moment
     sequence = previous['reminder_sequence'] + (1 if event == 'delivered' else 0)
+    rearm = fresh = None
+    if backoff is not None:
+        if not isinstance(backoff, Mapping):
+            raise TypeError('backoff must be a mapping')
+        earlier = _instant(backoff.get('previous_delivery_at'), 'previous_delivery_at')
+        changed = _instant(backoff.get('changed_at'), 'changed_at')
+        if changed is not None and (earlier is None or changed > earlier):
+            fresh = changed
+        settled = earlier is not None and fresh is None and moment - earlier >= BACKOFF_SETTLED
+        rearm = BACKOFF_INTERVALS[1 if settled else 0]
 
     # A blocking episode only exists while Focused. Its delivery marker belongs to that exact episode and
     # survives an unfocused gap, so refocusing the same unresolved episode cannot nudge a second time;
@@ -174,7 +196,9 @@ def advance(state, *, now, mode, focused, focus_generation, focus_started_at=Non
         else:
             focus_due = previous['focus_due_at']
         if delivered == 'focus' and episode is None:
-            focus_due = moment + FOCUS_INTERVAL
+            focus_due = moment + (rearm or FOCUS_INTERVAL)
+        elif fresh is not None:
+            focus_due = min(focus_due, fresh + FOCUS_INTERVAL)
         # The board clock is paused while focused; returning Unfocused rebuilds it from the current moment.
     elif mode != 'empty':
         if (previous['board_mode'] != mode or previous['board_due_at'] is None
@@ -188,6 +212,10 @@ def advance(state, *, now, mode, focused, focus_generation, focus_started_at=Non
                 board_due = max(board_due, moment + OWNER_MESSAGE_BUFFER)
             if delivered in BOARD_KINDS:
                 board_due = _arm(mode, moment, owner_at)
+                if rearm is not None:
+                    board_due = max(board_due, moment + rearm)
+            elif fresh is not None:
+                board_due = min(board_due, _arm(mode, fresh, owner_at))
 
     if focused and episode is not None:
         if delivered == 'workflow_detach':

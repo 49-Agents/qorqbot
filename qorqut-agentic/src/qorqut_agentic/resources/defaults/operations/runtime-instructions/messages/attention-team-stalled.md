@@ -1,0 +1,1 @@
+Delegated Tasks with no update for {{MINUTES}} minutes or more (open or working, held by a worker, oldest first, up to {{COUNT}} shown):
