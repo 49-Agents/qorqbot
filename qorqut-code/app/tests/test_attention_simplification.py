@@ -58,6 +58,7 @@ class AttentionTests(unittest.TestCase):
         self.attention.reminder_eligible = lambda *_a, **_k: True
         self.addCleanup(patch.stopall)
         patch('qorqut.agents.attention.enrolled_board', return_value=True).start()
+        patch('qorqut.management.identity.configured_ordubashy', return_value='coordinator').start()
 
     def agent(self, agent):
         self.conn.execute('INSERT INTO agent_attention(agent_id,focus_json,focus_generation,focus_started_at,updated_at) '
