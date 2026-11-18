@@ -64,6 +64,30 @@ tab by CDP target id.
 - Known trade-offs, accepted: agents on one account can interfere with each other; one crash affects every agent on Shared;
   every agent on Shared can reach every site signed in there.
 
+#### Design (from reading the current code; not built yet)
+
+How it fits what exists (`qorqut/browser/agent_browsers.py`, `agent_supervisor.py`, `access.py`, `bootstrap/agent_browser.py`):
+
+- **One more supervised Chrome.** The Shared browser is a managed browser like an agent's own: the same supervisor, a port
+  from the reserved range 20400-21399, the same ownership record and health check. Its state directory and service unit are
+  named for the installation's Shared browser, not for an agent. Today every check ties a browser to one agent UUID
+  (`load_meta`, `meta_valid`, `unit_name`), so those checks gain exactly one more accepted owner.
+- **The choice is a record, set through `agent_browser_manage`.** Two new actions, `use_shared` and `use_own`, with the same
+  authorization as the existing ones (the configured Ordubashy and the owner). `use_shared` starts the Shared browser when
+  needed, stops the agent's own browser, keeps its profile and sign-ins on disk untouched, and writes the agent's generated
+  `.qorqut/browser.json` with the Shared endpoint. `use_own` reverses it. A hand-installed `browser.json` is never replaced,
+  as today.
+- **Pinned tabs.** A command of an agent on Shared runs with `--pin-tab`. The agent's first command opens a tab of its own;
+  it never adopts a tab that is already open. `tab_gone` reaches the agent as it is, so it opens a new tab.
+- **Use lock.** A command of any agent on Shared holds the Shared browser's use lock (`command_use`), so a restart or stop
+  of the Shared browser is refused while any of them runs, as for an own browser today.
+- **No fallback.** An agent set to Shared whose Shared browser is stopped or broken gets `browser_not_ready`. Nothing
+  points it at its own profile or any other browser.
+- **Owner sign-in.** Until the live panel exists, the visible sign-in window on the Shared profile stops the Shared Chrome,
+  so every agent on Shared waits while the owner signs in.
+- **Not hidden from each other.** `tab-list` shows every tab of the Shared browser, and an agent can select another agent's
+  tab. Accepted with decision 5.
+
 ### 2. Live panel with takeover
 
 - An owner-only stream of the agent's current tab into the dashboard browser pane, with pointer and key input sent back to
