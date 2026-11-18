@@ -56,8 +56,19 @@ built and what was verified; an item without a "Verified" line is not done.
 Not tested: a page-opened popup (the test's `window.open` was blocked), macOS, file pickers, the clipboard of the owner's
 computer, and input method editors.
 
-Consequence for item 1: every agent on the Shared browser runs pinned to its own tab, and the server records each agent's
-tab by CDP target id.
+Consequence for item 1: every agent on the Shared browser runs pinned to its own tab.
+
+Further tests for item 2 (2026-11-18, same setup):
+
+| Question | Result |
+| --- | --- |
+| Can the server ask an agent's `agent-browser` session which tab is its own? | `tab list --json` reports each tab's CDP target id and the session's active tab. **But** asking from a session that has no tab yet opens a stray blank tab, so the panel does not ask. |
+| Does a tab that is not in front stream? | **No.** A screencast of a background tab gave 1 frame in 2 seconds; a single screenshot of it works (47 ms). After `Page.bringToFront` the same tab gave 121 frames in 2 seconds. |
+| Does bringing one tab forward break another agent's work? | **No.** A click and a snapshot by another pinned session on its now-hidden tab still worked. The hidden page reports `visibilityState` "hidden", so its animations and timers slow down, as in any background tab. |
+| Is `/json/list` in most-recently-used order? | **No**, so it cannot say which tab the agent used last. |
+
+Consequence for item 2: the panel talks to Chrome over CDP directly, lists the browser's tabs for the owner to pick from, and
+brings the watched tab to the front. It does not know which tab belongs to which agent.
 
 ### 1. Shared profile
 
