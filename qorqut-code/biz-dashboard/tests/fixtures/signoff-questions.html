@@ -67,7 +67,7 @@ const fill=id=>{enter(id,'location','Use the garden.');enter(id,'materials','Bri
   try {
     await wait(300);
     if(location.hash==='#shot') {Object.keys(hosts).filter(id=>id!=='main').forEach(id=>hosts[id].hidden=true);enter('main','materials','Bring notebooks and pens.');button('main','location','yes').click();button('main','materials','yes').click();return;}
-    out.singleDone=done('main').textContent==='Done' && hosts.main.querySelectorAll('[data-sg="respond"]').length===1;
+    out.singleDone=done('main').textContent==='Send' && hosts.main.querySelectorAll('[data-sg="respond"]').length===1;
     const ids=[...document.querySelectorAll('.sg-question-notes')].map(el=>el.id);out.uniqueLabels=new Set(ids).size===ids.length;
     // Message references are stored evidence, not part of the submitted answer byte budget.
     const boundary=item('boundary'), values=boundary.input.questions.map((q,i)=>({question_id:q.id,selected_choices:[],notes:i<2?'😀'.repeat(8000):'',status:'answered'}));
@@ -86,7 +86,7 @@ const fill=id=>{enter(id,'location','Use the garden.');enter(id,'materials','Bri
     items.main.status_revision++;await views.main.refresh();
     out.pollKeepsCaret=stable===field('main','materials') && document.activeElement===stable && stable.selectionStart===4 && stable.selectionEnd===8;
     button('main','location','no').click();out.singleChoice=button('main','location','yes').getAttribute('aria-checked')==='false';
-    q('main','[data-question-id="location"] [data-question-clear]').click();enter('main','location','Use the garden instead.');
+    if(button('main','location','no').getAttribute('aria-checked')!=='true')button('main','location','no').click();button('main','location','no').click();out.singleDeselects=button('main','location','no').getAttribute('aria-checked')==='false';enter('main','location','Use the garden instead.');
     out.unsubmitted=posts.length===0 && q('main','.sg-question-progress').hidden && !q('main','.sg-question-progress').textContent;
     const shared=field('main','materials').value;views.main.dispose();hosts.main.replaceChildren();views.main=sgChatMount({id:'main',business_id:'b1',business_slug:'demo'},hosts.main);await wait(100);
     out.remountKeepsDraft=field('main','materials').value===shared;
