@@ -108,9 +108,17 @@ Pass these commands as the `browser_turn` command array:
   costs CPU even when nobody looks at it. Never close owner tabs or tabs you did not open.
 - `screenshot` is a fallback for visual tasks or inaccessible controls. Inspect
   the image before coordinate actions. Avoid repeated full snapshots/screenshots.
+- `type "text"` sends text to the focused element; `click` the field first and verify
+  the result. `press <key>` sends a single key.
+- `frame <ref-or-selector>` switches into an iframe, such as an embedded payment form,
+  whose contents a snapshot does not show; `frame main` returns to the page. Run
+  `snapshot --interactive` again after switching, then use the refs it returns.
+  Before a card number, password or code goes into a frame, the owner must have
+  authorized that exact step; read the field back before submitting.
 - `eval <function>` runs a page JavaScript function when ordinary controls are
-  insufficient. Playwright `run-code`, request-inspection commands and old mouse/
-  keyboard subcommands are not exposed by this adapter; do not guess equivalents.
+  insufficient. It sees the top page only, not a cross-origin frame. Playwright
+  `run-code`, request-inspection commands and old mouse/keyboard subcommands are not
+  exposed by this adapter; do not guess equivalents.
   Keep evaluation within the requested page task and preserve unrelated tabs.
 - Durable MCP workers use `release` on a leased handle; your own
   lease-free browser needs neither. All preserve Chrome.
