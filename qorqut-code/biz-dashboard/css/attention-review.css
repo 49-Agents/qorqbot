@@ -80,3 +80,31 @@
 /* A blocking Signoff keeps its red frame in the queue, selected or not. */
 .agfocus .focus-signoff-queue .focus-signoff-chip[data-blocking="true"],.agfocus .focus-signoff-queue .focus-signoff-chip[data-blocking="true"][aria-current="true"]{border-color:#FF453A;box-shadow:inset 0 0 0 1px #FF453A}
 .focus-signoff-chip[aria-current="true"]::before{content:"";position:absolute;left:50%;bottom:-5px;transform:translateX(-50%);width:20px;height:2px;border-radius:2px;background:var(--fg);pointer-events:none}
+/* A question for the owner: the question as a heading, its choices as full-width buttons, a one-line answer and Send. */
+.agfocus-review-open:has(.sg-asks-one) .agfocus-surface-title{visibility:hidden}
+.agfocus-review-open .sg .sg-asks .sg-ask-title{margin:0 0 10px;color:var(--fg);font-size:22px;font-weight:500;line-height:1.35;letter-spacing:-.01em;overflow-wrap:anywhere}
+.agfocus-review-open .sg .sg-asks .sg-rationale{color:var(--fg-2);font-size:14px;line-height:1.6}
+.agfocus-review-open .sg .sg-asks .sg-choices{margin-top:20px}
+.agfocus-review-open .sg .sg-asks .sg-choices > div,
+.agfocus-review-open .sg .sg-asks .sg-question-choices{align-items:stretch;gap:8px;max-width:560px}
+.agfocus-review-open .sg .sg-asks .sg-choice{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;max-width:none;min-height:48px;padding:11px 16px;border:1px solid var(--line-2);border-radius:12px;background:var(--wash)}
+.agfocus-review-open .sg .sg-asks .sg-choice::before,.agfocus-review-open .sg .sg-asks .sg-choice::after{display:none}
+.agfocus-review-open .sg .sg-asks .sg-choice:hover{border-color:var(--fg-3);background:var(--hover)}
+.agfocus-review-open .sg .sg-asks .sg-choice[aria-checked="true"]{border-color:var(--fg);background:var(--hover)}
+.agfocus-review-open .sg .sg-asks .sg-choice:focus-visible{outline:2px solid var(--fg-2);outline-offset:2px}
+.agfocus-review-open .sg .sg-asks .sg-choice:focus-visible .sg-choice-name{text-decoration:none}
+.agfocus-review-open .sg .sg-asks .sg-choice-name{max-width:none;font-size:14px;font-weight:500}
+.agfocus-review-open .sg .sg-asks .sg-choice-explanation{flex:none;font-size:12.5px;line-height:1.45}
+.agfocus-review-open .sg .sg-asks .sg-choice > [aria-hidden="true"]{display:none}
+.agfocus-review-open .sg .sg-asks .sg-question{margin:0 0 22px;padding:0;border:0}
+.agfocus-review-open .sg .sg-asks .sg-question legend{margin:0 0 4px;padding:0;color:var(--fg);font-size:17px;font-weight:500;line-height:1.4}
+.agfocus-review-open .sg .sg-asks .sg-question-explanation{margin:0 0 12px;color:var(--fg-2);font-size:13px}
+.agfocus-review-open .sg .sg-asks .sg-question-choices + .sg-question-notes,
+.agfocus-review-open .sg .sg-asks .sg-question-notes{margin-top:8px}
+.agfocus-review-open .sg .sg-asks .sg-question-notes,
+.agfocus-review-open .sg .sg-asks .sg-feedback{max-width:560px;min-height:46px;padding:12px 16px;border:1px solid var(--line-2);border-radius:12px;background:var(--wash);font-size:14px;line-height:1.45;resize:none}
+.agfocus-review-open .sg .sg-asks .sg-question-notes:hover,.agfocus-review-open .sg .sg-asks .sg-feedback:hover{border-color:var(--fg-3)}
+.agfocus-review-open .sg .sg-asks .sg-question-notes:focus,.agfocus-review-open .sg .sg-asks .sg-feedback:focus{border-color:var(--fg)}
+.agfocus-review-open .sg .sg-asks .sg-actions .sg-approve{min-height:44px;height:44px;padding:0 22px;background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-size:14px;font-weight:600}
+.agfocus-review-open .sg-focus.sg-single .sg-urgent:has(.sg-asks) > h2{display:none}
+.agfocus-review-open .sg .sg-asks .sg-attention-meta .sg-notice{margin:0 0 6px;color:var(--warn);font-size:12px}

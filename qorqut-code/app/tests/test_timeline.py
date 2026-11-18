@@ -57,6 +57,12 @@ class TimelineTests(Fixture):
     def filed(self, item, changes, **more):
         return self.ok(self.file(self.lead, item, changes, **more))
 
+    def asked(self, item, changes):
+        """Questions an older filing left open. A new question is a question Signoff, so these are written as storage holds them."""
+        from qorqut_operations.timeline import filing
+        with self.db.transaction() as uow:
+            return {'filed': filing.write(uow.connection, item, changes, [], created_by=self.lead, at=DAY)}
+
     def get(self, who, item, **more):
         return self.app.invoke(self.ctx(who), 'timeline_get', {'scope': 'global', 'item': item, **more}, {})
 
@@ -139,7 +145,7 @@ class TimelineTests(Fixture):
         self.assertEqual(self.filed(self.item, [{'action': 'add', 'kind': 'fact', 'text': 'New.'}])['revision'], before)
 
     def test_a_question_is_answered_by_a_filed_entry_or_dropped(self):
-        result = self.filed(self.item, [{'action': 'ask', 'text': 'Dollars or local currency?', 'blocking': True},
+        result = self.asked(self.item, [{'action': 'ask', 'text': 'Dollars or local currency?', 'blocking': True},
                                         {'action': 'ask', 'text': 'Which month next?', 'blocking': False, 'raised_by': 'owner'}])
         first, second = result['filed']['questions']
         questions = self.read(self.item)['state']['questions']
@@ -168,7 +174,7 @@ class TimelineTests(Fixture):
 
     def test_one_sequence_orders_entries_and_question_changes_and_is_the_revision(self):
         self.add('fact', 'One.')
-        asked = self.filed(self.item, [{'action': 'ask', 'text': 'Why?', 'blocking': False}])['filed']['questions'][0]
+        asked = self.asked(self.item, [{'action': 'ask', 'text': 'Why?', 'blocking': False}])['filed']['questions'][0]
         self.assertEqual(self.read(self.item)['revision'], 2)
         self.filed(self.item, [{'action': 'drop', 'question_id': asked}])
         self.assertEqual(self.read(self.item)['revision'], 3)
@@ -193,7 +199,7 @@ class TimelineTests(Fixture):
     def test_limits(self):
         add = {'action': 'add', 'kind': 'fact', 'text': 'x'}
         refused = [[{**add, 'text': 'x' * 401}], [{**add, 'text': ''}], [], [add] * 11, [{**add, 'kind': 'note'}],
-                   [{'action': 'ask', 'text': 'x' * 401, 'blocking': True}], [{'action': 'remove', 'entry_id': 'a', 'extra': 1}]]
+                   [{'action': 'ask', 'text': 'Asked on the timeline?', 'blocking': True}], [{'action': 'remove', 'entry_id': 'a', 'extra': 1}]]
         for changes in refused:
             self.assertEqual(self.code(self.file(self.lead, self.item, changes)), 'validation_error', changes)
         quote = {'quote': 'q', 'ref': 'm'}
@@ -223,7 +229,7 @@ class TimelineTests(Fixture):
         decision = self.add('decision', 'Pay through one provider only.')
         fact = self.add('fact', 'The hold on creator R. was cleared.')
         self.add('progress', '9 of 14 paid; 5 wait for invoices.')
-        asked = self.filed(self.item, [{'action': 'ask', 'text': 'Pay creator F. in dollars?', 'blocking': True},
+        asked = self.asked(self.item, [{'action': 'ask', 'text': 'Pay creator F. in dollars?', 'blocking': True},
                                        {'action': 'ask', 'text': 'Pay on Fridays?', 'blocking': False}])['filed']['questions']
         child = self.task(self.lead, 'Subtask', parent_id=self.work['id'])
         self.assertEqual(self.read(self.item)['text'], '\n'.join([
@@ -342,7 +348,7 @@ class TimelineTests(Fixture):
 
     def test_a_task_that_moves_takes_its_timeline_along(self):
         entry = self.add('fact', 'Moves with the Task.')
-        self.filed(self.item, [{'action': 'ask', 'text': 'Where next?', 'blocking': False}])
+        self.asked(self.item, [{'action': 'ask', 'text': 'Where next?', 'blocking': False}])
         stay = self.task(self.lead, 'Stays')
         self.add('fact', 'Stays behind.', {'type': 'task', 'id': stay['id'], 'business_id': None})
         self.add('fact', 'Global stays.', self.global_item)
@@ -362,7 +368,7 @@ class TimelineTests(Fixture):
 
     def test_removals_and_answers_can_pin_their_target_rows(self):
         gone = self.add('decision', 'Old.')
-        asked = self.filed(self.item, [{'action': 'ask', 'text': 'Q?', 'blocking': True}])['filed']['questions'][0]
+        asked = self.asked(self.item, [{'action': 'ask', 'text': 'Q?', 'blocking': True}])['filed']['questions'][0]
         changes = [{'action': 'add', 'kind': 'fact', 'text': 'New.'}, {'action': 'remove', 'entry_id': gone},
                    {'action': 'answer', 'question_id': asked, 'kind': 'fact', 'text': 'Because.'}]
         with self.db.read() as uow:

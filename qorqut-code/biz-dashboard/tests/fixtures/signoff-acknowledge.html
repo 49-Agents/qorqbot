@@ -74,7 +74,7 @@ const row=id=>[...hosts.list.querySelectorAll('.sg-row')].find(node=>node.datase
     out.commentBox=comments.length===0 && !card.querySelector('.sg-comment');
     // A question keeps its answer field and gets no comment box of its own.
     row('question').querySelector('.sg-rowhead').click();await wait(200);
-    out.questionUnchanged=!!row('question').querySelector('.sg-feedback') && row('question').querySelector('[data-sg="respond"]').textContent==='Submit'
+    out.questionUnchanged=!!row('question').querySelector('.sg-feedback') && row('question').querySelector('[data-sg="respond"]').textContent==='Send'
       && !row('question').querySelector('.sg-comment') && comments.length===0;
     row('report').querySelector('.sg-rowhead').click();await wait(200);
     row('report').querySelector('[data-sg="respond"]').click();await wait(200);
