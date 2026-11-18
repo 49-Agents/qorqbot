@@ -249,6 +249,16 @@
 .agfocus-notes{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
 .agfocus .agfocus-notes .agfocus-notes-input{display:block;flex:1;width:100%;min-height:120px;box-sizing:border-box;margin:0;padding:10px 12px;border:0;border-radius:8px;background:transparent;box-shadow:none;color:var(--fg);font:inherit;font-size:13.9px;line-height:1.6;resize:none;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;outline:0}
 .agfocus .agfocus-notes .agfocus-notes-input:focus{background:rgba(255,255,255,.03);box-shadow:none}
+.agfocus-notes-box{position:relative;display:flex;flex:1;min-height:0;min-width:0}
+/* Status balls: the layer repeats the text over the area (whose own text is transparent) with each "-" swapped for its ball. */
+.agfocus .agfocus-notes .agfocus-notes-input{color:transparent;caret-color:var(--fg)}
+.agfocus .agfocus-notes .agfocus-notes-marks{position:absolute;top:0;left:0;bottom:0;box-sizing:border-box;margin:0;padding:10px 12px;overflow:hidden;pointer-events:none;color:var(--fg);font:inherit;font-size:13.9px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;letter-spacing:normal}
+.agfocus .agfocus-notes .agfocus-notes-marks.disabled{opacity:.6}
+.agfocus-mline{min-height:1.6em}
+.agfocus-mline.done{text-decoration:line-through;color:color-mix(in srgb,var(--fg) 55%,transparent)}
+.agfocus-dash{position:relative;color:transparent}
+/* The ball is the shared one (css/status-ball.css); here it is only placed on its dash. */
+.agfocus .agfocus-notes .ntball,.agfocus .agfocus-notes .ntball:hover,.agfocus .agfocus-notes .ntball:active{position:absolute;left:50%;top:50%;width:20px;height:20px;min-width:0;min-height:0;margin:0;box-shadow:none;transform:translate(-50%,-50%);pointer-events:auto;user-select:none;text-decoration:none}
 .agfocus .agfocus-notes .agfocus-notes-input:disabled{opacity:.6;cursor:default}
 .agfocus-text-status{display:flex;flex:none;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0 0;padding:0 12px;font-size:11px;color:var(--fg-2)}
 .agfocus-text-status[hidden]{display:none}

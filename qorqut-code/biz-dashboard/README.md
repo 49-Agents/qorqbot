@@ -190,7 +190,9 @@ rollback contract is in the host's [`docs/INSTALLATION.md`](../docs/INSTALLATION
 Focus is the first tab of Ordubashy's pane. Below the launcher row it is the owner's
 own notes: one plain text area (`js/focus-text.js`), saved per agent pane through
 `/root/agents/<id>/focus-layout` with revision checks. Until the owner saves anything it
-shows "Your notes here"; after that it keeps exactly what they left, even empty. No agent
+shows "Your notes here"; after that it keeps exactly what they left, even empty. A line that
+starts with `-` shows the Journal's status ball in place of the dash (`js/status-ball.js`,
+`css/status-ball.css`, shared with `js/notes.js`); the ball is only a visual, saved with the text. No agent
 reads or writes the notes, and agents cannot place anything on Focus. Check:
 `node --test tests/focus-notes.test.js`.
 
