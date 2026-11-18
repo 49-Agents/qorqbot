@@ -66,7 +66,8 @@ An action timeout is an uncertain outcome; inspect before retrying a submission.
 
 The launcher rejects target/config/session overrides, browser launching, global
 shutdown and profile clearing. `detach` preserves the attached browser. Ordinary
-page commands, including `eval` and `run-code`, remain available for requested work.
+page commands, including `type`, `frame` and `eval`, remain available for requested work;
+`run-code` is not exposed.
 These restrictions prevent common accidents; arbitrary code and processes under
 the same OS account can bypass them. They are not an authorization sandbox or
 Qorqut's prepared-change/signoff mechanism. The skill respects authorization
