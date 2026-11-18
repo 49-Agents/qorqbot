@@ -21,7 +21,8 @@ class ChangeSelection(unittest.TestCase):
 
     def test_bundled_extensions_run_the_backend_and_build_the_installer(self):
         for path in ("qorqut-code/extensions/google-calendar/qorqut_google_calendar/calendar.py",
-                     "qorqut-code/extensions/treg/qorqut_treg/operations.py"):
+                     "qorqut-code/extensions/treg/qorqut_treg/operations.py",
+                     "qorqut-code/extensions/openrouter/qorqut_openrouter/extension.py"):
             with self.subTest(path=path):
                 self.assertEqual(self.enabled(path), {"backend", "distribution"})
 

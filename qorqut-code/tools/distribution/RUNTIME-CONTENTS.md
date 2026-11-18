@@ -30,7 +30,10 @@ remains under the host's `extensions/google-calendar` directory. Selecting its
 source does not configure an account or activate a provider. The treg toolkit
 is under the host's `extensions/treg` directory in the same way; the launcher
 selects it for every installation, and it contacts nothing until the owner adds
-a treg key in the dashboard. Fastmail, Telegram,
+a treg key in the dashboard. The OpenRouter extension is under the host's
+`extensions/openrouter` directory in the same way; the launcher selects it for
+every installation, and it contacts nothing until the owner connects their own
+OpenRouter account in the dashboard. Fastmail, Telegram,
 WhatsApp, email engine, Paper, content and Cloudflare components are excluded.
 Host-owned `extensions/fastmail`, `extensions/telegram` and
 `extensions/whatsapp` directories are also excluded, so an ordinary-directory

@@ -66,6 +66,8 @@
 .sg-attention-badge.urgent,.sg-signoff-count.urgent { background:#FF453A; color:white; }
 .sg-signoff-count { position:absolute; left:calc(50% + 9.5px); top:calc(50% - 9.5px); transform:translate(-50%, -50%); margin:0; pointer-events:none; }
 .sg-urgent h2 { color:#ef7777; }
+/* A blocking Signoff is framed in red in every list layout; the inset ring keeps the frame where a layout drops the border. */
+.sg .sg-rows .sg-row.sg-row-blocking, .sg .sg-rows .sg-row.sg-row-blocking:focus-within { border-color:#FF453A; box-shadow:inset 0 0 0 1px #FF453A; }
 .sg-urgent-link { display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; width:100%; height:auto; min-height:0; padding:12px; gap:5px; background:var(--wash); color:var(--fg); border:1px solid var(--line); border-radius:6px; text-align:left; white-space:normal; font-weight:400; }
 .sg-urgent-link:hover { background:var(--wash); color:var(--fg); transform:none; }
 .sg-urgent-link small { color:var(--fg-2); }

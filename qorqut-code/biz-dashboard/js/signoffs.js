@@ -945,6 +945,8 @@ function sgCreateView(options) {
         }
         if (content.children[index] !== row) content.insertBefore(row, content.children[index] || null);
         row.dataset.state = s.state;
+        // Work is waiting on a blocking Signoff: its row carries a red frame wherever the list is shown.
+        row.classList.toggle('sg-row-blocking', s.state === 'pending' && !!s.attention?.blocking);
         row.querySelector(".sg-rowtitle").textContent = s.title || s.preview && s.preview.title || s.operation_name;
         html(row.querySelector(".sg-state"), `<span class="sg-state-tags">${sgAttentionTags(s) || (s.state === "pending" ? "" : esc(sgItemStatus(s, labels)))}</span><time datetime="${esc(s.created_at)}" title="${esc(stamp(s.created_at))}">${esc(age(s.created_at))}</time>`);
         if (options.inline) html(row.querySelector(".sg-state"), `<span class="sg-state-tags">${esc(sgItemStatus(s, labels))}</span>`);

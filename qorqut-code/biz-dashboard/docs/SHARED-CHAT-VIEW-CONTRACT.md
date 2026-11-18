@@ -48,6 +48,11 @@ Options:
   `onAttachmentRemove(key)` removes one pending choice through the controller.
   `composer.attachments` contains `{key,name}` labels, and `composer.filesDisabled`
   locks their controls during a send. No upload occurs inside the shared view.
+- `voiceInput`: `false` leaves the microphone off this composer. Otherwise, when `js/voice-input.js` is loaded and the
+  OpenRouter extension is part of the installation, a microphone button sits beside Send. It records, sends the recording
+  to the extension's own route and inserts the returned text at the cursor as an ordinary `input` event; nothing is sent
+  as a message. Ctrl+Shift+Space starts and stops it, Escape discards a recording, and `composer.inputDisabled` or a
+  hidden composer locks it.
 - `onDraft(text)`, `onSubmit(text)`, `onOlder()`, `onViewportChange()`,
   `onReference(value, entryKey)`, `onEntryAction(actionKey, entryKey)`,
   `onPendingAction(actionKey, pendingKey)`, `onEmptyAction(actionKey)`.

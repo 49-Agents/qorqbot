@@ -1,6 +1,6 @@
 schema_version: 1
 id: get-set-up
-description: One short conversation in which Ordubashy asks the owner a few optional questions in one set-up form, records the basic facts and connects the tools the owner chose.
+description: One short conversation in which Ordubashy asks the owner a few optional questions in one set-up form, records the basic facts, connects the tools the owner chose and offers voice input.
 arguments: []
 steps:
   - id: about-you
@@ -8,11 +8,14 @@ steps:
   - id: connect-tools
     instruction_ref: agentic-management/onboarding-connect-tools
     depends_on: [about-you]
+  - id: voice-input
+    instruction_ref: agentic-management/onboarding-openrouter
+    depends_on: [connect-tools]
   - id: wrap-up
     instructions: >-
-      Tell the owner in a few lines what you now know about them, which tools are connected and what is
-      still open. Report only what the two earlier steps actually saved or confirmed. Say that they can ask
+      Tell the owner in a few lines what you now know about them, which tools are connected, whether voice input is on and what is
+      still open. Report only what the earlier steps actually saved or confirmed. Say that they can ask
       you anytime to show or change what you saved about them, and that connected websites are listed in
       Settings under Connections. If the about-you step has a todo list, offer in one line to add its items as Tasks, and add them when the owner agrees; otherwise ask what they would like to start with. Complete this step with an open_items output listing what is still open (an
       empty list when nothing is), then complete the Task behind this run.
-    depends_on: [about-you, connect-tools]
+    depends_on: [about-you, connect-tools, voice-input]

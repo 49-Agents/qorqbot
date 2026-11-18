@@ -40,6 +40,8 @@ Tell the owner plainly, once, and only for tools they asked about:
   are not shown in Settings. Do not suggest them; offer the agent browser.
 - **API keys and other secrets** are entered by the owner in Settings. Never
   ask for one in Chat, and do not repeat one that is pasted there.
+- **OpenRouter** (voice input) has its own step after this one. Do not offer it
+  here.
 - **Telegram, WhatsApp and Fastmail** are optional parts of the installation
   itself and cannot be added from a conversation. Record the request as open.
 
