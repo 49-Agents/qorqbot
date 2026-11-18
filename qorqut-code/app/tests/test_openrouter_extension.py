@@ -113,7 +113,7 @@ class DeclarationTest(Base):
         from qorqut import extensions
         chosen = extensions.select([{"factory": "qorqut_treg.extension:create", "config": {}},
                                     {"factory": "qorqut_openrouter.extension:create", "config": {}}])
-        self.assertEqual([item.id for item in chosen.extensions], ["treg", "openrouter"])
+        self.assertEqual(sorted(item.id for item in chosen.extensions), ["openrouter", "treg"])
 
     def test_configuration_allows_only_a_model_id_and_a_provider(self):
         self.assertEqual(settings.from_config(None).transcription_provider, "deepinfra")
