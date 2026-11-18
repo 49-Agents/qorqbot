@@ -14,8 +14,12 @@ def normalize_arguments(args):
     return args
 
 
-def command(executable, session, endpoint, directory, args):
-    """Translate the prepared launcher surface without exposing lifecycle overrides."""
+def command(executable, session, endpoint, directory, args, *, pinned=False):
+    """Translate the prepared launcher surface without exposing lifecycle overrides.
+
+    ``pinned`` is for a Chrome that several agents share: the session keeps to the tab it is bound to. A new session
+    opens a tab of its own instead of adopting one that is open, a tab another session opens does not become this
+    session's tab, and a command whose tab is closed fails with ``tab_gone`` instead of moving to another tab."""
     action, *values = normalize_arguments(args)
     aliases = {
         "attach": ["connect", endpoint], "detach": ["close"],
@@ -63,7 +67,7 @@ def command(executable, session, endpoint, directory, args):
     config = Path(directory) / "agent-browser.json"
     config.write_text("{}\n")
     return [str(executable), "--config", str(config), "--session", session,
-            "--cdp", endpoint, *translated]
+            *(["--pin-tab"] if pinned else []), "--cdp", endpoint, *translated]
 
 
 def environment(environ):
