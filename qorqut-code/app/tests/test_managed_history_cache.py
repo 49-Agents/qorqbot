@@ -51,7 +51,9 @@ class Chain(unittest.TestCase):
     """An installed binding with two retained managed updates on top of a base binding."""
 
     def setUp(self):
-        self.base = Path(tempfile.mkdtemp())
+        # Resolved: on macOS the temporary folder is under /var, a symlink to /private/var, and managed instance paths
+        # must not pass through a symlink.
+        self.base = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(shutil.rmtree, self.base)
         self.paths = types.SimpleNamespace(instance_root=self.base / 'instance', agentic_root=self.base / 'agentic',
                                            agentic_runtime=self.base / 'runtime' / 'agentic', runtime=self.base / 'runtime')
