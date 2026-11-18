@@ -46,7 +46,7 @@ async function fixture(t) {
     window.finish = (index, rows) => requests[index].resolve(rows);
     window.fail = index => requests[index].reject(new TypeError('Network interrupted'));
   `});
-  for (const file of ['js/writing.js', 'js/status-ball.js', 'js/notes.js']) await page.addScriptTag({path: path.join(dashboard, file)});
+  for (const file of ['js/writing.js', 'js/status-ball.js', 'js/lines-editor.js', 'js/notes.js']) await page.addScriptTag({path: path.join(dashboard, file)});
   return page;
 }
 
