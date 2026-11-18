@@ -1,24 +1,33 @@
-// Owner Focus notes: one plain text area per agent pane, saved as the owner's private dashboard preference.
+// Owner Focus notes: one text per agent pane, saved as the owner's private dashboard preference.
+// The text surface is the Journal's lines editor (js/lines-editor.js): the same blocks, "-" task lines with status
+// balls, bold, dividers, undo and paste. This file owns loading, saving and the conflict notice.
 // No agent or model reads it. Until the owner saves anything at all, the area starts with a short sample text;
 // once they change it (even to empty) it stays exactly as they left it.
 // Drafts live in client state keyed by agent ID, so navigation never moves them to another agent or drops them.
 const focusText = (() => {
-  const DEBOUNCE_MS = 500, MAX_CHARS = 100000, FIRST_TEXT = 'Your notes here';
-  const states = new Map();
+  const DEBOUNCE_MS = 500, FIRST_TEXT = 'Your notes here';
+  const states = new Map(), editors = new WeakMap();
   const path = id => `/root/agents/${encodeURIComponent(id)}/focus-layout`;
   // Earlier layouts could hold several separate blocks; they read as one text, in stored order.
   const joined = blocks => blocks.map(b => b.text).join('\n\n');
+  // What a save would store: the text, and the statuses of the task lines still in it.
+  function content(lines, statuses) {
+    const kept = {lines, statuses: {...statuses}};
+    ntPruneStatuses(kept);
+    return {text: lines.join('\n'), statuses: Object.fromEntries(Object.entries(kept.statuses).sort())};
+  }
+  const stamp = (lines, statuses) => JSON.stringify(content(lines, statuses));
 
   function state(agentId) {
     let s = states.get(agentId);
     if (!s) {
-      s = {agentId, loaded: false, loadError: '', revision: 0, blockId: null, text: '', baseline: '', status: '', error: '',
+      s = {agentId, loaded: false, loadError: '', revision: 0, blockId: null, lines: [''], statuses: {}, baseline: stamp([''], {}), status: '', error: '',
         conflict: false, saving: false, timer: null, queue: null, loadSeq: 0, saveCount: 0, views: new Set()};
       states.set(agentId, s);
     }
     return s;
   }
-  const dirty = s => s.loaded && s.text !== s.baseline;
+  const dirty = s => s.loaded && stamp(s.lines, s.statuses) !== s.baseline;
   const live = s => [...s.views].filter(p => p.agentId === s.agentId && p.focusMount?.isConnected);
   function changed(s) { for (const p of live(s)) paint(p); }
 
@@ -27,8 +36,9 @@ const focusText = (() => {
     // Nothing ever saved for this agent: the very first start shows the sample text.
     const fresh = d.revision === 0 && !d.blocks.length;
     s.blockId = d.blocks[0]?.id || null;
-    s.baseline = fresh ? FIRST_TEXT : joined(d.blocks);
-    s.text = s.baseline;
+    s.lines = (fresh ? FIRST_TEXT : joined(d.blocks)).split('\n');
+    s.statuses = {...d.statuses};
+    s.baseline = stamp(s.lines, s.statuses);
     s.revision = d.revision;
   }
   async function load(p, mode = 'merge') {
@@ -67,14 +77,15 @@ const focusText = (() => {
   }
   async function saveOnce(s) {
     if (!s.loaded || s.conflict) return false;
-    const sent = s.text;
-    if (sent === s.baseline) return true;
+    const sent = content(s.lines, s.statuses);
+    // An edit that was undone again leaves nothing to save; the notice still has to stop saying "Saving…".
+    if (JSON.stringify(sent) === s.baseline) { changed(s); return true; }
     s.blockId ||= newRequestId();
     s.saving = true; s.status = 'saving'; s.error = ''; s.saveCount++; changed(s);
     let ok = false;
     try {
-      const d = coreData(await post(path(s.agentId), {expected_revision: s.revision, blocks: [{id: s.blockId, text: sent, before_id: null, after_id: null}]}));
-      s.revision = d.revision; s.baseline = joined(d.blocks); s.blockId = d.blocks[0]?.id || s.blockId;
+      const d = coreData(await post(path(s.agentId), {expected_revision: s.revision, blocks: [{id: s.blockId, text: sent.text, before_id: null, after_id: null}], statuses: sent.statuses}));
+      s.revision = d.revision; s.baseline = stamp(joined(d.blocks).split('\n'), d.statuses || {}); s.blockId = d.blocks[0]?.id || s.blockId;
       s.status = 'saved'; ok = true;
     } catch (error) {
       s.error = error.message || 'The notes were not saved.';
@@ -101,15 +112,12 @@ const focusText = (() => {
     el.querySelector('[data-text-overwrite]').hidden = kind !== 'conflict';
   }
   function paint(p) {
-    const ta = p.focusMount?.querySelector('.agfocus-notes-input');
-    if (ta && p.agentId) {
-      const s = state(p.agentId);
-      ta.disabled = !s.loaded;
-      if (ta.value !== s.text) {
-        const start = ta.selectionStart, end = ta.selectionEnd, focused = document.activeElement === ta;
-        ta.value = s.text;
-        if (focused) ta.setSelectionRange(Math.min(start, s.text.length), Math.min(end, s.text.length));
-      }
+    const editor = editors.get(p);
+    if (editor && p.agentId) {
+      const loaded = state(p.agentId).loaded;
+      editor.doc.closest('.agfocus-notes-input').classList.toggle('loading', !loaded);
+      editor.setEditable(loaded);
+      editor.sync();
     }
     paintStatus(p);
   }
@@ -119,16 +127,18 @@ const focusText = (() => {
     if (!p.agentId || !host) return () => {};
     const s = state(p.agentId);
     s.views.add(p);
-    host.innerHTML = `<textarea class="agfocus-notes-input" maxlength="${MAX_CHARS}" aria-label="Notes" spellcheck="true" disabled></textarea>` +
+    host.innerHTML = '<div class="agfocus-notes-input ntlinewrap"><div class="ntlines"></div></div>' +
       '<div class="agfocus-text-status" role="status" hidden><span data-text-message></span><button type="button" class="quiet" data-text-retry hidden>Retry</button><button type="button" class="quiet" data-text-reload hidden>Reload saved notes</button><button type="button" class="quiet" data-text-overwrite hidden>Save mine anyway</button></div>';
-    const ta = host.querySelector('textarea'), status = host.querySelector('.agfocus-text-status');
-    ta.addEventListener('input', () => {
-      if (!s.loaded) return;
-      s.text = ta.value;
-      if (s.status === 'saved') s.status = '';
-      schedule(s);
+    const paper = host.querySelector('.agfocus-notes-input'), status = host.querySelector('.agfocus-text-status');
+    const editor = ntLinesEditor({
+      state: s, host: paper.firstChild, paper, label: 'Notes',
+      locked: () => !s.loaded,
+      changed: () => { if (s.status === 'saved') s.status = ''; schedule(s); },
+      save: () => save(s),
     });
-    ta.addEventListener('blur', () => { if (s.loaded && !s.conflict && dirty(s)) save(s); });
+    editors.set(p, editor);
+    paper.onpointerdown = () => editor.rememberSelection();
+    editor.doc.addEventListener('blur', () => { if (s.loaded && !s.conflict && dirty(s)) save(s); });
     status.querySelector('[data-text-retry]').onclick = () => { if (s.loaded) save(s); else load(p); };
     status.querySelector('[data-text-reload]').onclick = () => load(p, 'adopt');
     status.querySelector('[data-text-overwrite]').onclick = async () => {
@@ -139,7 +149,7 @@ const focusText = (() => {
     paint(p);
     void load(p);
     return () => {
-      s.views.delete(p); host.replaceChildren();
+      s.views.delete(p); editors.delete(p); editor.destroy(); host.replaceChildren();
       if (s.loaded && !s.conflict && dirty(s)) save(s);
     };
   }

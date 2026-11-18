@@ -188,8 +188,10 @@ rollback contract is in the host's [`docs/INSTALLATION.md`](../docs/INSTALLATION
 ## Focus, attention and conversations
 
 Focus is the first tab of Ordubashy's pane. Below the launcher row it is the owner's
-own notes: one plain text area (`js/focus-text.js`), saved per agent pane through
-`/root/agents/<id>/focus-layout` with revision checks. Until the owner saves anything it
+own notes (`js/focus-text.js`), saved per agent pane through
+`/root/agents/<id>/focus-layout` with revision checks. The text surface is the Journal's
+lines editor (`js/lines-editor.js`, shared by both): "-" starts a task line with a status
+ball, and the statuses are saved with the text. Until the owner saves anything it
 shows "Your notes here"; after that it keeps exactly what they left, even empty. No agent
 reads or writes the notes, and agents cannot place anything on Focus. Check:
 `node --test tests/focus-notes.test.js`.
