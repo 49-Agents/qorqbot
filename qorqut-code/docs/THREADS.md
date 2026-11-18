@@ -29,6 +29,24 @@ Focused coverage: `app/tests/test_thread_views.py`, dashboard `tests/test_thread
 - JavaScript syntax and Git whitespace checks passed.
 - The older Outreach workspace test assumes `campaign_review` is built into core, but its fixture loads no extensions. It fails with `Unknown workspace type` before its workspace-list assertion; that unrelated fixture remains unchanged. The new host tests verify the core Threads registration directly.
 
+## Independent Focus details and threads
+
+In Focus, opening a Project or another record opens its details on the right without replacing the current Chat. **Open thread** selects its conversation on the left. **Open project** (or **Open details**) in the thread header opens the record on the right. Closing the right-hand record leaves the thread and its draft in place; **Chat** in the thread header returns to the main conversation without closing the record.
+
+The pin button in either header saves that thread to the Focus row. Opening a pinned thread changes only the left Chat. Pins use the existing owner thread-pin preferences, and normal conversation access checks still apply. A pending send or unsaved inline signoff prevents leaving its thread, including leaving Focus for another view or agent, and says why; message drafts remain keyed by source when switching conversations. **Chat** in the thread header always returns to the main conversation, even after the Focus view that opened the thread has gone. A thread that becomes unavailable leaves the Chat area whether or not its record is open on the right. A Focus without a Chat area beside it (a permanent worker's) opens a pinned thread as its record, Chat first.
+
+## Reports and pins by Ordubashy
+
+A report (a read-and-acknowledge Signoff) has no conversation of its own: it belongs to a Task (`report_task`), and one Task can hold many reports. Opening a report in Focus shows it on the right and opens its Task's thread in the Chat area. **Open thread** and the pin button on a report act on that Task's thread, and the report has no Chat tab or comment box. An older report with no Task has no thread. Daily reports all belong to Ordubashy's standing "Daily report" Task.
+
+Ordubashy can list, pin and unpin threads in the owner's pinned-threads row (`thread_pins_list`, `thread_pins_set`), only when the owner asks. Only the owner and the configured coordinator in person may call them. A pin needs a record the caller may read, and is stored under the record's canonical identity in the owner's own pin file. A change emits the `thread_pins` change kind, and the dashboard rereads the row.
+
+## Timeline panel and Open questions
+
+Every Task, Project and Global has a timeline (entries of kind goal, decision, fact and progress, each an add or a removal that names the entry it removes, plus open questions for the owner). Only Ordubashy writes it. The owner reads it through `timeline_view` (owner only, dashboard only), which returns the title, the state and, with `history: true`, the entries oldest first. Each entry carries `removed_by`, the id of its removal computed over the whole item, and the quoted words (`sources`). The first history page also carries the item's links (subtasks, approvals, reports) and `closed_questions` (answered or dropped, latest first). The thread view (`owner_conversation_related`, first page) attaches `timeline` for a Task or Project the owner can read, and leaves it out when there is none.
+
+`timeline_questions_list` lists the open questions of Global, every Project and every Task the owner can read, blocking first, with the item each belongs to. It returns at most 200 rows (or `limit`); `truncated` is true only when more readable open questions exist than were returned.
+
 ## Shared Chat presentation
 
 Main Chat, Threads and Focus task conversations use the same message/reference/composer components. `sgChatMount` mounts the existing verified signoff view, including full WhatsApp/email content, decisions and private comments. A signoff shown inside its own thread omits its nested conversation so that its channel has one composer. Other related signoffs retain their own correctly scoped comments. The custom thread-preview renderer, its fetching layer and message-style overrides have been removed.

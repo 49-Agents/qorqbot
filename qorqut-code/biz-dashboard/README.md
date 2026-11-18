@@ -278,14 +278,13 @@ Checks: `tests/test_global_chat_browser.js`, `tests/test_chat_view_browser.js`,
 
 ### Retained components
 
-No normal Broadcast or Working Memory entry point is currently exposed in the
-navigation. Their modules (`js/broadcast.js`, `css/broadcast.css`,
-`js/working-memory.js`) and draft lifecycle are retained, and they are covered only
+No normal Broadcast entry point is currently exposed in the
+navigation. Its modules (`js/broadcast.js`, `css/broadcast.css`)
+and draft lifecycle are retained, and they are covered only
 as components mounted directly in a test page, not as reachable features. Checks:
 `tests/test_terminal_browser.js`, `tests/test_broadcast_browser.js` and
 `tests/test_broadcast_real_browser.js` (direct `renderBroadcast` mounts),
-`tests/test_working_memory_browser.js` (direct
-`workingMemoryMount`), `python3 -m pytest -q tests/test_broadcast_submit.py` (isolated
+`python3 -m pytest -q tests/test_broadcast_submit.py` (isolated
 tmux; `QORQUT_TEST_CODEX_INPUT=1` also checks a local Codex `/status`).
 
 Shift+Tab cycles agents on Global → Agents; hold Tab and press O to jump to
@@ -333,11 +332,6 @@ owner table page. Checks: `tests/test_agent_viewbox_browser.js` (stub API) and
   observation details without inferring task state. Provider SVG marks are from Simple
   Icons v14 (CC0); brand rights remain with their respective owners. Check:
   `tests/test_current_work_cards_browser.js`.
-- **Working memory** (retained module, no current navigation entry; see
-  [Retained components](#retained-components)) shows the agent's cross-session handoff with a Global/project
-  selector; owners can inspect history, correct text and restore a historical version as
-  a new checked version. Drafts survive navigation and conflicts preserve edits. Check
-  (component mount only): `tests/test_working_memory_browser.js`.
 - **Browser and Desktop** show the agent's browser surfaces
   (`GET /root/agents/<uuid>/browser-surfaces`).
   Ordubashy's Desktop uses its explicit binding, else the validated
@@ -349,6 +343,10 @@ owner table page. Checks: `tests/test_agent_viewbox_browser.js` (stub API) and
   focus to the iframe and adds a clipboard button.
 - **Inbox** shows a green dot while the watcher holds a valid lease. Check:
   `tests/test_agent_inbox_browser.js`.
+
+## Timelines
+
+`js/timeline-panel.js` draws the owner's read-only view of an item's timeline: what holds now (goal, decisions, facts, latest progress, open questions) with a History switch that lists every entry, removed ones struck through, the owner's quoted words, closed questions, and links to subtasks, approvals and reports. `js/conversation.js` mounts it above the messages of a Task or Project thread from the first page of `owner_conversation_related`; `globalTimelineBlockMount` (`js/workflow-panel.js`) mounts the Global block in Ordubashy's chat and reads `timeline_view` at most every 20 seconds. Ordubashy's agent pane also has an Open questions view (`js/agent-questions.js`, `timeline_questions_list`): every open question across Global, the Projects and the Tasks the owner can read, blocking first, each opening the thread it belongs to. When the server cut the list off it shows "Showing the first N open questions." All text goes through `timelineEsc`. Tests: `tests/timeline-panel.test.js`.
 
 ## Calendar
 

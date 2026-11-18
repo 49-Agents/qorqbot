@@ -58,9 +58,6 @@ The consolidation preserves existing wording, triggers and delivery order. Condi
 | [initial-learning-assignment](messages/initial-learning-assignment.md) | bootstrap/initialize.py | conditional |
 | [initial-ordubashy-assignment](messages/initial-ordubashy-assignment.md) | bootstrap/initialize.py | conditional |
 | [learning-applier-assignment](messages/learning-applier-assignment.md) | bootstrap/learning_applier.py | conditional |
-| [memory-legacy-plan](messages/memory-legacy-plan.md) | working memory | conditional |
-| [memory-omitted](messages/memory-omitted.md) | working memory | conditional |
-| [memory-pending](messages/memory-pending.md) | working memory | conditional |
 | [overseer-extraction-due](messages/overseer-extraction-due.md) | overseer/due.py | conditional |
 | [plugin-discovery](messages/plugin-discovery.md) | agents/preferences.py | conditional |
 | [project-briefing-evidence](messages/project-briefing-evidence.md) | domains/business_briefing.py | conditional |
@@ -72,7 +69,6 @@ The consolidation preserves existing wording, triggers and delivery order. Condi
 | [skills-omitted](messages/skills-omitted.md) | always skills | conditional |
 | [startup-denied](messages/startup-denied.md) | claude session | conditional |
 | [startup-fault](messages/startup-fault.md) | claude session | conditional |
-| [startup-inventory](messages/startup-inventory.md) | claude session | conditional |
 | [startup-pending](messages/startup-pending.md) | claude session | conditional |
 | [startup-recovered](messages/startup-recovered.md) | claude session | conditional |
 | [startup-repair](messages/startup-repair.md) | claude session | conditional |

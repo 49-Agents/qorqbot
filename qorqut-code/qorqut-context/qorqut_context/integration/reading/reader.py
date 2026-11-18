@@ -16,7 +16,7 @@ keeps that revision in its cursor, so a publication between pages never reorders
 
 from __future__ import annotations
 
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 import json
 import os
 from pathlib import Path
@@ -256,12 +256,29 @@ class SharedContextReader:
         selected = order[offset:offset + limit]
         more = offset + len(selected) < len(order)
         totals = graph.totals()
+        # The owner's own record travels whole on every page, so one read answers "what do we already know about
+        # the owner" without a second call that a reader may skip.
+        personal = (graph.record("node", graph.snapshot.personal_context_node)
+                    if graph.snapshot.personal_context_node else None)
         return {"status": "ready", "revision": graph.revision, "empty": totals["nodes"] == 0 and totals["edges"] == 0,
-                "personal_context": ({"ref": make_ref("node", graph.snapshot.personal_context_node)}
-                                     if graph.snapshot.personal_context_node else None),
+                "personal_context": ({"ref": personal["ref"], "summary": personal["summary"],
+                                      "attributes": personal["attributes"]} if personal else None),
                 "totals": totals, "nodes": [graph.home_node(node_id) for node_id in selected],
                 "page": _page(len(selected), limit, more,
                               cursors.encode("context_home", {}, graph.revision, offset + len(selected)) if more else None)}
+
+    def entity_types(self, *, revision=None) -> dict:
+        """How many published nodes carry each ``basic_entity_type`` value, most common first."""
+        pinned, _ = self._pin("context_home", {}, None, revision)
+        try:
+            graph = self._graph(pinned, "revision")
+        except _NotReady as error:
+            return error.dto()
+        counts = Counter(str(value) for record in graph.snapshot.nodes.values()
+                         for value in record["attributes"].get("basic_entity_type", []))
+        return {"status": "ready", "revision": graph.revision,
+                "types": [{"type": name, "count": count}
+                          for name, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))]}
 
     # ---- object, source and history
 
@@ -355,7 +372,9 @@ class SharedContextReader:
     # ---- search
 
     def find(self, query="", *, kind=None, attributes=None, limit=None, cursor=None, revision=None) -> dict:
-        """Literal word/prefix search over published summaries, attributes, note text and source text; empty browses."""
+        """Literal word/prefix search over published summaries, attributes, note text and source text, most relevant
+        first: records holding every word, then records holding only some. ``match`` is ``all_words`` when at least
+        one record holds every word and ``any_word`` when none does; an empty query browses."""
         limit = _bounded(limit, "limit", FIND_LIMIT)
         if not isinstance(query, str) or len(query) > 2000:
             raise _invalid("query", "query must be text of at most 2000 characters")
@@ -374,14 +393,15 @@ class SharedContextReader:
             return error.dto()
         window = min(offset + limit + 1, MAX_SEARCH_WINDOW)
         try:
-            hits = index.search(graph.revision, query, kind=kind, attributes=filters or None, limit=window)
+            hits, match = index.matched(graph.revision, query, kind=kind, attributes=filters or None, limit=window)
         except (ContextError, OSError) as error:
             raise DomainError("operation_unavailable", "Context search is unavailable", retryable=True) from error
         selected = hits[offset:offset + limit]
         more = len(hits) > offset + limit
         exhausted = not more and len(hits) >= MAX_SEARCH_WINDOW
         items = [graph.entity(hit.kind, hit.id) for hit in selected]
-        return {"status": "ready", "revision": graph.revision, "query": query, "items": items,
+        return {"status": "ready", "revision": graph.revision, "query": query,
+                "match": {"all": "all_words", "any": "any_word", "browse": "browse"}[match], "items": items,
                 "page": _page(len(items), limit, more,
                               cursors.encode("context_find", scope, graph.revision, offset + len(selected)) if more else None,
                               window_exhausted=exhausted)}

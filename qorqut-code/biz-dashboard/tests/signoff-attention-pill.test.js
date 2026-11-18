@@ -7,6 +7,7 @@ const path = require('node:path');
 
 function setup(deliveries) {
   const created = [], opened = [], handlers = {}, posts = [], navigations = [], menus = [], toasts = [];
+  const timers = new Map(); let timerId = 0;
   const host = {id: '', dataset: {}, children: [], innerHTML: '', _identity: null,
     setAttribute() {}, append() {}, addEventListener(type, fn) { handlers[type] = fn; },
     replaceChildren() { this.children = []; this.innerHTML = ''; }};
@@ -15,7 +16,7 @@ function setup(deliveries) {
   const context = {embeddedAgentPane: true, state: {scope: 'global', bizs: []},
     document: {querySelector: sel => sel === '#sg-toast-host' ? (host.created ? host : null) : null,
       createElement: tag => { if (!host.created) { host.created = true; return host; } const n = {tag, children: [], append(...c) { this.children.push(...c); }}; created.push(n); return n; }, body: {append() {}}},
-    setInterval() {}, esc: s => String(s ?? ''), sjDateTime: s => s, post: async (url, body) => { posts.push([url, body]); return {}; },
+    setInterval() {}, SVG_X: '<svg></svg>', setTimeout: (fn, ms) => { timers.set(++timerId, {fn, ms}); return timerId; }, clearTimeout: id => timers.delete(id), esc: s => String(s ?? ''), sjDateTime: s => s, post: async (url, body) => { posts.push([url, body]); return {}; },
     coreData: x => x, toast: m => toasts.push(m), api: async () => ({}), onChange() {},
     ctxMenu: (x, y, items) => menus.push({x, y, items}), sgCreateView() {}};
   context.window = context;
@@ -27,7 +28,7 @@ function setup(deliveries) {
   context.sgAttentionRefresh = async () => {};
   context.sub.sgAttention.deliveries = deliveries; context.sub.sgAttention.businesses = []; context.sub.sgAttention.urgent = [];
   context.sub.sgAttentionPaint();
-  return {handlers, posts, navigations, menus, toasts, host, pill, opened, created, context};
+  return {handlers, posts, navigations, menus, toasts, host, pill, opened, created, context, timers};
 }
 const item = (id, slug, name) => ({id, title: 'Proposal ' + id, business_slug: slug, business_name: name, attention: {reason: 'r'}});
 
@@ -100,4 +101,34 @@ test('ContextMenu and Shift+F10 open the menu once', () => {
   t.handlers.contextmenu({target: t.pill, clientX: 0, clientY: 0, preventDefault() {}});
   assert.equal(t.menus.length, 2);
   assert.deepEqual(t.navigations, []);
+});
+
+test('the close button dismisses the delivery and removes the card without opening it', async () => {
+  const t = setup([{id: 'd1', kind: 'group', items: [item('a', 'p', 'Project'), item('b', 'q', 'Other')]}]);
+  assert.match(t.host.innerHTML, /class="toast-x" aria-label="Dismiss notification"/);
+  let stopped = false;
+  const x = {closest: sel => sel === '.toast-x' ? x : sel === '.sg-toast' ? t.pill : null};
+  await t.handlers.click({target: x, stopPropagation() { stopped = true; }});
+  await new Promise(r => setImmediate(r));
+  assert.equal(stopped, true);
+  assert.deepEqual(t.posts.map(p => p[0]), ['/me/attention/deliveries/d1/dismiss']);
+  assert.deepEqual(t.navigations, []); assert.deepEqual(t.opened, []);
+  assert.equal(t.host.children.length, 0);
+  t.context.sub.sgAttentionPaint();
+  assert.equal(t.host.children.length, 0);
+});
+
+test('the card closes itself after 10 seconds, stays closed for that delivery and returns for a new one', () => {
+  const t = setup([{id: 'd1', kind: 'individual', items: [item('s1', 'p', 'Project')]}]);
+  const [timer] = [...t.timers.values()];
+  assert.equal(timer.ms, 10000);
+  timer.fn();
+  assert.equal(t.host.children.length, 0);
+  assert.deepEqual(t.posts, []);
+  t.context.sub.sgAttention.deliveries = [{id: 'd1', kind: 'individual', items: [item('s1', 'p', 'Project'), item('s2', 'p', 'Project')]}];
+  t.context.sub.sgAttentionPaint();
+  assert.equal(t.host.children.length, 0);
+  t.context.sub.sgAttention.deliveries = [{id: 'd2', kind: 'individual', items: [item('s3', 'p', 'Project')]}];
+  t.context.sub.sgAttentionPaint();
+  assert.match(t.host.innerHTML, /Proposal s3/);
 });

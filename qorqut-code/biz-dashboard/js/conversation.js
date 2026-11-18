@@ -68,7 +68,32 @@ const CONVERSATION_REVIEW = ['revision_conflict','stale_signoff','not_found','fo
 // Normalizes canonical notes (already in controller order) into shared view entries.
 // Threads read like the main Chat: replies carry no avatar. Only a thread with replies from more than one
 // participant names each reply's sender, once per run, so the owner can tell them apart.
-function conversationEntries(notes,adapter) {
+const CONVERSATION_REF_LABELS={signoff:'Signoff',task:'Task',table:'Table',project:'Project',reference:'Reference',action:'Action',file:'File',agent:'Agent'};
+// A side chat is a Signoff too; it opens as that side chat, never as a Signoff card.
+const conversationSideChat=ref=>ref.type==='signoff' && typeof attentionQueue!=='undefined' ? attentionQueue.sideChat?.(ref.id) || null : null;
+// A reply's Signoff reference is drawn inside the reply by the main Chat's own Signoff card. A side chat keeps its
+// button, and so does a Signoff already shown under Needs your input, so one form never has two editors.
+function conversationInlineSignoff(note,ref,linked) {
+  const owner=note.entry_kind==='system' || (note.is_owner ?? (note.author_kind==='human'));
+  return !owner && ref.type==='signoff' && !ref.unavailable && !conversationSideChat(ref)
+    && !linked.has(conversationRecordKey(ref));
+}
+function conversationTypedRef(ref) {
+  const business=ref.business_id?(state.bizs || []).find(b=>b.id===ref.business_id || b.business_id===ref.business_id):null;
+  const slug=ref.business_slug || business?.slug || null;
+  return {...ref,business_id:ref.business_id || null,business_slug:slug,available:!(ref.business_id && !slug)};
+}
+function conversationRefLabel(ref) {
+  return ref.label || conversationSideChat(ref)?.title || CONVERSATION_REF_LABELS[ref.type] || 'Reference';
+}
+function conversationNoteRefs(note,linked=new Set()) {
+  const refs=(note.refs || []).filter(ref=>ref.type!=='dev_ticket');
+  return {
+    references:refs.map((ref,index)=>({ref,index})).filter(({ref})=>!conversationInlineSignoff(note,ref,linked))
+      .map(({ref,index})=>({key:`ref${index}`,label:conversationRefLabel(ref),disabled:!!ref.unavailable,value:ref})),
+    typedReferences:refs.filter(ref=>conversationInlineSignoff(note,ref,linked)).map(conversationTypedRef)};
+}
+function conversationEntries(notes,adapter,linked=new Set()) {
   let previous=null;
   const repliers=new Set(notes.filter(note=>note.entry_kind!=='system' && !(note.is_owner ?? (note.author_kind==='human')))
     .map(note=>note.author_id || note.created_by || ''));
@@ -76,7 +101,7 @@ function conversationEntries(notes,adapter) {
     const system=note.entry_kind==='system',owner=!system && (note.is_owner ?? (note.author_kind==='human'));
     const entry={key:note.id,speaker:system?'notice':owner?'user':'agent',text:note.body || '',timestamp:note.created_at,
       recorder:note.recorder_kind==='agent'?'agent':undefined,
-      references:(note.refs || []).filter(ref=>ref.type!=='dev_ticket').map((ref,index)=>({key:`ref${index}`,label:ref.label || ref.type || 'Reference',disabled:!!ref.unavailable,value:ref})),
+      ...conversationNoteRefs(note,linked),
       actions:note.parent_event_id && adapter.openParent?[{key:'parent',label:'About an earlier entry'}]:[]};
     if(note.title && note.title!=='Message')entry.title=note.title;
     // Consecutive messages from the same sender share one header.
@@ -101,7 +126,7 @@ function conversationActivityEntry(note) {
     activity:{preview:messagePreview(note.body,note.summary) || 'Progress note',author:conversationPersonName(note),
       time:sjTime(note.created_at),dateTime:sjDateTime(note.created_at),
       attribution:relayed?`${conversationPersonName(note)} · ${note.attribution?.kind==='owner_intent'?'interpreted':'recorded'} by ${note.recorder_name || 'Ordubashy'}`:''},
-    references:(note.refs || []).filter(ref=>ref.type!=='dev_ticket').map((ref,index)=>({key:`ref${index}`,label:ref.label || ref.type || 'Reference',disabled:!!ref.unavailable,value:ref}))};
+    references:(note.refs || []).filter(ref=>ref.type!=='dev_ticket').map((ref,index)=>({key:`ref${index}`,label:conversationRefLabel(ref),disabled:!!ref.unavailable,value:ref}))};
 }
 // Related records have their own identities and pagination; they never enter the message store.
 // A Task's plan as one notice: how far it is and the step in hand. Opened, it lists every step with its outcome.
@@ -122,12 +147,13 @@ function conversationPlanEntry(steps,open) {
     actions:[{key:'plan-steps',label:open?'Hide steps':'Show steps'}]};
 }
 function conversationRecordKey(record) { return `${record.type}:${record.business_id || 'global'}:${record.id}`; }
-function conversationRelatedRecords(s,source) {
+function conversationRelatedRecords(s,source,linked=new Set()) {
   const records=[...(s.related || [])];
   // The source signoff itself is not returned by the relationships query.
   if(source.type==='signoff')records.unshift({...source,label:'Signoff'});
+  // A Signoff drawn inside its reply is not repeated as a related record.
   for(const note of s.notes)for(const ref of note.refs || []) {
-    if(ref.type==='signoff' && !ref.unavailable)records.push({...ref,created_at:note.created_at});
+    if(ref.type==='signoff' && !ref.unavailable && !conversationInlineSignoff(note,ref,linked))records.push({...ref,created_at:note.created_at});
   }
   return [...new Map(records.map(record=>[conversationRecordKey(record),record])).values()];
 }
@@ -157,10 +183,11 @@ function conversationRecordEntry(record) {
   return entry;
 }
 function conversationTimeline(s,adapter,source) {
-  const entries=conversationEntries(s.notes,adapter);
+  const linked=new Set((s.inputRequests || []).filter(request=>!request.unavailable).map(conversationRecordKey));
+  const entries=conversationEntries(s.notes,adapter,linked);
   if(!adapter.related)return entries;
   const earliest=s.before?s.notes[0]?.created_at:null;
-  for(const record of conversationRelatedRecords(s,source)) {
+  for(const record of conversationRelatedRecords(s,source,linked)) {
     if((s.inputRequests || []).some(request=>!request.unavailable && conversationRecordKey(request)===conversationRecordKey(record)))continue;
     if(earliest && record.created_at<earliest)continue;
     entries.push(conversationRecordEntry(record));
@@ -257,6 +284,14 @@ function conversationMount(host,source,adapter={}) {
   const readerEl=panel.querySelector('.conversation-reference-reader'),viewEl=panel.querySelector('.conversation-view');
   const inputEl=document.createElement('section');inputEl.className='conversation-inputs';inputEl.hidden=true;
   inputEl.setAttribute('aria-label','Pending input requests');panel.insertBefore(inputEl,viewEl);
+  // What holds now on a Task or Project, beside the pending inputs; empty when the item has no timeline.
+  const timelineEl=document.createElement('section');timelineEl.className='tlp conversation-timeline';timelineEl.hidden=true;
+  timelineEl.setAttribute('aria-label','What holds now');panel.insertBefore(timelineEl,viewEl);
+  const timelineItem=source.type==='task'?{type:'task',id:source.id,business_id:recordSource.business_id ?? null}
+    :source.type==='project'?{type:'project',id:source.id,business_id:source.id}:null;
+  const timelinePanel=typeof timelinePanelMount==='function'?timelinePanelMount(timelineEl,{
+    readHistory:args=>conversationRequest(post('/root/operations/timeline_view',{scope:'global',item:timelineItem,history:true,limit:50,...args})).then(coreData),
+    openTask:ref=>{if(typeof taskOpenReference==='function')void taskOpenReference(ref);}}):null;
   const inputCards=conversationInputMount(inputEl,{active:()=>current() && expanded,
     onAdd:card=>signoffViews.add(card),onRemove:card=>signoffViews.delete(card)});
   // Progress stays outside private message state and renders as collapsed action runs.
@@ -318,7 +353,7 @@ function conversationMount(host,source,adapter={}) {
   function paintContext() {if(!disposed)paint('preserve');}
   // The source is no longer readable: drop everything read from it and invalidate outstanding context and mail reads.
   function dropContext() {
-    s.inputRequests=[];
+    s.inputRequests=[];timelinePanel?.update(null);
     ctx=null;ctxError=false;ctxGen++;ctxMoreBusy=false;ctxMoreError=false;ctxPages=0;relatedGeneration++;referenceGeneration++;
     referenceReader.close();paintContext();
   }
@@ -388,7 +423,7 @@ function conversationMount(host,source,adapter={}) {
       let result=await conversationPrivateCall(source,adapter,'owner_conversation_related',{limit:50,...(more?{offset}:{}),
         ...(s.allNotes?{}:{notes_audience:'owner'})});
       if(!current() || generation!==relatedGeneration)return;
-      if(!more)s.inputRequests=result.input_requests || [];
+      if(!more){s.inputRequests=result.input_requests || [];timelinePanel?.update(timelineItem?result.timeline || null:null);}
       let context=!more && source.type==='task'?result.context:null;
       const contextGeneration=more?ctxGen:++ctxGen;
       if(!more){ctxMoreBusy=false;ctxMoreError=false;}
@@ -425,6 +460,7 @@ function conversationMount(host,source,adapter={}) {
       if(CONVERSATION_GONE.includes(e.code))dropContext();
       else if(more)relatedBlocked=true;
       else if(source.type==='task'){ctxError=true;paintContext();}
+      if(!more && timelineItem && !CONVERSATION_GONE.includes(e.code))timelinePanel?.fail();
       paint();adapter.onRelated?.([]);
     } finally {relatedPending=false;}
   }
@@ -608,7 +644,7 @@ function conversationMount(host,source,adapter={}) {
       disposed=true;expanded=false;
       s.mounts.delete(host);
       if(s.loadOwner===view){s.loading=false;s.loadOwner=null;}
-      referenceReader.dispose();inputCards.dispose();chat.dispose();
+      referenceReader.dispose();inputCards.dispose();timelinePanel?.dispose();chat.dispose();
       toggle.onclick=null;
       if(host._conversation===view){delete host._conversation;delete host.dataset.conversation;}
       toggle.remove();host.replaceChildren();

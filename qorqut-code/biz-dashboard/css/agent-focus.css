@@ -199,6 +199,7 @@
 /* Retry and recovery buttons keep one line at their own width; squeezed by a long row they wrapped letter by letter and stretched it. */
 .agfocus .focus-signoff-queue > button:not(.focus-signoff-chip){flex:none;align-self:center;white-space:nowrap}
 .focus-signoff-chip .attention-signoff{width:18px;height:18px;border:0;border-radius:0}
+.focus-filings-count{position:absolute;right:3px;bottom:2px;font-size:10px;line-height:1;font-variant-numeric:tabular-nums}
 .focus-signoff-chip svg{width:18px;height:18px}
 .focus-signoff-chip{position:relative}
 .focus-calendar-chip[data-calendar-state="past"]{opacity:.7}

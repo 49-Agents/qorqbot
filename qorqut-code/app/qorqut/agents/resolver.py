@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from dataclasses import replace
 from datetime import datetime
+import logging
 import hashlib
 import json
 import os
@@ -859,16 +860,25 @@ class AgentConfigResolver:
             return {"ready": False, "effective_config_id": config.effective_config_id,
                     "error": {"code": "reprepare_required", "message": message},
                     "preparation": preparation}
+        delivery = getattr(self, 'timeline_delivery', None)
+        if delivery:
+            try:
+                delivery.start(principal.id, session_id, event, last_effective_config_id)
+            except Exception:
+                logging.getLogger(__name__).exception('Timeline delivery start failed for %s', principal.id)
         changed = last_effective_config_id != config.effective_config_id or data["context_refresh_required"]
         result = {"ready": True, "effective_config_id": config.effective_config_id, "agentic_catalog_revision": data["agentic_catalog_revision"], "refresh_required": changed,
                   "reload_skills": event != "prompt", "preparation": data["preparation"]}
         result["inbox_available"] = any(tool["canonical_operation"] == "inbox_list" and tool["available"] for tool in data["tools"])
         if result["inbox_available"]:
             result["inbox_session_note"] = data["inbox_session_note"]
+        # The per-prompt Context lookup reminder is for agents that can act on it: all four graph reads are available.
+        result["context_reads_available"] = {"context_expand", "context_find", "context_home", "context_object"} <= {
+            tool["canonical_operation"] for tool in data["tools"] if tool["available"]}
         if event != "prompt" or changed:
             result["mandatory_context"] = data["mandatory_context"]
-            memory = getattr(self, 'working_memory', None)
-            result["work_briefing"] = memory.bootstrap(principal, data) if memory else self.briefing(principal, data)
+            startup = getattr(self, 'startup_context', None)
+            result["work_briefing"] = startup.bootstrap(principal, data) if startup else self.briefing(principal, data)
             activity = getattr(self, 'activity', None)
             if activity:
                 team = activity.startup(principal, data)
@@ -883,11 +893,24 @@ class AgentConfigResolver:
                     rendered = briefing.get('rendered', '') + '\n\n' + team
                     reserve = MAX_CONTEXT_CHARACTERS - len(data['mandatory_context']['rendered']) - 2048
                     if len(rendered) > reserve:
-                        rendered = 'Before work, call agent_context_get(inventory=true), follow next_cursor, and read your saved handoff.\n\n' + team
+                        rendered = 'Before work, call agent_context_get(inventory=true) and follow next_cursor.\n\n' + team
                     if len(rendered) > reserve:
-                        rendered = 'Before work, finish agent_context_get(inventory=true) and agents_activity_list continuation pages; read your saved handoff.'
+                        rendered = 'Before work, finish agent_context_get(inventory=true) and agents_activity_list continuation pages.'
                     result['work_briefing'] = {**briefing, 'rendered': rendered,
                         'character_count': len(rendered), 'bundle_hash': content_hash(rendered.encode())}
+        if delivery and (event != "prompt" or changed):
+            # Global's timeline rides with the briefing and is recorded as sent to this conversation.
+            reserve = MAX_CONTEXT_CHARACTERS - len(data['mandatory_context']['rendered']) - 2048
+            try:
+                held, sent = delivery.compose(principal.id, session_id, reserve - len(result['work_briefing'].get('rendered', '')))
+                if held:
+                    rendered = result['work_briefing'].get('rendered', '') + '\n\n' + held
+                    result['work_briefing'] = {**result['work_briefing'], 'rendered': rendered,
+                        'character_count': len(rendered), 'bundle_hash': content_hash(rendered.encode())}
+                    # Recorded only now that the text is part of the briefing the hook returns.
+                    delivery.record(principal.id, session_id, sent)
+            except Exception:
+                logging.getLogger(__name__).exception('Timeline delivery briefing failed for %s', principal.id)
         # On every event, prompts included: the hook puts it first at startup and adds it to each prompt, so it reaches
         # the model even when a CLI shows only the start of a long startup context.
         management = getattr(self, 'management', None)

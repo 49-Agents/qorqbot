@@ -13,15 +13,15 @@ def compact(row, fields):
 
 
 class StartupInventory:
-    def __init__(self, memory, ctx, identity, uow):
-        self.memory, self.app, self.uow = memory, memory.app, uow
+    def __init__(self, agent_context, ctx, identity, uow):
+        self.agent_context, self.app, self.uow = agent_context, agent_context.app, uow
         self.identity = identity
         if ctx.principal_kind == 'agent' and ctx.principal_id == identity:
             # The authenticated caller is the inventory owner: refresh its own context (policy, scope, provenance)
             # in this transaction instead of resolving the same agent's configuration again.
             actor_ctx = ctx
         else:
-            actor_ctx = memory.resolver.invocation_context(Principal(identity, 'agent'), business_id=ctx.business_id)
+            actor_ctx = agent_context.resolver.invocation_context(Principal(identity, 'agent'), business_id=ctx.business_id)
         self.ctx = self.app.current_context(actor_ctx, uow)
         self.scopes = [ctx.business_id]
         if ctx.business_id is None:
@@ -106,7 +106,7 @@ class StartupInventory:
         if positions['inbox'] is not None:
             try:
                 # Pure visibility read: no session claim, watcher lease or acknowledgement.
-                self.memory.sources.authorize(self.ctx, 'inbox_list', self.uow)
+                self.agent_context.authorize(self.ctx, 'inbox_list', self.uow)
                 inbox = self.app.inbox
                 data = inbox.pending(inbox.context(self.ctx, self.uow), self.uow,
                                      after=positions['inbox'], limit=limit)

@@ -1,0 +1,80 @@
+/* Keep the existing editor, with one inset and an internal focus edge that cannot be clipped. */
+.agfocus-review-open .sg textarea.sg-message-editor,
+.agfocus-review-open .sg textarea.sg-message-editor[data-sg-edit-field="subject"],
+.agfocus-review-open .sg .sg-question-notes,
+.agfocus-review-open .sg .sg-feedback { box-sizing:border-box; padding:8px 12px; border:0; border-left:2px solid var(--line-2); border-radius:0; background:var(--wash); color:var(--fg); font:13px/1.6 var(--sans); outline:none; box-shadow:none; transition:none; }
+.agfocus-review-open .sg textarea.sg-message-editor:hover,
+.agfocus-review-open .sg .sg-question-notes:hover,
+.agfocus-review-open .sg .sg-feedback:hover { border-left-color:var(--fg-2); }
+.agfocus-review-open .sg textarea.sg-message-editor:focus,
+.agfocus-review-open .sg .sg-question-notes:focus,
+.agfocus-review-open .sg .sg-feedback:focus { border-left-color:var(--fg); outline:none; box-shadow:none; }
+/* Recipient metadata is a compact line; subject and body editors share a left edge. */
+.agfocus-review-open .sg .sg-content-row[data-sg-field="to"],
+.agfocus-review-open .sg .sg-content-row[data-sg-field="from"],
+.agfocus-review-open .sg .sg-content-row[data-sg-field="cc"],
+.agfocus-review-open .sg .sg-content-row[data-sg-field="bcc"],
+.agfocus-review-open .sg .sg-platform-field { display:flex; align-items:baseline; gap:8px; margin:0 0 12px; }
+.agfocus-review-open .sg .sg-content-row .sg-content-label { margin:0; }
+.agfocus-review-open .sg .sg-content-row[data-sg-field="to"] .sg-content-label,
+.agfocus-review-open .sg .sg-content-row[data-sg-field="from"] .sg-content-label,
+.agfocus-review-open .sg .sg-content-row[data-sg-field="cc"] .sg-content-label,
+.agfocus-review-open .sg .sg-content-row[data-sg-field="bcc"] .sg-content-label,
+.agfocus-review-open .sg .sg-platform-field > strong { flex:none; color:var(--fg-2); font-size:12px; font-weight:400; }
+.agfocus-review-open .sg .sg-recipient-name { font-weight:400; }
+.agfocus-review-open .sg .sg-content-row[data-sg-field="subject"] { display:flex; flex-direction:column; gap:4px; margin:12px 0; }
+.agfocus-review-open .sg .sg-content-row[data-sg-field="subject"] .sg-content-value { display:block; width:100%; }
+.agfocus-review-open .sg .sg-email-body-label { margin:0 0 4px; }
+/* Use the native choice buttons and semantics as a compact radio/checkbox list. */
+.agfocus-review-open .sg .sg-choices > div { display:flex; flex-direction:column; align-items:flex-start; gap:2px; }
+.agfocus-review-open .sg .sg-choice { position:relative; display:flex; justify-content:flex-start; align-items:center; gap:10px; width:auto; max-width:100%; min-height:34px; height:auto; padding:6px 0; border:0; border-radius:0; background:transparent; color:var(--fg); font-weight:400; text-align:left; transform:none; }
+.agfocus-review-open .sg .sg-choice-name { flex:0 0 auto; max-width:35%; font-size:13px; line-height:20px; font-weight:400; overflow-wrap:break-word; }
+.agfocus-review-open .sg .sg-choice::before { content:""; box-sizing:border-box; flex:none; display:block; width:15px; height:15px; border:1px solid var(--fg-2); border-radius:50%; background:transparent; }
+.agfocus-review-open .sg .sg-choice:hover::before { border-color:var(--fg); }
+.agfocus-review-open .sg .sg-choice[aria-checked="true"] { background:transparent; color:var(--fg); }
+.agfocus-review-open .sg .sg-choice[aria-checked="true"]::before { border-color:var(--fg); background:var(--fg); box-shadow:inset 0 0 0 4px var(--bg); }
+.agfocus-review-open .sg .sg-choice[role="checkbox"]::before { border-radius:3px; }
+.agfocus-review-open .sg .sg-choice[role="checkbox"][aria-checked="true"]::before { box-shadow:none; }
+.agfocus-review-open .sg .sg-choice[role="checkbox"][aria-checked="true"]::after { content:""; position:absolute; left:5px; top:calc(50% - 5px); width:5px; height:8px; border-right:2px solid var(--bg); border-bottom:2px solid var(--bg); transform:rotate(45deg); }
+.agfocus-review-open .sg .sg-choice:focus-visible { outline:none; box-shadow:none; }
+.agfocus-review-open .sg .sg-choice:focus-visible .sg-choice-name { text-decoration:underline; text-underline-offset:4px; }
+.agfocus-review-open .sg .sg-feedbackwrap { margin-top:16px; }
+
+/* One flat single-item review, with the item title beside Close. */
+.agfocus-review-open .agfocus-surface-title{display:block;white-space:normal;overflow-wrap:anywhere;color:var(--fg);font-size:14px;font-weight:400;line-height:1.5}
+.agfocus-review-open .agfocus-surface-bar{align-items:flex-start;gap:12px;padding:6px 0 18px}
+.agfocus-review-open .agfocus-surface-title{padding-top:5px}
+.agfocus.agfocus-surface-open .agfocus-review-open .agfocus-close{flex:none;min-height:30px;height:30px;padding:0 10px;border:1px solid var(--line-2);border-radius:var(--r-full);background:none;color:var(--fg-2)}
+.agfocus-review-open .agfocus-surface-body{border:0;border-radius:0;background:none;overflow:hidden}
+.agfocus-review-open .agfocus-expansion-content{padding:0;overflow:hidden}
+.agfocus-review-open .sg-focus.sg-single .sg-rowhead{display:none}
+.agfocus-review-open .sg-focus.sg-single .sg-row{padding:0;border:0;border-radius:0;background:none;box-shadow:none}
+.agfocus-review-open .sg-focus.sg-single .sg-detail-body{padding:0 4px 16px 0}
+.agfocus-review-open .sg-focus.sg-single .sg-detail-footer{padding:12px 0 0}
+.agfocus-review-open .sg .sg-choice-marker{display:none}
+.agfocus-review-open .sg .sg-choice-explanation{display:block;flex:1 1 0;min-width:0;max-height:none;color:var(--fg-2);font-size:12px;font-weight:400}
+/* A long description wraps beside its label; the button and its circle line up with the first line. */
+.agfocus-review-open .sg .sg-question .sg-choice{align-items:flex-start}
+.agfocus-review-open .sg .sg-question .sg-choice::before{margin-top:2.5px}
+.agfocus-review-open .sg .sg-question .sg-choice[role="checkbox"][aria-checked="true"]::after{top:12px}
+.agfocus-review-open .sg .sg-question .sg-choice[aria-checked="true"]{box-shadow:none}
+.agfocus-review-open .sg .sg-question-choices{display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.agfocus-review-open .sg .sg-question legend{font-weight:400}
+.agfocus-review-open .sg .sg-actions,.agfocus-review-open .rem-actions{justify-content:flex-end;gap:8px}
+.agfocus-review-open .sg .sg-actions button,.agfocus-review-open .rem-actions button,.agfocus-review-open .rem-snooze button{min-height:32px;height:32px;padding:0 14px;border:1px solid var(--line-2);border-radius:var(--r-full);font-size:12px;font-weight:500;background:none;color:var(--fg)}
+.agfocus-review-open .sg .sg-actions button:hover,.agfocus-review-open .rem-actions button:hover{background:var(--hover);border-color:var(--fg-3);transform:none}
+.agfocus-review-open .sg .sg-actions .sg-approve{order:2}
+.agfocus-review-open .sg .sg-actions .sg-primary-action,.agfocus-review-open .rem-actions .primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
+.agfocus-review-open .rem-actions .primary{order:2}
+.agfocus-review-open .rem-actions .danger{color:var(--danger);border-color:var(--danger)}
+.agfocus-reminder-open .agfocus-surface-body:has(.rem-detail){flex:1}
+.agfocus-reminder-open .rem-detail{display:flex;flex-direction:column;flex:1;min-height:0;max-width:none}
+.agfocus-reminder-open .rem-text{display:none}
+.agfocus-reminder-open .rem-detail-body{flex:1;min-height:0;overflow:auto;padding:0 4px 16px 0}
+.agfocus-reminder-open .rem-actions{flex:none;padding:12px 0 0;margin:0}
+.agfocus-reminder-open .rem-fields{grid-template-columns:88px minmax(0,1fr);gap:12px;margin:0}
+.agfocus-reminder-open .rem-snooze{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+/* Selection persists independently of the unread dot. */
+.agfocus .focus-signoff-queue .focus-signoff-chip{border:1px solid transparent}
+.agfocus .focus-signoff-queue .focus-signoff-chip[aria-current="true"]{border-color:var(--fg);background:var(--hover);color:var(--fg)}
+.focus-signoff-chip[aria-current="true"]::before{content:"";position:absolute;left:50%;bottom:-5px;transform:translateX(-50%);width:20px;height:2px;border-radius:2px;background:var(--fg);pointer-events:none}

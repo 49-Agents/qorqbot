@@ -21,6 +21,11 @@ input request: it records the answer and executes nothing, so read the decision 
 then perform exactly that work yourself. Use the existing prepared approval for a
 service-managed protected action. Never replace a required decision with a chat reply.
 
+Only the coordinator writes timelines. For a point the owner has yet to decide, which is not a prepared action,
+the coordinator also files an open question on the item's timeline (`timeline_file` `ask`, `blocking` true or
+false) in addition to the Signoff, and files the owner's answer with `answer`. A worker reports such a point
+to the coordinator and does not call `timeline_file`.
+
 Collect every explicit request for owner input through a Signoff, including clarifications,
 access, missing information and review. Chat and progress notes can explain the request, but
 are not its response record. Use `form.response_policy: owner_only` for owner input;
@@ -57,6 +62,13 @@ Repeated identical questions return the existing pending item. If the question
 or choices materially change, withdraw the old input with
 `signoffs_input_cancel`, then submit its replacement. Avoid duplicate requests
 for each retry of a blocked operation.
+
+The owner states a fact about themselves once. Before asking the owner anything about
+themselves, read the personal record (Context Home and `context_home` name its ref) and
+your own open questions (`signoffs_list` with `category: input_request`,
+`states: [pending]`). Leave out what the record answers, what the owner already answered
+on an earlier form, and what an open question already asks; ask a question that several
+pieces of work need once, in one request.
 
 The unversioned `form` contains `title`, `explanation`, `kind` (`question`, `request`, `draft_review`, or
 Ordubashy's `acknowledge`, described under "Read and acknowledge"), and
@@ -140,8 +152,12 @@ the appropriate separate action approval when needed.
 
 `form.kind: acknowledge` asks the owner nothing. It puts a report or a document in
 front of them and records that they read it. Only Ordubashy can post one. A worker
-with a report or document the owner must see hands it to Ordubashy, with the file
-and the reason the owner needs it.
+with a report or document the owner must see hands it to Ordubashy, with the file,
+the Task it belongs to and the reason the owner needs it.
+
+Every report belongs to a Task: `report_task` names it, and a report without one is
+refused. One Task can hold many reports. Name the real Task whose work the report
+is about, in its Project or Global; never create a Task only to hold a report.
 
 Use it only when you need to know the owner saw something: the daily report, or a
 document that changes what they should do or expect. Routine results stay in the
@@ -158,9 +174,9 @@ the explanation itself. Choices, required notes, `source`, `urgent` and `blockin
 are refused: nothing can wait on it, and it never shows as Needs your input.
 
 It notifies the owner once when it is posted and then waits in the dashboard's
-**To read** group, apart from decisions. The owner clicks **Acknowledge**, and
-writes any comment in the Signoff's own conversation with you: read it with
-`owner_conversation_get` and treat a comment as a new owner input. Posting another
+**To read** group, apart from decisions. The owner clicks **Acknowledge**. A report
+has no conversation of its own: opening it opens its Task's thread beside it, so
+the owner writes any comment there; treat a comment as a new owner input. Posting another
 one with the same `request_key` replaces the one the owner has not acknowledged
 yet, so a recurring report keeps one key. One the owner already acknowledged is
 kept as it is.

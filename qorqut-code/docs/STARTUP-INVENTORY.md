@@ -40,7 +40,6 @@ Loading a page never acknowledges any event or claims a watcher lease.
 
 When startup's remaining context budget cannot hold the index, the shared startup
 instructions require an explicit inventory read and full pagination before work.
-Saved working memory remains available through ordinary `agent_context_get`.
 No claim is made that arbitrary queue sizes fit inside one model context window
 or that model compliance follows merely from delivering instructions.
 
@@ -51,11 +50,11 @@ This branch does not deploy or change live agent profiles.
 
 ## Verification
 
-40 distinct targeted tests passed across runs: startup inventory, working memory,
+40 distinct targeted tests passed across runs: startup inventory,
 startup reminders, shared role workflow and Codex environment checks. Coverage
 includes complete multi-page queues, scope binding/revocation, another agent's
 cursor rejection, explicit denied queues, answered Signoff revisions and pending
-changes, unchanged inbox acknowledgements/leases, budget fallback, saved handoff
-preservation and the installed MCP test transport. The opt-in real Codex CLI
+changes, unchanged inbox acknowledgements/leases, budget fallback
+and the installed MCP test transport. The opt-in real Codex CLI
 acceptance test was skipped. Fixtures used isolated temporary installations;
 no live agent prompts, provider calls or production data writes were performed.

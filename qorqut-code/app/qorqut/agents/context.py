@@ -22,7 +22,7 @@ from qorqut.agentic.text import bundled, render
 
 # A generous total delivery budget, roughly 20k tokens for ordinary English.
 # This is a character bound, not an assertion about a model's tokenizer.
-MAX_CONTEXT_CHARACTERS = 120000
+MAX_CONTEXT_CHARACTERS = 160000
 VIEWBOX_GUIDANCE = (bundled("host", "app/qorqut/agentic/assets/viewbox-guidance.md"))
 
 
@@ -209,7 +209,6 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
         "owner-decisions": render(agentic_view, "host", "app/qorqut/agentic/assets/owner-decisions.md"),
         "trusted-handoffs": render(agentic_view, "host", "app/qorqut/agentic/assets/trusted-handoffs.md"),
         "project-briefing": render(agentic_view, "host", "app/qorqut/agentic/assets/project-briefing.md"),
-        "working-memory": render(agentic_view, "host", "app/qorqut/agentic/assets/working-memory.md"),
         "capability-handoffs": render(agentic_view, "host", "app/qorqut/agentic/assets/capability-handoffs.md"),
         "viewbox-guidance": render(agentic_view, "host", "app/qorqut/agentic/assets/viewbox-guidance.md"),
         "environment-set": render(agentic_view, "host", "app/qorqut/agentic/assets/environment-set.md"),
@@ -218,7 +217,6 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
         "task-overview": render(agentic_view, "host", "app/qorqut/agentic/assets/task-overview.md"),
         "environment-list": render(agentic_view, "host", "app/qorqut/agentic/assets/environment-list.md"),
         "files-link-guidance": render(agentic_view, "host", "app/qorqut/agentic/assets/files-link-guidance.md"),
-        "legacy-working-memory": render(agentic_view, "host", "app/qorqut/agentic/assets/legacy-working-memory.md"),
         "team-queue": render(agentic_view, "host", "app/qorqut/agentic/assets/team-queue.md"),
         "backlog": render(agentic_view, "host", "app/qorqut/agentic/assets/backlog.md"),
         "private-owner-replies": render(agentic_view, "host", "app/qorqut/agentic/assets/private-owner-replies.md"),

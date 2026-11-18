@@ -397,27 +397,6 @@
       "when_to_use": "bootstrap/learning_applier.py"
     },
     {
-      "id": "memory-legacy-plan",
-      "kind": "instruction",
-      "path": "messages/memory-legacy-plan.md",
-      "description": "Memory legacy plan",
-      "when_to_use": "working memory; conditional; selected by the registered runtime policy."
-    },
-    {
-      "id": "memory-omitted",
-      "kind": "instruction",
-      "path": "messages/memory-omitted.md",
-      "description": "Memory omitted",
-      "when_to_use": "working memory; conditional; selected by the registered runtime policy."
-    },
-    {
-      "id": "memory-pending",
-      "kind": "instruction",
-      "path": "messages/memory-pending.md",
-      "description": "Memory pending",
-      "when_to_use": "working memory; conditional; selected by the registered runtime policy."
-    },
-    {
       "id": "overseer-extraction-due",
       "kind": "instruction",
       "path": "messages/overseer-extraction-due.md",
@@ -499,13 +478,6 @@
       "kind": "instruction",
       "path": "messages/startup-fault.md",
       "description": "Startup fault",
-      "when_to_use": "claude session; conditional; selected by the registered runtime policy."
-    },
-    {
-      "id": "startup-inventory",
-      "kind": "instruction",
-      "path": "messages/startup-inventory.md",
-      "description": "Startup inventory",
       "when_to_use": "claude session; conditional; selected by the registered runtime policy."
     },
     {
@@ -689,6 +661,13 @@
       "path": "messages/operational-intake.md",
       "description": "operational intake",
       "when_to_use": "Ordubashy startup and input reconciliation"
+    },
+    {
+      "id": "context-lookup-reminder",
+      "kind": "instruction",
+      "path": "messages/context-lookup-reminder.md",
+      "description": "Look names up in Context before asking the owner",
+      "when_to_use": "Every successful user prompt for agents that have the Context read tools."
     }
   ]
 }

@@ -105,6 +105,10 @@ def on_boards(row):
     return row['status'] not in ('done', 'cancelled') and not row.get('archived')
 
 
+# An open Task in one of these states is not being worked: it waits on someone or something else.
+PAUSED = frozenset({'waiting', 'blocked', 'needs_input'})
+
+
 def task_recipients(uow, business_id, task, actor_id):
     """Current board membership is a routing reason, never a source grant."""
     rows = uow.connection.execute(
@@ -273,6 +277,8 @@ class Attention:
         else:
             removed = self.release(uow, [entry for entry in entries if entry['agent_id'] in had - held], actor_id,
                                    'No longer a recorded worker')
+        if on_boards(row) and row['status'] in PAUSED:
+            self.release_focus(uow, ref)
         present = {entry['agent_id'] for entry in entries if entry['task_created_at'] == row['created_at']}
         added = 0
         for agent in sorted(held - had - present):
@@ -280,6 +286,18 @@ class Attention:
                 self.enter(uow, agent, ref, row['created_at'], actor_id, timestamp(self.clock))
                 added += 1
         return {'added': added, 'removed': removed}
+
+    def release_focus(self, uow, ref):
+        """A Task written as waiting, blocked or needing input is not being worked, so a focus on it is cleared and the
+        dashboard stops showing the agent as on it. Only a plain Task focus is cleared: a workflow focus keeps its own
+        pause and detach rules."""
+        agents = [row[0] for row in uow.connection.execute(
+            "SELECT agent_id FROM agent_attention WHERE json_extract(work_task_json,'$.id')=? "
+            "AND json_extract(work_task_json,'$.business_id') IS ? ORDER BY agent_id", (ref['id'], ref['business_id']))]
+        for agent in agents:
+            state = self.state(uow, agent)
+            if state['focus_json'] == state['work_task_json'] == ref:
+                self.clear_focus(uow, agent, 'task_paused')
 
     def enter(self, uow, agent, ref, created_at, actor_id, now):
         """Write one board entry with its history record; returns the entry id."""
@@ -493,7 +511,10 @@ class Attention:
                 return not state['focus_json'] and self.board_mode(uow, agent_id) == kind.removeprefix('board_')
             if kind not in ('focus','workflow_detach') or not state['focus_json'] or state['focus_generation'] != focus_generation: return False
             if agent_id != configured_ordubashy(uow) and state['focus_json'] != state['work_task_json']: return False
-            self.authorized_task(uow, ctx, agent_id, state['work_task_json'])
+            work = self.authorized_task(uow, ctx, agent_id, state['work_task_json'])['task']
+            # A snoozed Task was deferred on purpose: its focus reminder waits for the snooze to end instead of
+            # waking the agent every few minutes to say it is still waiting.
+            if kind == 'focus' and (work.get('snoozed_until') or '') > timestamp(self.clock): return False
             focus = state['focus_json']
             self.resolve(self.board_context(ctx, agent_id, uow), agent_id, focus, uow)
             if focus['type'] == 'workflow':

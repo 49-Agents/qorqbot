@@ -362,24 +362,14 @@
       "line": 197
     },
     {
-      "id": "working-memory-pass-next-cursor-exactly-new-cursors-are",
-      "source": "qorqut-code/app/qorqut/domains/working_memory.py",
-      "line": 44
+      "id": "agent-context-pass-next-cursor-exactly-new-cursors-are",
+      "source": "qorqut-code/app/qorqut/domains/agent_context.py",
+      "line": 24
     },
     {
-      "id": "working-memory-read-committed-own-working-memory-or-bounded",
-      "source": "qorqut-code/app/qorqut/domains/working_memory.py",
-      "line": 50
-    },
-    {
-      "id": "working-memory-read-compact-current-working-memory-and-live",
-      "source": "qorqut-code/app/qorqut/domains/working_memory.py",
-      "line": 53
-    },
-    {
-      "id": "working-memory-save-own-working-handoff-focus-approach-findings",
-      "source": "qorqut-code/app/qorqut/domains/working_memory.py",
-      "line": 63
+      "id": "agent-context-read-compact-live-attention-inventory-true-returns",
+      "source": "qorqut-code/app/qorqut/domains/agent_context.py",
+      "line": 30
     },
     {
       "id": "attention-focus-only-name-written-by-the-curator-use",

@@ -157,3 +157,23 @@ function chatFocusPanelMount(composer, agentId, {agent, visible, onChange, worki
     dispose() { disposed = true;peerVersion++; unsubscribe(); clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); mobile.removeEventListener('change', onResize); workingHost.prepend(workingTag); panel.remove(); },
   };
 }
+
+// Global's timeline above Ordubashy's main chat: what holds now across the installation, read-only. Reads the owner view
+// of the Global item (never more than once every 20 seconds); an empty timeline shows nothing.
+const TIMELINE_GLOBAL_ITEM = {type: 'global', id: 'global', business_id: null};
+const timelineGlobalRead = (extra = {}) => post('/root/operations/timeline_view', {scope: 'global', item: TIMELINE_GLOBAL_ITEM, ...extra}).then(coreData);
+function globalTimelineBlockMount(host, {visible = () => true, read = timelineGlobalRead} = {}) {
+  host.className = 'tlp tlp-global'; host.hidden = true; host.setAttribute('aria-label', 'Global timeline');
+  const panel = timelinePanelMount(host, {readHistory: args => read({history: true, limit: 50, ...args})});
+  let last = 0, pending = false, disposed = false;
+  async function refresh(force = false) {
+    if (disposed || pending || !visible() || (!force && Date.now() - last < 20000)) return;
+    pending = true;
+    try {
+      const data = await read();
+      if (!disposed) { last = Date.now(); panel.update(data); }
+    } catch (_) { last = Date.now(); /* the block stays as it was; the next refresh tries again */ }
+    finally { pending = false; }
+  }
+  return {refresh, dispose() { disposed = true; panel.dispose(); }};
+}

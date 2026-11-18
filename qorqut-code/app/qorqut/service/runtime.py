@@ -571,6 +571,17 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # The owner's own messages across every agent's chat and the private threads, for the owner and the coordinator.
     from qorqut.domains.owner_inputs import OwnerInputs
     OwnerInputs(runtime).register()
+    # The owner's pinned-threads row at the top of Focus: the owner's dashboard route, plus these two tools for the coordinator.
+    from qorqut.domains.thread_pins import ThreadPins
+    ThreadPins(runtime).register()
+    # The timelines of Tasks, Projects and Global: any agent reads one it may read; only the coordinator files.
+    from qorqut.domains.timeline import Timeline
+    Timeline(runtime).register()
+    # The owner's dashboard reads of them: one item's timeline and every open question.
+    from qorqut.domains.timeline_owner import TimelineOwner
+    TimelineOwner(runtime).register()
+    from qorqut.domains.timeline_delivery import TimelineDelivery
+    runtime.timeline_delivery = resolver.timeline_delivery = TimelineDelivery(runtime)
     # Its companion: what the records say was done over the same period.
     from qorqut.domains.work_review import WorkReview
     WorkReview(runtime).register()

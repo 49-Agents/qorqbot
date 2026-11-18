@@ -118,6 +118,7 @@ const AGPAD_RETIRED_PANE_VIEWS = new Set(["business", "campaign_review", "status
 // Viewbox is offered to registered agents except Learning Applier (the owner-only board is keyed by agent id).
 function agentPaneViewAllowed(roleId, view) {
   if (view === "files" || view === "timeline") return roleId === "ordubashy" && typeof testingModeEnabled === "function" && testingModeEnabled();
+  if (view === "questions") return roleId === "ordubashy";
   return view !== "threads" && !(view === "journal" && roleId !== "ordubashy") && !AGPAD_RETIRED_PANE_VIEWS.has(view)
     && !(view === "viewbox" && roleId === "learning-applier");
 }
@@ -129,7 +130,7 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer. A permanent worker gets
   // the same shared Todo board for its own commitments; its Focus stays the existing workspace view.
   if (roleId === "ordubashy" || roleId === "global-worker") leading.push("attentionBoard");
-  if (roleId === "ordubashy") leading.push("timeline");
+  if (roleId === "ordubashy") leading.push("timeline", "questions");
   if (roleId === "learning-applier") leading.push("changes");
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
@@ -205,6 +206,7 @@ function agpadWorkspaceMount(p, view) {
   if (view === "files") { agentFilesMount(p); return; }
   if (view === "attentionBoard" && (p.workspaceRole === "ordubashy" || p.workspaceRole === "global-worker")) { attentionBoardMount(p); return; }
   if (view === "timeline" && p.workspaceRole === "ordubashy") { agentTimelineMount(p); return; }
+  if (view === "questions" && p.workspaceRole === "ordubashy") { agentQuestionsMount(p); return; }
   if (view === "changes" && p.workspaceRole === "learning-applier") { overseerMount(p); return; }
   if (typeof agentWorkspaceMount === 'function' && agentWorkspaceMount(p, view)) return;
   if (view === "desktop" && p.workspaceRole === "ordubashy") { agfocusDesktopMount(p); return; }
@@ -482,7 +484,8 @@ function agpadSetView(p, view, leaveChecked = false) {
     if (AGPAD_FOCUS_SURFACES.has(view)) return agpadSurfaceRequest(p, view, leaveChecked);
     if (view === "focus" && p.view === "focus" && p.surface) return agpadSurfaceClose(p);
   }
-  if (!leaveChecked && (p.workspaceFrame || p.journalMount || p.surface?.beforeLeave || p.focusWorkspace?.isOpen?.()) && typeof agentWorkspaceCanLeave === 'function') {
+  if (!leaveChecked && (p.workspaceFrame || p.journalMount || p.surface?.beforeLeave || p.focusWorkspace?.isOpen?.()
+      || (p.view === 'focus' && typeof agentWorkspacePairedBusy === 'function' && agentWorkspacePairedBusy())) && typeof agentWorkspaceCanLeave === 'function') {
     // Resume only against the exact screen the guard inspected: a replaced frame or Journal mount was
     // never checked for unsaved edits, so its own guard has to run instead of this one's result.
     const frame = p.workspaceFrame, journal = p.journalMount, surface = p.surface, priorView = p.view;
@@ -761,6 +764,7 @@ function agpadTick() {
   if (!agpadActive(p)) return;
   if (p.view === "attentionBoard") attentionBoardTick(p);
   if (p.view === "timeline") agentTimelineTick(p);
+  if (p.view === "questions") agentQuestionsTick(p);
   agpadWorkspaceTick(p);
   if (agpadWorkspaceView(p.view)) return;
   if (p.view === 'globalTasks') return;

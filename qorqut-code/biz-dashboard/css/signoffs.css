@@ -100,7 +100,6 @@
 .sg-report th, .sg-report td { padding:3px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
 .sg-report th { font-weight:600; border-bottom-color:var(--line-2); white-space:nowrap; }
 .sg-inline .sg-report { margin:0 0 6px; font-size:12px; color:var(--fg-2); }
-.sg-comment:not([hidden]) { margin-top:14px; padding-top:12px; border-top:1px solid var(--line); }
 .sg-rows:not(:empty) + .sg-foreign:not(:empty) { margin-top:16px; }
 
 .sg-priority-tag { display:inline-flex; width:max-content; max-width:100%; align-items:center; padding:3px 7px; border:1px solid rgba(255,69,58,.3); border-radius:999px; background:rgba(255,69,58,.08); color:#FF453A; font-size:10px; font-weight:600; line-height:1.2; white-space:nowrap; }
@@ -148,6 +147,16 @@
 .sg-recipient-name { font-weight: 600; overflow-wrap: anywhere; }
 .sg-text { max-height: 18em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font: 14px/1.6 var(--sans); padding: 6px 10px; border-left: 2px solid var(--line-2); background: var(--wash); color: var(--fg); }
 .sg-text:focus-visible, .sg-content summary:focus-visible { outline: 2px solid var(--fg-2); outline-offset: 2px; }
+.filings-bar { margin: 0 0 12px; }
+.filing-card { margin: 0 0 16px; padding-top: 12px; border-top: 1px solid var(--line-2); }
+.filing-card h3 { margin: 0 0 8px; font-size: 13px; }
+.filing-status { margin: 4px 0 0; color: var(--fg-2); font-size: 12px; }
+.filing-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0 0; }
+.filing-actions .filing-note { flex: 1 1 220px; min-width: 0; min-height: 32px; padding: 4px 8px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; font-size: 13px; }
+.filing-actions button { min-height: 32px; padding: 4px 12px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--wash); color: var(--fg); font: inherit; font-size: 13px; cursor: pointer; }
+.filing-actions button:disabled, .filing-actions .filing-note:disabled { opacity: .55; cursor: default; }
+.sg-timeline-changes { margin: 8px 0; padding-left: 18px; overflow-wrap: anywhere; }
+.sg-timeline-quote { margin: 4px 0; padding: 2px 10px; border-left: 2px solid var(--line-2); color: var(--fg-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 .sg-none { color: var(--fg-3); font-style: italic; }
 .sg-unavailable { padding-left: 10px; border-left: 2px solid var(--line-2); }
 .sg-unavailable p { margin: 0; color: var(--fg-2); }
@@ -297,7 +306,7 @@
 .sg-focus .sg-choice > span:not(.sg-choice-marker):not(.sg-choice-name):not(.sg-choice-explanation) { display: none; }
 .sg-focus .sg-choice-marker { grid-row: 1 / span 2; margin-top: 1px; }
 .sg-focus .sg-choice-name { grid-column: 2; font-size: 14px; line-height: 20px; color: var(--fg); }
-.sg-focus .sg-choice-explanation { grid-column: 2; height: auto; display: block; overflow: visible; font-size: 14px; line-height: 1.55; color: var(--fg-2); }
+.sg-focus .sg-choice-explanation { grid-column: 2; height: auto; max-height: none; display: block; overflow: visible; font-size: 14px; line-height: 1.55; color: var(--fg-2); }
 .sg-focus .sg .sg-choice[aria-checked="true"] { border-color: var(--fg-2); }
 .sg-focus .sg-feedbackwrap { margin-top: 20px; }
 .sg-focus .sg-label { font-size: 12px; margin-bottom: 8px; }
@@ -379,4 +388,7 @@
 .sg-focus .sg-detail-body > :empty,.sg-focus .sg-detail-body > [hidden]{display:none}
 .sg-focus .sg-detail-body > .sg-attention-meta:not(:empty){margin-top:4px}
 .sg-focus.sg-single .sg-urgent:not([hidden]) + .sg-waiting{margin-top:0}
+/* One item has no section above it to be spaced from: its heading sits right under the Close bar. */
+.sg-focus.sg-single .sg-toread:not([hidden]){margin-top:0}
+.sg-focus.sg-single .sg > section:not([hidden]) > h2{margin-top:0}
 .sg-focus.sg-single .sg-detail > .sg-detail-footer{margin-top:0}

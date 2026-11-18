@@ -151,6 +151,28 @@ browserTest('a detached rename cannot change the title of newer Focus content',a
   assert.equal(await page.locator('.side-chat-title-button').count(),0);assert.deepEqual(errors,[]);
  }finally{await browser.close();}
 });
+browserTest('a Signoff a reply references is the main Chat\'s Signoff card, not a button named by its type',async()=>{
+ const {browser,page,errors}=await fixture();try{
+  await page.evaluate(()=>{
+   const original=post;
+   window.post=async(url,body)=>url.endsWith('/owner_conversation_get') && body.source?.id==='one'
+    ?{messages:[{id:'m1',body:'Posted the forms',author_kind:'agent',created_at:'2026-11-13T10:00:00Z',refs:[{type:'signoff',id:'f1'},{type:'signoff',id:'f2',business_id:'p'},{type:'signoff',id:'two'},{type:'reference',id:'r1'}]},
+      {id:'m2',body:'Did you see these?',author_kind:'human',created_at:'2026-11-13T10:01:00Z',refs:[{type:'signoff',id:'f1'}]}],conversation:{latest_sequence:2,message_count:2}}
+    :original(url,body);
+   window.attentionQueue={refresh:async()=>{},sideChat:id=>id==='two'?{id:'two',title:'Second chat',source:{type:'signoff',id:'two',business_id:null}}:null};
+   window.mounted=[];window.sgChatMount=(ref,host)=>{mounted.push(`${ref.id}:${ref.business_slug || 'global'}`);host.textContent='Signoff card '+ref.id;return {hasUnsaved:()=>false,hasPendingWrite:()=>false,dispose(){},refresh(){}};};
+  });
+  await page.evaluate(()=>sideChatOpen({id:'one',title:'First chat',source:{type:'signoff',id:'one',business_id:null}}));
+  await page.locator('.side-chat-thread .gchat-signoff-reference').first().waitFor();
+  // Both Signoffs in the reply are cards inside that reply, the project one with its project; nothing is named "signoff".
+  assert.deepEqual(await page.evaluate(()=>mounted.sort()),['f1:global','f2:project']);
+  assert.equal(await page.locator('.side-chat-thread .gchat-signoff-reference').count(),2);
+  assert.equal(await page.locator('.side-chat-thread button.gchat-reference',{hasText:/^signoff$/}).count(),0);
+  // The side chat keeps its titled button; an unlabelled reference gets a readable name; the owner's own reference stays a button.
+  assert.deepEqual(await page.locator('.side-chat-thread button.gchat-reference').allInnerTexts(),['Second chat','Reference','Signoff']);
+  assert.deepEqual(errors,[]);
+ }finally{await browser.close();}
+});
 browserTest('references in a side chat open a referenced side chat as that side chat and a Task as a Task',async()=>{
  const {browser,page,errors}=await fixture();try{
   await page.evaluate(()=>{
@@ -164,7 +186,8 @@ browserTest('references in a side chat open a referenced side chat as that side 
   await page.evaluate(()=>sideChatOpen({id:'one',title:'First chat',source:{type:'signoff',id:'one',business_id:null}}));
   await page.locator('.side-chat-thread .gchat-ref-row-task').click();
   assert.deepEqual(await page.evaluate(()=>opened),['task:t1']);
-  await page.locator('.side-chat-thread button.gchat-reference',{hasText:'signoff'}).click();
+  // A side chat keeps its button, named by the side chat's title, and opens as that side chat.
+  await page.locator('.side-chat-thread button.gchat-reference',{hasText:'Second chat'}).click();
   await page.waitForFunction(()=>document.querySelector('.side-chat-title-button')?.textContent==='Second chat');
   assert.deepEqual(await page.evaluate(()=>opened),['task:t1']);assert.deepEqual(errors,[]);
  }finally{await browser.close();}

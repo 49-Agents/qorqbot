@@ -621,7 +621,7 @@ class HTTPAPI:
                     "system_incidents_list", "system_incidents_get",
                     "dashboard_summary_get", "global_progress_get", "records_health", "records_reconcile",
                     "owner_inputs_list", "owner_input_get", "work_review_get",
-                    "actions_record", "actions_list", "actions_get", "actions_correct", "actions_withdraw", "actions_config_get", "working_memory_get", "working_memory_update", "agent_context_get",
+                    "actions_record", "actions_list", "actions_get", "actions_correct", "actions_withdraw", "actions_config_get", "agent_context_get",
                     "costs_overview",
                     "calendar_calendars_list", "calendar_events_list", "calendar_event_get",
                     "calendar_event_create", "calendar_event_update", "calendar_event_delete", "calendar_event_respond",
@@ -631,6 +631,7 @@ class HTTPAPI:
                     "attention_get", "attention_add", "attention_remove", "todo_get", "todo_add", "todo_remove", "workers_list",
                     "workspace_types", "workspace_get",
                     "owner_conversation_get", "owner_conversation_send", "owner_conversation_mark_read", "owner_conversations_list", "owner_conversation_related", "owner_conversation_peers",
+                    "timeline_view", "timeline_questions_list",
                     "side_chats_create", "side_chats_rename", "side_chats_close",
                     # Project record reads and explicit links: the six project_* operations and the narrow reminder read.
                     # The root route names the Project with scope=global and no business option; a business route must agree

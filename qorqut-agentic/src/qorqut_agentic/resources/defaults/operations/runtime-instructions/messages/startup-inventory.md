@@ -1,1 +1,0 @@
-Before work, call agent_context_get(inventory=true) and follow next_cursor to completion; agent_context_get reads the saved handoff.

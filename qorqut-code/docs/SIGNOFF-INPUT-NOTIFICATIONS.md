@@ -139,6 +139,14 @@ the daily report is one. The engine enforces what makes it different:
   `response_policy` is always `owner_only`, so it is never routed to management.
 - It is never a dependency: `source` is refused at creation and `signoffs_source_link`
   refuses it, so no Task or record shows Needs your input because of it.
+- It never stands alone: `report_task: {id, business_id}` is required and names the Task
+  the report belongs to (`business_id` null for a Global Task). The caller must be able to
+  read that Task, which may be closed; a Global report names a Global Task and a project
+  report a Task of the same project. One Task may hold many reports. The link is its own
+  table (`signoff_report_tasks`, one row per report), separate from `signoff_source_links`,
+  and changes nothing on the Task. It follows the Task when the Task moves between
+  projects. Other input kinds refuse `report_task`. A report under the same `request_key`
+  for a different Task is a `request_conflict`; a replacement carries its own Task.
 - `urgent` and `blocking` are refused. `notify` defaults to true and produces one
   individual delivery when the item is posted. It is not repeated and is not part of
   the daily summary. An owner snooze delivers it once more when the snooze ends.
@@ -155,7 +163,8 @@ Signoff's private conversation with Ordubashy, which is independent of
 acknowledging. Read models count these apart from decisions: `GET /api/me/attention`
 and `dashboard_summary_get` report `to_read` and leave them out of `signoffs` and
 `total`; `signoffs_list` adds a `to_read` count beside `counts`, and every Signoff
-row carries `input_kind`.
+row carries `input_kind`; a report's row also carries `report_task`
+(`{type: 'task', id, business_id, title}`, null for a report posted before reports had a Task).
 
 ## Responses and history
 

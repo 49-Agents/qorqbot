@@ -70,10 +70,10 @@ response can lose a reminder; it cannot gain another automatic continuation.
 Unknown lineage or unavailable storage allows stopping.
 
 The work-review text asks the agent to bring its existing current-work entry,
-working memory, and relevant task or business notes in line with completed work,
+and relevant task or business notes in line with completed work,
 decisions received and remaining blockers, changing only what changed and never
 recording a proposal as an approved decision. Saves made in response
-(`agent_work_update`, `working_memory_update`, own `notes_create`/`notes_update`,
+(`agent_work_update`, own `notes_create`/`notes_update`,
 `tasks_update`, `tasks_comment`, `inbox_acknowledge`) are bookkeeping and do not
 make the turn dirty again. The registration lists the agent's exposed read
 operations, which never count; neither do Claude's native read, search, planning,
@@ -99,7 +99,7 @@ No personal Claude/Codex configuration or production terminal is involved.
 
 The reminder improves update discipline; it provides no continuity. A crash,
 forced termination, killed hook or lost service response can skip it, and work not
-saved before then may be lost. Working memory, activity and transcript snapshots
+saved before then may be lost. Activity and transcript snapshots
 keep their existing limits and semantics.
 
 ## Inbox notices
