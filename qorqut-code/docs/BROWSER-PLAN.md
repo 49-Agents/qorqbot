@@ -23,6 +23,11 @@ built and what was verified; an item without a "Verified" line is not done.
     and the owner is asked only when both fail.
 11. **Site terms are the user's business.** How a user points Qorqbot at a website is the user's decision and is not a
     planning constraint here.
+12. **Interruptions are acceptable.** The owner is the only user. A feature may pause, stop or restart agents and their
+    browsers; avoiding that is not a design goal.
+13. **Captcha tool later.** Items 1, 2, 3 and 5 are built first. The solver key is saved in Global Settings as
+    `CAPTCHA_SOLVER_API_KEY` (2026-11-18).
+14. **Quality over speed.** Nothing here is urgent.
 
 ## What exists today
 
@@ -101,7 +106,7 @@ How it fits what exists (`qorqut/browser/agent_browsers.py`, `agent_supervisor.p
 - A tab idle past a limit is unloaded; its next use loads the page again.
 - A page's cookie banner is refused (never accepted) when a reject control is found.
 
-### 4. Captcha tool
+### 4. Captcha tool (later, decision 13)
 
 - One operation the agent calls for the current tab. The server finds the captcha, clicks a checkbox type, otherwise calls
   the solver, inserts the answer and reports the result. The key is read on the server and never reaches the agent.
