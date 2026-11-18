@@ -103,6 +103,26 @@ An agent uses its own browser (the default) or the installation's one **Shared b
 * The owner sets the choice per agent in Settings ("Which browser each agent uses"), which posts
   `{"action": "choose", "agent_id": ..., "browser": "own" | "shared"}` to `/api/root/browser-setup`.
 
+## The owner's live view
+
+The dashboard's Browser tab of a global agent shows that agent's managed browser live when no viewer is configured for it
+(`qorqut/browser/live.py`, `biz-dashboard/js/agent-browser-live.js`). Owner's dashboard only; not an operation.
+
+| Route under `/api/root/agents/<agent UUID>/browser-live` | Does |
+| --- | --- |
+| `GET` | Lists the browser's open pages (`id`, `title`, `url`). |
+| `GET /stream?tab=<id>` | Server-sent events: `open` (the view's id), `tabs`, `frame` (a JPEG and the page's size in CSS pixels, at most 20 a second), `closed`. |
+| `POST /input` | `{"view": ..., "events": [...]}`: pointer, wheel, key and inserted-text events for that view's tab. |
+
+* It uses Chrome's DevTools port directly, never `agent-browser`: it opens no tab, holds no lock and does not pause the
+  agent. The agent and the owner can act on the same page at the same time.
+* Chrome draws only the front tab, so opening a view brings its tab to the front. Other tabs keep working but run as
+  background tabs.
+* For an agent on the Shared browser the list shows every tab of the Shared browser. The view does not know which tab
+  belongs to which agent.
+* A stream ends when its tab closes or the connection drops; the dashboard does not reconnect by itself.
+* The visible sign-in window stays for what a picture cannot do: file pickers, passkeys, downloads.
+
 ## Preservation
 
 Profiles, cookies, logins, `browser.json` and ownership metadata survive `restart`, `stop` and `repair`. There is no delete

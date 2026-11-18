@@ -130,6 +130,20 @@ Not verified yet: the whole path on a running installation (real systemd unit, r
 - Today's visible-window sign-in stays as the fallback for what a streamed picture cannot do: file pickers, passkeys, some
   captchas.
 
+#### Built (2026-11-18)
+
+- `browser/live.py` and the routes under `/api/root/agents/<id>/browser-live` (`transport/http.py`): the tab list, the
+  picture stream and the input route. See [management](BROWSER-MANAGEMENT.md#the-owners-live-view).
+- `biz-dashboard/js/agent-browser-live.js`: the panel. The Browser tab of a global agent shows it when no viewer is
+  configured, and the tab is offered for every agent with a built-in browser.
+
+Verified: unit tests for the module and the route (`tests/test_browser_live.py`); the module against a real headless
+Chrome by script (51 pictures in 3 seconds from a tab that started in the background, a click, typing, paste, Backspace);
+the panel in headless Chromium with a stand-in stream (`biz-dashboard/tests/agent-browser-live.test.js`: pointer position
+mapping, keys, paste, input-method text, wheel, tab switch, closed tab, broken stream).
+
+Not verified yet: the panel against the real route in a running installation; macOS; touch input; how it feels to use.
+
 ### 3. Idle tabs and cookie banners
 
 - A tab idle past a limit is unloaded; its next use loads the page again.
