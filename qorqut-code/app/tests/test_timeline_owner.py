@@ -141,5 +141,44 @@ class OwnerViewTests(Fixture):
         self.assertIsNotNone(first['entries'][0]['removed_by'])
         self.assertEqual([(row['text'], row['state']) for row in first['closed_questions']], [('Which month?', 'dropped')])
 
+    def answer(self, who, question_id, text, **more):
+        return self.app.invoke(self.dash(who), 'timeline_question_answer', {'scope': 'global', 'question_id': question_id,
+                                                                             'text': text, **more},
+                               {'idempotency_key': str(uuid4())})
+
+    def test_the_owner_answers_an_open_question_at_once_in_their_own_words(self):
+        asked = self.filed(self.item, [{'action': 'ask', 'text': 'Pay in dollars?', 'blocking': True}])['filed']['questions'][0]
+        done = self.ok(self.answer(self.owner, asked, 'Yes, in dollars.'))
+        self.assertEqual(done['question_id'], asked)
+        state = self.ok(self.view(self.owner, self.item))['state']
+        self.assertEqual([row['text'] for row in state['decisions']], ['Yes, in dollars.'])
+        self.assertEqual(state['questions'], [])
+        with self.db.read() as uow:
+            entry = uow.connection.execute("SELECT created_by, sources_json, question_id FROM timeline_entries WHERE id=?",
+                                           (done['entry_id'],)).fetchone()
+            question = uow.connection.execute("SELECT state, answer_entry_id FROM timeline_questions WHERE id=?", (asked,)).fetchone()
+            told = uow.connection.execute(
+                "SELECT d.agent_id, d.required, e.summary FROM inbox_events e JOIN inbox_deliveries d ON d.event_id=e.id "
+                "WHERE e.source_type='timeline_questions' AND e.source_id=?", (asked,)).fetchall()
+        self.assertEqual((entry['created_by'], entry['question_id']), (self.owner, asked))
+        self.assertIn('Yes, in dollars.', entry['sources_json'])
+        self.assertEqual((question['state'], question['answer_entry_id']), ('answered', done['entry_id']))
+        self.assertEqual([(row['agent_id'], row['required']) for row in told], [(self.lead, 1)])
+        self.assertIn('Pay in dollars?', told[0]['summary'])
+
+    def test_an_answer_can_be_a_fact_and_a_closed_question_takes_no_second_answer(self):
+        asked = self.filed(self.project, [{'action': 'ask', 'text': 'Which bank?', 'blocking': False}])['filed']['questions'][0]
+        self.ok(self.answer(self.owner, asked, 'The business account.', kind='fact'))
+        self.assertEqual([row['text'] for row in self.ok(self.view(self.owner, self.project))['state']['facts']], ['The business account.'])
+        self.assertEqual(self.code(self.answer(self.owner, asked, 'Again.')), 'validation_error')
+        self.assertEqual(self.code(self.answer(self.owner, 'missing', 'Nothing.')), 'not_found')
+
+    def test_only_the_owner_answers_and_only_on_the_dashboard(self):
+        asked = self.filed(self.global_item, [{'action': 'ask', 'text': 'Global rule?', 'blocking': False}])['filed']['questions'][0]
+        self.assertEqual(self.code(self.answer(self.lead, asked, 'I decide.')), 'forbidden')
+        descriptor = self.registry.get('timeline_question_answer')
+        self.assertEqual((descriptor.owner_only, set(descriptor.exposure), descriptor.effect_kind), (True, {'dashboard'}, 'records'))
+        self.assertEqual(self.ok(self.questions(self.owner))['items'][0]['text'], 'Global rule?')
+
 if __name__ == '__main__':
     unittest.main()

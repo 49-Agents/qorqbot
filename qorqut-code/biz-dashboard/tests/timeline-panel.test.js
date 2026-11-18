@@ -168,6 +168,16 @@ test('the questions page lists each question with its item, blocking marked, and
   assert.equal((html.match(/data-question-open/g)||[]).length,2);
   assert.ok(html.includes('data-question-open="0"'));assert.ok(html.includes('13 Nov'));
 });
+test('every question, Global included, can be answered in place as a decision or a fact',()=>{
+  const {api}=load();
+  const html=api.agentQuestionsHtml(ROWS);
+  assert.equal((html.match(/data-question-answer=/g)||[]).length,ROWS.length);
+  assert.equal((html.match(/data-answer-form=/g)||[]).length,ROWS.length);
+  assert.ok(html.includes('<option value="decision">Decision</option>'));assert.ok(html.includes('<option value="fact">Fact</option>'));
+  assert.ok(html.includes('maxlength="400"'));
+  const code=read('agent-questions.js');
+  assert.match(code,/\/root\/operations\/timeline_question_answer/);assert.match(code,/idempotency_key: form\.dataset\.key/);
+});
 test('a question opens the thread of its Project by slug and its Task by the existing reference',()=>{
   const {api}=load({taskRecordReference:task=>({type:'task',id:task.id,business_id:task.business_id,label:task.label})});
   assert.deepEqual(JSON.parse(JSON.stringify(api.agentQuestionsReference(ROWS[1]))),{type:'project',id:'p1',business_id:'p1',business_slug:'example',label:'Example project'});
