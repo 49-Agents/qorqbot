@@ -42,6 +42,11 @@
 .agent-questions-meta { margin: 4px 0 0; color: var(--fg-2); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .agent-questions .agent-questions-open { min-height: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; text-decoration: underline; text-underline-offset: 3px; }
 .agent-questions .agent-questions-open:hover { color: var(--fg); transform: none; }
+.agent-questions .agent-questions-answer-toggle { min-height: 0; margin-left: 8px; padding: 0; border: 0; background: none; color: var(--fg-2); font: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.agent-questions .agent-questions-answer-toggle:hover { color: var(--fg); transform: none; }
+.agent-questions-answer { display: grid; gap: 6px; margin: 8px 0 2px; }
+.agent-questions-answer textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 52px; font: inherit; font-size: 13px; }
+.agent-questions-answer-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .agent-questions :is(button):focus-visible { outline: 1px solid var(--fg-2); outline-offset: 3px; }
 .agent-questions .tlp-flag { margin-top: 2px; }
 @media (max-width: 600px) {
