@@ -317,7 +317,9 @@ function rtFailureToasts(rows) {
     if (!id || seen.has(id)) return;
     const detail = row.error && row.error.message || (row.runs || []).map(x=>x.stderr_tail).find(Boolean);
     const scope = row.scope === 'global' ? (row.target === 'root' ? 'Global' : 'All projects') : state.biz;
-    seen.add(id);notify({text:`Routine failed: ${row.name || row.routine}`,sub:[scope,detail || (row.rc != null ? `rc ${row.rc}` : ''),row.end].filter(Boolean).join(' · '),color:'var(--danger)'});
+    const sub=[scope,detail || (row.rc != null ? `rc ${row.rc}` : ''),row.end].filter(Boolean).join(' · ');
+    seen.add(id);notify({text:`Routine failed: ${row.name || row.routine}`,sub,color:'var(--danger)'});
+    if(typeof desktopNotify!=='undefined')desktopNotify.send({kind:'routines',title:`Routine failed: ${row.name || row.routine}`,body:sub,tag:'routine:'+id});
   });
   localStorage.setItem('routine-failures-seen',JSON.stringify([...seen].slice(-500)));
 }
