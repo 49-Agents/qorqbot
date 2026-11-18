@@ -41,7 +41,7 @@ async function fixture(browser, initial = 'chat') {
     window.post = async (url, body) => { calls.posts.push({url, body}); return {last_read_sequence: body.sequence}; };
     window.current = true;
   });
-  for (const file of ['safe-links', 'chat-view', 'slash-commands', 'xterm', 'terminal', 'global-chat']) await page.addScriptTag({path: path.join(root, 'js', file + '.js')});
+  for (const file of ['safe-links', 'chat-view', 'slash-commands', 'xterm', 'terminal', 'agent-runtime', 'global-chat']) await page.addScriptTag({path: path.join(root, 'js', file + '.js')});
   await page.evaluate(initial => {
     window.mount = () => mountAgentView(document.querySelector('#pane'), {agent_id: 'agent-1', name: 'Demo'}, {
       terminal: {key: 'agent-1', base: '/terminal/agent-1'}, isCurrent: () => current, view: initial,

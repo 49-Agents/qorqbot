@@ -18,6 +18,8 @@ Delivery rules, in order of precedence:
   told ``deferred`` when the session is not ready.
 * The shared Codex server takes plain text only and cannot run a CLI slash command, so an owner Chat input that is one of
   Codex's built-in commands is refused (``terminal_command``) before anything is stored or typed; it needs the agent's Terminal.
+* A managed session has no terminal either: an owner Chat input that is one of Claude's menu-only commands is refused
+  (``managed_command``) the same way. With no session open, a managed agent is ``session_closed`` rather than ``terminal_offline``.
 """
 
 from __future__ import annotations
@@ -36,7 +38,7 @@ from . import store
 from .commands import codex_builtin
 from .contracts import (INPUT_TYPES, MAX_TEXT_CHARS, ORIGIN_SYSTEM, RESULT_DEFERRED, RESULT_REJECTED, STATE_FAILED,
                         STATE_SUBMITTED, STATE_SUBMITTING, STATE_UNCERTAIN, STATE_UNDELIVERED, STATE_WAITING, TYPE_CHAT,
-                        TYPE_NUDGE, TYPE_RECOVERY, TYPE_TELEGRAM, InputRequest, InputResult, NativeChatError)
+                        TYPE_NUDGE, TYPE_RECOVERY, TYPE_TELEGRAM, InputRequest, InputResult, NativeChatError, managed_menu_command)
 from .probe import (ProbeResult, REASON_CAPTURE_DISABLED, REASON_LIVE, REASON_UNSUPPORTED, REASON_UNSUPPORTED_RUNTIME,
                     SessionProbe)
 from .projection import marker_text
@@ -45,6 +47,8 @@ from .sessions import SessionRegistry
 LOG = logging.getLogger(__name__)
 NOT_TYPED = "not_typed"
 TERMINAL_COMMAND = "terminal_command"
+MANAGED_COMMAND = "managed_command"
+SESSION_CLOSED = "session_closed"
 
 
 class AgentLocks:
@@ -123,7 +127,7 @@ class InputArbiter:
             observed = self.probe.observe(profile)
             reconciled = self.registry.reconcile(profile, observed)
             if reconciled.session is None or not reconciled.live:
-                return self._unavailable(request, observed)
+                return self._unavailable(request, observed, managed=profile.get("execution") == "managed")
             session = reconciled.session
             if request.expected_binding and request.expected_binding != session["id"]:
                 return self._refused(request, RESULT_REJECTED, "stale_session", session)
@@ -131,6 +135,9 @@ class InputArbiter:
                     and codex_builtin(request.text) is not None):
                 # Decided for a new input only (an exact repeat was answered above) and before a row or a checkpoint exists.
                 return self._refused(request, RESULT_REJECTED, TERMINAL_COMMAND, session)
+            if (request.input_type == TYPE_CHAT and session["transport"] == "managed"
+                    and managed_menu_command(request.text) is not None):
+                return self._refused(request, RESULT_REJECTED, MANAGED_COMMAND, session)
             marker = secrets.token_hex(16) if request.origin == ORIGIN_SYSTEM else None
             if request.wait and not session["transcript_path"]:
                 # Chat shows the archived conversation; a session with no transcript has none to show, so Chat does not
@@ -172,9 +179,10 @@ class InputArbiter:
             return store.active_profile(uow.connection, agent_id, self.runtime.paths)
 
     @staticmethod
-    def _unavailable(request: InputRequest, observed: ProbeResult) -> InputResult:
+    def _unavailable(request: InputRequest, observed: ProbeResult, *, managed: bool = False) -> InputResult:
+        # A managed agent with no verified session has its session closed, not a terminal that is offline.
         code = {REASON_CAPTURE_DISABLED: "capture_disabled", REASON_UNSUPPORTED: "unsupported_target",
-                REASON_UNSUPPORTED_RUNTIME: "unsupported_runtime"}.get(observed.reason, "terminal_offline")
+                REASON_UNSUPPORTED_RUNTIME: "unsupported_runtime"}.get(observed.reason, SESSION_CLOSED if managed else "terminal_offline")
         # A refusal that no later retry changes is rejected; an offline session may come back, so an attempt is deferred.
         definitive = code in {"capture_disabled", "unsupported_target", "unsupported_runtime"} or request.wait
         return InputResult(state=RESULT_REJECTED if definitive else RESULT_DEFERRED, reason=code, origin=request.origin,
@@ -349,4 +357,4 @@ class InputArbiter:
                                         metadata=dict(metadata or {})))
 
 
-__all__ = ["AgentLocks", "InputArbiter", "NOT_TYPED", "StaleSession", "TERMINAL_COMMAND"]
+__all__ = ["AgentLocks", "InputArbiter", "MANAGED_COMMAND", "NOT_TYPED", "SESSION_CLOSED", "StaleSession", "TERMINAL_COMMAND"]

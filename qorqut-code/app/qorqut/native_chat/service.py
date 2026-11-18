@@ -7,6 +7,10 @@ undelivered (maintenance, never delivery). Nothing here launches, resumes or sto
 
 The drain is bounded: ``stop_observer`` joins the thread within its timeout and raises ``TimeoutError`` when it survives, keeping
 the reference so a later stop can still prove the drain.
+
+A managed agent's pass also asks the managed runtime for the host's latest state and events: a change of its phase, pending
+request or activity reaches Chat as a visible change (activity text at most once a second), and a prompt a hook blocked is
+recorded on the input that carried it. A terminal agent never touches the managed runtime.
 """
 
 from __future__ import annotations
@@ -15,24 +19,34 @@ import logging
 import os
 from pathlib import Path
 import threading
+import time
 
 from qorqut_operations.contracts import DomainError, utc_now
 
 from . import store
 from .arbiter import AgentLocks, InputArbiter
 from .captures import Indexer
+from .contracts import STATE_SUBMITTED
 from .probe import BINDING, MARKER, SessionProbe
 from .sessions import SessionRegistry
 
 LOG = logging.getLogger(__name__)
 PASS_SECONDS = 1.0
+ACTIVITY_SECONDS = 1.0  # a managed activity line changes Chat's revision at most this often
+BLOCKED_PASSES = 120  # how many passes a blocked-prompt report waits for the input it names to be settled
 
 
 class NativeBackend:
     def __init__(self, runtime, probe: SessionProbe, registry: SessionRegistry, indexer: Indexer, arbiter: InputArbiter,
-                 locks: AgentLocks, *, interval: float = PASS_SECONDS):
+                 locks: AgentLocks, *, interval: float = PASS_SECONDS, managed=None):
         self.runtime, self.probe, self.registry, self.indexer, self.arbiter, self.locks = runtime, probe, registry, indexer, arbiter, locks
         self.interval = interval
+        # The managed runtime, used duck-typed and only for agents whose profile says ``execution == "managed"``:
+        # ``refresh(agent_id) -> changed`` and ``drain_events(agent_id) -> [event dict]``.
+        self.managed = managed
+        self._bumped: dict[str, float] = {}
+        self._blocked: dict[str, dict[str, list]] = {}
+        self._owed: set[str] = set()  # agents whose host reported a change that the throttle held back
         self._stop_event = threading.Event()
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
@@ -133,7 +147,9 @@ class NativeBackend:
         """Bind, capture and index one agent, then deliver its waiting inputs. Safe to repeat."""
         if self.follow_terminal is not None:
             self.follow_terminal(profile)
+        managed = self.managed if profile.get("execution") == "managed" else None
         with self.locks(profile["agent_id"]):
+            changed = self._refresh_managed(managed, profile["agent_id"]) if managed is not None else False
             observed = self.probe.observe(profile)
             reconciled = self.registry.reconcile(profile, observed)
             session = reconciled.session
@@ -141,7 +157,10 @@ class NativeBackend:
             # permission) need to reach Chat even without new transcript bytes.
             working = (session["id"], bool(observed.observation.working)) if reconciled.live else None
             agent_id = profile["agent_id"]
-            if self._working.get(agent_id) != working:
+            if managed is not None:
+                self._publish_managed(agent_id, reconciled, observed, changed)
+                self._apply_blocked(managed, agent_id)
+            elif self._working.get(agent_id) != working:
                 with self.database.transaction(operation="native_chat.working") as uow:
                     self.runtime.application.ensure_writes_open(uow)
                     store.bump(uow.connection, agent_id)
@@ -154,6 +173,71 @@ class NativeBackend:
                 waiting = bool(store.waiting_inputs(uow.connection, profile["agent_id"]))
             if waiting:
                 self.arbiter.dispatch(profile["agent_id"])
+
+    # ----- managed sessions ------------------------------------------------------------------------------------------
+
+    @staticmethod
+    def _refresh_managed(managed, agent_id: str) -> bool:
+        """Ask the managed runtime to read the host's state and events. A host that cannot be read changes nothing here: the
+        probe decides whether the session is verified."""
+        try:
+            return bool(managed.refresh(agent_id))
+        except Exception:
+            LOG.debug("Managed runtime refresh failed for %s", agent_id, exc_info=True)
+            return False
+
+    def _publish_managed(self, agent_id: str, reconciled, observed, changed: bool) -> None:
+        """Make a change a viewer can see (working, phase, a pending request, the activity line) a visible change. The key of a
+        terminal agent is only ``(session, working)``; a managed one adds what the host reports. A change of the activity
+        text alone waits out ``ACTIVITY_SECONDS`` since the last one, so a chatty turn does not make every viewer re-read
+        Chat many times a second; it is not recorded as published until it bumps, so a later pass publishes it."""
+        key = None
+        if reconciled.live:
+            seen = observed.observation
+            key = (reconciled.session["id"], bool(seen.working), seen.phase,
+                   tuple(sorted(str(item.get("request_id")) for item in seen.pending)), seen.activity)
+        previous = self._working.get(agent_id)
+        if key == previous and not changed and agent_id not in self._owed:
+            return
+        activity_only = (key is not None and previous is not None and len(key) == len(previous) and key[:-1] == previous[:-1])
+        now = time.monotonic()
+        if (key == previous or activity_only) and now - self._bumped.get(agent_id, 0.0) < ACTIVITY_SECONDS:
+            self._owed.add(agent_id)  # published on a later pass; the key is not recorded, so a differing one stays due
+            return
+        with self.database.transaction(operation="native_chat.working") as uow:
+            self.runtime.application.ensure_writes_open(uow)
+            store.bump(uow.connection, agent_id)
+        self._working[agent_id] = key
+        self._bumped[agent_id] = now
+        self._owed.discard(agent_id)
+
+    def _apply_blocked(self, managed, agent_id: str) -> None:
+        """Record on its input every prompt the managed host reports a hook blocked. The input is already ``submitted`` (the
+        client accepted the message); the report only adds that it was not processed. A report that names an input not yet
+        settled waits a bounded number of passes for it."""
+        waiting = self._blocked.setdefault(agent_id, {})
+        try:
+            events = managed.drain_events(agent_id) or ()
+        except Exception:
+            LOG.debug("Managed runtime events failed for %s", agent_id, exc_info=True)
+            events = ()
+        for item in events:
+            event = item.get("event") if isinstance(item, dict) and isinstance(item.get("event"), dict) else item
+            if not isinstance(event, dict) or event.get("type") != "prompt_blocked" or not isinstance(event.get("message_uuid"), str):
+                continue
+            reason = event.get("reason") if isinstance(event.get("reason"), str) else ""
+            waiting.setdefault(event["message_uuid"], [reason, 0])
+        for message_uuid, entry in list(waiting.items()):
+            entry[1] += 1
+            with self.database.read() as uow:
+                row = store.input_by_message_uuid(uow.connection, agent_id, message_uuid)
+            if row is not None and row["state"] == STATE_SUBMITTED:
+                with self.database.transaction(operation="native_chat.prompt_blocked") as uow:
+                    self.runtime.application.ensure_writes_open(uow)
+                    store.annotate_input(uow.connection, row["id"], "prompt_blocked", {"prompt_blocked": {"reason": entry[0][:500]}})
+                del waiting[message_uuid]
+            elif (row is not None and row["state"] != "submitting") or entry[1] >= BLOCKED_PASSES:
+                del waiting[message_uuid]  # settled some other way, or never settled: nothing to annotate
 
     def finish_ended(self) -> None:
         """The final capture of every session that ended: exact exit evidence, a stable observation, then the verified tail."""

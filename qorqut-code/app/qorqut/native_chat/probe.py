@@ -3,7 +3,8 @@
 Nothing is launched, resumed or written. The marker (``.qorqut/terminal-chat.json``, published by the native client's own
 hook) names a conversation, a transcript and a process; it is a claim, not proof. It counts only while the process exists with
 the recorded start ticks and is reachable the way its transport requires: inside the agent's one registered tmux pane, or, for a
-shared Codex desktop server, through that exact conversation's held thread-writer lock.
+shared Codex desktop server, through that exact conversation's held thread-writer lock. A managed agent has no pane: its
+client process counts while the managed runtime verifies the host process that drives it and that the client descends from it.
 """
 
 from __future__ import annotations
@@ -48,6 +49,7 @@ REASON_SESSION_END = "session_end"
 REASON_PROCESS_GONE = "process_gone"
 REASON_UNSUPPORTED = "native_only"
 REASON_UNSUPPORTED_RUNTIME = "unsupported_runtime"
+MANAGED_WORKING = frozenset({"working", "blocked"})
 
 
 @dataclass(frozen=True)
@@ -66,6 +68,11 @@ class Observation:
     working: bool = False
     capture: bool = True
     capture_enabled: bool = True
+    # What a managed host reports about its session (``phase`` is one of starting/idle/working/blocked/closing); a terminal or
+    # shared-server observation never has them.
+    phase: str | None = None
+    activity: str | None = None
+    pending: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -102,8 +109,11 @@ class SessionProbe:
     attached to the runtime after construction). ``marker_reader`` and ``process_probe`` are injection points for synthetic
     checks; the defaults read the workspace marker and the real ``/proc`` and tmux state."""
 
-    def __init__(self, backend=lambda: None, *, marker_reader=None, process_probe=None, selected_reader=None):
+    def __init__(self, backend=lambda: None, *, marker_reader=None, process_probe=None, selected_reader=None, managed=None):
         self._backend = backend
+        # The managed runtime, used duck-typed and only for an agent whose profile says ``execution == "managed"``:
+        # ``verify(profile, marker) -> {"transport", "owner"} | None`` and ``snapshot(agent_id) -> dict | None``.
+        self._managed = managed
         self._marker_reader = marker_reader or self._read_marker
         self._process_probe = process_probe or self._verify_process
         # ``selected_reader(profile) -> (Selection | None, open native_sessions row | None)``; without it the marker decides.
@@ -182,12 +192,31 @@ class SessionProbe:
         if not verified:
             return ProbeResult(REASON_PROCESS_GONE, marker=marker)
         provider = RUNTIME_PROVIDERS[marker["runtime"]]
+        extra = self._managed_state(profile, verified)
+        working = self._working(profile, marker, verified) or extra.get("phase") in MANAGED_WORKING
         observation = Observation(
             agent_id=profile["agent_id"], runtime=marker["runtime"], provider=provider, conversation_id=marker["session_id"],
             transcript_path=marker.get("transcript_path"), pid=int(marker["pid"]), started=str(marker["started"]),
-            transport=verified["transport"], owner=verified.get("owner"), working=self._working(profile, marker, verified),
-            capture=bool(marker.get("capture")), capture_enabled=bool(marker.get("capture_enabled", marker.get("capture"))))
+            transport=verified["transport"], owner=verified.get("owner"), working=working,
+            capture=bool(marker.get("capture")), capture_enabled=bool(marker.get("capture_enabled", marker.get("capture"))),
+            **extra)
         return ProbeResult(REASON_LIVE, observation, marker)
+
+    def _managed_state(self, profile: dict, verified: dict) -> dict:
+        """The host's own account of its session, for a verified managed observation only; empty for every other."""
+        if verified.get("transport") != "managed" or self._managed is None:
+            return {}
+        try:
+            snapshot = self._managed.snapshot(profile["agent_id"])
+        except Exception:
+            LOG.debug("Managed session state is unavailable for %s", profile["agent_id"], exc_info=True)
+            return {}
+        if not isinstance(snapshot, dict):
+            return {}
+        phase, activity = snapshot.get("phase"), snapshot.get("activity")
+        pending = snapshot.get("pending")
+        return {"phase": phase if isinstance(phase, str) else None, "activity": activity if isinstance(activity, str) else None,
+                "pending": tuple(item for item in pending if isinstance(item, dict)) if isinstance(pending, (list, tuple)) else ()}
 
     # ----- marker ----------------------------------------------------------------------------------------------------
 
@@ -219,6 +248,22 @@ class SessionProbe:
 
     # ----- process ---------------------------------------------------------------------------------------------------
 
+    def _is_the_hosted_client(self, profile: dict, marker: dict, hit: dict) -> bool:
+        """Whether the marker's process is the claude the verified host reports, not merely some descendant of the host.
+
+        ``managed.verify`` proves that the marker's process descends from the token-verified host; a process an agent starts
+        from its own Bash tool descends from it too, and the marker is a file the agent can write. So the process the marker
+        names must be exactly the one the host reports (pid and start ticks), the host named by the owner must be the one the
+        host reports, and the conversation must be the host's. A runtime that cannot say is a refusal."""
+        identity_of = getattr(self._managed, "identity", None)
+        identity = identity_of(profile["agent_id"]) if callable(identity_of) else None
+        if not isinstance(identity, dict):
+            return False
+        pid, started = identity.get("pid"), identity.get("started")
+        return (type(pid) is int and isinstance(started, str) and pid == int(marker["pid"]) and started == str(marker["started"])
+                and identity.get("conversation_id") in (None, marker.get("session_id"))
+                and isinstance(identity.get("owner"), str) and identity["owner"] == hit.get("owner"))
+
     def _verify_process(self, profile: dict, marker: dict) -> dict | None:
         pid = int(marker["pid"])
         native = process_fields(pid)
@@ -231,6 +276,17 @@ class SessionProbe:
             owner = codex_session.thread_owner(pid, marker["session_id"])
             return ({"transport": "codex_queue", "owner": owner}
                     if owner and self._displayed_codex(profile, owner, marker["session_id"]) else None)
+        if self._managed is not None and profile.get("execution") == "managed" and marker["runtime"] == "claude-code":
+            # A managed agent's claude has no pane. Its host must be verified and the marker's process must descend from it.
+            # A miss falls through: a managed-mode agent whose claude runs in a tmux pane is still judged by that pane.
+            try:
+                hit = self._managed.verify(profile, marker)
+                hit = hit if hit and self._is_the_hosted_client(profile, marker, hit) else None
+            except Exception:
+                LOG.debug("Managed host verification failed for %s", profile["agent_id"], exc_info=True)
+                hit = None
+            if hit and hit.get("transport") == "managed" and isinstance(hit.get("owner"), str):
+                return {"transport": "managed", "owner": hit["owner"]}
         backend = self._backend()
         if backend is None:
             return None
@@ -275,8 +331,11 @@ class SessionProbe:
             if path_has_symlink(path) or not path.is_file() or path.stat().st_size > 8192:
                 return False
             activity = json.loads(path.read_text())
+            # The hook records its client process, ``pid:ticks``. A managed observation's owner is its host, so for it the
+            # client process is what the activity file has to name.
+            owner = (None if verified.get("transport") == "managed" else verified.get("owner")) or f"{marker['pid']}:{marker['started']}"
             return (all(activity.get(key) == marker[key] for key in ("agent_id", "session_id", "runtime"))
-                    and activity.get("owner") == (verified.get("owner") or f"{marker['pid']}:{marker['started']}")
+                    and activity.get("owner") == owner
                     and activity.get("state") == "running")
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             return False

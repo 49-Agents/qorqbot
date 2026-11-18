@@ -12,6 +12,7 @@ import time
 import anyio
 from starlette.responses import JSONResponse, StreamingResponse
 
+from qorqut import agent_cli_launch
 from qorqut.bootstrap.preparation import prepare_agent
 from qorqut.bootstrap.preparation import installed_versions
 from qorqut.composition.locations import agent_workspace, business_hq
@@ -60,6 +61,20 @@ class TerminalService:
         if type(capture_transcripts) is not bool:
             raise ValueError("Transcript capture selection must be a boolean")
         self.capture_transcripts = capture_transcripts
+
+    def is_managed(self, agent_id):
+        """Whether this agent runs as a managed headless session (a host-local switch; no file means a terminal agent)."""
+        from qorqut.managed_runtime import mode
+        return mode.mode_of(getattr(self.runtime, "paths", None), agent_id) == mode.MANAGED
+
+    def refuse_managed(self, row):
+        """A managed agent has no tmux terminal: opening a shell in its workspace would put a second client beside its host."""
+        try:
+            agent_id = row["agent_id"]
+        except (KeyError, IndexError, TypeError):
+            return
+        if self.is_managed(agent_id):
+            raise DomainError("managed_agent", "This agent runs as a managed session and has no terminal; use Chat")
 
     def _host_environment(self, profile, business):
         if profile is not None and self.agent_environment:
@@ -161,6 +176,7 @@ class TerminalService:
 
     def _open_admitted(self, context, business, selector, *, cols, rows, execution, reconnect):
         profile, row = self.agent(context, selector)
+        self.refuse_managed(row)
         execution = execution or self.execution(business)
         broker = execution.broker
         if broker is None or not broker.tmux_available():
@@ -177,6 +193,10 @@ class TerminalService:
             # Bind once to the prepared agent, independently of later code cwd.
             # Settings cannot substitute another agent's registration path.
             env["QORQUT_REGISTRATION"] = str(Path(cwd) / ".qorqut/registration.json")
+        else:
+            # A host session runs the CLI Qorqbot selects at this moment, which may be a copy downloaded since the service
+            # started; the shell's wrappers keep that copy from updating itself. A container target has its own CLIs.
+            env = agent_cli_launch.session_environment(env)
         shell = self.shell
         prepared_rc = Path(cwd) / ".qorqut/agent-shell.bash"
         prepared_zsh = Path(cwd) / ".qorqut/zsh"
@@ -201,7 +221,10 @@ class TerminalService:
         key, session, cwd = self.workspace_binding(context, slot)
         # This is deliberately just a shell. It has no agent profile, preparation,
         # credentials, inbox, or transcript capture hook.
-        self.broker.ensure_session(session, self.shell, cwd, env=self.global_environment(), cols=cols, rows=rows)
+        # The owner's own shell: no updater variable is set in it (they would reach the owner's own Claude Code too). Our copy,
+        # when selected, is reached through a launcher that starts only that copy without self-update.
+        env = agent_cli_launch.session_environment(self.global_environment(), plain=True)
+        self.broker.ensure_session(session, self.shell, cwd, env=env, cols=cols, rows=rows)
         return self.broker.get_or_start(key, self.broker.attach_cmd(session), cwd, cols=cols, rows=rows)
 
     def listing(self, context, business):
@@ -236,6 +259,11 @@ class TerminalService:
             # A business-home identity is never dispatched to, whatever its stored status.
             if row is None or row["home_business_id"] is not None or active_global(uow.connection, agent_id) is None:
                 return {"state": "unavailable", "detail": "Agent is unavailable"}
+        if self.is_managed(agent_id):
+            # No tmux mirror exists for it and none may be used as a fallback: only the shared arbiter reaches its session.
+            if key is None:
+                return {"state": "unavailable", "detail": "A managed agent is reached through its Chat session only"}
+            return self._native_input(agent_id, data, key)
         execution = self.execution(business)
         if execution.target_identity is None and execution.broker is self.broker and key is not None:
             return self._native_input(agent_id, data, key)
@@ -271,6 +299,7 @@ class TerminalService:
         if service is None:
             raise DomainError("operation_unavailable", "Native conversation attachment is unavailable")
         _, row = self.agent(context, selector)
+        self.refuse_managed(row)
         view = service.state(row["agent_id"])
         if view["mode"] != "selected":
             raise DomainError("selection_required", "No conversation is selected for this agent yet; start the agent in its terminal first")
@@ -298,6 +327,26 @@ class TerminalService:
             return {"state": "failed", "detail": result.reason or "Terminal input failed"}
         # Rejected or deferred: nothing was typed.
         return {"state": "unavailable", "detail": result.reason or "No verified native session is ready"}
+
+    def prepare_managed(self, agent_id):
+        """The prepared workspace and launch environment of this global agent for a managed (headless) session.
+
+        The same preparation, environment resolver and CLI selection as a terminal session gets, without any tmux mirror:
+        ``{"workspace", "env"}``. The environment carries the agent's credentials; the caller passes it to the host through
+        its private launch file and never through an argument or a log."""
+        from contextlib import nullcontext
+        admission = self.runtime.application.writer_admission
+        with admission.writer() if admission is not None else nullcontext():
+            with self.runtime.database.read() as uow:
+                row = uow.connection.execute(
+                    "SELECT * FROM agent_profiles WHERE agent_id=? AND home_business_id IS NULL AND status='active'", (agent_id,)).fetchone()
+                if row is None or active_global(uow.connection, agent_id) is None:
+                    raise DomainError("not_found", "Registered active global agent was not found")
+                profile, _ = self.runtime.resolver.profile(Principal(agent_id, "agent"), connection=uow.connection)
+            execution = self._host_execution()
+            self._prepare(execution, agent_id)
+            env = agent_cli_launch.session_environment(dict(execution.environment_resolver(profile, None)))
+            return {"workspace": str(agent_workspace(self.runtime.paths, agent_id, None)), "env": env}
 
     def _prepare(self, execution, agent_id):
         versions = execution.version_provider()

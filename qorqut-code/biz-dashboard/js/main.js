@@ -12,8 +12,10 @@ onChange(['action_logs', 'signoffs', 'jobs_routines'], null, refreshSide);
 setInterval(refreshSide, 60000);
 onChange(['jobs_routines'], null, () => { if (rtGlobal() && rtVisible()) rtRefresh(); });
 setInterval(() => { if (rtGlobal() && rtVisible()) rtRefresh(); }, 60000);
-// The owner signs in to Qorqbot (js/account-gate.js) before the walkthrough can open.
-loadBiz().then(() => accountGate.boot()).then(() => onboarding.boot());
+// The owner signs in to Qorqbot (js/account-gate.js), then gets Claude Code or Codex ready (js/agent-clients.js),
+// before the walkthrough can open.
+// The agent screen never keeps the walkthrough from starting: whatever it does (even a missing script), boot() runs.
+loadBiz().then(() => accountGate.boot()).then(() => { try { return Promise.resolve(agentClients.preflight()).catch(() => null); } catch (_) { return null; } }).then(() => onboarding.boot());
 replyNotifications.start();
 connectEvents();
 }

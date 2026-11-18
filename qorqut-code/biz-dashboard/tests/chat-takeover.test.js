@@ -30,7 +30,7 @@ async function fixture(browser) {
     window.api = async () => ({session: {state: 'live', can_send: true, binding}, conversation: binding, entries: [...entries], cursor: 1, inputs: []});
     window.post = async (url, body) => ({last_read_sequence: body.sequence});
   });
-  for (const file of ['safe-links', 'chat-view', 'slash-commands', 'xterm', 'terminal', 'global-chat']) await page.addScriptTag({path: path.join(root, 'js', file + '.js')});
+  for (const file of ['safe-links', 'chat-view', 'slash-commands', 'xterm', 'terminal', 'agent-runtime', 'global-chat']) await page.addScriptTag({path: path.join(root, 'js', file + '.js')});
   await page.evaluate(() => {
     window.controller = mountAgentView(document.querySelector('#pane'), {agent_id: 'agent-1', name: 'Demo'}, {
       terminal: {key: 'agent-1', base: '/terminal/agent-1'}, isCurrent: () => true, view: 'chat',

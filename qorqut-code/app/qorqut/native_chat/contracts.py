@@ -16,8 +16,27 @@ RUNTIME_PROVIDERS = {"claude-code": "claude", "codex": "codex"}
 PROVIDER_RUNTIMES = {value: key for key, value in RUNTIME_PROVIDERS.items()}
 
 # How an input reaches the native session. ``terminal`` types into the registered tmux pane's verified empty composer;
-# ``codex_queue`` queues into one conversation of a shared Codex desktop server.
-TRANSPORTS = ("terminal", "codex_queue")
+# ``codex_queue`` queues into one conversation of a shared Codex desktop server. ``managed`` sends to the headless Claude
+# session of a managed runtime host (its owner is ``host:<host pid>:<host start ticks>``).
+TRANSPORTS = ("terminal", "codex_queue", "managed")
+EXECUTION_TERMINAL, EXECUTION_MANAGED = "terminal", "managed"
+
+# Claude Code commands that open a menu or panel only a terminal can show. A managed session has no terminal, so Chat refuses
+# them for it rather than send text the headless client cannot act on. ``/model`` is refused only without a model name.
+MANAGED_MENU_COMMANDS = frozenset({"/model", "/resume", "/cost", "/usage", "/status", "/context", "/permissions", "/mcp",
+                                   "/memory", "/agents", "/config", "/doctor", "/help", "/clear"})
+
+
+def managed_menu_command(text: str) -> str | None:
+    """The terminal-only Claude command ``text`` runs, or ``None``. Only the first word counts, as the CLI reads it: ``/tmp/foo``
+    is ordinary text and ``/model sonnet`` names a model, so it is not a menu."""
+    words = text.split()
+    if not words:
+        return None
+    word = words[0].lower()
+    if word not in MANAGED_MENU_COMMANDS or (word == "/model" and len(words) > 1):
+        return None
+    return word
 
 # Application origin of an input. It states who the application says wrote it. It is never inferred from the transcript:
 # providers record every input as a user turn and give no origin, so a native user entry carries no origin of its own.

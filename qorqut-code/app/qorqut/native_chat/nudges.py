@@ -12,7 +12,8 @@ and nothing else:
   notice: only an event not yet announced to the conversation makes one due. The ``Observation`` it passes is diagnostic only.
 
 Nothing here starts, resumes or stops an agent, acknowledges an event, or changes a Task, Action, Signoff or routine. An offline
-agent keeps its pending need and is nudged only after someone starts a session by hand; so does an agent whose recorded intent
+agent keeps its pending need and is nudged only after someone starts a session by hand (a managed agent: after the owner opens one
+in Chat; a closed managed session is the same steady offline state); so does an agent whose recorded intent
 (``native_session_owners.desired_state``) is paused or stopped. ``submitted`` is the transport's report,
 never proof that the agent read its inbox.
 
@@ -46,6 +47,11 @@ UNAVAILABLE_REASONS = frozenset({"unsupported_transport", "unsupported_target", 
                                  "terminal_unavailable"})
 # A session that changed or an agent that is no longer registered: the reservation is stale, not a failed delivery.
 STALE_REASONS = frozenset({"stale_session", "agent_unavailable"})
+# A managed agent whose session is closed (its host is gone or closed): the steady "offline" state of an agent nobody opened, not
+# an error and not a delivery to retry every few seconds. The reservation ended with the session, so it is cancelled as stale and
+# the next pass finds no binding and waits (``offline``) for the owner to open one. A host that is merely starting, closing or
+# busy is a plain deferral and is asked again.
+CLOSED_REASONS = frozenset({"session_closed"})
 # Waiting verdicts that cannot change until the pending set or the binding changes (``coalesced``: every pending authorized event
 # is already announced or possibly announced to this conversation). Any other reason is asked again on the next pass.
 STEADY = frozenset({"coalesced", "offline"})
@@ -220,6 +226,8 @@ def outcome_of(result: InputResult, binding: Binding) -> Outcome | str:
         if reason in STALE_REASONS:
             return reason
         base = reason.removeprefix("not_typed:")
+        if base in CLOSED_REASONS:
+            return base
         return Outcome("unavailable" if base in UNAVAILABLE_REASONS else "deferred", reason, receipt)
     # A state this code does not know: it may have reached the session, so it is never assumed untyped.
     return Outcome("uncertain", f"unexpected_result:{result.state}"[:200], receipt)

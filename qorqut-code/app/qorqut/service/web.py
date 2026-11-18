@@ -1,6 +1,7 @@
 """One ASGI lifecycle for dashboard, owner API, and all agent MCP sessions."""
 
 from contextlib import AsyncExitStack, asynccontextmanager
+import logging
 from pathlib import Path
 import re
 
@@ -18,6 +19,7 @@ from qorqut.transport.http import HTTPAPI
 from qorqut.transport.mcp import MCPTransport
 from qorqut.transport.results import failure, response
 
+logger = logging.getLogger(__name__)
 
 UUID_SELECTOR = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 # 'unsafe-inline' styles are needed only so the sandboxed, script-less HTML preview frame (srcdoc, which inherits this
@@ -207,6 +209,18 @@ class SelectiveGZip:
         return True
 
 
+async def stop_agent_client_sign_ins():
+    """Stops a Claude Code or Codex sign-in the owner left open, so it does not outlive the service as a stray CLI process.
+    Bounded (the processes are asked to stop together; a stop that hangs is abandoned) and never raises: the caller goes on
+    to stop the runtime whatever happens here."""
+    from qorqut import agent_cli_sign_in
+    try:
+        with anyio.move_on_after(agent_cli_sign_in.STOP_ALL_BUDGET + 4, shield=True):
+            await anyio.to_thread.run_sync(agent_cli_sign_in.stop_all, abandon_on_cancel=True)
+    except Exception:
+        logger.exception("Stopping the agent client sign-ins failed")
+
+
 def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
                authentication=None, compatibility=None, terminals=None, manage_lifecycle=True,
                agent_only=False):
@@ -254,8 +268,11 @@ def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
                 if manage_lifecycle:
                     browser_tasks.cancel_scope.cancel()
         finally:
-            if manage_lifecycle:
-                await anyio.to_thread.run_sync(runtime.stop)
+            try:
+                await stop_agent_client_sign_ins()
+            finally:
+                if manage_lifecycle:
+                    await anyio.to_thread.run_sync(runtime.stop)
 
     async def index(request):
         if "token" in request.query_params:

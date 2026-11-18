@@ -5,6 +5,8 @@ Each command says where its result appears:
 * ``chat``: typed into the session like a message; what it does shows in Chat (``/compact``, a custom command, a skill).
 * ``terminal``: the CLI opens a menu or panel that only its terminal can show (``/model`` without a name, ``/resume``,
   ``/cost``); Chat sends it and the owner finishes in the agent's Terminal. Chat never sends keys the owner did not type.
+* ``unavailable``: the same menu-only commands for a managed agent, which runs headless and has no terminal to finish them in.
+  Chat refuses them (``managed_command``) instead of sending text the client cannot act on; the rest stay ``chat``.
 
 Built-ins are a curated list per client (checked against Claude Code 2.1 and Codex 0.166). The owner's own Claude Code
 commands (``~/.claude/commands``, ``<agent>/.claude/commands``) and skills (``~/.claude/skills``, ``<agent>/.claude/skills``)
@@ -16,6 +18,8 @@ from pathlib import Path
 import re
 
 import yaml
+
+from .contracts import MANAGED_MENU_COMMANDS
 
 CLIENTS = ("claude", "codex")
 MAX_CUSTOM = 200
@@ -124,12 +128,28 @@ def _claude_custom(roots) -> list[dict]:
     return list(found.values())[:MAX_CUSTOM]
 
 
-def catalog(client: str, *, home=None, workspace=None) -> dict:
-    """The commands for ``client`` ("claude" or "codex"), built-ins first, then the owner's own (Claude only)."""
+MANAGED_EXIT = "End this session. Sending a message starts a new one."
+
+
+def _managed(item: dict) -> dict:
+    """A built-in Claude command as a managed (headless) agent has it: a menu-only command cannot be run, and ``/exit`` ends the
+    session through its host."""
+    if item["name"] in MANAGED_MENU_COMMANDS:
+        return {**item, "where": "unavailable"}
+    if item["name"] == "/exit":
+        return {**item, "description": MANAGED_EXIT}
+    return item
+
+
+def catalog(client: str, *, home=None, workspace=None, managed: bool = False) -> dict:
+    """The commands for ``client`` ("claude" or "codex"), built-ins first, then the owner's own (Claude only). ``managed`` is a
+    managed agent's catalog: the commands only a terminal can show are ``unavailable``."""
     if client not in CLIENTS:
         return {"client": None, "commands": []}
     commands = [{"name": name, "description": description, "where": where, "source": "built-in"}
                 for name, description, where in BUILT_IN[client]]
+    if managed and client == "claude":
+        commands = [_managed(item) for item in commands]
     if client == "claude":
         roots = [(Path(workspace), "agent")] if workspace else []
         if home:

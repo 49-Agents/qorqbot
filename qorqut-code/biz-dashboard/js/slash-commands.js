@@ -36,6 +36,15 @@ const slashCommands = (() => {
     return `${item.name} runs only in ${label}’s Terminal. Open Terminal and run it there.`;
   }
 
+  // A managed agent runs headless, so a command the catalog marks "unavailable" (a CLI menu with no screen to show it) cannot run:
+  // the message to show instead of sending it (null when the agent is not managed or the command is fine). The backend refuses it too.
+  function managedRefusal(session, item, label) {
+    if (!item || session?.execution !== 'managed' || item.where !== 'unavailable') return null;
+    return `${item.name} isn’t available when Qorqbot runs ${label}. Switch ${label} to Terminal to use it.`;
+  }
+  // The refusal for either kind of session that cannot run the command; the one call the composer makes.
+  const refusal = (session, item, label) => managedRefusal(session, item, label) || sharedServerRefusal(session, item, label);
+
   // `options.commands()` returns the current catalog (or null while unknown).
   function attach({input, form, commands}) {
     const menu = document.createElement('div');
@@ -53,7 +62,7 @@ const slashCommands = (() => {
       active = Math.min(active, shown.length - 1);
       menu.innerHTML = shown.map((item, i) => `<div class="slash-item" role="option" id="${menu.id}-${i}" aria-selected="${i === active}" data-index="${i}">
         <span class="slash-name">${esc(item.name)}</span><span class="slash-desc">${esc(item.description)}</span>
-        ${item.where === 'terminal' ? '<span class="slash-tag" title="Opens a menu you finish in the agent’s Terminal">Terminal</span>' : item.source !== 'built-in' ? `<span class="slash-tag">${item.source === 'skill' ? 'Skill' : 'Yours'}</span>` : ''}</div>`).join('');
+        ${item.where === 'unavailable' ? '<span class="slash-tag" title="Not available when Qorqbot runs the agent">Not available</span>' : item.where === 'terminal' ? '<span class="slash-tag" title="Opens a menu you finish in the agent’s Terminal">Terminal</span>' : item.source !== 'built-in' ? `<span class="slash-tag">${item.source === 'skill' ? 'Skill' : 'Yours'}</span>` : ''}</div>`).join('');
       menu.hidden = false;
       input.setAttribute('aria-expanded', 'true'); input.setAttribute('aria-activedescendant', `${menu.id}-${active}`);
       menu.querySelector('[aria-selected="true"]')?.scrollIntoView({block: 'nearest'});
@@ -91,6 +100,6 @@ const slashCommands = (() => {
       },
     };
   }
-  return {match, command, opensTerminal, sharedServerRefusal, attach, MAX_SHOWN};
+  return {match, command, opensTerminal, sharedServerRefusal, managedRefusal, refusal, attach, MAX_SHOWN};
 })();
 if (typeof module !== 'undefined') module.exports = slashCommands;

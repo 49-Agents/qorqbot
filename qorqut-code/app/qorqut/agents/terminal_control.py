@@ -42,8 +42,9 @@ def validate_package(package):
 
 def execution_outcome(error):
     """The recorded state of an action whose execution raised: ``failed`` when it was definitely never typed (the native input
-    arbiter refused it before the first input), otherwise ``uncertain``: an effect may have happened and is never replayed."""
-    if isinstance(error, DomainError) and error.code == 'not_delivered':
+    arbiter refused it before the first input, or a managed agent was asked to start), otherwise ``uncertain``: an effect may have
+    happened and is never replayed."""
+    if isinstance(error, DomainError) and error.code in ('not_delivered', 'managed_agent'):
         return 'failed', error.message
     return 'uncertain', 'Terminal execution could not be confirmed; inspect before issuing a new command'
 

@@ -455,7 +455,13 @@ connector arguments, the trust refresh, the Codex hook-trust bypass and the
 opening `/role` or `$role` prompt only when `pwd -P` equals the physical workspace
 root. From any other folder, a workspace subfolder included, or when the folder
 cannot be determined, they run `command claude "$@"` / `command codex "$@"` with
-exactly the owner's arguments. Claude ignores bypass when set only in project
+exactly the owner's arguments. Everywhere, and only when the file about to run is
+Qorqbot's own downloaded copy (the session's `QORQBOT_MANAGED_CLAUDE` /
+`QORQBOT_MANAGED_CODEX` names it by its stable `tools/<provider>-current/` path,
+`qorqut/agent_cli_launch.py`), that file runs, wherever the owner's shell files put
+their own CLI on PATH, and Claude Code also gets
+`DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1` and Codex gets
+`-c check_for_update_on_startup=false`; the owner's own CLI is never touched. Claude ignores bypass when set only in project
 settings, so outside the prepared terminal use:
 
 ```

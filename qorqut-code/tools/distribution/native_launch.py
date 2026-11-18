@@ -315,6 +315,20 @@ def ensure_agent_browser(root, *, system=None, machine=None, download=_download)
         shutil.rmtree(work, ignore_errors=True)
 
 
+# Claude Code and Codex that Qorqbot downloaded (from Settings, by app/qorqut/agent_cli_install.py, which owns the pinned URLs,
+# checksums and the install itself) live in <folder>/tools/<provider>-<version>/. The launcher does not put them on PATH or name
+# them in the service environment (that environment reaches every tmux session, including the owner's own CLIs, and would pin a
+# version a later release removes): the service finds its copy at each launch (app/qorqut/agent_cli_launch.py). The launcher
+# only knows where an installed copy is, for tools and tests; a test keeps these equal to that module's.
+AGENT_CLI_VERSIONS = {'claude': '2.1.269', 'codex': '0.154.0'}
+AGENT_CLI_EXECUTABLE = {'claude': 'QORQUT_CLAUDE_EXECUTABLE', 'codex': 'QORQUT_CODEX_EXECUTABLE'}
+AGENT_CLI_ENTRY = {'claude': 'claude', 'codex': 'bin/codex'}
+
+
+def agent_cli_path(root, provider):
+    return Path(root) / 'tools' / f'{provider}-{AGENT_CLI_VERSIONS[provider]}' / AGENT_CLI_ENTRY[provider]
+
+
 def chrome_installed(path=None, system=None):
     """Google Chrome, which the agents' browsers run on. Qorqbot cannot install it; the owner is told when it is missing."""
     if (system or platform.system()) == 'Darwin' and os.access(MAC_CHROME, os.X_OK):

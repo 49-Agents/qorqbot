@@ -183,6 +183,11 @@ class AttachmentService:
 
     def _evaluate(self, profile: dict, chosen) -> dict:
         agent_id = profile["agent_id"]
+        if profile.get("execution") == "managed":
+            # A managed agent runs headless under its own host: it has no pane to attach to, so no pane is looked at (and no
+            # "not in terminal" or mismatch is reported). ``selected`` keeps the raw terminal input boundary closed for it.
+            return _view(agent_id, chosen, UNSUPPORTED, "managed", "Qorqbot runs this agent; it has no terminal to attach",
+                         mode=MODE_SELECTED)
         observed = self.probe.observe(profile)
         live = observed.observation if observed.reason == REASON_LIVE else None
         relation = selection.relation(chosen, live)

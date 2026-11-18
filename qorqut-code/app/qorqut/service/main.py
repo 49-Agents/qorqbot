@@ -78,12 +78,16 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
     runtime.owner_bootstrap.context_status = published_context.status
     broker = broker or load_terminal_broker(paths)
     from qorqut_operations.storage.quiescence import KnownZeroWriters
-    from qorqut.storage.host_writers import HostTerminalWriters, LegacyHostWriters
+    from qorqut.storage.host_writers import HostTerminalWriters, LegacyHostWriters, ManagedHostWriters
     from qorqut.browser.access import BrowserAccess
     runtime.browser_access = BrowserAccess(runtime)
     # Browser lease mutations participate in shared admission; the browser class has no separate writer service.
     runtime.recovery_quiescer.browser_writers = KnownZeroWriters("browser")
-    runtime.recovery_quiescer.host_writers = LegacyHostWriters(HostTerminalWriters(getattr(broker, "TMUX", None) or "/usr/bin/tmux"))
+    # The managed leg: a live managed agent host (a headless Claude session that outlives the service) refuses the window like a
+    # live terminal session does; it never closes or kills one.
+    from qorqut.managed_runtime.mode import state_root
+    runtime.recovery_quiescer.host_writers = LegacyHostWriters(ManagedHostWriters(
+        HostTerminalWriters(getattr(broker, "TMUX", None) or "/usr/bin/tmux"), lambda: state_root(runtime.paths)))
     terminals = TerminalService(runtime, broker, service_url=endpoint, shell=shell,
         environment=local.environment, global_environment=local.environment,
         agent_environment=local.agent_environment, capture_transcripts=capture_transcripts,

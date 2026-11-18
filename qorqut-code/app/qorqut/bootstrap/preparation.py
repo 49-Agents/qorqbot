@@ -67,8 +67,8 @@ def runtime_compatibility(runtime: str, version: str) -> dict:
 def checkpoint_protocols(versions: dict, reports: dict) -> dict:
     """Per-client protocol 1 enablement, recorded in the local registration."""
     from .features import checkpoint_supported
-    return {runtime: 1 if reports[runtime]["supported"] and checkpoint_supported(executable) else 0
-            for runtime, executable in (("claude-code","claude"),("codex","codex"))}
+    return {runtime: 1 if reports[runtime]["supported"] and checkpoint_supported(_agent_cli(provider)) else 0
+            for runtime, provider in (("claude-code","claude"),("codex","codex"))}
 
 
 def durable_delegation_enabled(data: dict, *, delegate_operations: bool) -> bool:
@@ -80,11 +80,17 @@ def durable_delegation_enabled(data: dict, *, delegate_operations: bool) -> bool
         and "manage_delegated_assignments" in scope.get("global_capabilities", []))
 
 
+def _agent_cli(provider: str) -> str:
+    """The CLI to probe: Qorqbot's own downloaded copy while it is the selected one, else the bare name found on PATH."""
+    from qorqut import agent_cli_launch
+    return agent_cli_launch.executable(provider, provider)
+
+
 def installed_versions() -> dict[str, str]:
     versions = {}
-    for runtime, executable in (("claude-code", "claude"), ("codex", "codex")):
+    for runtime, provider in (("claude-code", "claude"), ("codex", "codex")):
         try:
-            versions[runtime] = subprocess.run([executable, "--version"], check=True,
+            versions[runtime] = subprocess.run([_agent_cli(provider), "--version"], check=True,
                 capture_output=True, text=True, timeout=10).stdout.strip()
         except (OSError, subprocess.SubprocessError):
             versions[runtime] = ""
@@ -269,17 +275,28 @@ def _cli_wrappers(launch_settings: str, consent_marker: str, workspace: str, tru
         'root=$(builtin cd -P -- ' + workspace + ' >/dev/null 2>&1 && builtin pwd -P && printf x) || return 1; '
         '[ "$here" = "$root" ]; }\n'
         '_qorqbot_prelaunch() { if [ -f ' + consent_marker + ' ]; then ' + trust_command + ' >/dev/null 2>&1 || true; fi; }\n'
+        # Qorqbot's own downloaded copy never updates itself. When the session was created while our copy was the selected one,
+        # QORQBOT_MANAGED_CLAUDE/CODEX name it (the stable path, qorqut/agent_cli_launch.py) and that file is what runs, with its
+        # no-update settings, wherever the owner's shell files put their own CLIs on PATH, so the terminal and the queue
+        # that talks to it run the same version. Without the marker, or when it no longer names an executable file, the claude or
+        # codex found on PATH runs exactly as before. Quoted expansion keeps any path safe; ``command`` skips these functions.
+        '_qorqbot_run_claude() { local m=${QORQBOT_MANAGED_CLAUDE:-}; '
+        'if [ -n "$m" ] && [ "${m#/}" != "$m" ] && [ -f "$m" ] && [ -x "$m" ]; then '
+        'DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1 "$m" "$@"; else command claude "$@"; fi; }\n'
+        '_qorqbot_run_codex() { local m=${QORQBOT_MANAGED_CODEX:-}; '
+        'if [ -n "$m" ] && [ "${m#/}" != "$m" ] && [ -f "$m" ] && [ -x "$m" ]; then '
+        '"$m" -c check_for_update_on_startup=false "$@"; else command codex "$@"; fi; }\n'
         # A bare claude or codex, as the owner types it in the agent's terminal, opens with the role prompt Start would
         # type: the agent takes up its work, and Codex writes the session file Chat needs (it does so only on a first turn).
         # Start itself types the prompt after launch and sets QORQBOT_ROLE_SENT so it is not sent twice.
-        'claude() { if ! _qorqbot_in_agent_root; then command claude "$@"; return $?; fi; _qorqbot_prelaunch; '
+        'claude() { if ! _qorqbot_in_agent_root; then _qorqbot_run_claude "$@"; return $?; fi; _qorqbot_prelaunch; '
         'if [ $# -eq 0 ] && [ -z "${QORQBOT_ROLE_SENT:-}" ]; then set -- /role; fi; '
-        'command claude --settings ' + launch_settings + ' "$@"; }\n'
-        'codex() { if ! _qorqbot_in_agent_root; then command codex "$@"; return $?; fi; _qorqbot_prelaunch; '
+        '_qorqbot_run_claude --settings ' + launch_settings + ' "$@"; }\n'
+        'codex() { if ! _qorqbot_in_agent_root; then _qorqbot_run_codex "$@"; return $?; fi; _qorqbot_prelaunch; '
         'if [ $# -eq 0 ] && [ -z "${QORQBOT_ROLE_SENT:-}" ]; then set -- \'$role\'; fi; '
         'if [ -f ' + consent_marker + ' ]; then '
-        'command codex --dangerously-bypass-hook-trust "$@"; '
-        'else command codex "$@"; fi; }\n'
+        '_qorqbot_run_codex --dangerously-bypass-hook-trust "$@"; '
+        'else _qorqbot_run_codex "$@"; fi; }\n'
     )
 
 

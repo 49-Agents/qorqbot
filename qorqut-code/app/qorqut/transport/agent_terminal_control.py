@@ -22,6 +22,9 @@ CLIENT_PROCESSES = {'codex':frozenset({'codex'}), 'claude':frozenset({'claude','
 RUNTIME_CLIENTS = {'claude-code':'claude', 'codex':'codex'}
 CLIENT_NAMES = {'claude':'Claude Code', 'codex':'Codex'}
 NATIVE_ONLY = 'Terminal control currently requires native host execution'
+# A managed agent runs as a headless session under its own host, not in a tmux pane (managed_runtime).
+MANAGED_NO_TERMINAL = 'This agent runs as a managed session and has no terminal; use Chat'
+MANAGED_NO_START = 'A managed agent is opened only by the owner sending a message in Chat'
 MAX_OWNER_INPUT_CHARS = 17000
 # A busy CLI can take several frames to display a bracketed paste. Re-read only:
 # never paste twice or submit without the existing checks.
@@ -91,7 +94,42 @@ class AgentTerminalBackend:
             chosen = selection.selected(uow.connection, row['agent_id'])
         return chosen.provider if chosen is not None and chosen.provider in ('claude', 'codex') else None
 
+    def is_managed(self, row):
+        """Whether this agent runs as a managed headless session (a host-local switch; no file means a terminal agent)."""
+        from qorqut.managed_runtime import mode
+        try:
+            agent_id = row['agent_id']
+        except (KeyError, IndexError, TypeError):
+            return False
+        return mode.mode_of(getattr(self.runtime, 'paths', None), agent_id) == mode.MANAGED
+
+    def managed_runtime(self):
+        from qorqut.managed_runtime.manager import managed_of
+        return managed_of(self.runtime)
+
+    def managed_snapshot(self, row):
+        """The synthetic observation of a managed agent: ``absent`` without a verified session, otherwise ``present`` with that
+        session's identity. It changes only when the session or the selected conversation does, never with the turn state, so
+        an owner command prepared against it stays valid until then."""
+        native = getattr(self.runtime, 'native_chat', None)
+        revision = native.attachment.revision(row['agent_id']) if native is not None else None
+        managed = self.managed_runtime()
+        identity = managed.identity(row['agent_id']) if managed is not None else None
+        if not identity:
+            return {'state': 'absent', 'managed': True, 'client': 'claude', 'selection_revision': revision}
+        return {'state': 'present', 'managed': True, 'client': 'claude', 'command': 'claude', 'selection_revision': revision,
+                'session_id': identity.get('conversation_id'), 'foreground_pid': identity.get('pid'),
+                'foreground_started': identity.get('started'), 'owner': identity.get('owner')}
+
     def selected(self, row):
+        if self.is_managed(row):
+            # There is no pane to select: nothing may open, read or type into a tmux session for a managed agent.
+            raise DomainError('managed_agent', MANAGED_NO_TERMINAL)
+        return self.terminal_selected(row)
+
+    def terminal_selected(self, row):
+        """The tmux target of the agent, whatever its runtime setting says. Only for asking whether a terminal session exists
+        (the switch to ``managed`` and the open of a managed session); nothing may type into it."""
         with self.runtime.database.read() as uow:
             business = uow.repository('businesses').get(row['home_business_id']) if row['home_business_id'] else None
         execution = self.terminals.execution(business)
@@ -105,6 +143,8 @@ class AgentTerminalBackend:
 
     def snapshot(self, row, *, client=None):
         """The registered terminal's observation. ``client`` (owner input) names the client to verify for any role."""
+        if self.is_managed(row):
+            return self.managed_snapshot(row)
         selected = client or agent_client(row)
         client = selected or 'codex'
         native = getattr(self.runtime, 'native_chat', None)
@@ -191,6 +231,8 @@ class AgentTerminalBackend:
 
         Unlike ``snapshot`` it also describes a Codex client attached to a shared server (``--remote``), which control and input
         never act on. Nothing is typed or changed; an observation that cannot be made raises, and a caller fails closed."""
+        if self.is_managed(row):
+            return {'state': 'absent', 'managed': True}
         broker, _, session, _, _ = self.selected(row)
         if not broker.session_alive(session):
             return {'state': 'absent'}
@@ -279,6 +321,9 @@ class AgentTerminalBackend:
 
     @staticmethod
     def validate(action, snapshot):
+        if snapshot.get('managed') and action in ('start', 'restart'):
+            # Only the owner's message in Chat opens a managed session; no terminal control starts one.
+            raise DomainError('managed_agent', MANAGED_NO_START)
         if action == 'start':
             if snapshot['state']!='absent' and snapshot.get('command') not in SHELLS:
                 raise DomainError('invalid_transition', 'Start requires an absent terminal or idle shell')
@@ -374,6 +419,8 @@ class AgentTerminalBackend:
         if self.snapshot(row)!=expected:
             raise DomainError('revision_conflict', 'Terminal changed before dispatch')
         self.validate(action, expected)
+        if expected.get('managed'):
+            return self._execute_managed(row, action, message, input_key)
         dev = dev_client(row)
         launcher = agent_client(row)
         if launcher and expected.get('client') != launcher:
@@ -448,6 +495,19 @@ class AgentTerminalBackend:
             code, _ = broker.tmux('send-keys', '-t', snap['pane_id'], 'Enter')
             if code: raise DomainError('operation_failed', 'Role submission could not be confirmed')
         return f'{name} started and {role_command} submitted; role work completion is not implied'
+
+    def _execute_managed(self, row, action, message, input_key):
+        """The two actions a managed agent has: a direct message (through the shared arbiter, like every input) and a kill, which
+        closes its session. Start and restart are refused: nothing here opens a session or launches ``claude`` in a shell."""
+        if action == 'ping':
+            return self._ping(row, message, input_key or f"terminal-action:{uuid4()}", 'claude')
+        if action == 'kill':
+            managed = self.managed_runtime()
+            if managed is None:
+                raise DomainError('operation_unavailable', 'Managed sessions are unavailable')
+            managed.close(row['agent_id'], 'now')
+            return 'Managed session close requested'
+        raise DomainError('managed_agent', MANAGED_NO_START)
 
     # ----- owner input --------------------------------------------------------------------------------------
     # Typed into the exact registered client only when its screen positively shows an idle, empty composer. This is a

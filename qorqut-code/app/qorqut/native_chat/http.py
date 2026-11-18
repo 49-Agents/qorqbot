@@ -4,6 +4,23 @@ Mounted by the shared transport after owner authentication. ``root`` is only the
 UUID, global or business. An agent bearer credential is refused outright, an agent that is not an active registered profile is
 not found, and a read never starts or resumes anything. The conversation is derived from the transcript archive; the response
 shapes are described in ``docs/v1.2/NATIVE_CHAT_DTO.md``.
+
+A managed agent (one the owner switched to a headless session, see ``managed_runtime``) adds, all owner-only like the rest:
+
+* ``POST   .../messages``   ``{text, idempotency_key, expected_binding?, new_conversation?}``: the pin may be left out only when the
+  agent is managed and has no session open; the message then opens one. That open is refused ``resume_unavailable`` when the
+  agent's earlier conversation can no longer be continued; ``new_conversation: true`` (a managed agent with no session open, no
+  pin) is the owner's explicit choice to start a fresh one instead. Retryable refusals: ``open_timeout``, ``open_busy``; a retry
+  with the same ``idempotency_key`` neither sends the message twice nor opens a second session.
+* ``POST   .../interrupt``  ``{expected_binding}`` -> ``{stopped}``: stop the running turn.
+* ``POST   .../answer``     ``{expected_binding, request_id, decision}`` -> ``{answered}``: ``decision`` is ``"allow"``/``"deny"``
+  for a permission request, ``{"answers": {<question text>: <answer>}}`` for a question.
+* ``POST   .../close``      ``{expected_binding?}`` -> ``{closing}``: end the open session.
+* ``POST   .../runtime``    ``{mode}`` (``terminal``|``managed``) -> ``{execution, changed}``: refusals ``unsupported_role``,
+  ``unsupported_runtime``, ``session_open``, ``waiting_inputs``, ``terminal_present``.
+
+The first three act on a managed agent only (``not_managed`` otherwise). ``GET .../commands`` marks the commands a terminal
+alone can show ``unavailable`` for a managed agent, and the ``changed`` stream event carries ``managed`` (the session summary).
 """
 
 from __future__ import annotations
@@ -90,13 +107,14 @@ async def route(runtime, request, principal_id, parts, request_id):
             return ok(await run(partial(chat.attachment_state, principal_id, agent_id)))
         if tail == ["commands"]:
             # Owner-only like every Chat read; the catalog reads the agent's folder and the owner's own commands.
-            await run(partial(chat.check_events, principal_id, agent_id))
+            execution = await run(partial(chat.execution_of, principal_id, agent_id))
             from qorqut.composition.locations import agent_workspace
             from qorqut.connectors import _probe_environment
             from .commands import catalog
             client = request.query_params.get("client") or ""
             workspace = agent_workspace(runtime.paths, agent_id, None)
-            return ok(await run(partial(catalog, client, home=_probe_environment().get("HOME"), workspace=workspace)))
+            return ok(await run(partial(catalog, client, home=_probe_environment().get("HOME"), workspace=workspace,
+                                        managed=execution == "managed")))
         if tail == ["events"]:
             return await _events(chat, request, principal_id, agent_id)
         raise DomainError("not_found", "Chat endpoint is not registered")
@@ -126,10 +144,24 @@ async def route(runtime, request, principal_id, parts, request_id):
                                     request.headers.get("x-chat-binding"), name, b"".join(body))))
     body = await read_json(request, limit=64 * 1024)
     if tail == ["messages"]:
-        fields = {"text", "idempotency_key", "expected_binding"}
-        checked_fields(body, fields, fields)
+        # The pin is required for every agent but a managed one with no session open, which the facade decides.
+        checked_fields(body, {"text", "idempotency_key", "expected_binding", "new_conversation"}, {"text", "idempotency_key"})
         return ok(await run(partial(chat.send, principal_id, agent_id, body["text"], body["idempotency_key"],
-                                    body["expected_binding"])))
+                                    body.get("expected_binding"), new_conversation=body.get("new_conversation", False))))
+    if tail == ["interrupt"]:
+        checked_fields(body, {"expected_binding"}, {"expected_binding"})
+        return ok(await run(partial(chat.interrupt, principal_id, agent_id, body["expected_binding"])))
+    if tail == ["answer"]:
+        fields = {"expected_binding", "request_id", "decision"}
+        checked_fields(body, fields, fields)
+        return ok(await run(partial(chat.answer, principal_id, agent_id, body["expected_binding"], body["request_id"],
+                                    body["decision"])))
+    if tail == ["close"]:
+        checked_fields(body, {"expected_binding"})
+        return ok(await run(partial(chat.close, principal_id, agent_id, body.get("expected_binding"))))
+    if tail == ["runtime"]:
+        checked_fields(body, {"mode"}, {"mode"})
+        return ok(await run(partial(chat.set_runtime, principal_id, agent_id, body["mode"])))
     if tail == ["select"]:
         # The owner's explicit selection of the running native conversation: the one way to replace a selection.
         fields = {"provider", "conversation_id", "expected_generation"}

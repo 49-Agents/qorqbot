@@ -53,6 +53,12 @@ class Selection:
         return self.provider == "codex" and self.owner is not None and len(self.owner.split(":")) == 5
 
     @property
+    def managed(self) -> bool:
+        """A conversation adopted from a managed runtime session: the verified binding names the host it was made under.
+        The host is evidence for the probe and liveness, never authority; nothing here trusts it."""
+        return isinstance(self.binding.get("managed_host"), dict)
+
+    @property
     def pid(self):
         return self.binding.get("pid")
 
@@ -81,6 +87,11 @@ class Selection:
             return False
         if self.shared_server:
             return observation.owner == self.owner
+        if observation.transport == "managed":
+            # A managed session's observation owner is its host (``host:<pid>:<ticks>``), which the owner row never holds:
+            # the hook that adopted the conversation recorded the client process, ``pid:ticks``. Either agrees; any other
+            # owner tuple is a different process arrangement.
+            return self.owner in (None, f"{observation.pid}:{observation.started}", observation.owner)
         # A terminal-owned conversation's owner tuple is its process, ``pid:ticks``; the row has to agree with the observation.
         return observation.owner is None and self.owner in (None, f"{observation.pid}:{observation.started}")
 
@@ -94,7 +105,7 @@ class Selection:
 
     def public(self) -> dict:
         return {"provider": self.provider, "conversation_id": self.conversation_id, "generation": self.generation,
-                "revision": self.revision, "transport": "codex_queue" if self.shared_server else "terminal",
+                "revision": self.revision, "transport": "codex_queue" if self.shared_server else ("managed" if self.managed else "terminal"),
                 "desired_state": self.desired_state}
 
 

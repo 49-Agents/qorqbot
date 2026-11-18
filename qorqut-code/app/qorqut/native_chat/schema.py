@@ -56,7 +56,7 @@ SCHEMA = (
     provider TEXT NOT NULL CHECK(provider IN ('claude','codex')),
     conversation_id TEXT NOT NULL CHECK(length(conversation_id) BETWEEN 1 AND 256),
     generation INTEGER NOT NULL CHECK(generation >= 1),
-    transport TEXT NOT NULL CHECK(transport IN ('terminal','codex_queue')),
+    transport TEXT NOT NULL CHECK(transport IN ('terminal','codex_queue','managed')),
     process_pid INTEGER NOT NULL CHECK(process_pid > 0),
     process_started TEXT NOT NULL CHECK(length(process_started) BETWEEN 1 AND 40),
     owner TEXT CHECK(owner IS NULL OR length(owner) <= 200),

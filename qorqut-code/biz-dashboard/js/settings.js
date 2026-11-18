@@ -45,7 +45,7 @@ async function renderSettings(c) {
   const look = appearance.get(), alerts = desktopNotify.prefs();
   const body = {
     connections: `<div class="st-block" data-search="connections browser websites extensions treg whatsapp" data-connectors-slot></div>`,
-    agents: `<div class="st-rows" data-agent-clients><p class="st-help">Checking Claude Code and Codex…</p></div>
+    agents: `<div class="st-rows" data-agent-clients></div>
       <div class="st-rows">${settingsRow({label: 'Trusted agent folders', keywords: 'trust consent hooks prompts folder security',
         help: '<span data-agent-trust-text>Checking…</span>', control: '<button type="button" class="quiet" data-agent-trust-toggle disabled>…</button>', attrs: 'data-agent-trust'})}
       ${global ? settingsRow({label: 'Testing mode', keywords: 'testing overseer global agent roster chat terminal workspace experimental',
@@ -180,7 +180,7 @@ async function renderSettings(c) {
   });
   if (global) {
     connectorsPanel.mount(pane.querySelector('[data-connectors-slot]'), {compact: true, rows: true});
-    void paintAgentTrust(pane); void paintAgentClients(pane); void paintAbout(pane);
+    void paintAgentTrust(pane); paintAgentClients(pane); void paintAbout(pane);
   }
   pane.querySelector("#envsave").onclick = () => saveEnv(p);
   pane.querySelector("#envadd").onclick = () => {
@@ -253,21 +253,11 @@ async function saveTestingMode(p) {
   }
 }
 
-// Agents section: the CLIs agents run (owner_settings.agent_clients_view).
-async function paintAgentClients(pane) {
+// Agents section: Claude Code and Codex, downloaded and signed in from here (js/agent-clients.js).
+function paintAgentClients(pane) {
   const host = pane.querySelector('[data-agent-clients]'); if (!host) return;
-  let view;
-  try { view = coreData(await api('/root/agent-clients')); } catch (error) { host.innerHTML = `<p class="st-help">${esc(error.message || 'Could not check Claude Code and Codex.')}</p>`; return; }
-  if (!host.isConnected) return;
-  const describe = (name, item, install, signIn) => {
-    if (!item.installed) return settingsRow({label: name, keywords: 'cli install version', help: `Not installed. ${install}`, control: '<span class="st-pill" data-tone="warn">Not installed</span>'});
-    const account = item.account?.email ? ` as ${esc(item.account.email)}${item.account.plan ? ` (${esc(item.account.plan)})` : ''}` : '';
-    const help = item.signed_in ? `Version ${esc(item.version || 'unknown')}. Signed in${account}.` : `Version ${esc(item.version || 'unknown')}. Not signed in: run <code>${signIn}</code> once in Terminal.`;
-    return settingsRow({label: name, keywords: 'cli install version signed account', help, control: `<span class="st-pill" data-tone="${item.signed_in ? 'ok' : 'warn'}">${item.signed_in ? 'Ready' : 'Sign in needed'}</span>`});
-  };
-  host.innerHTML = describe('Claude Code', view.claude, 'Install it from claude.com/code, then run <code>claude</code> once to sign in.', 'claude') +
-    describe('Codex', view.codex, 'Install it from github.com/openai/codex, then run <code>codex</code> once to sign in.', 'codex login');
-  pane.dispatchEvent(new Event('settings-painted'));
+  const panel = agentClients.mount(host);
+  panel.root.addEventListener('agent-clients-painted', () => pane.dispatchEvent(new Event('settings-painted')));
 }
 
 // The Qorqbot account row in About (qorqut/account.py): who is signed in, personal or work use, and sign out.

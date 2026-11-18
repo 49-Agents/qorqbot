@@ -10,7 +10,7 @@ from .terminal_chat import native_process
 
 
 class BridgeBinding:
-    def __init__(self,registration,*,ancestor=native_process,proc=Path('/proc')):
+    def __init__(self,registration,*,ancestor=native_process,proc=Path('/proc'),processes=None):
         self.registration=registration;self.ancestor=ancestor;self.proc=proc
         self.bound=None;self.reason='native_session_association_unavailable'
         self.parent=None
@@ -25,7 +25,14 @@ class BridgeBinding:
                     args=(proc/str(process['pid'])/'cmdline').read_bytes().split(b'\0')
                 if b'app-server' in args:
                     self.reason='shared_app_server_without_thread_provenance';return
-                if any(value in args for value in (b'exec',b'queue',b'--print',b'-p',b'--agent-id')):return
+                if any(value in args for value in (b'exec',b'queue',b'--agent-id')):return
+                if any(value in args for value in (b'--print',b'-p')):
+                    # A headless client is bound only as the child of a verified managed runtime host; a plain ``claude -p``
+                    # (a delegated worker, a diagnostic run) is not.
+                    try:from .native_binding import managed_host
+                    except ImportError:return
+                    if runtime!='claude-code' or managed_host(registration['workspace'],process['pid'],registration['agent_id'],
+                                                              processes=processes) is None:return
                 self.parent=(runtime,f"{process['pid']}:{process['started']}");break
             except (OSError,ValueError):continue
 

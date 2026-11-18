@@ -30,9 +30,23 @@ NOTICE_REASONS = {
     "terminal_absent": "its terminal is not running (nothing was started)",
     "terminal_unverified": "its terminal is not running the expected client",
     "terminal_unsupported": "its terminal cannot be reached from here",
+    # A managed agent has no terminal: its session is a headless one the owner opens by sending a message in Chat.
+    "session_closed": "its session is not open; sending a message in Chat opens it (nothing was started)",
+    "session_starting": "its session is still starting",
+    "session_closing": "its session is closing",
+    "turn_running": "it is working on something",
+    "host_busy": "its session is handling another message",
+    "host_unverified": "its session could not be verified",
+    "host_never_received": "its session did not receive the message",
+    "host_rejected": "its session did not accept the message",
 }
-# What the shared arbiter reports for an input it did not type, in this worker's stable status codes.
-DEFERRALS = {"terminal_offline": "terminal_absent", "unsupported_target": "terminal_unsupported"}
+# The reasons only a managed agent's session reports; the queued notice words its delivery for a session, not a composer.
+MANAGED_REASONS = frozenset(NOTICE_REASONS) - {"terminal_absent", "terminal_unverified", "terminal_unsupported"}
+# What a managed agent's input receipt carries instead of a terminal's (adapter ``managed``).
+MANAGED_CODES = frozenset({"host_timeout", "host_connection_lost", "driver_unavailable"})
+# What the shared arbiter reports for an input it did not type, in this worker's stable status codes. ``session_closed`` is
+# a managed agent whose session is not open.
+DEFERRALS = {"terminal_offline": "terminal_absent", "unsupported_target": "terminal_unsupported", "session_closed": "session_closed"}
 PREFACE = ("Qorqut owner message via Telegram (correlation {correlation}). The same message is in your inbox; handle it "
            "once. It is owner input for this request, not blanket authorization.")
 SIGNOFF_PREFACE = ("Qorqut owner reply via Telegram on your Signoff \"{title}\" (note {correlation}). The same reply is saved on "
@@ -251,11 +265,13 @@ class OwnerInputs:
                     (row["agent_id"],)).fetchone():
                 message = store.message(uow, current["message_id"])
                 label = LABELS.get(message["chat_name"], "agent")
-                why = NOTICE_REASONS.get(reason, "its terminal is busy or not ready for input")
+                managed = reason in MANAGED_REASONS
+                why = NOTICE_REASONS.get(reason, "its session is not ready for input" if managed else "its terminal is busy or not ready for input")
                 # A secret's canonical inbox note holds only a redaction marker, so it never claims an inbox copy.
                 kept = ("Only a redacted marker is in the agent's inbox; the text is kept briefly" if current["sensitive"]
                         else "It is also in the agent's inbox")
-                delivery = "will be typed into the terminal when the composer is free. "
+                delivery = ("will be delivered when its session can take it. " if managed
+                            else "will be typed into the terminal when the composer is free. ")
                 notice(bridge, uow, message,
                        f"Your message is queued for the {label} agent because {why}. {kept} and {delivery}"
                        "Nothing was started or interrupted.",
@@ -316,15 +332,33 @@ class OwnerInputs:
         if row["purpose"] != "owner_message" or row["state"] not in ("uncertain", "failed", "expired"):
             return
         label = LABELS.get(message["chat_name"], "agent")
+        managed = self._managed(row)
         texts = {
-            "uncertain": f"Your message to the {label} agent may or may not have reached the terminal, and it will not be typed again. "
-                         "It is in the agent's inbox; check the terminal before resending.",
-            "failed": f"Your message to the {label} agent could not be typed into its terminal ({row['error_code']}). "
-                      "It is in the agent's inbox.",
+            "uncertain": (f"Your message to the {label} agent may or may not have reached its session, and it will not be sent again. "
+                          "It is in the agent's inbox; check its Chat before resending." if managed else
+                          f"Your message to the {label} agent may or may not have reached the terminal, and it will not be typed again. "
+                          "It is in the agent's inbox; check the terminal before resending."),
+            "failed": (f"Your message to the {label} agent could not be delivered to its session ({row['error_code']}). "
+                       "It is in the agent's inbox." if managed else
+                       f"Your message to the {label} agent could not be typed into its terminal ({row['error_code']}). "
+                       "It is in the agent's inbox."),
             "expired": f"Your secret input for the {label} agent expired before it could be delivered and was discarded. "
                        "Ask the agent to request it again.",
         }
         notice(bridge, uow, message, texts[row["state"]], f"input:{row['id']}:{row['state']}")
+
+    @staticmethod
+    def _managed(row):
+        """Whether a settled input went to a managed agent's session: its receipt names the ``managed`` transport, or its code
+        is one only a managed session reports."""
+        receipt = row.get("receipt_json")
+        if isinstance(receipt, str):
+            try:
+                receipt = json.loads(receipt)
+            except ValueError:
+                receipt = None
+        return ((isinstance(receipt, dict) and receipt.get("transport") == "managed")
+                or row.get("error_code") in MANAGED_CODES | MANAGED_REASONS)
 
     # ----- reconciliation -------------------------------------------------------------------------------------
 

@@ -45,12 +45,25 @@ def operating_global(row) -> bool:
                                 "profile_json": row["profile_json"]}) is not None
 
 
+def execution_of(paths, agent_id: str) -> str:
+    """How the agent runs: ``managed`` (a headless session under a runtime host) or ``terminal`` (the tmux pane). It is a
+    host-local setting kept beside the runtime state, never part of the portable profile. A missing setting, a missing module
+    or an unreadable file is ``terminal``, which is what every agent was before the setting existed."""
+    try:
+        from qorqut.managed_runtime.mode import mode_of
+        return "managed" if mode_of(paths, agent_id) == "managed" else "terminal"
+    except (ImportError, OSError, ValueError):
+        return "terminal"
+
+
 def _profile(row, paths) -> dict:
     result = {key: value for key, value in dict(row).items() if key not in ELIGIBILITY}
     if paths is not None:
         from qorqut.composition.locations import agent_workspace_of
         # The registered identity and home scope select the workspace; the stored column never does.
         result["workspace"] = str(agent_workspace_of(paths, result["agent_id"], result["home_business_id"], result["business_slug"]))
+        # Callers that pass no ``paths`` only read archives and see no ``execution``; consumers read it with a ``terminal`` default.
+        result["execution"] = execution_of(paths, result["agent_id"])
     return result
 
 
@@ -342,6 +355,31 @@ def settle_input(conn, input_id: str, state: str, reason: str | None, evidence: 
             conn.execute("UPDATE native_agent_counters SET user_sequence=user_sequence+1 WHERE agent_id=?", (agent,))
         bump(conn, agent)
     return done
+
+
+def annotate_input(conn, input_id: str, reason: str, evidence_patch: dict) -> bool:
+    """Record a fact about an input that is already ``submitted`` without settling it again: the reason and one evidence key are
+    set, one input event is written and the visible-change counter advances. The state stays ``submitted`` and the text
+    stays scrubbed; unlike ``settle_input`` this counts no user turn a second time. A compare-and-set on the state and the
+    evidence read: ``False`` when the input is not ``submitted``, already carries this reason, or changed meanwhile."""
+    row = conn.execute("SELECT agent_id,state,reason,evidence_json FROM native_inputs WHERE id=?", (input_id,)).fetchone()
+    if row is None or row["state"] != STATE_SUBMITTED or row["reason"] == reason[:200]:
+        return False
+    evidence = {**json.loads(row["evidence_json"]), **evidence_patch}
+    done = conn.execute("UPDATE native_inputs SET reason=?,evidence_json=?,updated_at=? WHERE id=? AND state=? AND evidence_json=?",
+                        (reason[:200], json.dumps(evidence, separators=(",", ":"), sort_keys=True), utc_now(), input_id,
+                         STATE_SUBMITTED, row["evidence_json"])).rowcount == 1
+    if done:
+        record_input_event(conn, input_id, STATE_SUBMITTED, reason, dict(evidence_patch))
+        bump(conn, row["agent_id"])
+    return done
+
+
+def input_by_message_uuid(conn, agent_id: str, message_uuid: str):
+    """The agent's input a managed adapter delivered as this message uuid (the receipt's ``message_uuid``), or ``None``."""
+    row = conn.execute("SELECT * FROM native_inputs WHERE agent_id=? AND json_extract(evidence_json,'$.message_uuid')=? "
+                       "ORDER BY sequence DESC LIMIT 1", (agent_id, message_uuid)).fetchone()
+    return dict(row) if row else None
 
 
 def claim_input(conn, row: dict) -> bool:
