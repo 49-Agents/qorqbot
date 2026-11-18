@@ -953,7 +953,8 @@ def run_owner(workspace, args):
         target = browser_turn.get('target') if isinstance(browser_turn, dict) else None
         code = run(workspace, arguments,
                    target=(target['cdp_endpoint'], runtime_executable(target['runtime_dir'])) if target else None,
-                   instance=target.get('instance', '') if target else '')
+                   instance=target.get('instance', '') if target else '',
+                   pinned=bool(target.get('shared')) if target else None)
         return code
     finally:
         try:

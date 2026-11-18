@@ -108,3 +108,47 @@ test('website sign-ins are led by Ordubashy and Settings only lists and signs ou
     assert.deepEqual(await page.evaluate(() => window.sent[0]), {action: 'sign_out', agent_id: 'a', site: 'slack.com'});
   } finally { await browser.close(); }
 });
+
+test('the owner switches an agent between its own browser and the Shared browser', {skip: !available && 'Playwright Chromium unavailable'}, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await browser.newPage({viewport: {width: 1120, height: 900}});
+    await page.setContent('<main id="panel"></main>');
+    await page.addStyleTag({path: path.join(__dirname, '../css/connectors.css')});
+    await page.evaluate(() => {
+      window.esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+      window.coreData = value => value;
+      window.sent = [];
+      window.browserState = {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: true, agents: [
+        {agent_id: 'lead', name: 'Ordubashy', state: 'healthy', browser: 'own'},
+        {agent_id: 'atlas', name: 'Atlas', state: 'healthy', browser: 'own'},
+        {agent_id: 'scout', name: 'Scout', state: 'signing_in'}]};
+      window.api = async url => url === '/root/browser-setup' ? window.browserState : url === '/root/browser-accounts' ? {agents: []}
+        : {platform: 'linux', clients: [], connectors: []};
+      window.post = async (url, body) => {
+        window.sent.push({url, body});
+        if (body.agent_id === 'lead') throw new Error('The agent is using its browser');
+        window.browserState = {...window.browserState, agents: window.browserState.agents.map(agent =>
+          agent.agent_id === body.agent_id ? {...agent, browser: body.browser} : agent)};
+        return window.browserState;
+      };
+    });
+    await page.addScriptTag({path: path.join(__dirname, '../js/connectors.js')});
+    await page.evaluate(() => connectorsPanel.mount(document.querySelector('#panel'), {rows: true}));
+    const atlas = page.locator('[data-cx-choice-agent="atlas"]'), lead = page.locator('[data-cx-choice-agent="lead"]');
+    await atlas.waitFor();
+    assert.equal(await atlas.inputValue(), 'own');
+    assert.equal(await page.locator('[data-cx-choice-agent="scout"]').count(), 0, 'no switch while the browser cannot report which one it is');
+    await atlas.selectOption('shared');
+    await page.waitForFunction(() => window.sent.length === 1 && !document.querySelector('[data-cx-choice-agent="atlas"]').disabled);
+    assert.deepEqual(await page.evaluate(() => window.sent[0]), {url: '/root/browser-setup', body: {action: 'choose', agent_id: 'atlas', browser: 'shared'}});
+    assert.equal(await atlas.inputValue(), 'shared');
+    // A refused switch says why and the menu goes back to the browser the agent still uses.
+    await lead.selectOption('shared');
+    await page.locator('[data-cx-choice-error]').getByText('The agent is using its browser').waitFor();
+    assert.equal(await lead.inputValue(), 'own');
+    assert.equal(await lead.isDisabled(), false);
+    await page.setViewportSize({width: 390, height: 850});
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  } finally { await browser.close(); }
+});

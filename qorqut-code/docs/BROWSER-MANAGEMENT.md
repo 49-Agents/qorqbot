@@ -16,6 +16,8 @@ Workers never run it. A worker whose browser is missing or broken gets a structu
 {"agent_id": "<worker UUID>", "action": "repair",  "idempotency_key": "fix-atlas-1"}
 {"agent_id": "<worker UUID>", "action": "restart", "idempotency_key": "restart-atlas-1"}
 {"agent_id": "<worker UUID>", "action": "stop",    "idempotency_key": "stop-atlas-1"}
+{"agent_id": "<worker UUID>", "action": "use_shared", "idempotency_key": "share-atlas-1"}
+{"agent_id": "<worker UUID>", "action": "use_own",    "idempotency_key": "own-atlas-1"}
 ```
 
 There is no path, executable, endpoint, flag, port, service name or shell argument: the host derives all of them. Mutations
@@ -28,6 +30,8 @@ need an `idempotency_key` (1–200 printable characters); `status` needs none an
 | `repair` | Diagnoses; restores a missing generated `browser.json` from saved ownership; starts a stopped owned browser; restarts an owned browser that does not answer. A healthy browser is a no-op. |
 | `restart` | Restarts exactly the owned browser. Refused with `browser_in_use` while a browser command is running. |
 | `stop` | Stops exactly the owned browser. Same refusal while a command runs. |
+| `use_shared` | Moves the worker to the installation's one Shared browser (see [The Shared browser](#the-shared-browser)). |
+| `use_own` | Moves the worker back to its own browser. |
 
 A receipt names the target, action, whether anything changed, the resulting state, that the profile was preserved, a bounded
 diagnostic and the verification result. A managed browser is reported `healthy` only when a real, bounded CDP health check
@@ -72,6 +76,32 @@ Chrome's profile lock files are never removed. A worker's own browser commands r
 so a worker never talks to a foreign process that took over a dead browser's port; it gets `browser_not_ready` pointing to
 Ordubashy. After a host reboot (or any other loss) `status` reports `stopped` and `repair`/`ensure` starts the same profile
 again. `stop` ends exactly that supervisor (and, only if it ignored the stop, exactly its derived unit).
+
+## The Shared browser
+
+An agent uses its own browser (the default) or the installation's one **Shared browser**. There are no named profiles.
+
+* The Shared browser is one more managed headless Chrome with the same supervisor, port range, ownership record and health
+  check. Its state is `operations/.runtime/agent-browsers/da69c2a4-cd9c-5aa7-9a94-176338b13618/`, a fixed identifier that
+  is not an agent and cannot be managed by that identifier.
+* Every agent set to it shares its cookies and website sign-ins. Each agent's commands run pinned to that agent's own tab
+  (`agent-browser --pin-tab`): its first command opens a new tab, and a closed tab is reported as `tab_gone`, never replaced
+  by another agent's tab. The tabs are not hidden: `tab-list` shows them all.
+* The choice is the record `agent-browsers/<agent UUID>/shared.json`. The agent's generated `.qorqut/browser.json` then
+  holds the Shared endpoint and `"shared": true`. A command is refused (`browser_configuration_invalid`) when the record and
+  the target file disagree.
+* `use_shared` starts the Shared browser when needed, stops the agent's own browser and leaves its profile and sign-ins on
+  disk. `use_own` removes the choice, starts the agent's own browser again (creating one if it never had one) and stops the
+  Shared browser when no agent uses it any more. Its profile stays.
+* For an agent on the Shared browser, `status`, `ensure`, `repair`, `restart` and `stop` act on the Shared browser, so they
+  affect every agent on it. Results carry `"browser": "shared"` (otherwise `"own"`).
+* **No fallback.** When the Shared browser is stopped or broken, the agent's commands fail with `browser_not_ready`. Nothing
+  points the agent at its own profile or any other browser.
+* A hand-installed `browser.json` and a legacy-bound browser are never replaced: `use_shared` answers
+  `browser_target_conflict`.
+* Owner sign-in on the Shared profile stops the Shared Chrome, so every agent on it waits until the window is closed.
+* The owner sets the choice per agent in Settings ("Which browser each agent uses"), which posts
+  `{"action": "choose", "agent_id": ..., "browser": "own" | "shared"}` to `/api/root/browser-setup`.
 
 ## Preservation
 

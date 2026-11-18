@@ -11,6 +11,7 @@ from qorqut.management.identity import installation_owner
 
 logger = logging.getLogger(__name__)
 
+CHOICES = {"own": "use_own", "shared": "use_shared"}
 SETUP_STATES = frozenset({"missing", "stopped", "target_missing"})
 BACKOFF_BASE, BACKOFF_LIMIT = 240, 3600
 # The latest setup failure per agent, so Settings can say why even when the background loop was the one that failed.
@@ -86,7 +87,7 @@ def view(runtime):
         try:
             result = runtime.browser_manager.manage(owner, {"agent_id": agent["agent_id"], "action": "status"},
                                                     owner_control=True)
-            agent.update({"state": result["state"], "diagnostic": result["diagnostic"],
+            agent.update({"state": result["state"], "diagnostic": result["diagnostic"], "browser": result["browser"],
                           "explanation": explanation(result["state"], stop_requested=bool(result.get("stop_requested")),
                                                      failure_code=LAST_FAILURES.get(agent["agent_id"]))})
         except DomainError as error:
@@ -97,6 +98,17 @@ def view(runtime):
                           "explanation": explanation("unavailable")})
     return {"kind": "built_in", "tool_installed": tool, "chrome_installed": chrome,
             "ready": tool and bool(agents) and all(agent["state"] in {"healthy", "signing_in"} for agent in agents), "agents": agents}
+
+
+def choose(runtime, agent_id, browser):
+    """The owner's choice for one agent: its own browser, or the one Shared browser. Returns the readiness view."""
+    owner, agents = targets(runtime)
+    if not isinstance(browser, str) or browser not in CHOICES or agent_id not in [agent["agent_id"] for agent in agents]:
+        raise DomainError("validation_error", "Choose this agent's own browser or the Shared browser")
+    runtime.browser_manager.manage(owner, {"agent_id": agent_id, "action": CHOICES[browser]},
+                                   idempotency_key="owner-browser-choice-" + str(uuid.uuid4()), owner_control=True)
+    LAST_FAILURES.pop(agent_id, None)
+    return view(runtime)
 
 
 def ensure_all(runtime, backoff=None, clock=time.monotonic):

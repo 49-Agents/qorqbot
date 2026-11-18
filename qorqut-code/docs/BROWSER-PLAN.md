@@ -69,14 +69,14 @@ tab by CDP target id.
 - Known trade-offs, accepted: agents on one account can interfere with each other; one crash affects every agent on Shared;
   every agent on Shared can reach every site signed in there.
 
-#### Design (from reading the current code; not built yet)
+#### Design
 
 How it fits what exists (`qorqut/browser/agent_browsers.py`, `agent_supervisor.py`, `access.py`, `bootstrap/agent_browser.py`):
 
 - **One more supervised Chrome.** The Shared browser is a managed browser like an agent's own: the same supervisor, a port
   from the reserved range 20400-21399, the same ownership record and health check. Its state directory and service unit are
-  named for the installation's Shared browser, not for an agent. Today every check ties a browser to one agent UUID
-  (`load_meta`, `meta_valid`, `unit_name`), so those checks gain exactly one more accepted owner.
+  named by one fixed identifier that is not an agent, so the existing checks that tie a browser to one UUID
+  (`load_meta`, `meta_valid`, `unit_name`) are unchanged.
 - **The choice is a record, set through `agent_browser_manage`.** Two new actions, `use_shared` and `use_own`, with the same
   authorization as the existing ones (the configured Ordubashy and the owner). `use_shared` starts the Shared browser when
   needed, stops the agent's own browser, keeps its profile and sign-ins on disk untouched, and writes the agent's generated
@@ -92,6 +92,24 @@ How it fits what exists (`qorqut/browser/agent_browsers.py`, `agent_supervisor.p
   so every agent on Shared waits while the owner signs in.
 - **Not hidden from each other.** `tab-list` shows every tab of the Shared browser, and an agent can select another agent's
   tab. Accepted with decision 5.
+
+#### Built (2026-11-18)
+
+- `bootstrap/agent_browser.py`, `bootstrap/browser.py`: `--pin-tab` for a target marked `"shared": true`.
+- `browser/agent_browsers.py`: the Shared browser, the per-agent choice, `use_shared` / `use_own`, and routing of the other
+  actions and of the command use lock to the Shared browser.
+- `browser/access.py`: a command is pinned only when the saved choice and the target file agree.
+- `browser/sign_in.py`: sign-in for an agent on Shared opens the Shared profile and pauses every agent on it.
+- `browser/operations.py`, tool text: the two new actions. `browser/setup.py`, `transport/http.py`, dashboard
+  `js/connectors.js`: the owner's switch in Settings.
+- Documented in [management](BROWSER-MANAGEMENT.md#the-shared-browser).
+
+Verified: unit tests with a temporary runtime folder and a stand-in launcher (`tests/test_browser_shared_profile.py`,
+`test_browser_shared_target.py`, `test_browser_setup.py`, plus the existing browser tests), and the Settings switch in
+headless Chromium (`biz-dashboard/tests/connections-browser.test.js`).
+
+Not verified yet: the whole path on a running installation (real systemd unit, real Chrome, two agents sending
+`browser_turn` commands). The real-Chrome evidence so far is the item 0 test, which used `agent-browser` directly.
 
 ### 2. Live panel with takeover
 

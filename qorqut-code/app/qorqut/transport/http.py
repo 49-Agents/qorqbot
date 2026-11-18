@@ -491,12 +491,17 @@ class HTTPAPI:
                     result = response(OperationResult.ok(data, request_id=request_id))
                     result.headers["Cache-Control"] = "private, no-store"
                     return result
+                reader = partial(browser_setup.view, self.runtime)
                 if request.method == "POST":
                     body = await read_json(request, limit=1024)
-                    if body != {"action": "retry"}:
-                        raise DomainError("validation_error", "Only browser setup retry is supported")
-                reader = browser_setup.ensure_all if request.method == "POST" else browser_setup.view
-                data = await anyio.to_thread.run_sync(partial(reader, self.runtime))
+                    if body == {"action": "retry"}:
+                        reader = partial(browser_setup.ensure_all, self.runtime)
+                    elif isinstance(body, dict) and body.get("action") == "choose":
+                        checked_fields(body, {"action", "agent_id", "browser"}, {"action", "agent_id", "browser"})
+                        reader = partial(browser_setup.choose, self.runtime, body["agent_id"], body["browser"])
+                    else:
+                        raise DomainError("validation_error", "Browser setup supports retry and the browser choice")
+                data = await anyio.to_thread.run_sync(reader)
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result

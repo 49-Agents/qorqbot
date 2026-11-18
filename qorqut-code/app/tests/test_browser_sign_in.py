@@ -86,7 +86,8 @@ class FlowTest(unittest.TestCase):
             self.calls.append(arguments["action"])
             return {}
         self.runtime = SimpleNamespace(browser_manager=SimpleNamespace(paths=None, manage=manage))
-        for target, value in (("agent_state", lambda _p, agent: self.root / agent), ("_meta", lambda *_a: META)):
+        for target, value in (("agent_state", lambda _p, agent: self.root / agent), ("_meta", lambda *_a: META),
+                              ("uses_shared", lambda *_a: False)):
             patcher = mock.patch.object(sign_in, target, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -241,7 +242,7 @@ class SessionCookieTest(unittest.TestCase):
         cookie = {"name": "s", "value": "1", "domain": "a.b", "path": "/", "session": True}
         order = []
         with mock.patch.object(sign_in, "agent_state", return_value=root), mock.patch.object(sign_in, "_meta", return_value=META), \
-                mock.patch.object(sign_in, "watch_window"), mock.patch.object(sign_in, "_quit_cleanly"), mock.patch.object(sign_in, "stop_child"), \
+                mock.patch.object(sign_in, "uses_shared", return_value=False), mock.patch.object(sign_in, "watch_window"), mock.patch.object(sign_in, "_quit_cleanly"), mock.patch.object(sign_in, "stop_child"), \
                 mock.patch.object(sign_in, "_window_cookies", return_value=[cookie]), \
                 mock.patch.object(sign_in, "_cdp", side_effect=lambda port, calls: order.append((port, calls))):
             sign_in._finish(runtime, "owner", AGENT, "a.b", SimpleNamespace(), 1)
