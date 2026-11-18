@@ -13,6 +13,7 @@ from qorqut.extensions import ExtensionSet
 
 # The extension is bundled source beside the host (qorqut-code/extensions/openrouter); it is not installed in the test environment.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "extensions" / "openrouter"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "extensions" / "treg"))
 
 from qorqut_openrouter import config as settings, operations
 from qorqut_openrouter.client import Answer, OpenRouterClient, multipart
@@ -34,13 +35,13 @@ class FakeClient:
     def exchange(self, code, verifier):
         self.exchanges.append((code, verifier))
         if self.refuse_code:
-            raise DomainError("invalid_key", "OpenRouter did not accept the sign-in")
+            raise DomainError("openrouter_key_refused", "OpenRouter did not accept the sign-in")
         return self.issued
 
     def key_info(self, key):
         self.checked.append(key)
         if self.refuse_key:
-            raise DomainError("invalid_key", "OpenRouter did not accept this key")
+            raise DomainError("openrouter_key_refused", "OpenRouter did not accept this key")
         return {"limit_usd": 10, "remaining_usd": 7.5, "used_usd": 2.5, "free_tier": False}
 
     def transcribe(self, key, audio, *, media_type, model, language=None, provider=None):
@@ -107,6 +108,13 @@ class DeclarationTest(Base):
         for role, mode in (("ordubashy", "allow"), ("global-worker", "deny"), ("learning-applier", "deny")):
             self.assertEqual(resolve_operation_policy(operations.STATUS, {}, {}, registry, role_id=role).mode, mode, role)
 
+    def test_it_is_selected_together_with_treg(self):
+        # Both ship in every installation, so nothing they declare may clash.
+        from qorqut import extensions
+        chosen = extensions.select([{"factory": "qorqut_treg.extension:create", "config": {}},
+                                    {"factory": "qorqut_openrouter.extension:create", "config": {}}])
+        self.assertEqual([item.id for item in chosen.extensions], ["treg", "openrouter"])
+
     def test_configuration_allows_only_a_model_id_and_a_provider(self):
         self.assertEqual(settings.from_config(None).transcription_provider, "deepinfra")
         self.assertEqual(settings.from_config({"transcription_provider": ""}).transcription_provider, "")
@@ -164,24 +172,24 @@ class SignInTest(Base):
         self.assertEqual(settings.key_path(self.root).stat().st_mode & 0o777, 0o600)
 
     def test_a_code_is_used_once_and_only_by_the_sign_in_that_asked_for_it(self):
-        self.refused("invalid_key", self.extension.connect, LOCAL, {"action": "finish", "code": CODE})
+        self.refused("openrouter_key_refused", self.extension.connect, LOCAL, {"action": "finish", "code": CODE})
         self.extension.connect(LOCAL, {"action": "start"})
-        self.refused("invalid_key", self.extension.connect, "https://elsewhere.example", {"action": "finish", "code": CODE})
+        self.refused("openrouter_key_refused", self.extension.connect, "https://elsewhere.example", {"action": "finish", "code": CODE})
         self.extension.connect(LOCAL, {"action": "start"})
         self.extension.connect(LOCAL, {"action": "finish", "code": CODE})
-        self.refused("invalid_key", self.extension.connect, LOCAL, {"action": "finish", "code": CODE})
+        self.refused("openrouter_key_refused", self.extension.connect, LOCAL, {"action": "finish", "code": CODE})
         self.assertEqual(len(self.client.exchanges), 1)
 
     def test_a_sign_in_left_too_long_or_refused_by_openrouter_saves_nothing(self):
         self.extension.connect(LOCAL, {"action": "start"})
         self.now[0] += SIGN_IN_SECONDS + 1
-        self.refused("invalid_key", self.extension.connect, LOCAL, {"action": "finish", "code": CODE})
+        self.refused("openrouter_key_refused", self.extension.connect, LOCAL, {"action": "finish", "code": CODE})
         self.extension.connect(LOCAL, {"action": "start"})
         self.client.refuse_code = True
-        self.refused("invalid_key", self.extension.connect, LOCAL, {"action": "finish", "code": CODE})
+        self.refused("openrouter_key_refused", self.extension.connect, LOCAL, {"action": "finish", "code": CODE})
         self.extension.connect(LOCAL, {"action": "start"})
         self.client.refuse_code, self.client.refuse_key = False, True
-        self.refused("invalid_key", self.extension.connect, LOCAL, {"action": "finish", "code": CODE})
+        self.refused("openrouter_key_refused", self.extension.connect, LOCAL, {"action": "finish", "code": CODE})
         self.assertIsNone(self.saved())
 
     def test_signing_in_needs_a_dashboard_openrouter_can_return_to(self):
@@ -209,7 +217,7 @@ class KeyTest(Base):
 
     def test_a_key_openrouter_refuses_or_a_malformed_one_is_not_saved(self):
         self.client.refuse_key = True
-        self.refused("invalid_key", self.extension.change_key, {"key": KEY})
+        self.refused("openrouter_key_refused", self.extension.change_key, {"key": KEY})
         for wrong in ({"key": "short"}, {"key": "has a space in the middle of it"}, {"key": 5}, {"token": KEY}, None):
             self.refused("validation_error", self.extension.change_key, wrong)
         self.assertIsNone(self.saved())
@@ -262,7 +270,7 @@ class ClientTest(unittest.TestCase):
         self.answers.append(Answer(403, {"error": {"message": "Invalid code"}}))
         with self.assertRaises(DomainError) as caught:
             self.client.exchange(CODE, "verifier")
-        self.assertEqual(caught.exception.code, "invalid_key")
+        self.assertEqual(caught.exception.code, "openrouter_key_refused")
 
     def test_the_keys_limit_and_use_are_read_with_the_key(self):
         self.answers.append(Answer(200, {"data": {"label": "made-up label", "limit": 10, "limit_remaining": 7.5, "usage": 2.5,
@@ -274,7 +282,7 @@ class ClientTest(unittest.TestCase):
         self.answers.append(Answer(401, {"error": {"message": "No auth"}}))
         with self.assertRaises(DomainError) as caught:
             self.client.key_info(KEY)
-        self.assertEqual(caught.exception.code, "invalid_key")
+        self.assertEqual(caught.exception.code, "openrouter_key_refused")
 
     def test_a_recording_is_uploaded_as_a_form_with_the_model_and_its_text_and_cost_come_back(self):
         self.answers.append(Answer(200, {"text": " hello there ", "usage": {"seconds": 3.2, "cost": 0.0004}}))

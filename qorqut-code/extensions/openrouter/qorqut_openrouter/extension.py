@@ -34,7 +34,7 @@ from . import operations
 from .client import AUDIO_TYPES, BASE, OpenRouterClient
 
 ID = "openrouter"
-STATUSES = {"invalid_key": 422}
+STATUSES = {"openrouter_key_refused": 422}
 KEY_LABEL = "Qorqbot"
 # A started sign-in is finished within this long or started again; OpenRouter's own code lasts ten minutes.
 SIGN_IN_SECONDS = 15 * 60
@@ -128,7 +128,7 @@ class OpenRouter(Extension):
         with self._lock:
             started, self._sign_in = self._sign_in, None
         if started is None or started["origin"] != origin or self.clock() - started["started"] > SIGN_IN_SECONDS:
-            raise DomainError("invalid_key", "This OpenRouter sign-in has expired. Press Connect and sign in again.")
+            raise DomainError("openrouter_key_refused", "This OpenRouter sign-in has expired. Press Connect and sign in again.")
         key = settings.check_key(self.client.exchange(code, started["verifier"]))
         self.client.key_info(key)
         settings.save_key(self.instance_root, key)

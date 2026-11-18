@@ -69,7 +69,7 @@ class OpenRouterOperations:
             result["key"] = self.extension.client.key_info(key)
         except DomainError as problem:
             # A saved key OpenRouter no longer accepts is the owner's to replace; an unreachable service is not a status.
-            if problem.code != "invalid_key":
+            if problem.code != "openrouter_key_refused":
                 raise
             result.update(status="key_refused", how_to_connect=HOW_TO_CONNECT)
         return result

@@ -115,15 +115,15 @@ class OpenRouterClient:
                            body={"code": code, "code_verifier": verifier, "code_challenge_method": "S256"})
         key = answer.body.get("key") if answer.ok and isinstance(answer.body, dict) else None
         if not isinstance(key, str) or not key:
-            raise DomainError("invalid_key", "OpenRouter did not accept the sign-in. Press Connect and sign in again.")
+            raise DomainError("openrouter_key_refused", "OpenRouter did not accept the sign-in. Press Connect and sign in again.")
         return key
 
     def key_info(self, key) -> dict:
         """What OpenRouter says about this key: its spending limit and use, in US dollars. A refused key raises
-        ``invalid_key``. ``limit_usd`` and ``remaining_usd`` are None for a key without a limit."""
+        ``openrouter_key_refused``. ``limit_usd`` and ``remaining_usd`` are None for a key without a limit."""
         answer = self.send("GET", "/api/v1/key", key=key)
         if answer.status in (401, 403):
-            raise DomainError("invalid_key", "OpenRouter did not accept this key")
+            raise DomainError("openrouter_key_refused", "OpenRouter did not accept this key")
         data = answer.body.get("data") if answer.ok and isinstance(answer.body, dict) else None
         if not isinstance(data, dict):
             raise DomainError("operation_unavailable", "OpenRouter did not answer about the key. Try again in a moment.")
