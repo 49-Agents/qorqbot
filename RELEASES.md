@@ -20,8 +20,8 @@ Downloads and setup instructions are available at
 acceptance and native macOS 14 acceptance remain pending.
 
 GitHub Releases hosts versioned releases, including
-[1.4.0](https://github.com/49-Agents/qorqbot/releases/tag/v1.4.0),
-published November 15, 2026. A release
+[1.5.0](https://github.com/49-Agents/qorqbot/releases/tag/v1.5.0),
+published November 18, 2026. A release
 page can host both the application and separate
 connector assets, with a short index linking to each connector's setup guide.
 This requires no separate marketplace or automatic extension registry. The
@@ -39,7 +39,8 @@ The [release runbook](qorqut-code/docs/distribution/RELEASE-RUNBOOK.md) describe
 build and acceptance steps. Publication is a distinct maintainer action after
 source, artifact and license checks are complete. The release's scope and
 platform limitations are described in
-[1.4.0](qorqut-code/docs/distribution/RELEASE-1.4.0.md); the earlier
+[1.5.0](qorqut-code/docs/distribution/RELEASE-1.5.0.md); the earlier
+[1.4.0](qorqut-code/docs/distribution/RELEASE-1.4.0.md),
 [1.3.2](qorqut-code/docs/distribution/RELEASE-1.3.2.md),
 [1.3.1](qorqut-code/docs/distribution/RELEASE-1.3.1.md) and
 [1.3.0](qorqut-code/docs/distribution/RELEASE-1.3.0.md) have their own.
