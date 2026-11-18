@@ -676,8 +676,15 @@ class AgentBrowserManager:
             return "target_missing"
         return "missing" if capable else "unsupported"
 
+    def _new_chrome(self):
+        """The Chrome a browser created now runs on: Qorqbot's own downloaded build once it is installed and has started
+        here, else the installed one. A browser that exists keeps the Chrome in its ownership record."""
+        from . import managed_chrome
+        return managed_chrome.preferred(self.paths.runtime) or self.chrome
+
     def _capable(self):
-        if not (Path(self.chrome).is_file() and os.access(self.chrome, os.X_OK)):
+        chrome = self._new_chrome()
+        if not (Path(chrome).is_file() and os.access(chrome, os.X_OK)):
             return False
         try:
             browser.runtime_executable(self.runtime_directory())
@@ -960,20 +967,21 @@ class AgentBrowserManager:
             browser.runtime_executable(runtime_dir)
         except browser.BrowserError as exc:
             raise DomainError("browser_capability_missing", _bound("The browser command is unavailable: " + str(exc))) from None
-        if not (Path(self.chrome).is_absolute() and Path(self.chrome).is_file() and os.access(self.chrome, os.X_OK)):
-            raise DomainError("browser_capability_missing", "Chrome is not installed at the supported path " + self.chrome +
+        chrome = self._new_chrome()
+        if not (Path(chrome).is_absolute() and Path(chrome).is_file() and os.access(chrome, os.X_OK)):
+            raise DomainError("browser_capability_missing", "Chrome is not installed at the supported path " + chrome +
                               "; install Chrome or set QORQUT_CHROME_EXECUTABLE to its absolute executable path")
         workspace = s.workspace
         if path_has_symlink(workspace) or not workspace.is_dir():
             raise DomainError("browser_workspace_unavailable", "The agent's workspace is not prepared; start the agent once first")
-        meta = self._reserve(s, runtime_dir)             # ownership is on disk before anything launches
+        meta = self._reserve(s, runtime_dir, chrome)     # ownership is on disk before anything launches
         ctx.effect = True
         fresh = self._snapshot(s.agent_id, workspace, mutating=True)
         self._start_managed(ctx, fresh)
         self._publish_target(fresh, meta["target"]["content"])
         return self._finish(action, s, True, verify=True)
 
-    def _reserve(self, s, runtime_dir):
+    def _reserve(self, s, runtime_dir, chrome):
         """Choose the agent's port and write its durable ownership as one step under the global allocation lock, so two
         agents can never pick the same free port. The lock is released before Chrome starts. An interrupted reservation
         (a directory without ownership, or ownership without a running browser) is picked up again by the next ensure."""
@@ -984,7 +992,7 @@ class AgentBrowserManager:
             meta = {"schema_version": 1, "agent_id": s.agent_id, "mode": "managed", "created_at": utc_now(),
                     "target": {"workspace": str(s.workspace), "content": content,
                                "sha256": hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()},
-                    "managed": {"port": port, "profile": str(directory / "profile"), "chrome": self.chrome,
+                    "managed": {"port": port, "profile": str(directory / "profile"), "chrome": chrome,
                                 "unit": unit_name(directory.parent, s.agent_id)}}
             _private_directory(directory)
             _private_directory(directory / "profile")

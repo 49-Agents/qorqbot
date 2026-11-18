@@ -73,6 +73,52 @@ test('Connections renders browser readiness and the extensions, with treg set up
   } finally { await browser.close(); }
 });
 
+test('without an installed Chrome the card follows the download of Qorqbot’s own browser', {skip: !available && 'Playwright Chromium unavailable'}, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await browser.newPage({viewport: {width: 1120, height: 900}});
+    await page.setContent('<main id="panel"></main>');
+    await page.addStyleTag({path: path.join(__dirname, '../css/connectors.css')});
+    await page.evaluate(() => {
+      window.esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+      window.coreData = value => value;
+      window.sent = [];
+      window.setup = chrome => ({kind: 'built_in', tool_installed: true, chrome_installed: false, ready: false, managed_chrome: chrome,
+        agents: [{name: 'Ordubashy', state: 'unsupported', explanation: 'Install Chrome, then press Retry setup.'}]});
+      window.browserState = window.setup({state: 'downloading', explanation: 'Qorqbot is downloading its own browser (about 200 MB). This card updates by itself.'});
+      window.api = async url => url === '/root/browser-setup' ? window.browserState : url === '/root/browser-accounts' ? {agents: []}
+        : {platform: 'linux', clients: [], connectors: []};
+      window.post = async (url, body) => { window.sent.push({url, body}); return window.browserState; };
+    });
+    await page.addScriptTag({path: path.join(__dirname, '../js/connectors.js')});
+    await page.evaluate(() => connectorsPanel.mount(document.querySelector('#panel'), {rows: true}));
+    const status = page.locator('[data-cx-browser-status]'), detail = page.locator('[data-cx-browser-detail]');
+    await status.getByText('Downloading').waitFor();
+    assert.match(await detail.textContent(), /downloading its own browser/);
+    assert.doesNotMatch(await detail.textContent(), /Install/);
+    // The owner's words for a failure replace the old "install Chrome" dead end, and Retry setup is offered.
+    const painted = () => page.evaluate(() => new Promise(done => document.querySelector('#panel').addEventListener('browser-setup-painted', done, {once: true})));
+    let next = painted();
+    await page.evaluate(() => { window.browserState = window.setup({state: 'failed', explanation: 'Qorqbot couldn’t download its own browser. Check this computer’s internet connection.'}); });
+    await next;
+    await status.getByText('Download failed').waitFor();
+    assert.match(await detail.textContent(), /internet connection/);
+    assert.equal(await page.locator('[data-cx-browser-retry]').isEnabled(), true);
+    await page.locator('[data-cx-browser-retry]').click();
+    assert.deepEqual(await page.evaluate(() => window.sent.at(-1)), {url: '/root/browser-setup', body: {action: 'retry'}});
+    // A build that cannot start on this computer is the one case that still asks for Google Chrome.
+    await page.evaluate(() => { window.browserState = window.setup({state: 'unusable', explanation: 'Qorqbot’s own browser didn’t start on this computer. Install Google Chrome from google.com/chrome, then press Retry setup.'}); });
+    await page.locator('[data-cx-browser-retry]').click();
+    await status.getByText('Chrome needed').waitFor();
+    assert.match(await detail.textContent(), /google\.com\/chrome/);
+    // A server from before the download existed sends no state: the card says what it always said.
+    await page.evaluate(() => { window.browserState = window.setup(undefined); });
+    await page.locator('[data-cx-browser-retry]').click();
+    await detail.getByText(/isn’t installed on this computer/).waitFor();
+    assert.equal(await status.textContent(), 'Chrome needed');
+  } finally { await browser.close(); }
+});
+
 test('website sign-ins are led by Ordubashy and Settings only lists and signs out', {skip: !available && 'Playwright Chromium unavailable'}, async () => {
   const browser = await chromium.launch({headless: true});
   try {

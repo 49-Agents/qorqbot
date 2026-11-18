@@ -34,10 +34,11 @@ function agbrowserSurfaces(p, force = false) {
 }
 
 // Mount-time discovery only decides whether a global agent's own Browser tab is offered: for a configured viewer,
-// or for the agent's built-in browser (shown live by agent-browser-live.js), running or not.
+// or for the agent's built-in browser (shown live by agent-browser-live.js), running or not. In a Focus pane the
+// Browser tab is the launcher chip, which is painted before this answer arrives, so it is painted again.
 function agbrowserDiscover(p) {
   if (!p.agentId || p.workspaceScope !== 'global') return;
-  const sync = () => { if (_agpad === p) agpadWorkspaceViewsSync(p); };
+  const sync = () => { if (_agpad === p) { agpadWorkspaceViewsSync(p); p.focusSurfaces?.paint?.(); } };
   agbrowserSurfaces(p).then(sync).catch(() => {});
   if (typeof aglivePath !== 'function') return;
   api(aglivePath(p.agentId)).then(coreData).then(() => true, error => error?.code === 'browser_not_ready')

@@ -302,6 +302,23 @@ class RouteTest(unittest.TestCase):
                 self.assertEqual(self.names(chunks)[-1], "event: closed")
                 self.assertEqual(self.closed, [True])
 
+    def test_a_stream_the_server_cancels_because_the_dashboard_left_still_closes_its_view(self):
+        # How a real server ends it: the response is cancelled where it waits, not asked whether the dashboard is there.
+        import anyio
+        async def run():
+            response = await self.route(self.api, Request(query={"tab": TAB}), self.owner, AGENT, ["stream"], "request-1")
+            chunks = []
+            async def read():
+                async for chunk in response.body_iterator:
+                    chunks.append(chunk)
+            async with anyio.create_task_group() as group:
+                group.start_soon(read)
+                while len(chunks) < 2:
+                    await anyio.sleep(0.01)
+                group.cancel_scope.cancel()
+        anyio.run(run)
+        self.assertEqual(self.closed, [True])
+
     def test_input_goes_to_the_named_view_of_this_agent(self):
         sent = []
         with mock.patch.object(live, "view", side_effect=lambda agent, view_id: SimpleNamespace(send=lambda events: sent.append((agent, view_id, events)))):

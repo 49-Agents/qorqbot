@@ -156,3 +156,50 @@ test('a browser that is off or has no page says so', skip, async () => {
     await empty.getByRole('alert').getByText("This agent's browser isn't running").waitFor();
   } finally { await browser.close(); }
 });
+
+// The Focus pane's launcher row, with the real discovery of agent-browser.js and no viewer configured for the agent.
+async function launcher(browser, live) {
+  const page = await browser.newPage({viewport: {width: 900, height: 300}});
+  await page.setContent('<main id="row"></main>');
+  await page.evaluate(live => {
+    window.$ = (selector, root = document) => root.querySelector(selector);
+    window.esc = value => String(value ?? '');
+    window.coreData = value => value;
+    window.agfocusDesktopTab = () => {};
+    window.agpadWorkspaceViewsSync = () => {};
+    window.requested = [];
+    window.agpadRequestView = (_pane, view) => window.requested.push(view);
+    window.api = async path => {
+      if (path.endsWith('/browser-surfaces')) return {agent_id: 'agent-1', configured: false, browsers: [], desktop: null};
+      if (live === 'built-in') return {tabs: []};
+      throw Object.assign(new Error('This agent has no browser'), {code: live === 'stopped' ? 'browser_not_ready' : 'not_found'});
+    };
+  }, live);
+  for (const name of ['agent-viewbox.js', 'agent-browser-live.js', 'agent-browser.js']) await page.addScriptTag({path: path.join(__dirname, '../js', name)});
+  await page.evaluate(() => {
+    const pane = window.pane = {agentId: 'agent-1', workspaceScope: 'global', workspaceRole: 'global-worker'};
+    _agpad = pane;
+    pane.focusSurfaces = agviewboxSurfacesMount(pane, document.querySelector('#row'));
+    agbrowserDiscover(pane);
+  });
+  return page;
+}
+
+test('the Focus launcher opens Browser for an agent with a built-in browser and no configured viewer', skip, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    for (const live of ['built-in', 'stopped']) {
+      const page = await launcher(browser, live);
+      const chip = page.locator('[data-focus-surface="browser"]');
+      await page.waitForFunction(() => document.querySelector('[data-focus-surface="browser"]').getAttribute('aria-disabled') !== 'true', null, {timeout: 3000});
+      assert.equal(await chip.getAttribute('aria-label'), 'Browser', live);
+      await chip.click();
+      assert.deepEqual(await page.evaluate(() => window.requested), ['browser'], live);
+      assert.equal(await page.locator('[data-focus-surface="desktop"]').getAttribute('aria-disabled'), 'true', live);
+    }
+    const none = await launcher(browser, 'none');
+    await none.waitForFunction(() => document.querySelector('[data-focus-surface="browser"]').title.includes('no configured browser'));
+    await none.locator('[data-focus-surface="browser"]').click({force: true});
+    assert.deepEqual(await none.evaluate(() => window.requested), []);
+  } finally { await browser.close(); }
+});

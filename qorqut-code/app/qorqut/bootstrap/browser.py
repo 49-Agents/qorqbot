@@ -652,14 +652,21 @@ def _run_observation(workspace: Path, directory: Path, executable: Path, session
             details = _captured_text(getattr(exc, "stdout", "")) + "\n--- stderr ---\n" + _captured_text(getattr(exc, "stderr", ""))
             return _emit_observation_error(workspace, directory, request,
                                            "Browser observation timed out; inspect the page before retrying.",
-                                           details=details, code=2)
+                                           details=details, code=2, capture=capture)
         except OSError as exc:
             return _emit_observation_error(workspace, directory, request,
-                                           "Could not execute the installed browser runtime.", details=str(exc), code=2)
+                                           "Could not execute the installed browser runtime.", details=str(exc), code=2,
+                                           capture=capture)
         if return_code:
             details = stdout + "\n--- stderr ---\n" + stderr
-            preview = stderr.strip() or stdout.strip() or "agent-browser snapshot failed."
-            return _emit_observation_error(workspace, directory, request, preview, details=details, code=return_code)
+            try:
+                reported = json.loads(stdout).get("error")      # with --json the runtime's message is the answer's "error"
+            except (ValueError, AttributeError):
+                reported = None
+            preview = agent_browser.explain(reported if isinstance(reported, str) and reported else
+                                            stderr.strip() or stdout.strip() or "agent-browser snapshot failed.", pinned)
+            return _emit_observation_error(workspace, directory, request, preview, details=details, code=return_code,
+                                           capture=capture)
         try:
             payload = json.loads(stdout)
             if not payload.get("success"):
@@ -882,6 +889,8 @@ def run(workspace: Path, args: list[str], *, target=None, instance="", capture=F
             raise BrowserError("Another browser command is running in this workspace; wait for it to finish.") from exc
         if args[0] == "attach":
             preflight(endpoint)
+        from qorqut.browser import idle_tabs
+        idle_tabs.before_command(endpoint, session, pinned)      # a tab unloaded for idleness is loaded again first
         if observation_request is not None:
             env["QORQUT_OBSERVATION_CDP"] = endpoint
             return _run_observation(workspace, directory, executable, session, observation_request, env, capture=capture,
@@ -893,12 +902,13 @@ def run(workspace: Path, args: list[str], *, target=None, instance="", capture=F
         try:
             completed = subprocess.run(command, cwd=directory, env=env, timeout=45, check=False,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            errors = agent_browser.explain(completed.stderr, pinned)
             if capture:
-                return completed.returncode, completed.stdout, completed.stderr
+                return completed.returncode, completed.stdout, errors
             if completed.stdout:
                 print(completed.stdout, end="")
-            if completed.stderr:
-                print(completed.stderr, end="", file=sys.stderr)
+            if errors:
+                print(errors, end="", file=sys.stderr)
             return completed.returncode
         except subprocess.TimeoutExpired as exc:
             raise BrowserTimeout("Browser command timed out; its outcome may be uncertain. Inspect the page before retrying an action.") from exc

@@ -185,25 +185,31 @@ const connectorsPanel = (() => {
     }
     const live = () => root.isConnected;
     const error = text => { const el = root.querySelector('[data-cx-error]'); el.textContent = text || ''; el.hidden = !text; };
+    const chromeDownloading = () => !!browserView && !browserView.chrome_installed &&
+      ['waiting', 'downloading'].includes(browserView.managed_chrome?.state);
     function paintBrowser() {
       const status = root.querySelector('[data-cx-browser-status]');
       const detail = root.querySelector('[data-cx-browser-detail]');
       const retry = root.querySelector('[data-cx-browser-retry]');
       if (!browserView) return;
       const ready = browserView.ready;
+      // Qorqbot downloads its own Chrome. Until it is there (and no Chrome is installed) the card says what the download
+      // is doing; "Chrome needed" is left for a computer where Qorqbot's own Chrome cannot be used.
+      const ownChrome = browserView.managed_chrome || {};
+      const downloading = chromeDownloading();
       status.textContent = ready ? 'Ready' : !browserView.tool_installed ? 'Tool missing' :
-        !browserView.chrome_installed ? 'Chrome needed' : 'Setup needed';
+        downloading ? 'Downloading' : !browserView.chrome_installed ? (ownChrome.state === 'failed' ? 'Download failed' : 'Chrome needed') : 'Setup needed';
       status.dataset.tone = ready ? 'ok' : 'warn';
       const agents = browserView.agents || [];
       const problems = agents.filter(agent => agent.state !== 'healthy')
         .map(agent => agents.length > 1 ? `${agent.name}: ${agent.explanation}` : agent.explanation);
       detail.textContent = ready ? `Ready for ${agents.map(agent => agent.name).join(', ')}.` :
         !browserView.tool_installed ? 'The tool agents use to control their browser isn’t installed. Quit and reopen Qorqbot to install it again.' :
-        !browserView.chrome_installed ? 'Agents need Google Chrome to browse, and it isn’t installed on this computer. Install it from google.com/chrome, then press Retry setup.' :
+        !browserView.chrome_installed ? ownChrome.explanation || 'Agents need Google Chrome to browse, and it isn’t installed on this computer. Install it from google.com/chrome, then press Retry setup.' :
         problems.join(' ') || 'Preparing agent browsers…';
       retry.hidden = ready || !browserView.tool_installed;
       paintChoice(agents.filter(agent => agent.agent_id && BROWSER_CHOICES[agent.browser]));
-      retry.disabled = !browserView.chrome_installed;
+      retry.disabled = downloading || (!browserView.chrome_installed && !ownChrome.state);
       root.dispatchEvent(new CustomEvent('browser-setup-painted', {bubbles: true}));
     }
     // The list is rebuilt only when it changes, so a status refresh does not close a menu the owner has open.
@@ -240,7 +246,8 @@ const connectorsPanel = (() => {
       } finally {
         if (live()) button.disabled = false;
         clearTimeout(browserTimer);
-        if (live() && !browserView?.ready && browserChecks++ < 12)
+        // A download takes minutes on a slow connection, so the card keeps checking for as long as it runs.
+        if (live() && !browserView?.ready && (chromeDownloading() || browserChecks++ < 12))
           browserTimer = setTimeout(() => loadBrowser(), 5000);
       }
     }

@@ -70,6 +70,20 @@ def command(executable, session, endpoint, directory, args, *, pinned=False):
             *(["--pin-tab"] if pinned else []), "--cdp", endpoint, *translated]
 
 
+TAB_GONE_ADVICE = "Open a new tab with tab-new <url> and continue there."
+
+
+def explain(output, pinned):
+    """What a pinned session is told when its tab is gone (closed, or the shared Chrome was restarted).
+
+    agent-browser's own advice names commands an agent does not have (``agent-browser tab new``) and offers to pick an open
+    tab, which in a shared Chrome is another agent's. The report of the gone tab stays; the advice becomes the agent's own
+    command."""
+    if not pinned or "tab_gone" not in output:
+        return output
+    return output.split(" Run `agent-browser", 1)[0].rstrip() + " " + TAB_GONE_ADVICE + "\n"
+
+
 def environment(environ):
     return {key: value for key, value in environ.items()
             if not key.startswith(("PLAYWRIGHT_", "AGENT_BROWSER_", "AI_GATEWAY_"))}

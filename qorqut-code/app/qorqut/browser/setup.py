@@ -8,12 +8,15 @@ from qorqut_operations.contracts import DomainError
 from qorqut.agents.global_scope import active_global
 from qorqut.agents.roles import ORDUBASHY_ROLE, GLOBAL_WORKER_ROLE
 from qorqut.management.identity import installation_owner
+from . import managed_chrome
 
 logger = logging.getLogger(__name__)
 
 CHOICES = {"own": "use_own", "shared": "use_shared"}
 SETUP_STATES = frozenset({"missing", "stopped", "target_missing"})
 BACKOFF_BASE, BACKOFF_LIMIT = 240, 3600
+# The download of Qorqbot's own Chrome has one entry in the background loop's failure record, beside the agents'.
+CHROME_BACKOFF = "managed-chrome"
 # The latest setup failure per agent, so Settings can say why even when the background loop was the one that failed.
 LAST_FAILURES = {}
 RETRY = "Press Retry setup."
@@ -73,7 +76,8 @@ def view(runtime):
     from qorqut.native_paths import installed_chrome
     from qorqut.bootstrap import browser
     owner, agents = targets(runtime)
-    chrome = installed_chrome() is not None
+    own_chrome = managed_chrome.view(runtime.paths.runtime)
+    chrome = installed_chrome() is not None or own_chrome["state"] == "ready"
     try:
         browser.runtime_executable(runtime.browser_access.runtime_directory())
         tool = True
@@ -96,7 +100,7 @@ def view(runtime):
             logger.exception("Could not read the status of agent browser %s", agent["agent_id"])
             agent.update({"state": "unavailable", "diagnostic": "This browser's status could not be read.",
                           "explanation": explanation("unavailable")})
-    return {"kind": "built_in", "tool_installed": tool, "chrome_installed": chrome,
+    return {"kind": "built_in", "tool_installed": tool, "chrome_installed": chrome, "managed_chrome": own_chrome,
             "ready": tool and bool(agents) and all(agent["state"] in {"healthy", "signing_in"} for agent in agents), "agents": agents}
 
 
@@ -111,6 +115,33 @@ def choose(runtime, agent_id, browser):
     return view(runtime)
 
 
+def _wait_longer(backoff, key, clock):
+    """Record one more failure for ``key`` and when it may be tried again."""
+    failures = backoff.get(key, {}).get("failures", 0) + 1
+    backoff[key] = {"failures": failures, "next_attempt": clock() + min(BACKOFF_BASE * 2 ** (failures - 1), BACKOFF_LIMIT)}
+
+
+def prepare_chrome(runtime, backoff=None, clock=time.monotonic):
+    """Start installing Qorqbot's own Chrome in the background when it is not installed yet, and return at once.
+
+    Nothing waits for it: agents are set up on the installed Chrome meanwhile, and where there is none, on the first pass
+    after the download. A failure waits longer each time like an agent's; the owner's retry (no ``backoff``) does not wait.
+    """
+    failure = backoff.get(CHROME_BACKOFF) if backoff is not None else None
+    if failure is not None and clock() < failure["next_attempt"]:
+        return
+
+    def finished(error):
+        if backoff is None:
+            return
+        if error is None:
+            backoff.pop(CHROME_BACKOFF, None)
+        else:
+            _wait_longer(backoff, CHROME_BACKOFF, clock)
+
+    managed_chrome.start(runtime.paths.runtime, finished)
+
+
 def ensure_all(runtime, backoff=None, clock=time.monotonic):
     """Converge each current browser. A failure leaves other agents eligible for setup.
 
@@ -118,6 +149,7 @@ def ensure_all(runtime, backoff=None, clock=time.monotonic):
     stop and waits longer after each failure. Without it this is the owner's explicit retry, which does neither.
     """
     from . import sign_in
+    prepare_chrome(runtime, backoff, clock)
     owner, agents = targets(runtime)
     for agent in agents:
         agent_id = agent["agent_id"]
@@ -146,7 +178,5 @@ def ensure_all(runtime, backoff=None, clock=time.monotonic):
             if not isinstance(error, (DomainError, OSError, ValueError)):
                 logger.exception("Automatic setup failed for agent browser %s", agent_id)
             if backoff is not None:
-                failures = (failure["failures"] if failure else 0) + 1
-                delay = min(BACKOFF_BASE * 2 ** (failures - 1), BACKOFF_LIMIT)
-                backoff[agent_id] = {"failures": failures, "next_attempt": clock() + delay}
+                _wait_longer(backoff, agent_id, clock)
     return view(runtime)

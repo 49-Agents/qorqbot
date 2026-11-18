@@ -122,6 +122,27 @@ headless Chromium (`biz-dashboard/tests/connections-browser.test.js`).
 Not verified yet: the whole path on a running installation (real systemd unit, real Chrome, two agents sending
 `browser_turn` commands). The real-Chrome evidence so far is the item 0 test, which used `agent-browser` directly.
 
+#### Verified on real Chrome (2026-11-18)
+
+Linux, headless Chrome 153, agent-browser 0.38.1, a throwaway instance with real systemd user units: the assembled service,
+`AgentBrowserManager` with its supervisor, `BrowserAccess` and the adapter.
+
+- `use_shared` for two agents starts one Shared Chrome, stops their own browsers and keeps their profiles; both target
+  files name the Shared endpoint with `"shared": true`. `stop`, `repair` and `restart` by a member act on the Shared
+  browser. `use_own` brings back the agent's own browser with its cookies; the Shared browser stops when the last agent
+  leaves.
+- Two agents ran 10 rounds of concurrent click and fill (40 commands) and each stayed in its own tab while other tabs
+  were opened. A cookie set by one was read by the other. A closed tab gives `tab_gone`. With the Shared browser stopped
+  a command gives `browser_not_ready` and no other browser is used.
+- Faults found and fixed: Chrome lost cookies set shortly before a stop (it exits on SIGTERM without saving them; it is
+  now asked to close over DevTools first); a failed `observe` crashed; the `tab_gone` advice named commands the agent
+  does not have.
+- Known behaviour: after the Shared browser restarts, an agent's first command gets `tab_gone` and it opens a new tab.
+
+Not verified: macOS; the visible sign-in window (no display); `browser_turn` through MCP authentication (commands were
+entered at `BrowserAccess`); the private bind-mount service layout; socket paths over 103 bytes (agent-browser refuses
+them; the product relies on a short `XDG_RUNTIME_DIR` or `HOME`).
+
 ### 2. Live panel with takeover
 
 - An owner-only stream of the agent's current tab into the dashboard browser pane, with pointer and key input sent back to
@@ -142,12 +163,66 @@ Chrome by script (51 pictures in 3 seconds from a tab that started in the backgr
 the panel in headless Chromium with a stand-in stream (`biz-dashboard/tests/agent-browser-live.test.js`: pointer position
 mapping, keys, paste, input-method text, wheel, tab switch, closed tab, broken stream).
 
-Not verified yet: the panel against the real route in a running installation; macOS; touch input; how it feels to use.
+#### Verified on real Chrome (2026-11-18)
+
+Same throwaway instance, the real route with the owner's sign-in and the dashboard's own JavaScript in headless Chromium:
+50 pictures in 3 seconds; a click on the picture clicked the real button; typing, Backspace, Home and select-all arrived;
+tab switch, closed tab and Reconnect behaved; leaving the panel or the dashboard closes the server-side view; an agent
+command ran while the view was open; for an agent on Shared the panel lists every Shared tab. The route refuses a bearer
+token, a missing or foreign Origin, an unknown agent and an unknown tab.
+
+Faults found and fixed: live views stayed open on the server when the dashboard left (the stream's cleanup was cancelled);
+the Focus launcher did not offer Browser for an agent with only the built-in browser.
+
+Not verified: macOS; a real keyboard layout, input method and the owner's real clipboard (the non-ASCII key and paste
+events were made by script); touch input; file pickers; page-opened popups; how it feels to use.
 
 ### 3. Idle tabs and cookie banners
 
 - A tab idle past a limit is unloaded; its next use loads the page again.
 - A page's cookie banner is refused (never accepted) when a reject control is found.
+
+#### Tests before building (2026-11-18, Linux, headless Google Chrome 153, agent-browser 0.38.1)
+
+| Question | Result |
+| --- | --- |
+| Does headless Chrome treat every tab as visible? | **No, only the front tab.** Front animated tab: 60 redraws a second, 33-44% of a core. Behind another tab: 0 redraws, timers once a second, about 1% of a core, memory unchanged. |
+| Freeze the page (`Page.setWebLifecycleState`) | Processor 32% to 0%, memory unchanged, needs an explicit unfreeze. Not an unload. Rejected. |
+| Chrome's own tab discarding | No DevTools command; refused while a DevTools client is attached (agent-browser attaches to every tab); the one discard that worked gave the tab a new target id. Rejected. |
+| Close the tab and reopen it | New target id, so the pinned session gets `tab_gone`. Rejected. |
+| Navigate the same tab to a small page, later go one history step back | **Chosen.** Target id kept; the pinned session's next command works. Unload 18 ms. Processor 33-44% to 1-4%. Memory is freed when Chrome's back/forward cache drops the page (306 MB to 211 MB at 10 minutes). Back within 10 minutes restores the page exactly; later it reloads with typed form values restored and in-page state lost. |
+| How to know a tab is idle without asking agent-browser? | agent-browser keeps a `<session>.target` file with the bound tab's id. Its modification time, set before every command, is the "last used" mark. |
+| An extension for cookie banners | Google Chrome 153 ignores `--load-extension` in every variant. Chrome for Testing loads it but cannot start sandboxed on Ubuntu 24.04 (item 5). Works on no browser in use here. Rejected. |
+| A script registered for every new document | Unreliable: missed about 1 new tab in 4, and the first document on real sites. Rejected. |
+| Run the script whenever Chrome reports a document | **Chosen.** 0 misses in 40 local opens; installed on 23 of 23 real sites. |
+| Local banner pages (31) | All as expected: reject-all, manage then reject-all, banner in a cross-site frame, open shadow tree, late banner, 14 language variants. |
+| False positives | 0 accept clicks and 0 unrelated clicks: accept-only banners, 16 accept-like labels, a Decline beside a cookie-policy link, Reject buttons in an app, a newsletter Decline in an article about cookies were all left alone. |
+| Real sites from this server | 6 of 23 showed a banner. Gone with the feature: gov.uk, commission.europa.eu, onetrust.com, cookiebot.com. Left: lemonde.fr and spiegel.de (accept-or-pay walls with no reject control). |
+
+#### Built (2026-11-18)
+
+- Both features run inside the browser's supervisor (`agent_supervisor.attend`), so own and Shared browsers get them and
+  they outlive application restarts.
+- `browser/idle_tabs.py`: every 60 seconds a web tab that no session used and whose address did not change for 30 minutes
+  is navigated to a small "Idle" page that names the address and offers a link to load it again. Before each command
+  (`bootstrap/browser.py`) the session's tab is marked used and, if unloaded, loaded again.
+- `browser/cookie_banners.py` and `cookie_banners.js`: one DevTools connection per browser follows tabs and frames and
+  runs the script in each document. It clicks only a visible control whose whole label is a refusal, inside a box named
+  like a consent tool or a small floating box that explains cookies. It opens settings at most once and never saves or
+  confirms. No rule list or extension was consulted or copied.
+- `scripts/check_browser_tabs.py`: the real-Chrome check for both.
+
+Verified: unit tests (`tests/test_browser_idle_tabs.py`, `test_browser_cookie_banners.py`); the check script against a
+fresh headless Chrome 153 with real commands through `bootstrap.browser.run` (idle tab unloaded and keeps its id,
+processor 57% to 15% of a core, the pinned session's next command finds its page again with the typed value).
+
+Not verified: under a real supervisor unit; a real 30-minute wait (the check moves the clock); macOS; Chrome for Testing;
+sites as seen from an EU address. Running browsers get neither feature until they restart.
+
+Known limits: a closed shadow tree, settings that open in another frame, two-step refusal outside en, de, fr, es, it, nl,
+and accept-or-pay walls are not handled. A small floating box that explains cookies and holds an unrelated "Decline"
+would be clicked. A page reached by a form POST may not come back after 10 minutes. `tab-list` shows an unloaded tab as
+"Idle: <title>". The features depend on agent-browser 0.38.1's `.target` file.
 
 ### 4. Captcha tool (later, decision 13)
 
@@ -159,6 +234,33 @@ Not verified yet: the panel against the real route in a running installation; ma
 ### 5. Managed Chrome download
 
 - Download a pinned Chrome for Testing with a hash check into the runtime folder; prefer it over the system Chrome.
+
+#### Built (2026-11-18)
+
+- `browser/managed_chrome.py`: Chrome for Testing 158.0.8127.36 pinned by SHA-256 for linux64, mac-arm64 and mac-x64;
+  download over HTTPS, hash check before extraction, safe extraction, publication by one rename into
+  `operations/.runtime/chrome/<version>-<platform>/`, a start check with the normal sandbox, then the `current` link.
+- `browser/setup.py`: the setup loop and Retry setup start the download in the background with the existing backoff;
+  Settings gets `managed_chrome` (ready, downloading, waiting, failed, unusable, unsupported, not_used).
+- `browser/agent_browsers.py`: a new browser records Qorqbot's own Chrome when it is installed and starts here, else the
+  installed one. An existing browser keeps the Chrome in its ownership record.
+- `owner_settings.py`, `transport/http.py`, dashboard `js/connectors.js`: the card shows the download and its failures
+  instead of "install Chrome".
+- Documented in [management](BROWSER-MANAGEMENT.md#qorqbots-own-chrome), including how to change the pin.
+
+Verified: unit tests with stand-in archives and downloads (`tests/test_managed_chrome.py`: wrong hash, traversal and
+link escapes, interrupted install, no-op rerun, start-check failures, pin change) and the Settings card in headless
+Chromium. On Ubuntu 24.04: real download, hash check and install in 86 s (208 MB archive, 413 MB on disk), rerun 0.2 s,
+a download killed midway left nothing usable. agent-browser 0.38.1 drove the build with the sandbox off for that test
+only. A profile written by 158 lost its local storage when 153 opened it (cookies survived); 153 to 158 kept both.
+
+Not verified: the build running with its sandbox anywhere. On Ubuntu 24.04 it does not start ("No usable sandbox!":
+AppArmor allows user namespaces only for `/opt/google/chrome/chrome`), so it is installed but not selected and the
+installed Chrome stays in use; `--no-sandbox` was not added. Also not verified: macOS (start, Gatekeeper), website
+sign-in in Chrome for Testing, a real supervisor on the managed build, a pin change on a running installation.
+
+Open decisions: the sandbox on Ubuntu 23.10+ (a one-time AppArmor profile step, or keep requiring Google Chrome there);
+how often the pin is bumped (there is no automatic update); whether browsers restart at a pin change.
 
 ## Not in this plan
 

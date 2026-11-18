@@ -24,7 +24,7 @@ from urllib.request import ProxyHandler, build_opener
 from qorqut_operations.contracts import DomainError, utc_now
 from qorqut.agent_trust import _atomic_write
 from .agent_browsers import SHARED_ID, STOP_REQUEST_FILE, _read_json, agent_state, uses_shared
-from .agent_supervisor import chrome_environment, stop_child, visible_chrome_command
+from .agent_supervisor import chrome_environment, request_close, stop_child, visible_chrome_command
 
 logger = logging.getLogger(__name__)
 SITES_FILE = "sign-ins.json"
@@ -233,14 +233,8 @@ def watch_window(process, port, *, limit=WINDOW_LIMIT, sleep=time.sleep, clock=t
 
 def _quit_cleanly(process, port):
     """Chrome writes cookies to disk in batches; only its own shutdown is sure to save a sign-in that just happened."""
-    from websockets.sync.client import connect
-    try:
-        endpoint = _get_json(port, "/json/version")["webSocketDebuggerUrl"]
-        with connect(endpoint, proxy=None, open_timeout=5, close_timeout=2) as socket_:
-            socket_.send(json.dumps({"id": 1, "method": "Browser.close"}))
-            socket_.recv(timeout=5)
-    except Exception:
-        logger.debug("Chrome closed before it could be asked to quit", exc_info=True)
+    if not request_close(port, timeout=5):
+        logger.debug("Chrome closed before it could be asked to quit")
     try:
         process.wait(timeout=10)
     except Exception:

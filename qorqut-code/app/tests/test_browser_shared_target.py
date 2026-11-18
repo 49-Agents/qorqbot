@@ -106,5 +106,56 @@ class PinnedCommandTest(unittest.TestCase):
         self.assertIn("--pin-tab", self.ran(["click", "e3"], target=supplied, pinned=True))
 
 
+GONE = ("\u2717 tab_gone: bound tab is gone (target 9380C06E0BAAFB3B9EA609B1E1A70588, last url http://shop.example/cart). "
+        "Run `agent-browser tab new <url>` to bind a new tab, or `agent-browser tab list` to pick an existing one\n")
+
+
+class FailedCommandTest(unittest.TestCase):
+    """What the caller gets back when the browser runtime fails, as it does for every agent after the Shared browser
+    restarts: its tab is gone."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.workspace = Path(folder.name)
+        self.target = ("http://127.0.0.1:20999", Path("/runtime/agent-browser"))
+
+    def run_command(self, args, outcome, pinned=True):
+        effect = outcome if isinstance(outcome, Exception) else None
+        with mock.patch.object(browser.subprocess, "run", return_value=outcome, side_effect=effect):
+            return browser.run(self.workspace, args, target=self.target, capture=True, pinned=pinned)
+
+    def test_a_gone_tab_is_reported_with_the_command_the_agent_has(self):
+        code, _output, errors = self.run_command(["click", "e3"], mock.Mock(returncode=1, stdout="", stderr=GONE))
+        self.assertEqual(code, 1)
+        self.assertIn("tab_gone: bound tab is gone (target 9380C06E0BAAFB3B9EA609B1E1A70588, last url http://shop.example/cart).", errors)
+        self.assertIn("tab-new <url>", errors)
+        self.assertNotIn("agent-browser tab", errors)          # neither a command it lacks nor another agent's tab is offered
+
+    def test_an_own_browser_keeps_the_runtimes_own_words(self):
+        _code, _output, errors = self.run_command(["click", "e3"], mock.Mock(returncode=1, stdout="", stderr=GONE), pinned=False)
+        self.assertEqual(errors, GONE)
+
+    def test_other_errors_of_a_pinned_command_are_unchanged(self):
+        _code, _output, errors = self.run_command(["click", "e3"], mock.Mock(returncode=1, stdout="", stderr="\u2717 Element not found\n"))
+        self.assertEqual(errors, "\u2717 Element not found\n")
+
+    def test_a_failed_observation_is_returned_to_the_caller_like_any_other_result(self):
+        # A failed snapshot answers in JSON on standard output (the runtime is run with --json for an observation).
+        gone = json.dumps({"success": False, "data": {"targetId": "9380C06E0BAAFB3B9EA609B1E1A70588"}, "error": GONE[2:].strip()})
+        outcomes = {"the runtime fails": (mock.Mock(returncode=1, stdout=gone, stderr=""), 1,
+                                          "last url http://shop.example/cart). Open a new tab with tab-new <url> and continue there."),
+                    "the runtime fails without an answer": (mock.Mock(returncode=1, stdout="", stderr="\u2717 Chrome is gone\n"), 1, "Chrome is gone"),
+                    "the runtime times out": (browser.subprocess.TimeoutExpired("agent-browser", 45), 2, "timed out"),
+                    "the runtime cannot be run": (OSError("missing"), 2, "Could not execute")}
+        for name, (outcome, expected, words) in outcomes.items():
+            with self.subTest(name), mock.patch("builtins.print", side_effect=AssertionError("printed, not returned")):
+                code, output, errors = self.run_command(["observe", "overview"], outcome)
+                answer = json.loads(output)
+                self.assertEqual((code, answer["status"], answer["exit_code"], errors), (expected, "failed", expected, ""))
+                self.assertIn(words, answer["message"])
+                self.assertNotIn('"success"', answer["message"])
+
+
 if __name__ == "__main__":
     unittest.main()

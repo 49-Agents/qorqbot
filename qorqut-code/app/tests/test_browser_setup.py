@@ -36,7 +36,13 @@ class BrowserSetupTest(unittest.TestCase):
                 return SimpleNamespace(connection=connection)
             def __exit__(self, *_):
                 return False
-        self.runtime = SimpleNamespace(database=SimpleNamespace(read=Read), browser_manager=mock.Mock())
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.runtime = SimpleNamespace(database=SimpleNamespace(read=Read), browser_manager=mock.Mock(),
+                                       paths=SimpleNamespace(runtime=Path(folder.name)))
+        # Setup starts the download of Qorqbot's own Chrome; here it is recorded, never run.
+        patch = mock.patch.object(setup.managed_chrome, 'start')
+        self.chrome_download = patch.start(); self.addCleanup(patch.stop)
         role = {'lead': 'ordubashy', 'worker': 'global-worker', 'learning': 'learning-applier'}
         patch = mock.patch.object(setup, 'active_global', side_effect=lambda _db, agent: {'role': {'id': role[agent]}} if agent in role else None)
         patch.start(); self.addCleanup(patch.stop)
@@ -145,13 +151,55 @@ class BrowserSetupTest(unittest.TestCase):
         states = {'lead': {'state': 'missing'}, 'worker': {'state': 'healthy'}}
         self.assertEqual(self.run_setup(states), ['lead'])
 
-    def read_view(self, status, tool=True):
+    def test_setup_starts_the_chrome_download_without_waiting_for_it(self):
+        states = {'lead': {'state': 'missing'}, 'worker': {'state': 'healthy'}}
+        self.assertEqual(self.run_setup(states, {}), ['lead'])
+        self.chrome_download.assert_called_once()
+        self.assertEqual(self.chrome_download.call_args.args[0], self.runtime.paths.runtime)
+
+    def test_a_failed_chrome_download_backs_off_like_an_agent_and_owner_retry_ignores_it(self):
+        states = {'lead': {'state': 'healthy'}, 'worker': {'state': 'healthy'}}
+        backoff, now = {}, [1000.0]
+        run = lambda *args: self.run_setup(states, *args, clock=lambda: now[0])
+        finished = lambda: self.chrome_download.call_args.args[1]
+        run(backoff)
+        finished()(DomainError('chrome_download_failed', 'offline'))
+        self.assertEqual(backoff[setup.CHROME_BACKOFF], {'failures': 1, 'next_attempt': 1000 + setup.BACKOFF_BASE})
+        run(backoff)
+        self.assertEqual(self.chrome_download.call_count, 1, 'not tried again before its time')
+        run()
+        self.assertEqual(self.chrome_download.call_count, 2, 'the owner pressed Retry setup')
+        finished()(DomainError('chrome_download_failed', 'offline'))
+        self.assertEqual(backoff[setup.CHROME_BACKOFF]['failures'], 1, "the owner's retry does not lengthen the wait")
+        now[0] += setup.BACKOFF_BASE
+        run(backoff)
+        finished()(DomainError('chrome_sandbox_unavailable', 'no sandbox'))
+        self.assertEqual(backoff[setup.CHROME_BACKOFF], {'failures': 2, 'next_attempt': now[0] + setup.BACKOFF_BASE * 2})
+        now[0] += setup.BACKOFF_BASE * 2
+        run(backoff)
+        finished()(None)
+        self.assertNotIn(setup.CHROME_BACKOFF, backoff)
+
+    def read_view(self, status, tool=True, chrome='/chrome'):
         self.runtime.browser_access = mock.Mock()
         self.runtime.browser_manager.manage.side_effect = status
         check = mock.Mock(side_effect=None if tool else BrowserError('missing'))
         with mock.patch('qorqut.bootstrap.browser.runtime_executable', check), \
-                mock.patch('qorqut.native_paths.installed_chrome', return_value='/chrome'):
+                mock.patch('qorqut.native_paths.installed_chrome', return_value=chrome):
             return setup.view(self.runtime)
+
+    def test_settings_show_the_download_in_place_of_install_chrome(self):
+        status = lambda *_a, **_k: {'state': 'unsupported', 'diagnostic': 'x', 'browser': 'own'}
+        own = lambda state, text='': mock.patch.object(setup.managed_chrome, 'view', return_value={'state': state, 'explanation': text})
+        with own('downloading', 'Qorqbot is downloading its own browser.'):
+            view = self.read_view(status, chrome=None)
+        self.assertFalse(view['chrome_installed'])
+        self.assertEqual(view['managed_chrome'], {'state': 'downloading', 'explanation': 'Qorqbot is downloading its own browser.'})
+        with own('ready'):
+            self.assertTrue(self.read_view(status, chrome=None)['chrome_installed'], "Qorqbot's own Chrome is enough")
+        with own('unusable', 'It cannot start here.'):
+            self.assertTrue(self.read_view(status)['chrome_installed'], 'the installed Chrome is used instead')
+            self.assertFalse(self.read_view(status, chrome=None)['chrome_installed'])
 
     def test_ready_requires_every_browser_healthy_and_the_tool(self):
         healthy = lambda *_a, **_k: {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'own'}

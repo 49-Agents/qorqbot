@@ -451,7 +451,8 @@ class HTTPAPI:
                 if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
                     raise DomainError("forbidden", "Only the installation owner can read these settings")
                 from qorqut import owner_settings
-                reader = owner_settings.about_view if parts[1] == "about" else owner_settings.agent_clients_view
+                reader = (partial(owner_settings.about_view, runtime_directory=self.runtime.paths.runtime)
+                          if parts[1] == "about" else owner_settings.agent_clients_view)
                 data = await anyio.to_thread.run_sync(reader)
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
@@ -1016,7 +1017,10 @@ class HTTPAPI:
             except (live.Closed, DomainError):
                 yield event("closed", {})
             finally:
-                await anyio.to_thread.run_sync(view.close)
+                # When the dashboard leaves, the server cancels this stream, and a cancelled scope refuses every further
+                # wait: unshielded, the view (its DevTools connection and Chrome's screencast) stayed open for good.
+                with anyio.CancelScope(shield=True):
+                    await anyio.to_thread.run_sync(view.close)
 
         return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
