@@ -36,6 +36,13 @@
       "first_public_distribution_date": "2026-11-15",
       "date_timezone": "America/La_Paz",
       "commercial_license": "https://qorqbot.com/commercial-license/"
+    },
+    {
+      "version": "1.5.0",
+      "license": "PolyForm-Noncommercial-1.0.0",
+      "first_public_distribution_date": "2026-11-18",
+      "date_timezone": "America/La_Paz",
+      "commercial_license": "https://qorqbot.com/commercial-license/"
     }
   ]
 }
