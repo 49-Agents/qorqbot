@@ -526,6 +526,41 @@ function chatReactionFold(rows) {
   return out;
 }
 
+// ---- recalling a sent message
+// ArrowUp in an empty composer brings back what the owner last sent in this conversation, the way a shell does. The history is
+// read from the rows the view already shows, so every chat and thread recalls only its own messages and nothing is stored.
+// Only the owner's own typed messages count: nudges, session recoveries and other system notes are `notice` rows, a relayed
+// Telegram message carries `collapsedSource`, a note an agent recorded for the owner carries `recorder: 'agent'`, and a
+// thumbs-up is a reaction rather than something to retype.
+const chatInputRecallModel = {
+  // Oldest first. Immediate repeats are one step.
+  history(entries = [], pending = []) {
+    const out = [];
+    for (const row of [...(entries || []), ...(pending || [])]) {
+      if (!row || row.speaker !== 'user' || row.collapsedSource || row.recorder === 'agent' || row.referenceOnly || row.partial === true) continue;
+      const text = String(row.text ?? '');
+      if (!text.trim() || /^👍(?: to: “[\s\S]*”)?$/u.test(text.trim())) continue;
+      if (out[out.length - 1] !== text) out.push(text);
+    }
+    return out;
+  },
+  // state: null, or {index, text} of the recalled message now in the composer. Returns null when the key keeps its ordinary
+  // meaning, otherwise {text, state}. An edited recall no longer matches its state, so the arrows are cursor keys again.
+  step(state, key, value, history = []) {
+    const draft = String(value ?? '');
+    const recalled = !!state && draft === state.text;
+    if (key !== 'ArrowUp' && key !== 'ArrowDown') return null;
+    if (!recalled && (draft !== '' || key === 'ArrowDown')) return null;
+    // Messages can arrive or load between two presses: find the recalled one again instead of trusting its old place.
+    let at = history.length;
+    if (recalled) { at = history[state.index] === state.text ? state.index : history.lastIndexOf(state.text); if (at < 0) at = history.length; }
+    const next = at + (key === 'ArrowUp' ? -1 : 1);
+    if (next < 0) return recalled ? {text: draft, state} : null;
+    if (next >= history.length) return {text: '', state: null};
+    return {text: history[next], state: {index: next, text: history[next]}};
+  },
+};
+
 // ---- the view
 // host: element that receives the shared root. render() patches presentation fields; see the contract for their shapes.
 function mountChatView(host, options = {}) {
@@ -1346,6 +1381,21 @@ function mountChatView(host, options = {}) {
       event.preventDefault(); form.requestSubmit();
     }
   });
+  // ArrowUp in an empty composer recalls the owner's previous message here; further presses walk back, ArrowDown walks forward
+  // to the empty draft. A key another handler took (the command menu), a modifier, an IME composition or a locked input is left alone.
+  let recall = null;
+  listen(input, 'keydown', event => {
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+    if (model.composer.hidden || model.composer.inputDisabled || input.disabled || input.readOnly) return;
+    const result = chatInputRecallModel.step(recall, event.key, input.value, chatInputRecallModel.history(model.entries, model.pending));
+    if (!result) return;
+    event.preventDefault();
+    recall = result.state;
+    if (input.value === result.text) return;
+    input.value = result.text;
+    input.setSelectionRange(result.text.length, result.text.length);
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+  });
   listen(form, 'submit', event => {
     event.preventDefault();
     // inputDisabled only locks editing: a visible, enabled Send (a retry of a locked draft) still dispatches.
@@ -1359,7 +1409,7 @@ function mountChatView(host, options = {}) {
     root,
     elements: {scroll: scroller, log, pending: pendingHost, composer: form, input, send, older: olderButton, jump, banner, empty: emptyNote},
     render,
-    setDraft(text) { const value = String(text ?? ''); if (!disposed && input.value !== value) { input.value = value; resizeComposer(); } },
+    setDraft(text) { const value = String(text ?? ''); if (!disposed && input.value !== value) { input.value = value; recall = null; resizeComposer(); } },
     getDraft: () => input.value,
     focusComposer() { if (!disposed && !input.disabled && !form.hidden) input.focus(); },
     getScrollState() { if (!disposed && shown()) lastState = capture(); return {...lastState}; },
