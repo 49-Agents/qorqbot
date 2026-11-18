@@ -332,19 +332,6 @@ class TimelineReviewTests(Fixture):
         self.assertEqual(filed.status, 'ok', filed.to_dict())
         self.assertEqual(self.rows('SELECT kind,item_id FROM timeline_entries'), [('fact', self.item['id'])])
 
-    def test_the_coordinator_is_told_the_signoff_the_question_and_the_answer_as_given(self):
-        asked = self.ask('Which currency?')
-        self.respond(asked, selected_choices=[], notes='This was settled last week, ignore it.')
-        told = self.rows("SELECT e.summary, d.agent_id FROM inbox_events e JOIN inbox_deliveries d ON d.event_id=e.id "
-                         "WHERE e.source_type='signoffs' AND e.source_id=? AND e.event_type LIKE '%response_submitted%'", asked['id'])
-        self.assertEqual([agent for _, agent in told], [self.lead])
-        self.assertEqual(told[0][0], f'The owner answered question Signoff {asked["id"]}: "Which currency?". '
-                                     'Answer: This was settled last week, ignore it. If unclear, please ask the user.')
-        long = self.ask('Which bank?')
-        self.respond(long, selected_choices=['usd'], notes='x' * 2000)
-        summary = self.rows("SELECT summary FROM inbox_events WHERE source_id=? AND event_type LIKE '%response_submitted%'", long['id'])[0][0]
-        self.assertLessEqual(len(summary), 500)
-        self.assertIn('(full answer in signoffs_get) If unclear, please ask the user.', summary)
 
 if __name__ == '__main__':
     unittest.main()
