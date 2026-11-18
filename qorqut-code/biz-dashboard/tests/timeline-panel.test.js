@@ -8,7 +8,7 @@ function load(extra={}) {
   const ctx={window:{},document:{},T_VIEW_LABEL:{},T_VIEW_ICON:{},state:{bizs:[{id:'p1',slug:'example'}]},coreData:x=>x,...extra};
   vm.createContext(ctx);
   vm.runInContext(read('timeline-panel.js')+'\n'+read('workflow-panel.js')+'\n'+read('agent-questions.js')
-    +'\nglobalThis.api={timelineHtml,timelinePanelMount,globalTimelineBlockMount,agentQuestionsHtml,agentQuestionsReference};',ctx);
+    +'\nglobalThis.api={timelineHtml,timelinePanelMount,globalTimelineBlockMount,agentQuestionCard,agentQuestionPlace};',ctx);
   return {api:ctx.api,ctx};
 }
 const entry=(id,text,more={})=>({id,text,created_at:'2026-11-13T10:00:00.000000Z',sequence:1,...more});
@@ -101,11 +101,10 @@ test('the history error clears on a later success, and a failed context reload s
   assert.equal(el.hidden,false);assert.ok(el.innerHTML.includes('tlp-error'));assert.equal(el.innerHTML.includes('Pay every creator.'),false);assert.equal(el.innerHTML.includes('Old way.'),false);
   panel.update(DATA);assert.equal(el.innerHTML.includes('tlp-error'),false);assert.ok(el.innerHTML.includes('Pay every creator.'));
 });
-test('a Global Task reaches the panel with an explicit null business, and the questions page says when it is cut off',()=>{
-  const conversation=read('conversation.js'),questions=read('agent-questions.js');
+test('a Global Task reaches the panel with an explicit null business',()=>{
+  const conversation=read('conversation.js');
   assert.match(conversation,/type:'task',id:source\.id,business_id:recordSource\.business_id \?\? null/);
   assert.match(conversation,/timelinePanel\?\.fail\(\)/);
-  assert.match(questions,/data\.truncated === true/);assert.match(questions,/Showing the first \$\{items\.length\} open questions\./);
 });
 function host() {
   const h={hidden:true,innerHTML:'',handlers:{},addEventListener(type,fn){this.handlers[type]=fn;},setAttribute(){},contains:()=>true,replaceChildren(){this.innerHTML='';}};
@@ -158,30 +157,38 @@ const ROWS=[
   {id:'q1',text:'Pay <F> in dollars?',blocking:true,source:{type:'task',id:'t1',business_id:null},title:'Pay creators',business_name:'Global',created_at:'2026-11-13T10:00:00Z'},
   {id:'q2',text:'Which month?',blocking:false,source:{type:'project',id:'p1',business_id:'p1'},title:'Example project',business_name:'Example project',created_at:'2026-11-14T10:00:00Z'},
   {id:'q3',text:'Open the books?',blocking:true,source:{type:'global',id:'global',business_id:null},title:'Global',business_name:'Global',created_at:'2026-11-15T10:00:00Z'}];
-test('the questions page lists each question with its item, blocking marked, and links all but Global',()=>{
-  const {api}=load();
-  assert.equal(api.agentQuestionsHtml([]),'');
-  const html=api.agentQuestionsHtml(ROWS);
-  assert.ok(html.includes('Pay &lt;F&gt; in dollars?'));assert.equal(html.includes('<F>'),false);
-  assert.equal((html.match(/Blocks work/g)||[]).length,2);
-  assert.ok(html.includes('Task · Pay creators'));assert.ok(html.includes('Project · Example project'));
-  assert.equal((html.match(/data-question-open/g)||[]).length,2);
-  assert.ok(html.includes('data-question-open="0"'));assert.ok(html.includes('13 Nov'));
+function cardDocument() {
+  const nodes=[];
+  const node=tag=>{const el={tag,className:'',children:[],attributes:{},listeners:{},hidden:false,value:'',disabled:false,
+    set innerHTML(v){this.html=v;},get innerHTML(){return this.html||'';},setAttribute(k,v){this.attributes[k]=v;},
+    addEventListener(k,f){this.listeners[k]=f;},querySelector(s){return node(s);},append(){},focus(){}};nodes.push(el);return el;};
+  return {createElement:node};
+}
+test('an open question shows where it was raised, blocking marked, all escaped',()=>{
+  const {api}=load({document:cardDocument()});
+  assert.equal(api.agentQuestionPlace(ROWS[0]),'Task · Pay creators');
+  assert.equal(api.agentQuestionPlace(ROWS[1]),'Project · Example project');
+  assert.equal(api.agentQuestionPlace(ROWS[2]),'Global');
+  const card=api.agentQuestionCard(ROWS[0]);
+  assert.ok(card.el.html.includes('Pay &lt;F&gt; in dollars?'));assert.equal(card.el.html.includes('<F>'),false);
+  assert.ok(card.el.html.includes('Blocks work'));assert.ok(card.el.html.includes('13 Nov'));
+  assert.ok(card.el.html.includes('<option value="decision">Decision</option>'));assert.ok(card.el.html.includes('<option value="fact">Fact</option>'));
+  assert.ok(card.el.html.includes('maxlength="400"'));assert.ok(card.el.html.includes('Send answer'));
 });
-test('a question opens the thread of its Project by slug and its Task by the existing reference',()=>{
-  const {api}=load({taskRecordReference:task=>({type:'task',id:task.id,business_id:task.business_id,label:task.label})});
-  assert.deepEqual(JSON.parse(JSON.stringify(api.agentQuestionsReference(ROWS[1]))),{type:'project',id:'p1',business_id:'p1',business_slug:'example',label:'Example project'});
-  assert.deepEqual(JSON.parse(JSON.stringify(api.agentQuestionsReference(ROWS[0]))),{type:'task',id:'t1',business_id:null,label:'Pay creators'});
-  assert.equal(api.agentQuestionsReference(ROWS[2]),null);
-  assert.equal(api.agentQuestionsReference({...ROWS[1],source:{type:'project',id:'other',business_id:'other'}}),null);
+test('questions sit in the sign-off queue and open their thread with the answer card on the right',()=>{
+  const queue=read('attention-queue.js'),code=read('agent-questions.js'),workspace=read('record-workspace.js');
+  assert.match(queue,/post\('\/root\/operations\/timeline_questions_list'/);
+  assert.match(queue,/\.\.\.questions\.map\(item=>\(\{kind:'question',id:item\.id,item\}\)\)/);
+  assert.match(queue,/data-question-key/);assert.match(queue,/entry\.kind === 'question'\) return agentQuestionOpen\(item/);
+  assert.match(code,/\/root\/operations\/timeline_question_answer/);assert.match(code,/idempotency_key: key/);
+  assert.match(code,/p\.focusWorkspace\.navigate\(target\)/);assert.match(code,/window\.focusExpansion\.open\(\{title: 'Open question'/);
+  assert.match(workspace,/if \(!record\.question\) return rwDashboardMountBody\(host, record, ctx\);/);
 });
-test('the pane offers the questions view to Ordubashy only, and the page, panel and block are wired',()=>{
+test('the pane has no separate questions view, and the panel and block are wired',()=>{
   const pane=read('agentpane.js'),conversation=read('conversation.js'),globalChat=read('global-chat.js');
-  assert.match(pane,/view === "questions"\) return roleId === "ordubashy"/);
-  assert.match(pane,/leading\.push\("timeline", "questions"\)/);
-  assert.match(pane,/agentQuestionsMount\(p\)/);assert.match(pane,/agentQuestionsTick\(p\)/);
+  assert.doesNotMatch(pane,/"questions"/);assert.doesNotMatch(pane,/agentQuestionsMount|agentQuestionsTick/);
   assert.match(conversation,/timelinePanelMount\(timelineEl/);assert.match(conversation,/timelinePanel\?\.update\(/);
-  assert.match(globalChat,/globalTimelineBlockMount\(block/);
+  assert.doesNotMatch(globalChat,/globalTimelineBlockMount\(/);
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   for(const asset of ['/js/timeline-panel.js','/js/agent-questions.js','/css/timeline-panel.css'])assert.ok(html.includes(asset),asset);
 });

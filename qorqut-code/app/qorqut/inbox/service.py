@@ -62,6 +62,10 @@ class HostInbox:
         app = self.inbox.app
         if (row['source_type'], row['event_type']) in STOPPED_NOTICE_TYPES:
             return False
+        if row['source_type'] == 'timeline_questions':
+            # The owner's answer to an open question is told to the configured coordinator in person, nobody else.
+            from qorqut.management.identity import configured_ordubashy
+            return ctx.delegation_assignment_id is None and ctx.principal_id == configured_ordubashy(uow)
         if row['source_type'] == 'agentic_changes':
             bridge = getattr(self, 'agentic_inbox_bridge', None)
             return bridge is not None and bridge.visible_reference(ctx, row, uow) is not None

@@ -729,6 +729,12 @@ class Attention:
                     raise DomainError('validation_error', 'A worker focuses on its exact Todo Task; use the same Task reference for focus and task')
                 membership = self.task_membership(uow, agent, args['task'])
                 if not membership or membership['task_created_at'] != task['created_at']: raise DomainError('not_found', 'Work item is not on Todo')
+                # Focus says the agent is working on the Task, so a paused Task cannot take a plain Task focus; writing
+                # it as paused clears one (``release_focus``). A workflow focus keeps its own pause and detach rules.
+                if args['focus']['type'] == 'task' and task.get('status') in PAUSED:
+                    label = {'waiting': 'waiting', 'blocked': 'blocked', 'needs_input': 'needs input'}[task['status']]
+                    raise DomainError('validation_error', f'This Task is {label}. If you are resuming it, set its status '
+                                      'to working first, then focus on it.')
                 if not isinstance(args.get('intent', ''), str) or len(args.get('intent', '')) > 1000: raise DomainError('validation_error', 'Intent must contain at most 1000 characters')
                 self.resolve(self.board_context(ctx, agent, uow), agent, args['focus'], uow)
                 if args['focus']['type'] == 'workflow':

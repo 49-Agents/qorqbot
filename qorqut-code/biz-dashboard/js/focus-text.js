@@ -10,6 +10,20 @@ const focusText = (() => {
   const path = id => `/root/agents/${encodeURIComponent(id)}/focus-layout`;
   // Earlier layouts could hold several separate blocks; they read as one text, in stored order.
   const joined = blocks => blocks.map(b => b.text).join('\n\n');
+  // Notes saved by an earlier version kept a ball's state as an invisible token after its dash ("-", U+2063, state, U+2063).
+  // They read as statuses now, keyed by the line's text like a Journal page, and the next save writes them that way.
+  const TOKEN = /^([ \t]*-)\u2063(white|in_progress|done|blocked|cancelled)\u2063/;
+  function untoken(text, statuses) {
+    const kept = {...statuses};
+    const lines = text.split('\n').map(line => {
+      const m = TOKEN.exec(line);
+      if (!m) return line;
+      const clean = m[1] + line.slice(m[0].length), key = ntParseRaw(clean).display.trim();
+      if (!(key in kept)) kept[key] = m[2];
+      return clean;
+    });
+    return {lines, statuses: kept};
+  }
   // What a save would store: the text, and the statuses of the task lines still in it.
   function content(lines, statuses) {
     const kept = {lines, statuses: {...statuses}};
@@ -36,8 +50,7 @@ const focusText = (() => {
     // Nothing ever saved for this agent: the very first start shows the sample text.
     const fresh = d.revision === 0 && !d.blocks.length;
     s.blockId = d.blocks[0]?.id || null;
-    s.lines = (fresh ? FIRST_TEXT : joined(d.blocks)).split('\n');
-    s.statuses = {...d.statuses};
+    ({lines: s.lines, statuses: s.statuses} = untoken(fresh ? FIRST_TEXT : joined(d.blocks), d.statuses || {}));
     s.baseline = stamp(s.lines, s.statuses);
     s.revision = d.revision;
   }

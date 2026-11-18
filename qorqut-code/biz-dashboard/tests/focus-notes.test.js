@@ -14,7 +14,7 @@ async function fixture(saved) {
   const page = await browser.newPage({viewport: {width: 900, height: 700}});
   await page.setContent('<div class="agpad"><div class="tbody"><section class="agfocus"><div class="agfocus-layout"><div class="agfocus-notes"></div></div></section></div></div>');
   await page.addStyleTag({content: ':root{--fg:#eee;--line:#333;--sans:Arial}'});
-  for (const file of ['notes.css', 'agent-focus.css']) await page.addStyleTag({path: path.join(__dirname, '../css', file)});
+  for (const file of ['status-ball.css', 'notes.css', 'agent-focus.css']) await page.addStyleTag({path: path.join(__dirname, '../css', file)});
   await page.evaluate(initial => {
     window.saved = initial; window.posts = [];
     let n = 0;
@@ -28,7 +28,7 @@ async function fixture(saved) {
       return structuredClone(saved);
     };
   }, saved);
-  for (const file of ['lines-editor.js', 'focus-text.js']) await page.addScriptTag({path: path.join(__dirname, '../js', file)});
+  for (const file of ['status-ball.js', 'lines-editor.js', 'focus-text.js']) await page.addScriptTag({path: path.join(__dirname, '../js', file)});
   const mount = () => page.evaluate(() => {
     window.panel = {agentId: 'agent', focusMount: document.querySelector('.agfocus')};
     window.dispose = focusText.mount(panel, panel.focusMount);
@@ -151,5 +151,22 @@ browserTest('a typed "-" starts a task line whose status ball is saved, as in th
     await page.evaluate(() => focusText.load(panel));
     await page.waitForSelector('.agfocus-notes .ntball.ntb-in_progress');
     assert.equal(await page.locator('.agfocus-notes .ntball').count(), 2);
+  } finally { await browser.close(); }
+});
+
+browserTest('notes saved with a hidden state token after the dash read as statuses and save that way', async () => {
+  const S = '\u2063';
+  const {browser, page} = await fixture({revision: 1, card_ids: [], blocks: [{id: '11111111-1111-4111-8111-111111111111', text: `Plan\n-${S}done${S} buy milk\n- call bank`, before_id: null, after_id: null}]});
+  try {
+    assert.equal(await value(page), 'Plan\n- buy milk\n- call bank');
+    assert.equal(await page.locator('.agfocus-notes .ntball.ntb-done').count(), 1);
+    assert.equal(await page.locator('.agfocus-notes .ntline.done').textContent(), 'buy milk');
+    await page.locator(NOTES).click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('!');
+    await settle(page);
+    const posts = await page.evaluate(() => posts);
+    assert.equal(posts.at(-1).blocks[0].text, 'Plan\n- buy milk\n- call bank!');
+    assert.deepEqual(posts.at(-1).statuses, {'buy milk': 'done'});
   } finally { await browser.close(); }
 });

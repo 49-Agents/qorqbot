@@ -341,6 +341,29 @@ class AttentionTests(unittest.TestCase):
         self.assertEqual(focus('second')['type'], 'workflow')            # a workflow focus keeps its own rules
         self.assertEqual(focus('third')['id'], 'two')                    # a focus on another Task is untouched
 
+    def test_a_paused_task_cannot_take_a_plain_task_focus(self):
+        task = {'type': 'task', 'id': 'one', 'business_id': 'project'}
+        self.agent('first')
+        attention = self.attention
+        ctx = NS(principal_kind='agent', principal_id='first')
+        attention.context = lambda *_: (ctx, 'first')
+        stored = {'created_at': EARLIER, 'archived': False, 'status': 'working'}
+        attention.board_task = lambda *_a, **_k: stored
+        attention.task_membership = lambda *_: {'task_created_at': EARLIER}
+        attention.board_context = Mock()
+        attention.resolve = Mock()
+        patch('qorqut.agents.attention.configured_ordubashy', return_value='coordinator').start()
+        uow = NS(connection=self.conn)
+        validate = lambda focus: attention.validate('attention_focus_set', ctx, {'focus': focus, 'task': task}, uow)
+        validate(task)                                                   # a Task being worked takes focus
+        for status, label in (('blocked', 'blocked'), ('waiting', 'waiting'), ('needs_input', 'needs input')):
+            stored['status'] = status
+            with self.assertRaises(DomainError) as raised:
+                validate(task)
+            self.assertEqual(raised.exception.code, 'validation_error')
+            self.assertIn(f'This Task is {label}', str(raised.exception))
+            self.assertIn('set its status to working first', str(raised.exception))
+
     def test_a_snoozed_focused_task_holds_its_focus_reminder(self):
         task = {'type': 'task', 'id': 'task', 'business_id': None}
         self.agent('first')

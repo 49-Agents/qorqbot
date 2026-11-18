@@ -1,0 +1,11 @@
+/* The status ball of a "-" line, shared by the Journal editor (notes.css places it) and the Focus notes (agent-focus.css). */
+.ntball, .ntball:hover, .ntball:active { display: flex; width: 100%; height: 100%; align-items: center; justify-content: center;
+  cursor: pointer; padding: 0; border: 0; border-radius: 0; background: none; color: inherit; transform: none; font: inherit; }
+.ntdot { display: block; box-sizing: border-box; width: 6px; height: 6px; border-radius: 9999px;
+  background: transparent; border: 1.5px solid #8a8680; opacity: .9; transition: all .15s cubic-bezier(.4, 0, .2, 1); }
+.ntball:hover .ntdot { width: 9px; height: 9px; }
+.ntball.ntb-white .ntdot { background: #F5F5F0; border: none; }
+.ntball.ntb-in_progress .ntdot { background: #0A84FF; border: none; }
+.ntball.ntb-done .ntdot { background: #30D158; border: none; opacity: .75; }
+.ntball.ntb-blocked .ntdot { background: #FF453A; border: none; }
+.ntball.ntb-cancelled .ntdot { background: transparent; border: 1.5px solid #8a8680; opacity: .75; }

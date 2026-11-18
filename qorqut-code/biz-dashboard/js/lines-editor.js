@@ -4,11 +4,8 @@
 // A block that starts with "-" is a task line with a status ball; its status is kept by its trimmed text.
 const NT_SOFT_BREAK = " ";
 const NT_DIVIDER = "⸻";                                  // Ctrl/Cmd+Alt+= inserts this exact line
-const NT_STATUS_ORDER = ["todo", "white", "in_progress", "done"];   // the left-click cycle
-const NT_STATUS_LABEL = { todo: "Open", white: "White", in_progress: "In progress", done: "Done", blocked: "Blocked", cancelled: "Cancelled" };
-const ntNextStatus = cur => { const i = NT_STATUS_ORDER.indexOf(cur); return i === -1 ? "todo" : NT_STATUS_ORDER[(i + 1) % NT_STATUS_ORDER.length]; };
+// The status ball rules and markup (cycle, labels, the "-" task-line rule) are js/status-ball.js, loaded first.
 
-const ntIsTaskLine = raw => /^[ \t]*-/.test(raw || "");
 // Split a raw line into its task marker / invisible bold token / display text (lines-editor.tsx parseRaw).
 function ntParseRaw(raw) {
   raw = raw || "";
@@ -61,7 +58,7 @@ function ntMakeBlock(es, i) {
   el.className = ["ntline", task && "nttask", meta.bold && "bold"].filter(Boolean).join(" ");
   if (task) {
     const status = ntLineStatus(es, i);
-    if (status === "done" || status === "cancelled") el.classList.add("done");
+    if (ntStatusClosed(status)) el.classList.add("done");
   }
   if (display) el.append(display);
   if (display === "" || display.endsWith("\n")) el.append(document.createElement("br"));
@@ -175,12 +172,10 @@ function ntLinesEditor(o) {
   function renderBalls() {
     gutter.replaceChildren(...es.lines.flatMap((raw, i) => {
       if (!ntIsTaskLine(raw) || ntIsRuleAt(es, i)) return [];
-      const status = ntLineStatus(es, i), w = document.createElement("span"), b = document.createElement("button"), dot = document.createElement("span");
+      const w = document.createElement("span");
       w.className = "ntballwrap";
-      b.type = "button"; b.className = `ntball ntb-${status}`; b.dataset.i = i;
-      b.setAttribute("aria-label", `Status: ${NT_STATUS_LABEL[status] || status}. Click to change.`);
-      dot.className = "ntdot";
-      b.append(dot); w.append(b);
+      w.innerHTML = ntBallHtml(ntLineStatus(es, i), i);
+      const b = w.firstChild;
       b.onclick = e => { e.stopPropagation(); e.preventDefault(); cycleBall(i); };
       b.oncontextmenu = e => { e.preventDefault(); e.stopPropagation(); toggleBlocked(i); };
       return [w];
@@ -365,16 +360,16 @@ function ntLinesEditor(o) {
   }
   function toggleBlocked(i) {
     if (locked()) return;
-    ntSetStatus(es, i, ntLineStatus(es, i) === "blocked" ? "todo" : "blocked");
+    ntSetStatus(es, i, ntToggleBlockedStatus(ntLineStatus(es, i)));
     patchBall(i);
     changed();
   }
   function patchBall(i) {
     const status = ntLineStatus(es, i);
-    const closed = status === "done" || status === "cancelled";
+    const closed = ntStatusClosed(status);
     const btn = gutter.querySelector(`.ntball[data-i="${i}"]`); if (!btn) return;
     btn.className = `ntball ntb-${status}`;
-    btn.setAttribute("aria-label", `Status: ${NT_STATUS_LABEL[status] || status}. Click to change.`);
+    btn.setAttribute("aria-label", ntBallLabel(status));
     blockClass(i, "done", closed);
   }
 

@@ -48,3 +48,15 @@
   .agent-questions { padding: 12px 4px; }
   .tlp-global { margin: 0 8px; }
 }
+
+/* An open question's answer card: above the item's dashboard, or alone for a Global question. */
+.question-card { display: grid; gap: 8px; margin: 0 0 14px; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--wash); }
+.question-card-kicker { margin: 0; color: var(--fg-2); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.question-card-text { margin: 0; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.question-card-form { display: grid; gap: 8px; }
+.question-card-form textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 64px; font: inherit; font-size: 13px; }
+.question-card-actions { display: flex; gap: 10px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.question-card-kind { display: inline-flex; gap: 6px; align-items: center; color: var(--fg-2); font-size: 12px; }
+.question-card-status { margin: 0; font-size: 12px; color: var(--fg-2); }
+.rw-question-top { padding: 12px 12px 0; }
+.focus-question-chip[data-blocking="true"] { color: var(--warn, #d9822b); }

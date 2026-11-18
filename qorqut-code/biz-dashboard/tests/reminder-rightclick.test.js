@@ -18,7 +18,7 @@ test('right-click surfaces coalesce an occurrence and retain uncertain request f
   const src=source('core.js');vm.runInContext(src.slice(src.indexOf('const NOTE_MAX'),src.indexOf('// ---------------------------------------------------------------- byte formatting'))+'\nthis.notify=notify;',context);
   context.notify({text:'ordinary'});assert.equal(box.children[0].listeners.contextmenu,undefined);
   context.notify({text:'Due',reminder:true,onClick:()=>opened++,onDismiss:()=>context.dismissDue(reminder)});
-  const toast=box.children[1], chip={dataset:{reminderKey:'r'},closest(s){return s==='[data-reminder-key]' || s==='[data-reminder-key],[data-signoff-key]'?this:null}};
+  const toast=box.children[1], chip={dataset:{reminderKey:'r'},closest(s){return s==='[data-reminder-key]' || s==='[data-reminder-key],[data-signoff-key],[data-question-key]'?this:null}};
   const event={target:chip,currentTarget:host,preventDefault(){this.prevented=true}};
   listeners.contextmenu(event);toast.listeners.contextmenu({preventDefault(){}});listeners.contextmenu(event);await tick();
   assert.equal(event.prevented,true);assert.equal(writes.length,1);assert.equal(writes[0].url,'/biz/project/operations/reminders_dismiss');assert.deepEqual(writes[0].args,{reminder_id:'r',revision:7,occurrence_id:'one',idempotency_key:'key-1'});

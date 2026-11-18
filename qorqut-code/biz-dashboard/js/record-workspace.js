@@ -177,6 +177,8 @@ function recordWorkspaceMount(host, options = {}) {
   let stack = [], disposed = false, pendingEviction = false;
   const api = {
     open, navigate, back, close, dispose, current, refresh, hasUnsaved, updateTitle, isOpen: () => stack.length > 0,
+    // What Open thread does for the record on top: its thread takes the left chat (used when an open question is opened).
+    openThread: async () => { const item = entry(); if (!item?.alive || !threadRecord(item)) return false; await openOwnThread(item); return true; },
     entry, root: () => stack[0] || null, alive: () => !disposed, replace, invalidate, parentTable: () => {
       const item=entry();
       return item?.pairedParent || item?.crmTable || null;
@@ -1060,7 +1062,22 @@ function recordWorkspaceMount(host, options = {}) {
   }
 }
 // ---------------------------------------------------------------- dashboards
+// A record opened from an open question in the sign-off queue carries the question: its answer card sits above the item's own
+// dashboard, so the thread stays on the left and the answer is written on the right, as with an approval.
 async function rwDashboardMount(host, record, ctx) {
+  if (!record.question) return rwDashboardMountBody(host, record, ctx);
+  host.replaceChildren();
+  host.classList.add('rw-dashboard-panel');
+  const top = document.createElement('div'), rest = document.createElement('div');
+  top.className = 'rw-question-top'; rest.className = 'rw-question-dashboard';
+  host.append(top, rest);
+  const card = record.question.mount(top);
+  let inner = null;
+  try { inner = await rwDashboardMountBody(rest, record, ctx); }
+  catch (error) { rest.replaceChildren(); }
+  return {dirty: () => card.dirty() || !!inner?.dirty?.(), dispose() { inner?.dispose?.(); }};
+}
+async function rwDashboardMountBody(host, record, ctx) {
   host.replaceChildren();
   host.classList.add('rw-dashboard-panel');
   // A standalone Dev report is read through the owner root selector; its canonical business_id
