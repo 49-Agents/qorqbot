@@ -118,7 +118,14 @@ Environment, Walkthrough and About & privacy; there is a search box at the top.
   - It is the default way agents use websites. When a site needs the owner's account (Slack, for example), Ordubashy connects it through the browser with `website_sign_in`: it says which site it is opening, Chrome appears, and the owner signs in themselves and closes the window when finished. The agent's browser is paused until that window closes. On a computer without a screen that window cannot open: Ordubashy signs in on the site's own page, in its own browser or in the worker's that needs it, and asks the owner for the password or code. Other agents ask Ordubashy to do this.
   - Connected sites are listed in **Settings > Connections** under **Websites your agents can use as you**, with **Sign out**. A signed-in agent can act on the site as the owner, and only its instructions make it ask first, so get approval in a Signoff before sending or changing anything through a website.
   - **Extensions** are extra tools that run inside Qorqbot, so they work the same in Claude Code and Codex. They are
-    listed below the websites, each with its status: treg and WhatsApp.
+    listed below the websites, each with its status: OpenRouter, treg and WhatsApp.
+  - **OpenRouter** turns on voice input: the owner speaks a Chat message instead of typing it. In Chat they press the
+    microphone beside Send, or Ctrl+Shift+Space, speak, and press again; the words appear in the message box to check
+    before sending, and Escape discards a recording. It uses the owner's own OpenRouter account, which pays OpenRouter
+    for each recording (usually a fraction of a cent). The owner presses **Connect** on the OpenRouter card and signs
+    in or creates an account on OpenRouter's own page, or presses **Paste a key**. The key stays in a private file on
+    this computer and no agent can read it. Only what the owner records is sent, and only when they press the
+    microphone. Ordubashy can check whether it is connected with `openrouter_status`.
   - **treg** is the recommended toolkit for outside data: one key that reaches thousands of lookup tools (search
     results, keywords and backlinks, companies and contacts, social profiles, web pages). It is a Qorqbot extension, so
     its tools arrive through Qorqbot's own tools and work in Claude Code and Codex alike, for Ordubashy and general
@@ -149,8 +156,8 @@ repository describes it). It cannot be connected from Settings.
 ## The walkthrough
 
 Five chapters: get online, your workspace, projects and decisions, make it yours, connect your tools. It ends in Chat:
-the owner types "hi, help me get set up" and Ordubashy starts the get-set-up workflow, asking a few questions and then
-connecting the tools the owner wants. Reopen it with **Walkthrough** in the menu at the top left, with **Settings >
+the owner types "hi, help me get set up" and Ordubashy starts the get-set-up workflow, asking a few questions,
+connecting the tools the owner wants and offering voice input. Reopen it with **Walkthrough** in the menu at the top left, with **Settings >
 Walkthrough**, or in the Mac app with **Help > Show Walkthrough**.
 
 ## The Mac app and the qorqbot command

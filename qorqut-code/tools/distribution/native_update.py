@@ -161,9 +161,9 @@ def main(argv=None):
             if runtime_processes(runtime):
                 raise ValueError('Stop this installation’s remaining browsers and helper processes before updating')
             config = launcher.read_json(instance / 'config/extensions.json')
-            bundled = {'qorqut_google_calendar.extension:create', launcher.TREG_FACTORY}
+            bundled = {'qorqut_google_calendar.extension:create', launcher.TREG_FACTORY, launcher.OPENROUTER_FACTORY}
             if any(item.get('factory') not in bundled for item in config.get('extensions', ())):
-                raise ValueError('Selected optional extensions need a compatible update bundle; this bundle supports core, the bundled calendar provider and the bundled treg toolkit')
+                raise ValueError('Selected optional extensions need a compatible update bundle; this bundle supports core, the bundled calendar provider, the bundled treg toolkit and the bundled OpenRouter extension')
             stage.mkdir(mode=0o700)
             try:
                 unpack(archive_stream, stage)

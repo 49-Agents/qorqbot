@@ -27,9 +27,10 @@ class ConnectorsTest(unittest.TestCase):
 
     def test_view_lists_the_extensions_with_their_statuses(self):
         result = connectors.view(self.runtime, environ=self.environ)
-        self.assertEqual([item["id"] for item in result["connectors"]], ["treg", "whatsapp"])
+        self.assertEqual([item["id"] for item in result["connectors"]], ["openrouter", "treg", "whatsapp"])
         status = {item["id"]: item["status"] for item in result["connectors"]}
         self.assertEqual(status["treg"], "not_installed")
+        self.assertEqual(status["openrouter"], "not_installed")
         self.assertEqual(status["whatsapp"], "coming_soon" if connectors.host_platform() == "darwin" else "not_installed")
         self.assertEqual(set(result), {"connectors", "clients", "platform"})
 
@@ -55,6 +56,17 @@ class ConnectorsTest(unittest.TestCase):
                                   "status": "not_set_up"})
         extension.status = lambda: "connected"
         self.assertEqual(treg()["status"], "connected")
+
+    def test_openrouter_follows_its_extension(self):
+        openrouter = lambda: next(item for item in connectors.view(self.runtime, environ=self.environ)["connectors"]
+                                  if item["id"] == "openrouter")
+        self.assertEqual(openrouter()["status"], "not_installed")
+        extension = SimpleNamespace(id="openrouter", status=lambda: "not_set_up")
+        self.runtime.selection = SimpleNamespace(extensions=(extension, SimpleNamespace(id="treg", status=lambda: "connected")))
+        self.assertEqual(openrouter(), {"id": "openrouter", "kind": "extension", "clients": ["claude-code", "codex"],
+                                        "status": "not_set_up"})
+        extension.status = lambda: "connected"
+        self.assertEqual(openrouter()["status"], "connected")
 
     def test_whatsapp_without_extension_is_coming_soon_on_mac(self):
         self.runtime.resolver.native_connections = {}

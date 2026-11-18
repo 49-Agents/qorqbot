@@ -39,6 +39,11 @@ Installed distributions are selected once by the trusted installation configurat
   `extensions/google-calendar/` of this repository) supplies the `google` connection type to the same `calendar_*` operations.
   Its configuration is empty (connections stay in the private calendar configuration), it reads no credential or Google service
   when selected, and it owns no table or worker. See [Calendar](CALENDAR.md).
+- **OpenRouter**: `qorqut_openrouter.extension:create` (extension id `openrouter`; source in `extensions/openrouter/` of this
+  repository) keeps the owner's own OpenRouter key and uses it for voice input in Chat. It adds the Global read
+  `openrouter_status` for Ordubashy and three owner routes under `/api/root/extensions/openrouter/` (`key`, `connect`,
+  `transcribe`). It reads no key and contacts nothing when selected, and it owns no table or worker. See its
+  [README](../extensions/openrouter/README.md).
 - **Native connections**: an extension that provides an MCP connection names the roles it serves (`NativeConnection.roles`); the
   default role packages do not name any extension.
 

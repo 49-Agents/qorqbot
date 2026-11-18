@@ -583,6 +583,9 @@ function mountChatView(host, options = {}) {
   const banner = $q('.gchat-banner'), scroller = $q('.gchat-scroll'), log = $q('.gchat-log'), pendingHost = $q('.gchat-pending-list'), emptyNote = $q('.gchat-empty');
   const olderButton = $q('.gchat-older'), jump = $q('.gchat-jump'), preview = $q('.gchat-preview-window'), previewContent = $q('.gchat-preview-content');
   const input = form.querySelector('textarea'), send = form.querySelector('.gchat-send');
+  // Voice input (js/voice-input.js) adds its microphone beside Send when the OpenRouter extension is part of this Qorqbot.
+  const mic = options.voiceInput !== false && typeof voiceInput !== 'undefined'
+    ? voiceInput.attach({form, input, before: send, maxLength: defaults.maxLength}) : null;
   host.append(root);
   if (options.composerHost) options.composerHost.append(form);
   else { if (options.footer) root.append(options.footer); root.append(form); }
@@ -592,6 +595,7 @@ function mountChatView(host, options = {}) {
 
   const listen = (target, type, handler, opts) => { target.addEventListener(type, handler, opts); cleanups.push(() => target.removeEventListener(type, handler, opts)); };
   const emit = (name, ...args) => { if (!disposed && ready) options[name]?.(...args); };
+  if (mic) cleanups.push(() => mic.dispose());
 
   // Measure at the compact width first so wrapping never oscillates between layouts.
   // Refreshes with an unchanged draft leave selection and textarea scrolling alone.
@@ -1173,6 +1177,7 @@ function mountChatView(host, options = {}) {
     form.hidden = !!c.hidden;
     input.disabled = !!c.inputDisabled; send.disabled = !!c.sendDisabled;
     if (attach) attach.disabled = !!c.inputDisabled || !!c.filesDisabled;
+    mic?.setLocked(!!c.hidden || !!c.inputDisabled);
     const files = c.attachments || [];
     attachments.hidden = !files.length;
     const signature = JSON.stringify([files, !!c.filesDisabled]);

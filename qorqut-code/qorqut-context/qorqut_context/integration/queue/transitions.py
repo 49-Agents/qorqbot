@@ -148,6 +148,13 @@ def record_preflight_failure(uow, *, driver_id: str, input_id: str, error: Mappi
     return detail(uow, _row(uow, input_id))
 
 
+# How much of the error text the notice carries, so the whole notice fits an inbox summary; the full error is on the input.
+BLOCKED_ERROR_LIMIT = 180
+# What the coordinator does with a blocked input, in the words of its own skill (context-relationships).
+BLOCKED_NEXT_STEP = ("Yours to resolve: context_queue_get, one context_queue_retry, then a blocking Signoff for the owner "
+                     "if it stays blocked.")
+
+
 def _notify(uow, driver_id, ordubashy_id, input_id, attempt, event_type, text) -> int:
     """One required Global notice to the registered coordinator about an input; its detail is read from the input."""
     recipient = uow.connection.execute(
@@ -161,10 +168,15 @@ def _notify(uow, driver_id, ordubashy_id, input_id, attempt, event_type, text) -
 
 
 def _notify_blocked(uow, driver_id, input_id, context_event_id, attempt, error, ordubashy_id) -> int:
-    """The single intervention notice of one attempt; ``context_event_id`` is null when none was ever allocated."""
+    """The single intervention notice of one attempt; ``context_event_id`` is null when none was ever allocated.
+
+    A blocked head stops Context for every scope, so the notice says whose it is and what follows: the coordinator
+    resolves it, and when one retry does not clear it the owner sees it as a blocking Signoff. The instruction comes
+    before the error text, which is the part a length limit may cut."""
     return _notify(uow, driver_id, ordubashy_id, input_id, attempt, "context.input_blocked",
                    f"Context input {input_id} is blocked on attempt {attempt}"
-                   f"{f' (event {context_event_id})' if context_event_id else ''}: {error['code']}: {error['message'][:240]}")
+                   f"{f' (event {context_event_id})' if context_event_id else ''}; Context is stopped for every project. "
+                   f"{BLOCKED_NEXT_STEP} Error: {error['code']}: {error['message'][:BLOCKED_ERROR_LIMIT]}")
 
 
 def _handoff(note: Any) -> dict:

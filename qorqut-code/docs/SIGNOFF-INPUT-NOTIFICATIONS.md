@@ -195,6 +195,8 @@ as context, tasks, or Stories.
 
 `signoff_attention` holds scheduling separately from immutable proposal content.
 Urgent OR blocking notified items deliver immediately and hourly until resolved.
+A pending blocking Signoff is framed in red in the dashboard: its chip in the
+Signoff queue and its row in every Signoffs list.
 There are no quiet hours. Ordinary notified items collect into one summary at
 08:00 `America/New_York` each day, including previously reported pending items.
 The zone handles daylight saving changes. Empty summaries are skipped. On restart,
