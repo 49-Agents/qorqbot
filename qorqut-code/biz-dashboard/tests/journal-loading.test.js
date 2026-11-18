@@ -28,7 +28,7 @@ async function fixture(t) {
     '<div class="agent-journal-host" id="host"></div>'}));
   await page.goto('http://journal.test/');
   await page.addStyleTag({content: ':root{--fg:#eee;--fg-2:#aaa;--fg-3:#777;--line:#333;--sans:Arial;--mono:monospace;--accent:#aaa;--surface:#161616}body{margin:0;background:#161616;color:var(--fg)}#host{height:100vh}'});
-  for (const file of ['css/writing.css', 'css/notes.css']) await page.addStyleTag({path: path.join(dashboard, file)});
+  for (const file of ['css/writing.css', 'css/status-ball.css', 'css/notes.css']) await page.addStyleTag({path: path.join(dashboard, file)});
   await page.addScriptTag({content: `
     const state = {scope:'global', session:{is_owner:true}, bizs:[{slug:'project',id:'project-id'}]};
     let tView = 'globalNotes';
@@ -46,7 +46,7 @@ async function fixture(t) {
     window.finish = (index, rows) => requests[index].resolve(rows);
     window.fail = index => requests[index].reject(new TypeError('Network interrupted'));
   `});
-  for (const file of ['js/writing.js', 'js/notes.js']) await page.addScriptTag({path: path.join(dashboard, file)});
+  for (const file of ['js/writing.js', 'js/status-ball.js', 'js/notes.js']) await page.addScriptTag({path: path.join(dashboard, file)});
   return page;
 }
 

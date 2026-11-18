@@ -485,11 +485,7 @@ function ntWireDetail(root, n) {
 
 
 const NT_DIVIDER = "⸻";                                  // Ctrl/Cmd+Alt+= inserts this exact line
-const NT_STATUS_ORDER = ["todo", "white", "in_progress", "done"];   // the left-click cycle
-const NT_STATUS_LABEL = { todo: "Open", white: "White", in_progress: "In progress", done: "Done", blocked: "Blocked", cancelled: "Cancelled" };
-const ntNextStatus = cur => { const i = NT_STATUS_ORDER.indexOf(cur); return i === -1 ? "todo" : NT_STATUS_ORDER[(i + 1) % NT_STATUS_ORDER.length]; };
-
-const ntIsTaskLine = raw => /^[ \t]*-/.test(raw || "");
+// The status ball (cycle, labels, the "-" task-line rule, markup) is shared with Focus notes: js/status-ball.js.
 // Split a raw line into its task marker / invisible bold token / display text (lines-editor.tsx parseRaw).
 function ntParseRaw(raw) {
   raw = raw || "";
@@ -566,7 +562,7 @@ function ntMakeBlock(es, i) {
   el.className = ["ntline", task && "nttask", meta.bold && "bold"].filter(Boolean).join(" ");
   if (task) {
     const status = ntLineStatus(es, i);
-    if (status === "done" || status === "cancelled") el.classList.add("done");
+    if (ntStatusClosed(status)) el.classList.add("done");
   }
   if (display) el.append(display);
   if (display === "" || display.endsWith("\n")) el.append(document.createElement("br"));
@@ -667,7 +663,7 @@ function ntRenderBalls() {
     if (!ntIsTaskLine(raw) || ntIsRuleAt(es, i)) return [];
     const status = ntLineStatus(es, i), w = document.createElement("span");
     w.className = "ntballwrap";
-    w.innerHTML = `<button type="button" class="ntball ntb-${esc(status)}" data-i="${i}" aria-label="Status: ${esc(NT_STATUS_LABEL[status] || status)}. Click to change."><span class="ntdot"></span></button>`;
+    w.innerHTML = ntBallHtml(status, i);
     const b = w.firstChild;
     b.onclick = e => { e.stopPropagation(); e.preventDefault(); ntCycleBall(i); };
     b.oncontextmenu = e => { e.preventDefault(); e.stopPropagation(); ntToggleBlocked(i); };
@@ -847,7 +843,7 @@ function ntToggleBlocked(i) {
   if (ntEditingLocked(ntSel)) return;
   const es = ntEditState; if (!es) return;
   const cur = ntLineStatus(es, i);
-  ntSetStatus(es, i, cur === "blocked" ? "todo" : "blocked");
+  ntSetStatus(es, i, ntToggleBlockedStatus(cur));
   es.dirty = true;
   ntPatchBall(i);
   ntSchedule();
@@ -855,10 +851,10 @@ function ntToggleBlocked(i) {
 function ntPatchBall(i) {
   const es = ntEditState; if (!es) return;
   const status = ntLineStatus(es, i);
-  const closed = status === "done" || status === "cancelled";
+  const closed = ntStatusClosed(status);
   const btn = nt$(`.ntball[data-i="${i}"]`); if (!btn) return;
   btn.className = `ntball ntb-${status}`;
-  btn.setAttribute("aria-label", `Status: ${NT_STATUS_LABEL[status] || status}. Click to change.`);
+  btn.setAttribute("aria-label", ntBallLabel(status));
   ntBlockClass(i, "done", closed);
 }
 
