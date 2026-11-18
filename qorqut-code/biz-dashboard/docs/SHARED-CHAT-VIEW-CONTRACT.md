@@ -51,6 +51,9 @@ Options:
 - `onDraft(text)`, `onSubmit(text)`, `onOlder()`, `onViewportChange()`,
   `onReference(value, entryKey)`, `onEntryAction(actionKey, entryKey)`,
   `onPendingAction(actionKey, pendingKey)`, `onEmptyAction(actionKey)`.
+  `onReact(entryKey)` optionally enables the thumbs-up: an entry with `reactable: true` shows the button beside Copy on
+  hover and reacts on a double-click of its words; an entry with `reaction` shows that mark under the message. The
+  controller decides what a reaction sends (`chatReactionText`) and which entries carry one (`chatReactionFold`).
   The view does not await or interpret transport results. Controllers catch errors.
   onReference receives references[i].value itself, not the descriptor containing
   value. No callback after dispose. Hidden/disconnected feed reports no visible keys.

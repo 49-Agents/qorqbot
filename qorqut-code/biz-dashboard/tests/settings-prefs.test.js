@@ -37,9 +37,9 @@ test('appearance ignores unknown saved values', () => {
 test('desktop notifications are off until turned on, and then only in the background', async () => {
   const {shown} = browser({visible: true, focused: true});
   const notify = fresh('../js/desktop-notify.js');
-  assert.deepEqual(notify.prefs(), {replies: false, signoffs: false});
+  assert.deepEqual(notify.prefs(), {replies: false, signoffs: false, reminders: false, routines: false});
   assert.equal(notify.send({kind: 'replies', title: 'Ordubashy'}), null);
-  assert.deepEqual(await notify.enable('replies', true), {replies: true, signoffs: false});
+  assert.deepEqual(await notify.enable('replies', true), {replies: true, signoffs: false, reminders: false, routines: false});
   assert.equal(notify.send({kind: 'replies', title: 'Ordubashy'}), null, 'not while the dashboard is in front');
   document.visibilityState = 'hidden';
   assert.ok(notify.send({kind: 'replies', title: 'Ordubashy', body: 'Done'}));
@@ -50,6 +50,6 @@ test('desktop notifications are off until turned on, and then only in the backgr
 test('a refused permission keeps notifications off', async () => {
   browser({permission: 'denied'});
   const notify = fresh('../js/desktop-notify.js');
-  assert.deepEqual(await notify.enable('signoffs', true), {replies: false, signoffs: false});
+  assert.deepEqual(await notify.enable('signoffs', true), {replies: false, signoffs: false, reminders: false, routines: false});
   assert.equal(notify.send({kind: 'test', title: 'Qorqbot', force: true}), null);
 });

@@ -591,11 +591,11 @@ const reminderNotifications = (() => {
           const key = `${remId(reminder)}:${reminder.occurrence_id || reminder.due_at || reminder.at || ''}`;
           if (seen.has(key)) continue;
           seen.add(key);
-          notify({text: reminder.text || 'Reminder due', reminder: true,
-            onDismiss: () => remindersDismissDue(reminder),
-            onClick: () => remindersOpenDetail(reminder, {onChange: () => {
-              if (typeof attentionQueue !== 'undefined') void attentionQueue.refreshSignoffs();
-            }})});
+          const openDue = () => remindersOpenDetail(reminder, {onChange: () => {
+            if (typeof attentionQueue !== 'undefined') void attentionQueue.refreshSignoffs();
+          }});
+          notify({text: reminder.text || 'Reminder due', reminder: true, onDismiss: () => remindersDismissDue(reminder), onClick: openDue});
+          if (typeof desktopNotify !== 'undefined') desktopNotify.send({kind: 'reminders', title: 'Reminder', body: reminder.text || 'Reminder due', tag: 'reminder:' + key, onClick: openDue});
         }
       } catch (_) { /* Retry on the next poll without losing seen occurrences. */ }
       finally { inflight = null; clearTimeout(timer); timer = setTimeout(poll, 30000); }
