@@ -12,6 +12,7 @@ from qorqut_operations.application.plans import schema
 from qorqut_operations.contracts import DomainError, InvocationOptions, new_id, plain
 
 from qorqut.domains.owner_inputs import OwnerInputs
+from qorqut.domains.records_health import disagreements
 from qorqut.domains.work_review import WorkReview
 from qorqut.native_chat import projection, store
 
@@ -49,25 +50,31 @@ class WorkReviewTests(unittest.TestCase):
         with self.runtime.database.transaction() as uow:
             uow.connection.execute(sql, values)
 
-    def task(self, title, *, by=None, created=BEFORE, status="open", workers=(), kind=None, line=None):
+    def task(self, title, *, by=None, created=BEFORE, status="open", workers=(), kind=None, line=None, business=None):
         identity = new_id()
         fields = {"$task": {**({"task_type": kind} if kind else {}), **({"status_line": line} if line else {})}}
         self.write("INSERT INTO tasks(business_id,id,title,status,worker_ids_json,fields_json,created_by,created_at,updated_at) "
-                   "VALUES(NULL,?,?,?,?,?,?,?,?)", (identity, title, status, json.dumps(list(workers)), json.dumps(fields),
-                                                    by or self.lead, created, created))
+                   "VALUES(?,?,?,?,?,?,?,?,?)", (business, identity, title, status, json.dumps(list(workers)), json.dumps(fields),
+                                                 by or self.lead, created, created))
         return identity
 
-    def change(self, task, by, when, body, *, moved=(None, None), fields=()):
+    def change(self, task, by, when, body, *, moved=(None, None), fields=(), business=None):
         self.write("INSERT INTO thread_messages(business_id,id,item_type,item_id,kind,body,recorder_id,change_json,created_at) "
-                   "VALUES(NULL,?,'task',?,'system',?,?,?,?)",
-                   (new_id(), task, body, by, json.dumps({"from": moved[0], "to": moved[1], "details": bool(fields),
-                                                          "fields": list(fields)}), when))
+                   "VALUES(?,?,'task',?,'system',?,?,?,?)",
+                   (business, new_id(), task, body, by, json.dumps({"from": moved[0], "to": moved[1], "details": bool(fields),
+                                                                    "fields": list(fields)}), when))
 
-    def action(self, text, by, when):
+    def action(self, text, by, when, business=None):
         identity = new_id()
         self.write("INSERT INTO action_logs(business_id,id,action_key,action_text,performed_by,recorded_by,origin,occurred_at,"
-                   "created_at,updated_at) VALUES(NULL,?,?,?,?,?,'agent',?,?,?)",
-                   (identity, "global/" + identity, text, by, self.lead, when, when, when))
+                   "created_at,updated_at) VALUES(?,?,?,?,?,?,'agent',?,?,?)",
+                   (business, identity, ("business/" + business if business else "global") + "/" + identity, text, by, self.lead, when, when, when))
+        return identity
+
+    def project(self, name, *, archived):
+        identity = new_id()
+        self.write("INSERT INTO businesses(id,slug,workspace,hq_path,name,created_at,updated_at,archived_at) VALUES(?,?,?,?,?,?,?,?)",
+                   (identity, name, "/workspaces/" + name, "/hq/" + name, name, BEFORE, BEFORE, BEFORE if archived else None))
         return identity
 
     def read(self, args=None, *, ctx=None):
@@ -193,6 +200,26 @@ class WorkReviewTests(unittest.TestCase):
         self.assertEqual(standing, {"as_of": "2026-11-12T18:00:00.000000Z", "open_work_tasks": 5, "open_without_worker": 1,
                                     "working_untouched": 1, "parked_untouched": 1, "parked_without_wake_time": 1,
                                     "needs_owner_input": 1, "pending_signoffs": 0, "unacknowledged": 0, "last_report": None})
+
+    def test_an_archived_projects_records_are_left_out_here_and_in_records_health(self):
+        live, gone = self.project("live", archived=False), self.project("gone", archived=True)
+        for business in (live, gone):
+            task = self.task("Open work", business=business, created=at(10))
+            self.task("Stalled", status="working", workers=[self.worker], business=business)
+            self.change(task, self.worker, at(11), "State changed from open to done.", moved=("open", "done"), business=business)
+            self.action("Sent message", self.worker, at(12), business=business)
+        review = self.read()
+        self.assertEqual([review["tasks"][name]["count"] for name in ("created", "closed")], [1, 1])
+        self.assertEqual(review["actions"]["count"], 1)
+        self.assertEqual((review["standing_now"]["open_work_tasks"], review["standing_now"]["working_untouched"]), (2, 1))
+        listed = {item["task"]["business_id"] for item in review["tasks"]["created"]["items"] + review["tasks"]["closed"]["items"]}
+        self.assertEqual(listed | {item["business_id"] for item in review["actions"]["items"]}, {live})
+        with self.runtime.database.transaction() as uow:
+            health = disagreements(uow.connection, NOW)
+        self.assertNotIn("open_in_archived_project", health["checks"])
+        self.assertEqual((health["totals"]["open_work_tasks"], health["checks"]["working_untouched"]["count"]), (2, 1))
+        self.assertTrue(all(example["business_id"] == live for check in health["checks"].values()
+                            for example in check["examples"]))
 
     def test_a_section_that_cannot_be_read_is_named_and_the_others_still_answer(self):
         self.action("Sent the contract", self.worker, at(9))
