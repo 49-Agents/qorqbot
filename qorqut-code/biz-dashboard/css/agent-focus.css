@@ -356,3 +356,10 @@
 .agent-workspace-app .agsplit > .agpad .rw-chat,
 .agent-workspace-app .agsplit > .agpad .side-chat-thread,
 .agent-workspace-app .agsplit > .agpad .agfocus-expansion-content:not(:has(.side-chat-thread)):has(.conversation-view .chat-view){zoom:calc(1 / .9)}
+
+/* Calendar events and the browser/desktop view sit on the Focus board like a Signoff: no frame, no fill, no inset. */
+.agfocus-surface-body:has(> .agfocus-desktop-view),
+.agfocus-surface-body:has(> .agfocus-expansion-content > .calendar-focus-content),
+.agfocus-surface-body:has(> .agfocus-expansion-content > .calendar-recovery){border:0;border-radius:0;background:transparent}
+.agfocus-expansion-content:has(> .calendar-focus-content),.agfocus-expansion-content:has(> .calendar-recovery){padding:0}
+.agfocus-expansion-content > .calendar-recovery{padding:0}
