@@ -63,6 +63,8 @@ class AgentClientsTest(unittest.TestCase):
 
     def fake_run(self, outputs):
         def run(command, **options):
+            if command[0] == "/usr/bin/security":     # macOS: the Keychain has no such item (exit status 44), so the file is read
+                return SimpleNamespace(returncode=44, stdout="", stderr="")
             self.calls.append(command[1:])
             code, out = outputs.get(tuple(command[1:]), (1, ""))
             return SimpleNamespace(returncode=code, stdout=out, stderr="")

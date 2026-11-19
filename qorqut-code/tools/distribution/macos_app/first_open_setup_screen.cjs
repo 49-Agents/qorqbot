@@ -29,8 +29,8 @@ function evaluate(address, expression) {
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const REAL_READ = `(async () => {
-  const response = await fetch('/root/agent-clients', {credentials: 'include'});
-  return JSON.stringify({status: response.status, body: (await response.text()).slice(0, 700)});
+  try { const answer = await api('/root/agent-clients'); return JSON.stringify({status: 200, body: JSON.stringify(answer).slice(0, 700)}); }
+  catch (error) { return JSON.stringify({status: error.status || 0, body: String(error.message || error).slice(0, 700)}); }
 })()`;
 const OPEN = `(() => { try { sessionStorage.removeItem('qorqbot:agent-setup-later'); } catch (_) {} agentClients.preflight(%OPTIONS%); return 'started'; })()`;
 const STAND_IN = `{read: async () => ({claude: {installed: false, signed_in: false, install: {phase: 'not_downloaded', progress: null, message: null, version: '2.1.269'}},
@@ -39,7 +39,13 @@ const SCREEN = `(() => { const gate = document.querySelector('.ac-gate'); return
   rows: [...gate.querySelectorAll('[data-ac-gate-rows] > *')].map(row => row.innerText.replace(/\\s+/g, ' ').trim().slice(0, 200)),
   buttons: [...gate.querySelectorAll('button')].map(button => button.textContent.trim() + (button.disabled ? ' (disabled)' : ''))}) : ''; })()`;
 
+// The sign-in gate sits over the page; hide it so the screenshot shows the setup screen.
+const HIDE_ACCOUNT_GATE = `(() => { let node = (document.querySelector('#account-gate-title') || {}).parentElement; let hidden = 0;
+  while (node && node !== document.body) { if (getComputedStyle(node).position === 'fixed') { node.style.display = 'none'; hidden++; break; } node = node.parentElement; }
+  return hidden; })()`;
+
 async function show(address, options) {
+  await evaluate(address, HIDE_ACCOUNT_GATE);
   await evaluate(address, OPEN.replace('%OPTIONS%', options));
   for (let waited = 0; waited < 9000; waited += 500) {
     await pause(500);

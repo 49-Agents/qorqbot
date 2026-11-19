@@ -48,6 +48,14 @@ def ticks(pid):
     return process_fields(pid)[19]
 
 
+def process_name(pid):
+    """The process's short name: /proc/<pid>/comm on Linux, the application's own reader (psutil) on macOS."""
+    if sys.platform == "darwin":
+        from qorqut import process_info
+        return process_info.name(pid)
+    return (Path("/proc") / str(pid) / "comm").read_text().strip()
+
+
 class Database:
     """A real in-memory database with the native Chat tables and the owner row table the selection reads."""
 
@@ -898,6 +906,8 @@ class AttestTests(unittest.TestCase):
         self.written = patches[1].start()
         for patcher in patches[:1] + patches[2:]:
             patcher.start()
+        if sys.platform == "darwin":   # the argument vector comes from process_info there, not from /proc/<pid>/cmdline
+            mock.patch("qorqut.process_info.cmdline", lambda pid: [item.decode() for item in self.args]).start()
         self.addCleanup(mock.patch.stopall)
 
     def attest(self):
@@ -1029,7 +1039,7 @@ class RealProcessCase(unittest.TestCase):
 
     def wait_for_name(self, pid, name="claude"):
         for _ in range(100):
-            if (Path("/proc") / str(pid) / "comm").read_text().strip() == name:
+            if process_name(pid) == name:
                 return
             time.sleep(0.02)
         self.fail("process did not take its name")
@@ -1037,13 +1047,13 @@ class RealProcessCase(unittest.TestCase):
     @staticmethod
     def children(pid):
         found = []
-        for entry in Path("/proc").iterdir():
-            if entry.name.isdigit():
-                try:
-                    if int(process_fields(int(entry.name))[1]) == pid:
-                        found.append(int(entry.name))
-                except (OSError, IndexError, ValueError):
-                    continue
+        from qorqut import process_info
+        for number in (process_info.pids() if sys.platform == "darwin" else [int(e.name) for e in Path("/proc").iterdir() if e.name.isdigit()]):
+            try:
+                if int(process_fields(number)[1]) == pid:
+                    found.append(number)
+            except (OSError, IndexError, ValueError):
+                continue
         return found
 
     def observation(self, pid, **extra):
@@ -1395,7 +1405,7 @@ class HostFilterShapeTests(unittest.TestCase):
     def test_the_host_executable_must_be_a_python_where_it_can_be_read(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        workspace = Path(directory.name) / "agent"
+        workspace = Path(directory.name).resolve() / "agent"   # macOS's temporary folder is reached through a link, which the filter refuses
         (workspace / ".qorqut").mkdir(parents=True)
         (workspace / ".qorqut/managed-host.json").write_text(json.dumps({"host_pid": 500, "host_ticks": "555", "agent_id": AGENT}))
 
@@ -1415,7 +1425,7 @@ class HostFilterShapeTests(unittest.TestCase):
     def test_a_record_host_id_is_short_plain_text_or_replaced(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        workspace = Path(directory.name) / "agent"
+        workspace = Path(directory.name).resolve() / "agent"
         (workspace / ".qorqut").mkdir(parents=True)
         table = FakeProcesses({500: process(1, "555", "python3", HOST_ARGV), 600: process(500, "601", "claude", [b"-p"])})
         for host_id, expected in (("host-1:a.b", "host-1:a.b"), ("<x>", "host:500:555"), ("x" * 65, "host:500:555"), (5, "host:500:555"),

@@ -352,7 +352,7 @@ def main():
     root.mkdir(parents=True, exist_ok=True)
     os.environ["QORQUT_FOLDER_ROOT"] = str(root)
     os.environ.pop("QORQUT_CLAUDE_EXECUTABLE", None)
-    base = Path(tempfile.mkdtemp(prefix="qh-", dir="/tmp"))
+    base = Path(os.path.realpath(tempfile.mkdtemp(prefix="qh-", dir="/tmp")))   # /tmp is a link on macOS; the hook-side check refuses linked paths
     home = base / "home"
     home.mkdir()
     machine = {"platform": sys.platform, "machine": platform.machine(), "mac_version": platform.mac_ver()[0], "python": sys.version.split()[0], "work": str(base)}

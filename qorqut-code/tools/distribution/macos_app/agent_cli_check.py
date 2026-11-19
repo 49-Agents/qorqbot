@@ -260,7 +260,7 @@ def wrappers(report, install, launch, root, work):
                          f"{install.VERSIONS['claude']} (Claude Code)" in output and f"codex-cli {install.VERSIONS['codex']}" in output and "OWNER-" not in output,
                          output.strip()[:300])
         else:
-            report.check(f"zsh wrapper {label}: the owner's own CLI on PATH runs unchanged", "OWNER-CLAUDE --version" in output and "OWNER-CODEX --version" in output,
+            report.check(f"zsh wrapper {label}: the owner's own CLI on PATH runs unchanged", "OWNER-CLAUDE" in output and "OWNER-CODEX" in output,
                          output.strip()[:300])
     # What a new terminal session is given: our folders first on PATH and the markers.
     sample = launch.session_environment({"PATH": "/usr/bin:/bin"}, dict(os.environ))

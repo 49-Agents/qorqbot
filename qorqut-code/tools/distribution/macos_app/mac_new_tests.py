@@ -39,7 +39,7 @@ RESULT = re.compile(r"^(OK|FAILED)(?: \(([^)]*)\))?\s*$", re.M)
 PROBLEM = re.compile(r"^(FAIL|ERROR): (.+)$", re.M)
 SKIPPED = re.compile(r"^(?P<name>.+?) \.\.\. skipped '(?P<reason>.*)'\s*$", re.M)
 SKIPPED_AFTER_DOC = re.compile(r"^(?P<name>test\S* \(.+\))\n.* \.\.\. skipped '(?P<reason>.*)'\s*$", re.M)
-NODE_TOTALS = {key: re.compile(r"^# %s (\d+)" % key, re.M) for key in ("tests", "pass", "fail", "cancelled", "skipped")}
+NODE_TOTALS = {key: re.compile(r"^(?:#|ℹ) %s (\d+)" % key, re.M) for key in ("tests", "pass", "fail", "cancelled", "skipped")}
 
 
 def run(command, log, *, cwd, env, timeout):

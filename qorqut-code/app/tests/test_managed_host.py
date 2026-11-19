@@ -278,7 +278,8 @@ def wait_for(condition, timeout=8.0, interval=0.02, message="condition"):
 class ManagedTestCase(unittest.TestCase):
     def setUp(self):
         self.environment = isolated_cli_environment.isolate(self)
-        self.root = Path(tempfile.mkdtemp(prefix="mh-")).resolve()
+        # macOS's temporary folder is long (/private/var/folders/...): a Unix socket path must stay under 104 bytes, so use /tmp there.
+        self.root = Path(tempfile.mkdtemp(prefix="mh-", dir="/tmp" if sys.platform == "darwin" else None)).resolve()
         self.addCleanup(self._remove_root)
         self.agent = str(uuid.uuid4())
         self.state = self.root / "managed-agents" / self.agent
@@ -1495,6 +1496,7 @@ class HostEnvironmentFileTest(ManagedTestCase):
         launcher._add_host_environment(self.state, {"A": 1})
         self.assertEqual(host_module.ManagedHost(self.state, driver_class=FakeSession).run(threading.Event()), layout.EXIT_CONFIG)
 
+    @unittest.skipUnless(sys.platform == "linux", "UserUnitLauncher starts systemd units, which exist only on Linux")
     def test_only_variables_that_cannot_hold_credentials_travel_in_the_systemd_command_line(self):
         calls = []
 
