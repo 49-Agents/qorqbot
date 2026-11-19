@@ -236,7 +236,9 @@ def _system_version(provider, path, environ, run, probe=True):
         return False
     version = None
     try:
-        env = {**os.environ, **launch_environment(provider)}
+        # The environment the file was looked up in (the owner's PATH), not this service's own: an npm-installed client is a
+        # ``#!/usr/bin/env node`` script and only finds ``node`` where the owner's terminal does.
+        env = {**os.environ, **{key: value for key, value in environ.items() if isinstance(value, str)}, **launch_environment(provider)}
         output = run([path, '--version'], capture_output=True, text=True, timeout=VERSION_TIMEOUT, stdin=subprocess.DEVNULL, env=env)
         found = _VERSION.search(output.stdout or '') if output.returncode == 0 else None
         version = tuple(int(part) for part in found.groups()) if found else None

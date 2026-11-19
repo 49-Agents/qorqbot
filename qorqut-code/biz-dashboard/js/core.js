@@ -319,6 +319,8 @@ function coreData(result) {
     const code = (source && source.code) || (typeof source === "string" && source ? "" : "invalid_response");
     const error = new Error(explainFailure(code, typeof source === "string" ? source : source && source.message, result && result.httpStatus));
     error.code = code || "invalid_response";
+    // The server's own sentence, before the vocabulary filter above: a few refusals are written for the owner by name (agent, client).
+    error.serverMessage = source && typeof source.message === "string" ? source.message.trim() : "";
     error.details = (source && source.details) || {};
     error.httpStatus = result && result.httpStatus;
     throw error;

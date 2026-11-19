@@ -253,6 +253,19 @@ class ManagerLaunch(base.ManagerFixture):
         self.assertEqual(self.spec()["args"][-2:], ["--effort", "max"])
         self.assertNotIn("--model", self.spec()["args"])
 
+    def test_a_stored_model_of_the_other_client_is_not_passed_to_the_client(self):
+        # An older stored mismatch must never make a session fail to open: the client starts on its own default model.
+        self.open(client="codex", model="haiku", effort="high")
+        spec = self.spec()
+        self.assertEqual(spec["model"], None)
+        self.assertNotIn("haiku", spec["args"])
+        self.assertEqual(options.read(self.paths, AGENT).model, "haiku", "what is stored is the owner's to change")
+
+    def test_the_client_is_started_with_the_owners_search_path_too(self):
+        with mock.patch.object(hosts.agent_cli_launch, "search_environment", lambda env=None: {"PATH": "/owner/node/bin:/usr/bin"}):
+            self.open()
+        self.assertEqual(self.spec()["env"]["PATH"], "/owner/node/bin:/usr/bin")
+
     def test_the_hosts_permission_mode_comes_from_the_prepared_settings(self):
         (self.workspace / ".qorqut" / "claude-launch-settings.json").write_text(
             json.dumps({"permissions": {"defaultMode": "bypassPermissions"}}))
@@ -451,8 +464,9 @@ class Routes(base.Fixture):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["cache-control"], "private, no-store")
         self.assertEqual(response.json()["data"], {
-            "client": None, "model": None, "effort": None, "effective_client": "claude",
-            "clients": {"claude": {"ready": True}, "codex": {"ready": False}}, "session_open": False})
+            "client": None, "model": None, "effort": None, "effective_client": "claude", "model_fits": True,
+            "clients": {"claude": {"ready": True}, "codex": {"ready": False}},
+            "suggestions": {"claude": ["opus", "sonnet", "haiku"], "codex": ["gpt-6-luna"]}, "session_open": False})
         self.assertFalse((self.paths.runtime / "managed-agents").exists(), "a read writes nothing")
 
     def test_a_change_is_stored_and_the_view_returned(self):
@@ -533,6 +547,39 @@ class Routes(base.Fixture):
     def test_other_verbs_are_not_routes(self):
         self.assertGreaterEqual(self.client.delete(self.url).status_code, 400)
         self.assertFalse((self.paths.runtime / "managed-agents").exists())
+
+    def test_a_client_change_clears_a_model_of_the_other_client_and_keeps_effort(self):
+        self.post({"model": "haiku", "effort": "low"})
+        data = self.post({"client": "codex"}).json()["data"]
+        self.assertEqual((data["client"], data["model"], data["effort"], data["model_fits"]), ("codex", None, "low", True))
+        self.assertEqual(options.read(self.paths, AGENT), options.Options("codex", None, "low"))
+        # a model that fits the new client stays
+        self.post({"model": "gpt-6-luna"})
+        self.assertEqual(self.post({"client": "claude"}).json()["data"]["model"], None)
+        self.post({"client": "codex", "model": "gpt-6-luna"})
+        self.assertEqual(options.read(self.paths, AGENT).model, "gpt-6-luna")
+        # clearing the client resolves to Claude Code here (it is ready): a Codex model goes too
+        self.assertEqual(self.post({"client": None}).json()["data"]["model"], None)
+
+    def test_a_named_model_of_the_other_client_is_refused_in_plain_words(self):
+        options.write(self.paths, AGENT, client="codex")
+        refused = self.post({"model": "haiku"})
+        self.assertEqual((refused.status_code, refused.json()["error"]["code"]), (422, "validation_error"))
+        self.assertEqual(refused.json()["error"]["message"],
+                         "haiku is a Claude Code model, and this agent uses Codex. Choose a Codex model, or leave it on default.")
+        self.assertIsNone(options.read(self.paths, AGENT).model)
+        both = self.post({"client": "codex", "model": "claude-haiku-4-5"})
+        self.assertEqual(both.status_code, 422)
+        self.assertEqual(options.read(self.paths, AGENT), options.Options("codex", None, None), "nothing changed")
+        # a name of no known family may be typed for either client
+        self.assertEqual(self.post({"model": "my-new-model"}).status_code, 200)
+
+    def test_a_stored_mismatch_is_reported_by_the_view_and_clears_with_the_next_client_choice(self):
+        options.write(self.paths, AGENT, client="codex", model="haiku")        # as the cutover tool or an older version left it
+        data = self.get().json()["data"]
+        self.assertEqual((data["model"], data["model_fits"]), ("haiku", False))
+        self.assertEqual(self.post({"effort": "high"}).status_code, 200, "an unrelated change is not blocked by it")
+        self.assertEqual(self.post({"model": None}).json()["data"]["model_fits"], True)
 
     def test_an_unwritable_state_folder_is_a_plain_refusal(self):
         with mock.patch.object(options, "write", side_effect=OSError("disk")):

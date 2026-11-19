@@ -119,6 +119,7 @@ const onboarding = (() => {
     }
   }
   function create() {
+    stopWatching();
     if (root) return;
     previousFocus = document.activeElement; savedInert = !!document.querySelector('.app')?.inert;
     replay = saved?.status === 'completed';
@@ -318,7 +319,9 @@ const onboarding = (() => {
       const hint = card.querySelector('.onboarding-hint');
       if (ready.state !== 'ready') {
         unanswered = true;
-        card.querySelector('#onboarding-description').textContent = ready.state === 'chosen' ? step.setup.chosen(agentClients.NAMES[ready.client]) : step.setup.none;
+        // What is missing, said for the clients as they are now (the step's own text is the fallback).
+        card.querySelector('#onboarding-description').textContent = onboardingPlan.helloMissing(clients, ready)
+          || (ready.state === 'chosen' ? step.setup.chosen(agentClients.NAMES[ready.client]) : step.setup.none);
         if (hint) hint.remove();
         const open = card.querySelector('[data-tour-settings]'); if (open) open.hidden = false;
         return;
@@ -333,12 +336,30 @@ const onboarding = (() => {
       }
     }
   }
-  // Leaves the tour for Settings, Agents, where Claude Code and Codex get connected. Progress stays on this step, as with Esc.
+  // Leaves the tour for Settings, Agents, where Claude Code and Codex get connected. Progress stays on this step, as with Esc. The tour
+  // steps aside completely (nothing of it stays on the screen to block a click) and comes back to this same step when the owner
+  // leaves Settings or a client becomes ready, whichever is first.
+  let comeBack = 0;
+  const stopWatching = () => { if (comeBack) { clearInterval(comeBack); comeBack = 0; } };
   async function openSettings() {
     if (!replay) persist('in_progress').catch(() => {});
+    const last = steps.length - 1;
     dispose();
-    toast('Connect Claude Code or Codex here. The walkthrough picks up at the last step when you open it again.');
+    toast('Connect Claude Code or Codex here. The walkthrough comes back to this step when you are done.');
     try { await selectGlobal('settings'); if (typeof settingsShowSection === 'function') settingsShowSection('agents'); } catch (_) { /* Settings opens from the menu too. */ }
+    stopWatching();
+    comeBack = setInterval(async () => {
+      if (root) { stopWatching(); return; }                              // the tour is on screen again some other way
+      if (document.hidden || _modal) return;
+      const inSettings = state.scope === 'global' && state.globalTab === 'settings';
+      if (inSettings) {                                                  // still in Settings: back only once a client is ready
+        const clients = await api('/root/agent-clients', {signal: AbortSignal.timeout(4000)}).then(coreData).catch(() => null);
+        if (!clients || onboardingPlan.helloReadiness(clients).state !== 'ready') return;
+      }
+      stopWatching();
+      if (root) return;
+      index = last; create(); await showStep(last);
+    }, 2500);
   }
   async function showStep(next) {
     if (busy) return;
@@ -361,7 +382,7 @@ const onboarding = (() => {
       <h2 id="onboarding-title">${step.title}</h2><p id="onboarding-description">${step.body}</p>${step.instructions ? `<ol class="onboarding-instructions">${step.instructions.map(text => `<li>${text}</li>`).join('')}</ol>` : ''}${step.hint ? `<p class="onboarding-hint">${step.hint}</p>` : ''}
       ${step.example?`<div class="onboarding-example" aria-label="Example signoff"><span class="onboarding-example-tag">Example</span><p class="onboarding-example-from">${esc(step.example.agent)} asks</p><p class="onboarding-example-title">${esc(step.example.title)}</p><p class="onboarding-example-detail">${esc(step.example.detail)}</p><div class="onboarding-example-actions"><span>Approve</span><span>Decline</span></div></div>`:''}
       ${step.action?`<button type="button" class="onboarding-action" data-tour-action disabled>${step.action}<span aria-hidden="true">↗</span></button>`:''}
-      ${step.hello?'<button type="button" class="onboarding-action" data-tour-settings hidden>open settings<span aria-hidden="true">→</span></button>':''}
+      ${step.hello?'<button type="button" class="onboarding-action" data-tour-settings hidden>open Settings &gt; Agents<span aria-hidden="true">→</span></button>':''}
       <p class="onboarding-notice" data-tour-notice role="status">Opening this part of your workspace…</p>
       <div class="onboarding-footer"><div><button type="button" class="ghost onboarding-skip" data-tour-skip>skip</button>${following >= 0 ? '<button type="button" class="ghost onboarding-skip" data-tour-chapter>skip chapter</button>' : ''}</div><div><button type="button" class="ghost" data-tour-back ${index?'':'disabled'}>back</button><button type="button" data-tour-next disabled>${index===steps.length-1?'done':'next'}</button></div></div>`;
     card.querySelector('[data-tour-skip]').onclick = () => exit();

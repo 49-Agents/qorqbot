@@ -47,6 +47,7 @@ from qorqut import agent_cli_launch
 from qorqut_operations.contracts import DomainError
 
 from . import clients as table
+from . import models
 from . import options as launch_options
 from . import state as layout
 from .client import HostUnavailable
@@ -185,19 +186,30 @@ def _pending(items):
 
 
 CLOSED_VIEW = {"open": False, "state": "closed", "phase": None, "activity": None, "turn_started_at": None, "can_stop": False,
-               "pending": [], "last_turn_status": None, "session_id": None, "closed_reason": None, "closed_text": None}
+               "pending": [], "last_turn_status": None, "turn_error": None, "session_id": None, "closed_reason": None, "closed_text": None}
 
 # Why a host that is gone stopped, in plain words. A host that ended because it was asked to, or sat idle, has no entry: nothing
 # went wrong. Any other reason still says that the session ended unexpectedly.
 NORMAL_ENDS = frozenset({"requested", "idle", "signal", "claude_ended"})
 END_TEXT = {
-    "claude_exited": "Claude Code stopped unexpectedly. Send a message to start the session again.",
+    "claude_exited": "{client} stopped unexpectedly. Send a message to start the session again.",
     "host_gone": "The session stopped unexpectedly. Send a message to start it again.",
     "host_error": "The session stopped because of an internal error. Send a message to start it again.",
     "resume_failed": "The earlier conversation could not be continued. Send a message to start it again, or start a new conversation.",
-    "driver_unavailable": "Claude Code could not be started. Check that it is installed and signed in, then send a message.",
+    "driver_unavailable": "{client} could not be started. Check that it is installed and signed in under Settings > Agents, then send a message.",
     "invalid_launch": "The session could not be started. Send a message to try again.",
 }
+
+
+def _turn_error(status):
+    """The client's own words about the last turn when it ended in an error (an account that is refused, a usage limit with the time
+    to try again, a failed sign-in), bounded; None when the last turn did not fail. The host keeps it as ``last_turn.error``."""
+    last = status.get("last_turn") if isinstance(status.get("last_turn"), dict) else {}
+    text = last.get("error")
+    if last.get("status") != "error" or not isinstance(text, str):
+        return None
+    text = " ".join(text.split())[:300]
+    return text or None
 
 
 def _view(record, status):
@@ -207,13 +219,13 @@ def _view(record, status):
     return {"open": True, "state": record.get("state"), "phase": phase, "activity": status.get("activity"),
             "turn_started_at": status.get("turn_started_at"), "can_stop": phase in WORKING,
             "pending": _pending(status.get("pending")), "last_turn_status": status.get("last_turn_status"),
-            "session_id": record.get("session_id"), "closed_reason": None, "closed_text": None}
+            "turn_error": _turn_error(status), "session_id": record.get("session_id"), "closed_reason": None, "closed_text": None}
 
 
 def _shown(view):
     """What Chat shows: a change here is worth telling the browser about."""
     return (view["open"], view["phase"], tuple(item["request_id"] for item in view["pending"]), view["activity"],
-            view.get("closed_reason"))
+            view.get("closed_reason"), view.get("turn_error"))
 
 
 def _events_of(reply):
@@ -228,13 +240,16 @@ class ManagedRuntime:
     preparation); ``launcher`` is the host launcher (default: the ``launcher`` module of this package)."""
 
     def __init__(self, runtime, *, launcher=None, prepare=None, resume=None, executable=None, clock=time.monotonic, sleep=time.sleep,
-                 idle_seconds=IDLE_SECONDS, max_opens=MAX_CONCURRENT_OPENS, ready=None):
+                 idle_seconds=IDLE_SECONDS, max_opens=MAX_CONCURRENT_OPENS, ready=None, client_state=None):
         self._runtime = runtime
         self.paths = getattr(runtime, "paths", None)
         self._launcher, self._prepare_override, self._resume_override = launcher, prepare, resume
         self._executable = executable
         # ``ready(client)``: that CLI is installed and signed in. Asked only for an agent with no stored client (options.py).
         self._ready = ready
+        # ``client_state()``: what each client's state is (``native_chat.client_state.states``), read once per open. Without it (and
+        # without an injected ``ready``) the real status is read; with only ``ready`` injected nothing is checked before the open.
+        self._client_state = client_state
         self._clock, self._sleep, self._idle = clock, sleep, idle_seconds
         self._guard = threading.RLock()
         self._views: dict[str, dict] = {}
@@ -400,7 +415,8 @@ class ManagedRuntime:
         if reason is None or reason in NORMAL_ENDS:
             return {}
         return {"closed_reason": reason[:60],
-                "closed_text": END_TEXT.get(reason, "The session ended unexpectedly. Send a message to start it again.")}
+                "closed_text": END_TEXT.get(reason, "The session ended unexpectedly. Send a message to start it again.").format(
+                    client=table.NAMES.get(record.get("client"), table.NAMES[table.CLAUDE]))}
 
     def _has_state(self, agent_id) -> bool:
         try:
@@ -549,18 +565,46 @@ class ManagedRuntime:
                 raise ManagedError("open_timeout", "The session did not become ready in time", retryable=True)
             self._sleep(POLL_INTERVAL)
 
-    def client_for(self, profile) -> str:
+    def _client_states(self):
+        """The state of each client for the pre-open check, or None when none is to be made (``ready`` injected alone, tests)."""
+        if self._client_state is not None:
+            return self._client_state()
+        if self._ready is not None:
+            return None
+        from qorqut.native_chat import client_state
+        return client_state.states()
+
+    def client_for(self, profile, states=None) -> str:
         """The effective client of this agent: its stored one, else the best ready one (``options.effective_client``)."""
-        ready = self._ready if self._ready is not None else launch_options.ready_function()
+        if states is not None:
+            ready = lambda client: (states.get(client) or {}).get("state") == "ready"  # noqa: E731
+        else:
+            ready = self._ready if self._ready is not None else launch_options.ready_function()
         return launch_options.effective_client(self.paths, profile["agent_id"], profile, ready)
+
+    @staticmethod
+    def _label(profile) -> str:
+        """The name the owner knows this agent by, for the sentences about it."""
+        try:
+            from qorqut.native_chat import store
+            return store.profile_label(profile)
+        except Exception:  # noqa: BLE001 - a profile without a readable name is "This agent"
+            return str(profile.get("name") or "") if isinstance(profile, dict) else ""
 
     def _launch(self, profile, deadline, new_conversation):
         """Under the lifecycle lock, with no host present: check that this agent may be started, then start it.
         ``(record, resume, client)``."""
         agent_id = profile["agent_id"]
-        client = self.client_for(profile)
+        states = self._client_states()
+        client = self.client_for(profile, states)
         if not table.available(client):
             raise ManagedError("driver_unavailable", "Running this agent with " + client.capitalize() + " is not available yet")
+        # This agent's client must be installed and signed in before anything starts: one plain sentence, never a late failure.
+        if states is not None:
+            from qorqut.native_chat import client_state
+            refused = client_state.refusal(self._label(profile), client, states)
+            if refused is not None:
+                raise ManagedError(refused[0], refused[1])
         if not self._slots.acquire(blocking=False):
             raise ManagedError("open_busy", "Several sessions are starting right now. Try again in a moment", retryable=True)
         try:
@@ -656,15 +700,13 @@ class ManagedRuntime:
         folders = [item for item in (agent_cli_launch.search_environment(env).get("PATH") or "").split(os.pathsep) if item]
         return path, folders
 
-    def _require_client(self, client, env) -> str:
-        """The executable to run for ``client``, or ``cli_unavailable`` (nothing starts) saying where Qorqbot looked."""
-        found, searched = self._locate(client, env)
+    def _require_client(self, client, env, label="") -> str:
+        """The executable to run for ``client``, or ``cli_unavailable`` (nothing starts) in the owner's plain words."""
+        found, _searched = self._locate(client, env)
         if found:
             return found
-        name = table.NAMES[client]
-        where = "Qorqbot's own copy and these folders: " + ", ".join(searched[:8]) if searched else "Qorqbot's own copy"
-        raise ManagedError("cli_unavailable", name + " could not be found. Qorqbot looked in " + where
-                           + (" and others" if len(searched) > 8 else "") + ". Install " + name + " from Settings, then send again.")
+        from qorqut.native_chat import client_state
+        raise ManagedError("cli_unavailable", client_state.missing_text(label, client))
 
     @staticmethod
     def _search_environment(env) -> dict:
@@ -681,7 +723,7 @@ class ManagedRuntime:
         item, name = table.entry(client), table.NAMES[client]
         # No usable client at all is said first and plainly: preparing a workspace for a client that cannot run refuses with a
         # preparation reason the owner cannot act on ("no installed agent CLI meets the baseline").
-        self._require_client(client, {})
+        self._require_client(client, {}, self._label(profile))
         prepared = self._prepared(agent_id)
         workspace, env = str(prepared["workspace"]), dict(prepared["env"])
         # The client's own configuration folder must be the one its conversations were created in: a resume only finds its
@@ -689,17 +731,24 @@ class ManagedRuntime:
         for variable in CLIENT_HOME_VARIABLES:
             if variable not in env and os.environ.get(variable):
                 env[variable] = os.environ[variable]
-        found = self._require_client(client, env)
+        found = self._require_client(client, env, self._label(profile))
         extra = agent_cli_launch.for_executable(item["provider"], found)
         args = list(extra["args"])
         args += table.settings_arguments(client, workspace)
         chosen = launch_options.read(self.paths, agent_id)
+        # A stored model of the other client's family (left by an earlier client change, or written by the cutover tool) would make
+        # the client refuse to start: it is not passed, the client's own default applies, and the stored value is left for the owner.
+        model = chosen.model if models.fits(client, chosen.model) else None
         args += table.allowed_tool_arguments(client, workspace)
-        args += table.launch_arguments(client, chosen.model, chosen.effort, workspace)
+        args += table.launch_arguments(client, model, chosen.effort, workspace)
+        # The client is started with the owner's search PATH as well as the session's: a client that is a script
+        # (``#!/usr/bin/env node``, an npm install) finds its interpreter where the owner's terminal does, not only where this
+        # service does. The folders the session names stay first.
+        env["PATH"] = self._search_environment(env).get("PATH") or env.get("PATH") or os.defpath
         spec = {"agent_id": agent_id, "folder": workspace, "executable": found, "args": args, "env": {**env, **extra["env"]},
                 "resume_session_id": resume, "send_role": table.role_command(client) if resume is None else False,
                 "idle_seconds": self._idle, "client": client, "driver": table.driver(client),
-                "permission_mode": table.permission_mode(client, workspace), "model": chosen.model, "effort": chosen.effort}
+                "permission_mode": table.permission_mode(client, workspace), "model": model, "effort": chosen.effort}
         ready = table.ready_seconds(client)
         if ready is not None:
             spec["ready_seconds"] = ready

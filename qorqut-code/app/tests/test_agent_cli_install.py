@@ -173,6 +173,22 @@ class ResolveTests(Case):
         self.executable(self.root / "bin/codex", "#!/bin/sh\nexit 4\n")
         self.assertIsNone(cli.resolve("codex", self.environ))
 
+    def test_the_version_of_a_script_client_is_read_with_the_path_it_was_found_on(self):
+        # An npm-installed Codex is ``#!/usr/bin/env node``: under a service whose own PATH has no node the probe must still use
+        # the owner's PATH, the one the file was looked up in.
+        interpreters = self.root / "owner-node"
+        self.executable(interpreters / "fakenode", '#!/bin/sh\necho "codex-cli 0.200.1"\n')
+        self.executable(self.root / "bin/codex", "#!/usr/bin/env fakenode\n")
+        self.environ["PATH"] = os.pathsep.join([str(self.root / "bin"), str(interpreters), "/usr/bin", "/bin"])
+        with mock.patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}):
+            found = cli.resolve("codex", self.environ)
+        self.assertEqual(found, {"path": str(self.root / "bin/codex"), "source": "system", "version": "0.200.1"})
+        # Without the owner's folder on the searched PATH it is refused, as a client that cannot run is.
+        cli._system_versions.clear()
+        self.environ["PATH"] = os.pathsep.join([str(self.root / "bin"), "/usr/bin", "/bin"])
+        with mock.patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}):
+            self.assertIsNone(cli.resolve("codex", self.environ))
+
     def test_the_minimum_is_the_pinned_version_at_most(self):
         for provider in cli.PROVIDERS:
             pinned = tuple(int(part) for part in cli.VERSIONS[provider].split("."))

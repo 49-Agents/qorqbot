@@ -12,7 +12,7 @@ const agentOptions = (() => {
   const SUGGESTIONS = {claude: ['opus', 'sonnet', 'haiku'], codex: ['gpt-6-luna']};
   const MODEL_MAX = 100;
   const MODEL_OK = /^[A-Za-z0-9._:/\[\]][A-Za-z0-9._:/\[\]-]*$/;
-  const NOTE = 'Model and effort apply the next time the agent’s session starts. A change of client needs the session ended first.';
+  const NOTE = 'Model and effort apply the next time the agent’s session starts. A change of client needs the session ended first, and clears a model that belongs to the other client.';
   const base = id => `/root/agents/${encodeURIComponent(id)}/chat/options`;
   const defaultRead = async id => coreData(await api(base(id)));
   const defaultWrite = async (id, change) => coreData(await post(base(id), change));
@@ -24,7 +24,8 @@ const agentOptions = (() => {
     const ready = name => !!(raw.clients && raw.clients[name] && raw.clients[name].ready);
     return {client: CLIENTS.includes(raw.client) ? raw.client : '', model: text(raw.model), effort: EFFORTS.includes(raw.effort) ? raw.effort : '',
       effective: CLIENTS.includes(raw.effective_client) ? raw.effective_client : '', ready: {claude: ready('claude'), codex: ready('codex')},
-      open: raw.session_open === true};
+      open: raw.session_open === true, fits: raw.model_fits !== false,
+      suggestions: ['claude', 'codex'].reduce((all, name) => ({...all, [name]: Array.isArray(raw.suggestions?.[name]) ? raw.suggestions[name].filter(item => typeof item === 'string') : SUGGESTIONS[name]}), {})};
   }
   // The request for one changed field; an empty value clears it. Returns {error} for a value the server would refuse.
   function body(field, value) {
@@ -52,8 +53,11 @@ const agentOptions = (() => {
     const choices = [{value: '', label: v.effective ? `Automatic (${NAMES[v.effective]})` : 'Automatic'}].concat(CLIENTS.map(name =>
       ({value: name, label: v.ready[name] ? NAMES[name] : `${NAMES[name]} (not connected)`, ready: v.ready[name]})));
     const using = v.client || v.effective;
-    const notice = using && !v.ready[using] ? `${NAMES[using]} isn’t connected yet. Connect it under Claude Code and Codex above.` : '';
-    return {client: v.client, model: v.model, effort: v.effort, choices, suggestions: SUGGESTIONS[using] || [], notice, open: v.open};
+    let notice = using && !v.ready[using] ? `${NAMES[using]} isn’t connected yet. Connect it under Claude Code and Codex above.` : '';
+    // A stored model of the other client's family is not passed to the client (the server ignores it): shown as the default, with the reason.
+    const stale = !v.fits && !!v.model;
+    if (stale) notice = `“${v.model}” is not a ${NAMES[using] || 'model of this client'} model, so ${NAMES[using] || 'the client'} starts on its default. Choose a model for it below.`;
+    return {client: v.client, model: stale ? '' : v.model, effort: v.effort, choices, suggestions: v.suggestions[using] || [], notice, open: v.open};
   }
   const isMissing = error => !!error && (error.httpStatus === 404 || error.httpStatus === 405);
 

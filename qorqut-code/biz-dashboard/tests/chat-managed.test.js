@@ -625,7 +625,7 @@ test('cannot start: the owner is pointed to Settings (where Claude Code and Code
     assert.match(runtime.refusalText(code), /Claude Code or Codex/, code);
   }
   assert.match(runtime.refusalText('driver_unavailable'), /^Couldn’t start\. Check in Settings that Claude Code or Codex is connected, then send again\.$/);
-  assert.match(runtime.refusalText('cli_unavailable'), /^Claude Code or Codex isn’t installed yet\. Connect one in Settings, then send again\.$/);
+  assert.match(runtime.refusalText('cli_unavailable'), /^This agent’s client \(Claude Code or Codex\) isn’t installed yet\. Download it under Settings > Agents, then send again\.$/);
   assert.equal(runtime.refusalText('open_timeout'), 'Still starting. Try again in a moment.');
   assert.equal(runtime.refusalText('resume_failed'), 'Couldn’t continue the earlier conversation, so nothing was started.');
   assert.equal(runtime.refusalText('resume_unavailable'), 'The earlier conversation can’t be continued because its file is missing.');
@@ -634,7 +634,7 @@ test('cannot start: the owner is pointed to Settings (where Claude Code and Code
   assert.equal(runtime.newConversationOffer('cli_unavailable'), null);
   // every text the owner can read here, whatever the code
   for (const code of ['session_closed', 'terminal_changed', 'managed_command', 'driver_unavailable', 'cli_unavailable', 'resume_failed',
-    'resume_unavailable', 'open_timeout', 'open_busy', 'session_opening', 'host_unverified', 'binding_not_ready']) {
+    'cli_not_signed_in', 'resume_unavailable', 'open_timeout', 'open_busy', 'session_opening', 'host_unverified', 'binding_not_ready']) {
     assert.doesNotMatch(runtime.refusalText(code), /terminal|tmux|\bCLI\b|session id|>_|!|—|–/i, code);
   }
   const chat = between('const GLOBAL_CHAT_REFUSAL_TEXT = {', 'const GLOBAL_CHAT_INPUT_LABEL');
@@ -811,4 +811,42 @@ test('mountAgentView mounts Chat only: no Terminal view, no switch, and the opti
     assert.equal(chats[0].disposed, true, 'mounting another view releases the first');
     old.view.dispose(); assert.equal(chats[1].disposed, true);
   } finally { views.forEach(({view}) => view.dispose()); }
+});
+
+test('the server\'s own sentence for a missing or signed-out client is shown as it is; the table is only the fallback', () => {
+  const sentence = 'Helper is set to use Codex, and Codex isn\'t signed in yet. Sign in under Settings > Agents, or switch Helper to Claude Code there.';
+  assert.equal(runtime.refusalText('cli_not_signed_in', sentence), sentence);
+  assert.equal(runtime.refusalText('cli_unavailable', '  ' + sentence + ' '), sentence);
+  assert.match(runtime.refusalText('cli_not_signed_in'), /isn’t signed in yet\. Sign in under Settings > Agents/);
+  assert.match(runtime.refusalText('cli_unavailable', ''), /Download it under Settings > Agents/);
+  // only these codes carry a sentence written for the owner; any other code keeps the dashboard's own wording
+  assert.equal(runtime.refusalText('open_busy', 'Something internal'), 'Several sessions are starting right now. Try again in a moment.');
+  assert.equal(runtime.refusalText('cli_unavailable', 'x'.repeat(500)).includes('xxxx'), false);
+  const source = between('  const refusalText = problem =>', '  // One admission request.');
+  const text = new Function('agentRuntime', 'GLOBAL_CHAT_REFUSAL_TEXT', `${source}; return refusalText;`)(runtime, {});
+  assert.equal(text({code: 'cli_not_signed_in', serverMessage: sentence}), sentence);
+  const refusals = between('const GLOBAL_CHAT_REFUSALS = new Set', 'const GLOBAL_CHAT_REFUSAL_TEXT');
+  assert.equal(new Function(`${refusals}; return GLOBAL_CHAT_REFUSALS;`)().has('cli_not_signed_in'), true);
+});
+
+test('while a session opens every control that is off says "Starting <agent>…", and only then', () => {
+  const closed = {can_send: true, binding: null, managed: {open: false}};
+  const openNotReady = {can_send: false, state: 'live', reason: 'binding_not_ready', managed: {open: true, phase: 'starting'}};
+  const gone = {can_send: false, state: 'offline', managed: {open: true}};
+  assert.equal(runtime.unavailableText(closed, 'Helper', {opening: true}), 'Starting Helper…');
+  assert.equal(runtime.unavailableText(openNotReady, 'Helper', {opening: true}), 'Starting Helper…');
+  assert.equal(runtime.unavailableText(openNotReady, 'Helper'), 'Starting Helper…', 'a session that is open and not yet bound is still opening');
+  assert.equal(runtime.unavailableText({...openNotReady, reason: 'capture_not_ready', managed: {open: true}}, 'Helper'), 'Starting Helper…');
+  assert.equal(runtime.unavailableText({can_send: false, state: 'offline', reason: 'registering', managed: {open: true}}, 'Helper'), 'Starting Helper…');
+  assert.equal(runtime.summary({can_send: false, state: 'offline', reason: 'registering', managed: {open: true}}, 'Helper', true).line, 'Starting Helper…');
+  assert.equal(runtime.unavailableText(gone, 'Helper'), 'Helper isn’t available right now.', 'not opening: the old reason');
+  assert.equal(runtime.unavailableText(gone, 'Helper', {finished: true}), 'This chat is no longer available.');
+  assert.equal(runtime.unavailableText(gone, 'Helper', {paired: true, opening: true}), 'Close the side conversation to message Helper.');
+});
+
+test('the client\'s own words about a failed turn are the session line, until a turn goes well', () => {
+  const failed = {state: 'live', can_send: true, managed: {open: true, phase: 'idle', last_turn_status: 'error', turn_error: 'You\'ve hit your usage limit. Try again at 4:30 PM.'}};
+  assert.deepEqual(runtime.summary(failed, 'Helper', true), {key: 'error', line: 'Helper couldn’t answer: You\'ve hit your usage limit. Try again at 4:30 PM.'});
+  assert.equal(runtime.summary({...failed, managed: {...failed.managed, last_turn_status: 'completed', turn_error: null}}, 'Helper', true).key, 'live');
+  assert.equal(runtime.summary({...failed, managed: {...failed.managed, phase: 'working'}}, 'Helper', true).key, 'working');
 });

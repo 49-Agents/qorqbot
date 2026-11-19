@@ -13,8 +13,11 @@
 .gchat-session .gchat-end:disabled { opacity: .5; cursor: default; }
 .gchat-end:focus-visible, .mchat-stop:focus-visible, .mchat-card button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.mchat { display: flex; flex-direction: column; gap: 8px; flex: none; padding: 0 12px 6px; }
-.mchat-cards { display: flex; flex-direction: column; gap: 8px; }
+/* The block gives way before the conversation does: with a question card up, the message list keeps at least 160px (a short window,
+   down to 560px tall), and the card is what shrinks (it scrolls inside itself; its title and the Send answer button stay in view). */
+.mchat { display: flex; flex-direction: column; gap: 8px; flex: 0 1 auto; min-height: 0; padding: 0 12px 6px; }
+.mchat-cards { display: flex; flex-direction: column; gap: 8px; flex: 0 1 auto; min-height: 0; }
+.chat-view:has(.mchat-card) .chat-view-feed { min-height: 160px; }
 .mchat-activity { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; line-height: 1.5; color: var(--fg-2); }
 .mchat-activity-text { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mchat-dots { display: flex; align-items: center; gap: 4px; color: var(--fg-2); }
@@ -25,9 +28,9 @@
 .mchat-stop { flex: none; height: 26px; padding: 0 11px; font-size: 11.5px; }
 
 .mchat-card { padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 8px; background: color-mix(in srgb, var(--fg) 4%, transparent); font-size: 13px; line-height: 1.5; color: var(--fg); }
-.mchat-card { display: flex; flex-direction: column; max-height: 45vh; }
+.mchat-card { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; max-height: 45vh; }
 /* A long question scrolls inside the card; the title, the error and the Send answer button stay in view. */
-.mchat-card-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.mchat-card-body { min-height: 56px; overflow-y: auto; overscroll-behavior: contain; }
 .mchat-card-title { flex: none; margin: 0 0 6px; overflow-wrap: anywhere; }
 .mchat-card-actions { display: flex; flex: none; gap: 8px; }
 .mchat-card-actions button { height: 28px; padding: 0 13px; font-size: 12px; }

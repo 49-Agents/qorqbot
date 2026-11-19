@@ -47,7 +47,8 @@ REASONS = {
     "host_rejected": "its session keeps refusing input",
     OFFLINE: "it has no running session",
     OFF: "it is turned off",
-    "cli_unavailable": "Claude Code is not installed on this computer, so its session cannot be opened",
+    "cli_unavailable": "the client it is set to use (Claude Code or Codex) is not installed or not usable on this computer, so its session cannot be opened",
+    "cli_not_signed_in": "the client it is set to use (Claude Code or Codex) is not signed in, so its session cannot be opened",
     "resume_failed": "its earlier conversation could not be resumed, so its session cannot be opened",
     "resume_unavailable": "its earlier conversation can't be continued because its file is missing, so its session cannot be opened",
     "driver_unavailable": "its session could not be started",
@@ -55,8 +56,10 @@ REASONS = {
 # What Ordubashy is told to do, by reason. A repair he cannot make himself says whose it is.
 REPAIRS = {
     OFF: "Turn it on with agent_terminal_start (it opens and takes what is waiting); if it cannot be started, reassign its open work.",
-    "cli_unavailable": ("Only the owner can fix this: tell the owner to install Claude Code from Settings. "
-                        "Until then reassign its open work."),
+    "cli_unavailable": ("Only the owner can fix this: tell the owner to download the client under Settings > Agents, or to switch the "
+                        "agent to the other client there. Until then reassign its open work."),
+    "cli_not_signed_in": ("Only the owner can fix this: tell the owner to sign in to the client under Settings > Agents, or to switch the "
+                          "agent to the other client there. Until then reassign its open work."),
     "resume_failed": ("agent_terminal_restart can try once more; if it fails again, tell the owner and reassign its open work."),
     "resume_unavailable": ("Only the owner can fix this: tell the owner to start a new conversation for it in Chat. "
                            "Until then reassign its open work."),

@@ -74,7 +74,8 @@ OPEN_RECORD_SECONDS = 600.0
 # What ``ManagedRuntime.ensure_open`` can fail with, as the refusal the owner sees (nothing was stored or sent). The message is
 # fixed here: a launcher's own detail may carry paths. ``code`` is what the dashboard's refusal table keys on.
 _OPEN_REFUSALS = {
-    "cli_unavailable": ("cli_unavailable", "Claude Code is not installed. Install it from Settings first"),
+    "cli_unavailable": ("cli_unavailable", "The agent's client is not installed. Download it under Settings > Agents first"),
+    "cli_not_signed_in": ("cli_not_signed_in", "The agent's client is not signed in. Sign in under Settings > Agents first"),
     "resume_failed": ("resume_failed", "The earlier conversation could not be resumed, so no session was started"),
     "resume_unavailable": ("resume_unavailable", "The earlier conversation can't be continued because its file is missing. "
                                                  "Start a new conversation to carry on without it."),
@@ -85,12 +86,11 @@ _OPEN_REFUSALS = {
     "session_closed": ("session_closed", "This agent's session is not open. Send the message again to start it"),
     "session_starting": ("binding_not_ready", "The session is still starting; try again in a moment"),
 }
-# The refusals whose own message is written for the owner (the manager words them in plain language and, for a missing Claude
-# Code, names where it looked): every other message is Chat's fixed one.
-_OWN_MESSAGE = frozenset({"cli_unavailable", "resume_unavailable"})
+# The refusals whose own message is written for the owner (the manager words them in plain language, naming the agent, its client and what to do): every other message is Chat's fixed one.
+_OWN_MESSAGE = frozenset({"cli_unavailable", "cli_not_signed_in", "resume_unavailable"})
 _OPEN_FAILED = ("driver_unavailable", "The session could not be started")
 # The fields of the managed state Chat shows (the dashboard reads exactly these under ``session.managed``).
-MANAGED_FIELDS = ("open", "phase", "activity", "turn_started_at", "can_stop", "pending", "last_turn_status", "closed_reason", "closed_text", "off")
+MANAGED_FIELDS = ("open", "phase", "activity", "turn_started_at", "can_stop", "pending", "last_turn_status", "turn_error", "closed_reason", "closed_text", "off")
 # An answer to a permission request, or to a question: ``{"answers": {<question text>: <answer text>}}``.
 ANSWER_DECISIONS = ("allow", "deny")
 

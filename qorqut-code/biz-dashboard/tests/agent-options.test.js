@@ -123,3 +123,18 @@ test('Settings mounts the control from the agents menu list and has no start or 
   assert.match(settings, /data-agent-options/);
   assert.doesNotMatch(settings, /Starting an agent|Trusted agent folders|agent-trust/);
 });
+
+test('the model offered follows the chosen client, and a model of the other client is shown as the default with the reason', () => {
+  const codex = options.rowModel(view({client: 'codex', model: '', suggestions: {claude: ['opus'], codex: ['gpt-9']}}));
+  assert.deepEqual(codex.suggestions, ['gpt-9']);
+  const stale = options.rowModel(view({client: 'codex', model: 'haiku', model_fits: false}));
+  assert.equal(stale.model, '');
+  assert.match(stale.notice, /“haiku” is not a Codex model, so Codex starts on its default/);
+  assert.equal(options.rowModel(view({client: 'codex', model: 'gpt-6-luna', model_fits: true})).model, 'gpt-6-luna');
+  assert.match(options.NOTE, /clears a model that belongs to the other client/);
+});
+
+test('a refused model says why in the server\'s own plain words', () => {
+  const error = failure('validation_error', 422, 'haiku is a Claude Code model, and Helper uses Codex. Choose a Codex model, or leave it on default.');
+  assert.match(options.refusal(error, 'model'), /^haiku is a Claude Code model, and Helper uses Codex/);
+});

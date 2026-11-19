@@ -53,6 +53,21 @@ const onboardingPlan = (() => {
     if (chosen && !clientReady(clients[chosen])) return {state: 'chosen', client: chosen};
     return {state: 'ready', client: chosen};
   }
+  // What the last step says when nothing can answer yet: which client is missing or signed out, and where to fix it. `readiness` is
+  // `helloReadiness(...)`; the empty text means the hello can be answered.
+  const CLIENT_NAMES = {claude: 'Claude Code', codex: 'Codex'};
+  const clientProblem = item => !item || !item.installed ? 'isn’t installed' : !item.signed_in ? 'isn’t signed in' : 'isn’t ready';
+  function helloMissing(clients, readiness, agent = 'Ordubashy') {
+    if (!readiness || !clients || typeof clients !== 'object') return '';
+    if (readiness.state === 'none') {
+      return `${agent} needs Claude Code or Codex to answer, and neither is ready: Claude Code ${clientProblem(clients.claude)}, and Codex ${clientProblem(clients.codex)}. Open Settings > Agents to fix one, then come back and say hello.`;
+    }
+    if (readiness.state === 'chosen' && CLIENT_NAMES[readiness.client]) {
+      const name = CLIENT_NAMES[readiness.client], other = CLIENT_NAMES[readiness.client === 'claude' ? 'codex' : 'claude'];
+      return `${agent} is set to use ${name}, and ${name} ${clientProblem(clients[readiness.client])}. Open Settings > Agents to fix it, or switch ${agent} to ${other} there, then say hello.`;
+    }
+    return '';
+  }
   // Applies a key press to the tour: Esc closes it and Tab stays within it, wherever the focus is.
   // `tour` is what is on screen: the highlighted `target` element (or null), `active` (the focused element),
   // `focusables()` (the elements Tab cycles through, in order) and `exit()`. Returns 'pass' when the key was left alone.
@@ -64,6 +79,6 @@ const onboardingPlan = (() => {
     event.preventDefault(); list[next].focus();
     return 'tab';
   }
-  return {chapters, chapterAt, nextChapter, resumeIndex, saveId, helloReadiness, clientReady, handleKey};
+  return {chapters, chapterAt, nextChapter, resumeIndex, saveId, helloReadiness, helloMissing, clientReady, handleKey};
 })();
 if (typeof module !== 'undefined') module.exports = onboardingPlan;

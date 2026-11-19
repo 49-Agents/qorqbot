@@ -47,7 +47,7 @@ NOT_WAKEABLE = frozenset({"stopped", "paused"})
 # The sources that are the owner's own words: they may open an agent the product does not offer yet.
 OWNER_SOURCES = frozenset({"chat", "telegram"})
 # Open failures that repeat until someone changes something: what ``agents/unreachable.py`` tells Ordubashy about.
-REPEATING = frozenset({"cli_unavailable", "resume_failed", "resume_unavailable", "driver_unavailable"})
+REPEATING = frozenset({"cli_unavailable", "cli_not_signed_in", "resume_failed", "resume_unavailable", "driver_unavailable"})
 # A host that is merely busy, starting or slow: asked again soon, never an alarm.
 TRANSIENT = frozenset({"open_busy", "session_opening", "open_timeout", "host_unverified", "session_starting", "session_closed",
                        "host_rejected", "host_busy"})

@@ -20,7 +20,7 @@ from contextlib import nullcontext
 
 from qorqut_operations.contracts import DomainError
 
-from qorqut.managed_runtime import options as stored
+from qorqut.managed_runtime import models, options as stored
 
 FIELDS = stored.FIELDS
 
@@ -41,11 +41,23 @@ def _session_open(managed, agent_id: str) -> bool:
         return True
 
 
+def _label(profile: dict) -> str:
+    try:
+        from qorqut.native_chat import store
+        return store.profile_label(profile)
+    except Exception:  # noqa: BLE001 - an unreadable profile is "this agent"
+        return ""
+
+
 def _view(chat, runtime, profile: dict, agent_id: str, *, ready=None) -> dict:
     ready = ready or stored.ready_function()
     options = stored.read(runtime.paths, agent_id)
-    return {**options.public(), "effective_client": stored.effective_client(runtime.paths, agent_id, profile, ready),
+    effective = stored.effective_client(runtime.paths, agent_id, profile, ready)
+    # ``model_fits``: the stored model can be used by the client an open would use (a model of the other client's family is
+    # not passed to it: the client's own default applies until the owner picks one). ``suggestions``: names offered per client.
+    return {**options.public(), "effective_client": effective, "model_fits": models.fits(effective, options.model),
             "clients": {name: {"ready": bool(ready(name))} for name in ("claude", "codex")},
+            "suggestions": {name: list(models.SUGGESTIONS[name]) for name in ("claude", "codex")},
             "session_open": _session_open(getattr(chat, "managed", None), agent_id)}
 
 
@@ -56,7 +68,11 @@ def view(chat, runtime, principal_id: str, agent_id: str, *, ready=None) -> dict
 def change(chat, runtime, principal_id: str, agent_id: str, body, *, ready=None) -> dict:
     """Apply the owner's change and return the new view. ``DomainError``: ``validation_error`` (bad body or value),
     ``session_open`` (client change while open), ``session_opening`` (an open is in progress; retryable),
-    ``operation_unavailable`` (the file could not be saved)."""
+    ``operation_unavailable`` (the file could not be saved).
+
+    A model must belong to the client the agent will use after the change (``managed_runtime.models``): a *named* model of the other
+    client is refused with a plain sentence; a model that was already stored and no longer fits because the client changed is
+    cleared in the same write (effort is valid for both clients and stays)."""
     profile = _guard(chat, principal_id, agent_id)
     if not isinstance(body, dict):
         raise DomainError("validation_error", "The options must be an object")
@@ -79,6 +95,17 @@ def change(chat, runtime, principal_id: str, agent_id: str, body, *, ready=None)
             before = stored.effective_client(runtime.paths, agent_id, profile, ready)
             if _session_open(managed, agent_id) and stored.choose(wanted, profile, ready) != before:
                 raise DomainError("session_open", "A session is open. End it, then change the client")
+        # The client the agent uses once this change is in: the one named, else the stored one, else the one an open would pick.
+        current = stored.read(runtime.paths, agent_id)
+        try:
+            after = stored.choose(stored._valid("client", body["client"]) if "client" in body else current.client, profile, ready)
+            model = stored._valid("model", body["model"]) if "model" in body else current.model
+        except stored.OptionsError as error:
+            raise DomainError(error.code, str(error)) from None
+        if model and not models.fits(after, model):
+            if "model" in body:
+                raise DomainError("validation_error", models.mismatch_text(after, model, _label(profile) or None))
+            body = {**body, "model": None}
         try:
             stored.write(runtime.paths, agent_id, **body)
         except stored.OptionsError as error:

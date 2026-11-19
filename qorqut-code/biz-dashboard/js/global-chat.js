@@ -84,7 +84,7 @@ const GLOBAL_CHAT_MAX = 17000;
 // Refusals store no input; any other failure leaves the outcome unknown and keeps the send identity.
 const GLOBAL_CHAT_REFUSALS = new Set(['capture_disabled', 'capture_not_ready', 'binding_not_ready', 'operation_unavailable',
   'unsupported_runtime', 'terminal_changed', 'validation_error', 'not_found', 'forbidden', 'idempotency_conflict',
-  'managed_command', 'session_closed', 'driver_unavailable', 'cli_unavailable', 'resume_failed', 'resume_unavailable', 'open_timeout', 'open_busy',
+  'managed_command', 'session_closed', 'driver_unavailable', 'cli_unavailable', 'cli_not_signed_in', 'resume_failed', 'resume_unavailable', 'open_timeout', 'open_busy',
   'session_opening', 'host_unverified']);
 const GLOBAL_CHAT_REFUSAL_TEXT = {
   capture_disabled: 'Chat unavailable.',
@@ -445,14 +445,16 @@ function mountGlobalChat(pane, agent, options = {}) {
     syncManaged();
     sessionLine.hidden = !sessionText.textContent && endSession.el.hidden && (!working || workingTag.parentElement !== sessionLine);
     const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope) || GLOBAL_CHAT_OPENING.has(agentId);
+    // A message that opens the session is on its way: every control that is off says the one thing, "Starting <agent>…", until the session is open.
+    const opening = GLOBAL_CHAT_OPENING.has(agentId) || (agentRuntime.closed(session) && GLOBAL_CHAT_INFLIGHT.has(composerScope));
     const pending = presentInputs();
     view.render({
       ...patch, pending,
       composer: {inputDisabled: !enabled, sendDisabled: !enabled || sending, filesDisabled: !enabled || sending,
-        disabledReason: enabled ? '' : agentRuntime.unavailableText(session, label, {finished, paired: !!pairedHost}),
-        sendingReason: GLOBAL_CHAT_OPENING.has(agentId) ? `Starting ${label}…` : 'Sending your message…', filesReason: 'Wait until your message is sent.',
+        disabledReason: enabled ? '' : agentRuntime.unavailableText(session, label, {finished, paired: !!pairedHost, opening}),
+        sendingReason: GLOBAL_CHAT_OPENING.has(agentId) ? `Starting ${label}…` : 'Sending your message…', filesReason: opening ? `Starting ${label}…` : 'Wait until your message is sent.',
         attachments: selectedFiles().map(file => ({key: file.key, name: file.file.name})),
-        placeholder: enabled || !session ? agentRuntime.placeholder(session, label, hasHistory()) : agentRuntime.unavailableText(session, label, {finished, paired: !!pairedHost})},
+        placeholder: enabled || !session ? agentRuntime.placeholder(session, label, hasHistory()) : agentRuntime.unavailableText(session, label, {finished, paired: !!pairedHost, opening})},
       older: {visible: older != null, disabled: olderBusy},
       empty: emptyState(),
     }, {scroll});
@@ -493,7 +495,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     });
   }
   const saveDraft = () => { if (!composerScope) return; const text = view.getDraft(); if (text) GLOBAL_CHAT_DRAFTS.set(composerScope, text); else GLOBAL_CHAT_DRAFTS.delete(composerScope); };
-  const refusalText = problem => problem.offered ? '' : agentRuntime.refusalText(problem.code) || GLOBAL_CHAT_REFUSAL_TEXT[problem.code] || "Couldn't send. Try again";
+  const refusalText = problem => problem.offered ? '' : agentRuntime.refusalText(problem.code, problem.serverMessage) || GLOBAL_CHAT_REFUSAL_TEXT[problem.code] || "Couldn't send. Try again";
   // One admission request. The result is recorded in module state so a mount that was left meanwhile loses nothing.
   // A closed managed agent has no session to pin: the message goes without a binding and opens one.
   // The owner's explicit choice to start a fresh conversation instead of the one that can't be continued: the next request (and its

@@ -650,15 +650,16 @@ class ClaudeLookup(ManagerFixture):
         self.assertEqual(refused.exception.code, "cli_unavailable")
         self.assertEqual(self.launcher.started, [])
 
-    def test_when_it_is_nowhere_the_error_says_what_was_searched_in_plain_words(self):
+    def test_when_it_is_nowhere_the_error_is_one_plain_sentence_about_the_agents_client(self):
         empty = self.base / "empty"
         empty.mkdir()
         self.patched(path=os.pathsep.join([str(empty), "/usr/nowhere/bin"]))
         with self.assertRaises(hosts.ManagedError) as refused:
             self.manager.ensure_open(PROFILE, 5)
         self.assertEqual(refused.exception.code, "cli_unavailable")
-        for expected in ("Claude Code could not be found", "Qorqbot's own copy", str(empty), "/usr/nowhere/bin", "Install Claude Code"):
-            self.assertIn(expected, refused.exception.message)
+        # One plain sentence naming the agent's client and what to do; no folders (those are the service's business, not the owner's).
+        self.assertEqual(refused.exception.message, "This agent is set to use Claude Code, and Claude Code couldn't be found. "
+                                                    "Download it under Settings > Agents, then send again.")
         self.assertEqual(self.launcher.started, [])
 
 

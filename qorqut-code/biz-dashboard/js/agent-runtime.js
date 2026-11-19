@@ -8,6 +8,8 @@
 // Every string from the server reaches the page as text or through escapeHtml.
 const agentRuntime = (() => {
   const WORKING = new Set(['working', 'blocked']);
+  // What the server says while an open session is not yet ready to take a message (the whole opening phase).
+  const STARTING_REASONS = new Set(['binding_not_ready', 'capture_not_ready', 'registering']);
   const ACTIVITY_MAX = 160;
   const SUMMARY_MAX = 600;
   const INPUT_MAX = 20000;            // what the server sends of a tool input at most; a card never shows less than all of it
@@ -23,7 +25,9 @@ const agentRuntime = (() => {
     const pending = (Array.isArray(raw.pending) ? raw.pending : []).filter(item => item && typeof item.request_id === 'string' && item.request_id && item.kind === 'question');
     return {open, off, phase: typeof raw.phase === 'string' ? raw.phase : '', activity: typeof raw.activity === 'string' ? raw.activity : '',
       turnStartedAt: raw.turn_started_at ?? null, canStop: raw.can_stop === true, pending,
-      closedText: typeof raw.closed_text === 'string' ? clip(raw.closed_text, 240) : ''};
+      closedText: typeof raw.closed_text === 'string' ? clip(raw.closed_text, 240) : '',
+      // The client's own words about the last turn when it failed (an account problem, a usage limit and when to try again).
+      turnError: raw.last_turn_status === 'error' && typeof raw.turn_error === 'string' ? clip(raw.turn_error, 300) : ''};
   }
   const working = (session, managed = managedOf(session)) => !!managed && managed.open && (managed.phase ? WORKING.has(managed.phase) : session.working === true);
   // An agent with no session open (asleep or off). Sending a message starts one, so the composer is usable without a binding.
@@ -42,10 +46,14 @@ const agentRuntime = (() => {
       if (managed.closedText) return {key: 'closed', line: managed.closedText};
       return {key: 'closed', line: context.history ? `${label} is asleep. It wakes when there is something to do.` : ''};
     }
+    // A session that is open and whose conversation is still being registered is part of the opening phase, not an outage.
+    if (session.state !== 'live' && session.reason === 'registering') return {key: 'starting', line: `Starting ${label}…`};
     if (session.state !== 'live') return {key: 'offline', line: session.can_send ? `${label} isn’t running. Sending a message starts it.` : `${label} isn’t available right now.`};
     if (session.reason === 'capture_disabled') return {key: 'disabled', line: ''};
     if (session.reason === 'binding_not_ready' || session.reason === 'capture_not_ready' || managed.phase === 'starting' || (session.can_send && !viewing)) return {key: 'starting', line: `Starting ${label}…`};
-    return working(session, managed) ? {key: 'working', line: ''} : {key: 'live', line: `${label} is ready.`};
+    if (working(session, managed)) return {key: 'working', line: ''};
+    if (managed.turnError) return {key: 'error', line: `${label} couldn’t answer: ${managed.turnError}`};
+    return {key: 'live', line: `${label} is ready.`};
   }
   const startHint = (session, label) => managedOf(session)?.off ? `Send a message to turn ${label} on` : `Send a message to start ${label}`;
   const emptyText = (session, label) => managedOf(session)?.off ? `${label} is off. Send a message to turn it on.` : `${startHint(session, label)}. Its conversation will appear here.`;
@@ -64,6 +72,8 @@ const agentRuntime = (() => {
     if (!session) return 'Loading the conversation…';
     if (session.reason === 'capture_disabled') return 'Chat is unavailable.';
     const managed = managedOf(session);
+    // The whole opening phase says one thing: from the message that starts the session until it can take the next one.
+    if (ctx.opening || (managed && managed.open && (managed.phase === 'starting' || STARTING_REASONS.has(session.reason)))) return `Starting ${label}…`;
     if (!session.can_send) return managed && !managed.open ? managed.closedText || `${label} can’t be started right now.` : `${label} isn’t available right now.`;
     return `Connecting to ${label}…`;
   }
@@ -84,7 +94,8 @@ const agentRuntime = (() => {
     managed_command: 'This command isn’t available when Qorqbot runs the agent.',
     driver_unavailable: 'Couldn’t start. Check in Settings that Claude Code or Codex is connected, then send again.',
     // The server's other refusals when a message opens a closed session (native_chat/chat.py `_OPEN_REFUSALS`).
-    cli_unavailable: 'Claude Code or Codex isn’t installed yet. Connect one in Settings, then send again.',
+    cli_unavailable: 'This agent’s client (Claude Code or Codex) isn’t installed yet. Download it under Settings > Agents, then send again.',
+    cli_not_signed_in: 'This agent’s client (Claude Code or Codex) isn’t signed in yet. Sign in under Settings > Agents, then send again.',
     resume_failed: 'Couldn’t continue the earlier conversation, so nothing was started.',
     resume_unavailable: 'The earlier conversation can’t be continued because its file is missing.',
     open_timeout: 'Still starting. Try again in a moment.',
@@ -93,7 +104,14 @@ const agentRuntime = (() => {
     host_unverified: 'Couldn’t check the session. Try again in a moment.',
     binding_not_ready: 'Connecting. Try again in a moment.',
   };
-  const refusalText = code => MANAGED_REFUSALS[code] || null;
+  // The refusals the server words for the owner, naming the agent, its client, what is wrong and what to do (native_chat/client_state.py):
+  // that sentence is shown as it is, and the table above is only the fallback (an older server, or a sentence that is missing).
+  const SERVER_WORDED = new Set(['cli_unavailable', 'cli_not_signed_in']);
+  function refusalText(code, serverMessage = '') {
+    const own = typeof serverMessage === 'string' ? serverMessage.trim() : '';
+    if (SERVER_WORDED.has(code) && own && own.length <= 400) return own;
+    return MANAGED_REFUSALS[code] || null;
+  }
   // Refusals that are retried with the very same request (same key): the host keeps starting and the retry finds it.
   const RETRYABLE = new Set(['open_timeout', 'open_busy', 'session_opening', 'host_unverified', 'binding_not_ready']);
   const isRetryable = code => RETRYABLE.has(code);
