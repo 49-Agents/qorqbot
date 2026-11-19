@@ -343,25 +343,36 @@ log.write(json.dumps({"kind": "exit"}) + chr(10)); log.flush()
 
 
 def pid_state(pid):
+    """Process state letter (``Z`` zombie, ``S`` ...) or None when the process does not exist. Linux reads /proc; elsewhere (macOS)
+    ``ps`` says the same."""
+    if sys.platform == "linux":
+        try:
+            with open("/proc/%d/stat" % pid) as handle:
+                return handle.read().rsplit(")", 1)[1].split()[0]
+        except OSError:
+            return None
     try:
-        with open("/proc/%d/stat" % pid) as handle:
-            return handle.read().rsplit(")", 1)[1].split()[0]
-    except OSError:
+        done = subprocess.run(["/bin/ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
         return None
+    return done.stdout.strip()[:1] or None
 
 
 def pid_alive(pid):
-    try:
-        with open("/proc/%d/stat" % pid) as handle:
-            return handle.read().rsplit(")", 1)[1].split()[0] != "Z"
-    except FileNotFoundError:
-        return False
-    except OSError:
+    if sys.platform == "linux":
         try:
-            os.kill(pid, 0)
-            return True
-        except OSError:
+            with open("/proc/%d/stat" % pid) as handle:
+                return handle.read().rsplit(")", 1)[1].split()[0] != "Z"
+        except FileNotFoundError:
             return False
+        except OSError:
+            try:
+                os.kill(pid, 0)
+                return True
+            except OSError:
+                return False
+    state = pid_state(pid)
+    return state is not None and state != "Z"
 
 
 class Recorder:

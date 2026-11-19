@@ -55,7 +55,8 @@ from qorqut.native_chat.sessions import SessionRegistry
 from test_managed_host import wait_for
 
 OWNER = "owner-1"
-LINUX = sys.platform.startswith("linux")
+# The process checks read /proc on Linux and qorqut.process_info (psutil) on macOS; both are exercised.
+LINUX = sys.platform.startswith(("linux", "darwin"))
 WAIT = 20.0
 
 
@@ -317,7 +318,7 @@ class ManagedEndToEnd(unittest.TestCase):
 
     # ===== the main scenario ========================================================================================
 
-    @unittest.skipUnless(LINUX, "the host's process checks read /proc")
+    @unittest.skipUnless(LINUX, "the host's process checks need Linux or macOS")
     def test_a_managed_agent_from_closed_to_closed(self):
         stack = self.stack()
         chat, agent = stack.chat, stack.agent
@@ -473,7 +474,7 @@ class ManagedEndToEnd(unittest.TestCase):
 
     # ===== what the real CLI does about announcing a session =======================================================
 
-    @unittest.skipUnless(LINUX, "the host's process checks read /proc")
+    @unittest.skipUnless(LINUX, "the host's process checks need Linux or macOS")
     def test_a_fresh_session_binds_only_once_claude_has_taken_up_the_role_prompt(self):
         """The host is ready at once but nothing is announced (no marker, no owner row) until Claude took up a first message: the
         open waits for the binding the role prompt makes, it does not need the transcript file and does not send the owner's
@@ -488,7 +489,7 @@ class ManagedEndToEnd(unittest.TestCase):
         self.assertEqual([entry["text"] for entry in stack.logged("send")], ["/role", "hello there"])
         self.assertEqual(stack.observer.errors, [])
 
-    @unittest.skipUnless(LINUX, "the host's process checks read /proc")
+    @unittest.skipUnless(LINUX, "the host's process checks need Linux or macOS")
     def test_a_resumed_session_is_announced_by_the_owners_own_message_which_is_typed_once(self):
         """A resumed conversation is sent no ``/role`` and nothing announces it until a message arrives: so the owner's message is
         delivered to the host before there is a binding, and the input admitted for the binding it makes is recognised by the host
@@ -510,7 +511,7 @@ class ManagedEndToEnd(unittest.TestCase):
         self.assertEqual((len(stack.logged("start")), len(stack.logged("send"))), (1, 1))
         self.assertEqual(stack.observer.errors, [])
 
-    @unittest.skipUnless(LINUX, "the host's process checks read /proc")
+    @unittest.skipUnless(LINUX, "the host's process checks need Linux or macOS")
     def test_a_role_prompt_that_a_hook_blocked_does_not_leave_the_open_waiting_for_a_session_that_never_announces(self):
         """A hook-blocked prompt writes no transcript record and no marker. The role prompt is blocked here, so after the grace the
         owner's message is delivered; Claude takes it up and announces the session."""
@@ -525,7 +526,7 @@ class ManagedEndToEnd(unittest.TestCase):
         self.assertEqual(stack.live()["id"], first["binding"]["binding_id"])
         self.assertEqual(stack.observer.errors, [])
 
-    @unittest.skipUnless(LINUX, "the host's process checks read /proc")
+    @unittest.skipUnless(LINUX, "the host's process checks need Linux or macOS")
     def test_an_open_that_gave_up_is_finished_by_the_retry_with_the_same_key_on_the_same_host(self):
         """The open ran out of time while the host was still coming up (the message may or may not have reached it yet). The host
         keeps starting; the retry (same key, no pin) finds that host, starts nothing, and the message is typed once."""
@@ -547,7 +548,7 @@ class ManagedEndToEnd(unittest.TestCase):
 
     # ===== close, reopen, the old pin ===============================================================================
 
-    @unittest.skipUnless(LINUX, "the host's process checks read /proc")
+    @unittest.skipUnless(LINUX, "the host's process checks need Linux or macOS")
     def test_the_close_route_ends_the_session_and_the_next_message_resumes_the_same_conversation(self):
         stack = self.stack()
         chat, agent = stack.chat, stack.agent
@@ -587,7 +588,7 @@ class ManagedEndToEnd(unittest.TestCase):
 
     # ===== the host closes itself when idle =========================================================================
 
-    @unittest.skipUnless(LINUX, "the host's process checks read /proc")
+    @unittest.skipUnless(LINUX, "the host's process checks need Linux or macOS")
     def test_an_idle_host_closes_itself_and_the_binding_ends_with_it(self):
         stack = self.stack(idle_seconds=4)
         agent = stack.agent
@@ -606,7 +607,7 @@ class ManagedEndToEnd(unittest.TestCase):
 
     # ===== refusals before anything starts ==============================================================================
 
-    @unittest.skipUnless(LINUX, "the host's process checks read /proc")
+    @unittest.skipUnless(LINUX, "the host's process checks need Linux or macOS")
     def test_a_menu_command_a_bad_key_and_a_closing_exit_start_nothing(self):
         stack = self.stack()
         chat, agent = stack.chat, stack.agent
@@ -629,7 +630,7 @@ class ManagedEndToEnd(unittest.TestCase):
         self.assertFalse(stack.host_running())
         self.assertEqual(stack.observer.errors, [])
 
-    @unittest.skipUnless(LINUX, "the host's process checks read /proc")
+    @unittest.skipUnless(LINUX, "the host's process checks need Linux or macOS")
     def test_a_start_that_fails_is_refused_with_its_code_and_stores_nothing(self):
         stack = self.stack()
         with mock.patch.object(DriverLauncher, "start_host", side_effect=launcher.LaunchError("not_ready", "slow")):

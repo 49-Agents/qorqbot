@@ -40,7 +40,8 @@ from qorqut.transport.agent_terminal_control import OwnerInputOutcome
 
 AGENT, OWNER = "agent-1", "owner-1"
 CONVERSATION = "11111111-1111-4111-8111-111111111111"
-LINUX = sys.platform.startswith("linux")
+# The process checks read /proc on Linux and qorqut.process_info (psutil) on macOS; both are exercised.
+LINUX = sys.platform.startswith(("linux", "darwin"))
 
 
 def ticks(pid):
@@ -965,7 +966,7 @@ STUB_HOST = ("import os,subprocess,sys,time\n"
              "time.sleep(60)\n")
 
 
-@unittest.skipUnless(LINUX, "builds a real process tree through /proc")
+@unittest.skipUnless(LINUX, "builds a real process tree (Linux or macOS)")
 class RealProcessCase(unittest.TestCase):
     """A fake host started exactly as the launcher starts the real one (``python -B -m qorqut.managed_runtime.host --state <dir>``;
     the module is a stub found through PYTHONPATH, which is also all an agent needs to imitate it) with a ``claude``-named shell

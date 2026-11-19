@@ -14,7 +14,7 @@ concurrency:
 jobs:
   macos:
     runs-on: macos-15
-    timeout-minutes: 40
+    timeout-minutes: 75
     outputs:
       version: ${{ steps.select.outputs.version }}
     steps:
@@ -45,7 +45,7 @@ jobs:
           const semver = require('./qorqut-code/tools/distribution/macos_app/electron/node_modules/semver');
           const version = process.env.RELEASE_VERSION || require('node:child_process').execFileSync('python3', ['qorqut-code/tools/distribution/build_version.py', '1.3.0', 'mac-check', '--commit', process.env.GITHUB_SHA], {encoding: 'utf8'}).trim();
           if (semver.valid(version) !== version) throw new Error('Version must be canonical SemVer');
-          fs.appendFileSync(process.env.GITHUB_ENV, `QORQBOT_BUILD_VERSION=${version}\nRELEASE_WORK=${process.env.RUNNER_TEMP}/qorqbot-mac\n`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `QORQBOT_BUILD_VERSION=${version}\nRELEASE_WORK=${process.env.RUNNER_TEMP}/qorqbot-mac\nMAC_EVIDENCE=${process.env.RUNNER_TEMP}/mac-evidence\nAGENT_CLI_ROOT=${process.env.RUNNER_TEMP}/agent-cli-root\n`);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`);
           JS
       - name: Check native target and install build prerequisites
@@ -76,11 +76,52 @@ jobs:
       - name: Check exact Mac archive lifecycle
         run: |
           python qorqut-code/tools/distribution/check_posix.py --archive "$RELEASE_WORK/package/qorqbot-${QORQBOT_BUILD_VERSION}-macos14-arm64.tar.gz" --output "/tmp/qm-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-      - name: Run Mac runtime and launcher tests
+      # The steps below that carry `continue-on-error` always let the later steps run, so the disk image, the first-open check and
+      # the evidence are produced even when a test fails; the last step of the job fails it when any of them failed.
+      - name: Tests of the managed-agent work, one module at a time
+        id: new_tests
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 30
         run: |
           test_python="/tmp/qm-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/i/qorqbot/runtime/venv/bin/python"
-          "$test_python" -I -B -m unittest discover -s qorqut-code/app/tests
-          "$test_python" -I -B -m unittest discover -s qorqut-code/tools/distribution/tests
+          mkdir -p "$MAC_EVIDENCE"
+          python -B qorqut-code/tools/distribution/macos_app/mac_new_tests.py --python "$test_python" --repository "$GITHUB_WORKSPACE" --output "$MAC_EVIDENCE/new-tests"
+      - name: Run Mac runtime and launcher tests
+        id: suite
+        continue-on-error: true
+        timeout-minutes: 30
+        env:
+          # The managed host tests start real host processes that import the tests' own fake driver: the host takes its
+          # import path from this variable (-I below makes the test process itself ignore it).
+          PYTHONPATH: ${{ github.workspace }}/qorqut-code/app/tests
+        run: |
+          test_python="/tmp/qm-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/i/qorqbot/runtime/venv/bin/python"
+          mkdir -p "$MAC_EVIDENCE/suite"
+          status=0
+          "$test_python" -I -B -m unittest discover -s qorqut-code/app/tests >"$MAC_EVIDENCE/suite/app-tests.log" 2>&1 || status=1
+          tail -n 80 "$MAC_EVIDENCE/suite/app-tests.log"
+          "$test_python" -I -B -m unittest discover -s qorqut-code/tools/distribution/tests >"$MAC_EVIDENCE/suite/distribution-tests.log" 2>&1 || status=1
+          tail -n 30 "$MAC_EVIDENCE/suite/distribution-tests.log"
+          exit $status
+      - name: Real Claude Code and Codex download on this Mac (no account)
+        id: agent_cli
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 20
+        run: |
+          test_python="/tmp/qm-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/i/qorqbot/runtime/venv/bin/python"
+          mkdir -p "$MAC_EVIDENCE"
+          "$test_python" -I -B qorqut-code/tools/distribution/macos_app/agent_cli_check.py --output "$MAC_EVIDENCE/agent-cli" --root "$AGENT_CLI_ROOT"
+      - name: Managed agent host with the real Claude Code, no account
+        id: managed_host
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          test_python="/tmp/qm-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/i/qorqbot/runtime/venv/bin/python"
+          mkdir -p "$MAC_EVIDENCE"
+          "$test_python" -I -B qorqut-code/tools/distribution/macos_app/managed_host_check.py --output "$MAC_EVIDENCE/managed-host" --root "$AGENT_CLI_ROOT"
       - name: Check desktop launcher and signed DMG
         run: |
           npm test --prefix qorqut-code/tools/distribution/macos_app/electron
@@ -128,6 +169,20 @@ jobs:
             ${{ runner.temp }}/qorqbot-mac/prepared/logs/*.log
             /tmp/qm-${{ github.run_id }}-${{ github.run_attempt }}/*.json
             /tmp/qm-${{ github.run_id }}-${{ github.run_attempt }}/*.log
+      - name: Save the managed-agent evidence (tests, download, host)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mac-agent-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: ${{ runner.temp }}/mac-evidence
+      - name: Show the managed-agent evidence and fail the job when a step of it failed
+        if: always()
+        run: |
+          for file in "$MAC_EVIDENCE/new-tests/summary.md"; do [ -f "$file" ] && cat "$file" >>"$GITHUB_STEP_SUMMARY"; done
+          echo "full suite: ${{ steps.suite.outcome }}, new-module tests: ${{ steps.new_tests.outcome }}, real download: ${{ steps.agent_cli.outcome }}, managed host: ${{ steps.managed_host.outcome }}"
+          test "${{ steps.suite.outcome }}" != failure -a "${{ steps.new_tests.outcome }}" != failure -a "${{ steps.agent_cli.outcome }}" != failure -a "${{ steps.managed_host.outcome }}" != failure
       # This job prepares and checks a candidate only. It does not publish,
       # change repository visibility or use accounts/native agent clients.
       # Real terminal/browser acceptance remains a separate Mac release gate.
@@ -136,7 +191,8 @@ jobs:
     # developer tools, must set itself up and show the sign-in screen.
     name: Clean Mac opens the download (${{ matrix.os }})
     needs: macos
-    if: inputs.version != ''
+    # Also when the job above failed on a test: the disk image is built and uploaded before that is reported.
+    if: ${{ !cancelled() && inputs.version != '' && needs.macos.result != 'skipped' }}
     strategy:
       fail-fast: false
       matrix:

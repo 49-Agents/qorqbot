@@ -963,6 +963,21 @@ time.sleep(600)
 """
 
 
+def host_cmdline(pid) -> bytes:
+    """The host's argument vector, NUL separated, from /proc on Linux and from process_info (psutil) on macOS."""
+    if sys.platform == "linux":
+        return Path("/proc/%d/cmdline" % pid).read_bytes()
+    from qorqut import process_info
+    return b"\0".join(item.encode() for item in process_info.cmdline(pid)) + b"\0"
+
+
+def host_cwd(pid) -> str:
+    if sys.platform == "linux":
+        return os.readlink("/proc/%d/cwd" % pid)
+    from qorqut import process_info
+    return str(process_info.cwd(pid))
+
+
 class SubprocessHostTest(ManagedTestCase):
     """A real detached host process with the fake driver, started through the launcher. Linux only here."""
 
@@ -996,8 +1011,9 @@ class SubprocessHostTest(ManagedTestCase):
         self.assertTrue(layout.descends_from(verified.claude_pid, verified.host_pid))
         self.assertEqual(self.logged("start")[0]["secret"], "SECRET-VALUE-0451")
         # the secret travelled in launch.json only: not in argv, not in the host's own environment, not on disk afterwards
-        self.assertNotIn(b"SECRET-VALUE-0451", Path("/proc/%d/cmdline" % verified.host_pid).read_bytes())
-        self.assertNotIn(b"SECRET-VALUE-0451", Path("/proc/%d/environ" % verified.host_pid).read_bytes())
+        self.assertNotIn(b"SECRET-VALUE-0451", host_cmdline(verified.host_pid))
+        if sys.platform == "linux":       # macOS shows a process's environment to nobody but the process itself
+            self.assertNotIn(b"SECRET-VALUE-0451", Path("/proc/%d/environ" % verified.host_pid).read_bytes())
         self.assertFalse((self.state / layout.LAUNCH_FILE).exists())
         for path in self.state.iterdir():
             if path.is_file():
@@ -1674,8 +1690,8 @@ class StaleClaudeTest(SubprocessHostTest):
         (self.state / "qorqut_planted.py").write_text("")
         verified = self.start()
         self.assertFalse(marker.exists(), "a module in the state directory was imported by the host")
-        self.assertEqual(os.readlink("/proc/%d/cwd" % verified.host_pid), "/")
-        argv = Path("/proc/%d/cmdline" % verified.host_pid).read_bytes().split(b"\0")
+        self.assertEqual(host_cwd(verified.host_pid), "/")
+        argv = host_cmdline(verified.host_pid).split(b"\0")
         if sys.version_info >= (3, 11):
             self.assertIn(b"-P", argv)
         self.assertEqual(verified.client().hello()["status"], "ok")

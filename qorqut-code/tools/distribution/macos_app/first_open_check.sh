@@ -151,6 +151,15 @@ PAGE="$(ELECTRON_RUN_AS_NODE=1 "$APP/Contents/MacOS/Qorqbot" "$HERE/first_open_p
 note "$PAGE"
 shot 03-sign-in
 
+section "The setup screen (\"get your agents ready\")"
+# Normally shown after the Qorqbot sign-in, which this check does not pass: the page's own screen is opened over the sign-in
+# screen instead, with what the server says (or, if it cannot be read without a sign-in, a stand-in answer; the output says which).
+SETUP="$(ELECTRON_RUN_AS_NODE=1 "$APP/Contents/MacOS/Qorqbot" "$HERE/first_open_setup_screen.cjs" "$INSPECTION_PORT" 2>>"$OUT/errors.txt")" \
+  || fail "the setup screen could not be opened in the window"
+note "$SETUP"
+sleep 2
+shot 04-setup-screen
+
 section "Programs Qorqbot runs on"
 SERVICE="$(ps -axo command | grep -m 1 '[q]orqut.service' | cut -d ' ' -f 1)"
 note "  service runs on: ${SERVICE:-not running}"
