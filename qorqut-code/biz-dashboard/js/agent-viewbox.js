@@ -349,13 +349,14 @@ function agviewboxSurfacesMount(p, host) {
   strip.signoffHost = $('.agfocus-surface-board', host);
   // A launcher is enabled only by this agent's own resolved browser-surface binding (the existing cached discovery),
   // within the scope discovery covers; Desktop is also limited to Ordubashy. Pending, failed and empty read differently.
+  // Browser is also enabled by the agent's built-in browser (p.liveBrowser), which needs no configured viewer.
   const launcher = view => {
     const name = view === 'browser' ? 'Browser' : 'Desktop', found = strip.surfaces;
     if (p.workspaceScope !== 'global') return [false, `${name} unavailable: not offered for this agent here`];
     if (strip.discovery === 'checking') return [false, `${name}: checking this agent’s configuration`];
     if (strip.discovery === 'failed') return [false, `${name} could not be checked. Refresh Focus to retry`];
     if (view === 'desktop' && p.workspaceRole !== 'ordubashy') return [false, 'Desktop unavailable: only Ordubashy has a desktop'];
-    const bound = view === 'browser' ? found.browsers.length > 0 : !!found.desktop;
+    const bound = view === 'browser' ? found.browsers.length > 0 || !!p.liveBrowser : !!found.desktop;
     return bound ? [true, name] : [false, `${name} unavailable: no configured ${view} for this agent`];
   };
   const paintLaunchers = () => {
@@ -392,6 +393,7 @@ function agviewboxSurfacesMount(p, host) {
   strip.setActive = (kind, id = null) => { strip.active = { kind, id }; applyActive(); };
   strip.chip = kind => host.querySelector(`[data-focus-surface="${kind}"]`);
   strip.refresh = () => { if (strip.discovery === 'failed') discover(true); };
+  strip.paint = paintLaunchers;
   strip.dispose = () => { strip.dead = true; host.onclick = null; host.innerHTML = ''; host.classList.remove('agfocus-queues'); };
   applyActive();
   discover(false);

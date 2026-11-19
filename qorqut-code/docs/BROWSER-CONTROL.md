@@ -143,6 +143,58 @@ Rollback: detach the selected CLI session, restore the previous role pin and
 re-prepare. The managed launcher/skill disappear. Retain operator target config,
 work artifacts and Chrome profile for recovery; no browser data migration exists.
 
+## The captcha command
+
+An agent that sees a captcha sends `["captcha"]` as a `browser_turn` command, with nothing else: no key, no site key, no
+selector. Its skill says so in one line. Being a command, it goes through the same authorization, handle, browser
+selection, use lock and per-session command lock as `click`; `qorqut/browser/access.py` hands it to
+`qorqut/browser/captcha.py` instead of `agent-browser`. The shell launcher does not have it.
+
+The server works on the tab the caller's session is bound to (read from `agent-browser`'s `<session>.target` file, as the
+idle-tab sweeper does), over Chrome's loopback DevTools port:
+
+1. **Find.** The tab's frames are listed, frames of other sites included. reCAPTCHA v2, hCaptcha and Cloudflare Turnstile
+   are recognised by their frame's address (by path, so a proxied or stand-in widget is recognised too); the site key is
+   read from that address, or from the page's `data-sitekey`. reCAPTCHA v3 is recognised by the script the page loads,
+   Cloudflare's own "checking your browser" page by its markup. A widget with a checkbox is chosen before an invisible
+   one, and any widget before reCAPTCHA v3.
+2. **Click.** A widget with a checkbox is scrolled into view and gets a real mouse click on the checkbox (its place is
+   read inside the widget's frame; Turnstile hides it in a closed shadow tree, so it is clicked 30 pixels from the left
+   edge). The widget has 8 seconds to report its answer.
+3. **Solver.** Otherwise Anti-Captcha is asked for an answer token (`qorqut/browser/captcha_solver.py`: `createTask`,
+   then `getTaskResult` every 3 seconds, 120 seconds at most). It gets the widget's type, its site key and the address of
+   the document that holds it, without the query. The token is written to the widget's form fields, passed to the page's
+   callback (`data-callback`, or for reCAPTCHA the one given to `grecaptcha.render`), and returned by the widget's
+   `getResponse()`.
+4. **reCAPTCHA v3** needs the action name the page sends, which only the page's own `grecaptcha.execute` call shows. The
+   first `captcha` wraps that function and answers `again` ("send the form once more"); the second asks the solver with
+   the action seen and leaves the token for the page's next request, once.
+5. **Cloudflare's own page** gets the click and 25 seconds to give way. A token cannot pass it (its pass is a cookie tied
+   to this browser's address), so the solver is not asked.
+
+The command's output is one JSON line: `captcha` is `solved`, `not_found`, `again` or `failed`, with `type`, `method`
+(`click`, `solver`, `already`, `waited`), a plain `reason` for a failure, and `next` when the agent has something to do
+(for a failure: "Ask the owner."). Exit code 0 only for `solved`. The whole command is bounded at 150 seconds; an agent's
+tool call is given up on after 240.
+
+The key is the Global Settings variable `CAPTCHA_SOLVER_API_KEY`, read on the server for each call through the Settings
+files' reader, the private values over the shared ones; `CAPTCHA_SOLVER_PROVIDER` may say `anticaptcha` and nothing else.
+Without a key the click still works and the solver step fails with a reason that names the setting. The key and the
+token appear in no reply, log line or exception; the solver's replies are reduced to its error code. The solver is
+called over HTTPS only, ignoring proxy variables and refusing redirects.
+
+Each attempt is one line in `operations/.runtime/browser-captcha.jsonl` (mode 0600, 1 MB, one older file kept): time,
+calling agent, the site's host, captcha type, method, outcome, failure code, seconds, and the solver's charge when it
+reported one. The same line goes to the service log.
+
+Checked by `tests/test_browser_captcha.py` and `tests/test_browser_captcha_solver.py` with stand-ins for Chrome and the
+solver, and by `scripts/check_browser_captcha.py` on a real headless Chrome with local pages that copy the widgets' frame
+addresses and form fields and a local solver. No real widget and not the real solver have been run: whether a real
+checkbox passes on a click from this headless Chrome, whether sites accept an inserted token, and the solver's task names
+are unverified. Known limits: a callback passed to `hcaptcha.render` or `turnstile.render` in code cannot be reached (the
+fields and `getResponse()` are still set); picture and text captchas of other vendors are not recognised; after a failed
+click a vendor's picture puzzle may stay open over the page.
+
 ## Projects have no browsers
 
 A Project has no browser, proxy, profile or isolated desktop: `business_config_*` accepts no `browser` section

@@ -460,7 +460,8 @@ class HTTPAPI:
                 if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
                     raise DomainError("forbidden", "Only the installation owner can read these settings")
                 from qorqut import owner_settings
-                reader = owner_settings.about_view if parts[1] == "about" else owner_settings.agent_clients_view
+                reader = (partial(owner_settings.about_view, runtime_directory=self.runtime.paths.runtime)
+                          if parts[1] == "about" else owner_settings.agent_clients_view)
                 data = await anyio.to_thread.run_sync(reader)
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
@@ -500,12 +501,17 @@ class HTTPAPI:
                     result = response(OperationResult.ok(data, request_id=request_id))
                     result.headers["Cache-Control"] = "private, no-store"
                     return result
+                reader = partial(browser_setup.view, self.runtime)
                 if request.method == "POST":
                     body = await read_json(request, limit=1024)
-                    if body != {"action": "retry"}:
-                        raise DomainError("validation_error", "Only browser setup retry is supported")
-                reader = browser_setup.ensure_all if request.method == "POST" else browser_setup.view
-                data = await anyio.to_thread.run_sync(partial(reader, self.runtime))
+                    if body == {"action": "retry"}:
+                        reader = partial(browser_setup.ensure_all, self.runtime)
+                    elif isinstance(body, dict) and body.get("action") == "choose":
+                        checked_fields(body, {"action", "agent_id", "browser"}, {"action", "agent_id", "browser"})
+                        reader = partial(browser_setup.choose, self.runtime, body["agent_id"], body["browser"])
+                    else:
+                        raise DomainError("validation_error", "Browser setup supports retry and the browser choice")
+                data = await anyio.to_thread.run_sync(reader)
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
@@ -575,6 +581,8 @@ class HTTPAPI:
                 if len(parts) == 4 and parts[1] == "agents" and parts[3] == "browser-surfaces" and request.method == "GET" and self.compatibility:
                     data = await anyio.to_thread.run_sync(lambda: self.compatibility.local_files.browser_surfaces(context, parts[2]))
                     return JSONResponse(data, headers={"Cache-Control": "no-store"})
+                if len(parts) >= 4 and parts[1] == "agents" and parts[3] == "browser-live":
+                    return await self.browser_live(request, context, parts[2], parts[4:], request_id)
                 if self.terminals and parts[1:2] in (["terminal"], ["terminals"], ["workspace-terminal"]):
                     return await self.terminals.route(request, context, None, parts[1:])
                 raise DomainError("not_found", "Global agent endpoint is not registered")
@@ -960,6 +968,80 @@ class HTTPAPI:
                     last_heartbeat = time.monotonic()
             finally:
                 changes.unsubscribe(subscriber)
+
+        return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+    async def browser_live(self, request, context, agent_id, tail, request_id):
+        """The installation owner's live view of an agent's browser (``qorqut.browser.live``): its tabs, one tab as a stream
+        of pictures, and the owner's pointer and keys sent back. Dashboard only; never a registered operation."""
+        from qorqut.browser import live
+        if request.headers.get("authorization") is not None:
+            raise DomainError("forbidden", "The live browser view is for the owner's dashboard")
+        with self.runtime.database.read() as uow:
+            owner = uow.repository("installation").get("service")
+        if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
+            raise DomainError("forbidden", "Only the installation owner can watch an agent's browser")
+        if request.headers.get("sec-fetch-site") not in (None, "same-origin"):      # as the change feed: only this dashboard
+            raise DomainError("csrf_required", "The live browser view must originate in this dashboard")
+        if not tail and request.method == "GET":
+            def listing():
+                return {"agent_id": agent_id, "tabs": live.tabs(live.port(self.runtime, agent_id))}
+            result = response(OperationResult.ok(await anyio.to_thread.run_sync(listing), request_id=request_id))
+            result.headers["Cache-Control"] = "private, no-store"
+            return result
+        if tail == ["input"] and request.method == "POST":
+            body = await read_json(request, limit=262144)
+            checked_fields(body, {"view", "events"}, {"view", "events"})
+            await anyio.to_thread.run_sync(live.view(agent_id, body["view"]).send, body["events"])
+            return response(OperationResult.ok({}, request_id=request_id))
+        if tail != ["stream"] or request.method != "GET":
+            raise DomainError("not_found", "Live browser endpoint is not registered")
+        tab = request.query_params.get("tab")
+
+        def event(name, data):
+            return f"event: {name}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
+
+        async def events():
+            # Its own limiter: this holds one thread for the stream's whole life (see the change feed above).
+            limiter = anyio.CapacityLimiter(1)
+            listed, checked_at, sent_at = None, 0.0, time.monotonic()
+            # Opened here, not before the response: a generator that never starts never runs its ``finally``, so a request
+            # cancelled between the two leaked the view. Shielded, so the view that was opened is always the one closed below.
+            view, refusal = None, None
+            with anyio.CancelScope(shield=True):
+                try:
+                    view, port = await anyio.to_thread.run_sync(live.open_view, self.runtime, agent_id, tab)
+                except DomainError as error:
+                    refusal = error
+            if refusal is not None:
+                yield event("refused", {"code": refusal.code, "message": refusal.message})
+                return
+            try:
+                yield event("open", {"view": view.id, "tab": tab})
+                while not await request.is_disconnected():
+                    if time.monotonic() - checked_at >= 2:
+                        current = await anyio.to_thread.run_sync(live.tabs, port)
+                        checked_at = time.monotonic()
+                        if current != listed:
+                            listed = current
+                            yield event("tabs", current)
+                        if tab not in [item["id"] for item in current]:
+                            break
+                    picture = await anyio.to_thread.run_sync(view.next, 0.5, limiter=limiter)
+                    if picture is not None:
+                        yield event("frame", picture)
+                        sent_at = time.monotonic()
+                    elif time.monotonic() - sent_at >= 15:
+                        yield b": heartbeat\n\n"
+                        sent_at = time.monotonic()
+                yield event("closed", {})
+            except (live.Closed, DomainError):
+                yield event("closed", {})
+            finally:
+                # When the dashboard leaves, the server cancels this stream, and a cancelled scope refuses every further
+                # wait: unshielded, the view (its DevTools connection and Chrome's screencast) stayed open for good.
+                with anyio.CancelScope(shield=True):
+                    await anyio.to_thread.run_sync(view.close)
 
         return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 

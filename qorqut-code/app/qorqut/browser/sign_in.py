@@ -3,6 +3,9 @@
 The agent's headless browser pauses, because Chrome allows one process per profile. The window uses a private debugging port the
 agent is never told about, so agents cannot watch or drive it while the owner types. Closing the window brings the agent's browser
 back with the session in place. Qorqbot records which sites were signed in to, never a password.
+
+For an agent set to the Shared browser the profile is the Shared one: the sign-in pauses every agent that uses it, and the
+sites it records are theirs together.
 """
 import json
 import logging
@@ -20,8 +23,8 @@ from urllib.request import ProxyHandler, build_opener
 
 from qorqut_operations.contracts import DomainError, utc_now
 from qorqut.agent_trust import _atomic_write
-from .agent_browsers import STOP_REQUEST_FILE, _read_json, agent_state
-from .agent_supervisor import chrome_environment, stop_child, visible_chrome_command
+from .agent_browsers import SHARED_ID, STOP_REQUEST_FILE, _read_json, agent_state, uses_shared
+from .agent_supervisor import chrome_environment, request_close, stop_child, visible_chrome_command
 
 logger = logging.getLogger(__name__)
 SITES_FILE = "sign-ins.json"
@@ -62,24 +65,47 @@ def covers(cookie_domain, site):
     return domain == site or domain.endswith("." + site) or site.endswith("." + domain)
 
 
-def _sites_path(runtime, agent_id):
-    return agent_state(runtime.browser_manager.paths, agent_id) / SITES_FILE
+def _state(runtime, agent_id):
+    """The state directory of the browser the agent uses: its own, or the Shared browser's."""
+    paths = runtime.browser_manager.paths
+    return agent_state(paths, SHARED_ID if uses_shared(paths, agent_id) else agent_id)
 
 
-def _read_sites(runtime, agent_id):
+def _paused(runtime, agent_id):
+    """The agents a sign-in for ``agent_id`` pauses: itself, and with the Shared browser every agent that uses it."""
+    paths = runtime.browser_manager.paths
+    if not uses_shared(paths, agent_id):
+        return [agent_id]
+    from . import setup
+    _, agents = setup.targets(runtime)
+    others = []
+    for agent in agents:
+        try:
+            if agent["agent_id"] != agent_id and uses_shared(paths, agent["agent_id"]):
+                others.append(agent["agent_id"])
+        except DomainError:
+            continue
+    return [agent_id, *others]
+
+
+def _sites_path(runtime, agent_id, directory=None):
+    return (directory or _state(runtime, agent_id)) / SITES_FILE
+
+
+def _read_sites(runtime, agent_id, directory=None):
     try:
-        data = json.loads(_sites_path(runtime, agent_id).read_text())
+        data = json.loads(_sites_path(runtime, agent_id, directory).read_text())
     except (OSError, ValueError):
         return []
     return [item for item in data if isinstance(item, dict) and isinstance(item.get("site"), str)] if isinstance(data, list) else []
 
 
-def _write_sites(runtime, agent_id, sites):
-    _atomic_write(_sites_path(runtime, agent_id), json.dumps(sites).encode(), mode=0o600)
+def _write_sites(runtime, agent_id, sites, directory=None):
+    _atomic_write(_sites_path(runtime, agent_id, directory), json.dumps(sites).encode(), mode=0o600)
 
 
 def _meta(runtime, agent_id):
-    meta = _read_json(agent_state(runtime.browser_manager.paths, agent_id) / "meta.json")
+    meta = _read_json(_state(runtime, agent_id) / "meta.json")
     if not meta or meta.get("mode") != "managed":
         raise DomainError("browser_not_ready", "This agent's browser isn't set up yet. Wait until it shows Ready, then try again.")
     return meta
@@ -173,7 +199,7 @@ def _manage(runtime, owner, agent_id, action):
 
 def _open_window(runtime, owner, agent_id, url):
     meta = _meta(runtime, agent_id)
-    directory = agent_state(runtime.browser_manager.paths, agent_id)
+    directory = _state(runtime, agent_id)
     _manage(runtime, owner, agent_id, "stop")
     # This pause is not the owner's stop: if Qorqbot quits mid sign-in, automatic setup must still bring the browser back.
     (directory / STOP_REQUEST_FILE).unlink(missing_ok=True)
@@ -183,7 +209,7 @@ def _open_window(runtime, owner, agent_id, url):
                                start_new_session=True)
     time.sleep(1)
     if process.poll() is not None:
-        raise DomainError("browser_start_failed", "Chrome couldn't open a sign-in window. Make sure Chrome is installed, then try again.")
+        raise DomainError("browser_start_failed", "Chrome couldn't open a sign-in window. Try again, or sign in through the agent's Browser tab.")
     return process, port
 
 
@@ -207,21 +233,18 @@ def watch_window(process, port, *, limit=WINDOW_LIMIT, sleep=time.sleep, clock=t
 
 def _quit_cleanly(process, port):
     """Chrome writes cookies to disk in batches; only its own shutdown is sure to save a sign-in that just happened."""
-    from websockets.sync.client import connect
-    try:
-        endpoint = _get_json(port, "/json/version")["webSocketDebuggerUrl"]
-        with connect(endpoint, proxy=None, open_timeout=5, close_timeout=2) as socket_:
-            socket_.send(json.dumps({"id": 1, "method": "Browser.close"}))
-            socket_.recv(timeout=5)
-    except Exception:
-        logger.debug("Chrome closed before it could be asked to quit", exc_info=True)
+    if not request_close(port, timeout=5, pid=process.pid):
+        logger.debug("Chrome closed before it could be asked to quit")
     try:
         process.wait(timeout=10)
     except Exception:
         logger.debug("Chrome did not quit by itself", exc_info=True)
 
 
-def _finish(runtime, owner, agent_id, site, process, port):
+def _finish(runtime, owner, agent_id, site, process, port, paused=None, home=None):
+    """``home`` is the state directory of the browser the window was opened on, which is where the owner signed in. The agent may
+    have been switched between its own and the Shared browser since: the site then still goes into that browser's list (its
+    cookies are there), and the cookies are not copied into the browser the agent uses now."""
     try:
         latest = []
         def remember_cookies():
@@ -233,18 +256,24 @@ def _finish(runtime, owner, agent_id, site, process, port):
         remember_cookies()
         _quit_cleanly(process, port)
         stop_child(process)
-        sites = [item for item in _read_sites(runtime, agent_id) if item["site"] != site]
-        _write_sites(runtime, agent_id, [*sites, {"site": site, "added_at": utc_now()}])
+        home = home or _state(runtime, agent_id)
+        moved = _state(runtime, agent_id) != home
+        sites = [item for item in _read_sites(runtime, agent_id, home) if item["site"] != site]
+        _write_sites(runtime, agent_id, [*sites, {"site": site, "added_at": utc_now()}], home)
         _manage(runtime, owner, agent_id, "ensure")
         lasting = lasting_copies(latest, time.time())
-        if lasting:
+        if moved:
+            logger.warning("Agent %s was switched to another browser during its sign-in to %s; the sign-in stays with the browser "
+                           "it was made on and its session cookies were not copied", agent_id, site)
+        elif lasting:
             _cdp(_meta(runtime, agent_id)["managed"]["port"], [("Network.setCookies", {"cookies": lasting})])
     except Exception:
         # Automatic setup retries the browser; the Settings card reports anything that stays broken.
         logger.exception("Could not finish browser sign-in for agent %s", agent_id)
     finally:
         with _lock:
-            _active.pop(agent_id, None)
+            for paused_agent in paused or (agent_id,):
+                _active.pop(paused_agent, None)
 
 
 def start(runtime, agent_id, value):
@@ -255,21 +284,25 @@ def start(runtime, agent_id, value):
                                                "own browser instead, ask the owner for the password or code and type it yourself. For a worker's "
                                                "own browser, acquire it with browser_turn (browser_id from action list) and "
                                                "sign in there the same way.")
+    paused, home = _paused(runtime, agent_id), _state(runtime, agent_id)
     with _lock:
-        if agent_id in _active:
-            raise DomainError("conflict", f"Finish signing in to {_active[agent_id]} first, then close that Chrome window.")
-        _active[agent_id] = site
+        busy = next((agent for agent in paused if agent in _active), None)
+        if busy is not None:
+            raise DomainError("conflict", f"Finish signing in to {_active[busy]} first, then close that Chrome window.")
+        for paused_agent in paused:
+            _active[paused_agent] = site
     try:
         process, port = _open_window(runtime, owner, agent_id, url)
     except Exception:
         with _lock:
-            _active.pop(agent_id, None)
+            for paused_agent in paused:
+                _active.pop(paused_agent, None)
         try:
             _manage(runtime, owner, agent_id, "ensure")
         except Exception:
             logger.exception("Could not restore agent browser %s after a failed sign-in", agent_id)
         raise
-    threading.Thread(target=_finish, args=(runtime, owner, agent_id, site, process, port), daemon=True,
+    threading.Thread(target=_finish, args=(runtime, owner, agent_id, site, process, port, paused, home), daemon=True,
                      name="browser-sign-in").start()
     return accounts(runtime)
 

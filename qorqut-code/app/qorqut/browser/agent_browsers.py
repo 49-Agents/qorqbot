@@ -13,6 +13,11 @@ Two ownership modes exist and nothing else is ever touched:
   existing Linux service installations use a deterministic transient *user* service (``systemd-run --user``).
 * ``legacy``: a pre-existing browser an operator explicitly bound (``agent_binding``) to one exact systemd unit. A
   ``.qorqut/browser.json`` alone never proves ownership of anything.
+
+The installation also has one **Shared browser**: a managed browser that belongs to no agent (its state directory is named
+``SHARED_ID``) and that every agent set to it uses at once, each in its own tabs, so they share its sign-ins. An agent's choice is
+the ``shared.json`` record in its own state directory. While it is there the agent's own browser stays stopped with its profile
+kept, the agent's target file names the Shared browser, and every management action for the agent acts on the Shared browser.
 """
 
 from __future__ import annotations
@@ -42,7 +47,11 @@ from qorqut.composition.locations import agent_workspace_of
 from .agent_supervisor import port_free
 from .control import owns_listener, process_identity
 
-ACTIONS = ("status", "ensure", "repair", "restart", "stop")
+ACTIONS = ("status", "ensure", "repair", "restart", "stop", "use_shared", "use_own")
+# The Shared browser's state directory, service unit and locks are named by this fixed ID in place of an agent's. It is a
+# version 5 UUID, which no agent has (agents have random version 4 IDs).
+SHARED_ID = "da69c2a4-cd9c-5aa7-9a94-176338b13618"
+MEMBERSHIP_FILE = "shared.json"
 PORTS = range(20400, 21400)          # reserved for agents' own managed browsers
 CHROME = "/usr/bin/google-chrome-stable"
 SYSTEMCTL, SUDO, SYSTEMD_RUN = "/usr/bin/systemctl", "/usr/bin/sudo", "/usr/bin/systemd-run"
@@ -61,6 +70,43 @@ def state_root(paths):
 
 def agent_state(paths, agent_id):
     return state_root(paths) / agent_id
+
+
+def shared_workspace(paths):
+    """Where the Shared browser keeps its own target file. It is no agent's workspace."""
+    return agent_state(paths, SHARED_ID) / "workspace"
+
+
+def membership_damaged(paths, agent_id):
+    """The agent's choice record is there but is not exactly what ``use_shared`` writes. (A symbolic link is not this: it is
+    refused by ``uses_shared``, and no action may write through it.)"""
+    record = agent_state(paths, agent_id) / MEMBERSHIP_FILE
+    return (not path_has_symlink(record) and record.exists()
+            and _read_json(record) != {"schema_version": 1, "agent_id": agent_id, "browser": "shared"})
+
+
+def uses_shared(paths, agent_id):
+    """Whether the agent is set to the Shared browser. A record that is there but is not exactly what ``use_shared`` wrote is
+    an error, never read as "own": the agent must not be moved to another browser because a file was damaged."""
+    record = agent_state(paths, agent_id) / MEMBERSHIP_FILE
+    if path_has_symlink(record):
+        raise DomainError("browser_metadata_invalid", "The agent's browser choice crosses a symbolic link; nothing was changed")
+    if not record.exists():
+        return False
+    if membership_damaged(paths, agent_id):
+        raise DomainError("browser_metadata_invalid", "The agent's saved browser choice is invalid; nothing was changed. "
+                          "Ordubashy can set it again with agent_browser_manage (use_shared or use_own); both replace it.")
+    return True
+
+
+def shared_target(paths):
+    """The target file content of an agent on the Shared browser, or ``None`` while the Shared browser has no valid ownership
+    record."""
+    directory = agent_state(paths, SHARED_ID)
+    meta = _read_json(directory / "meta.json")
+    if meta is None or not meta_valid(meta, SHARED_ID, directory) or meta["mode"] != "managed":
+        return None
+    return {**meta["target"]["content"], "shared": True}
 
 
 def _private_directory(path):
@@ -149,11 +195,27 @@ def command_use(paths, agent_id):
     if not directory.is_dir():
         yield
         return
+    shared = uses_shared(paths, agent_id)
+    owner = SHARED_ID if shared else agent_id
     locks = _private_directory(state_root(paths) / "locks")
-    with _nonblocking(locks / f"{agent_id}.use", exclusive=False, busy=DomainError(
+    with _nonblocking(locks / f"{owner}.use", exclusive=False, busy=DomainError(
             "browser_maintenance", "The browser is being restarted or stopped; retry shortly", retryable=True)):
-        _require_owned_browser(directory, agent_id)
+        if shared:
+            _require_shared_browser(paths)
+        else:
+            _require_owned_browser(directory, agent_id)
         yield
+
+
+def _require_shared_browser(paths):
+    """With the Shared browser's use lock held: it must be its own supervised Chrome. There is no other browser to fall back
+    to, so anything else is an error."""
+    directory = agent_state(paths, SHARED_ID)
+    meta = _read_json(directory / "meta.json")
+    if (meta is None or not meta_valid(meta, SHARED_ID, directory) or meta["mode"] != "managed"
+            or supervisor_state(directory, meta)["state"] != "ready"):
+        raise DomainError("browser_not_ready", "The Shared browser is not running as its supervised process (it stopped, or "
+                          "another process holds its port). Tell Ordubashy; he can repair it with agent_browser_manage.")
 
 
 def _require_owned_browser(directory, agent_id):
@@ -439,10 +501,14 @@ class UserUnitLauncher:
         if state in UNIT_RUNNING:
             return False
         import qorqut
+        from . import idle_tabs
         state = outside_private_mounts(directory)
         package = outside_private_mounts(Path(qorqut.__file__).resolve().parent.parent)
+        # The last entry: where this application's browser commands record that a tab is in use (idle_tabs).
         environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": str(state), "PYTHONDONTWRITEBYTECODE": "1",
-                       "PYTHONPATH": os.pathsep.join(filter(None, [str(package), os.environ.get("PYTHONPATH", "")]))}
+                       "PYTHONPATH": os.pathsep.join(filter(None, [str(package), os.environ.get("PYTHONPATH", "")])),
+                       idle_tabs.SESSIONS: os.pathsep.join(str(outside_private_mounts(place))
+                                                           for place in idle_tabs.session_directories())}
         argv = [SYSTEMD_RUN, "--user", f"--unit={unit}", "--collect", "--quiet",
                 "--description=Qorqut agent browser supervisor", f"--working-directory={state}",
                 "--property=TimeoutStopSec=30", *(f"--setenv={key}={value}" for key, value in environment.items()),
@@ -501,6 +567,8 @@ class AgentBrowserManager:
             raise DomainError("validation_error", "agent_id must be a UUID") from None
         if action not in ACTIONS:
             raise DomainError("validation_error", "Unsupported browser management action")
+        if agent_id == SHARED_ID:
+            raise DomainError("not_found", "No such agent")
         if action != "status" and not (isinstance(idempotency_key, str) and KEY.fullmatch(idempotency_key)):
             raise DomainError("validation_error", "Mutating browser management needs a bounded idempotency_key")
         admission = self.runtime.application.writer_admission
@@ -508,10 +576,16 @@ class AgentBrowserManager:
             self.runtime.require_authority()
             workspace = self._authorize(principal_id, agent_id, owner_control=owner_control)
             if action == "status":
+                if uses_shared(self.paths, agent_id):
+                    return self._shared_status(agent_id, workspace)
                 return self._status(agent_id, workspace)
             with lifecycle_lock(self.paths, agent_id):
                 # Eligibility is decided again with the lock held, immediately before any effect.
                 workspace = self._authorize(principal_id, agent_id, owner_control=owner_control)
+                if action in {"use_shared", "use_own"} or uses_shared(self.paths, agent_id):
+                    # Always the agent's lock first and the Shared browser's second, so two agents cannot block each other.
+                    with lifecycle_lock(self.paths, SHARED_ID):
+                        return self._mutate(action, agent_id, workspace, idempotency_key)
                 return self._mutate(action, agent_id, workspace, idempotency_key)
 
     def _authorize(self, principal_id, agent_id, *, owner_control=False):
@@ -614,8 +688,15 @@ class AgentBrowserManager:
             return "target_missing"
         return "missing" if capable else "unsupported"
 
+    def _new_chrome(self):
+        """The Chrome a browser created now runs on: Qorqbot's own downloaded build once it is installed and has started
+        here, else the installed one. A browser that exists keeps the Chrome in its ownership record."""
+        from . import managed_chrome
+        return managed_chrome.preferred(self.paths.runtime) or self.chrome
+
     def _capable(self):
-        if not (Path(self.chrome).is_file() and os.access(self.chrome, os.X_OK)):
+        chrome = self._new_chrome()
+        if not (Path(chrome).is_file() and os.access(chrome, os.X_OK)):
             return False
         try:
             browser.runtime_executable(self.runtime_directory())
@@ -651,7 +732,7 @@ class AgentBrowserManager:
 
     def _result(self, action, s, state, *, changed, verified=None, note=None, replayed=False):
         result = {"agent_id": s.agent_id, "action": action, "changed": changed, "state": state, "ownership": s.ownership,
-                  "profile_preserved": True, "target": {"configured": s.target_state == "valid", "managed": s.ownership in {"managed", "legacy-bound"}},
+                  "browser": "own", "profile_preserved": True, "target": {"configured": s.target_state == "valid", "managed": s.ownership in {"managed", "legacy-bound"}},
                   "diagnostic": _bound(note or self._advice(s, state))}
         if verified is not None:
             result["verified"] = {"cdp_health": verified}
@@ -694,8 +775,8 @@ class AgentBrowserManager:
             raise DomainError("browser_state_unverified", "A process holds this browser's lock but its identity cannot be "
                               "verified; nothing was started or stopped")
         if not (Path(meta["managed"]["chrome"]).is_file() and os.access(meta["managed"]["chrome"], os.X_OK)):
-            raise DomainError("browser_capability_missing", "Chrome is not installed at the supported path "
-                              + meta["managed"]["chrome"] + "; install the OS browser package (nothing is downloaded here)")
+            raise DomainError("browser_capability_missing", "This browser's Chrome is missing at " + meta["managed"]["chrome"]
+                              + ". Qorqbot's own Chrome is downloaded again by itself; an installed one has to be installed again")
         unit = meta["managed"]["unit"]
         if state["state"] == "starting" or self.launcher.active(unit):
             ctx.effect = True          # an earlier start is still in flight: wait for it, never launch a second browser
@@ -799,7 +880,14 @@ class AgentBrowserManager:
         ctx = SimpleNamespace(effect=False)
         ledger.put(key, action, "started")
         try:
-            result = self._apply(ctx, action, s)
+            if action == "use_shared":
+                result = self._use_shared(ctx, s)
+            elif action == "use_own":
+                result = self._use_own(ctx, s)
+            elif uses_shared(self.paths, agent_id):
+                result = self._apply_shared(ctx, action, s)
+            else:
+                result = self._apply(ctx, action, s)
         except Exception:
             ledger.put(key, action, "uncertain" if ctx.effect else "failed")
             raise
@@ -891,20 +979,24 @@ class AgentBrowserManager:
             browser.runtime_executable(runtime_dir)
         except browser.BrowserError as exc:
             raise DomainError("browser_capability_missing", _bound("The browser command is unavailable: " + str(exc))) from None
-        if not (Path(self.chrome).is_absolute() and Path(self.chrome).is_file() and os.access(self.chrome, os.X_OK)):
-            raise DomainError("browser_capability_missing", "Chrome is not installed at the supported path " + self.chrome +
-                              "; install Chrome or set QORQUT_CHROME_EXECUTABLE to its absolute executable path")
+        chrome = self._new_chrome()
+        if not (Path(chrome).is_absolute() and Path(chrome).is_file() and os.access(chrome, os.X_OK)):
+            from . import managed_chrome
+            raise DomainError("browser_capability_missing", (
+                "The Chrome this installation is set to use is missing at " + chrome if managed_chrome.external_choice() else
+                "No Chrome can be used yet: Qorqbot's own is still being downloaded or does not start here (Settings says "
+                "which), and none is installed at " + chrome))
         workspace = s.workspace
         if path_has_symlink(workspace) or not workspace.is_dir():
             raise DomainError("browser_workspace_unavailable", "The agent's workspace is not prepared; start the agent once first")
-        meta = self._reserve(s, runtime_dir)             # ownership is on disk before anything launches
+        meta = self._reserve(s, runtime_dir, chrome)     # ownership is on disk before anything launches
         ctx.effect = True
         fresh = self._snapshot(s.agent_id, workspace, mutating=True)
         self._start_managed(ctx, fresh)
         self._publish_target(fresh, meta["target"]["content"])
         return self._finish(action, s, True, verify=True)
 
-    def _reserve(self, s, runtime_dir):
+    def _reserve(self, s, runtime_dir, chrome):
         """Choose the agent's port and write its durable ownership as one step under the global allocation lock, so two
         agents can never pick the same free port. The lock is released before Chrome starts. An interrupted reservation
         (a directory without ownership, or ownership without a running browser) is picked up again by the next ensure."""
@@ -915,7 +1007,7 @@ class AgentBrowserManager:
             meta = {"schema_version": 1, "agent_id": s.agent_id, "mode": "managed", "created_at": utc_now(),
                     "target": {"workspace": str(s.workspace), "content": content,
                                "sha256": hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()},
-                    "managed": {"port": port, "profile": str(directory / "profile"), "chrome": self.chrome,
+                    "managed": {"port": port, "profile": str(directory / "profile"), "chrome": chrome,
                                 "unit": unit_name(directory.parent, s.agent_id)}}
             _private_directory(directory)
             _private_directory(directory / "profile")
@@ -948,6 +1040,160 @@ class AgentBrowserManager:
                               details={"state": self._state(after)})
         return self._result(action, after, self._state(after), changed=changed,
                             verified=after.healthy if verify else None)
+
+    # -- the Shared browser ------------------------------------------------------------------------------------------------
+
+    def _shared_snapshot(self, *, mutating=False):
+        """The Shared browser, inspected like an agent's own managed browser: ``SHARED_ID`` in place of the agent and its own
+        folder in place of a workspace."""
+        return self._snapshot(SHARED_ID, shared_workspace(self.paths), mutating=mutating)
+
+    def _member_target(self, workspace):
+        """``(state, error)`` of the target file of an agent on the Shared browser: ``valid`` only when it names exactly the
+        Shared browser as it is recorded now."""
+        if path_has_symlink(workspace / ".qorqut/browser.json"):
+            return "invalid", "The browser target path crosses a symbolic link."
+        try:
+            endpoint, runtime_dir = browser.read_target(workspace)
+        except browser.BrowserNotConfigured:
+            return "absent", None
+        except browser.BrowserError as exc:
+            return "invalid", _bound(str(exc))
+        expected = shared_target(self.paths)
+        if (expected is None or not browser.target_shared(workspace)
+                or _content(endpoint, runtime_dir) != _content(expected["cdp_endpoint"], expected["runtime_dir"])):
+            return "conflict", "The agent's browser target file does not name the Shared browser; it was left unchanged."
+        return "valid", None
+
+    def _shared_result(self, action, agent_id, workspace, *, changed, verify=False, mutating=True):
+        """The Shared browser's state as the answer for one agent that uses it. With ``verify`` the answer says whether the
+        Shared browser passed its ownership and CDP health check."""
+        s = self._shared_snapshot(mutating=mutating)
+        target, error = self._member_target(workspace)
+        capable = self._capable() if s.target_state == "absent" and s.meta is None else True
+        state = self._state(s, capable)
+        note = None
+        if state in {"healthy", "stopped"} and target != "valid":
+            state = {"absent": "target_missing", "invalid": "invalid", "conflict": "conflict"}[target]
+            note = error or "The agent's target file is missing. Use action=repair to restore it."
+        elif state == "missing":
+            note = "The Shared browser is not set up. Use action=ensure to create it."
+        elif state == "healthy":
+            note = "Ready. This agent uses the Shared browser."
+        result = self._result(action, s, state, changed=changed, verified=s.healthy if verify else None, note=note)
+        result.update({"agent_id": agent_id, "browser": "shared",
+                       "target": {"configured": target == "valid", "managed": True}})
+        return result
+
+    def _shared_status(self, agent_id, workspace):
+        return self._shared_result("status", agent_id, workspace, changed=False, mutating=False)
+
+    def _converge_shared(self, ctx, action):
+        """Run ``ensure``, ``repair``, ``restart`` or ``stop`` on the Shared browser itself. True when anything changed."""
+        _private_directory(_private_directory(agent_state(self.paths, SHARED_ID)) / "workspace")
+        return self._apply(ctx, action, self._shared_snapshot(mutating=True))["changed"]
+
+    def _publish_member_target(self, s):
+        """Point the agent's target file at the Shared browser. A file is replaced only when it is one this manager wrote:
+        the agent's own managed target or an earlier Shared target. Anything else is left alone. True when it was written."""
+        expected = shared_target(self.paths)
+        if expected is None:
+            raise DomainError("browser_not_ready", "The Shared browser has no ownership record; nothing was written")
+        configured, target_file = s.workspace / ".qorqut", s.workspace / ".qorqut/browser.json"
+        if path_has_symlink(target_file) or (configured.exists() and not configured.is_dir()):
+            raise DomainError("browser_configuration_invalid", "The workspace's .qorqut path is unsafe; nothing was written")
+        try:
+            endpoint, runtime_dir = browser.read_target(s.workspace)
+        except browser.BrowserNotConfigured:
+            current = None
+        except browser.BrowserError as exc:
+            raise DomainError("browser_configuration_invalid", _bound(str(exc)) + " The file was not overwritten.") from None
+        else:
+            current = _content(endpoint, runtime_dir)
+            shared = browser.target_shared(s.workspace)
+            if shared and {**current, "shared": True} == expected:
+                return False
+            own = s.meta["target"]["content"] if s.meta is not None and s.meta["mode"] == "managed" else None
+            if not shared and current != own:
+                raise DomainError("browser_target_conflict", "This agent's browser target was installed outside this manager; "
+                                  "it was left unchanged and the agent keeps its own browser.")
+        write_json_private(target_file, expected)
+        return True
+
+    def _use_shared(self, ctx, s):
+        """Set the agent to the Shared browser: start the Shared browser, stop the agent's own (its profile and sign-ins stay
+        on disk), record the choice, then point the agent's target file at the Shared browser."""
+        if s.meta_error:
+            raise DomainError("browser_metadata_invalid", s.meta_error + " Nothing was changed; the operator must inspect it.")
+        # A damaged choice record is replaced, not trusted: this action is the repair the error message offers. If the target file
+        # already names the Shared browser, the agent was on it, and what the file says is not a conflict.
+        damaged = membership_damaged(self.paths, s.agent_id)
+        member = False if damaged else uses_shared(self.paths, s.agent_id)
+        if not member and not (damaged and browser.target_shared(s.workspace)):
+            if s.ownership in {"external", "legacy-bound"}:
+                raise DomainError("browser_target_conflict", "This agent's browser was installed by the operator, so it is not "
+                                  "replaced by the Shared browser. Nothing was changed.")
+            if s.conflict or s.target_state == "invalid":
+                raise DomainError("browser_target_conflict", (s.conflict or s.target_error or "Invalid browser target.")
+                                  + " Nothing was overwritten.")
+        if path_has_symlink(s.workspace) or not s.workspace.is_dir():
+            raise DomainError("browser_workspace_unavailable", "The agent's workspace is not prepared; start the agent once first")
+        changed = self._converge_shared(ctx, "ensure")
+        if not member:
+            if s.meta is not None and s.meta["mode"] == "managed":
+                with self._exclusive_use(s):
+                    changed = self._stop_managed(ctx, s) or changed
+            ctx.effect = True
+            _private_directory(s.directory)
+            write_json_private(s.directory / MEMBERSHIP_FILE, {"schema_version": 1, "agent_id": s.agent_id, "browser": "shared"})
+            changed = True
+        changed = self._publish_member_target(s) or changed
+        return self._finish_shared("use_shared", s, changed)
+
+    def _use_own(self, ctx, s):
+        """Set the agent back to its own browser: remove the Shared target and the choice, then set up the agent's own browser
+        as ``ensure`` does (its kept profile is started again, or a new browser is created). Whatever step an earlier move
+        stopped at, this ends in the same state; a damaged choice record is removed like a good one."""
+        if s.meta_error:      # before anything is removed: the agent must not lose the Shared browser and then fail to get its own
+            raise DomainError("browser_metadata_invalid", s.meta_error + " Nothing was changed; the operator must inspect it.")
+        member = membership_damaged(self.paths, s.agent_id) or uses_shared(self.paths, s.agent_id)
+        if member:
+            target, error = self._member_target(s.workspace)
+            own = s.meta["target"]["content"] if s.meta is not None and s.meta["mode"] == "managed" else None
+            # A target file that still names the agent's own browser is where an interrupted move to Shared left it: keep it.
+            kept = target == "conflict" and own is not None and s.target == own
+            if target == "invalid" or (target == "conflict" and not browser.target_shared(s.workspace) and not kept):
+                raise DomainError("browser_target_conflict", (error or "Invalid browser target.") + " Nothing was changed.")
+            ctx.effect = True
+            if not kept:
+                (s.workspace / ".qorqut/browser.json").unlink(missing_ok=True)
+            (s.directory / MEMBERSHIP_FILE).unlink(missing_ok=True)
+        # Also when nobody was a member here: an earlier move may have stopped after removing the choice and before this.
+        if (agent_state(self.paths, SHARED_ID) / "meta.json").exists() and not any(True for _ in state_root(self.paths).glob("*/" + MEMBERSHIP_FILE)):
+            try:
+                self._converge_shared(ctx, "stop")         # nobody uses it now; its profile and sign-ins stay
+            except DomainError:
+                pass
+        result = self._apply(ctx, "ensure", self._snapshot(s.agent_id, s.workspace, mutating=True))
+        return {**result, "action": "use_own", "changed": member or result["changed"]}
+
+    def _apply_shared(self, ctx, action, s):
+        """A management action for an agent on the Shared browser acts on the Shared browser. ``restart`` and ``stop``
+        therefore reach every agent that uses it."""
+        changed = self._converge_shared(ctx, action)
+        if action in {"ensure", "repair"}:
+            changed = self._publish_member_target(s) or changed
+        if action == "stop":
+            return self._shared_result(action, s.agent_id, s.workspace, changed=changed)
+        return self._finish_shared(action, s, changed)
+
+    def _finish_shared(self, action, s, changed):
+        result = self._shared_result(action, s.agent_id, s.workspace, changed=changed, verify=True)
+        if result["state"] != "healthy":
+            raise DomainError("browser_not_ready", "The Shared browser did not pass the ownership and CDP health check; it is "
+                              "not reported ready. Use action=repair, or inspect the state with action=status.",
+                              retryable=True, details={"state": result["state"]})
+        return result
 
     # -- port allocation ---------------------------------------------------------------------------------------------------
 
