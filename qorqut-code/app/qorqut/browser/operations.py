@@ -1,6 +1,7 @@
 """MCP registration of the restricted browser surface: own browsers, managed Global desktops and assignment turns."""
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
+from .agent_browsers import ACTIONS
 
 from qorqut_operations.application import OperationDescriptor
 
@@ -35,6 +36,16 @@ def register_browser_operation(runtime):
             "browser_key": {"type": ["string", "null"], "maxLength": 200, "description": instruction_text('operations-durable-workers-use-the-exact-assignment-target-native')},
             "handle": {"type": ["string", "null"], "pattern": "^b[a-f0-9]{12}$", "description": instruction_text('operations-short-browser-handle-returned-by-acquire-use-it')},
             "action_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 200, "description": instruction_text('operations-stable-action-identity-reused-exactly-for-reconciliation-defaults')}, "command": {"type": ["array", "null"], "items": {"type": "string", "maxLength": 2000}, "maxItems": 32},
+            "commands": {"type": ["array", "null"], "minItems": 1, "maxItems": 10,
+                         "items": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"type": "string", "maxLength": 2000}},
+                         # A plain string, not a tool-instructions key: the wording ships with the code that enforces it.
+                         "description": "Several commands in one call, 1 to 10, in place of command; give one of the two. Not for "
+                                        "a delegated assignment, which runs one command per call. They run in order and the run "
+                                        "stops at the first command that exits non-zero, times out or cannot start, or when the "
+                                        "request's time is nearly used up. Every command is checked first: if one is refused, none runs. The reply has results (one entry per command that "
+                                        "ran: command, exit_code, stdout, stderr when not empty, truncated when stdout was cut) and, when the run stopped, "
+                                        "stopped (index, reason, message, not_run). A timeout is reported in stopped, not "
+                                        "raised: look at the page before repeating anything."},
             "checkpoint": {"type": ["object", "null"]}, "last_action": _TEXT,
             "pending_outcome": {"type": ["object", "null"]}, "next_action": _TEXT,
             "lease_seconds": {"type": ["integer", "null"], "minimum": 30, "maximum": 900},
@@ -69,7 +80,7 @@ def register_agent_browser_management(runtime):
         "type": "object", "additionalProperties": False,
         "properties": {
             "agent_id": {"type": "string", "format": "uuid", "description": instruction_text('operations-the-active-permanent-worker-whose-own-browser-to')},
-            "action": {"enum": ["status", "ensure", "repair", "restart", "stop"]},
+            "action": {"enum": list(ACTIONS)},
         },
         "required": ["agent_id", "action"],
     }, version=1, effect_kind="records", supports_signoff=False, scope_kinds=frozenset({"global"}),
@@ -91,12 +102,13 @@ def register_agent_browser_management(runtime):
                     "another browser tool. First say in Chat exactly which "
                     "website you are opening, then call open: a Chrome window appears on the owner's screen at that site. Tell them "
                     "to check the address bar, sign in themselves and close the window when finished. The target browser is paused "
-                    "until the window closes. If open answers browser_no_screen, this computer has no screen for that window: open "
-                    "the site's own sign-in page in your own browser, ask the owner for the password or code you do not have, type "
-                    "it yourself, and never repeat it or write it anywhere else. For a worker's own browser, acquire it with "
-                    "browser_turn (browser_id from action list) and sign in there the same way. status lists connected sites; session_saved "
-                    "only means the site left cookies, and many sites do that before login, so open the site in your browser to "
-                    "confirm the owner is really signed in. sign_out removes one. Before sending or changing anything on "
-                    "a signed-in site, get the owner's approval in a Signoff. Nothing else enforces that.",
+                    "until the window closes. If the reply says live_view, this computer has no screen: the site's sign-in "
+                    "page is open in that agent's browser. Tell the owner to open that agent's Browser tab in the dashboard and sign "
+                    "in there, wait until they say it is done, then open the site in that browser (for a worker's, acquire it with "
+                    "browser_turn, browser_id from action list) and check. Only if the owner cannot use the live view, ask for the "
+                    "password or code you do not have, type it yourself, and never repeat it or write it anywhere else. status lists "
+                    "connected sites; session_saved only means the site left cookies, and many sites do that before login, so open "
+                    "the site in your browser to confirm the owner is really signed in. sign_out removes one. Before sending or "
+                    "changing anything on a signed-in site, get the owner's approval in a Signoff. Nothing else enforces that.",
         prepare=unavailable, apply=unavailable))
     return runtime

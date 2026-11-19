@@ -39,6 +39,74 @@ renew returns the expiry; checkpoint/release return state. Full reservation and
 action records remain on the server. An action ID is a retry/reconciliation
 reference, not browser ownership bookkeeping.
 
+## Files a command wrote
+
+A command reply lists `artifacts` only for the files that command created or changed, and leaves the key out when there
+are none. The service reads the command's work folder before and after the command and lists a file when it is new or its
+size or change time differs. `command.lock`, `agent-browser.json` and `*.meta.json` are bookkeeping and are never listed.
+
+Earlier files are not gone. They stay readable through `action: "artifact"` with their `artifact_handle`; the handle format
+is unchanged. This matters because an agent's own browser has a handle that never expires, so its folder only grows: listing
+all of it put the same 64 entries (about 20,000 characters) on every reply, even for a click that prints "Done", and being
+sorted by name it often left out the file the command had just made. One reply lists at most 64 files, sorted by path;
+a file over 32 MB is not listed. A delegated assignment's command is listed the same way, and a batch (below) is listed once
+for the whole run.
+
+## Several commands in one call
+
+`action: "command"` takes `commands`, a list of 1 to 10 command arrays, in place of `command`. Give exactly one of the two.
+
+```json
+{"action":"command","handle":"b0123456789ab","commands":[["fill","e1","Ada"],["fill","e2","Lovelace"],["press","Enter"]]}
+```
+
+- The commands run in order under one use lock and one read of the target, so a switch between the agent's own browser and
+  a Shared one cannot fall between them. Every command is validated before the first one runs; a refused command (the reply
+  names it as `commands[N]`), a browser that is not ready, or a first command the runner cannot start raises as a single
+  command does, with nothing run.
+- The run stops at the first command that exits non-zero, times out or fails; the later ones are not run.
+- Only the lease-free path takes `commands`: an agent's own browser, or a worker's browser selected by Ordubashy. A delegated
+  assignment keeps one command per call, because each action there has a durable record that can be reconciled; `commands`
+  on it is refused with `validation_error`.
+- `action_id` (or `idempotency_key`) names the whole batch. `action.state` is `succeeded` when every command ran with exit
+  code 0, `uncertain` after a timeout and `failed` after any other stop.
+
+Reply:
+
+```json
+{"results":[{"command":["fill","e1","Ada"],"exit_code":0,"stdout":"Done"},
+            {"command":["fill","e2","Lovelace"],"exit_code":1,"stdout":"","stderr":"e2 not found"}],
+ "exit_code":1,
+ "stopped":{"index":1,"reason":"exit_code","not_run":1,
+            "message":"Command 1 exited with code 1. The later commands were not run."}}
+```
+
+- `results` has one entry per command that finished: `command` (as sent), `exit_code`, `stdout`, and `stderr` when not
+  empty. `exit_code` at the top is that of the last command that finished, and is left out when none did.
+- `stopped` is present when the run did not finish cleanly, including when the last command is the one that failed.
+  `index` is the zero-based command that stopped it, `reason` is `exit_code`, `browser_timeout`, `browser_failed` or
+  `time_budget`, and `not_run` counts the commands that never started. A failed command is in `results` at `index`; a
+  timed-out one is not, because its output is lost; a `browser_failed` or `time_budget` command never started.
+- A timeout inside a batch does not raise. The agent has to see what already ran before it repeats anything, so the reply
+  carries the earlier results and `stopped`. A first command that cannot start raises, as above; a later command that the
+  runner refuses to start (for example another command holds the browser) is reported as `browser_failed`.
+- `artifacts` covers the whole batch: the folder is read before the first command and after the last.
+- `stdout` keeps its first 24,576 characters per command (above the largest `read` or `observe` budget), and the batch
+  keeps 65,536 characters of `stdout` in all. An entry cut for either limit keeps its start, where `read`, `observe` and
+  `snapshot` put the address, title and first refs, and carries `truncated: true`.
+- Any other exception after the first command also ends the batch as `browser_failed`, with the earlier results kept and
+  a message that the command may have reached the page. On the first command it raises. `stderr` keeps 16,384 per command with no batch
+  limit.
+
+**Time.** An MCP request lives 60 seconds on the agent's side: the stdio bridge (`qorqut/bootstrap/mcp_reconnect.py`) gives
+each request one `RETRY_WINDOW` and each HTTP request one `HTTP_REQUEST_TIMEOUT`, both 60 seconds. The tool timeouts of the
+CLIs (`tool_timeout_sec` and `.mcp.json` `timeout`) are 240 seconds, so the bridge binds first. After 60 seconds it answers
+a write as uncertain and the agent loses the whole reply. The runner lets one command take 45 seconds, so before each command
+after the first the elapsed time is checked, and when 45 seconds from now would end after 55 seconds (60 less 5 kept for the
+bridge, the hop to the service and the reply) the run stops with `time_budget`. In practice a batch of quick commands (the
+median is 0.9 s) is not affected; one slow command can end it early. The first command is never refused for time.
+The constants are in `qorqut/browser/access.py`, and a test fails if the bridge's window changes.
+
 ## Explicit Global selection (configured Ordubashy only)
 
 Ordubashy alone may add `browser_id` (a configured Global browser's surface id, from `action: "list"`) to a handles
@@ -107,3 +175,8 @@ not a new live Chrome/provider trial or a measurement of model token savings.
 An additional compatibility check passed for unrefreshed v1 acquisition, command
 and release alongside explicit handle opt-in, including rejection of stale-handle
 downgrades. The ten previously accepted checks were not rerun.
+
+`tests/test_browser_result_artifacts.py` covers the file listing on the own-browser path, a worker's browser selected by
+Ordubashy and the leased path. `tests/test_browser_command_batch.py` covers each rule of a batch, the handle layer's compact
+reply, the MCP envelope and the `commands` schema. Both use a stand-in command runner and a temporary folder; no live Chrome,
+real MCP bridge or provider is involved, so the 60-second figure above is read from the code, not measured.

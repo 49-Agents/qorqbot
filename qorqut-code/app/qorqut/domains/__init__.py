@@ -115,7 +115,7 @@ def register_business_domains(registry, application, paths, *, agent_resolver, q
     # Actions and the Context input queue. Their handlers install here.
     tags = TagOperations(clock=clock)
     tasks = TaskOperations(application, neutral.items, task_ports(application, extensions.note_derivations()), clock=clock)
-    actions = ActionOperations(application, tasks.note_references(), on_revision=on_revision, clock=clock)
+    actions = ActionOperations(application, tasks.note_references(), tasks=tasks, on_revision=on_revision, clock=clock)
     for contribution in (tags.contribution(), tasks.contribution(), actions.contribution(), queue.contribution()):
         install_contribution(registry, contribution)
     # The Operations CRM Domain: composed over the Table service, Tasks and the neutral items. Tables dispatch CRM rows to

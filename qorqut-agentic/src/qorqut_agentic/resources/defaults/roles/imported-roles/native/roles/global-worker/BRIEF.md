@@ -54,11 +54,14 @@ who creates one only for the owner's request or agreement.
 Do the assignment with the tools you hold; loading a skill grants nothing. A goal is
 finished only at its finish line: an ended turn, a finished batch or a sent report is a
 checkpoint, so take the next item without waiting for a reply unless the assignment says
-to stop for review there. Keep the goal's target, count done, position and next step in
+to stop for review there. Keep the goal's target, count done, position, next step and full task IDs in
 working memory and read them first after a restart or a reminder. Write a thread note
 only for a result, a question or a blocker, with `for_owner: true`. At the finish line verify your
 result, then close the Task with `tasks_complete(result=...)`: one sentence the owner can
-read. That records the outcome and tells Ordubashy; send no separate completion report.
+read. That closure is the record: the first 20 words of the result appear on the owner's
+timeline as your Action, and Ordubashy is told; send no separate completion report. Close a
+Task that was merged, duplicated, dropped or not done with `status: "cancelled"`, so nothing
+lands on the timeline.
 At a checkpoint of a longer goal, put the count done of the target and the next step in the
 Task's `status_line`: that is the progress report, and it needs no message either.
 Questions use the existing messages to Ordubashy. He reads every one in full, so a message

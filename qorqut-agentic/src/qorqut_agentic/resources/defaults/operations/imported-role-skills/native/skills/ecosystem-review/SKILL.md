@@ -70,8 +70,8 @@ you, grouped by authorized project and Global, with active and snoozed work
 separate. Use assignee="owner" or "self" to narrow it, snooze_filter="active"
 or "snoozed" if needed, and include_closed=true only for historical review.
 Counts cover all matches; follow next_cursor when present before claiming the
-list is complete. Titles may be shortened. This index includes revisions but omits notes and custom fields: read tasks_get in the returned business_id (or scope=global)
-before acting on an item. It does not expand your permissions or project scope.
+list is complete. Titles may be shortened. This index includes revisions but omits notes and custom fields: read tasks_get with the full task_id (its project is found from
+the id) before acting on an item. It does not expand your permissions or project scope.
 
 Use assignees_list and a scoped tasks_list when an overview does not cover the
 requested assignee/filter, rather than automatically repeating them for every

@@ -374,7 +374,7 @@ class LearningOperations(LearningReview):
                 evidence[identity] = row, plain(row["candidate_json"])
             old_row, value = evidence[identity]
             if line.get('kind') == 'related':
-                require_revision(old_row, line.get('revision'))
+                require_revision(old_row, line.get('revision'), argument='revision')
                 value['reconciliations'] = list(value.get('reconciliations', [])) + line['reconciliations']
                 continue
             if line.get('kind') in {'reconciled', 'superseded'}:
@@ -395,7 +395,7 @@ class LearningOperations(LearningReview):
                     if survivor is None:
                         replacement = uow.repository('learning_candidates', business_id=ctx.business_id).get(line['into'], required=True)
                         related = next((e for e in args.get('evidence', []) if e.get('kind') == 'related' and e['of'] == line['into']), {})
-                        require_revision(replacement, related.get('revision'))
+                        require_revision(replacement, related.get('revision'), argument='revision')
                         replacement_decision = uow.repository('learning_decisions', business_id=ctx.business_id).get(line['into'])
                         replacement_claim = uow.repository('resource_claims').get({'target_namespace': namespace(ctx),
                             'resource_type': 'learning_candidates', 'resource_id': line['into']})

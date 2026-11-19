@@ -151,7 +151,7 @@ class TaskOverview:
         since = moment(args["updated_since"]) if "updated_since" in args else None
         current = self.tasks.clock()
         limits = {status: stamp(current - age) for status, age in STALE_AFTER.items()}
-        pairs, people, tasks_seen = [], {}, 0
+        pairs, people, names, tasks_seen = [], {}, {}, 0
 
         def holder(identity):
             if identity not in people:
@@ -174,8 +174,10 @@ class TaskOverview:
                 if error.code != "business_archived":
                     raise
                 continue
-            if business_id and not uow.repository("businesses").get(business_id):
+            business = uow.repository("businesses").get(business_id) if business_id else None
+            if business_id and not business:
                 continue
+            names[business_id] = business["name"] if business else "Global"
             clauses = ["t.business_id IS ?", "t.archived=0", "t.status NOT IN ('done','cancelled')",
                        "COALESCE(json_extract(t.fields_json,'$.\"$task\".task_type'),'task')!='customer'"]
             parameters = [business_id]
@@ -211,6 +213,7 @@ class TaskOverview:
                                                   pair["business_id"] or "", pair["id"]))
         for pair, task in zip(selected, self.tasks.project_input(ctx, selected, uow)):
             brief = {key: task[key] for key in ("id", "business_id", "revision", "title", "status", "due", "updated_at")}
+            brief["business_name"] = names[task["business_id"]]
             brief.update({key: task[key] for key in ("work_status", "input_needed") if key in task})
             if len(brief["title"]) > 180:
                 brief.update(title=brief["title"][:179] + "…", title_truncated=True)

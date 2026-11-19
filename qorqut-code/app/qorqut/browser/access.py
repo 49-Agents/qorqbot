@@ -21,6 +21,24 @@ from .turns import BrowserTurnQueue
 
 # What a stateless native handle names when it is the caller's own configured browser.
 OWN = "own"
+# Written or touched by every command for its own bookkeeping; never a result of the command.
+_BOOKKEEPING_FILES = frozenset({"command.lock", "agent-browser.json"})
+
+# Several commands in one call. An MCP request lives 60 s on the agent's side: the stdio bridge gives each request one
+# RETRY_WINDOW and each HTTP request one HTTP_REQUEST_TIMEOUT, both 60 s (qorqut/bootstrap/mcp_reconnect.py; the CLIs' own
+# tool timeouts are 240 s, so they never bind first). After that the bridge reports a write as uncertain and the agent
+# loses the whole reply, so a batch stops starting commands that could end past it. The runner lets one command take 45 s
+# (browser.run); _REPLY_SECONDS is kept back for the bridge, the service hop and the reply itself.
+_REQUEST_SECONDS = 60
+_COMMAND_SECONDS = 45
+_REPLY_SECONDS = 5
+_BATCH_LIMIT = 10
+# Above the largest budget read and observe take (24,000), so a reply asked for in full arrives in full.
+_STDOUT_PER_COMMAND = 24_576
+_STDOUT_PER_BATCH = 65_536
+_STDERR_PER_COMMAND = 16_384
+_TIMEOUT_MESSAGE = ("Browser command timed out; inspect the page before repeating a state-changing action. "
+                    "Nothing is locked.")
 
 
 class BrowserAccess:
@@ -28,6 +46,7 @@ class BrowserAccess:
         self.runtime = runtime
         self.turns = getattr(runtime, "browser_turns", None) or BrowserTurnQueue()
         self.targets = BrowserTargets(runtime)
+        self.clock = time.monotonic
 
     def runtime_directory(self):
         from qorqut.installation import installation_config, component, app_manifest
@@ -125,32 +144,146 @@ class BrowserAccess:
 
     def _native_command(self, actor, body, browser_key, handle):
         from qorqut.bootstrap import browser
-        command = body.get("command")
+        command, commands = body.get("command"), body.get("commands")
+        if commands is not None:
+            if command is not None:
+                raise DomainError("validation_error", "Give command or commands, not both")
+            return self._native_batch(actor, body, browser_key, handle, commands)
+        if command is None:
+            raise DomainError("validation_error", "Give command (one command) or commands (1 to %d commands in one call)" % _BATCH_LIMIT)
         if not isinstance(command, list) or not command or any(not isinstance(item, str) for item in command):
             raise DomainError("validation_error", "command must be a non-empty list of strings")
-        try:
-            browser.validate_arguments(command)
-        except browser.BrowserError as exc:
-            raise DomainError("validation_error", str(exc)) from exc
+        run = self._runner(actor, command)
         workspace = self._artifact_root(actor.principal.id, handle)
         owner = self._browser_owner(actor, browser_key)
+        before = self._artifact_state(workspace)
         try:
             with self._selected_worker(actor, owner):
-                target = self._worker_target(browser_key, owner)
                 with self._managed_use(browser_key):
-                    code, stdout, errors = browser.run(workspace, command, target=(target["cdp_endpoint"],
-                        browser.runtime_executable(target["runtime_dir"])), instance=target["instance"], capture=True)
+                    # Read with the use lock held: a switch between own and Shared waits for it, so this command cannot be
+                    # run against the browser the agent has just left.
+                    target = self._worker_target(browser_key, owner)
+                    code, stdout, errors = run(workspace, command, target=(target["cdp_endpoint"],
+                        browser.runtime_executable(target["runtime_dir"])), instance=target["instance"], capture=True,
+                        pinned=bool(target.get("shared")))
         except browser.BrowserTimeout:
-            raise DomainError("browser_timeout", "Browser command timed out; inspect the page before "
-                              "repeating a state-changing action. Nothing is locked.") from None
+            raise DomainError("browser_timeout", _TIMEOUT_MESSAGE) from None
         except browser.BrowserError as exc:
             raise DomainError("browser_failed", str(exc)) from None
         result = {"exit_code": code, "stdout": stdout[-65_536:], "stderr": errors[-16_384:],
-                  "artifacts": self._artifact_handles(workspace, actor.principal.id, handle)}
+                  "artifacts": self._artifact_handles(workspace, actor.principal.id, handle, before)}
         action_id = body.get("action_id") or body.get("idempotency_key")
         if action_id:
             result["action"] = {"action_id": action_id, "state": "succeeded" if code == 0 else "failed"}
         return {key: value for key, value in result.items() if value or key in {"exit_code", "stdout"}}
+
+    def _native_batch(self, actor, body, browser_key, handle, commands):
+        """Several commands in one call, in order, under one use lock and one target read, so a switch between the own and
+        a Shared browser cannot fall between them. The run stops at the first command that exits non-zero, times out or
+        fails, or when the next one could end past the request's time. A timeout is reported, not raised: the agent has to
+        see what already ran before it repeats anything. Only what could not start at all raises, as a single command does."""
+        from qorqut.bootstrap import browser
+        if (not isinstance(commands, list) or not 1 <= len(commands) <= _BATCH_LIMIT
+                or any(not isinstance(command, list) or not command or any(not isinstance(item, str) for item in command)
+                       for command in commands)):
+            raise DomainError("validation_error", "commands must be a list of 1 to %d commands, each a non-empty list of strings"
+                              % _BATCH_LIMIT)
+        # Every command is checked before the first one runs: a refused tenth must not leave nine half-done steps.
+        from . import captcha
+        for index, command in enumerate(commands):
+            if captcha.is_command(command):
+                raise DomainError("validation_error", f"commands[{index}]: captcha goes in a call of its own, as command.")
+            try:
+                browser.validate_arguments(command)
+            except browser.BrowserError as exc:
+                raise DomainError("validation_error", f"commands[{index}]: {exc}") from exc
+        workspace = self._artifact_root(actor.principal.id, handle)
+        owner = self._browser_owner(actor, browser_key)
+        before = self._artifact_state(workspace)
+        started = self.clock()
+        results, stopped, kept = [], None, 0
+        try:
+            with self._selected_worker(actor, owner):
+                with self._managed_use(browser_key):
+                    # Read with the use lock held, as a single command does.
+                    target = self._worker_target(browser_key, owner)
+                    runtime_target = (target["cdp_endpoint"], browser.runtime_executable(target["runtime_dir"]))
+                    for index, command in enumerate(commands):
+                        if index and self.clock() - started + _COMMAND_SECONDS > _REQUEST_SECONDS - _REPLY_SECONDS:
+                            stopped = {"index": index, "reason": "time_budget", "not_run": len(commands) - index,
+                                       "message": "Stopped before command %d: the request's time is nearly used up. "
+                                                  "Send the commands that were not run in a new call." % index}
+                            break
+                        try:
+                            code, stdout, errors = browser.run(workspace, command, target=runtime_target,
+                                                               instance=target["instance"], capture=True,
+                                                               pinned=bool(target.get("shared")))
+                        except browser.BrowserTimeout:
+                            stopped = {"index": index, "reason": "browser_timeout", "not_run": len(commands) - index - 1,
+                                       "message": _TIMEOUT_MESSAGE}
+                            break
+                        except browser.BrowserError as exc:
+                            if not index:
+                                raise
+                            # The runner refuses before it launches anything, so this command never started.
+                            stopped = {"index": index, "reason": "browser_failed", "not_run": len(commands) - index,
+                                       "message": str(exc)}
+                            break
+                        except Exception as exc:
+                            if not index:
+                                raise
+                            # Anything else after the first command must not lose what the earlier ones did. Whether
+                            # this command reached the page is unknown.
+                            stopped = {"index": index, "reason": "browser_failed", "not_run": len(commands) - index - 1,
+                                       "message": f"Command {index} failed unexpectedly ({type(exc).__name__}); it may or "
+                                                  "may not have reached the page. Look at the page before repeating it."}
+                            break
+                        # The start of the output is kept: read, observe and snapshot put the address, title and first
+                        # refs there, and a reply cut at its head cannot be used.
+                        limit = min(_STDOUT_PER_COMMAND, _STDOUT_PER_BATCH - kept)
+                        cut = len(stdout) > limit
+                        stdout = stdout[:limit] if cut else stdout
+                        kept += len(stdout)
+                        entry = {"command": command, "exit_code": code, "stdout": stdout}
+                        if errors:
+                            entry["stderr"] = errors[-_STDERR_PER_COMMAND:]
+                        if cut:
+                            entry["truncated"] = True
+                        results.append(entry)
+                        if code:
+                            stopped = {"index": index, "reason": "exit_code", "not_run": len(commands) - index - 1,
+                                       "message": f"Command {index} exited with code {code}."}
+                            break
+        except browser.BrowserError as exc:
+            raise DomainError("browser_failed", str(exc)) from None
+        if stopped and stopped["not_run"] and stopped["reason"] in {"exit_code", "browser_timeout"}:
+            stopped["message"] += " The later commands were not run."
+        result = {"results": results}
+        if results:
+            result["exit_code"] = results[-1]["exit_code"]
+        if stopped:
+            result["stopped"] = stopped
+        artifacts = self._artifact_handles(workspace, actor.principal.id, handle, before)
+        if artifacts:
+            result["artifacts"] = artifacts
+        action_id = body.get("action_id") or body.get("idempotency_key")
+        if action_id:
+            state = ("uncertain" if stopped and stopped["reason"] == "browser_timeout"
+                     else "failed" if stopped else "succeeded")
+            result["action"] = {"action_id": action_id, "state": state}
+        return result
+
+    def _runner(self, actor, command):
+        """What runs a checked command: ``agent-browser`` for a page command, the server itself for ``captcha``."""
+        from qorqut.bootstrap import browser
+        from . import captcha
+        if captcha.is_command(command):
+            return captcha.runner(self.runtime, actor.principal.id)
+        try:
+            browser.validate_arguments(command)
+        except browser.BrowserError as exc:
+            raise DomainError("validation_error", str(exc)) from exc
+        return browser.run
 
     def tool(self, actor, action, body):
         """Agent-facing browser calls carry only a short, persisted handle."""
@@ -378,12 +511,12 @@ class BrowserAccess:
         command = body.get("command")
         action_id = body.get("action_id") or body.get("idempotency_key")
         from qorqut.bootstrap import browser
+        if body.get("commands") is not None:
+            raise DomainError("validation_error", "A delegated assignment runs one command per call, because each browser "
+                              "action there has its own durable record that can be reconciled. Send command, not commands.")
         if not isinstance(command, list) or not command or any(not isinstance(item, str) for item in command):
             raise DomainError("validation_error", "command must be a non-empty list of strings")
-        try:
-            browser.validate_arguments(command)
-        except browser.BrowserError as exc:
-            raise DomainError("validation_error", str(exc)) from exc
+        run = self._runner(actor, command)
         with self.runtime.database.transaction(operation="browser.turn.intent") as uow:
             intent, fresh = self.turns.begin_action(uow, turn_id, parent_principal_id=actor.principal.id,
                 requester_id=requester, generation=generation, lease_id=lease_id,
@@ -393,10 +526,12 @@ class BrowserAccess:
                 raise DomainError("browser_reconcile", "This browser action has an unsettled durable intent; reconcile it before retrying", retryable=True)
             return {"action": intent, "replayed": True}
         workspace = self._artifact_root(owner_id, turn_id)
+        before = self._artifact_state(workspace)
         try:
             target = self._worker_target(browser_key, actor.principal.id)
-            code, stdout, errors = browser.run(workspace, command, target=(target["cdp_endpoint"],
-                browser.runtime_executable(target["runtime_dir"])), instance=target["instance"], capture=True)
+            code, stdout, errors = run(workspace, command, target=(target["cdp_endpoint"],
+                browser.runtime_executable(target["runtime_dir"])), instance=target["instance"], capture=True,
+                        pinned=bool(target.get("shared")))
             outcome_state = "succeeded" if code == 0 else "failed"
             outcome = {"exit_code": code, "stdout": stdout[-65_536:], "stderr": errors[-16_384:]}
             with self.runtime.database.transaction(operation="browser.turn.settle") as uow:
@@ -413,7 +548,7 @@ class BrowserAccess:
                         next_action=body.get("next_action"))
                 else:
                     result = self.turns._compact(uow, current)
-            return {"action": settled, "turn": result, "artifacts": self._artifact_handles(workspace, owner_id, turn_id), **outcome}
+            return {"action": settled, "turn": result, "artifacts": self._artifact_handles(workspace, owner_id, turn_id, before), **outcome}
         except Exception as exc:
             with self.runtime.database.transaction(operation="browser.turn.uncertain") as uow:
                 try:
@@ -453,25 +588,37 @@ class BrowserAccess:
     def _artifact_root(self, assignment_id, turn_id):
         return self.runtime.paths.runtime / "browser-turns" / assignment_id / turn_id
 
-    def _artifact_handles(self, workspace, assignment_id, turn_id):
+    def _artifact_state(self, workspace):
+        """Each file under a command's folder with its size and change time, to tell afterwards what the command wrote."""
         root = workspace.resolve()
-        items = []
+        state = {}
         try:
             paths = sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix())
         except OSError:
-            return items
+            return state
         for path in paths:
             try:
                 if path.is_symlink() or not path.is_file():
                     continue
-                relative = path.relative_to(root).as_posix()
-                size = path.stat().st_size
+                stat = path.stat()
+                state[path.relative_to(root).as_posix()] = (stat.st_size, stat.st_mtime_ns)
             except (OSError, ValueError):
+                continue
+        return state
+
+    def _artifact_handles(self, workspace, assignment_id, turn_id, before):
+        """The files this command created or changed. Files from earlier commands stay readable through their handles
+        but are not listed again: the folder of an agent's own browser never empties, and listing it with every reply
+        put the same 64 entries (about 20,000 characters) on each click."""
+        items = []
+        for relative, (size, changed) in self._artifact_state(workspace).items():
+            name = relative.rsplit("/", 1)[-1]
+            if name in _BOOKKEEPING_FILES or name.endswith(".meta.json") or before.get(relative) == (size, changed):
                 continue
             if size > 32 * 1024 * 1024:
                 continue
             items.append({"artifact_handle": f"browser-artifact:{assignment_id}:{turn_id}:{relative}",
-                          "artifact_path": relative, "mime_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+                          "artifact_path": relative, "mime_type": mimetypes.guess_type(name)[0] or "application/octet-stream",
                           "size": size})
             if len(items) >= 64:
                 break
@@ -502,14 +649,28 @@ class BrowserAccess:
                                                  (parent_principal_id,)).fetchone()
             if profile is None:
                 raise DomainError("operation_unavailable", "The configured browser workspace is unavailable")
+            workspace = agent_workspace_of(self.runtime.paths, parent_principal_id, profile["home_business_id"],
+                                           profile["slug"])
             try:
-                endpoint, executable = browser.load_target(agent_workspace_of(
-                    self.runtime.paths, parent_principal_id, profile["home_business_id"], profile["slug"]))
+                endpoint, executable = browser.load_target(workspace)
             except browser.BrowserNotConfigured:
                 raise DomainError("browser_not_configured", self.runtime.resolver.require_agentic_view().runtime_instructions().render('browser-worker-unconfigured')) from None
             except browser.BrowserError as exc:
                 raise DomainError("browser_configuration_invalid", "Your configured browser is unusable (" + str(exc) +
                                   self.runtime.resolver.require_agentic_view().runtime_instructions().render('browser-worker-repair')) from None
             return {"cdp_endpoint": endpoint, "generation": "configured", "instance": browser_key,
-                    "runtime_dir": str(browser.runtime_directory(executable)), "browser_key": browser_key}
+                    "runtime_dir": str(browser.runtime_directory(executable)), "browser_key": browser_key,
+                    "shared": self._shared_target(parent_principal_id, workspace, endpoint)}
         raise DomainError("forbidden", "Browser target is not an approved configured target")
+
+    def _shared_target(self, agent_id, workspace, endpoint):
+        """Whether the agent's target is the Shared browser. The agent's saved choice and its target file must agree, and a
+        Shared target must name the Shared browser as it is recorded now: an agent is never sent to another browser."""
+        from .agent_browsers import shared_target, uses_shared
+        from qorqut.bootstrap import browser
+        chosen, marked = uses_shared(self.runtime.paths, agent_id), browser.target_shared(workspace)
+        expected = shared_target(self.runtime.paths) if chosen else None
+        if chosen != marked or (chosen and (expected is None or expected["cdp_endpoint"] != endpoint)):
+            raise DomainError("browser_configuration_invalid", "Your browser target file does not match your saved browser "
+                              "choice, so no browser was used. Tell Ordubashy; he can repair it with agent_browser_manage.")
+        return chosen

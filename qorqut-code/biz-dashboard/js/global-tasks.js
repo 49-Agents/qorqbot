@@ -373,7 +373,8 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
       const confirmed = await typeEditor.confirmConversion();
       confirming = false;
       if (!confirmed || !current()) return;
-      const args = task ? {task_id: task.id, changes, expected_revision: task.revision} : {...changes, id: newRequestId()};
+      // A new Task's id comes from the server; a retry repeats the same idempotency key and gets the same Task back.
+      const args = task ? {task_id: task.id, changes, expected_revision: task.revision} : {...changes};
       attempt = {name: task ? 'tasks_update' : 'tasks_create', args: {...args, idempotency_key: newRequestId()}};
       attempt.apply = fresh => {
         // Saving the same Story/Customer/Email record keeps its surface and conversation mounted.
@@ -399,7 +400,7 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
     host.querySelectorAll('input,select,textarea,button').forEach(e => e.disabled = true);
     try {
       const data = await invoke(attempt.name, attempt.args);
-      if (initialCreate && attempt.name === 'tasks_create' && (!data?.task || typeof data.task !== 'object' || typeof data.task.id !== 'string' || !data.task.id.trim() || data.task.id !== attempt.args.id)) {
+      if (initialCreate && attempt.name === 'tasks_create' && (!data?.task || typeof data.task !== 'object' || typeof data.task.id !== 'string' || !data.task.id.trim())) {
         throw Object.assign(new Error('The create response was invalid.'), {code: 'invalid_response'});
       }
       const apply = attempt.apply;

@@ -68,8 +68,9 @@ const row=id=>[...hosts.list.querySelectorAll('.sg-row')].find(node=>node.datase
     out.markdown=card.querySelectorAll('.sg-report .gc-heading').length===2 && card.querySelectorAll('.sg-report li').length===2
       && !!card.querySelector('.sg-report strong') && /\/files\/view\?path=linden\.pdf/.test(card.querySelector('.sg-report a.safe-link')?.getAttribute('href') || '');
     const actions=[...card.querySelectorAll('.sg-detail button[data-sg]')];
-    out.oneButton=actions.length===1 && actions[0].dataset.sg==='respond' && actions[0].textContent==='Acknowledge' && !actions[0].disabled;
-    out.noAnswerField=!card.querySelector('.sg-feedback') && !card.querySelector('.sg-choice');
+    out.oneButton=actions.length===1 && actions[0].dataset.sg==='respond' && actions[0].textContent==='Acknowledge' && !actions[0].disabled && actions[0].classList.contains('sg-primary-action');
+    // No choices; only the same optional comment line every Signoff has.
+    out.noAnswerField=card.querySelector('.sg-feedback')?.placeholder==='Add a comment…' && !card.querySelector('.sg-choice');
     // A report has no comment box of its own: its conversation is its Task's thread.
     out.commentBox=comments.length===0 && !card.querySelector('.sg-comment');
     // A question keeps its answer field and gets no comment box of its own.
@@ -84,8 +85,8 @@ const row=id=>[...hosts.list.querySelectorAll('.sg-row')].find(node=>node.datase
       && /^Acknowledged /.test(done.querySelector('.sg-savedresponse').textContent) && !done.querySelector('.sg-comment') && comments.length===0;
     out.onePost=posts.length===1;
     // An inline card sits in a conversation already: the button, no nested comment box.
-    out.inlineCard=q('card','[data-sg="respond"]')?.textContent==='Acknowledge' && q('card','.sg-chat-status')?.textContent==='To read'
-      && !q('card','.sg-comment') && !q('card','.sg-feedback') && comments.length===0 && !!q('card','.sg-report .gc-heading');
+    out.inlineCard=q('card','[data-sg="respond"]')?.textContent==='Acknowledge' && q('card','.sg-chat-status')?.textContent===''
+      && !q('card','.sg-comment') && comments.length===0 && !!q('card','.sg-report .gc-heading');
     views.list.dispose();out.disposed=comments.length===0;
   } catch(error) {out.error=error.stack;}
   document.getElementById('out').textContent=JSON.stringify(out);

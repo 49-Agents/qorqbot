@@ -5,7 +5,7 @@ const {spawnSync}=require('node:child_process');
 const path=require('node:path');
 const chrome=['google-chrome','chromium','chromium-browser'].find(bin=>spawnSync(bin,['--version']).status===0);
 
-test('something to read has its own group, one Acknowledge button, Markdown text and a separate comment box', {skip:!chrome && 'Chrome not installed'},()=>{
+test('something to read has its own group, one Acknowledge button, Markdown text and an optional comment line', {skip:!chrome && 'Chrome not installed'},()=>{
   const file=path.join(__dirname,'fixtures/signoff-acknowledge.html');
   const run=spawnSync(chrome,['--headless=new','--no-sandbox','--disable-gpu','--allow-file-access-from-files','--window-size=800,1400','--virtual-time-budget=6000','--dump-dom','file://'+file],{encoding:'utf8',maxBuffer:1<<25});
   assert.equal(run.status,0,run.stderr);

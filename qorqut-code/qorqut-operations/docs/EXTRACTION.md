@@ -486,7 +486,7 @@ package's `storage_contribution()` and one `*Operations(...).contribution()` cat
 | `tags` | `tags`, `item_tags`; `tags_list`, `tags_create` | `TagOperations(clock=)` |
 | `discussion` | `inbox_events`, `inbox_deliveries`, `inbox_subscriptions`, `thread_messages`, `thread_follows`; `emit_event`, `auto_follow`, `set_follow`, relay/attribution, system entries | functions only (no operations) |
 | `tasks` | `tasks`, `task_completions`, `task_snooze_wakes`, `task_moves`; `tasks_list/get/thread_get/notes_list/config_get/overview`, `assignees_list`, `tasks_create/update/assign/comment/complete/config_update/follow` | `TaskOperations(application, ItemResolver, TaskPorts, clock=)`; `TaskOperations.reconcile_snoozes(uow, now=, limit=)`; `TaskOperations.note_references()` |
-| `actions` | `action_logs`, `action_businesses`, `action_revisions`; `actions_list/get/config_get/thread_get/record/correct/withdraw/comment/follow`; writer `new_action`/`change_action`/`settle` | `ActionOperations(application, references, *, on_revision, clock=)` where `references` is `tasks.note_references()` (build the Task service first) |
+| `actions` | `action_logs`, `action_businesses`, `action_revisions`; `actions_list/get/config_get/thread_get/record/correct/withdraw/comment/follow`; writer `new_action`/`change_action`/`settle` | `ActionOperations(application, references, *, tasks, on_revision, clock=)` where `references` is `tasks.note_references()` and `tasks` is the Task service, whose `lookup` finds the Task an Action links (build the Task service first) |
 
 The engine imports no host module. What a host must supply comes in as `TaskPorts` (assignee rules,
 Focus, incident link, note references, owner-work routing) and the neutral `ItemResolver`.
@@ -554,7 +554,7 @@ The durable Context input queue (`context_queue`), source ownership and filing (
 (`context_graph_edits`) are no longer Operations packages. They live in `qorqut_context.integration` (the `integration` extra of
 `qorqut-context`), described in that repository's `INTEGRATION.md`. Operations keeps only the Action-side contract: 
 `settle(ctx, plan, uow, *, on_revision)` hands each stored revision to the required `on_revision(ctx, exact_revision, uow) -> input_id`
-callable, and `ActionOperations(application, references, *, on_revision, clock=)` stores the same callable. Operations never
+callable, and `ActionOperations(application, references, *, tasks, on_revision, clock=)` stores the same callable. Operations never
 imports Context.
 
 ### Host inputs
