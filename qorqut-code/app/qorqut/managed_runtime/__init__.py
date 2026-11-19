@@ -1,4 +1,4 @@
-"""Headless drivers for managed agents (see docs/MANAGED-RUNTIME-PLAN.md, Step 3)."""
+"""Headless drivers for managed agents (see docs/MANAGED-RUNTIME.md)."""
 
 from .claude_driver import ClaudeSession, ClaudeSessionError
 

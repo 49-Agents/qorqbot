@@ -11,7 +11,7 @@ system prompt. Everything about the process (reading, writing, killing) lives in
 ``ClaudeSession.transport_class`` to anything with the same four-method shape (``start``, ``write``, ``close_input``,
 ``close``) that calls ``on_message(dict)``, ``on_problem(kind, detail)`` and ``on_exit(code)``.
 
-What the protocol was observed to do (Claude Code 2.1.269 and 2.1.327, see docs/MANAGED-RUNTIME-PLAN.md, Step 0 item 2):
+What the protocol was observed to do (Claude Code 2.1.269 and 2.1.327, see docs/MANAGED-RUNTIME.md):
 
 * A user record ``{"type": "user", "uuid", "origin": {"kind": "human"}, "message": {"role": "user", "content": text}}`` is
   queued by the CLI (``command_lifecycle`` ``queued`` then ``started`` then ``completed``, keyed by ``command_uuid``). A

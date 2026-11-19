@@ -2,7 +2,7 @@
 
 Nothing here starts a host, a socket or ``claude``: the client records each call in one shared log, so "the checkpoint ran once
 and before the send" is an assertion about that log. The outcome codes are the managed side of the table in
-docs/MANAGED-RUNTIME-STEP3-DESIGN.md, section 2.
+docs/MANAGED-RUNTIME.md.
 """
 import json
 from types import SimpleNamespace

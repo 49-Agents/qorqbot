@@ -1,7 +1,7 @@
 // Chat for an agent Qorqbot runs itself. Every agent is run this way: the owner only uses Chat. This file holds the session wording
 // for each state (asleep, opening, working, ready, off, cannot start), the Stop button, the activity line, the question cards, the
 // End session button and the refusal texts. js/global-chat.js calls it.
-// The server shapes are in docs/MANAGED-RUNTIME-STEP3-DESIGN.md section 5. `session.managed` is
+// The server shapes are in docs/MANAGED-RUNTIME.md. `session.managed` is
 // {open, off, phase, activity, turn_started_at, can_stop, closed_text, pending: [{request_id, kind: 'question', tool, questions:
 // [{question, header, options: [{label, description}], multiSelect}]}]}. `off` is true for an agent the owner ended: it stays off
 // until the owner sends a message. A session without `managed` reads as open. `session.execution` is not read any more.
