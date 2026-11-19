@@ -1106,7 +1106,9 @@ class RealProcessTests(RealProcessCase):
         found = managed_host(self.workspace, client, AGENT)
         self.assertEqual((found["host_pid"], found["host_ticks"]), (host.pid, ticks(host.pid)))
         self.assertEqual(ProcessTable.comm(client), "claude")
-        self.assertEqual(ProcessTable.exe(host.pid).startswith("python"), True)
+        # The executable's file name is read from /proc on Linux; macOS gives no such name, so the table says None there (never a guess).
+        exe = ProcessTable.exe(host.pid)
+        self.assertEqual(exe is None if sys.platform == "darwin" else exe.startswith("python"), True)
         self.assertIn(b"-p", ProcessTable.argv(client))
 
     def test_a_plain_claude_dash_p_is_refused_even_with_a_host_recorded_in_its_workspace(self):

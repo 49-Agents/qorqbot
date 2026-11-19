@@ -599,6 +599,9 @@ class ManagedEndToEnd(unittest.TestCase):
         self.assertEqual(layout.read_host(stack.state)["exit"]["reason"], "idle")
         wait_for(lambda: stack.live() is None, WAIT, message="the binding to end")
         self.assertEqual(stack.sessions()[-1]["end_reason"], "process_gone")
+        # The host's summary is cached for up to 5 seconds (ManagedRuntime.snapshot), so for that long after the host left Chat
+        # still says "starting the session" (binding_not_ready, cannot send). It settles to session_closed within the cache's age.
+        wait_for(lambda: stack.view()["reason"] == "session_closed", 12, message="the view to show the closed session")
         view = stack.view()
         self.assertEqual((view["reason"], view["can_send"], view["managed"]["open"]), ("session_closed", True, False))
         result = stack.arbiter.submit(InputRequest(agent, TYPE_NUDGE, "nudge-after-idle-1", "inbox", wait=False))
