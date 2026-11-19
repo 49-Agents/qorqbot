@@ -16,7 +16,7 @@ A managed agent (one the owner switched to a headless session, see ``managed_run
 * ``POST   .../answer``     ``{expected_binding, request_id, decision}`` -> ``{answered}``: ``decision`` is ``"allow"``/``"deny"``
   for a permission request, ``{"answers": {<question text>: <answer>}}`` for a question.
 * ``POST   .../close``      ``{expected_binding?}`` -> ``{closing}``: end the open session.
-* ``POST   .../runtime``    ``{mode}`` (``terminal``|``managed``) -> ``{execution, changed}``: refusals ``unsupported_role``,
+* ``POST   .../runtime``    ``{mode}`` (``terminal``|``managed``) -> ``{execution, changed}``: refusals ``unsupported_role`` (only Ordubashy and worker agents),
   ``unsupported_runtime``, ``session_open``, ``waiting_inputs``, ``terminal_present``.
 
 The first three act on a managed agent only (``not_managed`` otherwise). ``GET .../commands`` marks the commands a terminal

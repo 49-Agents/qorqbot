@@ -84,11 +84,11 @@ const agentRuntime = (() => {
     ? {text: `${MANAGED_REFUSALS[code]} Nothing was sent.`, label: 'Start a new conversation'} : null;
 
   // ---- the runtime switch: which agents offer it, and what a refusal says
-  // Only a worker running Claude Code can be managed; an agent already managed always keeps the switch so it can go back.
+  // Only Ordubashy or a worker running Claude Code can be managed; an agent already managed always keeps the switch so it can go back.
   function eligible(agent, session) {
     if (isManaged(session)) return true;
     const role = agent?.role?.id || agent?.role_id, runtime = agent?.runtime ?? agent?.profile?.runtime;
-    if (role !== 'global-worker' || (runtime !== undefined && runtime !== 'claude-code')) return false;
+    if ((role !== 'global-worker' && role !== 'ordubashy') || (runtime !== undefined && runtime !== 'claude-code')) return false;
     return !session?.provider || session.provider === 'claude';
   }
   const RUNTIME_REFUSALS = {
@@ -100,7 +100,7 @@ const agentRuntime = (() => {
     terminal_present: 'The agent’s Terminal is still running. Close it, then switch.',
     terminal_running: 'The agent’s Terminal is still running. Close it, then switch.',
     tmux_session: 'The agent’s Terminal is still running. Close it, then switch.',
-    unsupported_role: 'Only worker agents can be run by Qorqbot.',
+    unsupported_role: 'Only Ordubashy and worker agents can be run by Qorqbot.',
     unsupported_runtime: 'Only Claude Code agents can be run by Qorqbot.',
     forbidden: 'Only the owner can switch how an agent runs.',
   };

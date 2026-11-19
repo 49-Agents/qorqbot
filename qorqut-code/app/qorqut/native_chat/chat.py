@@ -746,7 +746,7 @@ class NativeChat:
         Refused, with a stable code and a plain message, unless it is safe now (checked under the agent's lock, so no input
         lands between the check and the switch):
 
-        * to ``managed``: ``unsupported_role`` (only a worker), ``unsupported_runtime`` (only Claude Code), ``session_open``
+        * to ``managed``: ``unsupported_role`` (only Ordubashy or a worker), ``unsupported_runtime`` (only Claude Code), ``session_open``
           (a live native session), ``waiting_inputs`` (Chat messages not delivered yet), ``terminal_present`` (its tmux session
           exists, or cannot be proved gone);
         * to ``terminal``: ``session_open`` (its managed session is open, or cannot be proved closed).
@@ -791,9 +791,9 @@ class NativeChat:
         return {"execution": mode, "changed": True}
 
     def _may_manage(self, profile: dict, persisted, waiting) -> None:
-        from qorqut.agents.roles import GLOBAL_WORKER_ROLE, profile_role
-        if profile_role(profile) != GLOBAL_WORKER_ROLE:
-            raise DomainError("unsupported_role", "Only worker agents can be run by Qorqbot")
+        from qorqut.agents.roles import GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE, profile_role
+        if profile_role(profile) not in (GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE):
+            raise DomainError("unsupported_role", "Only Ordubashy and worker agents can be run by Qorqbot")
         if store.profile_runtime(profile) != "claude-code":
             raise DomainError("unsupported_runtime", "Only Claude Code agents can be run by Qorqbot")
         if persisted is not None or self.probe.observe(profile).reason == REASON_LIVE:

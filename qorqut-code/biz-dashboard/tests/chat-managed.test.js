@@ -433,13 +433,15 @@ test('an open managed session offers End session, which posts the close; a close
   assert.deepEqual(ui.errors, ['Couldn’t end the session. Try again.']);
 });
 
-test('the switch is offered to Claude Code workers and to any agent already managed, and to nothing else', () => {
+test('the switch is offered to Claude Code workers and Ordubashy, and to any agent already managed, and to nothing else', () => {
   const worker = {role: {id: 'global-worker'}}, codexWorker = {role: {id: 'global-worker'}, runtime: 'codex'};
   assert.equal(runtime.eligible(worker, terminalSession()), true);
   assert.equal(runtime.eligible({role_id: 'global-worker', runtime: 'claude-code'}, terminalSession()), true);
   assert.equal(runtime.eligible(codexWorker, terminalSession()), false);
   assert.equal(runtime.eligible(worker, terminalSession({provider: 'codex'})), false);
-  assert.equal(runtime.eligible({role: {id: 'ordubashy'}}, terminalSession()), false);
+  assert.equal(runtime.eligible({role: {id: 'ordubashy'}}, terminalSession()), true);
+  assert.equal(runtime.eligible({role: {id: 'ordubashy'}, runtime: 'claude-code'}, terminalSession()), true);
+  assert.equal(runtime.eligible({role: {id: 'ordubashy'}, runtime: 'codex'}, terminalSession()), false);
   assert.equal(runtime.eligible({role: {id: 'learning-applier'}}, terminalSession()), false);
   assert.equal(runtime.eligible({role: {id: 'ordubashy'}}, managed()), true, 'an agent already managed can always go back');
 });
@@ -745,7 +747,7 @@ function shell({agent, session, openTerminal = () => {}}) {
     {onExecution: mode => reported.push(mode)}, r => r, async () => ({}), '/chat', {session});
   return {root, sw, chatView, sessionLine, sync, reported, cleanups, banners, loads, viewSwitch: () => root.querySelector('.gchat-view-toggle')};
 }
-const WORKER = {agent_id: 'a1', role: {id: 'global-worker'}}, BOSS = {agent_id: 'o1', role: {id: 'ordubashy'}};
+const WORKER = {agent_id: 'a1', role: {id: 'global-worker'}}, BOSS = {agent_id: 'o1', role: {id: 'learning-applier'}};
 
 test('a terminal agent that cannot be switched gets no managed element and its Chat/Terminal switch stays', () => {
   const s = shell({agent: BOSS, session: terminalSession()});

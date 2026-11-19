@@ -9,6 +9,19 @@ const setupNotice = (() => {
     if (!about || about.chrome_installed !== false) return null;
     return {text: 'Qorqbot needs Google Chrome so your agents can work on the web.', action: 'Get Chrome', url: CHROME_URL};
   }
+  // Top notices (this one and the update notice, js/account-gate.js) share one corner stack so they never cover each other or the
+  // page's controls; any `.setup-notice` added straight to the body is moved into it.
+  function stack() {
+    let host = document.querySelector('.setup-notices');
+    if (!host) { host = document.createElement('div'); host.className = 'setup-notices'; document.body.append(host); }
+    return host;
+  }
+  function gather() {
+    if (typeof MutationObserver !== 'function' || !document.body) return;
+    const move = () => document.querySelectorAll('body > .setup-notice').forEach(bar => stack().append(bar));
+    new MutationObserver(move).observe(document.body, {childList: true});
+    move();
+  }
   function dismissed() { try { return sessionStorage.getItem(DISMISSED) === '1'; } catch (_) { return false; } }
   function show(about) {
     document.querySelector('.setup-notice')?.remove();
@@ -23,15 +36,15 @@ const setupNotice = (() => {
       try { sessionStorage.setItem(DISMISSED, '1'); } catch (_) { /* Still closes for this page. */ }
       bar.remove();
     };
-    document.body.prepend(bar);
+    stack().append(bar);
   }
   // Checked once per page load; a non-owner simply sees nothing.
   async function check() {
     if (typeof api !== 'function') return;
     try { show(coreData(await api('/root/about'))); } catch (_) { /* Not the owner, or the server is starting. */ }
   }
-  return {message, show, check, CHROME_URL};
+  return {message, show, check, gather, CHROME_URL};
 })();
 if (typeof module !== 'undefined') module.exports = setupNotice;
-else if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setupNotice.check());
-else setupNotice.check();
+else if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => { setupNotice.gather(); setupNotice.check(); });
+else { setupNotice.gather(); setupNotice.check(); }

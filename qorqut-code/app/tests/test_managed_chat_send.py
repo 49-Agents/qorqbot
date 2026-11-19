@@ -902,7 +902,25 @@ class SwitchTests(ChatCase):
         self.assertEqual(modes.mode_of(self.paths, AGENT), "terminal")
         self.assertEqual(self.set("terminal"), {"execution": "terminal", "changed": False})
 
-    def test_only_a_worker_running_claude_code_switches(self):
+    def test_ordubashy_with_nothing_running_switches_to_managed_and_back(self):
+        ordubashy = {"runtime": "claude-code", "role": {"id": "ordubashy"}}
+        self.assertEqual(self.set("managed", ordubashy), {"execution": "managed", "changed": True})
+        self.assertEqual(modes.mode_of(self.paths, AGENT), "managed")
+        self.assertEqual(self.set("managed"), {"execution": "managed", "changed": False})
+        self.assertEqual(self.set("terminal"), {"execution": "terminal", "changed": True})
+        self.assertEqual(modes.mode_of(self.paths, AGENT), "terminal")
+
+    def test_ordubashy_meets_the_same_preconditions_as_a_worker(self):
+        ordubashy = {"runtime": "claude-code", "role": {"id": "ordubashy"}}
+        self.mock_terminal(True)
+        self.refused("managed", "terminal_present", ordubashy)
+        self.mock_terminal(False)
+        self.refused("managed", "unsupported_runtime", {"runtime": "codex", "role": {"id": "ordubashy"}})
+        self.assertEqual(modes.mode_of(self.paths, AGENT), "terminal")
+
+    def test_only_ordubashy_or_a_worker_running_claude_code_switches(self):
+        refusal = self.refused("managed", "unsupported_role", {"runtime": "claude-code", "role": {"id": "learning-applier"}})
+        self.assertIn("Ordubashy and worker", refusal.message)
         self.refused("managed", "unsupported_role", {"runtime": "claude-code", "role": {"id": "global-ordubashy"}})
         self.refused("managed", "unsupported_role", {"runtime": "claude-code"})
         self.refused("managed", "unsupported_runtime", {"runtime": "codex", "role": {"id": "global-worker"}})
