@@ -1,2 +1,4 @@
 node_modules/
 out/
+# Rendered from the brand mark by build_dmg.py; a development run without them has no menu bar item.
+ui/trayTemplate*.png

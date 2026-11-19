@@ -1,0 +1,23 @@
+{
+  "name": "qorqbot-linux",
+  "productName": "Qorqbot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Qorqbot desktop app for Linux: installs, runs and shows the local Qorqbot server.",
+  "license": "SEE LICENSE IN ../../../../LICENSE",
+  "author": "49 Agents LLC",
+  "desktopName": "qorqbot.desktop",
+  "main": "main.js",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "electron . --no-sandbox"
+  },
+  "devDependencies": {
+    "@electron/asar": "3.4.1",
+    "electron": "44.10.2",
+    "electron-builder": "26.18.0"
+  },
+  "dependencies": {
+    "semver": "7.8.6"
+  }
+}
