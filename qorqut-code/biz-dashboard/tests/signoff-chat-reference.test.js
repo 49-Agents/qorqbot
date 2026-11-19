@@ -18,14 +18,15 @@ function run(extra = []) {
 test('chat Signoffs: full editors, saved-change age, compact actions and preserved feedback', {skip: !chrome && 'Chrome not installed'}, () => {
   const dom = run(['--dump-dom']);
   const out = JSON.parse(/<pre id="out"[^>]*>(.*?)<\/pre>/s.exec(dom)[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
-  assert.equal(out.fullMessageVisible, true);
-  assert.equal(out.fromVisible, true);
+  // A pending chat card is compact: the message shows in Focus, or here once the owner edits it.
+  assert.equal(out.fullMessageVisible, false);
+  assert.equal(out.fromVisible, false);
   assert.match(out.fromText, /me@example.com/);
   assert.equal(out.age, '5 min ago');
   assert.equal(out.ageSource, true);
   assert.equal(out.attentionRemoved, true);
   assert.equal(out.headerStatus, false);
-  assert.equal(out.footerStatus, 'Needs review');
+  assert.equal(out.footerStatus, '');
   assert.equal(out.editStatus, 'Editing draft');
   assert.equal(out.cancelLabel, 'Cancel');
   assert.deepEqual(out.editButtonSizes[0], out.editButtonSizes[1]);
