@@ -7,6 +7,7 @@ from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.storage.assembly import StorageContribution
 from qorqut_operations.storage.specs import TableSpec
+from .lookup import LOCATED
 from .ports import ABSENT
 
 TABLE = 'signoff_source_links'
@@ -64,13 +65,15 @@ class SignoffSources:
     def descriptors(self):
         if self.service.ports.sources is ABSENT:
             return ()
+        # Both name one Signoff: its review scope is found from the id when the caller selects none.
         common = dict(supports_signoff=False, scope_kinds=frozenset({'business', 'global'}),
-            global_capability='read_global_context',
+            global_capability='read_global_context', locate_scope=self.service.lookup,
             resolve_namespace=lambda c, a: 'global' if a.get('scope') == 'global' else 'business:' + (c.business_id or ''))
         fields = {'scope': {'enum': ['business', 'global']}, 'source': SOURCE,
                   'signoff_id': {'type': 'string', 'format': 'uuid'}}
         return tuple(OperationDescriptor(name, schema({**fields, **extra}, ('source', 'signoff_id', *required)),
-            **common, description=description, prepare=lambda c, a, o, u, n=name: self.prepare(n, c, a, u), apply=self.apply)
+            **common, description=description + ' ' + LOCATED,
+            prepare=lambda c, a, o, u, n=name: self.prepare(n, c, a, u), apply=self.apply)
             for name, extra, required, description in (
                 ('signoffs_source_link', {}, (), 'Make an existing pending owner Signoff the explicit reason a task or record thread needs input. Authorizes both ends; never changes the proposal or task revision.'),
                 ('signoffs_source_unlink', {'link_id': {'type': 'string', 'format': 'uuid'},

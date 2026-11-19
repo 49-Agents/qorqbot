@@ -152,6 +152,15 @@ class TaskLookup:
         self.suggest(reach, task_id)
         return arguments
 
+    def find(self, ctx, uow, task_id):
+        """``(task_id, places)``: the id as stored, and each scope in the caller's reach that holds a Task with it which
+        the caller may read, as ``Reach.view`` shows it. For an operation that links a Task without running in the
+        Task's scope (``actions_record``): nothing is selected or refused here, and that operation decides what none or
+        several places mean."""
+        reach = Reach(self.tasks, ctx, uow)
+        found, task_id = self.exact(reach, task_id)
+        return task_id, [reach.view(row) for row in found]
+
     @staticmethod
     def exact(reach, task_id):
         """The readable rows with exactly this id, else with it in lower case, and the id they have."""

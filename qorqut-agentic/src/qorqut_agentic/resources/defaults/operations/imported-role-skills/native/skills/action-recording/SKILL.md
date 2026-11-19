@@ -22,7 +22,9 @@ optional; the larger task may still be open.
   "Published release notes with install steps". Longer text is rejected;
   shorten it rather than splitting one result into several entries.
 - Add evidence when available (`url`, `commit`, `pull_request`, record IDs) and
-  `task_id` when the result belongs to a task in the same workspace.
+  `task_id` when the result belongs to a Task. Pass `task_id` alone: the Task is
+  found in any project you can reach, and a `category` and `business_ids` you
+  leave out are taken from it.
 - Ordubashy keeps the books of completed work: every real completed result appears
   once as an Action. The service records a worker's `done` Task closure itself,
   credited to that worker: the first 20 words of the closing result, or the Task

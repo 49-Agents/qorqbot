@@ -56,6 +56,21 @@ through `actions_update`.
   Business-operational needs `business_ids`, all currently authorized and
   active; one inaccessible business rejects the whole call and writes nothing.
   `global-systems` and Unclassified are owner-only.
+- `task_id` links one task. A caller that records in Global (the owner, an
+  ecosystem agent) names it by id alone: it is found in Global or any project in
+  the caller's reach where it may read tasks (the same reach as the task tools'
+  own lookup, lower-casing an upper-case id), and a classification the caller
+  left out is taken from it. With no `category`, a project task makes the action
+  `business-operational` for that project and a Global task
+  `global-operational`; `business-operational` without `business_ids` takes the
+  task's project. Values the caller passes are never changed and are authorized
+  as before. A task that does not exist or is outside that reach is a
+  `validation_error` on `task_id`, with nothing disclosed. An id held in several
+  reachable scopes (reused before ids were unique) needs the one meant named in
+  `business_ids`, or `category: "global-operational"` for the Global one;
+  otherwise the call is refused listing the candidates. A business agent and a
+  delegated worker link a task of the action's own storage scope, as before. The
+  linked task is looked up again when a staged record is validated and applied.
 - Authorization and business state are rechecked immediately before apply.
 - Performer and recorder are the caller for its own work; no caller can name a
   performer. A bound delegated worker has no principal of its own: its records

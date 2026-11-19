@@ -27,6 +27,27 @@ delegated worker that selects no scope is looked up only in its assignment's own
 project (a Global assignment already runs in Global); nothing else is searched.
 HTTP (the dashboard) and workers are unchanged.
 
+### Finding a signoff's review scope from its id
+
+The agent Signoff tools that name one Signoff by `signoff_id` (`signoffs_get`,
+`signoffs_notes_list`, `signoffs_comment`, `signoffs_attention_set`,
+`signoffs_input_cancel`, `signoffs_source_link`, `signoffs_source_unlink`,
+`signoffs_reject`) work the same way for a registered agent's MCP call that
+selects nothing (no `business_id`, no `scope`, no `review_business_id`): the
+call runs in the Signoff's own review scope. A project Signoff runs in that
+project. A Global one runs as `scope: "global"`: the lookup states that scope in
+the call's arguments, so the input hash and idempotency receipt are those of the
+explicit call. A Signoff counts as found only where the caller could read it by
+selecting that scope itself (`signoffs_get` authority and Signoff visibility);
+otherwise the answer is `not_found`, "does not exist in any review scope you can
+reach", for an unknown id and an unreadable one alike. A selected project still
+stands: a Signoff reviewed in another scope the caller may read is refused with
+`not_found` and `details.signoff` (`{id, review_business_id, business_name,
+title}`). An explicit `scope` or `review_business_id` is answered as before. An
+owner session stays in its bound project; a delegated worker that selects
+nothing is looked up only in the one scope its assignment binds. HTTP (the
+dashboard) and workers are unchanged.
+
 Only the installation owner or an active ecosystem agent with
 `read_global_context` and the relevant task operation grant can access them.
 Business agents and system principals cannot opt into Global tasks, even with a
