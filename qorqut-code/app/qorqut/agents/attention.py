@@ -17,6 +17,7 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, page, schema, timestamp, utc_clock
 from qorqut_operations.contracts import DomainError, InvocationOptions, Principal, new_id, plain
 from qorqut_operations.discussion import emit_event
+from qorqut_operations.tasks.events import STEP_EVENTS
 from qorqut.management.identity import configured_ordubashy, is_active_installation_owner
 
 ID = {'type': 'string', 'minLength': 1, 'maxLength': 200}
@@ -27,7 +28,10 @@ OPEN_WORK_LIMIT = 50
 # Delegated work the coordinator's reminder calls quiet, and how many such Tasks it lists.
 STALLED_AFTER = timedelta(minutes=10)
 STALLED_LIMIT = 10
-OPEN_WORK = ("SELECT t.business_id,t.id,t.title,t.status,t.updated_at,t.due,t.snoozed_until,t.worker_ids_json,t.fields_json "
+# How many delegated Tasks' plans one reminder reads from the workflow store, longest untouched first.
+PLAN_READ_LIMIT = 30
+OPEN_WORK = ("SELECT t.business_id,t.id,t.title,t.status,t.created_at,t.updated_at,t.due,t.snoozed_until,t.worker_ids_json,"
+             "t.fields_json "
              "FROM tasks t WHERE t.archived=0 AND t.status NOT IN ('done','cancelled') "
              "AND coalesce(json_extract(t.fields_json,'$.\"$task\".task_type'),'task')='task' "
              "AND NOT EXISTS (SELECT 1 FROM businesses b WHERE b.id=t.business_id AND b.archived_at IS NOT NULL) "
@@ -554,6 +558,10 @@ class Attention:
         # authorization; field-only changes to other items still wait. Nothing here changes focus or any task.
         if (event.get('source_type') == 'signoffs'
                 or 'note_added' in (event.get('event_type') or '').split(',')): return True
+        # A plan step event is addressed to exactly the agent that must know: the coordinator of a step that waits for
+        # his confirmation or that he tagged to hear of, the worker of the decision on a step it handed in. The worker
+        # has gone on to another Task by then and the coordinator keeps a Focus of his own, so it passes like a note.
+        if event.get('source_type') == 'tasks' and set((event.get('event_type') or '').split(',')) & set(STEP_EVENTS): return True
         if event.get('source_type') == 'agent_messages':
             message = uow.connection.execute('SELECT current_sender_id,current_recipient_id FROM agent_messages WHERE id=?', (event.get('source_id'),)).fetchone()
             if message and message['current_recipient_id'] == agent_id and message['current_sender_id'] in (
@@ -706,37 +714,64 @@ class Attention:
         return {'held_by_others': {'count': len(held), 'tasks': held[:OPEN_WORK_LIMIT]},
                 'unowned': {'count': len(unowned), 'tasks': unowned[:OPEN_WORK_LIMIT]}}
 
-    def team(self, uow, coordinator, now):
+    def team(self, uow, coordinator, now, plans=None):
         """What the coordinator oversees, for his reminder: who is free and which delegated work has gone quiet.
 
         ``available``: active workers that no open or working Task names. ``stalled``: open or working Tasks held by an
         active worker (not only by a person) and not by the coordinator, not snoozed, with no update for STALLED_AFTER, oldest first.
         ``blocked``: blocked Tasks held the same way, whenever they were last updated, so one that stays blocked keeps
         being shown. Read from the
-        Tasks like ``open_work``; nothing here is written."""
+        Tasks like ``open_work``; nothing here is written.
+
+        ``plans`` reads where a Task's plan stands (``TaskPlans.standing``), or answers ``None`` when it cannot. With it,
+        ``awaiting`` lists every Task that is not closed or archived whose step in hand waits for the coordinator's
+        confirmation, with the step and the note it was handed in with: also a Task that is snoozed, parked in another
+        state or held by the coordinator too, because the step waits for him all the same. Such a Task is not stalled,
+        however long ago it was updated: its worker is rightly on other work. A stalled or blocked Task that has a plan
+        says where the plan stands. At most PLAN_READ_LIMIT plans are read, longest untouched first; ``plans_unread``
+        counts the Tasks whose plan was not read, which are listed by the Task alone."""
+        from qorqut.agents.task_plans import position
         from qorqut.agents.global_scope import active_role_holders
         from qorqut.agents.roles import GLOBAL_WORKER_ROLE
         names = {row[0]: row[1] for row in uow.connection.execute('SELECT id, display_name FROM principals')}
         workers = active_role_holders(uow.connection, GLOBAL_WORKER_ROLE)
         cutoff = timestamp(lambda: datetime.fromisoformat(now.replace('Z', '+00:00')) - STALLED_AFTER)
-        busy, stalled, blocked = set(), [], []
+        busy, stalled, blocked, awaiting, reads, unread = set(), [], [], [], 0, 0
         for row in uow.connection.execute(OPEN_WORK):
-            if row['status'] not in ('open', 'working', 'blocked'):
-                continue
             held = json.loads(row['worker_ids_json'] or '[]')
-            if row['status'] != 'blocked':
+            live = row['status'] in ('open', 'working', 'blocked')
+            if live and row['status'] != 'blocked':
                 busy.update(held)
-            if not set(held) & set(workers) or coordinator in held or (row['snoozed_until'] or '') > now:
-                continue
+            # What the stalled and blocked lists show; a step that waits for confirmation is listed beyond it.
+            overseen = (live and bool(set(held) & set(workers)) and coordinator not in held
+                        and not (row['snoozed_until'] or '') > now)
             entry = {'id': row['id'], 'business_id': row['business_id'], 'title': row['title'], 'status': row['status'],
                      'workers': [names.get(worker) or '' for worker in held], 'updated_at': row['updated_at']}
+            fields = json.loads(row['fields_json'] or '{}') if plans is not None else {}
+            found = None
+            if isinstance(fields.get('$task'), dict) and fields['$task'].get('plan'):
+                if reads < PLAN_READ_LIMIT:
+                    reads += 1
+                    found = plans({'id': row['id'], 'business_id': row['business_id'], 'created_at': row['created_at'],
+                                   'fields_json': fields})
+                else:
+                    unread += 1
+            if found:
+                entry['plan'] = position(found)
+            if found and found.get('awaiting_review'):
+                awaiting.append({**{key: entry[key] for key in ('id', 'business_id', 'title', 'workers')},
+                                 'step': found['id'], 'position': entry['plan'], 'text': found['text'],
+                                 **({'note': found['note']} if found.get('note') else {})})
+            if not overseen:
+                continue
             if row['status'] == 'blocked':
                 blocked.append(entry)
-            elif row['updated_at'] <= cutoff:
+            elif row['updated_at'] <= cutoff and not (found and found.get('awaiting_review')):
                 stalled.append(entry)
         return {'available': [names.get(agent) or agent for agent in workers if agent not in busy],
                 'stalled': stalled[:STALLED_LIMIT], 'stalled_count': len(stalled),
-                'blocked': blocked[:STALLED_LIMIT], 'blocked_count': len(blocked)}
+                'blocked': blocked[:STALLED_LIMIT], 'blocked_count': len(blocked),
+                'awaiting': awaiting[:STALLED_LIMIT], 'awaiting_count': len(awaiting), 'plans_unread': unread}
 
     def prepare(self, op, ctx, args, uow):
         self.validate(op, ctx, args, uow)

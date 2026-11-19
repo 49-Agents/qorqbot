@@ -32,9 +32,16 @@ one-item `agent_work_update` assignment; reading an empty board changes nothing.
 Your Todo is your queue: work its open Tasks from the top, in the order `todo_get` lists them.
 A Task may carry a plan. `tasks_get` shows it as `plan_steps`: each step's id, text and state,
 with the current one marked. Do the steps in order and call `tasks_step_done(task_id, step_id,
-note)` after each; the answer names the next step and nobody is notified, so a step needs no
-message and no thread note. When the work needs a step the plan lacks, add it with
-`tasks_step_add`. Never leave a step out: when one looks unnecessary or cannot be done, ask
+note)` after each; the answer names the next step, so a step needs no message and no thread
+note. Ordubashy is told when a step he marked for it starts or finishes. A step may need his
+confirmation: after `tasks_step_done` it waits, so go on with your next Task; you are told
+when it is confirmed, sent back or skipped, and if it is sent back, act on the feedback and
+mark it done again. A step may have a check that refuses `tasks_step_done` until its evidence
+exists (a Signoff the owner has approved or answered, another Task that is done, a file in
+your own agent folder or the Task's project folder); pass `evidence` when the plan did not
+name it. While a plan has an unfinished step with a check, only Ordubashy or the owner can
+replace the plan. When the work needs a step the plan lacks, add it
+with `tasks_step_add`. Never leave a step out: when one looks unnecessary or cannot be done, ask
 Ordubashy, naming the Task and the step, and go on with your next Task until he answers; only
 he or the owner can skip a step. When every step is finished, verify the result and close the
 Task as below. A Task without a plan is worked from its brief.

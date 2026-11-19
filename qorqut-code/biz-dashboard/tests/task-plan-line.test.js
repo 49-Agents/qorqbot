@@ -45,3 +45,20 @@ test('a finished plan says so and a long step is clipped on the line only',()=>{
   assert.equal(closed.text.length<200,true);assert.equal(closed.text.endsWith('…'),true);
   assert.equal(plan([{id:'s1',text:long,state:'pending',current:true}],true).text.includes(long),true);
 });
+test('a step handed in for confirmation or sent back says so',()=>{
+  const plan=load();
+  const waiting=[{id:'s1',text:'Draft.',state:'completed'},
+    {id:'s2',text:'Agree the price.',state:'active',check:'review',awaiting_review:true,current:true},
+    {id:'s3',text:'Send it.',state:'pending',notify:'done'}];
+  assert.deepEqual(plan(waiting,true).text.split('\n'),[
+    'Plan: 1 of 3 steps done. Waiting for confirmation: Agree the price.',
+    '✓ 1. Draft.',
+    '→ 2. Agree the price. (waiting for confirmation)',
+    '○ 3. Send it.',
+  ]);
+  const back=[{id:'s1',text:'Agree the price.',state:'active',check:'review',feedback:'Get it in writing.',current:true}];
+  assert.deepEqual(plan(back,true).text.split('\n'),[
+    'Plan: 0 of 1 steps done. Now: Agree the price.',
+    '→ 1. Agree the price. (sent back: Get it in writing.)',
+  ]);
+});

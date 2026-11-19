@@ -73,7 +73,7 @@ class TeamDataTests(unittest.TestCase):
             CREATE TABLE principals (id TEXT, display_name TEXT);
             CREATE TABLE businesses (id TEXT, archived_at TEXT);
             CREATE TABLE crm_entries (record_task_id TEXT, record_business_id TEXT, removed INTEGER);
-            CREATE TABLE tasks (id TEXT, business_id TEXT, title TEXT, status TEXT, updated_at TEXT, due TEXT,
+            CREATE TABLE tasks (id TEXT, business_id TEXT, title TEXT, status TEXT, created_at TEXT, updated_at TEXT, due TEXT,
                 snoozed_until TEXT, worker_ids_json TEXT, fields_json TEXT, archived INTEGER DEFAULT 0);''')
         for agent in ('coordinator', 'scout', 'harbor', 'cedar'):
             self.conn.execute('INSERT INTO principals VALUES(?,?)', (agent, agent.title()))

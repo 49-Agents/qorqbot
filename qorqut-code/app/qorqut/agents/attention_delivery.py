@@ -172,7 +172,8 @@ class AttentionRuntime:
         work_ref = state.get('work_task_json')
         snapshot = {'focus': {key: focus.get(key) for key in ('type', 'id', 'business_id')} if focus else None,
                     'focused_for': _age(state.get('focus_started_at'), self._now()) if focus else None,
-                    'work': None, 'intent': None, 'next_step': None, 'candidates': None, 'more': False, 'team': None}
+                    'work': None, 'intent': None, 'next_step': None, 'plan_step': None, 'candidates': None, 'more': False,
+                    'team': None}
         try:
             ctx = self.runtime.application.policy.context_for(agent_id, business_id=None, review_business_id=None, uow=uow)
         except DomainError:
@@ -198,6 +199,8 @@ class AttentionRuntime:
                 snapshot['intent'] = state.get('intent')
                 # What the agent is doing is the focused Task's own next step.
                 snapshot['next_step'] = attributes(task).get('next_step') or None
+                # Where its plan stands, when it has one: one read of the workflow store, for this Task only.
+                snapshot['plan_step'] = self._plan_step(task)
         candidates = []
         for row in uow.connection.execute('SELECT * FROM attention_memberships WHERE agent_id=? ORDER BY created_at,id', (agent_id,)):
             ref = {'type': 'task', 'id': row['task_id'], 'business_id': row['task_business_id']}
@@ -216,8 +219,28 @@ class AttentionRuntime:
             candidates.append(prompt.describe(ref, task, project_workers(uow, task)))
         snapshot['candidates'] = candidates
         if agent_id == coordinator:
-            snapshot['team'] = self.attention.team(uow, coordinator, self._now())
+            snapshot['team'] = self.attention.team(uow, coordinator, self._now(), plans=self._plan)
         return snapshot
+
+    def _plan(self, task):
+        """Where a Task's plan stands, or None: no plan, no plan engine on this runtime, or a workflow store that
+        cannot be read. The reminder is then written without it.
+
+        The reminder text is built in a read of the operations database, after the write unit that claimed the
+        occurrence has committed (``hook_claim``, ``send_due``), so this never runs inside the database's write
+        transaction. It is one read of the workflow engine's own database on a read-only connection, which does not
+        take the instruction store's lock and so cannot wait behind an engine change."""
+        plans = getattr(self.runtime, 'task_plans', None)
+        return plans.standing(task) if plans is not None else None
+
+    def _plan_step(self, task):
+        """The step in hand of the focused Task's plan, as the reminder shows it."""
+        from qorqut.agents.task_plans import position
+        found = self._plan(task)
+        if found is None:
+            return None
+        return {'position': position(found), **{key: found[key] for key in ('id', 'text', 'awaiting_review', 'feedback')
+                                                if key in found}}
 
     def _verified_consumer(self, agent_id, consumer_id):
         from qorqut.native_chat import store
