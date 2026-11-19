@@ -1,14 +1,16 @@
-"""A self-contained package ships its Python environment and git; nothing is built or installed on the user's computer.
+"""A self-contained package (Mac or Linux) ships its Python environment and git; nothing is built or installed on the user's computer.
 
     python3.12 -m unittest discover -s tools/distribution/tests -v
 
 No real Python environment or program is used: the shipped trees are small stand-ins.
 """
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -137,10 +139,10 @@ class Prepare(Folder):
 
 
 class Environment(Folder):
-    def environment(self):
+    def environment(self, system='linux', **extra):
         home = self.root / 'instance/home'
-        with mock.patch.dict(os.environ, {'HOME': str(self.root.parent / 'user'), 'PATH': '/usr/bin:/bin', 'QORQUT_TIMEZONE': 'UTC'}, clear=True), \
-                mock.patch.object(native_launch.sys, 'platform', 'linux'):
+        with mock.patch.dict(os.environ, {'HOME': str(self.root.parent / 'user'), 'PATH': '/usr/bin:/bin', 'QORQUT_TIMEZONE': 'UTC', **extra}, clear=True), \
+                mock.patch.object(native_launch.sys, 'platform', system):
             return native_launch.environment(self.root, home)
 
     def test_shipped_tools_come_before_the_computers_own(self):
@@ -156,6 +158,46 @@ class Environment(Folder):
         env = self.environment()
         self.assertEqual(env['PATH'].split(os.pathsep), [str(self.runtime / 'venv/bin'), '/usr/bin', '/bin'])
         self.assertNotIn('QORQUT_AGENT_BROWSER_EXECUTABLE', env)
+
+    def test_a_linux_package_tells_tmux_and_git_where_the_computer_keeps_things(self):
+        self.ship()
+        terminfo = self.runtime / 'native/share/terminfo'
+        write(terminfo / 'x/xterm-256color', 'description')
+        bundle = write(self.root.parent / 'ca-bundle.crt', 'certificates')
+        with mock.patch.object(native_launch, 'system_ca_bundle', return_value=str(bundle)):
+            env = self.environment()
+        # The computer's own terminal descriptions are looked at first, the few the package carries last.
+        self.assertEqual(env['TERMINFO_DIRS'], native_launch.SYSTEM_TERMINFO_DIRS + os.pathsep + str(terminfo))
+        self.assertEqual(env['GIT_SSL_CAINFO'], str(bundle))
+
+    def test_what_the_user_already_set_is_kept(self):
+        self.ship()
+        terminfo = self.runtime / 'native/share/terminfo'
+        write(terminfo / 'x/xterm-256color', 'description')
+        with mock.patch.object(native_launch, 'system_ca_bundle', return_value='/computer/bundle.crt'):
+            env = self.environment(TERMINFO_DIRS='/mine', GIT_SSL_CAINFO='/mine/ca.pem')
+        self.assertEqual(env['TERMINFO_DIRS'], '/mine' + os.pathsep + str(terminfo))
+        self.assertEqual(env['GIT_SSL_CAINFO'], '/mine/ca.pem')
+
+    def test_a_mac_package_and_a_package_without_shipped_tools_add_neither(self):
+        self.ship()
+        write(self.runtime / 'native/share/git-core/templates/description', 'x')
+        with mock.patch.object(native_launch, 'system_ca_bundle', return_value='/computer/bundle.crt'):
+            mac = self.environment(system='darwin')
+            self.assertNotIn('GIT_SSL_CAINFO', mac)  # a Mac's git uses the keychain
+            self.assertNotIn('TERMINFO_DIRS', mac)  # and the package carries no terminal descriptions
+            self.ship(bundled=False)
+            (self.runtime / 'native').rename(self.root / 'aside')
+            plain = self.environment()
+        self.assertNotIn('GIT_SSL_CAINFO', plain)
+        self.assertNotIn('TERMINFO_DIRS', plain)
+
+    def test_the_computers_certificate_bundle_is_found_by_its_distribution_name(self):
+        debian, fedora = write(self.root.parent / 'debian.crt'), write(self.root.parent / 'fedora.crt')
+        self.assertEqual(native_launch.system_ca_bundle(('/nowhere', str(fedora), str(debian))), str(fedora))
+        self.assertIsNone(native_launch.system_ca_bundle(('/nowhere',)))
+        self.assertIn('/etc/ssl/certs/ca-certificates.crt', native_launch.SYSTEM_CA_BUNDLES)
+        self.assertIn('/etc/pki/tls/certs/ca-bundle.crt', native_launch.SYSTEM_CA_BUNDLES)
 
     def test_the_shipped_browser_tool_is_never_downloaded_again(self):
         self.ship()
@@ -184,7 +226,14 @@ class Platform(Folder):
         self.assertFalse(self.allowed('macos14-x86_64', 'Darwin', 'x86_64', mac='13.6'))
         self.assertFalse(self.allowed('macos14-x86_64', 'Linux', 'x86_64'))
 
-    def test_the_browser_tool_exists_for_both_mac_chips(self):
+    def test_the_linux_package_runs_only_on_linux_x86_64(self):
+        self.assertTrue(self.allowed('ubuntu24-x86_64', 'Linux', 'x86_64'))
+        self.assertFalse(self.allowed('ubuntu24-x86_64', 'Linux', 'aarch64'))
+        self.assertFalse(self.allowed('ubuntu24-x86_64', 'Darwin', 'x86_64'))
+        self.assertFalse(self.allowed('macos14-x86_64', 'Linux', 'x86_64'))
+
+    def test_the_browser_tool_exists_for_linux_and_both_mac_chips(self):
+        self.assertEqual(native_launch.agent_browser_binary_name('Linux', 'x86_64'), 'agent-browser-linux-x64')
         self.assertEqual(native_launch.agent_browser_binary_name('Darwin', 'arm64'), 'agent-browser-darwin-arm64')
         self.assertEqual(native_launch.agent_browser_binary_name('Darwin', 'x86_64'), 'agent-browser-darwin-x64')
 
@@ -260,6 +309,114 @@ class RelocatedCommands(unittest.TestCase):
             write(venv / 'bin/odd', f'#!/usr/bin/env -S {venv}/bin/python3.12 -u\nprint(1)\n'.replace('#!/usr/bin/env', '#!/bin/sh\nexec'), 0o755)
             with self.assertRaisesRegex(ValueError, 'Unrecognized command start in odd'):
                 native_build.relocate_scripts(venv)
+
+
+class BuildTarget(unittest.TestCase):
+    """native_build decides where a self-contained package can be built, and from which tools."""
+
+    def test_each_package_is_built_on_the_system_it_is_for(self):
+        can = native_build.can_bundle
+        self.assertTrue(can('macos14-arm64', 'darwin', 'arm64'))
+        self.assertTrue(can('macos14-x86_64', 'darwin', 'x86_64'))
+        self.assertFalse(can('macos14-arm64', 'linux', 'x86_64'))
+        self.assertTrue(can('ubuntu24-x86_64', 'linux', 'x86_64'))
+        self.assertTrue(can('ubuntu24-x86_64', 'linux', 'AMD64'))
+        self.assertFalse(can('ubuntu24-x86_64', 'linux', 'aarch64'))
+        self.assertFalse(can('ubuntu24-x86_64', 'darwin', 'x86_64'))
+
+    def refusal(self, target, system, machine):
+        arguments = ['--prepared', '/nowhere/prepared', '--output', '/nowhere/out', '--report', '/nowhere/report.json',
+                     '--version', 'not a version!', '--target', target, '--bundled-tools', '/nowhere/tools']
+        with mock.patch.object(native_build.sys, 'platform', system), \
+                mock.patch.object(native_build.platform, 'machine', return_value=machine):
+            with self.assertRaises(ValueError) as caught:
+                native_build.main(arguments)
+        return str(caught.exception)
+
+    def test_the_linux_package_is_accepted_on_linux_x86_64_and_refused_elsewhere(self):
+        # An accepted target goes on to the next check, the version.
+        self.assertEqual(self.refusal('ubuntu24-x86_64', 'linux', 'x86_64'), 'Invalid package version')
+        self.assertEqual(self.refusal('macos14-arm64', 'darwin', 'arm64'), 'Invalid package version')
+        for target, system, machine in (('ubuntu24-x86_64', 'darwin', 'arm64'), ('ubuntu24-x86_64', 'linux', 'aarch64'),
+                                        ('macos14-arm64', 'linux', 'x86_64')):
+            self.assertIn('built on the system it is for', self.refusal(target, system, machine))
+
+    def package(self, member, label):
+        """The agent-browser npm package with one stand-in program, and the tools folder native_build would bundle."""
+        data = io.BytesIO()
+        program = f'#!/bin/sh\n# {label}\necho "agent-browser {native_launch.AGENT_BROWSER_VERSION}"\n'.encode()
+        with tarfile.open(fileobj=data, mode='w:gz') as package:
+            for name, content in (('package/bin/' + member, program), ('package/LICENSE', b'Apache')):
+                item = tarfile.TarInfo(name)
+                item.size = len(content)
+                package.addfile(item, io.BytesIO(content))
+        return data.getvalue()
+
+    def bundled(self, target, member):
+        with tempfile.TemporaryDirectory() as temporary:
+            tools, runtime = Path(temporary).resolve() / 'tools', Path(temporary).resolve() / 'runtime'
+            write(tools / 'native/bin/tmux', '#!/bin/sh\n', 0o755)
+            (tools / 'native/licenses').mkdir()
+            write(tools / 'TOOLS.json', json.dumps({'reported_versions': {'tmux': 'tmux 3.8'}}))
+            runtime.mkdir()
+
+            def download(url, destination, limit):
+                destination.write_bytes(self.package(member, member))
+                return native_launch.AGENT_BROWSER_SHA512
+
+            with mock.patch.object(native_launch, '_download', download):
+                record = native_build.bundle_tools(tools, runtime, target)
+            return record, (runtime / 'native/bin/agent-browser').read_text(), (runtime / 'native/licenses/agent-browser.txt').read_text()
+
+    def test_the_browser_tool_is_the_one_for_the_packages_system(self):
+        for target, member in (('ubuntu24-x86_64', 'agent-browser-linux-x64'), ('macos14-arm64', 'agent-browser-darwin-arm64'),
+                               ('macos14-x86_64', 'agent-browser-darwin-x64')):
+            record, program, license_text = self.bundled(target, member)
+            self.assertIn('# ' + member, program)
+            self.assertEqual(license_text, 'Apache')
+            self.assertEqual(record['reported_versions']['tmux'], 'tmux 3.8')
+
+    def test_a_browser_download_that_is_not_the_pinned_one_stops_the_build(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            tools, runtime = Path(temporary).resolve() / 'tools', Path(temporary).resolve() / 'runtime'
+            write(tools / 'native/bin/tmux', '', 0o755)
+            write(tools / 'TOOLS.json', '{}')
+            runtime.mkdir()
+            with mock.patch.object(native_launch, '_download', return_value='other'), \
+                    self.assertRaisesRegex(ValueError, 'pinned checksum'):
+                native_build.bundle_tools(tools, runtime, 'ubuntu24-x86_64')
+
+
+class TrimPython(unittest.TestCase):
+    """The shipped Python loses what Qorqbot never loads, on either system, and keeps what runs it."""
+
+    def trimmed(self, files, links=()):
+        with tempfile.TemporaryDirectory() as temporary:
+            venv = Path(temporary).resolve() / 'venv'
+            for name in files:
+                write(venv / name, 'x', 0o755 if name.startswith('bin/') else 0o644)
+            for name, target in links:
+                (venv / name).symlink_to(target)
+            native_build.trim_python(venv)
+            return sorted(str(path.relative_to(venv)) for path in venv.rglob('*') if path.is_file() or path.is_symlink())
+
+    def test_the_linux_python_keeps_its_interpreter_and_libraries(self):
+        kept = ['bin/python3.12', 'bin/pip3', 'lib/python3.12/os.py', 'lib/python3.12/lib-dynload/_dbm.cpython-312-x86_64-linux-gnu.so',
+                'lib/python3.12/LICENSE.txt']
+        removed = ['bin/idle3.12', 'bin/pydoc3.12', 'include/python3.12/Python.h', 'share/man/man1/python3.1', 'lib/pkgconfig/python3.pc',
+                   'lib/libpython3.12.so.1.0', 'lib/libpython3.so', 'lib/libtcl9.0.so', 'lib/libtcl9tk9.0.so', 'lib/tcl9.0/init.tcl',
+                   'lib/tk9.0/tk.tcl', 'lib/itcl4.3.8/itcl.tcl', 'lib/thread3.0.6/pkgIndex.tcl',
+                   'lib/python3.12/config-3.12-x86_64-linux-gnu/libpython3.12.a', 'lib/python3.12/tkinter/__init__.py',
+                   'lib/python3.12/test/support.py', 'lib/python3.12/lib-dynload/_tkinter.cpython-312-x86_64-linux-gnu.so',
+                   'lib/python3.12/__pycache__/os.cpython-312.pyc']
+        self.assertEqual(self.trimmed(kept + removed, links=[('bin/python', 'python3.12')]),
+                         sorted(kept + ['bin/python']))
+
+    def test_the_mac_python_is_trimmed_as_before(self):
+        kept = ['bin/python3.12', 'lib/python3.12/os.py']
+        removed = ['lib/libpython3.12.dylib', 'lib/python3.12/config-3.12-darwin/Makefile', 'lib/libtcl9.0.dylib',
+                   'lib/python3.12/lib-dynload/_tkinter.cpython-312-darwin.so', 'lib/python3.12/idlelib/idle.py']
+        self.assertEqual(self.trimmed(kept + removed), sorted(kept))
 
 
 if __name__ == '__main__':

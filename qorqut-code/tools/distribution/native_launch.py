@@ -2,7 +2,7 @@
 """Consumer launcher, copied to runtime/launch.py by native_build.py.
 
 A Linux package uses system Python and standard venv/pip with the release wheelhouse.
-A self-contained (Mac) package ships its Python environment and git ready to use.
+A self-contained (Mac or Linux) package ships its Python environment and git ready to use.
 No installer, daemon, permission broker or host configuration is installed.
 """
 from __future__ import annotations
@@ -60,6 +60,18 @@ def link_user_keychains(home, user_home):
     link.symlink_to(target, target_is_directory=True)
 
 
+# Where Linux distributions keep terminal descriptions, and the file each keeps its trusted certificates in.
+SYSTEM_TERMINFO_DIRS = '/etc/terminfo:/lib/terminfo:/usr/share/terminfo:/usr/lib/terminfo'
+SYSTEM_CA_BUNDLES = ('/etc/ssl/certs/ca-certificates.crt', '/etc/pki/tls/certs/ca-bundle.crt', '/etc/ssl/ca-bundle.pem',
+                     '/etc/pki/tls/cacert.pem', '/etc/ssl/cert.pem')
+
+
+def system_ca_bundle(candidates=SYSTEM_CA_BUNDLES):
+    """This Linux computer's certificate bundle, or None. Distributions name it differently; the git a package ships
+    is built for the Debian name, so it is told where the bundle is on the others."""
+    return next((path for path in candidates if os.path.isfile(path)), None)
+
+
 def environment(root, home):
     runtime = root / 'runtime'
     env = dict(os.environ)
@@ -93,7 +105,7 @@ def environment(root, home):
         env[key] = str(path)
     if sys.platform == 'darwin':
         link_user_keychains(home, user_home)
-    # A self-contained package ships git; it comes before the computer's own so every Mac runs the same one.
+    # A self-contained package ships git; it comes before the computer's own so every computer runs the same one.
     shipped = [str(runtime / 'native/bin')] if (runtime / 'native/bin').is_dir() else []
     env.update({
         'PATH': os.pathsep.join([str(runtime / 'venv/bin'), *shipped, user_path]),
@@ -107,6 +119,15 @@ def environment(root, home):
         'PIP_CONFIG_FILE': os.devnull, 'PIP_NO_INDEX': '1',
         'LANG': 'C.UTF-8',
     })
+    # The shipped tmux finds terminal descriptions on the computer first, then in the few the package carries.
+    terminfo = runtime / 'native/share/terminfo'
+    if terminfo.is_dir():
+        env['TERMINFO_DIRS'] = os.pathsep.join([env.get('TERMINFO_DIRS') or SYSTEM_TERMINFO_DIRS, str(terminfo)])
+    if sys.platform.startswith('linux') and (runtime / 'native/bin/git').is_file():
+        # A Mac's git uses the system keychain; the one built for Linux reads a certificate file.
+        bundle = system_ca_bundle()
+        if bundle:
+            env.setdefault('GIT_SSL_CAINFO', bundle)
     # Vendor clients remain user-installed and use the user's existing account
     # configuration. Qorqbot's own state and generated workspace files stay here.
     env.setdefault('CODEX_HOME', str(user_home / '.codex'))

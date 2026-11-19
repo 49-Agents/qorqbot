@@ -4,9 +4,9 @@
 Build tooling only. Input is a prepare-local output of the filtered export. Never point this at an initialized installation.
 No venv, configuration, HOME, build log or instance is copied from either input.
 
-With --bundled-tools (the output of macos_tools.py, built on the same Mac chip) the package is self-contained:
-it ships a ready-made Python environment in runtime/venv and git and the agents' browser tool in
-runtime/native, so nothing is installed or built on the user's Mac.
+With --bundled-tools (the output of macos_tools.py on the same Mac chip, or of linux_tools.py on Linux x86-64) the
+package is self-contained: it ships a ready-made Python environment in runtime/venv and git and the agents'
+browser tool in runtime/native, so nothing is installed or built on the user's computer.
 """
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ import re
 import json
 import os
 from pathlib import Path
+import platform
 import shutil
 import subprocess
 import sys
@@ -42,13 +43,18 @@ DEV = {'tests', 'test', '__tests__', '__pycache__', '.github', '.git', '.gitlab'
 TARGETS = {'ubuntu24-x86_64': ('Ubuntu 24.04 x86_64', None), 'macos14-arm64': ('macOS 14+ Apple silicon', 'macosx_14_0_arm64'),
            'macos14-x86_64': ('macOS 14+ Intel', 'macosx_14_0_x86_64')}
 # Parts of the shipped Python that Qorqbot never loads: its test suite, the Tk user interface, the IDLE editor,
-# C headers and the shared library (the python program has the interpreter linked in).
+# C headers and the shared library (the python program has the interpreter linked in). Names of the other system
+# are absent from a package and skipped.
 PYTHON_UNUSED = ('include', 'share', 'lib/pkgconfig', 'lib/libpython3.12.dylib', 'lib/python3.12/test',
                  'lib/python3.12/idlelib', 'lib/python3.12/tkinter', 'lib/python3.12/turtledemo',
                  'lib/python3.12/turtle.py', 'lib/python3.12/lib2to3', 'lib/python3.12/ensurepip',
-                 'lib/python3.12/pydoc_data', 'lib/python3.12/config-3.12-darwin')
+                 'lib/python3.12/pydoc_data', 'lib/python3.12/config-3.12-darwin',
+                 'lib/python3.12/config-3.12-x86_64-linux-gnu')
 PYTHON_UNUSED_PATTERNS = ('lib/tcl*', 'lib/tk*', 'lib/itcl*', 'lib/thread*', 'lib/libtcl*', 'lib/libtk*',
-                          'lib/python3.12/lib-dynload/_tkinter*', 'bin/idle*', 'bin/2to3*', 'bin/pydoc*')
+                          'lib/libpython3*.so*', 'lib/python3.12/lib-dynload/_tkinter*', 'bin/idle*', 'bin/2to3*',
+                          'bin/pydoc*')
+# A self-contained Linux package picks wheels for the oldest glibc it supports, whatever this build machine has.
+LINUX_WHEEL_PLATFORMS = ('manylinux_2_28_x86_64', 'manylinux_2_17_x86_64', 'manylinux2014_x86_64')
 RELOCATABLE_SCRIPT = b'#!/bin/sh\n\'\'\'exec\' "$(dirname -- "$0")/python3.12" "$0" "$@"\n\' \'\'\'\n'
 
 # The ./qorqbot command of every package.
@@ -120,10 +126,16 @@ def relocate_scripts(venv):
     return changed
 
 
-def ready_made_environment(tools, runtime, platform_tag):
-    """Install the package's libraries into the shipped Python at build time and return what was done."""
-    venv, package_root = runtime / 'venv', runtime.parent
-    shutil.copytree(tools / 'python', venv, symlinks=True)
+def can_bundle(target, system=None, machine=None):
+    """Whether this computer can build a self-contained package for ``target``: the programs it ships run here."""
+    system, machine = system or sys.platform, (machine or platform.machine()).lower()
+    if TARGETS[target][1]:
+        return system == 'darwin'
+    return system == 'linux' and machine in ('x86_64', 'amd64')
+
+
+def trim_python(venv):
+    """Remove what Qorqbot never loads from the copy of the shipped Python."""
     for name in PYTHON_UNUSED:
         remove(venv / name)
     for pattern in PYTHON_UNUSED_PATTERNS:
@@ -131,6 +143,13 @@ def ready_made_environment(tools, runtime, platform_tag):
             remove(path)
     for cache in list(venv.rglob('__pycache__')):
         shutil.rmtree(cache)
+
+
+def ready_made_environment(tools, runtime, platform_tag):
+    """Install the package's libraries into the shipped Python at build time and return what was done."""
+    venv, package_root = runtime / 'venv', runtime.parent
+    shutil.copytree(tools / 'python', venv, symlinks=True)
+    trim_python(venv)
     python = venv / 'bin/python3.12'
     with tempfile.TemporaryDirectory(prefix='qorqbot-build-home-') as home:
         env = {'PATH': '/usr/bin:/bin', 'HOME': home, 'LANG': 'C.UTF-8', 'PIP_CONFIG_FILE': os.devnull, 'PIP_NO_INDEX': '1',
@@ -145,9 +164,11 @@ def ready_made_environment(tools, runtime, platform_tag):
         subprocess.run([python, '-I', '-m', 'compileall', '-q', '-j', '0', '--invalidation-mode', 'unchecked-hash',
                         venv / 'lib/python3.12'], env={key: value for key, value in env.items() if key != 'PYTHONDONTWRITEBYTECODE'},
                        cwd=package_root, check=True)
-        machine = subprocess.run([python, '-I', '-B', '-c', 'import platform, cryptography, pydantic_core, psutil, yaml; print(platform.machine())'],
+        # psutil is a Mac-only library; Linux reads /proc.
+        imports = 'platform, cryptography, pydantic_core, ' + ('psutil, ' if platform_tag else '') + 'yaml'
+        machine = subprocess.run([python, '-I', '-B', '-c', f'import {imports}; print(platform.machine())'],
                                  env=env, cwd=package_root, check=True, capture_output=True, text=True).stdout.strip()
-    expected = 'arm64' if platform_tag.endswith('arm64') else 'x86_64'
+    expected = 'arm64' if (platform_tag or '').endswith('arm64') else 'x86_64'
     if machine != expected:
         raise ValueError(f'The bundled tools are built for {machine}; this package targets {expected}')
     return {'relocated_commands': scripts}
@@ -160,7 +181,8 @@ def bundle_tools(tools, runtime, target):
     shutil.copytree(tools / 'native', native, symlinks=True)
     shutil.copy2(tools / 'TOOLS.json', native / 'TOOLS.json')
     machine = 'arm64' if target.endswith('arm64') else 'x86_64'
-    ship_agent_browser('Darwin', machine, native / 'bin/agent-browser', native / 'licenses/agent-browser.txt')
+    system = 'Darwin' if TARGETS[target][1] else 'Linux'
+    ship_agent_browser(system, machine, native / 'bin/agent-browser', native / 'licenses/agent-browser.txt')
     return json.loads((tools / 'TOOLS.json').read_text())
 
 
@@ -267,14 +289,15 @@ def main(argv=None):
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--version', required=True)
     parser.add_argument('--target', choices=tuple(TARGETS), default='ubuntu24-x86_64')
-    parser.add_argument('--bundled-tools', type=Path, help='macos_tools.py output for this Mac chip; makes the package self-contained')
+    parser.add_argument('--bundled-tools', type=Path,
+                        help='macos_tools.py output for this Mac chip, or linux_tools.py output on Linux x86-64; makes the package self-contained')
     parser.add_argument('--sign-identity', help='Developer ID Application certificate (name or SHA-1) that signs every program and '
                         'library in the package, as Apple notarization requires; needs --bundled-tools')
     args = parser.parse_args(argv)
     platform_name, platform_tag = TARGETS[args.target]
-    if args.bundled_tools and (platform_tag is None or sys.platform != 'darwin'):
-        raise ValueError('A self-contained package is built for a Mac target, on a Mac')
-    if args.sign_identity and not args.bundled_tools:
+    if args.bundled_tools and not can_bundle(args.target):
+        raise ValueError('A self-contained package is built on the system it is for: a Mac package on a Mac, the Ubuntu package on Linux x86-64')
+    if args.sign_identity and (not args.bundled_tools or platform_tag is None):
         raise ValueError('Signing applies to a self-contained Mac package: add --bundled-tools')
     if not re.fullmatch(r'[0-9A-Za-z][0-9A-Za-z._-]{0,79}', args.version):
         raise ValueError('Invalid package version')
@@ -317,6 +340,9 @@ def main(argv=None):
         download_options = ['--platform', platform_tag, '--python-version', '3.12', '--implementation', 'cp', '--abi', 'cp312']
         if not any(normalize(name) == 'psutil' for name in packages):
             requirements.append('psutil>=7.0,<8')
+    elif args.bundled_tools:
+        download_options = [option for tag in LINUX_WHEEL_PLATFORMS for option in ('--platform', tag)]
+        download_options += ['--python-version', '3.12', '--implementation', 'cp', '--abi', 'cp312']
     downloads = report.parent / (report.stem + '-downloads')
     downloads.mkdir(parents=True, exist_ok=False)
     subprocess.run([python, '-I', '-m', 'pip', 'download', '--only-binary=:all:', '--no-deps', '--dest', downloads,
@@ -329,7 +355,8 @@ def main(argv=None):
     launcher = output / 'qorqbot/qorqbot'
     launcher.write_text(LAUNCHER)
     launcher.chmod(0o755)
-    guide = 'MACOS.md' if platform_tag else 'README.md'
+    # A self-contained Linux archive needs nothing installed, so it gets the Linux guide, not the system-Python one.
+    guide = 'MACOS.md' if platform_tag else ('LINUX.md' if args.bundled_tools else 'README.md')
     shutil.copy2(Path(__file__).resolve().parents[2] / ('docs/distribution/' + guide), runtime / 'README.txt')
     (output / 'qorqbot/README.txt').symlink_to('runtime/README.txt')
     for name in ('LICENSE', 'LICENSE-SCOPE.md', 'LICENSES/Apache-2.0.txt', 'RELEASE-LICENSES.json'):
