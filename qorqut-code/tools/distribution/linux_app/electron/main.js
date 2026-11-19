@@ -15,7 +15,8 @@ const path = require('node:path');
 const desktop = require('./desktop');
 const { Engine } = require('./engine');
 
-// WM class / Wayland app id must match the .desktop file (StartupWMClass=Qorqbot, qorqbot.desktop).
+// WM class / Wayland app id must match the .desktop file (StartupWMClass=qorqbot, qorqbot.desktop): Electron derives
+// both from desktopName in package.json, not from the name set here.
 app.setName('Qorqbot');
 if (typeof app.setDesktopName === 'function') app.setDesktopName(desktop.DESKTOP_FILE_NAME);
 

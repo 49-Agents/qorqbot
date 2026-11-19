@@ -105,7 +105,7 @@ if [ -n "$ARCHIVE" ]; then
 fi
 [ -L /usr/bin/qorqbot-desktop ] && note "  /usr/bin/qorqbot-desktop -> $(readlink -f /usr/bin/qorqbot-desktop)" || fail "/usr/bin/qorqbot-desktop is not a link"
 [ "$(readlink -f /usr/bin/qorqbot-desktop)" = /opt/Qorqbot/qorqbot-desktop ] || fail "/usr/bin/qorqbot-desktop does not lead to /opt/Qorqbot/qorqbot-desktop"
-for size in 16 24 32 48 64 128 256 512; do expect_file "/usr/share/icons/hicolor/${size}x${size}/apps/qorqbot.png"; done
+for size in 16 24 32 48 64 128 256 512; do expect_file "/usr/share/icons/hicolor/${size}x${size}/apps/qorqbot-desktop.png"; done
 MODE="$(stat -c %a /opt/Qorqbot/chrome-sandbox)"
 note "  chrome-sandbox mode $MODE ($( [ "$MODE" = 4755 ] && echo "setuid, used where user namespaces are unavailable" || echo "not setuid; the AppArmor profile lets Chromium use user namespaces"))"
 
@@ -113,7 +113,7 @@ section "Menu entry"
 ENTRY=/usr/share/applications/qorqbot.desktop
 expect_file "$ENTRY"
 if desktop-file-validate "$ENTRY" 2>&1 | tee "$OUT/desktop-file-validate.log" | grep -q .; then fail "desktop-file-validate: $(cat "$OUT/desktop-file-validate.log")"; else note "  desktop-file-validate: no complaints"; fi
-for expected in "Name=Qorqbot" "Exec=/opt/Qorqbot/qorqbot-desktop %U" "Icon=qorqbot" "StartupWMClass=Qorqbot" "Categories=Office;" "Type=Application"; do
+for expected in "Name=Qorqbot" "Exec=/opt/Qorqbot/qorqbot-desktop %U" "Icon=qorqbot-desktop" "StartupWMClass=qorqbot" "Categories=Office;" "Type=Application"; do
   grep -qxF "$expected" "$ENTRY" && note "  $expected" || fail "the menu entry lacks $expected"
 done
 
@@ -153,7 +153,7 @@ apt-get remove -y qorqbot >"$OUT/apt-remove.log" 2>&1 || fail "apt remove failed
 for gone in /opt/Qorqbot /usr/bin/qorqbot-desktop /usr/share/applications/qorqbot.desktop /etc/apparmor.d/qorqbot-desktop; do
   [ -e "$gone" ] || [ -L "$gone" ] && fail "still present after removal: $gone" || note "  gone: $gone"
 done
-for size in 16 512; do [ -e "/usr/share/icons/hicolor/${size}x${size}/apps/qorqbot.png" ] && fail "an icon is still present after removal"; done
+for size in 16 512; do [ -e "/usr/share/icons/hicolor/${size}x${size}/apps/qorqbot-desktop.png" ] && fail "an icon is still present after removal"; done
 
 section "Result"
 if [ "$FAILED" = 0 ]; then note "passed"; else note "failed"; fi
