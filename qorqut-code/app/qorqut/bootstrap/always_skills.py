@@ -1,7 +1,8 @@
 """Always-loaded skills for the configured Ordubashy (stdlib only).
 
 The startup composer calls this for the configured Ordubashy before adding
-context. It returns current skill text on lifecycle events or a changed digest,
+context. It returns current skill text on lifecycle events, on a changed digest
+and when the composer is recovering a delivery the session missed (``force``),
 and one short operational intake reminder for each UserPromptSubmit. Existing
 skill receipts do not suppress that reminder. No separate prompt hook is installed.
 """
@@ -55,7 +56,7 @@ def _write_private(path: Path, value: dict) -> None:
         raise
 
 
-def handle(hook: dict, registration_path: Path, runtime: str) -> dict:
+def handle(hook: dict, registration_path: Path, runtime: str, *, force: bool = False) -> dict:
     event = hook.get("hook_event_name")
     if event not in {"SessionStart", "UserPromptSubmit"} or runtime not in {"claude-code", "codex"}:
         return {}
@@ -71,7 +72,7 @@ def handle(hook: dict, registration_path: Path, runtime: str) -> dict:
     reminder = policy.from_prepared(registration_path).render('operational-intake') if event == 'UserPromptSubmit' else ''
     digest = hashlib.sha256(context.encode()).hexdigest()
     receipt_path = _receipt_path(workspace, session_id)
-    if event == "UserPromptSubmit":
+    if event == "UserPromptSubmit" and not force:
         try:
             previous = json.loads(receipt_path.read_text()) if _no_symlink(receipt_path) else {}
         except (OSError, ValueError):

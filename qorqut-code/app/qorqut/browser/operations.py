@@ -1,6 +1,7 @@
 """MCP registration of the restricted browser surface: own browsers, managed Global desktops and assignment turns."""
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
+from .agent_browsers import ACTIONS
 
 from qorqut_operations.application import OperationDescriptor
 
@@ -35,6 +36,16 @@ def register_browser_operation(runtime):
             "browser_key": {"type": ["string", "null"], "maxLength": 200, "description": instruction_text('operations-durable-workers-use-the-exact-assignment-target-native')},
             "handle": {"type": ["string", "null"], "pattern": "^b[a-f0-9]{12}$", "description": instruction_text('operations-short-browser-handle-returned-by-acquire-use-it')},
             "action_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 200, "description": instruction_text('operations-stable-action-identity-reused-exactly-for-reconciliation-defaults')}, "command": {"type": ["array", "null"], "items": {"type": "string", "maxLength": 2000}, "maxItems": 32},
+            "commands": {"type": ["array", "null"], "minItems": 1, "maxItems": 10,
+                         "items": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"type": "string", "maxLength": 2000}},
+                         # A plain string, not a tool-instructions key: the wording ships with the code that enforces it.
+                         "description": "Several commands in one call, 1 to 10, in place of command; give one of the two. Not for "
+                                        "a delegated assignment, which runs one command per call. They run in order and the run "
+                                        "stops at the first command that exits non-zero, times out or cannot start, or when the "
+                                        "request's time is nearly used up. Every command is checked first: if one is refused, none runs. The reply has results (one entry per command that "
+                                        "ran: command, exit_code, stdout, stderr when not empty, truncated when stdout was cut) and, when the run stopped, "
+                                        "stopped (index, reason, message, not_run). A timeout is reported in stopped, not "
+                                        "raised: look at the page before repeating anything."},
             "checkpoint": {"type": ["object", "null"]}, "last_action": _TEXT,
             "pending_outcome": {"type": ["object", "null"]}, "next_action": _TEXT,
             "lease_seconds": {"type": ["integer", "null"], "minimum": 30, "maximum": 900},
@@ -69,7 +80,7 @@ def register_agent_browser_management(runtime):
         "type": "object", "additionalProperties": False,
         "properties": {
             "agent_id": {"type": "string", "format": "uuid", "description": instruction_text('operations-the-active-permanent-worker-whose-own-browser-to')},
-            "action": {"enum": ["status", "ensure", "repair", "restart", "stop"]},
+            "action": {"enum": list(ACTIONS)},
         },
         "required": ["agent_id", "action"],
     }, version=1, effect_kind="records", supports_signoff=False, scope_kinds=frozenset({"global"}),

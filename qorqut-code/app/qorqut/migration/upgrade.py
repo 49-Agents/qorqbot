@@ -49,8 +49,8 @@ from qorqut_operations.storage.sqlfunctions import install_sql_functions
 
 from qorqut.composition.assembly import HostComposition, host_contributions
 from qorqut.extensions import NO_EXTENSIONS
-from qorqut.migration import (native_transport_managed, owner_turns, private_message_refs, queue_indexes, side_chat_titles,
-                              signoff_side_chat, signoff_sources)
+from qorqut.migration import (native_transport_managed, owner_turns, private_message_refs, queue_indexes, report_tasks,
+                              side_chat_titles, signoff_side_chat, signoff_sources, timeline, timeline_deliveries)
 from qorqut.service.changes import ChangeFeed
 from qorqut.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from qorqut.service.ownership import InstanceOwnership
@@ -59,7 +59,7 @@ from qorqut.service.ownership import InstanceOwnership
 # strip(contribution), forward(connection, objects), backward(connection) and held_rows(connection). One that changes
 # the definition of an existing object also names it in CHANGED.
 TRANSFORMS = (signoff_sources, queue_indexes, signoff_side_chat, side_chat_titles, owner_turns, private_message_refs,
-              native_transport_managed)
+              report_tasks, timeline, timeline_deliveries, native_transport_managed)
 BASE = 'base'
 STATES = (BASE, *(transform.NAME for transform in TRANSFORMS))
 

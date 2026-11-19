@@ -362,24 +362,14 @@
       "line": 197
     },
     {
-      "id": "working-memory-pass-next-cursor-exactly-new-cursors-are",
-      "source": "qorqut-code/app/qorqut/domains/working_memory.py",
-      "line": 44
+      "id": "agent-context-pass-next-cursor-exactly-new-cursors-are",
+      "source": "qorqut-code/app/qorqut/domains/agent_context.py",
+      "line": 24
     },
     {
-      "id": "working-memory-read-committed-own-working-memory-or-bounded",
-      "source": "qorqut-code/app/qorqut/domains/working_memory.py",
-      "line": 50
-    },
-    {
-      "id": "working-memory-read-compact-current-working-memory-and-live",
-      "source": "qorqut-code/app/qorqut/domains/working_memory.py",
-      "line": 53
-    },
-    {
-      "id": "working-memory-save-own-working-handoff-focus-approach-findings",
-      "source": "qorqut-code/app/qorqut/domains/working_memory.py",
-      "line": 63
+      "id": "agent-context-read-compact-live-attention-inventory-true-returns",
+      "source": "qorqut-code/app/qorqut/domains/agent_context.py",
+      "line": 30
     },
     {
       "id": "attention-focus-only-name-written-by-the-curator-use",
@@ -635,6 +625,11 @@
       "id": "recovery-admin-local-encrypted-recovery-administration-client",
       "source": "qorqut-code/app/qorqut/storage/recovery_admin.py",
       "line": 419
+    },
+    {
+      "id": "mcp-optional-for-task-writes-checked-when-given-required-when",
+      "source": "qorqut-code/app/qorqut/transport/mcp.py",
+      "line": 111
     },
     {
       "id": "mcp-presentation-compact-receipt-index-by-default-platform-defaults",
@@ -1092,6 +1087,11 @@
       "line": 97
     },
     {
+      "id": "lookup-pass-signoff-id-alone-its-review-scope-is-found",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/signoffs/lookup.py",
+      "line": 30
+    },
+    {
       "id": "rejection-ordubashy-only-reject-a-pending-action-signoff-with",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/signoffs/rejection.py",
       "line": 27
@@ -1125,6 +1125,11 @@
       "id": "operations-add-a-label-to-the-shared-tag-catalog",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/tags/operations.py",
       "line": 48
+    },
+    {
+      "id": "operations-pass-task-id-alone-its-project-is-found",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/lookup.py",
+      "line": 34
     },
     {
       "id": "associated-read-the-actions-or-signoffs-associated-with-a",
@@ -1177,6 +1182,11 @@
       "line": 140
     },
     {
+      "id": "operations-also-return-the-first-page-of-the-associated",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/operations.py",
+      "line": 170
+    },
+    {
       "id": "operations-tags-are-ordinary-labels-that-group-work-they",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/operations.py",
       "line": 162
@@ -1185,6 +1195,11 @@
       "id": "operations-follow-or-unfollow-a-task-s-discussion-for",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/operations.py",
       "line": 171
+    },
+    {
+      "id": "operations-leave-out-a-short-task-id-is-generated",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/operations.py",
+      "line": 185
     },
     {
       "id": "overview-ordubashy-only-brief-owner-self-task-overview-across",

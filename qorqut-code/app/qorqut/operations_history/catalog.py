@@ -233,6 +233,15 @@ def catalog(extensions=()):
                 'category': Text(),
                 'execution_job_id': Text(nullable=True),
             }, ('id',)),
+            # The Task a read-and-acknowledge report belongs to: identities only, no report text.
+            TableExport('signoff_report_tasks', {
+                'signoff_id': Text(),
+                'task_id': Text(),
+                'task_business_id': Text(nullable=True),
+                'revision': Integer(),
+                'created_by': Text(),
+                'created_at': Text(),
+            }, ('signoff_id',)),
             TableExport('signoff_notes', {
                 'sequence': Integer(),
                 'id': Text(),
@@ -242,6 +251,39 @@ def catalog(extensions=()):
                 'created_at': Text(),
                 'summary': Text(nullable=True),
             }, ('sequence',), selector=public_signoff_notes),
+        )),
+        # Timelines: the entries and questions without their quoted words and links (opaque JSON never enters this snapshot).
+        HistoryContribution('host.timeline', exports=(
+            TableExport('timeline_entries', {
+                'id': Text(),
+                'item_type': Text(),
+                'item_id': Text(),
+                'business_id': Text(nullable=True),
+                'sequence': Integer(),
+                'action': Text(),
+                'kind': Text(),
+                'text': Text(),
+                'removes_id': Text(nullable=True),
+                'question_id': Text(nullable=True),
+                'created_by': Text(),
+                'created_at': Text(),
+            }, ('id',)),
+            TableExport('timeline_questions', {
+                'id': Text(),
+                'item_type': Text(),
+                'item_id': Text(),
+                'business_id': Text(nullable=True),
+                'text': Text(),
+                'blocking': Integer(),
+                'raised_by': Text(),
+                'state': Text(),
+                'answer_entry_id': Text(nullable=True),
+                'sequence': Integer(),
+                'revision': Integer(),
+                'created_by': Text(),
+                'created_at': Text(),
+                'closed_at': Text(nullable=True),
+            }, ('id',)),
         )),
         HistoryContribution('host.routines', exports=(
             TableExport('routines', {
@@ -441,6 +483,7 @@ def catalog(extensions=()):
             TableClassification('reminders', PRIVATE_EXCLUDED, 'Reminder text, recipients and linked items are private and are excluded from general history.'),
             TableClassification('reminder_occurrences', PRIVATE_EXCLUDED, 'Reminder delivery history is private operational state and is excluded from general history.'),
             TableClassification('browser_cleanup_enrollments', PRIVATE_EXCLUDED, 'Default reminder enrollment links private agents and reminders; it is excluded from general history.'),
+            TableClassification('timeline_deliveries', PRIVATE_EXCLUDED, 'Delivery bookkeeping: which revision of a timeline each agent conversation was last told; no content.'),
             TableClassification('agent_current_work', PRIVATE_EXCLUDED, 'Authored worker status is shared by source permission and can describe private work; it is never exported to general history.'),
             TableClassification('agent_checkpoint_findings', PRIVATE_EXCLUDED, 'Diagnostics and execution traces can embed private source or provider data.'),
             TableClassification('system_incident_fault_runs', PRIVATE_EXCLUDED, 'Diagnostics and execution traces can embed private source or provider data.'),

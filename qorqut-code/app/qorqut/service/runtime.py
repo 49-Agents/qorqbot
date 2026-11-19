@@ -578,6 +578,17 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # The owner's own messages across every agent's chat and the private threads, for the owner and the coordinator.
     from qorqut.domains.owner_inputs import OwnerInputs
     OwnerInputs(runtime).register()
+    # The owner's pinned-threads row at the top of Focus: the owner's dashboard route, plus these two tools for the coordinator.
+    from qorqut.domains.thread_pins import ThreadPins
+    ThreadPins(runtime).register()
+    # The timelines of Tasks, Projects and Global: any agent reads one it may read; only the coordinator files.
+    from qorqut.domains.timeline import Timeline
+    Timeline(runtime).register()
+    # The owner's dashboard reads of them: one item's timeline and every open question.
+    from qorqut.domains.timeline_owner import TimelineOwner
+    TimelineOwner(runtime).register()
+    from qorqut.domains.timeline_delivery import TimelineDelivery
+    runtime.timeline_delivery = resolver.timeline_delivery = TimelineDelivery(runtime)
     # Its companion: what the records say was done over the same period.
     from qorqut.domains.work_review import WorkReview
     WorkReview(runtime).register()
@@ -610,13 +621,17 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
         # Archiving a project takes its Tasks off every Todo board in the same write.
         archive.release_todos = attention.release_project
     # Closing a Task takes it off every Todo board and Focus and cancels agents' follow-up reminders, in the same write.
+    # A worker's done closure is also recorded as an Action there, admitted through the Actions' one ``on_revision``.
     from qorqut.domains.tasks.closure import TaskClosure
-    runtime.domains.tasks.on_change = TaskClosure(attention, runtime.focus.board, runtime.reminders)
+    from qorqut.domains.tasks.closure_actions import ClosureActions
+    actions = runtime.domains.actions
+    runtime.domains.tasks.on_change = TaskClosure(attention, runtime.focus.board, runtime.reminders,
+                                                  ClosureActions(actions.on_revision, clock=actions.clock))
     # The one-time alignment of older records with their Tasks needs both boards.
     runtime.domains.records_health.bind(attention, runtime.focus.board)
     from qorqut.agentic.attention import register_workflow_attention
     register_workflow_attention(runtime)
-    # A delegated Task's plan: the three step tools, and the reading of where a plan stands for tasks_get.
+    # A delegated Task's plan: the step tools, and the reading of where a plan stands for tasks_get.
     from qorqut.agents.task_plans import register_task_plans
     register_task_plans(runtime)
     from qorqut.agents.attention_delivery import attach_attention_runtime

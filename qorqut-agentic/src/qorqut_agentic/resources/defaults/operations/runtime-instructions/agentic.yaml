@@ -96,6 +96,62 @@
       "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
     },
     {
+      "id": "attention-handover",
+      "kind": "instruction",
+      "path": "messages/attention-handover.md",
+      "description": "Attention handover",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-oversight",
+      "kind": "instruction",
+      "path": "messages/attention-oversight.md",
+      "description": "Attention oversight",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-step-returned",
+      "kind": "instruction",
+      "path": "messages/attention-step-returned.md",
+      "description": "Attention step returned",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-step-waiting",
+      "kind": "instruction",
+      "path": "messages/attention-step-waiting.md",
+      "description": "Attention step waiting",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-team-available",
+      "kind": "instruction",
+      "path": "messages/attention-team-available.md",
+      "description": "Attention team available",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-team-awaiting",
+      "kind": "instruction",
+      "path": "messages/attention-team-awaiting.md",
+      "description": "Attention team awaiting",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-team-blocked",
+      "kind": "instruction",
+      "path": "messages/attention-team-blocked.md",
+      "description": "Attention team blocked",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-team-stalled",
+      "kind": "instruction",
+      "path": "messages/attention-team-stalled.md",
+      "description": "Attention team stalled",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
       "id": "background-recovered",
       "kind": "instruction",
       "path": "messages/background-recovered.md",
@@ -397,27 +453,6 @@
       "when_to_use": "bootstrap/learning_applier.py"
     },
     {
-      "id": "memory-legacy-plan",
-      "kind": "instruction",
-      "path": "messages/memory-legacy-plan.md",
-      "description": "Memory legacy plan",
-      "when_to_use": "working memory; conditional; selected by the registered runtime policy."
-    },
-    {
-      "id": "memory-omitted",
-      "kind": "instruction",
-      "path": "messages/memory-omitted.md",
-      "description": "Memory omitted",
-      "when_to_use": "working memory; conditional; selected by the registered runtime policy."
-    },
-    {
-      "id": "memory-pending",
-      "kind": "instruction",
-      "path": "messages/memory-pending.md",
-      "description": "Memory pending",
-      "when_to_use": "working memory; conditional; selected by the registered runtime policy."
-    },
-    {
       "id": "overseer-extraction-due",
       "kind": "instruction",
       "path": "messages/overseer-extraction-due.md",
@@ -502,13 +537,6 @@
       "when_to_use": "claude session; conditional; selected by the registered runtime policy."
     },
     {
-      "id": "startup-inventory",
-      "kind": "instruction",
-      "path": "messages/startup-inventory.md",
-      "description": "Startup inventory",
-      "when_to_use": "claude session; conditional; selected by the registered runtime policy."
-    },
-    {
       "id": "startup-pending",
       "kind": "instruction",
       "path": "messages/startup-pending.md",
@@ -542,6 +570,20 @@
       "path": "messages/startup-unavailable.md",
       "description": "Startup unavailable",
       "when_to_use": "claude session; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "task-action-missing",
+      "kind": "instruction",
+      "path": "messages/task-action-missing.md",
+      "description": "task action missing",
+      "when_to_use": "transport/mcp.py; the configured coordinator reads or closes a done Task that has no Action"
+    },
+    {
+      "id": "task-action-recorded",
+      "kind": "instruction",
+      "path": "messages/task-action-recorded.md",
+      "description": "task action recorded",
+      "when_to_use": "transport/mcp.py; the configured coordinator reads or closes a done Task that has its Action"
     },
     {
       "id": "tool-validation-recovery",
@@ -689,6 +731,13 @@
       "path": "messages/operational-intake.md",
       "description": "operational intake",
       "when_to_use": "Ordubashy startup and input reconciliation"
+    },
+    {
+      "id": "context-lookup-reminder",
+      "kind": "instruction",
+      "path": "messages/context-lookup-reminder.md",
+      "description": "Look names up in Context before asking the owner",
+      "when_to_use": "Every successful user prompt for agents that have the Context read tools."
     }
   ]
 }

@@ -76,8 +76,13 @@ def is_date(value) -> bool:
         return False
 
 
-def validate_task(task, fields):
-    """The retained v1 task rules against the current field definitions (``fields``)."""
+def validate_task(task, fields, stored=None):
+    """The retained v1 task rules against the current field definitions (``fields``).
+
+    ``stored`` is the Task as it is saved. A field it already holds, with the same value, is kept even when no definition names it
+    (older data), so such a Task can still be closed or edited; setting or changing an undefined field is still refused."""
+    kept = stored.get("fields_json") if stored else None
+    kept = kept if isinstance(kept, dict) else {}
     title = task["title"]
     if not isinstance(title, str) or not title.strip() or "\n" in title or "\r" in title or len(title) > 1000:
         invalid("Task title must be a non-empty single line up to 1000 characters")
@@ -94,6 +99,8 @@ def validate_task(task, fields):
     for name, value in custom_fields(task).items():
         spec = fields.get(name)
         if spec is None:
+            if name in kept and kept[name] == value:
+                continue
             invalid("Unknown custom task field: " + name)
         kind = spec["type"]
         if ((kind == "string" and not isinstance(value, str)) or (kind == "int" and type(value) is not int)

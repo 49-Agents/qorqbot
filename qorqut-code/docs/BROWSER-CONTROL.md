@@ -66,7 +66,8 @@ An action timeout is an uncertain outcome; inspect before retrying a submission.
 
 The launcher rejects target/config/session overrides, browser launching, global
 shutdown and profile clearing. `detach` preserves the attached browser. Ordinary
-page commands, including `eval` and `run-code`, remain available for requested work.
+page commands, including `type`, `frame` and `eval`, remain available for requested work;
+`run-code` is not exposed.
 These restrictions prevent common accidents; arbitrary code and processes under
 the same OS account can bypass them. They are not an authorization sandbox or
 Qorqut's prepared-change/signoff mechanism. The skill respects authorization
@@ -110,6 +111,64 @@ overview response (about 85% fewer characters). These are local character
 measurements, not provider-token billing or live-browser benchmarks; small
 pages can be larger because the compact JSON carries refs and evidence handles.
 
+## Command vocabulary
+
+The launcher drives the pinned agent-browser 0.38.1 (see [AGENT-BROWSER-BACKEND.md](AGENT-BROWSER-BACKEND.md); the
+paragraphs above that name the Playwright CLI are older). It accepts the words an agent is likely to send, whether they
+are the launcher's own or the tool's, and turns them into the tool's commands in `qorqut/bootstrap/agent_browser.py`.
+`validate_arguments` in `qorqut/bootstrap/browser.py` runs that same translation without running anything, so a command
+that cannot run is refused before it starts, on every path that calls it.
+
+| Sent | Becomes |
+| --- | --- |
+| `read` | A batch of `get url`, `get title` and the tool's `read` of the page the tab shows. The reply is `Address:`, `Title:` and the readable text, in at most 4,000 characters in all; `--budget=N` takes 1,000 to 24,000. `--filter <text>` and `--outline` pass through. When the text is cut, the reply says by how much and how to get more. |
+| `open <url>`, `goto <url>` | `open <url>` |
+| `type <text>`, `keyboard type <text>` | `keyboard type <text>`: one argument, typed into the focused field |
+| `tab`, `tab list`, `tab new [url]`, `tab close [id]`, `tab <id>` | `tab-list`, `tab-new`, `tab-close`, `tab-select`, which are the same commands |
+| `back`, `forward` | `go-back`, `go-forward` |
+| `snapshot -s <selector>` | `snapshot --selector <selector>`; the other snapshot options are `-i`, `-c`, `-d <n>`, `--delta` and `--full` |
+| `find <locator> <value> <action> [text]` | Passed through. Locators `role`, `text`, `label`, `placeholder`, `alt`, `title`, `testid`, `first <css>`, `last <css>`, `nth <n> <css>`; actions `click`, `fill <text>`, `check`, `hover`, `text`; options `--name <name>` (role only) and `--exact`. `find <text>` alone still reads the matching text. |
+| `scroll [up\|down\|left\|right] [pixels] [--selector <sel>]` | Passed through; `scroll 500` means `scroll down 500` |
+| `focus <ref or selector>` | Passed through |
+| `wait <ms>`, `wait <selector>`, `wait --text <t>`, `wait --url <pattern>`, `wait --load <state>`, `wait --fn <expression>` | Passed through. A time is at most 30,000 ms, so the wait ends inside the 45-second limit of a command. A wait for a selector or text that never comes ends by itself after 25 seconds. |
+| `get url`, `get title`, `get text <sel>`, `get value <sel>`, `get attr <sel> <name>`, `get count <sel>` | Passed through |
+| `eval <function>` | The function is called, as before |
+| `eval <expression or statements>` | Run as written; the value of the last statement is printed |
+
+A snapshot ref (`e12`) is sent as `@e12` to `click`, `fill`, `focus`, `get text`, `get value`, `get attr`, `frame` and the
+like. `wait`, `get count`, `snapshot --selector` and the selectors of `find first`, `last` and `nth` take CSS only, and a
+ref given there is refused with that sentence instead of waiting for it.
+
+A refusal says what to send instead. A word near a supported command names it ("Did you mean 'click'?"). A command of
+the tool that is closed on purpose is called that: browser start and stop (`launch`, `quit`, `kill`, `install`),
+`connect` and `close` (use `attach` and `detach`, which leave Chrome running), `cookies`, `storage`, `network`, `set`
+(use `resize <width> <height>`), `mouse`, `clipboard`, `download` and `wait --download`. Also closed: `get cdp-url`,
+which would hand out the browser's connection address; `get html`, `box` and `styles` (use `eval`); and `read <url>`,
+because a read by address is fetched over HTTP outside the browser's own session (send `goto <url>`, then `read`).
+
+Options are checked per command against a table. An argument that begins with `-` and is not in the command's table is
+refused in every position, including after the positional arguments, as the value of another option and in the
+`--option=value` form, so `--session`, `--cdp`, `--config`, `--profile` and the rest of the tool's lifecycle options
+cannot be added to any command. This also means a text argument cannot begin with `-`; the refusal says so. The tool
+ignores the `=` form of `--name` and `--selector` and falls back to its default (the first match, the whole page), so
+the launcher sends every `--option=value` as `--option value`.
+
+Two refusals protect against a silent wrong result. `type` takes one text argument: the tool's own `type <selector>
+<text>` would type "e5 text" into whatever has focus. `find <locator> <value>` needs an action, because the tool would
+click.
+
+What the pinned tool does, found against a throwaway headless Chrome on 2026-11-19:
+
+* `find ... click` on a name that matches several elements does not refuse: it takes the first match in page order and
+  prints "Done". `--exact` (or `find role button click --name <exact name>`) and a ref avoid this. `find role button
+  text --name X` for a name that matches nothing lists the names it saw.
+* `eval` runs an expression as written (`document.title`), and runs several statements, printing the last value. A
+  top-level `return` is a syntax error, and a top-level `const` or `let` stays in the page, so sending the same
+  `const x = 1` twice fails the second time: use `var` or a function. A function that is not called prints `{}`.
+* `read` without an address prints only the text; it carries neither the address nor the title, which is why the
+  launcher asks for all three in one batch.
+* `wait` reads `+2000` and `02000` as a time, which is why a time is checked in every form that starts like a number.
+
 ## qocaat finding and rollout
 
 On 2026-09-11 the existing `remote-browser.service` was active and exposed Chrome
@@ -142,6 +201,58 @@ Rollback: detach the selected CLI session, restore the previous role pin and
 re-prepare. The managed launcher/skill disappear. Retain operator target config,
 work artifacts and Chrome profile for recovery; no browser data migration exists.
 
+## The captcha command
+
+An agent that sees a captcha sends `["captcha"]` as a `browser_turn` command, with nothing else: no key, no site key, no
+selector. Its skill says so in one line. Being a command, it goes through the same authorization, handle, browser
+selection, use lock and per-session command lock as `click`; `qorqut/browser/access.py` hands it to
+`qorqut/browser/captcha.py` instead of `agent-browser`. The shell launcher does not have it.
+
+The server works on the tab the caller's session is bound to (read from `agent-browser`'s `<session>.target` file, as the
+idle-tab sweeper does), over Chrome's loopback DevTools port:
+
+1. **Find.** The tab's frames are listed, frames of other sites included. reCAPTCHA v2, hCaptcha and Cloudflare Turnstile
+   are recognised by their frame's address (by path, so a proxied or stand-in widget is recognised too); the site key is
+   read from that address, or from the page's `data-sitekey`. reCAPTCHA v3 is recognised by the script the page loads,
+   Cloudflare's own "checking your browser" page by its markup. A widget with a checkbox is chosen before an invisible
+   one, and any widget before reCAPTCHA v3.
+2. **Click.** A widget with a checkbox is scrolled into view and gets a real mouse click on the checkbox (its place is
+   read inside the widget's frame; Turnstile hides it in a closed shadow tree, so it is clicked 30 pixels from the left
+   edge). The widget has 8 seconds to report its answer.
+3. **Solver.** Otherwise Anti-Captcha is asked for an answer token (`qorqut/browser/captcha_solver.py`: `createTask`,
+   then `getTaskResult` every 3 seconds, 120 seconds at most). It gets the widget's type, its site key and the address of
+   the document that holds it, without the query. The token is written to the widget's form fields, passed to the page's
+   callback (`data-callback`, or for reCAPTCHA the one given to `grecaptcha.render`), and returned by the widget's
+   `getResponse()`.
+4. **reCAPTCHA v3** needs the action name the page sends, which only the page's own `grecaptcha.execute` call shows. The
+   first `captcha` wraps that function and answers `again` ("send the form once more"); the second asks the solver with
+   the action seen and leaves the token for the page's next request, once.
+5. **Cloudflare's own page** gets the click and 25 seconds to give way. A token cannot pass it (its pass is a cookie tied
+   to this browser's address), so the solver is not asked.
+
+The command's output is one JSON line: `captcha` is `solved`, `not_found`, `again` or `failed`, with `type`, `method`
+(`click`, `solver`, `already`, `waited`), a plain `reason` for a failure, and `next` when the agent has something to do
+(for a failure: "Ask the owner."). Exit code 0 only for `solved`. The whole command is bounded at 150 seconds; an agent's
+tool call is given up on after 240.
+
+The key is the Global Settings variable `CAPTCHA_SOLVER_API_KEY`, read on the server for each call through the Settings
+files' reader, the private values over the shared ones; `CAPTCHA_SOLVER_PROVIDER` may say `anticaptcha` and nothing else.
+Without a key the click still works and the solver step fails with a reason that names the setting. The key and the
+token appear in no reply, log line or exception; the solver's replies are reduced to its error code. The solver is
+called over HTTPS only, ignoring proxy variables and refusing redirects.
+
+Each attempt is one line in `operations/.runtime/browser-captcha.jsonl` (mode 0600, 1 MB, one older file kept): time,
+calling agent, the site's host, captcha type, method, outcome, failure code, seconds, and the solver's charge when it
+reported one. The same line goes to the service log.
+
+Checked by `tests/test_browser_captcha.py` and `tests/test_browser_captcha_solver.py` with stand-ins for Chrome and the
+solver, and by `scripts/check_browser_captcha.py` on a real headless Chrome with local pages that copy the widgets' frame
+addresses and form fields and a local solver. No real widget and not the real solver have been run: whether a real
+checkbox passes on a click from this headless Chrome, whether sites accept an inserted token, and the solver's task names
+are unverified. Known limits: a callback passed to `hcaptcha.render` or `turnstile.render` in code cannot be reached (the
+fields and `getResponse()` are still set); picture and text captchas of other vendors are not recognised; after a failed
+click a vendor's picture puzzle may stay open over the page.
+
 ## Projects have no browsers
 
 A Project has no browser, proxy, profile or isolated desktop: `business_config_*` accepts no `browser` section
@@ -157,6 +268,9 @@ rechecked on every call, and a handle is bound to the authenticated credential, 
 session binding, environment isolation, timeout handling, empty-tab diagnosis,
 selected-role projection, absence from startup/MCP configuration, and removal on
 role change while preserving operator configuration.
+
+`tests/test_browser_command_vocabulary.py` checks every row of the vocabulary above, every refusal and its advice, the
+lifecycle options in every position of every command, and that `read` is answered from one batch. It needs no Chrome.
 
 The opt-in real test launches and terminates only a disposable headless Chrome
 profile on an ephemeral port. It attaches through the locked CLI, creates a test

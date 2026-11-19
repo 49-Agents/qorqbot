@@ -18,10 +18,15 @@ Published knowledge is one shared Context graph. Read it with context_home,
 context_find, context_object and context_expand, following refs, the actual
 revision, bounded pages and opaque cursors; an empty or truncated page is not proof
 of absence, and published source evidence does not authorize raw operational reads.
-Information about the installation owner lives in one canonical person node.
-Context Home supplies its pointer; context_home returns it as personal_context.ref,
-independently of pagination. Read context_object(ref) on demand when user information
-matters. Only the configured Ordubashy maintains this node and its relationships.
+Information about the installation owner lives in one canonical person node, the
+personal record. Context Home lists its facts at startup; context_home returns the
+whole record as personal_context (ref, summary, attributes) on every page, and
+context_object(personal_context.ref) adds its history. Use the record whenever work
+needs a fact about the owner: an application, a form, a profile, a bio, a message in
+their name. Never ask the owner for a fact it holds. Before asking the owner anything
+about themselves, alone or inside a longer list or form, read the record fresh, fill
+in what it holds with its source, and ask only for what is missing. Only the
+configured Ordubashy maintains this node and its relationships.
 Other agents pass clear new personal facts to Ordubashy through the existing inbox,
 including the original source, date and any explicit correction; do not create
 another profile or infer that an unknown field is false. If no pointer exists,

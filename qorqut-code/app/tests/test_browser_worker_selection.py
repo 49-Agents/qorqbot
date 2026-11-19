@@ -60,7 +60,8 @@ class WorkerBrowserSelectionTest(unittest.TestCase):
             self.locked.append(agent_id)
             yield
 
-        def run(workspace, command, *, target, instance, capture):
+        def run(workspace, command, *, target, instance, capture, pinned):
+            self.assertFalse(pinned)        # these workers use their own browsers
             self.ran.append((workspace, command, target[0], instance))
             return 0, "done", ""
         self.authorize = mock.Mock(side_effect=authorize)

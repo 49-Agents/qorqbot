@@ -36,7 +36,13 @@ class BrowserSetupTest(unittest.TestCase):
                 return SimpleNamespace(connection=connection)
             def __exit__(self, *_):
                 return False
-        self.runtime = SimpleNamespace(database=SimpleNamespace(read=Read), browser_manager=mock.Mock())
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.runtime = SimpleNamespace(database=SimpleNamespace(read=Read), browser_manager=mock.Mock(),
+                                       paths=SimpleNamespace(runtime=Path(folder.name)))
+        # Setup starts the download of Qorqbot's own Chrome; here it is recorded, never run.
+        patch = mock.patch.object(setup.managed_chrome, 'start')
+        self.chrome_download = patch.start(); self.addCleanup(patch.stop)
         role = {'lead': 'ordubashy', 'worker': 'global-worker', 'learning': 'learning-applier'}
         patch = mock.patch.object(setup, 'active_global', side_effect=lambda _db, agent: {'role': {'id': role[agent]}} if agent in role else None)
         patch.start(); self.addCleanup(patch.stop)
@@ -50,12 +56,18 @@ class BrowserSetupTest(unittest.TestCase):
                 self.assertNotRegex(text, r'action=|[a-z]+_[a-z]+|docs/|QORQUT')
         self.assertEqual(setup.explanation('healthy'), '')
 
+    def test_the_owner_is_not_told_to_install_chrome_which_qorqbot_downloads_itself(self):
+        # Shown per agent only while a Chrome is there; with none the card shows the download's own explanation.
+        for text in (setup.explanation('unsupported'), setup.explanation('missing', failure_code='browser_capability_missing')):
+            self.assertNotIn('Install Chrome', text)
+            self.assertIn('Retry setup', text)
+
     def test_a_deliberate_stop_is_explained_as_one(self):
         self.assertIn('on purpose', setup.explanation('stopped', stop_requested=True))
         self.assertNotIn('on purpose', setup.explanation('stopped'))
 
     def test_the_real_failure_reason_reaches_settings_until_setup_succeeds(self):
-        states = {'lead': {'state': 'missing', 'diagnostic': 'x'}, 'worker': {'state': 'healthy', 'diagnostic': 'x'}}
+        states = {'lead': {'state': 'missing', 'diagnostic': 'x', 'browser': 'own'}, 'worker': {'state': 'healthy', 'diagnostic': 'x', 'browser': 'own'}}
         fail = {'lead': DomainError('browser_workspace_unavailable', 'internal wording')}
         self.run_setup(states, fail=fail)
         def status(_owner, arguments, **_k):
@@ -84,7 +96,7 @@ class BrowserSetupTest(unittest.TestCase):
             calls.append((arguments['agent_id'], arguments['action']))
             if arguments['action'] == 'ensure':
                 states[arguments['agent_id']] = 'healthy'
-            return {'state': states[arguments['agent_id']], 'diagnostic': 'Ready.'}
+            return {'state': states[arguments['agent_id']], 'diagnostic': 'Ready.', 'browser': 'own'}
         self.runtime.browser_manager.manage.side_effect = manage
         with mock.patch.object(setup, 'view', return_value={'ready': True}) as view:
             self.assertEqual(setup.ensure_all(self.runtime), {'ready': True})
@@ -102,7 +114,7 @@ class BrowserSetupTest(unittest.TestCase):
             ensured.append(agent)
             if agent in fail:
                 raise fail[agent]
-            return {'state': 'healthy', 'diagnostic': 'Ready.'}
+            return {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'own'}
         self.runtime.browser_manager.manage.side_effect = manage
         with mock.patch.object(setup, 'view', return_value={}):
             setup.ensure_all(self.runtime, *args, **kwargs)
@@ -145,29 +157,109 @@ class BrowserSetupTest(unittest.TestCase):
         states = {'lead': {'state': 'missing'}, 'worker': {'state': 'healthy'}}
         self.assertEqual(self.run_setup(states), ['lead'])
 
-    def read_view(self, status, tool=True):
+    def test_setup_starts_the_chrome_download_without_waiting_for_it(self):
+        states = {'lead': {'state': 'missing'}, 'worker': {'state': 'healthy'}}
+        self.assertEqual(self.run_setup(states, {}), ['lead'])
+        self.chrome_download.assert_called_once()
+        self.assertEqual(self.chrome_download.call_args.args[0], self.runtime.paths.runtime)
+
+    def test_a_failed_chrome_download_backs_off_like_an_agent_and_owner_retry_ignores_it(self):
+        states = {'lead': {'state': 'healthy'}, 'worker': {'state': 'healthy'}}
+        backoff, now = {}, [1000.0]
+        run = lambda *args: self.run_setup(states, *args, clock=lambda: now[0])
+        finished = lambda: self.chrome_download.call_args.args[1]
+        run(backoff)
+        finished()(DomainError('chrome_download_failed', 'offline'))
+        self.assertEqual(backoff[setup.CHROME_BACKOFF], {'failures': 1, 'next_attempt': 1000 + setup.BACKOFF_BASE})
+        run(backoff)
+        self.assertEqual(self.chrome_download.call_count, 1, 'not tried again before its time')
+        run()
+        self.assertEqual(self.chrome_download.call_count, 2, 'the owner pressed Retry setup')
+        finished()(DomainError('chrome_download_failed', 'offline'))
+        self.assertEqual(backoff[setup.CHROME_BACKOFF]['failures'], 1, "the owner's retry does not lengthen the wait")
+        now[0] += setup.BACKOFF_BASE
+        run(backoff)
+        finished()(DomainError('chrome_sandbox_unavailable', 'no sandbox'))
+        self.assertEqual(backoff[setup.CHROME_BACKOFF], {'failures': 2, 'next_attempt': now[0] + setup.BACKOFF_BASE * 2})
+        now[0] += setup.BACKOFF_BASE * 2
+        run(backoff)
+        finished()(None)
+        self.assertNotIn(setup.CHROME_BACKOFF, backoff)
+
+    def read_view(self, status, tool=True, chrome='/chrome'):
         self.runtime.browser_access = mock.Mock()
         self.runtime.browser_manager.manage.side_effect = status
         check = mock.Mock(side_effect=None if tool else BrowserError('missing'))
         with mock.patch('qorqut.bootstrap.browser.runtime_executable', check), \
-                mock.patch('qorqut.native_paths.installed_chrome', return_value='/chrome'):
+                mock.patch('qorqut.native_paths.installed_chrome', return_value=chrome):
             return setup.view(self.runtime)
 
+    def test_settings_show_the_download_in_place_of_install_chrome(self):
+        status = lambda *_a, **_k: {'state': 'unsupported', 'diagnostic': 'x', 'browser': 'own'}
+        own = lambda state, text='': mock.patch.object(setup.managed_chrome, 'view', return_value={'state': state, 'explanation': text})
+        with own('downloading', 'Qorqbot is downloading its own browser.'):
+            view = self.read_view(status, chrome=None)
+        self.assertFalse(view['chrome_installed'])
+        self.assertEqual(view['managed_chrome'], {'state': 'downloading', 'explanation': 'Qorqbot is downloading its own browser.'})
+        with own('ready'):
+            self.assertTrue(self.read_view(status, chrome=None)['chrome_installed'], "Qorqbot's own Chrome is enough")
+        with own('unusable', 'It cannot start here.'):
+            self.assertTrue(self.read_view(status)['chrome_installed'], 'the installed Chrome is used instead')
+            self.assertFalse(self.read_view(status, chrome=None)['chrome_installed'])
+
+    def test_the_owner_is_not_asked_to_install_chrome_when_the_installed_one_is_used_in_place_of_qorqbots_own(self):
+        status = lambda *_a, **_k: {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'own'}
+        text = "This computer's security settings don't let Qorqbot's own browser start safely. Install Google Chrome."
+        with mock.patch.object(setup.managed_chrome, 'view', return_value={'state': 'unusable', 'explanation': text}):
+            self.assertEqual(self.read_view(status)['managed_chrome']['explanation'], setup.INSTALLED_CHROME_USED)
+            self.assertEqual(self.read_view(status, chrome=None)['managed_chrome']['explanation'], text)
+
     def test_ready_requires_every_browser_healthy_and_the_tool(self):
-        healthy = lambda *_a, **_k: {'state': 'healthy', 'diagnostic': 'Ready.'}
+        healthy = lambda *_a, **_k: {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'own'}
         self.assertTrue(self.read_view(healthy)['ready'])
         missing_tool = self.read_view(healthy, tool=False)
         self.assertFalse(missing_tool['ready'])
         self.assertFalse(missing_tool['tool_installed'])
         def mixed(_owner, arguments, **_k):
-            return {'state': 'healthy' if arguments['agent_id'] == 'lead' else 'stopped', 'diagnostic': 'x'}
+            return {'state': 'healthy' if arguments['agent_id'] == 'lead' else 'stopped', 'diagnostic': 'x', 'browser': 'own'}
         self.assertFalse(self.read_view(mixed)['ready'])
+
+    def test_the_view_says_which_browser_each_agent_uses(self):
+        def status(_owner, arguments, **_k):
+            return {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'shared' if arguments['agent_id'] == 'worker' else 'own'}
+        self.assertEqual([agent['browser'] for agent in self.read_view(status)['agents']], ['own', 'shared'])
+
+    def test_the_owner_moves_an_agent_to_the_shared_browser_and_back(self):
+        calls = []
+        def manage(_owner, arguments, idempotency_key=None, owner_control=False):
+            calls.append((arguments['agent_id'], arguments['action'], bool(idempotency_key), owner_control))
+            return {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'own'}
+        self.runtime.browser_manager.manage.side_effect = manage
+        setup.LAST_FAILURES['worker'] = 'browser_not_ready'
+        with mock.patch.object(setup, 'view', return_value={'ready': True}):
+            self.assertEqual(setup.choose(self.runtime, 'worker', 'shared'), {'ready': True})
+            setup.choose(self.runtime, 'worker', 'own')
+        self.assertEqual(calls, [('worker', 'use_shared', True, True), ('worker', 'use_own', True, True)])
+        self.assertNotIn('worker', setup.LAST_FAILURES)
+
+    def test_a_choice_for_an_unknown_agent_or_browser_is_refused_before_anything_changes(self):
+        for agent, choice in (('learning', 'shared'), ('retired', 'own'), ('worker', 'named'), ('worker', ['shared'])):
+            with self.subTest(agent=agent, choice=choice), self.assertRaises(DomainError) as refused:
+                setup.choose(self.runtime, agent, choice)
+            self.assertEqual(refused.exception.code, 'validation_error')
+        self.runtime.browser_manager.manage.assert_not_called()
+
+    def test_a_refused_move_reaches_the_owner_with_its_reason(self):
+        self.runtime.browser_manager.manage.side_effect = DomainError('browser_in_use', 'The agent is using its browser')
+        with self.assertRaises(DomainError) as refused:
+            setup.choose(self.runtime, 'worker', 'shared')
+        self.assertEqual(refused.exception.code, 'browser_in_use')
 
     def test_a_status_failure_is_reported_for_that_agent_only(self):
         def status(_owner, arguments, **_k):
             if arguments['agent_id'] == 'lead':
                 raise OSError('secret path')
-            return {'state': 'healthy', 'diagnostic': 'Ready.'}
+            return {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'own'}
         with self.assertLogs(setup.logger, 'ERROR'):
             data = self.read_view(status)
         lead, worker = data['agents']

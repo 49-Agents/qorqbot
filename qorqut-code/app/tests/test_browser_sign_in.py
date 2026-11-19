@@ -86,7 +86,8 @@ class FlowTest(unittest.TestCase):
             self.calls.append(arguments["action"])
             return {}
         self.runtime = SimpleNamespace(browser_manager=SimpleNamespace(paths=None, manage=manage))
-        for target, value in (("agent_state", lambda _p, agent: self.root / agent), ("_meta", lambda *_a: META)):
+        for target, value in (("agent_state", lambda _p, agent: self.root / agent), ("_meta", lambda *_a: META),
+                              ("uses_shared", lambda *_a: False)):
             patcher = mock.patch.object(sign_in, target, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -94,6 +95,10 @@ class FlowTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.addCleanup(sign_in._active.clear)
+
+    def no_window(self):
+        """The window is a stand-in without a DevTools port: nothing may ask a real port on this computer for its cookies."""
+        return mock.patch.multiple(sign_in, _window_cookies=mock.Mock(return_value=[]), _quit_cleanly=mock.Mock())
 
     def test_unknown_agent_is_refused(self):
         with self.assertRaises(DomainError):
@@ -116,10 +121,21 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(self.calls, ["stop", "ensure"])
         self.assertFalse(sign_in.active(AGENT))
 
+    def test_a_window_that_closes_at_once_points_the_owner_to_the_live_view_not_to_installing_chrome(self):
+        # The browser's own Chrome ran headless a moment ago, so it is installed; a computer without a screen is the usual cause.
+        with mock.patch.object(sign_in, "chrome_environment", return_value={}), mock.patch.object(sign_in.time, "sleep"), \
+                mock.patch.object(sign_in.subprocess, "Popen", return_value=SimpleNamespace(poll=lambda: 1)), \
+                self.assertRaises(DomainError) as refused:
+            sign_in.start(self.runtime, AGENT, "slack.com")
+        self.assertEqual(refused.exception.code, "browser_start_failed")
+        self.assertIn("Browser tab", str(refused.exception))
+        self.assertNotIn("installed", str(refused.exception))
+        self.assertEqual(self.calls, ["stop", "ensure"])
+
     def test_finish_records_the_site_once_and_restores_the_browser(self):
         process = SimpleNamespace()
         sign_in._active[AGENT] = "slack.com"
-        with mock.patch.object(sign_in, "watch_window"), mock.patch.object(sign_in, "stop_child") as stop:
+        with mock.patch.object(sign_in, "watch_window"), mock.patch.object(sign_in, "stop_child") as stop, self.no_window():
             sign_in._finish(self.runtime, "owner", AGENT, "slack.com", process, 1)
             sign_in._active[AGENT] = "slack.com"
             sign_in._finish(self.runtime, "owner", AGENT, "slack.com", process, 1)
@@ -129,7 +145,7 @@ class FlowTest(unittest.TestCase):
         self.assertFalse(sign_in.active(AGENT))
 
     def test_nothing_secret_is_recorded(self):
-        with mock.patch.object(sign_in, "watch_window"), mock.patch.object(sign_in, "stop_child"):
+        with mock.patch.object(sign_in, "watch_window"), mock.patch.object(sign_in, "stop_child"), self.no_window():
             sign_in._active[AGENT] = "slack.com"
             sign_in._finish(self.runtime, "owner", AGENT, "slack.com", SimpleNamespace(), 1)
         self.assertEqual(set(json.loads((self.root / AGENT / sign_in.SITES_FILE).read_text())[0]), {"site", "added_at"})
@@ -241,13 +257,54 @@ class SessionCookieTest(unittest.TestCase):
         cookie = {"name": "s", "value": "1", "domain": "a.b", "path": "/", "session": True}
         order = []
         with mock.patch.object(sign_in, "agent_state", return_value=root), mock.patch.object(sign_in, "_meta", return_value=META), \
-                mock.patch.object(sign_in, "watch_window"), mock.patch.object(sign_in, "_quit_cleanly"), mock.patch.object(sign_in, "stop_child"), \
+                mock.patch.object(sign_in, "uses_shared", return_value=False), mock.patch.object(sign_in, "watch_window"), mock.patch.object(sign_in, "_quit_cleanly"), mock.patch.object(sign_in, "stop_child"), \
                 mock.patch.object(sign_in, "_window_cookies", return_value=[cookie]), \
                 mock.patch.object(sign_in, "_cdp", side_effect=lambda port, calls: order.append((port, calls))):
             sign_in._finish(runtime, "owner", AGENT, "a.b", SimpleNamespace(), 1)
         self.assertEqual(order[0][0], 20400)
         self.assertEqual(order[0][1][0][1]["cookies"][0]["name"], "s")
         runtime.browser_manager.manage.assert_called_once()
+
+
+class SwitchedDuringSignInTest(unittest.TestCase):
+    """The agent is switched between its own and the Shared browser while the owner's window is open."""
+
+    def finish(self, *, switch):
+        from qorqut.browser.agent_browsers import SHARED_ID
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+        for name in (AGENT, SHARED_ID):
+            (self.root / name).mkdir()
+        self.own, self.shared = self.root / AGENT, self.root / SHARED_ID
+        runtime = SimpleNamespace(browser_manager=SimpleNamespace(paths=None, manage=mock.Mock(return_value={})))
+        chosen = [False]
+        cookie = {"name": "s", "value": "1", "domain": "a.b", "path": "/", "session": True}
+        def window_closes(*_args, **_options):
+            chosen[0] = switch              # the owner chose Shared in Settings while the window was open
+        self.cdp = mock.Mock()
+        with mock.patch.object(sign_in, "agent_state", lambda _paths, name: self.root / name), \
+                mock.patch.object(sign_in, "uses_shared", lambda *_args: chosen[0]), mock.patch.object(sign_in, "_meta", return_value=META), \
+                mock.patch.object(sign_in, "watch_window", window_closes), mock.patch.object(sign_in, "_quit_cleanly"), \
+                mock.patch.object(sign_in, "stop_child"), mock.patch.object(sign_in, "_window_cookies", return_value=[cookie]), \
+                mock.patch.object(sign_in, "_cdp", self.cdp):
+            sign_in._finish(runtime, "owner", AGENT, "a.b", SimpleNamespace(), 1, home=self.own)
+        return runtime
+
+    def sites(self, directory):
+        path = directory / sign_in.SITES_FILE
+        return [item["site"] for item in json.loads(path.read_text())] if path.exists() else []
+
+    def test_without_a_switch_the_site_and_the_session_go_where_they_always_did(self):
+        self.finish(switch=False)
+        self.assertEqual((self.sites(self.own), self.sites(self.shared)), (["a.b"], []))
+        self.cdp.assert_called_once()
+
+    def test_a_sign_in_that_finishes_after_a_switch_stays_with_the_browser_it_was_made_on(self):
+        runtime = self.finish(switch=True)
+        self.assertEqual((self.sites(self.own), self.sites(self.shared)), (["a.b"], []), "not in the Shared browser's list")
+        self.cdp.assert_not_called()                                  # its session cookies are not put into the other browser
+        runtime.browser_manager.manage.assert_called_once()           # the agent's browser is still started, as for any sign-in
 
 
 class CommandTest(unittest.TestCase):

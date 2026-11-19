@@ -356,10 +356,10 @@ const evUrl = p => "/api" + p;
 // ---------------------------------------------------------------- notifications
 // One queue for every toast: bottom-right, newest at the bottom, up to NOTE_MAX on screen, the rest
 // wait in FIFO order. Each note expires after NOTE_MS, including its exit animation; hover, focus and
-// reply updates never extend that deadline. A click dismisses it early. A backlog longer than
+// reply updates never extend that deadline. Its close button, or a click on the card, dismisses it early. A backlog longer than
 // NOTE_QUEUE_MAX folds its tail into one "N more" note so a burst never floods the corner.
 // `notify({text, sub?, color?, reminder?, onClick?, onDismiss?})`; `toast(text)` is the short form.
-const NOTE_MAX = 3, NOTE_MS = 5000, NOTE_EXIT_MS = 260, NOTE_QUEUE_MAX = 6;
+const NOTE_MAX = 3, NOTE_MS = 10000, NOTE_EXIT_MS = 260, NOTE_QUEUE_MAX = 6;
 const _notes = { queue: [], live: 0, replies: new Map() };
 function notify(n) {
   if (typeof n === "string") n = { text: n };
@@ -389,32 +389,35 @@ function replyToastHTML(n) {
 function reminderToastHTML(n) {
   return `<span class="reminder-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#eee" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z"/><path d="M10 21h4"/></svg></span><span class="reminder-text">${esc(n.text)}</span>`;
 }
+// The close button on the right of every note; it only closes the note and never opens or changes anything.
+const TOAST_X = `<button type="button" class="toast-x" aria-label="Close notification"><svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3.5 3.5l7 7M10.5 3.5l-7 7"/></svg></button>`;
 function notePump() {
   const box = $("#toasts"); if (!box) return;
   while (_notes.live < NOTE_MAX && _notes.queue.length) {
     const n = _notes.queue.shift(); _notes.live++;
     const el = document.createElement("div");
-    el.className = "toast in" + (n.fold ? " fold" : "") + (n.reminder ? " reminder-toast" : "") + (n.replyAgentId ? " reply-toast" : "");
+    el.className = "toast in has-x" + (n.fold ? " fold" : "") + (n.reminder ? " reminder-toast" : "") + (n.replyAgentId ? " reply-toast" : "");
     if (n.color) el.style.setProperty("--c", n.color);
     if (n.reminder) { el.setAttribute("aria-label", `Reminder: ${n.text}`); }
     el.innerHTML = n.reminder ? reminderToastHTML(n) : n.replyAgentId ? replyToastHTML(n) : `<div class="tx">${esc(n.text)}</div>${n.sub ? `<div class="tsub">${esc(n.sub)}</div>` : ""}`;
+    el.innerHTML += TOAST_X;
     box.appendChild(el);
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove("in")));
     let t, gone = false, dismissing = false;
     const go = () => { if (gone) return; gone = true; clearTimeout(t); if (n.replyAgentId && _notes.replies.get(n.replyAgentId)?.el === el) _notes.replies.delete(n.replyAgentId); el.classList.add("out"); setTimeout(() => { el.remove(); _notes.live--; notePump(); }, NOTE_EXIT_MS); };
     if (n.replyAgentId) _notes.replies.set(n.replyAgentId, { el, update(next) {
       Object.assign(n, next);
-      el.innerHTML = replyToastHTML(n);
+      el.innerHTML = replyToastHTML(n) + TOAST_X;
     } });
     const activate=()=>{if(gone)return;go();if(n.onClick)Promise.resolve().then(()=>n.onClick()).catch(error=>toast(error.message));};
-    el.addEventListener("click", activate);
+    el.addEventListener("click", event => { if (event?.target?.closest?.(".toast-x")) { event.stopPropagation(); go(); return; } activate(); });
     if (n.reminder && n.onDismiss) el.addEventListener("contextmenu", event => {
       event.preventDefault(); if (gone || dismissing) return;
       dismissing = true;
       Promise.resolve().then(() => n.onDismiss()).then(go).catch(error => { toast(error.message || 'Could not dismiss reminder.'); })
         .finally(() => { dismissing = false; });
     });
-    if(n.onClick){el.tabIndex=0;el.setAttribute('role','button');el.addEventListener('keydown',event=>{if(['Enter',' '].includes(event.key)){event.preventDefault();activate();}});}
+    if(n.onClick){el.tabIndex=0;el.setAttribute('role','button');el.addEventListener('keydown',event=>{if(event.target===el&&['Enter',' '].includes(event.key)){event.preventDefault();activate();}});}
     t = setTimeout(go, NOTE_MS - NOTE_EXIT_MS);
   }
 }

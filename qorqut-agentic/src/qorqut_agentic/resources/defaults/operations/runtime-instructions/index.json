@@ -121,6 +121,87 @@
       "previous_source": "agents/attention_prompt.py"
     },
     {
+      "id": "attention-handover",
+      "path": "messages/attention-handover.md",
+      "parameters": [
+        "COUNT"
+      ],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "the configured coordinator; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-oversight",
+      "path": "messages/attention-oversight.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "the configured coordinator; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-step-returned",
+      "path": "messages/attention-step-returned.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-step-waiting",
+      "path": "messages/attention-step-waiting.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-team-available",
+      "path": "messages/attention-team-available.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "the configured coordinator; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-team-awaiting",
+      "path": "messages/attention-team-awaiting.md",
+      "parameters": [
+        "COUNT"
+      ],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "the configured coordinator; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-team-blocked",
+      "path": "messages/attention-team-blocked.md",
+      "parameters": [
+        "COUNT"
+      ],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "the configured coordinator; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-team-stalled",
+      "path": "messages/attention-team-stalled.md",
+      "parameters": [
+        "COUNT",
+        "MINUTES"
+      ],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "the configured coordinator; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
       "id": "background-recovered",
       "path": "messages/background-recovered.md",
       "parameters": [],
@@ -518,33 +599,6 @@
       "previous_source": "qorqut-code/app/qorqut/bootstrap/learning_applier.py:15"
     },
     {
-      "id": "memory-legacy-plan",
-      "path": "messages/memory-legacy-plan.md",
-      "parameters": [],
-      "status": "conditional",
-      "trigger": "working memory",
-      "audience": "registered agents; role/runtime conditions retained by the caller",
-      "previous_source": "domains/working_memory.py"
-    },
-    {
-      "id": "memory-omitted",
-      "path": "messages/memory-omitted.md",
-      "parameters": [],
-      "status": "conditional",
-      "trigger": "working memory",
-      "audience": "registered agents; role/runtime conditions retained by the caller",
-      "previous_source": "domains/working_memory.py"
-    },
-    {
-      "id": "memory-pending",
-      "path": "messages/memory-pending.md",
-      "parameters": [],
-      "status": "conditional",
-      "trigger": "working memory",
-      "audience": "registered agents; role/runtime conditions retained by the caller",
-      "previous_source": "domains/working_memory.py"
-    },
-    {
       "id": "overseer-extraction-due",
       "path": "messages/overseer-extraction-due.md",
       "parameters": [],
@@ -666,15 +720,6 @@
       "previous_source": "bootstrap/claude_session.py"
     },
     {
-      "id": "startup-inventory",
-      "path": "messages/startup-inventory.md",
-      "parameters": [],
-      "status": "conditional",
-      "trigger": "claude session",
-      "audience": "registered agents; role/runtime conditions retained by the caller",
-      "previous_source": "bootstrap/claude_session.py"
-    },
-    {
       "id": "startup-pending",
       "path": "messages/startup-pending.md",
       "parameters": [],
@@ -725,6 +770,28 @@
       "trigger": "claude session",
       "audience": "registered agents; role/runtime conditions retained by the caller",
       "previous_source": "bootstrap/claude_session.py"
+    },
+    {
+      "id": "task-action-missing",
+      "path": "messages/task-action-missing.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "transport/mcp.py",
+      "audience": "configured Ordubashy",
+      "previous_source": "owner-approved Action recording change"
+    },
+    {
+      "id": "task-action-recorded",
+      "path": "messages/task-action-recorded.md",
+      "parameters": [
+        "ACTION_ID",
+        "PERFORMER",
+        "TEXT"
+      ],
+      "status": "conditional",
+      "trigger": "transport/mcp.py",
+      "audience": "configured Ordubashy",
+      "previous_source": "owner-approved Action recording change"
     },
     {
       "id": "tool-validation-recovery",
@@ -919,6 +986,15 @@
       "trigger": "Ordubashy input hook",
       "audience": "configured Ordubashy",
       "previous_source": "owner-approved operational workflow"
+    },
+    {
+      "id": "context-lookup-reminder",
+      "path": "messages/context-lookup-reminder.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "successful UserPromptSubmit when the four Context read tools are available",
+      "audience": "all registered agents on Claude Code and Codex",
+      "previous_source": "owner-approved context retrieval change"
     }
   ]
 }

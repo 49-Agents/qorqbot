@@ -2,7 +2,7 @@
 
 This is the source half of the former mixed document service. It owns source records, metadata and bytes, the Project,
 Global and agent scopes, journal visibility, attribution, archive behavior, the file-index inventory and target validation.
-It does not own Context filing, the published Context reader, plans or working memory: those are host workflows that
+It does not own Context filing, the published Context reader or shared instructions: those are host workflows that
 call the generic helpers here (``builder``, ``add_indexes``, ``finalize``, ``result``, ``edit_document``...) with this one
 service and its store passed explicitly, so no source mutation is written twice.
 
@@ -72,7 +72,7 @@ READS = {
     "context_maps_get": {**PAGE, "upload_id": UUID},
 }
 MUTATIONS = {
-    "notes_create": ({"title": TEXT, "body": BODY, "date": DATE, "pinned": {"type": "boolean"}, "tags": TAGS, "target_agent_id": UUID, "task_ids": TASK_IDS,
+    "notes_create": ({"title": TEXT, "body": BODY, "date": DATE, "pinned": {"type": "boolean"}, "tags": TAGS, "task_ids": TASK_IDS,
         TARGET: UUID}, ("title", "body")),
     "notes_update": ({"document_id": UUID, "body": BODY, "metadata": NOTE_META, "expected_content_hash": HASH, TARGET: UUID}, ("document_id",)),
     "notes_delete": ({"document_id": UUID, "expected_content_hash": HASH, TARGET: UUID}, ("document_id",)),
@@ -219,18 +219,6 @@ class DocumentSources:
         business = None if business_id is None else uow.repository("businesses").get(business_id, required=True)
         workspace = self._agent_workspace(profile["agent_id"], business)
         return str(workspace.relative_to(self._scope_root(business))), business_id
-
-    @staticmethod
-    def note_attribution(ctx, uow, business_id):
-        """Validate a selected business used only as a private-note tag."""
-        if business_id is None:
-            return None
-        if business_id not in ctx.allowed_business_ids:
-            raise DomainError("forbidden", "Note attribution is outside the principal's project scope")
-        business = uow.repository("businesses").get(business_id)
-        if business is None or business.get("archived_at") is not None:
-            raise DomainError("forbidden", "Note attribution requires an active project")
-        return {"related_business_id": business["id"]}
 
     @staticmethod
     def check_global_notes(operation, ctx, args, uow, operations=GLOBAL_NOTE_OPS):
@@ -465,25 +453,16 @@ class DocumentSources:
         if operation == "notes_create" and TARGET in args:
             self._create_business_note(builder, uow, args)
         elif operation == "notes_create":
-            metadata = {key: value for key, value in args.items() if key not in {"body", "rationale", "target_agent_id", "task_ids"}}
+            metadata = {key: value for key, value in args.items() if key not in {"body", "rationale", "task_ids"}}
             metadata.update(created=builder.at, updated=builder.at, by=ctx.principal_id)
-            selected_business_id = ctx.business_id
-            business_id, agent_id, namespace = selected_business_id, None, None
-            if args.get("target_agent_id") and (ctx.source != "worker" or ctx.principal_kind != "system" or not ctx.job_id):
-                raise DomainError("forbidden", "Targeted agent notes require a claimed background job")
-            if ctx.agent_id or args.get("target_agent_id"):
-                profile = self.active_agent(ctx, uow, args.get("target_agent_id"), write=True)
-                prefix, business_id = self.agent_prefix(profile, uow)
-                prefix, kind, agent_id = prefix + "/files/notes", "agent_note", profile["agent_id"]
-                namespace = builder.namespace if business_id is None else None
-                if business_id is None and selected_business_id is not None:
-                    metadata.update(self.note_attribution(ctx, uow, selected_business_id))
-            else:
-                require_owner(ctx, uow)
-                if ctx.business_id is not None:
-                    raise DomainError("scope_required", "Create personal entries in the Global journal")
-                prefix, kind, namespace = "notes", "global_note", "global"
-                metadata["ordubashy_visible"] = True
+            if ctx.agent_id:
+                raise DomainError("forbidden", "Agents no longer create private notes; use a project note with target_business_id")
+            require_owner(ctx, uow)
+            if ctx.business_id is not None:
+                raise DomainError("scope_required", "Create personal entries in the Global journal")
+            prefix, kind, namespace = "notes", "global_note", "global"
+            business_id, agent_id = ctx.business_id, None
+            metadata["ordubashy_visible"] = True
             if kind in {"business_note", "global_note"}: metadata["date"] = args.get("date", builder.at[:10])
             path = self.store.free_path(uow, business_id, prefix, builder.at[:10] + "-" + slugify(args["title"]), builder=builder)
             self.store.write(builder, uow, kind=kind, path=path, body=args["body"], metadata=metadata,
@@ -631,7 +610,7 @@ class DocumentSources:
         drop = self.store.get(builder.ctx, args["merge_id"], uow, kinds={"context_person"})
         if keep["id"] == drop["id"]: raise DomainError("validation_error", "Cannot merge a person with itself")
         require_revision(keep, options.expected_revision)
-        require_revision(drop, args["merge_revision"])
+        require_revision(drop, args["merge_revision"], argument="merge_revision")
         keep_body, drop_body = split_document(self.store.read_bytes(keep, uow))[1], split_document(self.store.read_bytes(drop, uow))[1]
         aliases = list(dict.fromkeys([*keep["metadata_json"].get("aka", []), drop["metadata_json"].get("name", ""), *drop["metadata_json"].get("aka", [])]))
         metadata = {**keep["metadata_json"], "aka": [alias for alias in aliases if alias and alias != keep["metadata_json"].get("name")],

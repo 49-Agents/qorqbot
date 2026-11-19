@@ -115,7 +115,8 @@
     },
     {
       "source": "host",
-      "path": "app/qorqut/agentic/assets/legacy-working-memory.md"
+      "path": "app/qorqut/agentic/assets/legacy-working-memory.md",
+      "retired": true
     },
     {
       "source": "host",
@@ -207,7 +208,8 @@
     },
     {
       "source": "host",
-      "path": "app/qorqut/agentic/assets/working-memory.md"
+      "path": "app/qorqut/agentic/assets/working-memory.md",
+      "retired": true
     },
     {
       "source": "host",

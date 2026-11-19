@@ -18,6 +18,95 @@ const attentionQueue=(()=>{
     catch (_) { if(request===recoveryGeneration) recoveryError=remAttempts.size>0; }
     if(request===recoveryGeneration)paintSignoffs();
   }
+  let selected = null;
+  const resolved = new Set();
+  const entryKey = entry => `${entry.kind}:${entry.id}`;
+  const occurrenceKey = entry => entry.kind === 'signoff'
+    ? `${entryKey(entry)}:${entry.item.proposal_revision}:${entry.item.payload_hash}`
+    : `${entryKey(entry)}:${entry.item.occurrence_id}`;
+  const entries = () => [
+    ...[...dueReminders].sort((a,b)=>(Date.parse(a.due_at || a.at)||0)-(Date.parse(b.due_at || b.at)||0))
+      .map(item=>({kind:'reminder',id:item.reminder_id,item})),
+    ...[...signoffs.filter(s=>!toRead(s)),...signoffs.filter(toRead)]
+      .map(item=>({kind:'signoff',id:item.id,item})),
+  ];
+  const chipKey = chip => chip.dataset.reminderKey ? `reminder:${chip.dataset.reminderKey}` : `signoff:${chip.dataset.signoffKey}`;
+  function paintSelection() {
+    for (const host of signoffMounts.keys()) for (const chip of host.querySelectorAll?.('[data-signoff-key],[data-reminder-key]') || []) {
+      if (selected?.host === host && selected.key === chipKey(chip)) chip.setAttribute('aria-current','true');
+      else chip.removeAttribute('aria-current');
+    }
+  }
+  function clearSelection(session) {
+    if (selected !== session) return;
+    selected = null; paintSelection();
+  }
+  async function finishEntry(session) {
+    if (session.resolved) return;
+    session.resolved = true;
+    const before = entries(), order = before.some(entry=>entryKey(entry)===session.key) ? before.map(entryKey) : session.order;
+    const index = order.indexOf(session.key);
+    resolved.add(occurrenceKey(session.entry));
+    dueReminders = dueReminders.filter(item=>!resolved.has(occurrenceKey({kind:'reminder',id:item.reminder_id,item})));
+    signoffs = signoffs.filter(item=>!resolved.has(occurrenceKey({kind:'signoff',id:item.id,item})));
+    paintSignoffs();
+    await session.opening;
+    // A late completion never takes over another selection, a closed surface, or a hidden tab.
+    if (selected === session && session.host.isConnected && session.handle?.isCurrent?.() && !document.hidden) {
+      await session.handle.close();
+      if (!session.handle.isCurrent() && (!selected || selected === session)) {
+        clearSelection(session);
+        const pending = entries(), candidates = [...order.slice(index+1),...order.slice(0,index)];
+        const next = candidates.map(key=>pending.find(entry=>entryKey(entry)===key)).find(Boolean) || pending[0];
+        if (next) await selectEntry(next,session.host);
+        else if (!signoffsError && !remindersError) toast('All caught up.');
+      }
+    }
+    void refreshSignoffs(); void refresh();
+  }
+  function selectedSignoff(session,item) {
+    if (session.resolved || !item) return;
+    const next = {kind:'signoff',id:item.id,item};
+    if (occurrenceKey(next) !== occurrenceKey(session.entry)) {
+      const oldKey = session.key, index = signoffs.findIndex(s=>s.id===session.entry.id);
+      resolved.add(occurrenceKey(session.entry));
+      signoffs = signoffs.filter(s=>s.id!==session.entry.id && s.id!==item.id);
+      session.entry = next; session.key = entryKey(next);
+      session.order = session.order.map(key=>key===oldKey?session.key:key);
+      if (item.state === 'pending') signoffs.splice(index<0?signoffs.length:index,0,item);
+      paintSignoffs();
+    }
+  }
+  async function selectEntry(entry,host) {
+    if (selected?.host === host && selected.key === entryKey(entry) && selected.handle?.isCurrent?.()) return;
+    const previous = selected, session = {entry,host,key:entryKey(entry),order:entries().map(entryKey),handle:null};
+    selected = session; paintSelection();
+    const hooks = {onClose:()=>clearSelection(session),onResolved:()=>void finishEntry(session),onSelectedItem:item=>selectedSignoff(session,item)};
+    session.opening = (async()=>{
+      const item = entry.item, mount = signoffMounts.get(host);
+      if (entry.kind === 'reminder') return remindersOpenDetail(item,{onClose:hooks.onClose,onChange:(next,op)=>{
+        if (next && (next.state !== 'due' || next.occurrence_id !== item.occurrence_id)) hooks.onResolved();
+        if (op !== 'reminders_get') void refreshSignoffs();
+      }});
+      if (mount?.opener) return mount.opener({type:'signoff',id:item.id,title:item.title,label:item.title,
+        review_business_id:item.review_business_id??null,business_id:item.review_business_id??null,
+        category:item.category,review_scope:item.review_scope,status_revision:item.status_revision},hooks);
+      return sgFocusOpen(item.title || 'Signoff',{workspace:()=> 'scope:global',global:true,
+        category:item.category,item:()=>({id:session.entry.id,businessId:session.entry.item.review_business_id}),
+        waitingOnly:false,execution:true,onResolved:hooks.onResolved,onSelectedItem:hooks.onSelectedItem,
+        ...(item.proposal_revision != null && item.payload_hash ? {expectedBinding:{signoff_id:item.id,
+          proposal_revision:item.proposal_revision,payload_hash:item.payload_hash,actionable:item.actionable!==false}} : {})},
+        ()=>{hooks.onClose();void refreshSignoffs();});
+    })();
+    try {
+      session.handle = await session.opening;
+      if (!session.handle && selected === session) { selected = previous?.handle?.isCurrent?.()?previous:null; paintSelection(); }
+      else session.handle?.onDispose?.(hooks.onClose);
+    } catch (error) {
+      if (selected === session) { selected = previous?.handle?.isCurrent?.()?previous:null; paintSelection(); }
+      toast(error.message);
+    }
+  }
   const reminderIcon=typeof SG_BELL==='string' ? SG_BELL : '';
   const pinIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6l-1 6 4 4H6l4-4zM12 13v8"/></svg>';
   const viewedIds=item=>item.viewed_ids?.length?item.viewed_ids:[item.id];
@@ -53,20 +142,30 @@ const attentionQueue=(()=>{
     email:'M3 5h18v14H3zM3 5l9 7 9-7',
     approval:'M9 5H5v16h14V5h-4M9 3h6v4H9zM8 14l3 3 5-6',
     read:'M6 3h9l4 4v14H6zM15 3v4h4M9 12h7M9 16h7',
+    request:'M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z',
   };
   // Something to read and acknowledge: a queue row says so itself, a listed Signoff by its form.
   const toRead=s=>!!s.to_read || s.input?.kind==='acknowledge';
+  // A question for the owner (an input request asking or requesting something): a queue row says so itself, a listed Signoff by its form.
+  // ``asks`` names the kind on a queue row ('question' or 'request'; true from an older server means a question).
+  const askKind=s=>s.asks===true ? 'question' : ['question','request'].includes(s.asks) ? s.asks : ['question','request'].includes(s.input?.kind) ? s.input.kind : null;
+  const asks=s=>!!askKind(s);
+  // A timeline filing wears the Timeline view's own icon from the agent pane, the one the pane's navigation shows.
+  const timelineIcon=()=>typeof T_VIEW_ICON==='object' ? (T_VIEW_ICON.timeline || '').replace('<svg ','<svg width="15" height="15" ') : '';
   const signoffIcon=s=>{
-    const kind=toRead(s) ? 'read' : (window.signoffMessageRenderer?.(s.operation_name)?.email || /^(account_email_|email_)(send|reply|forward)$/.test(s.operation_name || ''))
+    if(s.operation_name==='timeline_file' && timelineIcon())return `<span class="attention-signoff" data-signoff-kind="filing" aria-hidden="true">${timelineIcon()}</span>`;
+    const kind=toRead(s) ? 'read' : asks(s) ? askKind(s) : (window.signoffMessageRenderer?.(s.operation_name)?.email || /^(account_email_|email_)(send|reply|forward)$/.test(s.operation_name || ''))
       || ['email.send','email.batch'].includes(s.platform?.submission?.tool) ? 'email'
       : (messageOperations.has(s.operation_name) || window.signoffMessageRenderer?.(s.operation_name)?.message) ? 'message' : 'approval';
-    return `<span class="attention-signoff" data-signoff-kind="${kind}" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="${signoffPaths[kind]}"/></svg></span>`;
+    // A question is the font's own bold "?"; every other kind is a drawn icon.
+    const mark=kind==='question' ? '<text x="12" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="22" font-weight="600" fill="currentColor" stroke="none">?</text>' : `<path d="${signoffPaths[kind]}"/>`;
+    return `<span class="attention-signoff" data-signoff-kind="${kind}" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round">${mark}</svg></span>`;
   };
   const icon=item=>item.kind==='signoff'
     ? signoffIcon(item)
     : item.kind==='viewbox' ? '<span class="attention-viewbox" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3H6v18h12V7zM14 3v5h4M9 12h6M9 16h6"/></svg></span>'
     : typeof identityAvatar==='function' ? identityAvatar('agent',item.agent_name,{agent_id:item.agent_id,...(typeof globalAgentProfile==='function'?globalAgentProfile(item.agent_id):null),...item.presentation}) : '<span aria-hidden="true">✉</span>';
-  const label=item=>item.kind==='signoff'?(toRead(item)?'Read · ':'Review · ')+item.title:item.agent_name+' · '+item.text;
+  const label=item=>item.kind==='signoff'?(toRead(item)?'Read · ':askKind(item)==='question'?'Question · ':askKind(item)==='request'?'Request · ':'Review · ')+item.title:item.agent_name+' · '+item.text;
   const button=item=>`<button type="button" class="attention-chip" data-attention-key="${esc(item.id)}" title="${esc(label(item))}\nRight-click to dismiss" aria-label="${esc(label(item))}">${icon(item)}<span class="attention-label">${esc(item.kind==='signoff'?item.title:item.text)}</span></button>`;
   function paint(host){
     if(!host.isConnected){mounts.delete(host);return;}
@@ -81,6 +180,106 @@ const attentionQueue=(()=>{
   function acceptQueue(data){queueRows=data.items || [];items=distinctDestinations(queueRows);sideChats=data.side_chats || [];discardedKeys=new Set(data.discarded || []);}
   const calendarIcon=()=>typeof T_VIEW_ICON==='object' ? T_VIEW_ICON.calendar || '' : '';
   const calendarVisible=()=>{const now=Date.now();return calendarRows.filter(row=>row.appear<=now && !(row.retire<=now) && !discardedKeys.has(row.key) && !pendingDiscards.has(row.key));};
+  // The coordinator's timeline filings during the review trial: two or more collapse into one chip that opens them together.
+  const isFiling=s=>s.operation_name==='timeline_file';
+  // A pending Signoff that work is waiting on: its chip and its row carry a red frame.
+  const signoffBlocking=s=>s?.state==='pending' && !!s.attention?.blocking;
+  const filingsChip=()=>{const list=signoffs.filter(isFiling);return `<button type="button" class="focus-signoff-chip focus-filings-chip" data-filings-group aria-label="Filings to review · ${list.length}" title="Filings to review (${list.length})">${signoffIcon(list[0])}<span class="focus-filings-count">${list.length}</span></button>`;};
+  // Each filing has its own Approve and Reject with an optional note to the coordinator; Approve all calls the ordinary approve
+  // route once per filing still waiting, in order. Each failure is reported against its own card.
+  function filingsOpen(){
+    return window.focusExpansion.open({title:'Filings to review',mount(host){
+      const box=document.createElement('div');box.className='filings-review';host.append(box);
+      const cards=new Map(),renderer=window.signoffMessageRenderer?.('timeline_file');
+      let busy=false,alive=true,summary='',loadError='';
+      const preview=c=>renderer?.preview(c.s.preview);
+      const approvable=c=>!!c.s && c.s.state==='pending' && !c.done && preview(c)?.ok===true;
+      const actions=c=>approvable(c)?`<div class="filing-actions"><input type="text" class="filing-note" data-filing-note maxlength="2000" placeholder="${c.s.rejection_requires_message?'Reason (required to reject)':'Note to the coordinator (optional)'}" aria-label="Note to the coordinator" value="${esc(c.note||'')}"${busy?' disabled':''}><button type="button" class="sg-reject" data-filing-decide="reject"${busy?' disabled':''}>Reject</button><button type="button" class="sg-approve" data-filing-decide="approve"${busy?' disabled':''}>Approve</button></div>`:'';
+      function paint(){
+        if(!alive)return;
+        const list=[...cards.values()],ready=list.filter(approvable).length;
+        box.innerHTML=`<div class="filings-bar"><button type="button" class="sg-approve" data-filings-approve-all${busy||!ready?' disabled':''}>${busy?'Working…':`Approve all (${ready})`}</button></div>`
+          +(loadError?`<p class="sg-notice" role="alert">${esc(loadError)}</p>`:'')+(summary?`<p class="sg-notice" role="status">${esc(summary)}</p>`:'')
+          +list.map(c=>`<section class="filing-card" data-filing="${esc(c.id)}"><h3>${esc(c.s?.title||'Filing')}</h3>${c.s?preview(c)?.html||'':''}${actions(c)}${c.status?`<p class="filing-status" role="status">${esc(c.status)}</p>`:''}</section>`).join('');
+      }
+      // One decision through the ordinary route; the answer must be this filing, no longer pending.
+      async function send(c,action,feedback){
+        const s=c.s;
+        const decided=coreData(await post('/root/signoffs/'+encodeURIComponent(c.id)+'/'+action,{proposal_revision:s.proposal_revision,payload_hash:s.payload_hash,expected_status_revision:s.status_revision,idempotency_key:newRequestId(),feedback}))?.signoff;
+        if(!decided || decided.id!==c.id || decided.state==='pending')throw new Error('the decision could not be verified');
+        c.done=true;
+      }
+      async function approveAll(){
+        if(busy)return;busy=true;summary='';paint();
+        let approved=0,failed=0;
+        for(const c of cards.values()){
+          if(!alive)break;
+          if(!approvable(c))continue;
+          try{await send(c,'approve',null);c.status='Approved';approved++;}
+          catch(e){c.status='Not approved: '+(e?.message||'the request failed');failed++;}
+          paint();
+        }
+        busy=false;summary=`${approved} approved${failed?`, ${failed} not approved`:''}.`;paint();void refreshSignoffs();
+      }
+      async function decide(c,action){
+        if(busy||!approvable(c))return;
+        const note=(c.note||'').trim()||null,reject=action==='reject';
+        if(reject && c.s.rejection_requires_message && !note){c.status='Add a reason to reject.';paint();return;}
+        busy=true;summary='';c.status=reject?'Rejecting…':'Approving…';paint();
+        try{await send(c,action,note);c.status=reject?'Rejected':'Approved';}
+        catch(e){c.status=(reject?'Not rejected: ':'Not approved: ')+(e?.message||'the request failed');}
+        busy=false;paint();void refreshSignoffs();
+      }
+      const card=target=>cards.get(target.closest('[data-filing]')?.dataset?.filing);
+      const click=event=>{
+        if(event.target.closest('[data-filings-approve-all]')){void approveAll();return;}
+        const button=event.target.closest('[data-filing-decide]'),c=button && card(button);
+        if(c)void decide(c,button.dataset.filingDecide==='reject'?'reject':'approve');
+      };
+      // The note is kept on its card so a repaint (another card's decision) does not lose what was typed.
+      const input=event=>{const field=event.target.closest?.('[data-filing-note]'),c=field && card(field);if(c)c.note=field.value;};
+      box.addEventListener('click',click);box.addEventListener('input',input);
+      (async()=>{
+        const ids=signoffs.filter(isFiling).map(s=>s.id);
+        for(const id of ids)cards.set(id,{id,s:null,status:'Loading…'});
+        paint();
+        await Promise.all(ids.map(async id=>{
+          const c=cards.get(id);
+          try{c.s=coreData(await api('/root/signoffs/'+encodeURIComponent(id))).signoff;c.status='';}
+          catch(e){c.status='Could not load this filing: '+(e?.message||'the request failed');}
+        }));
+        if(!ids.length)loadError='No filings are waiting.';
+        paint();
+      })();
+      return ()=>{alive=false;box.removeEventListener('click',click);box.removeEventListener('input',input);};
+    }});
+  }
+  // Rows are updated in place: a chip keeps its element while its unread dot, label or title changes, so a repaint
+  // landing between press and release (a reply refresh right after opening a thread) cannot turn the click into a miss.
+  const CHIP_KEYS=['data-side-chat-key','data-thread-pin','data-reminder-key','data-calendar-key','data-signoff-key'];
+  const chipIdentity=el=>{
+    for(const name of CHIP_KEYS)if(el.hasAttribute(name))return name+'='+el.getAttribute(name);
+    return el.tagName+'|'+el.className+'|'+[...el.attributes].map(a=>a.name).filter(n=>n.startsWith('data-')).sort().join(',');
+  };
+  function patchChips(host,html){
+    if(typeof document.createElement!=='function' || !host.children){host.innerHTML=html;return;} // a host without real elements
+    const next=document.createElement('template');next.innerHTML=html;
+    const old=new Map();
+    for(const el of [...host.children]){const k=chipIdentity(el);if(old.has(k))el.remove();else old.set(k,el);}
+    const wanted=[...next.content.children].map(fresh=>{
+      const el=old.get(chipIdentity(fresh));
+      if(!el)return fresh;
+      old.delete(chipIdentity(fresh));
+      for(const a of [...el.attributes])if(!fresh.hasAttribute(a.name))el.removeAttribute(a.name);
+      for(const a of [...fresh.attributes])if(el.getAttribute(a.name)!==a.value)el.setAttribute(a.name,a.value);
+      if(el.innerHTML!==fresh.innerHTML)el.innerHTML=fresh.innerHTML;
+      return el;
+    });
+    for(const el of old.values())el.remove();
+    // Only chips out of place move; a kept chip in its place is never detached.
+    wanted.forEach((el,i)=>{if(host.children[i]!==el)host.insertBefore(el,host.children[i] || null);});
+    for(const node of [...host.childNodes])if(node.nodeType!==1)node.remove();
+  }
   function paintSignoffs(){
     for(const [host,mount] of signoffMounts){
       if(!host.isConnected){signoffMounts.delete(host);continue;}
@@ -88,8 +287,9 @@ const attentionQueue=(()=>{
       const sideChatHTML=sideChats.map(s=>`<button type="button" class="focus-signoff-chip focus-side-chat-chip" data-side-chat-key="${esc(s.id)}" data-unread="${!!s.unread}" aria-label="${esc(s.title)}${s.unread?' · Unread':''}" title="${esc(s.title+'\n'+s.preview)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="${signoffPaths.message}"/></svg></button>`).join('');
       // Pinned threads follow the open side chats; a side chat that is also pinned shows once.
       const pinned=typeof threadPins==='undefined'?'':threadPins.list().filter(t=>!(t.source.type==='signoff' && sideChats.some(s=>s.id===t.source.id))).map(t=>{
-        const unread=typeof replyNotifications!=='undefined' && !!replyNotifications.unread(t.source),title=t.title || 'Pinned thread';
-        return `<button type="button" class="focus-signoff-chip focus-side-chat-chip focus-pinned-thread-chip" data-thread-pin="${esc(threadPins.key(t.source))}" data-unread="${unread}" aria-label="${esc(title)} · Pinned thread${unread?' · Unread':''}" title="${esc(title+'\nPinned thread · Right-click to unpin')}">${pinIcon}</button>`;
+        const unread=typeof replyNotifications!=='undefined' && !!replyNotifications.unread(t.source),name=String(t.title || '').trim(),title=name || 'Pinned thread';
+        // Hovering shows the thread's title at once (the shared data-tip), when the pin has one.
+        return `<button type="button" class="focus-signoff-chip focus-side-chat-chip focus-pinned-thread-chip" data-thread-pin="${esc(threadPins.key(t.source))}" data-unread="${unread}" aria-label="${esc(name?name+' · Pinned thread':title)}${unread?' · Unread':''}"${name?` data-tip="${esc(name)}"`:''}>${pinIcon}</button>`;
       }).join('');
       const chats=sideChatHTML+pinned;
       // Due reminders and calendar events share one run, oldest first; a calendar chip stays until two hours after its end or a discard.
@@ -100,16 +300,22 @@ const attentionQueue=(()=>{
       const recovery=recoveryCount ? '<button type="button" class="quiet" data-reminder-recovery>Unconfirmed reminder changes</button>' : recoveryError ? '<button type="button" class="quiet" data-reminder-recovery-check>Retry reminder session</button>' : '';
       if(mount.sideChatHost){
         const chatHost=mount.sideChatHost;
-        if(chatHost._signoffHTML!==chats){chatHost.innerHTML=chats;chatHost._signoffHTML=chats;}
+        if(chatHost._signoffHTML!==chats){patchChips(chatHost,chats);chatHost._signoffHTML=chats;}
         chatHost.hidden=!chats;
         const divider=chatHost.parentElement?.querySelector('.agfocus-divider');
         if(divider)divider.hidden=!chats;
       }
-      const markup=(mount.sideChatHost?'':chats)+due+recovery+[...signoffs.filter(s=>!toRead(s)),...signoffs.filter(toRead)].map(s=>{const title=mount.name?.(s.id)||s.title,unread=signoffUnread(s.id);return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" data-unread="${unread}" aria-label="${toRead(s)?'Read':'Review'} ${esc(title)}${unread?' · Unread':''}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
+      const grouped=signoffs.filter(isFiling).length>1;
+      const markup=(mount.sideChatHost?'':chats)+due+recovery+(grouped?filingsChip():'')+[...signoffs.filter(s=>!toRead(s) && !(grouped && isFiling(s))),...signoffs.filter(toRead)].map(s=>{const title=mount.name?.(s.id)||s.title,unread=signoffUnread(s.id);const blocking=signoffBlocking(s);return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" data-unread="${unread}"${blocking?' data-blocking="true"':''} aria-label="${toRead(s)?'Read':askKind(s)==='question'?'Question':askKind(s)==='request'?'Request':'Review'} ${esc(title)}${blocking?' · Blocking':''}${unread?' · Unread':''}" title="${esc(title)}${blocking?' (blocking)':''}">${signoffIcon(s)}</button>`;}).join('');
       const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'')+(remindersError?'<button type="button" class="quiet" data-reminders-retry>Retry reminders</button>':'')+(calendarError?'<button type="button" class="quiet" data-calendar-retry title="'+esc(calendarError)+'">Retry calendar</button>':'');
-      if(host._signoffHTML!==html){host.innerHTML=html;host._signoffHTML=html;}
+      if(host._signoffHTML!==html){
+        const focused=document.activeElement, key=host.contains?.(focused) && focused?.matches?.('[data-signoff-key],[data-reminder-key]') ? chipKey(focused) : null;
+        patchChips(host,html);host._signoffHTML=html;
+        if(key)[...host.querySelectorAll('[data-signoff-key],[data-reminder-key]')].find(chip=>chipKey(chip)===key)?.focus({preventScroll:true});
+      }
       host.hidden=!markup && !signoffsError && !remindersError && !calendarError;
     }
+    paintSelection();
   }
   async function loadSignoffs(){
     signoffsLoading=true;
@@ -123,13 +329,13 @@ const attentionQueue=(()=>{
         if(cursor && seen.has(cursor))throw new Error('Repeated signoff page');
         seen.add(cursor);
       }while(cursor);
-      signoffs=[...new Map(rows.filter(s=>s.state==='pending').map(s=>[s.id,s])).values()];signoffsError='';signoffOkAt=Date.now();
+      signoffs=[...new Map(rows.filter(s=>s.state==='pending' && !resolved.has(occurrenceKey({kind:'signoff',id:s.id,item:s}))).map(s=>[s.id,s])).values()];signoffsError='';signoffOkAt=Date.now();
     }catch(e){signoffsError=e.message;if(accessLost(e)){signoffs=[];signoffOkAt=0;}}
     finally{signoffsLoading=false;paintSignoffs();}
   }
   // A failed or denied reminder read keeps the last list; losing access hides reminders entirely.
   async function loadReminders(){
-    try{dueReminders=await remindersOwnerDue();remindersError='';}
+    try{dueReminders=(await remindersOwnerDue()).filter(item=>!resolved.has(occurrenceKey({kind:'reminder',id:item.reminder_id,item})));remindersError='';}
     catch(e){
       if(accessLost(e)){dueReminders=[];remindersError='';}
       else remindersError=e.message||'Reminders unavailable';
@@ -189,25 +395,12 @@ const attentionQueue=(()=>{
       if(row)void Promise.resolve(calendarOpen(row.event,calendarCalendars,()=>{},row.event,calendarChip)).catch(e=>toast(e.message));
       return;
     }
-    const reminderKey=event.target.closest('[data-reminder-key]')?.dataset.reminderKey;
-    if(reminderKey){
-      const reminder=dueReminders.find(r=>r.reminder_id===reminderKey);
-      if(reminder)remindersOpenDetail(reminder,{onChange:(next,op)=>{if(op!=='reminders_get' || next?.state!=='due' || next.occurrence_id!==reminder.occurrence_id)void refreshSignoffs();}});
-      return;
-    }
-    const key=event.target.closest('[data-signoff-key]')?.dataset.signoffKey,s=signoffs.find(item=>item.id===key);
-    if(!s)return;
-    const mount=signoffMounts.get(event.currentTarget);
-    if(mount?.opener){
-      // A caller may supply an opener that owns selection. It receives this canonical summary; without one the
-      // queue opens the standard Signoff review modal below from the same source identity.
-      const summary={type:'signoff',id:s.id,title:s.title,label:s.title,review_business_id:s.review_business_id??null,
-        business_id:s.review_business_id??null,category:s.category,review_scope:s.review_scope,status_revision:s.status_revision};
-      void Promise.resolve(mount.opener(summary)).catch(()=>{});
-      return;
-    }
-    void open({kind:'signoff',signoff_id:s.id,business_id:s.review_business_id,category:s.category,globalReview:true,proposal_revision:s.proposal_revision,payload_hash:s.payload_hash,actionable:s.actionable}).catch(e=>toast(e.message));
+    if(event.target.closest('[data-filings-group]')){void filingsOpen().catch(e=>toast(e.message));return;}
+    const chip=event.target.closest('[data-reminder-key],[data-signoff-key]');
+    const entry=chip && entries().find(item=>entryKey(item)===chipKey(chip));
+    if(entry)void selectEntry(entry,event.currentTarget);
   }
+
   async function loadQueue(){
     loading=true;const request=++generation;
     try{const data=coreData(await api('/root/attention-queue'));if(request===generation){acceptQueue(data);error='';queueOkAt=Date.now();}}
@@ -339,7 +532,7 @@ const attentionQueue=(()=>{
   return {signoffViewed,reminderViewed,viewboxViewed,refresh,refreshSignoffs,paintSignoffs,
     sideChat:id=>sideChats.find(s=>s.id===id) || null,
     mountSignoffs(host,name,opener,options={}){const sideChatHost=options.sideChatHost;const calendarListener=()=>void refreshSignoffs();if(typeof calendarChanges!=='undefined')calendarChanges.add(calendarListener);signoffMounts.set(host,{name,opener,sideChatHost,calendarListener});host.addEventListener('click',signoffClick);sideChatHost?.addEventListener('click',signoffClick);sideChatHost?.addEventListener('contextmenu',pinContextMenu);const pinWatch=typeof threadPins!=='undefined'?threadPins.subscribe(paintSignoffs):null;if(pinWatch && !threadPins.isLoaded())void threadPins.load();host.addEventListener('contextmenu',reminderContextMenu);paintSignoffs();void refreshSignoffs(true);void refresh(true);void refreshReminderRecovery();
-      return ()=>{if(typeof calendarChanges!=='undefined')calendarChanges.delete(calendarListener);signoffMounts.delete(host);host.removeEventListener('click',signoffClick);sideChatHost?.removeEventListener('click',signoffClick);sideChatHost?.removeEventListener('contextmenu',pinContextMenu);pinWatch?.();host.removeEventListener('contextmenu',reminderContextMenu);delete host._signoffHTML;if(sideChatHost)delete sideChatHost._signoffHTML;if(!signoffMounts.size){clearTimeout(signoffTimer);if(!mounts.size)clearTimeout(timer);}};},
+      return ()=>{if(typeof calendarChanges!=='undefined')calendarChanges.delete(calendarListener);if(selected?.host===host)clearSelection(selected);signoffMounts.delete(host);host.removeEventListener('click',signoffClick);sideChatHost?.removeEventListener('click',signoffClick);sideChatHost?.removeEventListener('contextmenu',pinContextMenu);pinWatch?.();host.removeEventListener('contextmenu',reminderContextMenu);delete host._signoffHTML;if(sideChatHost)delete sideChatHost._signoffHTML;if(!signoffMounts.size){clearTimeout(signoffTimer);if(!mounts.size)clearTimeout(timer);}};},
     mount(host){mounts.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);paint(host);void refresh(true);
     return ()=>{mounts.delete(host);host.removeEventListener('click',clicks);host.removeEventListener('contextmenu',dismiss);if(!mounts.size && !signoffMounts.size)clearTimeout(timer);};}};
 })();

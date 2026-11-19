@@ -14,8 +14,10 @@ from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.conversations import SUMMARY
 from qorqut_operations.storage.repositories import decode_row
+from .lookup import LOCATED
 from .ports import ABSENT
 from .sources import SOURCE
+from .reports import MISSING, REPORT_TASK
 from . import questions
 from .questions import TEXT, CHOICE
 
@@ -94,8 +96,9 @@ def validate_response(form, notes, selected):
         raise DomainError('validation_error', 'Notes must contain at most 8000 characters')
     if not isinstance(selected, list) or any(not isinstance(x, str) for x in selected) or len(selected) != len(set(selected)):
         raise DomainError('validation_error', 'Selected choices must be unique IDs')
-    if acknowledges(form) and (selected or notes.strip()):
-        raise DomainError('validation_error', 'Acknowledging takes no answer; write comments in the Signoff conversation')
+    # Acknowledging picks nothing; an optional comment is kept as the decision message, like any other answer's note.
+    if acknowledges(form) and selected:
+        raise DomainError('validation_error', 'Acknowledging takes no choices; write a comment in the notes instead')
     choices = {c['id'] for c in form['choices']}
     if set(selected) - choices or (form['selection_mode'] == 'single' and len(selected) > 1):
         raise DomainError('validation_error', 'Select only choices belonging to this question')
@@ -120,15 +123,18 @@ class InputRequests:
         descriptors = []
         for name, properties, required, description in (
             ('signoffs_input_create', {'request_key': {"type": "string", "minLength": 1, "maxLength": 200},
-                'form': FORM, 'attention': ATTENTION,
+                'form': FORM, 'attention': ATTENTION, 'report_task': REPORT_TASK,
                 **({'source': SOURCE} if self.service.ports.sources is not ABSENT else {})}, ('request_key', 'form'),
                 instruction_text('inputs-ask-the-owner-a-question-or-request-input')),
             ('signoffs_attention_set', {'signoff_id': {"type": "string", "format": "uuid"}, 'attention': ATTENTION},
                 ('signoff_id', 'attention'), instruction_text('inputs-set-notification-urgency-blocking-for-your-pending-signoff')),
             ('signoffs_input_cancel', {'signoff_id': {"type": "string", "format": "uuid"}}, ('signoff_id',),
                 instruction_text('inputs-withdraw-your-pending-input-request-while-retaining-its'))):
-            descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties}, required), **common,
-                description=description, prepare=lambda c,a,o,u,n=name: self.prepare(n,c,a,o,u), apply=self.apply))
+            # An operation that names one Signoff finds its review scope from the id when the caller selects none.
+            located = (dict(locate_scope=self.service.lookup, description=description + ' ' + LOCATED)
+                       if 'signoff_id' in properties else dict(description=description))
+            descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties}, required), **common, **located,
+                prepare=lambda c,a,o,u,n=name: self.prepare(n,c,a,o,u), apply=self.apply))
         # Delegated management answers need the management domain; without it the operation is not installed.
         if self.service.ports.management is ABSENT:
             return tuple(descriptors)
@@ -157,6 +163,11 @@ class InputRequests:
                     raise DomainError('forbidden', 'Only Ordubashy posts read-and-acknowledge requests; hand the document to Ordubashy')
                 if 'source' in args:
                     raise DomainError('validation_error', 'A read-and-acknowledge request cannot be what a Task or record waits on')
+                if 'report_task' not in args:
+                    raise DomainError('validation_error', MISSING)
+                self.service.reports.check(ctx, args['report_task'], uow)
+            elif 'report_task' in args:
+                raise DomainError('validation_error', 'report_task belongs only to a read-and-acknowledge report')
             if 'source' in args:
                 self.service.sources.check_source(ctx, args['source'], uow)
                 if form['response_policy'] != 'owner_only':
@@ -176,10 +187,15 @@ class InputRequests:
                 if not acknowledge or not acknowledges(row['preview_json'].get('input')):
                     raise DomainError('request_conflict', 'This request key already has a different pending question; withdraw it before replacing')
                 replaced, row = row, None
+            if row and acknowledge:
+                link = self.service.reports.find(row['id'], uow)
+                if link and (link['task_id'], link['task_business_id']) != (args['report_task']['id'], args['report_task']['business_id']):
+                    raise DomainError('request_conflict', 'This report already belongs to another Task; use a new request_key for a report on a different Task')
             identity = row['id'] if row else new_id()
             builder.record('signoffs', identity, row, {'form': form, 'request_key': args['request_key'],
                 **({'attention': attention} if not row or 'attention' in args else {}),
-                **({'replaces_id': replaced['id']} if replaced else {})}, action='input_create')
+                **({'replaces_id': replaced['id']} if replaced else {}),
+                **({'report_task': args['report_task']} if acknowledge else {})}, action='input_create')
             if replaced:
                 builder.record('signoffs', replaced['id'], replaced, {'state': 'cancelled'}, action='input_replace')
         else:
@@ -264,6 +280,10 @@ class InputRequests:
                 'expected_targets_json': [], 'policy_binding_json': plain(plan.policy_binding),
                 'affected_scope_json': plain(plan.affected_scope), 'state': 'pending',
                 'updated_sequence': uow.next_sequence('signoffs'), 'created_at': self.service.clock()})
+            if acknowledges(form):
+                scoped = replace(ctx, business_id=change.resource.business_id, review_business_id=change.resource.business_id)
+                self.service.reports.check(scoped, values['report_task'], uow)
+                self.service.reports.link(ctx, identity, values['report_task'], uow)
             if self.service.ports.management is not ABSENT:
                 self.service.ports.management.auto_route_input(ctx, row, uow)
         elif change.action == 'input_cancel':

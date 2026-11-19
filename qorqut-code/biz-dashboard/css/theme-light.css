@@ -35,6 +35,10 @@
 :root[data-theme="light"] .agent-workspace-app .agpad .tind { background: var(--nav-selected); }
 :root[data-theme="light"] .agpad .ttab[data-attention="true"]::after { background: var(--fg); }
 :root[data-theme="light"] .chat-unread-dot { background: var(--fg); box-shadow: none; }
+/* Unread markers on signoff chips, conversations and Focus rows are drawn white for the dark page. */
+:root[data-theme="light"] .focus-signoff-chip[data-unread="true"]::after,
+:root[data-theme="light"] .conversation-unread,
+:root[data-theme="light"] .agfocus-unread { background: var(--fg); border-color: transparent; box-shadow: none; }
 
 /* The agents' artwork is drawn in white for a dark page: a hairline keeps its shape on a light one. */
 :root[data-theme="light"] svg.qorqbot-agent { filter: drop-shadow(0 0 .6px rgba(0,0,0,.55)) drop-shadow(0 0 .6px rgba(0,0,0,.35)); }

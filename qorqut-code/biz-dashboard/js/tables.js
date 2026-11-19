@@ -121,9 +121,10 @@ async function dataOpenTable(id, append = false) {
       listed.querySelector('span').textContent = `${table.row_count} rows${table.archived ? ' · Archived' : ''}`;
     }
     _crmMount?.dispose(); _crmMount = null;
-    panel.innerHTML = `<header class="data-heading">${dataIconButton('data-back', 'Back to tables', aicon('arrow-left', 'currentColor', 18))}<h1>${esc(table.title)}</h1><span class="data-spacer"></span>${dataViewLink(biz, id) ? dataIconButton('data-copy-link', 'Copy link', '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>') : ''}${dataIconButton('data-edit-table', 'Edit table and columns', dataSettingsIcon)}</header>${table.description ? `<p class="data-description">${esc(table.description)}</p>` : ''}${biz === null ? '' : '<div id="data-work"></div>'}<div class="data-row-tools"><label>Search rows<input type="search" id="data-row-query" class="inp" value="${esc(_data.query)}"></label><span class="data-spacer"></span><div id="data-draft-actions" hidden><button type="button" class="btn" id="data-discard">Discard</button><button type="button" class="btn primary" id="data-save">Save</button></div>${dataIconButton('data-row-delete', 'Remove selected rows', SVG_X)}${dataIconButton('data-row-new', 'Add row', SVG_TPLUS)}</div><div class="data-grid-wrap"><table class="data-grid"><thead><tr><th class="data-check"><input type="checkbox" id="data-select-all" aria-label="Select visible rows"></th>${table.columns.map(column => `<th><button type="button" data-sort="${column.id}" ${column.type === 'json' ? 'disabled' : ''}>${esc(column.name)}${_data.order === column.id ? (_data.descending ? ' ↓' : ' ↑') : ''}</button></th>`).join('')}</tr></thead><tbody></tbody></table></div><footer class="data-footer"><span id="data-row-count"></span><button class="btn" id="data-more" ${_data.cursor ? '' : 'hidden'}>Load more</button></footer>`;
+    panel.innerHTML = `<header class="data-heading">${dataIconButton('data-back', 'Back to tables', aicon('arrow-left', 'currentColor', 18))}<h1>${esc(table.title)}</h1><span class="data-spacer"></span>${dataViewLink(biz, id) ? dataIconButton('data-copy-link', 'Copy link', '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>') : ''}${dataIconButton('data-export', 'Export CSV', dataExportIcon)}${dataIconButton('data-edit-table', 'Edit table and columns', dataSettingsIcon)}</header>${table.description ? `<p class="data-description">${esc(table.description)}</p>` : ''}${biz === null ? '' : '<div id="data-work"></div>'}<div class="data-row-tools"><label>Search rows<input type="search" id="data-row-query" class="inp" value="${esc(_data.query)}"></label><span class="data-spacer"></span><div id="data-draft-actions" hidden><button type="button" class="btn" id="data-discard">Discard</button><button type="button" class="btn primary" id="data-save">Save</button></div>${dataIconButton('data-row-delete', 'Remove selected rows', SVG_X)}${dataIconButton('data-row-new', 'Add row', SVG_TPLUS)}</div><div class="data-grid-wrap"><table class="data-grid"><thead><tr><th class="data-check"><input type="checkbox" id="data-select-all" aria-label="Select visible rows"></th>${table.columns.map(column => `<th><button type="button" data-sort="${column.id}" ${column.type === 'json' ? 'disabled' : ''}>${esc(column.name)}${_data.order === column.id ? (_data.descending ? ' ↓' : ' ↑') : ''}</button></th>`).join('')}</tr></thead><tbody></tbody></table></div><footer class="data-footer"><span id="data-row-count"></span><button class="btn" id="data-more" ${_data.cursor ? '' : 'hidden'}>Load more</button></footer>`;
     panel.querySelector('#data-back').onclick = dataBack;
     panel.querySelector('#data-edit-table').onclick = () => dataTableEditor(table);
+    panel.querySelector('#data-export').onclick = event => dataExportCsv(biz, table, event.currentTarget);
     const copy = panel.querySelector('#data-copy-link');
     if (copy) copy.onclick = () => dataCopyLink(dataViewLink(biz, table.id), copy);
     panel.querySelector('#data-row-new').disabled = table.archived;
@@ -154,6 +155,54 @@ async function dataOpenTable(id, append = false) {
   } catch (error) { if (dataActive(biz, panel) && generation === _dataDetail) dataError(error); }
 }
 
+// ---- CSV export
+// The saved rows of the open Table, read page by page through the same read operations the grid uses and with its current
+// search and sort; unsaved edits are not included. Nothing is stored or sent anywhere: the file is built in this browser.
+const dataExportIcon = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14"/></svg>';
+const DATA_EXPORT_PAGES = 2000;
+// Text that a spreadsheet would run as a formula is kept as text; numbers and booleans are written as they are.
+function dataCsvCell(value) {
+  let text = dataValue(value);
+  if (typeof value === 'string' && /^[=+\-@\t\r]/.test(text)) text = "'" + text;
+  return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+}
+const dataCsv = (header, rows) => '\ufeff' + [header, ...rows].map(line => line.map(dataCsvCell).join(',')).join('\r\n') + '\r\n';
+const dataCsvName = title => (String(title || '').trim().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'table') + '.csv';
+async function dataCsvRows(biz, table) {
+  const crm = crmIsCrm(table), rows = [];
+  const filter = crm ? {} : {...(_data.query ? {query: _data.query} : {}), ...(_data.order ? {order_by: _data.order, descending: _data.descending} : {})};
+  let cursor = null;
+  for (let page = 0; page < DATA_EXPORT_PAGES; page++) {
+    const found = crm
+      ? await crmCall(biz, 'crm_entries_list', {table_id: table.id, limit: CRM_PAGE, include_archived: false, include_removed: false, ...(cursor ? {cursor} : {})})
+      : await dataCall(biz, 'tables_rows_list', {table_id: table.id, limit: 50, ...filter, ...(cursor ? {cursor} : {})});
+    if (found.table_revision != null && found.table_revision !== table.revision) throw new Error('Table changed while exporting. Open it again and export once more.');
+    for (const item of found.items || []) {
+      if (crm) rows.push([crmStageName(table, item.stage_id), ...table.columns.map(column =>
+        item.local_cells && Object.hasOwn(item.local_cells, column.id) ? item.local_cells[column.id] : item.cells?.[column.id])]);
+      else rows.push(table.columns.map(column => dataCell(item, column.id)));
+    }
+    cursor = found.next_cursor || null;
+    if (!cursor) return rows;
+  }
+  throw new Error('This table is too large to export here.');
+}
+async function dataExportCsv(biz, table, button) {
+  if (!table || button?.disabled) return;
+  if (button) button.disabled = true;
+  try {
+    const rows = await dataCsvRows(biz, table);
+    const header = [...(crmIsCrm(table) ? ['Stage'] : []), ...table.columns.map(column => column.name)];
+    const url = URL.createObjectURL(new Blob([dataCsv(header, rows)], {type: 'text/csv;charset=utf-8'}));
+    const link = document.createElement('a');
+    link.href = url; link.download = dataCsvName(table.title); link.hidden = true;
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    toast(`Exported ${rows.length} ${rows.length === 1 ? 'row' : 'rows'}${dataDraft() ? '. Unsaved changes are not included' : ''}.`);
+  } catch (error) { toast(uiFailure(error)); }
+  finally { if (button?.isConnected) button.disabled = false; }
+}
+
 // A CRM keeps the Tables back/link/settings controls; its headline and rows live in the CRM mount.
 let _crmMount = null;
 // The left list shows a CRM's current title, entry count and archive state whenever the open Table's metadata changes.
@@ -169,10 +218,11 @@ function dataCrmChrome(panel, table, id, biz) {
   const chrome = panel.querySelector('.crm-chrome');
   const back = dataIconButton('data-back', 'Back to tables', aicon('arrow-left', 'currentColor', 18));
   if (!table) chrome.innerHTML = `<header class="data-heading">${back}<h1>Table unavailable</h1></header>`;
-  else chrome.innerHTML = `<header class="data-heading">${back}<span class="data-spacer"></span>${dataViewLink(biz, id) ? dataIconButton('data-copy-link', 'Copy link', '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 1 5.7 0l3-3a4 4 0 0 1-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>') : ''}${dataIconButton('data-edit-table', 'Edit table, stages and columns', dataSettingsIcon)}</header>${table.archived ? '<p class="data-description muted">Archived table: entries and columns are read only. Linked records stay editable.</p>' : ''}${biz === null ? '' : '<div id="data-work"></div>'}`;
+  else chrome.innerHTML = `<header class="data-heading">${back}<span class="data-spacer"></span>${dataViewLink(biz, id) ? dataIconButton('data-copy-link', 'Copy link', '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 1 5.7 0l3-3a4 4 0 0 1-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>') : ''}${dataIconButton('data-export', 'Export CSV', dataExportIcon)}${dataIconButton('data-edit-table', 'Edit table, stages and columns', dataSettingsIcon)}</header>${table.archived ? '<p class="data-description muted">Archived table: entries and columns are read only. Linked records stay editable.</p>' : ''}${biz === null ? '' : '<div id="data-work"></div>'}`;
   chrome.querySelector('#data-back').onclick = () => { _crmMount?.dispose(); _crmMount = null; dataBack(); };
   if (!table) return;
   chrome.querySelector('#data-edit-table').onclick = () => dataTableEditor(_data.table);
+  chrome.querySelector('#data-export').onclick = event => dataExportCsv(biz, _data.table || table, event.currentTarget);
   const copy = chrome.querySelector('#data-copy-link');
   if (copy) copy.onclick = () => dataCopyLink(dataViewLink(biz, table.id), copy);
   if (biz !== null) workRelatedChips(chrome.querySelector('#data-work'), biz, 'data_tables', id);

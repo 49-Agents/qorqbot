@@ -4,6 +4,10 @@ The Task holds the state of a piece of work. Todo boards, reminders, Focus cards
 are written separately, so each can drift. Every check here names one such drift, counts it and lists a few
 examples. Nothing is changed.
 
+Archived projects are left out of every check and total: their records are not current work, and counting them would
+only bury the drift that matters. The one exception is ``repairs.remove_entry``, which still clears board entries that
+point into an archived project, so a board never keeps such a pointer.
+
 The stored Task status is read, never the Signoff projection: that projection shows a pending question as
 ``needs_input`` even on a closed Task, which would hide exactly the closed Tasks this report looks for.
 
@@ -19,6 +23,7 @@ import json
 
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp, utc_clock
+from qorqut_operations.business_lifecycle import in_active_business
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.tasks.lifecycle import CHILD_LIMIT
 from qorqut_operations.tasks.types import IDENTIFIER, LINE_LIMIT
@@ -44,11 +49,13 @@ DESCRIPTION = ("Owner and coordinator read. Counts where Todo boards, reminders,
                "with the Tasks they point at, with a few examples of each; summary lists the non-zero counts. Changes "
                "nothing.")
 
-# A work Task is an unarchived Task of the plain type; Customers, Stories and Email Tasks are records of another kind.
-WORK = "t.archived=0 AND coalesce(json_extract(t.fields_json,'$.\"$task\".task_type'),'task')='task'"
+ACTIVE = in_active_business("t.business_id")
+ARCHIVED_PROJECT = "NOT " + ACTIVE
+# A work Task is an unarchived Task of the plain type in a project that is not archived; Customers, Stories and Email
+# Tasks are records of another kind.
+WORK = f"t.archived=0 AND coalesce(json_extract(t.fields_json,'$.\"$task\".task_type'),'task')='task' AND {ACTIVE}"
 OPEN = "t.status NOT IN ('done','cancelled')"
 CLOSED = "t.status IN ('done','cancelled')"
-ARCHIVED_PROJECT = "EXISTS (SELECT 1 FROM businesses b WHERE b.id=t.business_id AND b.archived_at IS NOT NULL)"
 # A board entry names one Task identity: its namespace, id and creation time.
 ENTRY = ("attention_memberships m JOIN tasks t ON t.business_id IS m.task_business_id AND t.id=m.task_id "
          "AND t.created_at=m.task_created_at")
@@ -60,16 +67,14 @@ TASK = "t.business_id, t.id, t.title, t.status"
 # name -> (what it means, FROM ... WHERE ..., extra example columns)
 CHECKS = {
     "todo_on_closed_task": ("Todo entries whose Task is done or cancelled",
-        f"{ENTRY} WHERE {CLOSED}", "m.agent_id"),
-    "todo_on_archived_task": ("Todo entries whose Task or project is archived",
-        f"{ENTRY} WHERE {OPEN} AND (t.archived=1 OR {ARCHIVED_PROJECT})", "m.agent_id"),
+        f"{ENTRY} WHERE {CLOSED} AND {ACTIVE}", "m.agent_id"),
+    "todo_on_archived_task": ("Todo entries whose Task is archived",
+        f"{ENTRY} WHERE {OPEN} AND t.archived=1 AND {ACTIVE}", "m.agent_id"),
     "todo_holder_not_worker": ("Todo entries on an open Task whose board agent is not a recorded worker",
-        f"{ENTRY} WHERE {OPEN} AND t.archived=0 AND NOT {HOLDS}", "m.agent_id"),
+        f"{ENTRY} WHERE {OPEN} AND t.archived=0 AND {ACTIVE} AND NOT {HOLDS}", "m.agent_id"),
     "open_under_closed_parent": ("Open work Tasks whose parent is done or cancelled",
         f"tasks t JOIN tasks p ON p.business_id IS t.business_id AND p.id=t.parent_id "
         f"WHERE {WORK} AND {OPEN} AND p.status IN ('done','cancelled')", None),
-    "open_in_archived_project": ("Open work Tasks in an archived project",
-        f"tasks t WHERE {WORK} AND {OPEN} AND {ARCHIVED_PROJECT}", None),
     "open_without_worker": ("Open work Tasks with no recorded worker",
         f"tasks t WHERE {WORK} AND {OPEN} AND json_array_length(t.worker_ids_json)=0", None),
     "working_untouched": ("Work Tasks marked working and not written for over a day",
@@ -80,11 +85,13 @@ CHECKS = {
         f"tasks t WHERE {WORK} AND t.status IN ('waiting','blocked') AND t.updated_at<:parked_before", None),
     "reminder_on_closed_task": ("Live reminders linked to a done or cancelled Task",
         f"reminders r {LINKED.format(column='r.linked_item_json')} "
-        f"WHERE r.state IN ('scheduled','due') AND json_extract(r.linked_item_json,'$.type')='task' AND {CLOSED}",
+        f"WHERE r.state IN ('scheduled','due') AND json_extract(r.linked_item_json,'$.type')='task' AND {CLOSED} "
+        f"AND {ACTIVE}",
         "r.id AS reminder_id"),
     "focus_card_on_closed_task": ("Focus cards still shown for a done or cancelled Task",
         f"focus_cards f {LINKED.format(column='f.source_json')} "
-        f"WHERE f.archived=0 AND json_extract(f.source_json,'$.type')='task' AND {CLOSED}", "f.id AS card_id"),
+        f"WHERE f.archived=0 AND json_extract(f.source_json,'$.type')='task' AND {CLOSED} "
+        f"AND {ACTIVE}", "f.id AS card_id"),
     "crm_record_typed_as_work": ("CRM row records stored as open work Tasks",
         f"crm_entries e JOIN tasks t ON t.business_id IS e.record_business_id AND t.id=e.record_task_id "
         f"WHERE e.removed=0 AND {WORK} AND {OPEN}", "e.table_id"),
@@ -92,12 +99,13 @@ CHECKS = {
         "tasks t JOIN (SELECT c.business_id AS scope, c.parent_id AS parent, COUNT(*) AS open_children FROM tasks c "
         "WHERE c.parent_id IS NOT NULL AND c.archived=0 AND c.status NOT IN ('done','cancelled') "
         "AND coalesce(json_extract(c.fields_json,'$.\"$task\".task_type'),'task')='task' "
-        f"GROUP BY c.business_id, c.parent_id HAVING COUNT(*)>{CHILD_LIMIT}) k ON k.scope IS t.business_id AND k.parent=t.id",
+        f"GROUP BY c.business_id, c.parent_id HAVING COUNT(*)>{CHILD_LIMIT}) k ON k.scope IS t.business_id AND k.parent=t.id "
+        f"WHERE {ACTIVE}",
         "k.open_children"),
 }
 TOTALS = {
     "open_work_tasks": f"tasks t WHERE {WORK} AND {OPEN}",
-    "todo_entries": "attention_memberships m",
+    "todo_entries": "attention_memberships m WHERE " + in_active_business("m.task_business_id"),
 }
 
 
@@ -134,18 +142,18 @@ def repairs(connection):
     entry = ("membership_id", "agent_id", "business_id", "task_id", "title")
     found = {
         "record_worker": listed(f"SELECT m.id, m.agent_id, t.business_id, t.id, t.title FROM {ENTRY} WHERE {OPEN} AND t.archived=0 "
-                                f"AND NOT {ARCHIVED_PROJECT} AND NOT {HOLDS} ORDER BY t.business_id, t.id, m.agent_id", entry),
+                                f"AND {ACTIVE} AND NOT {HOLDS} ORDER BY t.business_id, t.id, m.agent_id", entry),
         "remove_entry": listed(f"SELECT m.id, m.agent_id, t.business_id, t.id, t.title FROM {ENTRY} WHERE {CLOSED} OR t.archived=1 "
                                f"OR {ARCHIVED_PROJECT} ORDER BY t.business_id, t.id, m.agent_id", entry),
         "set_status_line": [], "status_line_needs_rewrite": [],
         "retype_crm_record": listed(
             "SELECT DISTINCT t.business_id, t.id, t.title FROM crm_entries e JOIN tasks t ON t.business_id IS e.record_business_id "
-            f"AND t.id=e.record_task_id WHERE e.removed=0 AND {WORK} AND {OPEN} AND NOT {ARCHIVED_PROJECT} "
+            f"AND t.id=e.record_task_id WHERE e.removed=0 AND {WORK} AND {OPEN} "
             "ORDER BY t.business_id, t.id", ("business_id", "task_id", "title"))}
     cards = connection.execute(
         f"SELECT f.id, f.reason, t.business_id, t.id, t.title, t.fields_json FROM focus_cards f "
         f"{LINKED.format(column='f.source_json')} WHERE f.archived=0 AND json_extract(f.source_json,'$.type')='task' "
-        "AND coalesce(f.reason,'')<>'' ORDER BY f.position, f.id")
+        f"AND coalesce(f.reason,'')<>'' AND {ACTIVE} ORDER BY f.position, f.id")
     for card_id, reason, business_id, task_id, title, fields in cards:
         if (json.loads(fields or "{}").get("$task") or {}).get("status_line"):
             continue

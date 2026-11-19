@@ -17,25 +17,28 @@ from __future__ import annotations
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
 from qorqut_operations.application.catalog import CatalogContribution
-from qorqut_operations.application.plans import (DATE, IDENTITY, PAGE, TEXT, UUID, PlanBuilder, apply_records, page, ref,
+from qorqut_operations.application.plans import (DATE, IDENTITY, PAGE, TEXT, UUID, PlanBuilder, apply_records, newest_page, page, ref,
                                                  require_revision, rows, schema, timestamp, utc_clock)
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
 from qorqut_operations.business_lifecycle import active_business_ids
-from qorqut_operations.contracts import DomainError, new_id, plain
+from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.conversations import SUMMARY, participants
 from qorqut_operations.discussion.follows import ThreadItem, auto_follow, can_follow, follow_state
-from qorqut_operations.discussion.threads import (AUDIENCE, BODY, FOR_OWNER, RELAY, DiscussionReferences, message_count, plan_comment,
+from qorqut_operations.discussion.threads import (AUDIENCE, BODY, FOR_OWNER, RELAY, DiscussionReferences, plan_comment,
                                                   read_messages)
 from qorqut_operations.global_agents import global_agent_ids, is_global_agent
 from qorqut_operations.items import ItemResolver
 from qorqut_operations.relationships import create_edge, related_rows
 from qorqut_operations.storage.assembly import AssemblyError
-from qorqut_operations.tags.catalog import LABELS_SCHEMA, distinct_labels, item_labels, labels_by_item, matches, plan_item_tags
+from qorqut_operations.tags.catalog import LABELS_SCHEMA, distinct_labels, label_key, plan_item_tags
 from qorqut_operations.tasks import customers, events, lifecycle, links
 from qorqut_operations.tasks.kinds import KIND_INPUT, normalize_arguments, project_result, public_task
 from qorqut_operations.tasks.associated import TaskAssociatedRecords
+from qorqut_operations.tasks.detail import task_views
 from qorqut_operations.tasks.history import HistoricalReferences
-from qorqut_operations.tasks.models import (DEFAULT_CONFIG, DEFAULT_STATE, full_config, normalize_snooze, snooze_view, stored_fields,
+from qorqut_operations.tasks.identity import in_use, new_task_id, taken
+from qorqut_operations.tasks.lookup import LOCATED, TaskLookup
+from qorqut_operations.tasks.models import (DEFAULT_CONFIG, DEFAULT_STATE, full_config, normalize_snooze, stored_fields,
                                             validate_config, validate_dependencies, validate_parent, validate_task)
 from qorqut_operations.tasks.overview import TaskOverview
 from qorqut_operations.tasks.ports import TaskPorts
@@ -44,7 +47,7 @@ from qorqut_operations.tasks.scope import task_context, task_namespace
 from qorqut_operations.tasks.schema import CLOSED_STATES, PAUSED_STATES, STATES
 from qorqut_operations.tasks.snooze import reconcile_snoozes
 from qorqut_operations.tasks.types import (KIND_SCHEMA, NEXT_STEP_SCHEMA, PLAN_SCHEMA, POSITION_SCHEMA, PROFILE_SCHEMA, STATE_SCHEMA,
-                                           STATUS_LINE_SCHEMA, TEMPLATE_SCHEMA, TYPES, apply_attributes, attributes, custom_fields,
+                                           STATUS_LINE_SCHEMA, TEMPLATE_SCHEMA, TYPES, apply_attributes, attributes,
                                            queue_rank)
 from qorqut_operations.team_channel import reject_owner_team_write
 
@@ -92,13 +95,16 @@ class TaskOperations:
         # The host adds the adapters for the references it owns; a Task move itself is a host-registered operation.
         self.relocation = TaskRelocation(self)
         self.history = HistoricalReferences(self)
+        # The ``locate_scope`` hook of every operation that names one Task by ``task_id`` (here and in the host).
+        self.lookup = TaskLookup(self)
         unknown = sorted(set(ports.references.types) - set(items.kinds) - set(ports.references.host_types))
         if unknown:
             raise AssemblyError("Note reference types are neither engine items nor host references: " + ", ".join(unknown))
         self.note_ref_types = list(ports.references.types)
         # ``on_change(ctx, uow, before, after)``: the host's one hook on every committed Task write, called inside the
         # writing transaction with the stored state before (``None`` for a new Task) and after. The host uses it to keep the
-        # records that point at a Task (board entries, Focus cards, reminders) in step with it.
+        # records that point at a Task (board entries, Focus cards, reminders) in step with it. A Task closed along with
+        # its parent (``children: close``) is passed with ``carried=True``: it was not the write the caller made.
         self.on_change = None
         # ``plan_steps(ctx, task, uow)``: the host's reading of where a Task's plan stands, one entry per step with its
         # state, for ``tasks_get``. Without it a Task shows only the plan it was handed over with.
@@ -106,6 +112,9 @@ class TaskOperations:
         # ``plan_template(ref)``: the host's reading of a saved plan as its ordered step instructions, for a hand-over
         # that names a template instead of writing the steps.
         self.plan_template = None
+        # ``plan_guard(ctx, task, uow)``: the host's refusal of a caller who may not replace or remove the plan ``task``
+        # holds now. It is asked in every Task write that would change the stored plan, whatever operation carries it.
+        self.plan_guard = None
 
     # -- moved Tasks -----------------------------------------------------------------------------------------------
 
@@ -157,19 +166,25 @@ class TaskOperations:
             "tasks_get": {"task_id": IDENTITY, "related_cursor": PAGE["cursor"],
                           "notes_limit": {"type": "integer", "minimum": 0, "maximum": 10, "default": 7,
                                           "description": instruction_text('operations-comments-per-page-newest-first-0-omits-them')},
-                          "notes_cursor": PAGE["cursor"], "audience": AUDIENCE},
+                          "notes_cursor": PAGE["cursor"], "audience": AUDIENCE,
+                          "include": {"type": "array", "uniqueItems": True, "maxItems": 2, "items": {"enum": ["actions", "signoffs"]},
+                                      "description": instruction_text('operations-also-return-the-first-page-of-the-associated')}},
             "tasks_thread_get": {**PAGE, "task_id": IDENTITY, "audience": AUDIENCE},
             "tasks_notes_list": {**PAGE, "task_id": IDENTITY, "audience": AUDIENCE},
             "tasks_config_get": {}, "assignees_list": {}, "workers_list": {},
         }
+        # An operation that names one Task finds its project from the id when the caller selects none.
+        located = dict(locate_scope=self.lookup, description=common["description"] + LOCATED)
         descriptors = [self.overview.descriptor(), self.associated.descriptor()]
         for name, properties in reads.items():
             descriptors.append(OperationDescriptor(
                 name, schema({**SCOPE, **properties}, ("task_id",) if name in {"tasks_get", "tasks_notes_list", "tasks_thread_get"} else ()),
-                **common, effect_kind="read", supports_signoff=False, read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
+                **({**common, **located} if "task_id" in properties else common), effect_kind="read", supports_signoff=False,
+                read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
         comment = {"note_refs": refs, "summary": SUMMARY, "relay": RELAY, "for_owner": FOR_OWNER}
         mutations = {
-            "tasks_create": ({**TASK_FIELDS, "id": IDENTITY, "note": TEXT, **comment,
+            "tasks_create": ({**TASK_FIELDS, "id": {**IDENTITY, "description": instruction_text('operations-leave-out-a-short-task-id-is-generated')},
+                              "note": TEXT, **comment,
                               "allow_duplicate": lifecycle.ALLOW_DUPLICATE, "owner_requested": lifecycle.OWNER_REQUESTED}, ("title",)),
             "tasks_update": ({"task_id": IDENTITY, "changes": {**schema({**TASK_FIELDS, "related_task": links.EDIT}), "minProperties": 1}, "note": TEXT, **comment,
                               "owner_requested": lifecycle.OWNER_REQUESTED}, ("task_id", "changes")),
@@ -189,6 +204,8 @@ class TaskOperations:
                            instruction_text('operations-tags-are-ordinary-labels-that-group-work-they')}
             if name == "tasks_delegate":
                 options = {**common, "description": lifecycle.DELEGATE}
+            if "task_id" in properties:
+                options = {**options, "locate_scope": self.lookup, "description": options["description"] + LOCATED}
             descriptors.append(OperationDescriptor(
                 name, schema({**SCOPE, **properties, "rationale": TEXT}, required), **options,
                 normalize_arguments=normalize_arguments if name in {"tasks_create", "tasks_update"} else None,
@@ -196,7 +213,8 @@ class TaskOperations:
                 apply=self.apply, validate_targets=self.validate_prepared))
         descriptors.append(OperationDescriptor(
             TASK_FOLLOW, schema({**SCOPE, **FOLLOW.get("properties", {})}, ("task_id", "following")),
-            **{**common, "description": instruction_text('operations-follow-or-unfollow-a-task-s-discussion-for')},
+            **{**common, "locate_scope": self.lookup,
+               "description": instruction_text('operations-follow-or-unfollow-a-task-s-discussion-for') + LOCATED},
             supports_signoff=False, prepare=self.prepare_follow, apply=self.apply_follow))
         return tuple(descriptors)
 
@@ -312,35 +330,10 @@ class TaskOperations:
     # -- reads -----------------------------------------------------------------------------------------------------
 
     def detail(self, ctx, task, uow, fields, now, *, notes=True, notes_page=None):
+        """One Task's full view; ``details`` builds the same view for a page of Tasks at once."""
+        view = task_views(ctx, [task], uow, now)[0]
         business_id, task_id = task["business_id"], task["id"]
         item = ThreadItem(business_id, "task", task_id)
-        creator = uow.repository("principals").get(task.get("created_by")) if task.get("created_by") else None
-        scope = uow.repository("tasks", business_id=business_id)
-        blockers = events.blockers(uow, business_id, task_id)
-        unresolved = [scope.get(blocker)["id"] for blocker in blockers
-                      if (scope.get(blocker) or {"status": "done"})["status"] not in CLOSED_STATES]
-        blocks = [row[0] for row in uow.connection.execute(
-            "SELECT DISTINCT t.id FROM relationships r JOIN tasks t ON t.business_id IS r.business_id AND t.id=r.from_id "
-            "WHERE r.business_id IS ? AND r.from_type='task' AND r.to_type='task' AND r.to_id=? AND r.role='blocked_by' "
-            "AND t.status NOT IN ('done','cancelled') ORDER BY t.id", (business_id, task_id))]
-        parent = scope.get(task["parent_id"]) if task.get("parent_id") else None
-        children = [dict(row) for row in uow.connection.execute(
-            "SELECT id,title,status FROM tasks WHERE business_id IS ? AND parent_id=? ORDER BY created_at,id LIMIT 51", (business_id, task_id))]
-        follow = follow_state(uow, item, ctx.principal_id)
-        view = {**{key: value for key, value in task.items() if key not in {"fields_json", "worker_ids_json", "snoozed_until", "snooze_generation"}},
-                **snooze_view(task, now),
-                "created_by_name": creator.get("display_name", "") if creator else "",
-                "created_by_kind": creator.get("kind", "") if creator else "",
-                "tags": item_labels(uow, business_id, "task", task_id), "fields": custom_fields(task), **attributes(task),
-                "thread_id": item.thread_id, "note_count": message_count(uow, item),
-                **self.worker_projection(uow, task),
-                "assignee_ids": events.assigned(uow, business_id, task_id), "archived": bool(task.get("archived")),
-                "blocked_by": blockers, "unresolved_blockers": sorted(set(unresolved)), "blocks": blocks,
-                "parent": {key: parent[key] for key in ("id", "title", "status")} if parent else None,
-                "children": children[:50], "children_has_more": len(children) > 50,
-                "closed": task["status"] in CLOSED_STATES, "paused": task["status"] in PAUSED_STATES,
-                "stalled": lifecycle.stalled(task, now),
-                "following": follow["following"], "follow_reason": follow["reason"]}
         view["notes"], view["notes_next_cursor"] = [], None
         notes_page = notes_page or {}
         limit = notes_page.get("notes_limit", 7)
@@ -355,14 +348,16 @@ class TaskOperations:
                 view["notes_hidden"] = history["hidden"]
         return public_task(self.project_input(ctx, [view], uow)[0] if 'input_version' not in view else view)
 
+    def details(self, ctx, tasks, uow, now):
+        """The full view of each Task of a page, without comments, from one batch of reads for the page. Rows already
+        carrying their Signoff projection (a status-filtered list projects before paging) keep it."""
+        views = [{**view, "notes": [], "notes_next_cursor": None} for view in task_views(ctx, tasks, uow, now)]
+        projected = iter(self.project_input(ctx, [view for view in views if "input_version" not in view], uow))
+        return [public_task(view if "input_version" in view else next(projected)) for view in views]
+
     def project_input(self, ctx, tasks, uow):
         signoffs = getattr(self.application, 'signoffs', None)
         return signoffs.sources.project_tasks(ctx, tasks, uow) if signoffs else tasks
-
-    @staticmethod
-    def worker_projection(uow, task):
-        from qorqut_operations.tasks.workers import project_workers
-        return project_workers(uow, task)
 
     def read(self, operation, ctx, arguments, uow):
         ctx = task_context(ctx, arguments, uow)
@@ -396,8 +391,43 @@ class TaskOperations:
             detail.update(links.read(self, ctx, task, uow, arguments.get("related_cursor")))
             if detail.get("plan") and self.plan_steps is not None:
                 detail["plan_steps"] = self.plan_steps(ctx, task, uow)
+            if arguments.get("include"):
+                detail["associated"] = self.included(ctx, task, arguments, uow)
             return {"task": detail}
         return self.list_tasks(ctx, arguments, uow, configuration, now)
+
+    # What keeps ``tasks_get(include=...)`` from reading a type: every refusal ``authorize`` gives, and the read's own
+    # ``operation_unavailable`` for a record domain this host does not install.
+    INCLUDE_REFUSALS = frozenset({"forbidden", "policy_denied", "invalid_policy", "operation_unavailable"})
+
+    def included(self, ctx, task, arguments, uow):
+        """The first page of each requested associated record type, under the same grant ``tasks_associated_records`` needs.
+        A type the caller may not read, or that this host does not install, is reported rather than failing the read.
+
+        An owner session's catalog leaves ``tasks_associated_records`` out, so it is never reached this way either. The
+        advertised follow-up is the exact call that continues the page, with the scope this read ran in."""
+        descriptor = self.application.registry.get("tasks_associated_records")
+        scope = {**({"business_id": ctx.business_id} if ctx.business_id else {}),
+                 **({"scope": arguments["scope"]} if "scope" in arguments else {})}
+        found = {}
+        for name in arguments["include"]:
+            record_type = name[:-1]
+            try:
+                if ctx.owner_session_business_id is not None:
+                    raise DomainError("forbidden", "This operation is not in the owner-session catalog")
+                self.application.authorize(ctx, descriptor, (), uow, namespace=task_namespace(ctx, {}))
+                page_ = self.associated.read(ctx, {"task_id": task["id"], "record_type": record_type, "limit": 20}, uow)
+            except DomainError as error:
+                if error.code not in self.INCLUDE_REFUSALS:
+                    raise
+                found[name] = {"unavailable": error.code}
+                continue
+            found[name] = {"items": page_["items"], "next_cursor": page_["next_cursor"]}
+            if page_["next_cursor"]:
+                follow_up = {"task_id": task["id"], "record_type": record_type, **scope}
+                found[name]["more"] = ("tasks_associated_records(" + ", ".join(f'{key}="{value}"' for key, value in follow_up.items())
+                                       + ", limit=20, cursor=next_cursor)")
+        return found
 
     def assignees_list(self, ctx, uow, *, workers=False):
         directed = self.ports.assignees.worker_excluded if workers else self.ports.assignees.owner_directed
@@ -449,26 +479,40 @@ class TaskOperations:
         if arguments.get("due_before"):
             clauses.append("due IS NOT NULL AND due<=?")
             parameters.append(arguments["due_before"])
-        tasks = rows(uow, "tasks", ctx.business_id, where=" AND ".join(clauses), parameters=parameters)
+        attribute = """COALESCE(json_extract(fields_json, '$."$task".{}'), '{}')"""
         if "task_type" in arguments:
-            tasks = [task for task in tasks if attributes(task)["task_type"] == arguments["task_type"]]
+            clauses.append(attribute.format("task_type", "task") + "=?")
+            parameters.append(arguments["task_type"])
         if "email_conversation_id" in arguments:
-            tasks = [task for task in tasks if attributes(task)["email_conversation_id"] == arguments["email_conversation_id"]]
-        if arguments.get("tags"):
-            wanted = distinct_labels(arguments["tags"])
-            labels = labels_by_item(uow, ctx.business_id, "task")
-            tasks = [task for task in tasks if matches(labels.get(task["id"], ()), wanted)]
+            clauses.append("""json_extract(fields_json, '$."$task".email_conversation_id') IS ?""")
+            parameters.append(arguments["email_conversation_id"])
+        for label in distinct_labels(arguments.get("tags") or ()):
+            clauses.append("EXISTS (SELECT 1 FROM item_tags i JOIN tags t ON t.id=i.tag_id WHERE i.business_id IS tasks.business_id "
+                           "AND i.item_type='task' AND i.item_id=tasks.id AND t.label_key=?)")
+            parameters.append(label_key(label))
         if arguments.get("search"):
-            tasks = [task for task in tasks if arguments["search"].casefold() in (task["title"] + " " + task["id"]).casefold()]
-        # Status is a projection of explicit pending Signoffs; filter before paging, in one batch.
-        tasks = [task for task in self.project_input(ctx, tasks, uow) if task['status'] in states]
+            # Title, id, overview, status line, next step and comments, case-insensitively.
+            text = " || ' ' || ".join(["title", "id", *(attribute.format(name, "") for name in ("overview", "status_line", "next_step"))])
+            clauses.append(f"(instr(qorqut_casefold({text}), ?) > 0 OR EXISTS (SELECT 1 FROM thread_messages m "
+                           "WHERE m.business_id IS tasks.business_id AND m.item_type='task' AND m.item_id=tasks.id AND m.kind='comment' "
+                           "AND instr(qorqut_casefold(m.body), ?) > 0))")
+            parameters += [arguments["search"].casefold()] * 2
         if "blocked" in arguments:
-            detailed = [self.detail(ctx, task, uow, configuration["fields"], now, notes=False) for task in tasks]
-            tasks = [task for task in detailed if bool(task["unresolved_blockers"]) == arguments["blocked"]]
+            # A blocker counts while it exists and is not closed (its stored status, as ``unresolved_blockers`` reads it).
+            clauses.append(("" if arguments["blocked"] else "NOT ") + "EXISTS (SELECT 1 FROM relationships r JOIN tasks b "
+                           "ON b.business_id IS r.business_id AND b.id=r.to_id WHERE r.business_id IS tasks.business_id "
+                           "AND r.from_type='task' AND r.from_id=tasks.id AND r.to_type='task' AND r.role='blocked_by' "
+                           "AND b.status NOT IN ('done','cancelled'))")
+        where = " AND ".join(clauses)
+        if states == list(STATES):
+            # No status filter: the Signoff projection cannot change which Tasks match, so SQL reads only the page.
+            selected, cursor = newest_page(uow, "tasks", ctx.business_id, arguments, "tasks_list", where=where, parameters=parameters)
+        else:
+            tasks = rows(uow, "tasks", ctx.business_id, where=where, parameters=parameters)
+            # Status is a projection of explicit pending Signoffs; filter before paging, in one batch.
+            tasks = [task for task in self.project_input(ctx, tasks, uow) if task['status'] in states]
             selected, cursor = page(tasks, arguments, ctx.business_id, "tasks_list")
-            return {"tasks": selected, "next_cursor": cursor}
-        selected, cursor = page(tasks, arguments, ctx.business_id, "tasks_list")
-        return {"tasks": [self.detail(ctx, task, uow, configuration["fields"], now, notes=False) for task in selected], "next_cursor": cursor}
+        return {"tasks": self.details(ctx, selected, uow, now), "next_cursor": cursor}
 
     # -- writes ----------------------------------------------------------------------------------------------------
 
@@ -485,16 +529,21 @@ class TaskOperations:
         if operation == "tasks_config_update":
             return self.prepare_config(ctx, arguments, options, uow, builder, config_row)
         creating = operation == "tasks_create"
-        identity = arguments.get("id") or new_id() if creating else arguments["task_id"]
+        # A new Task's id is generated unless the caller names one; either way no other Task, in any scope, may have it
+        # (see ``tasks.identity``). ``validate_prepared`` checks again in the applying transaction.
+        identity = (arguments.get("id") or new_task_id(uow.connection)) if creating else arguments["task_id"]
         before = uow.repository("tasks", business_id=ctx.business_id).get(identity)
         if creating and before is not None:
             raise DomainError("revision_conflict", "Task identity already exists", current_revision=before["revision"])
+        if creating and "id" in arguments and taken(uow.connection, identity):
+            raise in_use()
         if not creating:
             if before is None:
                 raise self.missing(ctx, uow, identity)
-            # A comment adds to the thread and edits no field, so it needs no prior read of the Task. A caller that
-            # does name a revision is still held to it, and the plan pins the row it was prepared against.
-            if operation != "tasks_comment" or options.expected_revision is not None:
+            # A Task write needs no prior read of the Task: without a revision it applies to the Task as it is now. A
+            # caller that does name a revision is still held to it, and the plan pins the row it was prepared against
+            # (``builder.record``/``builder.expect`` below), so a change staged for a Signoff still refuses a moved Task.
+            if options.expected_revision is not None:
                 require_revision(before, options.expected_revision)
         edits = {key: value for key, value in arguments.items() if key in TASK_FIELDS} if creating else plain(arguments.get("changes", {}))
         if edits.get('status') == 'needs_input':
@@ -552,13 +601,15 @@ class TaskOperations:
                     current["snooze_generation"] += 1
         states, states_row = customers.read(uow, ctx.business_id) if "customer_state" in edits else ([], None)
         apply_attributes(current, edits, states)
+        if before and self.plan_guard is not None and attributes(current)["plan"] != attributes(before)["plan"]:
+            self.plan_guard(ctx, before, uow)
         if link_edit is not None:
             links.edit(self, ctx, current, identity, link_edit, uow, builder)
         for key, value in edits.items():
             current["fields_json" if key == "fields" else key] = value
         if current["status"] == "done" and (before is None or before["status"] != "done"):
             current["latest_completed_at"] = builder.at
-        validate_task(current, fields)
+        validate_task(current, fields, before)
         if attributes(current)["email_conversation_id"] != attributes(before or {})["email_conversation_id"]:
             self.email_reference(ctx, current, uow, builder)
         parents = self.parents(ctx, uow)
@@ -664,9 +715,15 @@ class TaskOperations:
             return
         task_id = self.planned_task(plan)
         task_change = next((change for change in plan.changes if change.resource.resource_type == "tasks"), None)
+        if task_change is not None and task_change.action == "insert" and taken(uow.connection, task_id):
+            # Free when prepared, taken since in some other scope (the engine's target check covers this scope). At apply
+            # this runs in the writing transaction, so no other Task write can come between the check and the insert.
+            if plan.arguments.get("id"):
+                raise in_use()
+            raise DomainError("revision_conflict", "The new Task's id was taken meanwhile; prepare the change again", retryable=True)
         current = uow.repository("tasks", business_id=ctx.business_id).get(task_id) or {}
         proposed = {**current, **plain(task_change.values)} if task_change else current
-        validate_task(proposed, fields)
+        validate_task(proposed, fields, current)
         worker_changes = plan.arguments.get("worker_ids") if plan.operation_name == "tasks_create" else plan.arguments.get("changes", {}).get("worker_ids")
         if plan.operation_name == "tasks_delegate":
             worker_changes = [plan.arguments["worker_id"]]
@@ -736,7 +793,7 @@ class TaskOperations:
             later = events.state(uow, ctx.business_id, child_id)
             events.record_change(uow, ctx.business_id, earlier, later, ctx.principal_id)
             if self.on_change is not None:
-                self.on_change(ctx, uow, earlier, later)
+                self.on_change(ctx, uow, earlier, later, carried=True)
         for item in plan.arguments.get("note_refs", ()):
             if item["type"] == "dev_ticket":
                 self.ports.incidents.link_task(uow, item["id"], ctx.business_id, identity, ctx.principal_id, timestamp(self.clock))

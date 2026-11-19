@@ -1,9 +1,10 @@
-// Connections: the agent browser, the websites agents use as the owner, and Qorqbot's extensions (treg, WhatsApp).
+// Connections: the agent browser, the websites agents use as the owner, and Qorqbot's extensions (OpenRouter, treg, WhatsApp).
 // `connectorsModel` is pure (unit tested with `node --test biz-dashboard/tests/*.test.js`); `connectorsPanel` renders the
 // panel shown in Settings. Extension status comes from /root/connectors (qorqut.connectors).
 const connectorsModel = (() => {
   const icon = path => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
   const ICONS = {
+    openrouter: icon('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/>'),
     whatsapp: icon('<path d="M20 11.6a8 8 0 0 1-11.8 7L4 20l1.4-4.1A8 8 0 1 1 20 11.6z"/>'),
     treg: icon('<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M17 14v6M14 17h6"/>'),
   };
@@ -12,6 +13,12 @@ const connectorsModel = (() => {
     whatsapp: {name: 'WhatsApp', does: 'Ordubashy reads your chats to catch you up. Sending a message always needs your approval.',
       why: 'Catch up on chats without scrolling through them.',
       privacy: 'Runs on this computer and links like WhatsApp on a second device. Your messages stay in a private folder of this installation.'},
+    // A Qorqbot extension: the owner signs in with their own OpenRouter account (or pastes a key) and Chat gets voice input.
+    openrouter: {name: 'OpenRouter', does: 'Speak your Chat messages instead of typing them. Press the microphone in Chat, or Ctrl+Shift+Space, talk, and your words appear in the message box for you to check and send.',
+      why: 'Talking is faster than typing for long instructions. One OpenRouter account covers it, with no separate speech service to set up.',
+      privacy: 'Only what you record goes to OpenRouter and the speech model it runs, and only when you press the microphone. Recordings are not kept on this computer. Your key is kept in a private file on this computer and is never shown to your agents.',
+      needs: 'Your own OpenRouter account with a small balance. OpenRouter charges your account for each recording, usually a fraction of a cent.',
+      steps: ['Press Connect. OpenRouter opens in this tab.', 'Sign in or create an account there, set a spending limit if you like, and approve.', 'You come back here connected. If you already have an OpenRouter key, press Paste a key instead.']},
     // A Qorqbot extension: the owner pastes a treg key here and the tools reach every agent through Qorqbot itself.
     treg: {name: 'treg', does: 'Agents look up live data when a task needs it: search results, keyword and backlink numbers, company and contact details, social profiles and web pages. Lookups run on their own, each capped at $0.10. treg tools that post, send or buy stay switched off.',
       why: 'One key gives your agents thousands of data tools, so they don’t need a separate account for each service. It works with Claude Code and Codex alike.',
@@ -25,9 +32,14 @@ const connectorsModel = (() => {
     not_paired: {label: 'Not linked', tone: 'warn'}, coming_soon: {label: 'Coming soon on Mac', tone: 'idle'},
   };
   const status = item => STATUS[item.status] || STATUS.unknown;
-  // What the card's main button does: 'key' (open the card's key field) or 'none'.
+  // What the card's main button does: 'connect' (sign in with the service; `key` then names a second button that opens the
+  // card's key field), 'key' (open the card's key field) or 'none'.
   function action(item) {
     if (item.status === 'coming_soon') return {kind: 'none'};
+    if (item.id === 'openrouter') {
+      if (item.status === 'connected') return {kind: 'key', label: 'Change key', quiet: true};
+      return item.status === 'not_set_up' ? {kind: 'connect', label: 'Connect', key: 'Paste a key'} : {kind: 'none'};
+    }
     if (item.id === 'treg') {
       if (item.status === 'connected') return {kind: 'key', label: 'Change key', quiet: true};
       return item.status === 'not_set_up' ? {kind: 'key', label: 'Add key'} : {kind: 'none'};
@@ -41,6 +53,8 @@ const connectorsModel = (() => {
     return {text, tone: ['not_installed', 'coming_soon'].includes(item.status) ? 'info' : 'warn'};
   }
   function noteText(item) {
+    if (item.id === 'openrouter' && item.status === 'not_installed') return 'Comes with the OpenRouter extension, which isn’t part of this Qorqbot yet.';
+    if (item.id === 'openrouter' && item.status === 'not_set_up') return 'Connect your OpenRouter account to turn on voice input.';
     if (item.id === 'treg' && item.status === 'not_installed') return 'Comes with the treg extension, which isn’t part of this Qorqbot yet.';
     if (item.id === 'treg' && item.status === 'not_set_up') return 'Add your treg key to turn it on.';
     if (item.id === 'whatsapp' && item.status === 'coming_soon') return 'The WhatsApp extension is available for Windows (WSL) and Linux. A Mac version is in progress.';
@@ -65,18 +79,25 @@ const connectorsPanel = (() => {
   // The key field of a connector whose button is 'key'. It stays closed until that button is pressed; the saved key is
   // never sent back, so the field always starts empty.
   function keyForm(item, action) {
-    if (action.kind !== 'key') return '';
+    if (action.kind !== 'key' && !action.key) return '';
+    const name = esc((connectorsModel.COPY[item.id] || {name: item.id}).name);
     return `<form class="cx-key" data-cx-key="${esc(item.id)}" hidden>
-      <label><span>Your treg key</span><input type="password" name="key" autocomplete="off" spellcheck="false" placeholder="Paste the key from treg" required></label>
+      <label><span>Your ${name} key</span><input type="password" name="key" autocomplete="off" spellcheck="false" placeholder="Paste the key from ${name}" required></label>
       <div class="cx-key-actions"><button type="submit">Save key</button>
         ${item.status === 'connected' ? '<button type="button" class="quiet" data-cx-key-remove>Remove key</button>' : ''}
         <button type="button" class="quiet" data-cx-key-cancel>Cancel</button></div>
       <p class="cx-note" data-cx-key-error hidden></p></form>`;
   }
+  // The card's main button, and beside a 'connect' button the quiet one that opens the key field.
+  function buttons(item, action) {
+    if (action.kind === 'none') return '';
+    const one = (kind, label, quiet) => `<button type="button" class="${quiet ? 'quiet' : ''}" data-cx-action="${esc(kind)}" data-cx-id="${esc(item.id)}">${esc(label)}</button>`;
+    return one(action.kind, action.label, action.quiet) + (action.key ? one('key', action.key, true) : '');
+  }
   function card(item) {
     const copy = connectorsModel.COPY[item.id] || {name: item.id, does: ''};
     const status = connectorsModel.status(item), action = connectorsModel.action(item), note = connectorsModel.note(item);
-    const button = action.kind === 'none' ? '' : `<button type="button" class="${action.quiet ? 'quiet' : ''}" data-cx-action="${esc(action.kind)}" data-cx-id="${esc(item.id)}">${esc(action.label)}</button>`;
+    const button = buttons(item, action);
     const steps = copy.steps ? `<ol>${copy.steps.map(step => `<li>${esc(step)}</li>`).join('')}</ol>` : '';
     return `<article class="cx-card" data-cx-card="${esc(item.id)}" data-tone="${status.tone}">
       <div class="cx-card-head"><span class="cx-icon">${connectorsModel.ICONS[item.id] || ''}</span>
@@ -94,7 +115,7 @@ const connectorsPanel = (() => {
   function row(item) {
     const copy = connectorsModel.COPY[item.id] || {name: item.id, does: ''};
     const status = connectorsModel.status(item), action = connectorsModel.action(item), note = connectorsModel.note(item);
-    const button = action.kind === 'none' ? '' : `<button type="button" class="${action.quiet ? 'quiet' : ''}" data-cx-action="${esc(action.kind)}" data-cx-id="${esc(item.id)}">${esc(action.label)}</button>`;
+    const button = buttons(item, action);
     const steps = copy.steps ? `<ol>${copy.steps.map(step => `<li>${esc(step)}</li>`).join('')}</ol>` : '';
     const search = [copy.name, copy.does, copy.why, status.label, item.id.replace('_', ' ')].join(' ').toLowerCase();
     return `<div class="cx-row" data-cx-card="${esc(item.id)}" data-tone="${status.tone}" data-search="${esc(search)}">
@@ -121,6 +142,12 @@ const connectorsPanel = (() => {
         <p>Your agents use their own private browser to work on websites for you. It sets itself up.</p>
         <p class="cx-browser-detail" data-cx-browser-detail>Checking browser readiness…</p></div>
         <button type="button" class="quiet" data-cx-browser-retry hidden>Retry setup</button></div>
+      <section class="cx-accounts" data-cx-choice hidden>
+        <h3>Which browser each agent uses</h3>
+        <p>An agent’s own browser has its own website sign-ins. The Shared browser is one browser for every agent set to it: they share its sign-ins and each works in its own tabs. Switching restarts the browser; nothing is signed out or deleted.</p>
+        <p class="cx-error" data-cx-choice-error role="alert" hidden></p>
+        <div class="cx-rows" data-cx-choice-list></div>
+      </section>
       <section class="cx-accounts" data-cx-accounts hidden>
         <h3>Websites your agents can use as you</h3>
         <p>To connect a website, ask Ordubashy in Chat, for example “connect my Slack”. It opens Chrome on this computer and you sign in yourself: your password goes only to that website, and your agent keeps just the signed-in session. On a computer without a screen, Ordubashy asks you for the password and signs in for you.</p>
@@ -137,8 +164,12 @@ const connectorsPanel = (() => {
         <div class="${options.rows ? 'cx-rows' : 'cx-grid'}" data-cx-list><p class="muted small">Loading extensions…</p></div>
       </section>`;
     container.appendChild(root);
-    let view = null, browserView = null, browserTimer = 0, browserChecks = 0;
+    let view = null, browserView = null, browserTimer = 0, browserChecks = 0, choiceHtml = '';
+    // A status read that was already on its way, or returns while a choice is being saved, still shows the browser from before the
+    // choice; it must not replace the answer to the choice or redraw the old value in the menu.
+    let choosing = false, browserEpoch = 0;
     let accountsView = null, accountsTimer = 0;
+    const BROWSER_CHOICES = {own: 'Own browser', shared: 'Shared browser'};
     const SIGN_IN_STATUS = {true: ['Session saved', 'ok'], false: ['No session', 'warn'], null: ['Status unavailable while the browser is off', '']};
     function paintAccounts() {
       const section = root.querySelector('[data-cx-accounts]'), agents = accountsView?.agents;
@@ -178,38 +209,73 @@ const connectorsPanel = (() => {
     }
     const live = () => root.isConnected;
     const error = text => { const el = root.querySelector('[data-cx-error]'); el.textContent = text || ''; el.hidden = !text; };
+    const chromeDownloading = () => !!browserView && !browserView.chrome_installed &&
+      ['waiting', 'downloading'].includes(browserView.managed_chrome?.state);
     function paintBrowser() {
       const status = root.querySelector('[data-cx-browser-status]');
       const detail = root.querySelector('[data-cx-browser-detail]');
       const retry = root.querySelector('[data-cx-browser-retry]');
       if (!browserView) return;
       const ready = browserView.ready;
+      // Qorqbot downloads its own Chrome. Until it is there (and no Chrome is installed) the card says what the download
+      // is doing; "Chrome needed" is left for a computer where Qorqbot's own Chrome cannot be used.
+      const ownChrome = browserView.managed_chrome || {};
+      const downloading = chromeDownloading();
       status.textContent = ready ? 'Ready' : !browserView.tool_installed ? 'Tool missing' :
-        !browserView.chrome_installed ? 'Chrome needed' : 'Setup needed';
+        downloading ? 'Downloading' : !browserView.chrome_installed ? (ownChrome.state === 'failed' ? 'Download failed' : 'Chrome needed') : 'Setup needed';
       status.dataset.tone = ready ? 'ok' : 'warn';
       const agents = browserView.agents || [];
       const problems = agents.filter(agent => agent.state !== 'healthy')
         .map(agent => agents.length > 1 ? `${agent.name}: ${agent.explanation}` : agent.explanation);
       detail.textContent = ready ? `Ready for ${agents.map(agent => agent.name).join(', ')}.` :
         !browserView.tool_installed ? 'The tool agents use to control their browser isn’t installed. Quit and reopen Qorqbot to install it again.' :
-        !browserView.chrome_installed ? 'Agents need Google Chrome to browse, and it isn’t installed on this computer. Install it from google.com/chrome, then press Retry setup.' :
+        !browserView.chrome_installed ? ownChrome.explanation || 'Agents need Google Chrome to browse, and it isn’t installed on this computer. Install it from google.com/chrome, then press Retry setup.' :
         problems.join(' ') || 'Preparing agent browsers…';
       retry.hidden = ready || !browserView.tool_installed;
-      retry.disabled = !browserView.chrome_installed;
+      paintChoice(agents.filter(agent => agent.agent_id && (BROWSER_CHOICES[agent.browser] || agent.browser === 'damaged')));
+      retry.disabled = downloading || (!browserView.chrome_installed && !ownChrome.state);
       root.dispatchEvent(new CustomEvent('browser-setup-painted', {bubbles: true}));
+    }
+    // The list is rebuilt only when it changes, so a status refresh does not close a menu the owner has open.
+    function paintChoice(agents) {
+      const section = root.querySelector('[data-cx-choice]'), list = root.querySelector('[data-cx-choice-list]');
+      section.hidden = !agents.length;
+      const html = agents.map(agent => `<div class="cx-row cx-account-row" data-cx-choice-row="${esc(agent.agent_id)}"><div class="cx-row-main"><div class="cx-row-title"><h3>${esc(agent.name)}</h3></div></div>
+        <div class="cx-row-action"><select data-cx-choice-agent="${esc(agent.agent_id)}" aria-label="Browser for ${esc(agent.name)}">${
+          agent.browser === 'damaged' ? '<option value="" selected disabled>Choose…</option>' : ''}${
+          Object.entries(BROWSER_CHOICES).map(([value, label]) => `<option value="${value}"${value === agent.browser ? ' selected' : ''}>${label}</option>`).join('')}</select></div></div>`).join('');
+      if (html !== choiceHtml) list.innerHTML = choiceHtml = html;
+    }
+    async function choose(select) {
+      const problem = root.querySelector('[data-cx-choice-error]');
+      const menus = root.querySelectorAll('[data-cx-choice-agent]');
+      problem.hidden = true;
+      menus.forEach(menu => { menu.disabled = true; });
+      choosing = true; browserEpoch++;
+      try {
+        browserView = coreData(await post('/root/browser-setup', {action: 'choose', agent_id: select.dataset.cxChoiceAgent, browser: select.value}));
+      } catch (failure) {
+        if (live()) { problem.textContent = failure.message || 'The browser could not be switched.'; problem.hidden = false; }
+      } finally {
+        choosing = false; browserEpoch++;
+        choiceHtml = '';   // rebuild: the menus are enabled again and show the browser each agent really uses
+        if (live()) paintBrowser();
+      }
     }
     async function loadBrowser(retry = false) {
       const button = root.querySelector('[data-cx-browser-retry]');
       button.disabled = true;
+      const epoch = browserEpoch;
       try {
-        browserView = coreData(retry ? await post('/root/browser-setup', {action: 'retry'}) : await api('/root/browser-setup'));
-        if (live()) paintBrowser();
+        const next = coreData(retry ? await post('/root/browser-setup', {action: 'retry'}) : await api('/root/browser-setup'));
+        if (live() && !choosing && epoch === browserEpoch) { browserView = next; paintBrowser(); }
       } catch (failure) {
         if (live()) root.querySelector('[data-cx-browser-detail]').textContent = failure.message || 'Could not check browser setup.';
       } finally {
         if (live()) button.disabled = false;
         clearTimeout(browserTimer);
-        if (live() && !browserView?.ready && browserChecks++ < 12)
+        // A download takes minutes on a slow connection, so the card keeps checking for as long as it runs.
+        if (live() && !browserView?.ready && (chromeDownloading() || browserChecks++ < 12))
           browserTimer = setTimeout(() => loadBrowser(), 5000);
       }
     }
@@ -252,6 +318,12 @@ const connectorsPanel = (() => {
         form.hidden = !form.hidden;
         if (!form.hidden) form.elements.key.focus();
       }
+      // Signing in with the service leaves this page; it comes back connected (js/voice-input.js finishes the sign-in).
+      if (button.dataset.cxAction === 'connect' && typeof openrouterConnect !== 'undefined') {
+        button.disabled = true;
+        try { await openrouterConnect.start(); }
+        catch (failure) { if (live()) { error(failure.message || 'OpenRouter could not be opened.'); button.disabled = false; } }
+      }
     });
     // Saves the pasted key (or removes the saved one when `key` is null) through the connector's own extension route.
     async function saveKey(form, key) {
@@ -268,6 +340,10 @@ const connectorsPanel = (() => {
         buttons.forEach(button => { button.disabled = false; });
       }
     }
+    root.addEventListener('change', event => {
+      const select = event.target.closest('[data-cx-choice-agent]');
+      if (select) choose(select);
+    });
     root.addEventListener('submit', async event => {
       const form = event.target.closest('[data-cx-key]');
       if (!form) return;

@@ -383,7 +383,7 @@ class AgentActivity:
     def require_legacy_current_work(self, uow, subject):
         """Once a worker adopted Todo, its focus is the one current assignment and no second list is authored."""
         if self.todo_board(uow, subject) is not None:
-            raise DomainError('todo_focus_in_use', 'Your current work is your Todo focus now: use todo_get, '
+            raise DomainError('todo_focus_in_use', 'Your current work is your todo_focus now: use todo_get, '
                 'todo_add, todo_remove, attention_focus_set and attention_focus_clear. The old current-work record '
                 'stays stored for recovery and is no longer the assignment.')
 

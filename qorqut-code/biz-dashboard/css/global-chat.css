@@ -78,3 +78,11 @@
 .gchat-side-content{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;overflow:hidden}
 .gchat-side-content > .side-chat-footer{margin-top:0}
 .gchat-side-content > .side-chat-footer:has(> .ferr[hidden]){display:none}
+
+.gchat-takeover-head .gchat-takeover-title{flex:1;min-width:0}
+.gchat-takeover-head .gchat-thread-pin{flex:none;display:grid;place-items:center;width:30px;height:30px;min-height:30px;padding:6px;border:0;border-radius:var(--nav-control-radius);background:none;color:var(--fg-2)}
+.gchat-thread-pin svg{width:16px;height:16px}
+.gchat-thread-pin[aria-pressed="true"]{color:var(--fg)}
+.gchat-thread-pin[aria-pressed="true"] svg{fill:currentColor}
+.gchat-takeover-head .gchat-thread-details{flex:none;padding:4px 10px;min-height:30px;border:1px solid var(--line-2);border-radius:var(--r-full);background:none;color:var(--fg-2);font-size:12px;font-weight:400}
+.gchat-takeover-head .gchat-thread-pin:hover,.gchat-takeover-head .gchat-thread-details:hover{background:var(--hover);color:var(--fg)}

@@ -14,8 +14,8 @@ what was recorded as done in the same period, so the two can be compared without
   The list itself is ``tasks_overview(view="holders")``; it is not repeated here.
 
 Each section is read with the caller's grant for the equivalent read, and one that cannot be read is returned as
-``{"unavailable": code}`` while the others still answer. Every list is capped and says how many it left out. Nothing
-is written.
+``{"unavailable": code}`` while the others still answer. Every list is capped and says how many it left out. Records of
+archived projects are left out of every section. Nothing is written.
 """
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ import json
 
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import UUID, schema
+from qorqut_operations.business_lifecycle import in_active_business
 from qorqut_operations.contracts import DomainError, InvocationOptions
 
 from qorqut.domains.owner_inputs import MAX_HOURS, PAGE_LIMIT, TIME, cut, stamp
@@ -51,8 +52,9 @@ SCHEMA = schema({
 })
 
 # Work, not the Customer, Story or Email records that are stored as Tasks too. An archived Task still counts: closing
-# and archiving it on the same day does not make the work disappear from that day.
-PLAIN = "coalesce(json_extract(t.fields_json,'$.\"$task\".task_type'),'task')='task'"
+# and archiving it on the same day does not make the work disappear from that day. A Task of an archived project does not.
+PLAIN = ("coalesce(json_extract(t.fields_json,'$.\"$task\".task_type'),'task')='task' AND "
+         + in_active_business("t.business_id"))
 TASK = "t.business_id AS business_id, t.id AS id, t.title AS title, t.status AS status, t.fields_json AS fields_json"
 CHANGES = ("thread_messages m JOIN tasks t ON t.business_id IS m.business_id AND t.id=m.item_id "
            f"WHERE m.kind='system' AND m.item_type='task' AND m.created_at>=:since AND m.created_at<:until AND {PLAIN} "
@@ -66,9 +68,10 @@ CHANGED = {
 }
 CREATED = (f"tasks t WHERE t.created_at>=:since AND t.created_at<:until AND {PLAIN} "
            "AND (:actor IS NULL OR t.created_by=:actor)")
-ACTIONS = ("action_logs a WHERE a.withdrawn=0 AND a.created_at>=:since AND a.created_at<:until "
+ACTIONS = (f"action_logs a WHERE {in_active_business('a.business_id')} AND a.withdrawn=0 AND a.created_at>=:since AND a.created_at<:until "
            "AND (:actor IS NULL OR coalesce(a.performed_by,a.recorded_by)=:actor)")
 NOTES = ("thread_messages m JOIN principals p ON p.id=m.author_id AND p.kind='agent' WHERE m.kind='comment' "
+         f"AND {in_active_business('m.business_id')} "
          "AND coalesce(json_extract(m.attribution_json,'$.audience'),'')='owner' AND m.created_at>=:since AND m.created_at<:until "
          "AND (:actor IS NULL OR m.author_id=:actor)")
 THREAD_REPLIES = ("owner_conversation_messages m JOIN owner_conversations c ON c.id=m.conversation_id WHERE c.peer_agent_id IS NULL "

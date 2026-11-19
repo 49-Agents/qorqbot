@@ -22,11 +22,15 @@ def _payload_version(root):
         return None
 
 
-def about_view(environ=None) -> dict:
+def about_view(environ=None, runtime_directory=None) -> dict:
     """The Qorqbot version, where it keeps its program, data and logs (folder installs set QORQUT_FOLDER_ROOT), and whether
-    Google Chrome is installed: the agents' own browsers run on it, and Qorqbot cannot install it for the owner."""
+    the owner has to install Google Chrome. The agents' browsers run on Chrome; Qorqbot downloads its own, so
+    ``chrome_installed`` is false only when no Chrome is installed and Qorqbot's own cannot be used on this computer."""
     from qorqut.connectors import host_platform
     from qorqut.native_paths import installed_chrome
+    from qorqut.browser import managed_chrome
+    own = runtime_directory is not None and managed_chrome.view(runtime_directory)["state"] in {
+        "ready", "waiting", "downloading", "failed"}
     env = os.environ if environ is None else environ
     root = env.get("QORQUT_FOLDER_ROOT")
     folder = Path(root) if root and Path(root).is_absolute() else None
@@ -35,7 +39,7 @@ def about_view(environ=None) -> dict:
             "install_folder": str(folder) if folder else None,
             "data_folder": str(instance) if instance and instance.is_dir() else None,
             "logs_folder": str(instance / "logs") if instance and (instance / "logs").is_dir() else None,
-            "platform": host_platform(), "chrome_installed": installed_chrome() is not None}
+            "platform": host_platform(), "chrome_installed": installed_chrome() is not None or own}
 
 
 def _run(run, command, env):

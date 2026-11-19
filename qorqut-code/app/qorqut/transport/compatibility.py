@@ -177,10 +177,9 @@ class DashboardCompatibility:
     def agent_view(self, context, profile):
         if profile.get("archival_record"):
             return profile
-        plan = self.data(context, "plans_get", {"agent_id": profile["agent_id"]})["document"] or {}
         notes = self.data(context, "notes_list", {"agent_id": profile["agent_id"], "limit": 30})["items"]
         return {**profile, **self.appearance(profile), "agent_yaml": yaml.safe_dump({"generated": True, **profile}, sort_keys=False),
-                "plan": plan.get("body", ""), "notes": [Path(note["path"]).name for note in notes],
+                "notes": [Path(note["path"]).name for note in notes],
                 "sessions": self.local_files.session_names(context.business_id, profile["agent_id"]), "learnings": ""}
 
     def assignees(self, context):
@@ -330,7 +329,7 @@ class DashboardCompatibility:
                 profiles = self.data(context, "agents_list", {"include_inactive": request.query_params.get("include_inactive") == "true"})["agents"]
                 return JSONResponse([{**profile, **self.appearance(profile)} for profile in profiles] if request.query_params.get("summary") == "1"
                     else [self.agent_view(context, profile) for profile in profiles])
-            # agent_view() also reads plans/notes (documents) per profile; summary
+            # agent_view() also reads notes (documents) per profile; summary
             # mode does not, but declaring the union for both is simpler and only
             # costs summary mode an occasional extra miss, never a stale one.
             return revalidated(request, self.runtime.changes, {"agents", "documents"}, context.business_id, produce)

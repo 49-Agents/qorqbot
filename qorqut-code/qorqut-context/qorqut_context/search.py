@@ -143,40 +143,63 @@ class SQLiteIndex:
             db.execute("UPDATE state SET revision = ? WHERE singleton=1", (changes.revision,))
 
     def search(self, revision, query="", *, kind=None, attributes=None, limit=20):
+        return self.matched(revision, query, kind=kind, attributes=attributes, limit=limit)[0]
+
+    def matched(self, revision, query="", *, kind=None, attributes=None, limit=20):
+        """The hits and how the query matched: ``all``, ``any`` or ``browse`` (an empty query, in key order).
+
+        Every word is a literal word or prefix. Records holding every word come first, most relevant first (bm25,
+        then key); records holding only some of the words follow, ranked the same way. ``all`` says at least one
+        record holds every word, ``any`` that none does. The order depends on the revision, query and filters alone,
+        never on ``limit``, so paging through one query stays stable."""
         if not isinstance(query, str) or kind not in (None, "node", "edge", "note", "source"):
             raise ContextError("Invalid search text or record kind")
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise ContextError("limit must be an integer between 1 and 1000")
         filters = normalize_attributes(attributes or {})
-        tokens = re.findall(r"\w+", query, re.UNICODE)
-        match = " AND ".join('"' + word + '"*' for word in tokens)
+        tokens = list(dict.fromkeys(re.findall(r"\w+", query, re.UNICODE)))
+        if not tokens and query.strip():
+            return [], "all"
         with sqlite3.connect(self.path) as db:
             db.execute("BEGIN")
             row = db.execute("SELECT revision FROM state WHERE singleton=1").fetchone()
             if row is None or row[0] != revision:
                 raise StaleIndex("Search index does not represent the requested revision")
-            sql, parameters = "SELECT r.* FROM records r", []
-            predicates = []
-            if tokens:
-                sql += " JOIN words w ON r.key=w.key"
-                predicates.append("words MATCH ?")
-                parameters.append(match)
-            elif query.strip():
-                return []
-            if kind:
-                predicates.append("r.kind = ?")
-                parameters.append(kind)
-            if predicates:
-                sql += " WHERE " + " AND ".join(predicates)
-            sql += " ORDER BY r.key"
-            result = []
-            for _, record_kind, record_id, body, attrs_json, content_hash in db.execute(sql, parameters):
-                attrs = json.loads(attrs_json)
-                if any(not {value_key(v) for v in values} <=
-                       {value_key(v) for v in attrs.get(name, [])}
-                       for name, values in filters.items()):
-                    continue
-                result.append(SearchHit(record_kind, record_id, revision, content_hash, body))
-                if len(result) == limit:
-                    break
-            return result
+            if not tokens:
+                return self._select(db, revision, None, kind, filters, limit), "browse"
+            hits = self._select(db, revision, " AND ".join('"' + word + '"*' for word in tokens), kind, filters, limit)
+            mode = "all" if hits or len(tokens) == 1 else "any"
+            if len(tokens) > 1 and len(hits) < limit:
+                # One- and two-letter words carry no meaning as prefixes ("is" would match "issue"), so the partial
+                # matches leave them out whenever the query has longer words.
+                words = [word for word in tokens if len(word) >= 3] or tokens
+                seen = {(hit.kind, hit.id) for hit in hits}
+                partial = self._select(db, revision, " OR ".join('"' + word + '"*' for word in words), kind, filters,
+                                       limit + len(hits))
+                hits += [hit for hit in partial if (hit.kind, hit.id) not in seen][:limit - len(hits)]
+            return hits, mode
+
+    @staticmethod
+    def _select(db, revision, match, kind, filters, limit):
+        sql, parameters, predicates = "SELECT r.* FROM records r", [], []
+        if match:
+            sql += " JOIN words ON r.key=words.key"
+            predicates.append("words MATCH ?")
+            parameters.append(match)
+        if kind:
+            predicates.append("r.kind = ?")
+            parameters.append(kind)
+        if predicates:
+            sql += " WHERE " + " AND ".join(predicates)
+        sql += " ORDER BY bm25(words), r.key" if match else " ORDER BY r.key"
+        result = []
+        for _, record_kind, record_id, body, attrs_json, content_hash in db.execute(sql, parameters):
+            attrs = json.loads(attrs_json)
+            if any(not {value_key(v) for v in values} <=
+                   {value_key(v) for v in attrs.get(name, [])}
+                   for name, values in filters.items()):
+                continue
+            result.append(SearchHit(record_kind, record_id, revision, content_hash, body))
+            if len(result) == limit:
+                break
+        return result

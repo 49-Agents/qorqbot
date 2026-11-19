@@ -82,7 +82,9 @@ There is no relevance ranking. Notices identify omitted eligible context.
 Feel free to explore the context base yourself, including beyond X and Y.
 
 Search names and aliases, inspect records, follow relationships, and read
-supporting source revisions when necessary. Notes are a separate collection:
+supporting source revisions when necessary. search_context returns the most
+relevant records first: records holding every word of the query, then records
+holding only some of them, so try each form of a name the source uses. Notes are a separate collection:
 search them with kind note, and use list_linked_notes to find the notes that link
 an entity or relationship. A sample of existing notes is included in the
 bootstrap; it is not the complete set, and a note can exist without any entity match. Reuse existing IDs when the

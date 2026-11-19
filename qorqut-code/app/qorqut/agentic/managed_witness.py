@@ -194,7 +194,11 @@ class _WitnessInventory(Inventory):
     The installed Agentic library can add aliases after an intent was sealed.
     Those later files must not enter the older intent's closed instruction tree.
     Files actually present in its witness still undergo the full inventory checks.
+    It can also retire an alias the intent used: the replay still resolves it,
+    because the retained text is in the witness, not in the installed library.
     """
+
+    include_retired_aliases = True
 
     def supplier(self, source, path):
         supplier, target = super().supplier(source, path)

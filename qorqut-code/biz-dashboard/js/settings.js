@@ -44,7 +44,7 @@ async function renderSettings(c) {
     <p class="st-help">Changes apply to new agent sessions and later jobs. Agents already running keep their current environment.</p>`;
   const look = appearance.get(), alerts = desktopNotify.prefs();
   const body = {
-    connections: `<div class="st-block" data-search="connections browser websites extensions treg whatsapp" data-connectors-slot></div>`,
+    connections: `<div class="st-block" data-search="connections browser websites extensions openrouter voice input microphone treg whatsapp" data-connectors-slot></div>`,
     agents: `<div class="st-rows" data-agent-clients></div>
       <div class="st-block" data-search="agents client model effort claude codex"><h3 class="ao-title">Client, model and effort</h3>
         <p class="st-help ao-intro">What each agent runs on. Leave a field empty to use the default.</p><div data-agent-options></div></div>
@@ -61,6 +61,10 @@ async function renderSettings(c) {
         help: 'When an agent answers you while the dashboard is in the background.', control: settingsSwitch('replies', alerts.replies, 'Desktop notifications for agent replies')})}
       ${settingsRow({label: 'Signoffs waiting on you', keywords: 'notify alert approval signoff decision desktop',
         help: 'When an approval or decision needs you.', control: settingsSwitch('signoffs', alerts.signoffs, 'Desktop notifications for Signoffs')})}
+      ${settingsRow({label: 'Reminders', keywords: 'notify alert reminder due desktop',
+        help: 'When one of your reminders is due.', control: settingsSwitch('reminders', alerts.reminders, 'Desktop notifications for due reminders')})}
+      ${settingsRow({label: 'Failed routines', keywords: 'notify alert routine failed failure error desktop',
+        help: 'When a routine run fails.', control: settingsSwitch('routines', alerts.routines, 'Desktop notifications for failed routines')})}
       ${settingsRow({label: 'Test', keywords: 'notification permission test', help: '<span data-notify-status></span>',
         control: '<button type="button" class="quiet" data-notify-test>Send a test</button>'})}</div>`,
     environment: `<div class="st-block" data-search="environment variables api keys env secrets token">${environment}</div>`,

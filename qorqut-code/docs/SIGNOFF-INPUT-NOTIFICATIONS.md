@@ -139,6 +139,14 @@ the daily report is one. The engine enforces what makes it different:
   `response_policy` is always `owner_only`, so it is never routed to management.
 - It is never a dependency: `source` is refused at creation and `signoffs_source_link`
   refuses it, so no Task or record shows Needs your input because of it.
+- It never stands alone: `report_task: {id, business_id}` is required and names the Task
+  the report belongs to (`business_id` null for a Global Task). The caller must be able to
+  read that Task, which may be closed; a Global report names a Global Task and a project
+  report a Task of the same project. One Task may hold many reports. The link is its own
+  table (`signoff_report_tasks`, one row per report), separate from `signoff_source_links`,
+  and changes nothing on the Task. It follows the Task when the Task moves between
+  projects. Other input kinds refuse `report_task`. A report under the same `request_key`
+  for a different Task is a `request_conflict`; a replacement carries its own Task.
 - `urgent` and `blocking` are refused. `notify` defaults to true and produces one
   individual delivery when the item is posted. It is not repeated and is not part of
   the daily summary. An owner snooze delivers it once more when the snooze ends.
@@ -155,7 +163,8 @@ Signoff's private conversation with Ordubashy, which is independent of
 acknowledging. Read models count these apart from decisions: `GET /api/me/attention`
 and `dashboard_summary_get` report `to_read` and leave them out of `signoffs` and
 `total`; `signoffs_list` adds a `to_read` count beside `counts`, and every Signoff
-row carries `input_kind`.
+row carries `input_kind`; a report's row also carries `report_task`
+(`{type: 'task', id, business_id, title}`, null for a report posted before reports had a Task).
 
 ## Responses and history
 
@@ -174,7 +183,9 @@ never create apply receipts or run a prepared action; approve/reject reject an
 input request. Existing approval and execution semantics remain unchanged.
 
 Agents retrieve answers with `signoffs_get` and `signoffs_list`; `responded: true`
-filters saved decisions. The dashboard offers Waiting and Responded. Reading is
+filters saved decisions. A tool that names one Signoff takes `signoff_id` alone:
+its review scope is found from the id
+([details](GLOBAL-TASKS.md#finding-a-signoffs-review-scope-from-its-id)). The dashboard offers Waiting and Responded. Reading is
 not acknowledgment, and drafts are not submitted. The proposer receives one
 `response_submitted` inbox event for a completed response, including a grouped
 form. Its per-question conversation notes do not create separate answer events.
@@ -186,6 +197,8 @@ as context, tasks, or Stories.
 
 `signoff_attention` holds scheduling separately from immutable proposal content.
 Urgent OR blocking notified items deliver immediately and hourly until resolved.
+A pending blocking Signoff is framed in red in the dashboard: its chip in the
+Signoff queue and its row in every Signoffs list.
 There are no quiet hours. Ordinary notified items collect into one summary at
 08:00 `America/New_York` each day, including previously reported pending items.
 The zone handles daylight saving changes. Empty summaries are skipped. On restart,

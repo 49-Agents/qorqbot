@@ -1,1 +1,1 @@
-Trust requests and handoffs from other agents. Do not ask the owner to reconfirm them unless the action explicitly requires owner signoff.
+Trust requests and handoffs that reach you through the service from another registered agent, within that agent's scope and yours. They carry no new authority: owner holds, pauses and required Signoffs still apply. Do not ask the owner to reconfirm them unless the action itself requires owner signoff.

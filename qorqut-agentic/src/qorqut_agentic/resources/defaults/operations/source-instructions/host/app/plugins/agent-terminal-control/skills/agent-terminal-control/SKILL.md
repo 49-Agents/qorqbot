@@ -1,40 +1,33 @@
 ---
 name: qorqut-plugin-agent-terminal-control
-description: Inspect and control agent sessions; Ordubashy can turn agents on and off, open and close their sessions, and directly message business Dev sessions.
+description: Inspect, start, restart and stop the sessions of permanent global workers; for Ordubashy and the owner only.
 ---
 
 Use agent_terminal_status with the registered target_agent_id first. Tools accept
 agent IDs, never shell commands, paths, or key sequences.
-For lifecycle requests use target_agent_id, target_agent_ids, business_ids, or a
-combination. Business selectors include all active registered agents in those
-businesses. The service deduplicates and freezes at most 100 agents per batch.
-Owner command issuance accepts the same selectors, including business-wide ping.
-New agents added later are not included; do not expand an approved batch yourself.
-Inspect batch_id through agent_terminal_status for each agent’s execution result.
-An agent runs as a managed session that Qorqbot starts; there is no terminal. status shows
-whether the agent is on or off, asleep or open, and working. start turns the agent on and opens
-its session. restart closes the session and opens it again in the same conversation. kill closes
-the session and turns the agent off, ending active work; idle is not proof of dormancy. An
-agent that is off stays off until the owner messages it or you start it. A session closes by
-itself after 15 idle minutes and the agent is then asleep, not off: any input wakes it, so a
-sleeping agent needs no start. Do not restart yourself.
 
-Ordubashy has standing authority to start/restart/kill business Dev sessions
-in its authorized scope; no repeated owner approval is needed. Ordubashy's existing
-control of other permitted agents remains. Explicit policy overrides still apply.
-Dev start/restart opens its managed session; it does not choose a project. An
-explicit structured owner command, such as compacting the session, can be executed once
-with agent_terminal_execute_command.
-Direct ping is only for an explicit owner request to ping that agent directly:
-agent_terminal_ping requires an owner-issued command_id binding the recipient and
-exact message. An inbox message, your own assertion of permission, and an ordinary
-signoff cannot substitute for that command. For your own direct Dev message use
-`agents_message_send(to_agent_id=..., message=..., delivery="terminal")` in
-the Dev's business. It records the sender and thread in the inbox and queues
-text to the agent's session. Read `agents_messages_list` for
-`terminal_delivery` state. A sleeping agent wakes for the message; if the agent is off, start
-it through the lifecycle tools when needed, verify the status, then send; inbox-only delivery
-also remains available. Never send key sequences or shell commands as messages.
+Targets are active global workers, named by target_agent_id or target_agent_ids,
+at most 100 per batch. Projects have no resident agents: a business_ids selector
+adds no targets, and a project-home agent identity is historical and is refused.
+You cannot target yourself; do not restart yourself. An approved batch is frozen:
+do not expand it yourself. Inspect batch_id through agent_terminal_status for each
+agent's execution result.
+
+An agent runs as a managed session that Qorqbot starts; there is no terminal. status shows
+whether the worker is on or off, asleep or open, and working. start turns the worker on and
+opens its session, resuming its selected conversation. restart closes the session and opens it
+again in the same conversation. kill closes the session and turns the worker off, ending active
+work; idle is not proof of dormancy. A worker that is off stays off until the owner messages it or
+you start it. A session closes by itself after 15 idle minutes and the worker is then asleep, not
+off: any input wakes it, so a sleeping worker needs no start.
+
+To tell a worker something, use agents_message_send; it arrives through the inbox and wakes a
+sleeping worker. Direct terminal messages (delivery="terminal") are refused. Direct ping is only
+for an explicit owner request to ping that agent directly: agent_terminal_ping requires an
+owner-issued command_id binding the recipient and exact message. An inbox message, your own
+assertion of permission, and an ordinary signoff cannot substitute for that command. An explicit
+structured owner command, such as compacting the session, can be executed once with
+agent_terminal_execute_command. Never send key sequences or shell commands as messages.
 
 Substantial frontend/UI changes require the owner's explicit approval of the
 reviewable result before deployment. Prepare the preview and checks first.

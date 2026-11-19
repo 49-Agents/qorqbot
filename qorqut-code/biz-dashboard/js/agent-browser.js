@@ -33,13 +33,19 @@ function agbrowserSurfaces(p, force = false) {
   }).finally(() => { if (p.surfacesPending === pending) p.surfacesPending = null; });
 }
 
-// Mount-time discovery only decides whether a global agent's own Browser tab is offered.
+// Mount-time discovery only decides whether a global agent's own Browser tab is offered: for a configured viewer,
+// or for the agent's built-in browser (shown live by agent-browser-live.js), running or not. In a Focus pane the
+// Browser tab is the launcher chip, which is painted before this answer arrives, so it is painted again.
 function agbrowserDiscover(p) {
   if (!p.agentId || p.workspaceScope !== 'global') return;
-  agbrowserSurfaces(p).then(() => { if (_agpad === p) agpadWorkspaceViewsSync(p); }).catch(() => {});
+  const sync = () => { if (_agpad === p) { agpadWorkspaceViewsSync(p); p.focusSurfaces?.paint?.(); } };
+  agbrowserSurfaces(p).then(sync).catch(() => {});
+  if (typeof aglivePath !== 'function') return;
+  api(aglivePath(p.agentId)).then(coreData).then(() => true, error => error?.code === 'browser_not_ready')
+    .then(built => { if (built) { p.liveBrowser = true; sync(); } });
 }
 
-function agbrowserTab(p) { return p.workspaceScope === 'global' && !!(p.browserRequested || p.surfaces?.browsers.length); }
+function agbrowserTab(p) { return p.workspaceScope === 'global' && !!(p.browserRequested || p.surfaces?.browsers.length || p.liveBrowser); }
 
 const AGBROWSER_ICON_RECONNECT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.5-4.4L4 8.5M4 4v4.5h4.5M4 13a8 8 0 0 0 14.5 4.4l1.5-1.9M20 20v-4.5h-4.5"/></svg>';
 const AGBROWSER_ICON_MAIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 7 8.5 6 8.5-6"/></svg>';
@@ -142,12 +148,21 @@ async function agbrowserMount(p, reconnect = false, ctx = null) {
   if (ctx) ctx.reset();
   p.browserFrameDispose?.();
   const request = p.browserRequest = (p.browserRequest || 0) + 1;
-  const dispose = () => { p.browserRequest++; p.browserFrameDispose?.(); };
+  let liveDispose = null;
+  const dispose = () => { p.browserRequest++; p.browserFrameDispose?.(); liveDispose?.(); };
   if (ctx) ctx.onDispose(dispose); else p.workspaceDispose = dispose;
   const current = () => (ctx ? ctx.current() : agpadActive(p) && p.view === 'browser') && p.browserRequest === request && body.isConnected;
   agbrowserStatus(p, body, 'Loading browser…', 'status', null, ctx);
-  let surfaces;
-  try { surfaces = await agbrowserSurfaces(p, reconnect); } catch (error) {
+  let surfaces = null, failed = false;
+  try { surfaces = await agbrowserSurfaces(p, reconnect); } catch (error) { failed = true; }
+  if (!current()) return;
+  // Without a configured viewer, the agent's built-in browser is shown live; when finding out failed, the error is shown, not this.
+  if (!failed && !surfaces?.browsers.length && typeof agliveMount === 'function') {
+    agliveMount(p.agentId, body, {current, onDispose: fn => { liveDispose = fn; },
+      bar: ctx ? '' : agbrowserModeToggle(p, 'browser'), wire: host => agbrowserWireMode(p, host)});
+    return;
+  }
+  if (failed) {
     if (current()) agbrowserStatus(p, body, ctx ? 'Couldn’t load. Open Browser again to retry.' : "Couldn't load. Retry", 'alert', () => agbrowserMount(p, true, ctx), ctx);
     return;
   }

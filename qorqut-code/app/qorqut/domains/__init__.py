@@ -32,7 +32,7 @@ from qorqut_operations.application.plans import utc_clock
 from qorqut.composition.catalog import install_contribution
 from .business_creation.access import creator_actor
 from .costs import CostOperations
-from .working_memory import WorkingMemory
+from .agent_context import AgentContext
 from .owner_actions import OwnerActions
 from .business_progress import BusinessProgress
 from .business_briefing import BusinessBriefing
@@ -55,7 +55,7 @@ class BusinessDomains:
     related: RelatedResources
     reviews: ContextReviews
     business_creation: BusinessCreationOperations
-    working_memory: WorkingMemory
+    agent_context: AgentContext
     archive: BusinessArchive
     context_sources: ContextSourceOperations = None
     context_questions: ContextQuestionOperations = None
@@ -91,7 +91,7 @@ def register_business_domains(registry, application, paths, *, agent_resolver, q
     assets = AssetOperations(documents.store, additional_references=no_additional_asset_references, clock=clock)
     data_uploads = DataUploadOperations(documents.store, clock=clock)
     DevTickets().register(registry)
-    viewbox = AgentViewbox(application, clock=clock).register(registry)
+    viewbox = AgentViewbox(application, clock=clock)
     IncidentOperations(application).register(registry)
     BusinessProgress(clock=clock).register(registry)
     BusinessBriefing(application, clock=clock).register(registry)
@@ -115,7 +115,7 @@ def register_business_domains(registry, application, paths, *, agent_resolver, q
     # Actions and the Context input queue. Their handlers install here.
     tags = TagOperations(clock=clock)
     tasks = TaskOperations(application, neutral.items, task_ports(application, extensions.note_derivations()), clock=clock)
-    actions = ActionOperations(application, tasks.note_references(), on_revision=on_revision, clock=clock)
+    actions = ActionOperations(application, tasks.note_references(), tasks=tasks, on_revision=on_revision, clock=clock)
     for contribution in (tags.contribution(), tasks.contribution(), actions.contribution(), queue.contribution()):
         install_contribution(registry, contribution)
     # The Operations CRM Domain: composed over the Table service, Tasks and the neutral items. Tables dispatch CRM rows to
@@ -140,9 +140,9 @@ def register_business_domains(registry, application, paths, *, agent_resolver, q
     )
     business_creation.register(registry)
     CostOperations(clock=clock).register(registry)
-    memory = WorkingMemory(application, documents, agent_resolver, clock=clock)
-    memory.register(registry)
+    agent_context = AgentContext(application, agent_resolver, clock=clock)
+    agent_context.register(registry)
     if agent_resolver is not None:
-        agent_resolver.working_memory = memory
-    documents.register(registry, application, working_memory=memory, shared_context=shared_context)
-    return BusinessDomains(tasks, activity, documents, assets, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, business_creation, memory, archive, context_sources=context_sources, context_questions=context_questions, shared_context=shared_context, viewbox=viewbox, actions=actions, tags=tags, queue=queue, crm=crm, records_health=records_health)
+        agent_resolver.startup_context = agent_context
+    documents.register(registry, application, shared_context=shared_context)
+    return BusinessDomains(tasks, activity, documents, assets, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, business_creation, agent_context, archive, context_sources=context_sources, context_questions=context_questions, shared_context=shared_context, viewbox=viewbox, actions=actions, tags=tags, queue=queue, crm=crm, records_health=records_health)

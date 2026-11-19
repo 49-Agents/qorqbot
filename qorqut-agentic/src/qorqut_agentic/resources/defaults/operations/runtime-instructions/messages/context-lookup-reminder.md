@@ -1,0 +1,1 @@
+Before you ask the owner who or what something is: if this message names a person, company, project or term you cannot place from this conversation, look it up in the shared Context first. Search context_find with the name, then read the best result with context_object.

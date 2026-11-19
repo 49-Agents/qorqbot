@@ -286,6 +286,7 @@ function recordWorkspaceMount(host, options = {}) {
       <button type="button" class="quiet rw-back" aria-label="Back" hidden>← Back</button>
       <span class="rw-context" hidden>CRM /</span><span class="rw-title" role="heading" aria-level="2"></span>
       <button type="button" class="quiet rw-move" hidden>Move to project…</button>
+      <button type="button" class="quiet rw-open-thread" hidden>Open thread</button>
       <button type="button" class="quiet rw-pin" aria-pressed="false" hidden>${RW_PIN_ICON}</button>
       <div class="rw-tabs" role="tablist" aria-label="Record views"></div>${closeIcon}
     </header><div class="rw-body"><div class="rw-pane rw-dashboard" role="tabpanel" tabindex="0"></div><div class="rw-pane rw-activity" role="tabpanel" tabindex="0" hidden></div><div class="rw-pane rw-chat" role="tabpanel" tabindex="0" hidden><div class="agfocus-conversation rw-conversation"></div></div></div>`;
@@ -306,6 +307,16 @@ function recordWorkspaceMount(host, options = {}) {
     item.moveButton = item.recordEl.querySelector('.rw-move');
     item.moveButton.onclick = () => { void moveRecord(item); };
     paintMove(item);
+    item.openThreadButton = item.recordEl.querySelector('.rw-open-thread');
+    paintOpenThread(item);
+    item.openThreadButton.onclick = async () => {
+      const button = item.openThreadButton;
+      if (button.disabled) return;
+      button.disabled = true;
+      try { await openOwnThread(item); }
+      catch (error) { toast(error.message || 'This thread is unavailable.'); }
+      finally { if (item.alive) button.disabled = false; }
+    };
     item.pinButton = item.recordEl.querySelector('.rw-pin');
     item.pinButton.onclick = () => { void togglePin(item); };
     item.unpinWatch = typeof threadPins !== 'undefined' ? threadPins.subscribe(() => paintPin(item)) : null;
@@ -595,12 +606,40 @@ function recordWorkspaceMount(host, options = {}) {
     }
   }
   // Focus can pin a record's thread to its top row, beside the open side chats.
+  // The conversation a record's Pin and Open thread act on. A report has none of its own: its thread is the
+  // Task it belongs to, known once the report has loaded (an older report without one has no thread).
+  function threadRecord(item) {
+    if (item.report) return item.reportThread;
+    return item.record?.can_thread ? item.record : null;
+  }
+  function paintOpenThread(item) {
+    if (item.openThreadButton) item.openThreadButton.hidden = !(options.paired && options.independentChat && threadRecord(item));
+  }
+  function openOwnThread(item) {
+    const thread = threadRecord(item);
+    if (!thread) return false;
+    return options.onPairedSource?.(thread, item.report ? null : item.pairedParent);
+  }
+  function setReportThread(item, task) {
+    if (!item.alive) return;
+    const thread = task?.id ? rwRecordFromItem({source: {type: 'task', id: task.id, business_id: task.business_id ?? null,
+      label: task.title || task.label || null}}, {can_thread: true}) : null;
+    const key = thread ? rwSourceKey(thread.source) : '';
+    if (item.report && item.reportKey === key) return;
+    item.report = true; item.reportKey = key; item.reportThread = thread;
+    // The report's own Chat tab would be a second, separate conversation.
+    item.tabs?.querySelector('[data-rw-tab="chat"]')?.remove();
+    if (item.tab === 'chat') selectTab(item, 'dashboard');
+    paintPin(item); paintOpenThread(item);
+    // Opening a report opens its Task's thread in the Chat area beside Focus.
+    if (thread && options.paired && options.independentChat) void Promise.resolve(openOwnThread(item)).catch(() => {});
+  }
   function pinnable(item) {
-    return options.entry === 'focus' && typeof threadPins !== 'undefined' && !!item.record?.can_thread && !item.record.scopeMissing;
+    return options.entry === 'focus' && typeof threadPins !== 'undefined' && !!threadRecord(item) && !item.record.scopeMissing;
   }
   function paintPin(item) {
     if (!item.alive || !item.pinButton) return;
-    const on = pinnable(item) && threadPins.isPinned(item.record.source);
+    const on = pinnable(item) && threadPins.isPinned(threadRecord(item).source);
     item.pinButton.hidden = !pinnable(item);
     item.pinButton.setAttribute('aria-pressed', String(on));
     const label = on ? 'Unpin thread from Focus' : 'Pin thread to Focus';
@@ -609,7 +648,8 @@ function recordWorkspaceMount(host, options = {}) {
   async function togglePin(item) {
     if (!pinnable(item) || item.pinButton.getAttribute('aria-busy') === 'true') return;
     item.pinButton.setAttribute('aria-busy', 'true');
-    try { await threadPins.set(item.record.source, item.record.label, !threadPins.isPinned(item.record.source)); }
+    const thread = threadRecord(item);
+    try { await threadPins.set(thread.source, thread.label, !threadPins.isPinned(thread.source)); }
     finally { item.pinButton?.removeAttribute('aria-busy'); paintPin(item); }
   }
   function removeEntry(item) {
@@ -689,7 +729,7 @@ function recordWorkspaceMount(host, options = {}) {
     }
   }
   async function pairedSelect(record, parentTable) {
-    if (!options.paired || typeof options.onPairedSource !== 'function') return true;
+    if (!options.paired || options.independentChat || typeof options.onPairedSource !== 'function') return true;
     return (await options.onPairedSource(record || null, parentTable || null)) !== false;
   }
   async function invalidate(record) {
@@ -883,6 +923,7 @@ function recordWorkspaceMount(host, options = {}) {
           alive, navigate, workspace, entry: item, options,
           markCrmTable(table) { if (alive()) item.crmTable={type:'table',id:table.id,business_id:table.business_id ?? null,label:table.label || table.title || item.record.label || 'CRM'}; },
           unavailable: () => rwRecordUnavailable(item), revalidateProject,
+          report: task => setReportThread(item, task),
           adoptTaskType, normalizeTaskType, changed, moved, prefetchedTask,
           // The Project's real name and the task's own source title can differ from the card label.
           title(next) {
@@ -1267,6 +1308,8 @@ function rwSignoffDashboard(host, record, ctx) {
     item: () => ({id: record.source.id, businessId: record.source.business_id ?? null}),
     dropOnDenied: true,
     onUnavailable: () => { void ctx.unavailable?.(); },
+    // A report's conversation is its Task's thread, not one of its own.
+    onSelectedItem: s => { if (typeof sgIsAcknowledge === 'function' && sgIsAcknowledge(s)) ctx.report?.(s.report_task || null); },
   });
   queueMicrotask(() => { if (ctx.alive() && host.isConnected) view.paint(); });
   return {dirty: () => view.hasUnsaved(), hasUnsaved: () => view.hasUnsaved(), save: () => view.save(),

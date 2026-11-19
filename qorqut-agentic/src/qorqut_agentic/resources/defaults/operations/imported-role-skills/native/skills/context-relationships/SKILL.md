@@ -101,6 +101,40 @@ storage or discard queued work. If a failure repeats, stays unresolved or you ar
 you are authorized, report the concrete blocker to the owner (input, state, error) instead of
 retrying in a loop.
 
+### A blocked input is the coordinator's, and the owner's when it stays blocked
+
+One blocked input stops Context for every project: nothing filed after it is processed
+until it is retried or discarded. Ordubashy receives a required `context.input_blocked`
+notice for each blocked attempt, and owns it. A worker that finds `queue_blocked` reports
+it to Ordubashy and does not retry another scope's input.
+
+As Ordubashy, when the notice arrives or you find the queue blocked:
+
+1. Read the input with `context_queue_get` in its scope: its state, attempt and error.
+2. Request one `context_queue_retry` with the observed `expected_state`, then read the
+   input again.
+3. If it published, nothing more is needed. If it is blocked again, or the error is one a
+   retry cannot fix (the model command is not signed in or not installed, a refused
+   edit, a missing source), stop retrying and raise it to the owner as a blocking Signoff.
+
+The blocking Signoff is one `signoffs_input_create` in the input's scope (`scope: global`
+for a Global input): request key `context-blocked-<input id>`, `response_policy:
+owner_only`, `attention: {notify: true, blocking: true, reason}` where the reason says
+that Context is stopped for every project until this is resolved. Title it "Context is
+blocked". Its explanation says in plain words what was being filed, what went wrong and
+what you already tried, without internal IDs. Offer the choices that fit: `retry` (try
+again, after the owner has fixed what the error names), `discard` (drop this one input;
+say what will then be missing from Context) and `wait` (leave it while you look further).
+The same request key keeps one Signoff per blocked input; do not open another for a later
+attempt of the same input.
+
+Tell the owner once in Chat, in one line, that Context is blocked and that a Signoff is
+waiting. When the owner answers, do exactly that: a retry is `context_queue_retry`; a
+discard is `context_queue_discard` under its own approval, only after the owner chose
+it, and if that tool is not offered to you say so and leave the input blocked. When the
+input publishes or is discarded before the owner answers, withdraw the Signoff with
+`signoffs_input_cancel`.
+
 Report success only with a confirmed published result: a published input, or a direct
 edit receipt with its event and commit, plus a readback of the changed objects. Keep the
 original source attribution and scope rules.

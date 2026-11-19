@@ -19,6 +19,14 @@ The consolidation preserves existing wording, triggers and delivery order. Condi
 | [attention-more](messages/attention-more.md) | attention prompt | conditional |
 | [attention-next-actor](messages/attention-next-actor.md) | agents/attention.py | conditional |
 | [attention-unavailable](messages/attention-unavailable.md) | attention prompt | conditional |
+| [attention-handover](messages/attention-handover.md) | attention prompt | conditional |
+| [attention-oversight](messages/attention-oversight.md) | attention prompt | conditional |
+| [attention-step-returned](messages/attention-step-returned.md) | attention prompt | conditional |
+| [attention-step-waiting](messages/attention-step-waiting.md) | attention prompt | conditional |
+| [attention-team-available](messages/attention-team-available.md) | attention prompt | conditional |
+| [attention-team-awaiting](messages/attention-team-awaiting.md) | attention prompt | conditional |
+| [attention-team-blocked](messages/attention-team-blocked.md) | attention prompt | conditional |
+| [attention-team-stalled](messages/attention-team-stalled.md) | attention prompt | conditional |
 | [background-recovered](messages/background-recovered.md) | activity context | conditional |
 | [briefing-assignment-edges](messages/briefing-assignment-edges.md) | agents/briefing.py | conditional |
 | [briefing-evidence](messages/briefing-evidence.md) | briefing | legacy |
@@ -58,9 +66,6 @@ The consolidation preserves existing wording, triggers and delivery order. Condi
 | [initial-learning-assignment](messages/initial-learning-assignment.md) | bootstrap/initialize.py | conditional |
 | [initial-ordubashy-assignment](messages/initial-ordubashy-assignment.md) | bootstrap/initialize.py | conditional |
 | [learning-applier-assignment](messages/learning-applier-assignment.md) | bootstrap/learning_applier.py | conditional |
-| [memory-legacy-plan](messages/memory-legacy-plan.md) | working memory | conditional |
-| [memory-omitted](messages/memory-omitted.md) | working memory | conditional |
-| [memory-pending](messages/memory-pending.md) | working memory | conditional |
 | [overseer-extraction-due](messages/overseer-extraction-due.md) | overseer/due.py | conditional |
 | [plugin-discovery](messages/plugin-discovery.md) | agents/preferences.py | conditional |
 | [project-briefing-evidence](messages/project-briefing-evidence.md) | domains/business_briefing.py | conditional |
@@ -72,12 +77,13 @@ The consolidation preserves existing wording, triggers and delivery order. Condi
 | [skills-omitted](messages/skills-omitted.md) | always skills | conditional |
 | [startup-denied](messages/startup-denied.md) | claude session | conditional |
 | [startup-fault](messages/startup-fault.md) | claude session | conditional |
-| [startup-inventory](messages/startup-inventory.md) | claude session | conditional |
 | [startup-pending](messages/startup-pending.md) | claude session | conditional |
 | [startup-recovered](messages/startup-recovered.md) | claude session | conditional |
 | [startup-repair](messages/startup-repair.md) | claude session | conditional |
 | [startup-session](messages/startup-session.md) | claude session | conditional |
 | [startup-unavailable](messages/startup-unavailable.md) | claude session | conditional |
+| [task-action-missing](messages/task-action-missing.md) | transport/mcp.py | conditional |
+| [task-action-recorded](messages/task-action-recorded.md) | transport/mcp.py | conditional |
 | [tool-validation-recovery](messages/tool-validation-recovery.md) | transport/mcp.py | conditional |
 | [workspace-claude](messages/workspace-claude.md) | trusted workspace preparation | conditional |
 | [workspace-code-roots](messages/workspace-code-roots.md) | trusted workspace preparation | conditional |

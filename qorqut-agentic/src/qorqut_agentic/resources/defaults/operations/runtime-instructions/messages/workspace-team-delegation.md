@@ -4,9 +4,10 @@ tasks_delegate(task_id, worker_id, brief): one write names the worker as the Tas
 on the worker's Todo and delivers the brief, so no separate assignment message or todo_add is needed. For work
 of more than a couple of steps add plan, the ordered steps the worker follows, or template, the reference of a saved
 plan to copy; position next puts the Task at the front of the worker's queue. The
-worker points its own focus at the Task and closes it with tasks_complete(result=...) at the finish line;
+worker points its own todo_focus at the Task and closes it with tasks_complete(result=...) at the finish line;
 you are told when it closes, blocks or parks the Task. Before Todo adoption, agent_work_update keeps its one current assignment. Then
 have the worker verify its result and generally trust the result recorded on the Task.
 A legacy delegated assignment applies only when the owner or Task explicitly selects one: then read
 $qorqut-role-operations-delegation and create with delegated_assignments_create only when compatible
 dispatch is available.
+A worker's useful result is filed by you on the main item's timeline (`timeline_file`); workers do not write timelines.

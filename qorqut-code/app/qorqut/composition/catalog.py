@@ -27,6 +27,10 @@ from qorqut.extensions import NO_EXTENSIONS
 ENGINE_ENTRIES = (*SIGNOFF_ENTRIES, *ROUTINE_ENTRIES, *RELATIONSHIP_ENTRIES, *TAG_ENTRIES, *TASK_ENTRIES, *ACTION_ENTRIES,
                   *CRM_ENTRIES, *CONTEXT_ENTRIES)
 
+# Working memory and the agent plan files (``working_memory_get``/``working_memory_update``, ``plans_list``/``plans_get``/
+# ``plans_set``) are removed as features and have no handler installed, so they are never offered or callable. Their names stay
+# declared here because published roles and saved profiles still name some of them, and a permission map that names an operation
+# the registry does not know is refused as a whole.
 _READS = """
 business_progress_get
 business_briefing
@@ -81,6 +85,9 @@ BUILTIN_CATALOG = (
     CatalogEntry("dev_tickets_get", False, 'read', frozenset({'mcp'})),
     *(CatalogEntry(name, False, 'read', frozenset({'dashboard'}), True) for name in ('system_incidents_list', 'system_incidents_get')),
     CatalogEntry("learnings_decide", False, "records", frozenset({"mcp"})),
+    # Retired: viewbox_place has no handler installed, so it is never offered or callable; the owner's dashboard has no
+    # way to open a Viewbox board. The name stays declared because a role or saved profile may still name it, and a
+    # permission map that names an operation the registry does not know is refused as a whole.
     CatalogEntry("viewbox_place", False, "records", frozenset({"mcp"})),
     CatalogEntry("focus_get", False, "read", frozenset({"dashboard"})),
     *(CatalogEntry(name, False, "records", frozenset({"dashboard"})) for name in ("focus_present", "focus_edit", "focus_move", "focus_set_archived", "focus_reply", "focus_show", "focus_clear", "focus_browser_input")),

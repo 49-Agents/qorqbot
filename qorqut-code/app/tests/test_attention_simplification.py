@@ -58,6 +58,7 @@ class AttentionTests(unittest.TestCase):
         self.attention.reminder_eligible = lambda *_a, **_k: True
         self.addCleanup(patch.stopall)
         patch('qorqut.agents.attention.enrolled_board', return_value=True).start()
+        patch('qorqut.management.identity.configured_ordubashy', return_value='coordinator').start()
 
     def agent(self, agent):
         self.conn.execute('INSERT INTO agent_attention(agent_id,focus_json,focus_generation,focus_started_at,updated_at) '
@@ -260,6 +261,34 @@ class AttentionTests(unittest.TestCase):
             self.assertTrue(claims.settle(uow, receipt, '2026-11-09T12:04:00Z'))
         delivered.assert_called_once()
 
+    def test_an_unconfirmed_reminder_counts_as_not_sent_and_is_sent_again(self):
+        # A reminder handed to a session that ended before confirming it stays uncertain. It used to keep its place
+        # for ever, so no later reminder was recorded until the focus changed.
+        self.agent('first')
+        claim = self.delivery.hook_claim('first', 'reg-first', 'session-first')
+        self.assertTrue(self.delivery.hook_begin('first', 'reg-first', claim))
+        first = self.row(claim['id'])
+        self.delivery._now = lambda: '2026-11-09T12:02:00.000000Z'              # the claim expired a minute ago
+        with patch('qorqut.agents.attention.enrolled_boards', return_value=['first']):
+            with self.database.transaction() as uow:
+                self.delivery.reconcile(uow)
+                self.delivery.reconcile(uow)                                    # a second pass changes nothing
+        self.assertEqual(self.row(claim['id'])['state'], 'uncertain')            # kept as the record of what happened
+        uow = NS(connection=self.conn)
+        self.assertEqual(self.attention.state(uow, 'first')['reminder_sequence'], first['sequence'] + 1)
+        following = [dict(row) for row in self.conn.execute(
+            "SELECT state,due_at FROM attention_reminders WHERE agent_id='first' AND sequence>?", (first['sequence'],))]
+        # Still owed from the same moment, so it goes out at the next opportunity rather than an interval later.
+        self.assertEqual(following, [{'state': 'pending', 'due_at': first['due_at']}])
+        again = self.delivery.hook_claim('first', 'reg-first', 'session-first')
+        self.assertEqual(again['text'], 'Current task reminder')
+        self.assertNotEqual(again['id'], claim['id'])
+        # A confirmation of the first one that arrives late is recorded and moves nothing.
+        self.assertTrue(self.delivery.hooks.settle(uow, {**claim, 'delivered_at': NOW}, '2026-11-09T12:03:00.000000Z'))
+        self.assertEqual(self.row(claim['id'])['state'], 'submitted')
+        self.assertEqual(self.attention.state(uow, 'first')['reminder_sequence'], first['sequence'] + 1)
+        self.assertEqual(self.row(again['id'])['state'], 'claimed')
+
     def test_clock_poll_does_not_write_unchanged_values_but_records_real_events(self):
         self.agent('first')
         uow = NS(connection=self.conn)
@@ -315,6 +344,87 @@ class AttentionTests(unittest.TestCase):
             before = self.conn.total_changes
             self.assertFalse(self.delivery._hook_eligible(uow, row, 'session-first', 1, NOW))
             self.assertEqual(self.conn.total_changes, before)       # a board that is gone has no clock to advance
+
+    def test_a_task_written_as_paused_clears_a_plain_focus_on_it(self):
+        task = {'type': 'task', 'id': 'one', 'business_id': 'project'}
+        for agent in ('first', 'second', 'third'):
+            self.agent(agent)
+        self.conn.execute("UPDATE agent_attention SET focus_json=?,work_task_json=? WHERE agent_id='first'",
+                          (json.dumps(task), json.dumps(task)))
+        self.conn.execute("UPDATE agent_attention SET focus_json=?,work_task_json=? WHERE agent_id='second'",
+                          (json.dumps({'type': 'workflow', 'id': 'run', 'business_id': None}), json.dumps(task)))
+        other = json.dumps({'type': 'task', 'id': 'two', 'business_id': 'project'})
+        self.conn.execute("UPDATE agent_attention SET focus_json=?,work_task_json=? WHERE agent_id='third'", (other, other))
+        row = {'id': 'one', 'business_id': 'project', 'created_at': EARLIER, 'worker_ids_json': '[]', 'archived': 0}
+        uow = NS(connection=self.conn)
+        focus = lambda agent: self.attention.state(uow, agent)['focus_json']
+        with self.database.transaction() as uow:
+            self.attention.follow_task(uow, None, {'row': {**row, 'status': 'working'}}, 'first')
+        self.assertEqual(focus('first'), task)                           # a Task being worked keeps its focus
+        for status in ('waiting', 'blocked', 'needs_input'):
+            self.conn.execute("UPDATE agent_attention SET focus_json=?,work_task_json=? WHERE agent_id='first'",
+                              (json.dumps(task), json.dumps(task)))
+            with self.database.transaction() as uow:
+                self.attention.follow_task(uow, None, {'row': {**row, 'status': status}}, 'first')
+            self.assertIsNone(focus('first'), status)
+        self.assertEqual(focus('second')['type'], 'workflow')            # a workflow focus keeps its own rules
+        self.assertEqual(focus('third')['id'], 'two')                    # a focus on another Task is untouched
+
+    def test_a_paused_task_cannot_take_a_plain_task_focus(self):
+        task = {'type': 'task', 'id': 'one', 'business_id': 'project'}
+        self.agent('first')
+        attention = self.attention
+        ctx = NS(principal_kind='agent', principal_id='first')
+        attention.context = lambda *_: (ctx, 'first')
+        stored = {'created_at': EARLIER, 'archived': False, 'status': 'working'}
+        attention.board_task = lambda *_a, **_k: stored
+        attention.task_membership = lambda *_: {'task_created_at': EARLIER}
+        attention.board_context = Mock()
+        attention.resolve = Mock()
+        patch('qorqut.agents.attention.configured_ordubashy', return_value='coordinator').start()
+        uow = NS(connection=self.conn)
+        validate = lambda focus: attention.validate('attention_focus_set', ctx, {'focus': focus, 'task': task}, uow)
+        validate(task)                                                   # a Task being worked takes focus
+        for status, label in (('blocked', 'blocked'), ('waiting', 'waiting'), ('needs_input', 'needs input')):
+            stored['status'] = status
+            with self.assertRaises(DomainError) as raised:
+                validate(task)
+            self.assertEqual(raised.exception.code, 'validation_error')
+            self.assertIn(f'This Task is {label}', str(raised.exception))
+            self.assertIn('set its status to working first', str(raised.exception))
+
+    def test_a_snoozed_focused_task_holds_its_focus_reminder(self):
+        task = {'type': 'task', 'id': 'task', 'business_id': None}
+        self.agent('first')
+        self.conn.execute("UPDATE agent_attention SET focus_json=?,work_task_json=? WHERE agent_id='first'",
+                          (json.dumps(task), json.dumps(task)))
+        self.conn.execute('ALTER TABLE native_session_owners ADD COLUMN desired_state TEXT')
+        self.conn.execute('ALTER TABLE native_session_owners ADD COLUMN binding_json TEXT')
+        self.conn.execute("UPDATE native_session_owners SET binding_json=? WHERE agent_id='first'", (json.dumps(
+            {'registration_id': 'reg-first', 'agent_id': 'first', 'session_id': 'session-first', 'workspace': 'w'}),))
+        registration = {'principal_id': 'first', 'workspace': 'w'}
+        uow = NS(connection=self.conn, repository=lambda _name: NS(get=lambda _id: registration))
+        attention = self.attention
+        attention.clock = lambda: datetime(2026, 11, 9, 12, tzinfo=timezone.utc)
+        attention.inbox.resolver = NS(runtime_context=lambda principal: principal)
+        attention.inbox.context = lambda ctx, _uow: NS(principal=ctx)
+        attention.inbox.session_owner = lambda *_: None
+        self.runtime.application.registry = NS(get=lambda name: name)
+        self.runtime.application.policy = NS(resolve=lambda *_: NS(mode='allow'))
+        attention.board_context = Mock()
+        attention.resolve = Mock()
+        work = {'snoozed_until': None}
+        attention.authorized_task = Mock(side_effect=lambda *_: {'task': work})
+        patch('qorqut.agents.attention.configured_ordubashy', return_value='coordinator').start()
+        patch('qorqut.agents.attention.replace', side_effect=lambda ctx, **_: ctx).start()
+        patch('qorqut.agents.attention.Principal', side_effect=lambda *args: args).start()
+        eligible = lambda kind='focus': Attention.reminder_eligible(attention, uow, 'first', consumer_id='session-first',
+            binding_generation=1, focus_generation=1, kind=kind)
+        self.assertTrue(eligible())
+        work['snoozed_until'] = '2026-11-09T13:00:00.000000Z'
+        self.assertFalse(eligible())                                     # held until the snooze ends
+        work['snoozed_until'] = '2026-11-09T11:59:00.000000Z'
+        self.assertTrue(eligible())                                      # an expired snooze no longer holds it
 
 
 class TodoReceiptTests(unittest.TestCase):

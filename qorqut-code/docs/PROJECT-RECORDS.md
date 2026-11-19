@@ -79,7 +79,7 @@ shows the real Project name; a custom Focus display name is refused for a Projec
   `routines_get` (Project or `scope:"global"` routine), `dev_tickets_get` for the scoped Ordubashy or the owner's
   `dev_tickets_list(details=true)` queue with its exact optional `ticket_id` selector for the owner, `owner_reminders_list`, `notes_get`/`content_get`,
   `assets_get` (`asset_id`), `data_uploads_get` (`upload_id`), `context_get`/`context_people_get` (`document_id`),
-  `plans_get` (`agent_id`), `assignees_list` for a person, `project_record_get` for a Project, or the extension item's
+  `assignees_list` for a person, `project_record_get` for a Project, or the extension item's
   authorized neutral read. It is never a raw database dump and never a mutation: `context_upload` staging rows have
   no read handler and are never inventory.
 

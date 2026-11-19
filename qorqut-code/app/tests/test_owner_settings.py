@@ -35,6 +35,15 @@ class AboutTest(unittest.TestCase):
         with mock.patch("qorqut.native_paths.installed_chrome", return_value="/Applications/Google Chrome.app"):
             self.assertIs(owner_settings.about_view({})["chrome_installed"], True)
 
+    def test_chrome_is_asked_for_only_when_qorqbots_own_cannot_be_used(self):
+        from qorqut.browser import managed_chrome
+        expected = {"ready": True, "waiting": True, "downloading": True, "failed": True,
+                    "unusable": False, "unsupported": False, "not_used": False}
+        for state, enough in expected.items():
+            with self.subTest(state=state), mock.patch("qorqut.native_paths.installed_chrome", return_value=None), \
+                    mock.patch.object(managed_chrome, "view", return_value={"state": state}):
+                self.assertIs(owner_settings.about_view({}, runtime_directory="/runtime")["chrome_installed"], enough)
+
 
 class AgentClientsTest(unittest.TestCase):
     def setUp(self):

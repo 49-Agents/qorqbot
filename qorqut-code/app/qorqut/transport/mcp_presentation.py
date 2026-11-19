@@ -57,12 +57,12 @@ TOOL_NAMES_SCHEMA = {"type": "array", "minItems": 1, "maxItems": 20, "uniqueItem
 SECTIONS_SCHEMA = {"type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": True,
     "items": {"type": "string", "minLength": 1, "maxLength": 120},
     "description": instruction_text('mcp-presentation-context-only-return-exactly-these-sections-of')}
-TASK_FIELDS = ("id", "revision", "title", "status", "work_status", "input_needed", "input_requests", "input_version", "input_request_missing", "due", "follow_up", "snoozed_until", "snoozed", "assignee_ids", "blocked_by",
+TASK_FIELDS = ("id", "business_id", "business_name", "revision", "title", "status", "work_status", "input_needed", "input_requests", "input_version", "input_request_missing", "due", "follow_up", "snoozed_until", "snoozed", "assignee_ids", "assignees", "blocked_by", "blockers",
     "unresolved_blockers", "blocks", "parent", "kind", "closed", "paused", "archived", "tags", "created_by", "updated_at",
     "worker_ids", "status_line", "next_step", "stalled")
 SIGNOFF_FIELDS = ("id", "review_business_id", "review_scope", "proposal_revision", "payload_hash", "status_revision",
     "state", "decision_state", "actionable", "execution_state", "category", "input_kind", "operation_name", "operation_version",
-    "title", "proposer_principal_id", "proposer_agent_id", "proposer_display_name",
+    "title", "report_task", "proposer_principal_id", "proposer_agent_id", "proposer_display_name",
     "initiated_by_principal_id", "initiated_by_display_name", "attention", "job_id",
     "created_at", "updated_at", "updated_sequence", "supersedes_id", "superseded_by_id", "legacy_review_routing")
 MESSAGE_RECEIPT_FIELDS = ("id", "event_id", "thread_id", "created_at", "recipient_id", "recipient_name", "terminal_delivery")
@@ -70,7 +70,7 @@ MESSAGE_RECEIPT_FIELDS = ("id", "event_id", "thread_id", "created_at", "recipien
 # columns; duplicated identity spellings, per-row attribution and echoed parent IDs
 # are read through the full-detail escape hatch or the record's own read tool.
 SIGNOFF_INDEX_FIELDS = ("id", "review_scope", "proposal_revision", "status_revision", "state",
-    "decision_state", "actionable", "execution_state", "category", "input_kind", "operation_name", "title",
+    "decision_state", "actionable", "execution_state", "category", "input_kind", "operation_name", "title", "report_task",
     "proposer_agent_id", "proposer_display_name", "initiated_by_display_name",
     "attention", "job_id", "outcome", "created_at", "updated_at", "supersedes_id", "superseded_by_id")
 INBOX_EVENT_FIELDS = ("id", "source_type", "source_id", "event_type", "summary", "created_at",

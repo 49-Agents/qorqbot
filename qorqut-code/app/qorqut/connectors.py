@@ -1,8 +1,8 @@
 """Extensions the owner sets up for their agents: what each one is and whether it is ready.
 
-Each entry is a Qorqbot extension (treg, WhatsApp), set up through that extension. Its tools reach the agents through
+Each entry is a Qorqbot extension (OpenRouter, treg, WhatsApp), set up through that extension. Its tools reach the agents through
 Qorqbot, so they work for every agent client. The core never contacts these services and keeps no copy of their data; an
-extension makes its own requests (treg's are described in ``qorqut_treg``).
+extension makes its own requests (treg's are described in ``qorqut_treg``, OpenRouter's in ``qorqut_openrouter``).
 
 Connectors of the owner's Claude account are not listed or set up here. An agent running in Claude Code still receives
 whatever that account has connected, and ``qorqut.connector_gate`` keeps such a call from changing anything before the
@@ -16,6 +16,7 @@ import shutil
 # Standard locations a GUI-launched service may be missing from PATH; Node itself must be findable by npx's shebang.
 SYSTEM_PATH = ("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin")
 CATALOG = (
+    {"id": "openrouter", "kind": "extension", "clients": ["claude-code", "codex"]},
     {"id": "treg", "kind": "extension", "clients": ["claude-code", "codex"]},
     {"id": "whatsapp", "kind": "extension", "clients": ["claude-code", "codex"]},
 )
@@ -40,10 +41,14 @@ def _probe_environment(environ=None):
     return base
 
 
-def _treg_status(runtime) -> dict:
-    """Whether the treg extension is part of this install and the owner has saved a key. No key is read here."""
+# Extensions the owner turns on by saving a key; each reports its own ``status()``.
+KEYED = frozenset({"openrouter", "treg"})
+
+
+def _keyed_status(runtime, identity) -> dict:
+    """Whether a keyed extension is part of this install and the owner has saved its key. No key is read here."""
     selected = getattr(getattr(runtime, "selection", None), "extensions", ())
-    extension = next((item for item in selected if item.id == "treg"), None)
+    extension = next((item for item in selected if item.id == identity), None)
     return {"status": "not_installed" if extension is None else extension.status()}
 
 
@@ -77,6 +82,6 @@ def view(runtime, *, environ=None) -> dict:
     items = []
     for entry in CATALOG:
         item = dict(entry)
-        item.update(_treg_status(runtime) if entry["id"] == "treg" else _whatsapp_status(runtime, platform))
+        item.update(_keyed_status(runtime, entry["id"]) if entry["id"] in KEYED else _whatsapp_status(runtime, platform))
         items.append(item)
     return {"connectors": items, "platform": platform}

@@ -70,11 +70,16 @@ class Inventory:
         supplier, target = self.supplier(source, path)
         return bool(self.alias_paths(source.id, path)) or supplier.exists(target)
 
+    # A new inventory never takes a file from a retired alias; replaying a retained intent does (managed_witness).
+    include_retired_aliases = False
+
     def alias_paths(self, source_id, root):
+        retired = self.include_retired_aliases
         if source_id == "host" and self.host_package == "bazarlyk":
             return tuple(path.replace("app/qorqut/", "app/bazarlyk/", 1) for path in
-                         instruction_sources.paths(source_id, root.replace("app/bazarlyk/", "app/qorqut/", 1)))
-        return instruction_sources.paths(source_id, root)
+                         instruction_sources.paths(source_id, root.replace("app/bazarlyk/", "app/qorqut/", 1),
+                                                   include_retired=retired))
+        return instruction_sources.paths(source_id, root, include_retired=retired)
 
     def source_paths(self, source, root, **options):
         if not self.relocated_instructions:

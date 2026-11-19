@@ -3,6 +3,7 @@ from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace as NS
+import json
 import sqlite3
 import unittest
 
@@ -275,6 +276,8 @@ class SignoffSourceTests(unittest.TestCase):
             task = uow.repository('tasks', business_id=self.business).get('work')
             uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_business_id,task_id,task_created_at,'
                 'created_at) VALUES(?,?,?,?,?,?)', (new_id(), worker, self.business, 'work', task['created_at'], task['created_at']))
+            # A worker is reminded only of a Task that names it.
+            uow.connection.execute('UPDATE tasks SET worker_ids_json=? WHERE business_id=? AND id=?', (json.dumps([worker]), self.business, 'work'))
         ctx = replace(self.ctx, principal=Principal(worker, 'agent'), source='mcp', profile_revision=1)
         self.policy.context_for = lambda principal_id, business_id=None, review_business_id=None, **_: replace(
             ctx if principal_id == worker else self.ctx, business_id=business_id, review_business_id=review_business_id)
@@ -303,6 +306,8 @@ class SignoffSourceTests(unittest.TestCase):
             task = uow.repository('tasks', business_id=None).get('work')
             uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_id,task_created_at,created_at) VALUES(?,?,?,?,?)',
                                    (new_id(), worker, 'work', task['created_at'], task['created_at']))
+            # A worker is reminded only of a Task that names it.
+            uow.connection.execute('UPDATE tasks SET worker_ids_json=? WHERE business_id IS NULL AND id=?', (json.dumps([worker]), 'work'))
         ctx = replace(self.ctx, principal=Principal(worker, 'agent'), source='mcp', profile_revision=1)
         self.policy.context_for = lambda principal_id, business_id=None, review_business_id=None, **_: replace(
             ctx if principal_id == worker else self.ctx, business_id=business_id, review_business_id=review_business_id)

@@ -80,6 +80,14 @@ The existing broader CRM/event history stays in the dashboard's **Related histor
 disclosure. Legacy task detail dialogs show a separate Activity disclosure above their
 private conversation.
 
+## Timeline panel
+
+A Task or Project thread shows a panel above its messages (`js/timeline-panel.js`, mounted by `js/conversation.js`, read-only). It shows what holds now: the latest goal, every decision and fact not removed, the latest progress note and the open questions, blocking ones marked. A goal or progress note that was removed shows nothing. An item that never had a timeline shows no panel.
+
+The History switch lists every entry oldest first. A removed entry is struck through (from the server's `removed_by`, so it is marked before the page with its removal has loaded) and shows what removed it. The owner's quoted words show on every entry that has them, removals included. Below the entries, Closed questions lists each answered or dropped question, with the answering entry's text when that entry is loaded, followed by the item's subtasks, approvals and reports; a link without a title reads "Approval" or "Report". Subtasks open their own thread. More entries load on request. A failed history load shows one error line that clears on the next success; a failed reload of the thread context replaces the panel with that error line until the next successful read.
+
+Global has the same panel as a block above Ordubashy's main chat (`globalTimelineBlockMount` in `js/workflow-panel.js`), read at most every 20 seconds and hidden when empty.
+
 ## Chat behavior
 
 Chat is mounted exactly once per stack entry and is reused across tab switches. Drafts

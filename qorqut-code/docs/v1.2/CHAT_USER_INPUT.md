@@ -23,7 +23,8 @@ dashboard half of the feature is not described here beyond the transport contrac
 ### Minimal transport contract (shared by backend and UI workers)
 
 Tool input is `{message: string, references: [{type, id, business_id?}]}`.
-Use the existing UUID format for Task/Signoff IDs; browser `id` is a validated,
+A Task `id` is the Task's id as stored (a short code for new Tasks, a UUID or other
+text for older ones); a Signoff `id` is its UUID; browser `id` is a validated,
 configured surface ID. `business_id` is the record's owning/review scope (null or
 omitted for Global). For a sandbox business browser whose synthetic surface ID
 is shared, its business_id disambiguates it. Reject arbitrary URLs, labels, HTML,
@@ -169,15 +170,15 @@ allows it. The handler additionally requires the configured active Ordubashy age
 request_user_input(message="Please sign in below, then reply here.",
                    references=[{"type": "browser", "id": "example-browser"},
                                {"type": "signoff", "id": "<uuid>", "business_id": "<business uuid>"},
-                               {"type": "task", "id": "<uuid>"},
+                               {"type": "task", "id": "<task id>"},
                                {"type": "agent", "id": "<registered agent uuid>"}])
 -> {"status": "ok", "data": {"user_input": {"version": 1, "message": "...", "references": [
      {"type": "browser", "id": "example-browser", "business_id": null}, ...]}}}
 ```
 
 The contract lives once in `native_chat/references.py` (message 1-4000 characters after trimming, at most 8 references, strict
-`{type, id, business_id}` keys, lowercase canonical UUIDs for Tasks and Signoffs, configured surface ids for browsers, order
-kept, exact duplicates coalesced). Every reference is resolved through an existing read before the call returns: Tasks and
+`{type, id, business_id}` keys, a Task's stored id (1-200 characters, no blanks or control characters), lowercase canonical
+UUIDs for Signoffs, configured surface ids for browsers, order kept, exact duplicates coalesced). Every reference is resolved through an existing read before the call returns: Tasks and
 Signoffs through `FocusService.resolve` (exact business and review scope; Signoffs exist only in a business, so a Signoff
 reference needs its `business_id`), browsers through `BrowserTargets.resolve`, agents through the existing `agents_get` read
 authorization (`UserInput.agent`: the caller must be allowed that read, a Global agent needs the Global capabilities, a

@@ -1,1 +1,1 @@
-Bounded view of the shared published Context graph: revision, node and relationship references
+Pointer to the shared published Context graph: revision, totals, node counts by type and how to read it

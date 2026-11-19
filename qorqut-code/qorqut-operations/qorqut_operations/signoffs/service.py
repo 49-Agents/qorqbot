@@ -23,12 +23,14 @@ from qorqut_operations.storage.receipts import ApplyReceipts, IdempotencyReceipt
 from qorqut_operations.storage.repositories import decode_row
 from qorqut_operations.storage.specs import TableSpec
 from .inputs import ACKNOWLEDGE_SQL, InputRequests, acknowledges, validate_response
+from .lookup import LOCATED, SignoffLookup
 from . import questions
 from .drafts import SCHEMA as DRAFT_SCHEMA, DraftReviews, is_draft, validate_values
 from .notes import SignoffNotes, eligible
 from .notifications import SignoffNotifications
 from .ports import ABSENT, SignoffPorts, checked_narrowing
 from .rejection import Rejection
+from .reports import ReportTasks
 from .sources import SignoffSources
 
 CATEGORIES = ("internal_change", "platform_action", "input_request", "side_chat")
@@ -93,10 +95,13 @@ class SignoffService:
         self._thread = None
         self._run_lock = RLock()
         self.last_worker_error = None
+        # The ``locate_scope`` hook of every agent-facing operation that names one Signoff by ``signoff_id``.
+        self.lookup = SignoffLookup(self)
         self.notifications = SignoffNotifications(self)
         self.notes = SignoffNotes(self)
         self.inputs = InputRequests(self)
         self.sources = SignoffSources(self)
+        self.reports = ReportTasks(self)
         self.drafts = DraftReviews(self)
         self.rejection = Rejection(self)
         self._next_notification_tick = 0
@@ -127,8 +132,8 @@ class SignoffService:
             OperationDescriptor("signoffs_get", {"type": "object",
                 "required": ["signoff_id"], "properties": {**common, "signoff_id": {"type": "string", "minLength": 1, "maxLength": 200},
                     "draft_history_before": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807}}},
-                **scopes, effect_kind="read", supports_signoff=False, read=self._get_operation,
-                description=instruction_text('service-read-a-proposal-and-owner-feedback-in-the')),
+                **scopes, effect_kind="read", supports_signoff=False, read=self._get_operation, locate_scope=self.lookup,
+                description=instruction_text('service-read-a-proposal-and-owner-feedback-in-the') + ' ' + LOCATED),
             OperationDescriptor("signoffs_list", {"type": "object", "properties": {
                 **common, "responded": {"type": "boolean"}, "include_managed": {"type": "boolean"}, "category": {"enum": list(CATEGORIES)},
                 "execution_states": {"type": "array", "items": {"enum": list(self.ports.execution.execution_states)}, "uniqueItems": True},
@@ -229,6 +234,9 @@ class SignoffService:
         value["input"] = row["preview_json"].get("input")
         if value["input"]:
             value["input_kind"] = value["input"].get("kind")
+            if acknowledges(value["input"]):
+                # The Task a report belongs to; None for a report posted before reports had one.
+                value["report_task"] = self.reports.view(row, uow)
         attention = uow.connection.execute("SELECT * FROM signoff_attention WHERE signoff_id=?", (row["id"],)).fetchone()
         value["attention"] = dict(attention) if attention else {"notify": False, "urgent": False, "blocking": False}
         if attention and attention["priority_updated_by"]:
@@ -733,13 +741,17 @@ class SignoffService:
                 form = row['preview_json']['input']
                 grouped = questions.is_questionnaire(form)
                 if grouped:
-                    if any(value is not _UNSET for value in (notes, selected_choices, draft_values)):
+                    if any(value is not _UNSET for value in (selected_choices, draft_values)):
                         raise DomainError('validation_error', 'Question answers cannot be mixed with single-question or draft-review fields')
+                    # One optional comment on the whole form, besides each question's own answer.
+                    comment = '' if notes is _UNSET else notes
+                    if not isinstance(comment, str) or len(comment) > 8000:
+                        raise DomainError('validation_error', 'Notes must contain at most 8000 characters')
                     answers = questions.validate_answers(form, answers)
                     messages = questions.answer_messages(form, answers)
                     for message in messages:
                         self.notes.validate(message)
-                    response_input = {'answers': answers}
+                    response_input = {'answers': answers, **({'notes': comment} if comment.strip() else {})}
                 else:
                     if answers is not _UNSET:
                         raise DomainError('validation_error', 'Answers require a version-2 question form')
@@ -769,6 +781,8 @@ class SignoffService:
                     submitted = [{**answer, 'message_id': self.notes.decision_message(context, row, message, uow)}
                                  for answer, message in zip(answers, messages)]
                     decision = {'schema_version': 2, 'answers': submitted}
+                    if comment.strip():
+                        decision['message_id'] = self.notes.decision_message(context, row, comment, uow)
                 else:
                     decision = {'message_id': self.notes.decision_message(context, row, notes, uow), 'selected_choices': selected}
                     if is_draft(row):

@@ -49,6 +49,8 @@ Historical issue-bridge records describe that retired integration.
 | Host `extensions/telegram` | Separately installed Telegram connector. |
 | Host `extensions/whatsapp` | Separately installed WhatsApp connector and native helper. |
 | Host `extensions/google-calendar` | Bundled Google Calendar provider, inactive until an account is connected. |
+| Host `extensions/treg` | Bundled treg toolkit, inactive until the owner adds a treg key. |
+| Host `extensions/openrouter` | Bundled OpenRouter extension (voice input in Chat), inactive until the owner connects their own OpenRouter account. |
 
 Paper, content creation and their supporting libraries are outside this publication repository. Cloudflare and service
 provisioning are excluded. Optional connector source does not mean it is installed in the default download.

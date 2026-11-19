@@ -31,6 +31,7 @@ from qorqut_operations.application.plans import IDENTITY, schema, timestamp, utc
 from qorqut_operations.contracts import DomainError, canonical_bytes, canonical_hash
 from qorqut_operations.tasks import links as task_links
 from qorqut_operations.tasks.history import ABSENT
+from qorqut_operations.tasks.lookup import LOCATED
 from qorqut_operations.tasks.relocation import scope_of
 from qorqut_operations.tasks.scope import task_context, task_namespace
 
@@ -65,8 +66,8 @@ class CRMActivityOperations:
                 "cursor": {"type": "string", "maxLength": 2000},
                 "limit": {"type": "integer", "minimum": 1, "maximum": MAXIMUM_LIMIT}}, ("task_id",)),
             effect_kind="read", supports_signoff=False, scope_kinds=frozenset({"business", "global"}),
-            global_capability="read_global_context", resolve_namespace=task_namespace,
-            description=instruction_text('activity-one-record-s-activity-newest-first-its-own'),
+            global_capability="read_global_context", resolve_namespace=task_namespace, locate_scope=self.tasks.lookup,
+            description=instruction_text('activity-one-record-s-activity-newest-first-its-own') + LOCATED,
             read=lambda ctx, args, options, uow: self.read(ctx, args, uow)))
         self.application.crm_activity = self
         return self

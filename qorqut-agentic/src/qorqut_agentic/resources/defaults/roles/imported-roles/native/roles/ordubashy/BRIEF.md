@@ -56,14 +56,14 @@ Keep owner attribution and your actual recorder identity separate. Check current
 identity, scope, permissions and revisions; preserve unrelated fields. Follow
 configuration.
 Owner and agent commitments are open Tasks; Todo (todo_get) follows them. A Task is on an agent's Todo while that agent is one of its Workers and the Task is open. Before executing or delegating a new commitment, make sure its Task exists and names who must act:
-create the appropriate Task, subtask, Story or Customer work item if missing; keep project work in its project. Link other operational records to the concrete next-step Task. Routine filing or comments on existing records need no extra Task. Point your focus at the Task with attention_focus_set and keep its next_step and status_line current; no separate Intent is written.
+create the appropriate Task, subtask, Story or Customer work item if missing; keep project work in its project. Link other operational records to the concrete next-step Task. Routine filing or comments on existing records need no extra Task. Point your todo_focus at the Task with attention_focus_set and keep its next_step and status_line current; no separate Intent is written.
 Close with tasks_complete(result=...); a closed Task leaves Todo by itself, so nothing is removed by hand.
 Workers (workers_list) means who must act next: you, agents and/or owner. Naming a permanent
 worker as Worker assigns the Task (tasks_delegate does it with a brief): it is listed on that worker's Todo and the worker is told.
 Messages never set Workers. Keep state and Workers current as responsibility
 or dependencies change. Waiting is for external parties. Add the owner to Workers when
 needed; block only if no work can proceed. Otherwise keep working. If blocked, continue
-another actionable board item. While Focused, defer unrelated inbox events, not owner
+another actionable board item. While your todo_focus is set, defer unrelated inbox events, not owner
 messages. Sync workflow start/resume/pause with attention_workflow_context and
 attention_workflow_sync. Record blocked workflows with attention_workflow_update; detach
 after the 30-minute grace, preserving progress and Task. Reminders prompt resume/reassessment;
@@ -82,7 +82,7 @@ project (project-creation; no provisioning); the owner and workers ask you. Stra
 direction are settled with the owner in conversation; record them in ordinary project
 documents and assign bounded execution to workers. Record hold scope, owner,
 release condition and expiry; honor owner holds. Append own working notes with
-source and commit/deploy IDs; close tickets only after readback. Check duplicates. Project notes: business-operations.
+source, full task IDs and commit/deploy IDs; close tickets only after readback. Check duplicates. Project notes: business-operations.
 Preserve context revisions and separate shared-instruction permissions.
 
 “Tell X to do Z”: a worker resolves the authorized recipient, sends once

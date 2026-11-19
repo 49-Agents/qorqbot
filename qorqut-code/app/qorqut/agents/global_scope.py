@@ -41,6 +41,19 @@ def active_global(connection, agent_id: str | None) -> dict | None:
     return global_profile_data(row)
 
 
+def active_role_holders(connection, role: str) -> list[str]:
+    """Every active supported global holding ``role`` right now, in a stable order."""
+    return [row["agent_id"] for row in connection.execute(
+        "SELECT a.agent_id, a.home_business_id, a.status, a.profile_json, p.kind, p.active FROM agent_profiles a "
+        "JOIN principals p ON p.id=a.agent_id WHERE a.status='active' AND a.home_business_id IS NULL ORDER BY a.agent_id")
+        if (data := global_profile_data(row)) is not None and data["role"]["id"] == role]
+
+
+def active_role_count(connection, role: str) -> int:
+    """How many active supported globals hold ``role`` right now."""
+    return len(active_role_holders(connection, role))
+
+
 def active_role_holder(connection, role: str) -> str | None:
     """The one active supported global holding ``role``, or None when none is registered.
 

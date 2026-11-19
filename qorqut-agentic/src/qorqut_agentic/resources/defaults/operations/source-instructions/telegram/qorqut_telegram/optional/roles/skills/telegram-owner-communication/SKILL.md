@@ -123,7 +123,7 @@ files). You cannot supply a chat, a topic, raw bytes, base64, a Telegram file id
     required: the owning project, or `null` to name Global explicitly. Supported kinds
     are assets (`assets_get`), data uploads (`data_uploads_get`), agent and project
     notes (`notes_get`) and content or context notes (`content_get`). Every other kind is
-    refused, including owner journal entries, working memory, raw email
+    refused, including owner journal entries, raw email
     and Context graph or history data. The project must be active, the document ready and
     not archived, and your read access is checked again when the send is queued and again
     just before upload; lost access cancels the send.

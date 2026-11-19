@@ -111,7 +111,8 @@ class ActionEvidenceTests(unittest.TestCase):
             references=NS(types=(), host_types=(), resolve=noop, derived=noop),
             routing=NS(routes=lambda *_: ((), ()), snooze_routes=lambda *_: ()))
         self.tasks = TaskOperations(self.app, items, ports)
-        self.actions = ActionOperations(self.app, self.tasks.note_references(), on_revision=self.composed.on_revision,
+        self.actions = ActionOperations(self.app, self.tasks.note_references(), tasks=self.tasks,
+                                        on_revision=self.composed.on_revision,
                                         clock=lambda: datetime(2026, 11, 10, 12, tzinfo=timezone.utc))
         for contribution in (self.tasks.contribution(), self.actions.contribution()):
             for entry in contribution.entries:

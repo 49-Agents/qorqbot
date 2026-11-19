@@ -191,6 +191,8 @@ class SelectiveGZip:
             return False
         if parts[:1] == ["root"] and parts[1:2] == ["events"]:
             return False
+        if parts[:2] == ["root", "agents"] and parts[3:4] == ["browser-live"]:
+            return False  # The live browser view: a stream of JPEG pictures, and its small input posts.
         if parts[:3] == ["root", "files", "download"]:
             return False  # Exact bytes with their own Content-Length, streamed from the opened file.
         return True

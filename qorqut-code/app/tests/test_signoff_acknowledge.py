@@ -37,7 +37,7 @@ class AcknowledgeTests(unittest.TestCase):
 
     def post(self, ctx, key='daily-report', form=None, **extra):
         return self.app.invoke(ctx, 'signoffs_input_create', {'scope': 'global', 'request_key': key,
-            'form': {**REPORT, **(form or {})}, **extra}, {'idempotency_key': new_id()})
+            'form': {**REPORT, **(form or {})}, **({'report_task': {'id': 'work', 'business_id': None}} if {**REPORT, **(form or {})}['kind'] == 'acknowledge' else {}), **extra}, {'idempotency_key': new_id()})
 
     def posted(self, ctx, **arguments):
         result = self.post(ctx, **arguments)
@@ -89,7 +89,7 @@ class AcknowledgeTests(unittest.TestCase):
     def test_the_owner_acknowledges_without_an_answer(self):
         ctx = self.coordinator()
         signoff = self.posted(ctx)
-        self.refused(self.respond(signoff, notes='Looks fine'), 'validation_error')
+        self.refused(self.respond(signoff, selected_choices=['x']), 'validation_error')
         self.assertEqual(self.state(signoff['id']), 'pending')
         result = self.respond(signoff)
         self.assertEqual(result.status, 'ok', result.error)
@@ -98,6 +98,19 @@ class AcknowledgeTests(unittest.TestCase):
                          ('answered', 'acknowledged', False))
         self.assertEqual(acknowledged['decision']['by'], self.owner)
         self.assertIsNone(acknowledged['decision']['message_id'])
+        with self.db.read() as uow:
+            delivered = uow.connection.execute('SELECT e.event_type FROM inbox_deliveries d JOIN inbox_events e ON e.id=d.event_id '
+                "WHERE d.agent_id=? AND e.source_type='signoffs' AND e.source_id=?", (ctx.principal_id, signoff['id'])).fetchall()
+        self.assertEqual(sum('response_submitted' in row[0] for row in delivered), 1)
+
+    def test_the_owner_may_acknowledge_with_a_comment(self):
+        ctx = self.coordinator()
+        signoff = self.posted(ctx)
+        result = self.respond(signoff, notes='Looks fine; chase Godel tomorrow.')
+        self.assertEqual(result.status, 'ok', result.error)
+        acknowledged = plain(result.data)['signoff']
+        self.assertEqual(acknowledged['decision_state'], 'acknowledged')
+        self.assertIsNotNone(acknowledged['decision']['message_id'])
         with self.db.read() as uow:
             delivered = uow.connection.execute('SELECT e.event_type FROM inbox_deliveries d JOIN inbox_events e ON e.id=d.event_id '
                 "WHERE d.agent_id=? AND e.source_type='signoffs' AND e.source_id=?", (ctx.principal_id, signoff['id'])).fetchall()
@@ -164,7 +177,7 @@ class AcknowledgeCommentTests(unittest.TestCase):
 
     def test_commenting_and_acknowledging_are_independent(self):
         runtime = self.runtime
-        signoff = chats.invoke(runtime, 'signoffs_input_create', {'request_key': 'daily-report', 'form': REPORT},
+        signoff = chats.invoke(runtime, 'signoffs_input_create', {'request_key': 'daily-report', 'form': REPORT, 'report_task': chats.report_task(runtime)},
                                ctx=runtime.coordinator)['signoff']
         source = chats.source(signoff)
         say = lambda text, ctx=None: chats.invoke(runtime, 'owner_conversation_send', {'source': source, 'text': text}, ctx=ctx)

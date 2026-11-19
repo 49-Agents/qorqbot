@@ -645,21 +645,35 @@ def ensure_context_repository(root, env, record):
 
 
 TREG_FACTORY = 'qorqut_treg.extension:create'
+OPENROUTER_FACTORY = 'qorqut_openrouter.extension:create'
+
+
+def select_bundled(root, name, factory):
+    """Select an extension that ships in the runtime, once, when the runtime carries its wheel. An entry the owner already
+    has for it, with its own configuration, is left alone."""
+    receipt = root / 'runtime/PREPARATION-RECEIPT.json'
+    if not receipt.exists() or not (read_json(receipt).get('selection') or {}).get(name):
+        return False
+    config = root / 'instance/config/extensions.json'
+    selected = read_json(config)
+    if any(item.get('factory') == factory for item in selected['extensions']):
+        return False
+    selected['extensions'].append({'factory': factory, 'config': {}})
+    save_json(config, selected)
+    return True
 
 
 def select_treg(root):
     """The treg toolkit ships in the runtime and belongs to every installation, new or updated. Selecting it adds its
     tools only; it contacts nothing and stays idle until the owner adds a treg key in the dashboard."""
-    receipt = root / 'runtime/PREPARATION-RECEIPT.json'
-    if not receipt.exists() or not (read_json(receipt).get('selection') or {}).get('treg'):
-        return False
-    config = root / 'instance/config/extensions.json'
-    selected = read_json(config)
-    if any(item.get('factory') == TREG_FACTORY for item in selected['extensions']):
-        return False
-    selected['extensions'].append({'factory': TREG_FACTORY, 'config': {}})
-    save_json(config, selected)
-    return True
+    return select_bundled(root, 'treg', TREG_FACTORY)
+
+
+def select_openrouter(root):
+    """The OpenRouter extension ships in the runtime and belongs to every installation, new or updated. Selecting it adds
+    the OpenRouter card and the Chat microphone only; it contacts nothing and stays idle until the owner connects their own
+    OpenRouter account in the dashboard."""
+    return select_bundled(root, 'openrouter', OPENROUTER_FACTORY)
 
 
 def identity(pid):
@@ -764,6 +778,7 @@ def main(argv=None):
         prepare(root, env)
         record = initialize(root, env)
         select_treg(root)
+        select_openrouter(root)
         # First launch installs the agents' browser tool; later launches find it in place.
         try:
             _, browser_problem = ensure_agent_browser(root)

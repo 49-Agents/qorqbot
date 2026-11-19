@@ -103,10 +103,14 @@ class TaskChangeRecordTests(unittest.TestCase):
         self.assertEqual(stale.error['code'], 'revision_conflict')
         current = comment('Second.', revision=first.data['task']['revision'])
         self.assertEqual(current.status, 'ok', current.to_dict())
+        # Field writes need no prior read either: without a revision they apply to the Task as it is now, and a stale
+        # revision that is named still conflicts.
         for operation, arguments in (('tasks_update', {'task_id': task['id'], 'changes': {'due': '2026-12-01'}}),
                                      ('tasks_complete', {'task_id': task['id']})):
+            stale = self.invoke(operation, arguments, revision=task['revision'])
+            self.assertEqual(stale.error['code'], 'revision_conflict', operation)
             unread = self.invoke(operation, arguments)
-            self.assertEqual(unread.error['code'], 'revision_conflict', operation)
+            self.assertEqual(unread.status, 'ok', unread.to_dict())
 
     def test_system_entry_names_what_changed(self):
         task = self.create()

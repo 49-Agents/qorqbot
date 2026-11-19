@@ -101,6 +101,23 @@ browserTest('navigation is hidden by default and hover overlays without resizing
   } finally {await browser.close();}
 });
 
+browserTest('the open menu stays inside the window when Appearance text size zooms the page',async()=>{
+  const {browser,page,errors}=await fixture();
+  try {
+    for(const zoom of ['1.1','0.92']){
+      await page.evaluate(zoom=>document.documentElement.style.zoom=zoom,zoom);
+      const trigger=page.locator('[data-agent-nav-trigger]'),nav=page.locator('.agent-nav-overlay');
+      await trigger.focus();await page.keyboard.press('ArrowDown');
+      assert.equal(await nav.isVisible(),true);
+      assert.equal((await nav.boundingBox()).height,page.viewportSize().height);
+      const settings=await nav.locator('.global-workspace-settings').boundingBox();
+      assert.ok(settings.y+settings.height<=page.viewportSize().height,'Settings is cut off at zoom '+zoom);
+      await page.keyboard.press('Escape');
+    }
+    assert.deepEqual(errors,[]);
+  } finally {await browser.close();}
+});
+
 browserTest('the trigger follows agent selection and mouse focus never keeps the menu open',async()=>{
   const {browser,page,errors}=await fixture();
   try {

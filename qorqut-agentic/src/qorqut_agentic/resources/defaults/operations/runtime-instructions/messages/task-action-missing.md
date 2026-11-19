@@ -1,0 +1,1 @@
+No Action is recorded for this Task's result. If the closure is a completed result, record it once with actions_record: task_id, a text of at most 20 words, and performed_by with a relay when the owner or another agent did the work. A Task closed because it was merged, duplicated or dropped, or closed along with its parent, is not a result of its own: record nothing.

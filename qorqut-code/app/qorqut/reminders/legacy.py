@@ -9,6 +9,7 @@ reminder_id. Optional delivery adapters own admission of historical queued trans
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, page_position, schema
+from qorqut_operations.business_lifecycle import in_active_business
 from qorqut_operations.contracts import DomainError, plain
 from qorqut.management.identity import installation_owner, is_active_installation_owner
 
@@ -92,7 +93,7 @@ class LegacyReminders:
         if set(args) != FIELDS[action]:
             raise DomainError("validation_error", "Required fields for " + action + ": " + ", ".join(sorted(FIELDS[action])))
         if action == "list":
-            return self.listing(owner, uow) if apply else None
+            return self.listing(access, owner, uow) if apply else None
         if action == "schedule":
             result = self.service.mutate(shared.CREATE, access, {"text": args["text"], "at": args["at"], "recipient_id": owner}, uow, apply=apply)
         else:
@@ -106,10 +107,12 @@ class LegacyReminders:
                                                                      "text": args["text"], "at": args["at"]}, uow, apply=apply)
         return {key: result["reminder"][key] for key in SHAPE} if apply else None
 
-    def listing(self, owner, uow):
-        """Active reminders first, then the most recent finished ones; no destination metadata."""
+    def listing(self, access, owner, uow):
+        """Active reminders first, then the most recent finished ones; no destination metadata. The coordinator does not
+        see reminders of archived projects, which are not current work; the owner sees them all."""
+        current = "" if access.kind == "owner" else " AND " + in_active_business("business_id")
         rows = uow.connection.execute(
-            "SELECT * FROM reminders WHERE recipient_id=? ORDER BY CASE WHEN state IN ('scheduled','due') THEN 0 ELSE 1 END, "
+            "SELECT * FROM reminders WHERE recipient_id=?" + current + " ORDER BY CASE WHEN state IN ('scheduled','due') THEN 0 ELSE 1 END, "
             "COALESCE(CASE WHEN state='due' THEN due_at END, next_at, due_at, created_at) , id LIMIT 100", (owner,)).fetchall()
         return {"reminders": [legacy(row) for row in rows]}
 

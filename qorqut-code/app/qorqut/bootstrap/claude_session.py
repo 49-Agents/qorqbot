@@ -25,11 +25,18 @@ LIFECYCLE_EVENTS = frozenset({"startup", "resume", "clear", "compact", "fork"})
 # Claude Code saves hook output longer than 10,000 characters to a file and shows the model only its first 2,000.
 CLAUDE_HOOK_LIMIT = 9_500
 STARTUP_CONTEXT = ".qorqut/startup-context.md"
+STARTUP_SKILLS = ".qorqut/startup-skills.md"
+# A prompt's short operational reminder stays in the hook output; anything longer is the always-loaded skill text.
+INLINE_SKILLS_LIMIT = 1_000
 INSTRUCTIONS_CHANGED = (f"Your managed instructions changed after this session loaded them. Read {STARTUP_INSTRUCTIONS} "
                         "in full before acting; it replaces the copy in your project instructions.")
 CONTEXT_IN_FILE = ("This session's startup context ({lines} lines: your identity, projects, Context Home, open work, "
                    f"environment and the guides for your tools) is in {STARTUP_CONTEXT}. Before acting, read the whole "
                    "file with one Read call and no limit or offset; a partial read leaves out rules you must follow.")
+# The always-loaded skills are far longer than the rest and used to come first in the one file, so a single read
+# stopped before the identity, projects, Context Home and saved handoff. They now have their own file.
+SKILLS_IN_FILE = ("Your always-loaded skills ({lines} lines) are in " + STARTUP_SKILLS + ". Read that file to its end "
+                  "as well, continuing with offset when one Read call does not return all of it.")
 
 
 def keep_instructions(workspace: Path, rules: str) -> str:
@@ -96,9 +103,11 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     client = client_factory(registration)
     client.native = native
     from . import handoff, recovery
+    # An open recovery episode means this session still lacks its context: ask for all of it and skip no part.
+    recovering = bool(recovery.read(registration, session_id))
     body = {
         "registration_id": registration["registration_id"], "session_id": session_id,
-        "event": lifecycle, "last_effective_config_id": None if recovery.read(registration,session_id) else last_id, "runtime": runtime,
+        "event": lifecycle, "last_effective_config_id": None if recovering else last_id, "runtime": runtime,
     }
     prepared = handoff.request(registration_path, registration, native, body)
     client.handoff = prepared[1] if prepared else None
@@ -142,6 +151,16 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     reminder = instructions.render("response-style-reminder").strip() if event == "UserPromptSubmit" else ""
     if len(reminder) > 1000:
         raise DomainError("invalid_bootstrap", "Response style reminder exceeds its character budget")
+    if event == "UserPromptSubmit" and response.get("context_reads_available") is True:
+        # Sent on every prompt, to every agent that has the Context read tools. A prepared snapshot from before this
+        # message existed simply has no such reminder.
+        try:
+            lookup = instructions.render("context-lookup-reminder").strip()
+        except KeyError:
+            lookup = ""
+        if len(lookup) > 1000:
+            raise DomainError("invalid_bootstrap", "Context lookup reminder exceeds its character budget")
+        reminder = "\n\n".join(filter(None, (lookup, reminder)))
     reminder_size = len(reminder) + 2 if reminder else 0
     # Ordubashy's FIRST CONVERSATION line goes first: a CLI may show the model only the start of a long startup context.
     first = response.get('first_conversation')
@@ -149,9 +168,8 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     skills = ''
     if registration.get('operational_intake_enabled'):
         from .always_skills import handle as skills_hook
-        skills = skills_hook(hook, registration_path, runtime).get('hookSpecificOutput', {}).get('additionalContext', '')
-    if (event == "UserPromptSubmit" and last_id == config_id and not response.get("refresh_required")
-            and not recovery.read(registration,session_id)):
+        skills = skills_hook(hook, registration_path, runtime, force=recovering).get('hookSpecificOutput', {}).get('additionalContext', '')
+    if event == "UserPromptSubmit" and last_id == config_id and not response.get("refresh_required") and not recovering:
         prompt_context = '\n\n'.join(filter(None, (first, skills, reminder)))
         if len(prompt_context) > BOOTSTRAP_BUDGET:
             raise DomainError("invalid_bootstrap", "Combined bootstrap exceeds its character budget")
@@ -170,19 +188,19 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
         if runtime == "claude-code":
             # Claude Code reads the instructions through CLAUDE.md's import of STARTUP_INSTRUCTIONS.
             notice, rules = keep_instructions(workspace, rules), ""
-        context = '\n\n'.join(filter(None, (first, notice, rules, skills, setup, facts)))
+        lead, rest = (first, notice, rules), (setup, facts)
     else:
-        context = '\n\n'.join(filter(None, (first, skills, setup, context)))
+        lead, rest = (first,), (setup, context)
+    context = '\n\n'.join(filter(None, (*lead, skills, *rest)))
+    without_skills, assembled = '\n\n'.join(filter(None, (*lead, *rest))), len(context)
     briefing = response.get("work_briefing", {}).get("rendered", "")
     if not isinstance(briefing, str):
         raise DomainError("invalid_bootstrap", "Work briefing must be text")
     if (response.get('work_briefing', {}).get('compact')
             and len(context) + len(briefing) + reminder_size + 2 > BOOTSTRAP_BUDGET):
-        # Preserve mandatory rules and runtime consumer binding in full. Memory
+        # Preserve mandatory rules and runtime consumer binding in full. The briefing
         # is an optional projection and remains available through its scoped tool.
-        briefing = instructions.render("startup-inventory")
-        if len(context) + len(briefing) + reminder_size + 2 > BOOTSTRAP_BUDGET:
-            briefing = ''
+        briefing = ''
     if briefing:
         context += "\n\n" + briefing
     inventory = bootstrap_environment_context(response.get("environment"), instructions=instructions,
@@ -195,8 +213,16 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
         raise DomainError("invalid_bootstrap", "Combined bootstrap exceeds its character budget")
     if runtime == "claude-code" and len(context) > CLAUDE_HOOK_LIMIT:
         # Too long for Claude Code to show: the whole context goes to a file, and the lines that must be read now stay.
-        write_text_private(workspace / STARTUP_CONTEXT, context)
-        context = '\n\n'.join(filter(None, (first, notice, setup, CONTEXT_IN_FILE.format(lines=context.count('\n') + 1), reminder)))
+        # The briefing, environment and reminder were appended after the assembled part; they stay with the context.
+        body, inline, pointer = without_skills + context[assembled:], "", ""
+        if len(skills) > INLINE_SKILLS_LIMIT:
+            write_text_private(workspace / STARTUP_SKILLS, skills)
+            pointer = SKILLS_IN_FILE.format(lines=skills.count('\n') + 1)
+        else:
+            inline = skills
+        write_text_private(workspace / STARTUP_CONTEXT, body)
+        context = '\n\n'.join(filter(None, (first, notice, inline, setup,
+                                             CONTEXT_IN_FILE.format(lines=body.count('\n') + 1), pointer, reminder)))
     output = {"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}}
     if event == "SessionStart" and runtime == "claude-code":
         output["hookSpecificOutput"]["reloadSkills"] = bool(response.get("reload_skills", True))
@@ -300,7 +326,9 @@ def run(hook: dict, registration_path: Path, *, stream=sys.stdout, diagnostics=s
             owner = native.get('owner') if native.get('session_id') == hook.get('session_id') else None
             receipt_path = Path(selected['workspace']) / '.qorqut/delivery' / (hashlib.sha256(hook.get('session_id', '').encode()).hexdigest() + '.json')
             delivered = False
-            if pending and not path_has_symlink(receipt_path):
+            # An earlier receipt covers a prompt whose refresh is only slow. A lifecycle event such as a compaction
+            # has to deliver again, so it keeps its recovery episode whatever this session received before.
+            if pending and hook.get('hook_event_name') == 'UserPromptSubmit' and not path_has_symlink(receipt_path):
                 try:
                     previous = json.loads(receipt_path.read_text())
                     delivered = (previous.get('registration_id') == selected['registration_id']
