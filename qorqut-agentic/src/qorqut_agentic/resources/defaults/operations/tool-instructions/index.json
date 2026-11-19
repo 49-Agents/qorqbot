@@ -1167,6 +1167,11 @@
       "line": 140
     },
     {
+      "id": "operations-also-return-the-first-page-of-the-associated",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/operations.py",
+      "line": 166
+    },
+    {
       "id": "operations-tags-are-ordinary-labels-that-group-work-they",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/operations.py",
       "line": 162

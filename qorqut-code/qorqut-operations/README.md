@@ -161,6 +161,18 @@ Old Tasks have type `task`, empty overview and no email binding without rewritin
 records or changing the storage schema. Updates use the usual atomic Task plan,
 events and table history; there is no second writer or new operational authority.
 
+### Reading Tasks
+
+`tasks_list` filters in SQL (type, email binding, tags, blocked state, search) and, when
+no status filter applies, reads only the requested page. Each page's views are built in a
+fixed handful of queries however many rows it holds (`tasks/detail.py`). `search` matches
+title, id, overview, status line, next step and comments, with Unicode case folding.
+Every Task view names what its ids point at: `business_name`, `assignees`
+(`{id, kind, name}`) and `blockers` (`{id, title, status}`), beside the existing id
+lists. `tasks_get` accepts `include: ["actions", "signoffs"]` to return the first page of
+each as `tasks_associated_records` would, under that operation's own grant; a type the
+caller may not read or the host does not install is reported as `unavailable`.
+
 ### Customers
 
 A Customer is a Task whose title is the customer's name. Three more typed attributes
