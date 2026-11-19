@@ -24,6 +24,7 @@ const STATUS_PAGE = path.join(__dirname, 'ui', 'status.html');
 const HELP_PAGE = path.join(__dirname, 'ui', 'help.html');
 const START_PAGE = path.join(__dirname, 'ui', 'start.html');
 const ICON_FILE = path.join(__dirname, 'icons', 'qorqbot.png');
+const STOPPED_CHECK_MS = 30_000;
 
 let engine;
 let mainWindow = null;
@@ -33,6 +34,8 @@ let tray = null;
 let appIcon = null;
 let quitting = false;
 let busy = false;           // an engine operation is in progress
+let stoppedCheckTimer = null;
+let checkingServer = false;
 let pendingChoice = null;   // resolves when the status page answers a question
 let state = { phase: 'starting', title: 'Starting Qorqbot', steps: [], log: [], error: null, choice: null };
 
@@ -154,6 +157,34 @@ async function restartServer() {
   if (state.phase === 'stopped') await boot();
 }
 
+/** While the dashboard is showing, notice a server that ended outside the app (`qorqbot stop` in a terminal never
+ * tells it). The engine forgets its address when a server it started exits; otherwise ask the address, then the
+ * folder, before believing the server is gone. Never throws. */
+async function checkServerStillRunning() {
+  if (busy || quitting || checkingServer || !engine || state.phase !== 'running') return;
+  checkingServer = true;
+  try {
+    if (engine.url) {
+      const reply = await fetch(engine.url, { method: 'HEAD', signal: AbortSignal.timeout(5000) }).catch(() => null);
+      if (reply) return;
+    }
+    await noticeStoppedServer();
+  } catch {
+    // Not knowing is not the same as stopped; check again next time.
+  } finally {
+    checkingServer = false;
+  }
+}
+
+/** Shows the stopped page, and so the stopped status in the menus, when the server is gone. */
+async function noticeStoppedServer() {
+  const url = await engine.status().catch(() => engine.url);
+  if (url || busy || quitting || state.phase !== 'running') return;
+  engine.log('the server stopped outside the app');
+  publish({ phase: 'stopped', title: 'Qorqbot is stopped', steps: [], log: [], error: null, choice: null });
+  await showStatusPage();
+}
+
 // ---------------------------------------------------------------- windows
 
 function webPreferences() {
@@ -212,7 +243,7 @@ function createMainWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
   mainWindow.webContents.on('did-fail-load', (_event, code, description, url) => {
     if (url && !url.startsWith('file:') && code !== -3) {
-      publish({ phase: 'error', title: 'The dashboard did not load', error: { message: `${description} (${url})`, detail: engine.logTail() } });
+      publish({ phase: 'error', title: 'The dashboard did not load', steps: [], error: { message: `${description} (${url})`, detail: engine.logTail() } });
       showStatusPage();
     }
   });
@@ -262,7 +293,7 @@ function showGuide() {
 /** A message box over the main window when it is showing, else on its own. */
 function messageBox(options) {
   const parent = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow : undefined;
-  const settings = { icon: appIcon, ...options };
+  const settings = { icon: appIcon, title: 'Qorqbot', ...options };
   return parent ? dialog.showMessageBox(parent, settings) : dialog.showMessageBox(settings);
 }
 
@@ -390,7 +421,7 @@ async function offerApplicationsMenu() {
   if (plan === 'refresh' || plan === 'accept') return addToApplicationsMenu({ quiet: true });
   if (plan === 'decline') return desktop.saveChoice(engine.installParent, 'declined');
   const { response } = await dialog.showMessageBox({
-    type: 'question', icon: appIcon, buttons: ['Add to Applications Menu', 'Not Now'], defaultId: 0, cancelId: 1,
+    type: 'question', icon: appIcon, title: 'Qorqbot', buttons: ['Add to Applications Menu', 'Not Now'], defaultId: 0, cancelId: 1,
     message: 'Add Qorqbot to your applications menu?',
     detail: 'Qorqbot was opened from an AppImage file. Adding it puts Qorqbot in your applications menu so you can open it from there. You can change this later in the File menu.',
   });
@@ -536,6 +567,7 @@ if (!app.requestSingleInstanceLock()) {
     createMainWindow();
     createTray();
     rebuildMenu();
+    stoppedCheckTimer = setInterval(checkServerStillRunning, STOPPED_CHECK_MS);
     boot();
   });
 
@@ -546,6 +578,7 @@ if (!app.requestSingleInstanceLock()) {
     if (quitting) return;
     event.preventDefault();
     quitting = true;
+    if (stoppedCheckTimer) { clearInterval(stoppedCheckTimer); stoppedCheckTimer = null; }
     const finish = () => app.exit(0);
     if (tray) { tray.destroy(); tray = null; }
     // A server started from a terminal belongs to that terminal; quitting the app leaves it running.
@@ -556,7 +589,7 @@ if (!app.requestSingleInstanceLock()) {
       showStatusPage();
     }
     const timeout = setTimeout(() => {
-      dialog.showMessageBoxSync({ type: 'warning', message: 'Qorqbot is still shutting down.', detail: 'The app will quit now. Check the server log if Qorqbot does not stop.' });
+      dialog.showMessageBoxSync({ type: 'warning', title: 'Qorqbot', message: 'Qorqbot is still shutting down.', detail: 'The app will quit now. Check the server log if Qorqbot does not stop.' });
       finish();
     }, 45_000);
     engine.stop().catch(() => {}).finally(() => { clearTimeout(timeout); finish(); });

@@ -48,7 +48,7 @@ test('the menu entry has the fields the window manager and the menu need', () =>
   const lines = text.trimEnd().split('\n');
   assert.equal(lines[0], '[Desktop Entry]');
   assert.ok(lines.includes('Exec="/opt apps/Qorqbot.AppImage" %U'));
-  for (const line of ['Type=Application', 'Name=Qorqbot', 'Icon=qorqbot', 'StartupWMClass=qorqbot', 'Categories=Office;Utility;', 'Terminal=false']) {
+  for (const line of ['Type=Application', 'Name=Qorqbot', 'Icon=qorqbot', 'StartupWMClass=qorqbot', 'Categories=Office;', 'Terminal=false']) {
     assert.ok(lines.includes(line), line);
   }
 });
