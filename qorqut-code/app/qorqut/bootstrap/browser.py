@@ -621,7 +621,7 @@ def _render_observation(workspace: Path, evidence: Path, request: ObservationReq
 
 
 def _run_observation(workspace: Path, directory: Path, executable: Path, session: str,
-                     request: ObservationRequest, env: dict[str, str], capture=False):
+                     request: ObservationRequest, env: dict[str, str], capture=False, pinned=False):
     evidence = None
     if request.observation:
         try:
@@ -638,7 +638,8 @@ def _run_observation(workspace: Path, directory: Path, executable: Path, session
             return _emit_observation_error(workspace, directory, request, str(exc), capture=capture)
     else:
         handle = "observation-" + secrets.token_hex(8) + ".yml"
-        command = agent_browser.command(executable, session, env["QORQUT_OBSERVATION_CDP"], directory, ["snapshot"])
+        command = agent_browser.command(executable, session, env["QORQUT_OBSERVATION_CDP"], directory, ["snapshot"],
+                                        pinned=pinned)
         command.insert(1, "--json")
         stdout = stderr = ""
         try:
@@ -651,14 +652,21 @@ def _run_observation(workspace: Path, directory: Path, executable: Path, session
             details = _captured_text(getattr(exc, "stdout", "")) + "\n--- stderr ---\n" + _captured_text(getattr(exc, "stderr", ""))
             return _emit_observation_error(workspace, directory, request,
                                            "Browser observation timed out; inspect the page before retrying.",
-                                           details=details, code=2)
+                                           details=details, code=2, capture=capture)
         except OSError as exc:
             return _emit_observation_error(workspace, directory, request,
-                                           "Could not execute the installed browser runtime.", details=str(exc), code=2)
+                                           "Could not execute the installed browser runtime.", details=str(exc), code=2,
+                                           capture=capture)
         if return_code:
             details = stdout + "\n--- stderr ---\n" + stderr
-            preview = stderr.strip() or stdout.strip() or "agent-browser snapshot failed."
-            return _emit_observation_error(workspace, directory, request, preview, details=details, code=return_code)
+            try:
+                reported = json.loads(stdout).get("error")      # with --json the runtime's message is the answer's "error"
+            except (ValueError, AttributeError):
+                reported = None
+            preview = agent_browser.explain(reported if isinstance(reported, str) and reported else
+                                            stderr.strip() or stdout.strip() or "agent-browser snapshot failed.", pinned)
+            return _emit_observation_error(workspace, directory, request, preview, details=details, code=return_code,
+                                           capture=capture)
         try:
             payload = json.loads(stdout)
             if not payload.get("success"):
@@ -709,15 +717,21 @@ def _run_observation(workspace: Path, directory: Path, executable: Path, session
                                        capture=capture)
 
 
-def read_target(workspace: Path) -> tuple[str, str]:
-    """The workspace's saved ``(cdp_endpoint, runtime_dir)``, validated for shape only; no runtime or Chrome is touched."""
+TARGET_KEYS = {"schema_version", "cdp_endpoint", "runtime_dir"}
+
+
+def _target_record(workspace: Path) -> dict:
+    """The workspace's saved browser target, validated for shape only; no runtime or Chrome is touched.
+
+    ``"shared": true`` is the one optional entry: the endpoint is the installation's Shared browser, which several agents
+    use at once (docs/BROWSER-MANAGEMENT.md). Any other value or entry is refused."""
     try:
         target = json.loads((workspace / ".qorqut/browser.json").read_text())
     except FileNotFoundError as exc:
         raise BrowserNotConfigured("Browser is not configured. Ask the operator to install this workspace's browser target.") from exc
     except (OSError, ValueError) as exc:
         raise BrowserConfigurationInvalid("Browser target file is unreadable or not valid JSON.") from exc
-    if (not isinstance(target, dict) or set(target) != {"schema_version", "cdp_endpoint", "runtime_dir"}
+    if (not isinstance(target, dict) or set(target) - {"shared"} != TARGET_KEYS or target.get("shared", True) is not True
             or type(target["schema_version"]) is not int or target["schema_version"] != 1):
         raise BrowserConfigurationInvalid("Invalid browser target configuration (expected schema version 1).")
     endpoint, runtime = target["cdp_endpoint"], target["runtime_dir"]
@@ -732,7 +746,21 @@ def read_target(workspace: Path) -> tuple[str, str]:
         valid = False
     if not valid:
         raise BrowserConfigurationInvalid("Browser CDP must be an explicit loopback HTTP endpoint with a port.")
-    return endpoint.rstrip("/"), runtime
+    return {**target, "cdp_endpoint": endpoint.rstrip("/")}
+
+
+def read_target(workspace: Path) -> tuple[str, str]:
+    """The workspace's saved ``(cdp_endpoint, runtime_dir)``."""
+    target = _target_record(workspace)
+    return target["cdp_endpoint"], target["runtime_dir"]
+
+
+def target_shared(workspace: Path) -> bool:
+    """Whether the workspace's saved target is the Shared browser. A missing or invalid target is not."""
+    try:
+        return "shared" in _target_record(workspace)
+    except BrowserError:
+        return False
 
 
 def load_target(workspace: Path) -> tuple[str, Path]:
@@ -842,12 +870,20 @@ def validate_arguments(args: list[str]) -> None:
         raise BrowserError(str(exc)) from exc
 
 
-def run(workspace: Path, args: list[str], *, target=None, instance="", capture=False):
+def session_name(workspace: Path, endpoint: str, instance: str = "") -> str:
+    """The ``agent-browser`` session of one workspace on one browser. The captcha command finds the session's tab by it."""
+    return "qorqut-" + hashlib.sha256((str(workspace.resolve()) + "\n" + endpoint + instance).encode()).hexdigest()[:20]
+
+
+def run(workspace: Path, args: list[str], *, target=None, instance="", capture=False, pinned=None):
+    """Run one browser command. ``pinned`` says the target is a Chrome that several agents share (see
+    ``agent_browser.command``); left out, it is read from the workspace's own saved target when that is the target used."""
     validate_arguments(args)
     observation_request = parse_observation_args(args) if args[0] == "observe" else None
+    if pinned is None:
+        pinned = target is None and target_shared(workspace)
     endpoint, executable = target or load_target(workspace)
-    identity = hashlib.sha256((str(workspace.resolve()) + "\n" + endpoint + instance).encode()).hexdigest()[:20]
-    session = "qorqut-" + identity
+    session = session_name(workspace, endpoint, instance)
     directory = workspace / "work/browser" / session
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     if path_has_symlink(directory):
@@ -860,11 +896,14 @@ def run(workspace: Path, args: list[str], *, target=None, instance="", capture=F
             raise BrowserError("Another browser command is running in this workspace; wait for it to finish.") from exc
         if args[0] == "attach":
             preflight(endpoint)
+        from qorqut.browser import idle_tabs
+        idle_tabs.before_command(endpoint, session, pinned)      # a tab unloaded for idleness is loaded again first
         if observation_request is not None:
             env["QORQUT_OBSERVATION_CDP"] = endpoint
-            return _run_observation(workspace, directory, executable, session, observation_request, env, capture=capture)
+            return _run_observation(workspace, directory, executable, session, observation_request, env, capture=capture,
+                                    pinned=pinned)
         try:
-            command = agent_browser.command(executable, session, endpoint, directory, args)
+            command = agent_browser.command(executable, session, endpoint, directory, args, pinned=pinned)
         except ValueError as exc:
             raise BrowserError(str(exc)) from exc
         try:
@@ -872,12 +911,13 @@ def run(workspace: Path, args: list[str], *, target=None, instance="", capture=F
                                        input=agent_browser.standard_input(args),
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             completed = agent_browser.reply(args, completed)      # only read has its own reply
+            errors = agent_browser.explain(completed.stderr, pinned)
             if capture:
-                return completed.returncode, completed.stdout, completed.stderr
+                return completed.returncode, completed.stdout, errors
             if completed.stdout:
                 print(completed.stdout, end="")
-            if completed.stderr:
-                print(completed.stderr, end="", file=sys.stderr)
+            if errors:
+                print(errors, end="", file=sys.stderr)
             return completed.returncode
         except subprocess.TimeoutExpired as exc:
             raise BrowserTimeout("Browser command timed out; its outcome may be uncertain. Inspect the page before retrying an action.") from exc
@@ -932,7 +972,8 @@ def run_owner(workspace, args):
         target = browser_turn.get('target') if isinstance(browser_turn, dict) else None
         code = run(workspace, arguments,
                    target=(target['cdp_endpoint'], runtime_executable(target['runtime_dir'])) if target else None,
-                   instance=target.get('instance', '') if target else '')
+                   instance=target.get('instance', '') if target else '',
+                   pinned=bool(target.get('shared')) if target else None)
         return code
     finally:
         try:

@@ -1,6 +1,7 @@
 """MCP registration of the restricted browser surface: own browsers, managed Global desktops and assignment turns."""
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
+from .agent_browsers import ACTIONS
 
 from qorqut_operations.application import OperationDescriptor
 
@@ -79,7 +80,7 @@ def register_agent_browser_management(runtime):
         "type": "object", "additionalProperties": False,
         "properties": {
             "agent_id": {"type": "string", "format": "uuid", "description": instruction_text('operations-the-active-permanent-worker-whose-own-browser-to')},
-            "action": {"enum": ["status", "ensure", "repair", "restart", "stop"]},
+            "action": {"enum": list(ACTIONS)},
         },
         "required": ["agent_id", "action"],
     }, version=1, effect_kind="records", supports_signoff=False, scope_kinds=frozenset({"global"}),

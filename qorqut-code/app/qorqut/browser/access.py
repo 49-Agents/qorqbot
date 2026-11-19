@@ -153,19 +153,19 @@ class BrowserAccess:
             raise DomainError("validation_error", "Give command (one command) or commands (1 to %d commands in one call)" % _BATCH_LIMIT)
         if not isinstance(command, list) or not command or any(not isinstance(item, str) for item in command):
             raise DomainError("validation_error", "command must be a non-empty list of strings")
-        try:
-            browser.validate_arguments(command)
-        except browser.BrowserError as exc:
-            raise DomainError("validation_error", str(exc)) from exc
+        run = self._runner(actor, command)
         workspace = self._artifact_root(actor.principal.id, handle)
         owner = self._browser_owner(actor, browser_key)
         before = self._artifact_state(workspace)
         try:
             with self._selected_worker(actor, owner):
-                target = self._worker_target(browser_key, owner)
                 with self._managed_use(browser_key):
-                    code, stdout, errors = browser.run(workspace, command, target=(target["cdp_endpoint"],
-                        browser.runtime_executable(target["runtime_dir"])), instance=target["instance"], capture=True)
+                    # Read with the use lock held: a switch between own and Shared waits for it, so this command cannot be
+                    # run against the browser the agent has just left.
+                    target = self._worker_target(browser_key, owner)
+                    code, stdout, errors = run(workspace, command, target=(target["cdp_endpoint"],
+                        browser.runtime_executable(target["runtime_dir"])), instance=target["instance"], capture=True,
+                        pinned=bool(target.get("shared")))
         except browser.BrowserTimeout:
             raise DomainError("browser_timeout", _TIMEOUT_MESSAGE) from None
         except browser.BrowserError as exc:
@@ -189,7 +189,10 @@ class BrowserAccess:
             raise DomainError("validation_error", "commands must be a list of 1 to %d commands, each a non-empty list of strings"
                               % _BATCH_LIMIT)
         # Every command is checked before the first one runs: a refused tenth must not leave nine half-done steps.
+        from . import captcha
         for index, command in enumerate(commands):
+            if captcha.is_command(command):
+                raise DomainError("validation_error", f"commands[{index}]: captcha goes in a call of its own, as command.")
             try:
                 browser.validate_arguments(command)
             except browser.BrowserError as exc:
@@ -201,8 +204,9 @@ class BrowserAccess:
         results, stopped, kept = [], None, 0
         try:
             with self._selected_worker(actor, owner):
-                target = self._worker_target(browser_key, owner)
                 with self._managed_use(browser_key):
+                    # Read with the use lock held, as a single command does.
+                    target = self._worker_target(browser_key, owner)
                     runtime_target = (target["cdp_endpoint"], browser.runtime_executable(target["runtime_dir"]))
                     for index, command in enumerate(commands):
                         if index and self.clock() - started + _COMMAND_SECONDS > _REQUEST_SECONDS - _REPLY_SECONDS:
@@ -212,7 +216,8 @@ class BrowserAccess:
                             break
                         try:
                             code, stdout, errors = browser.run(workspace, command, target=runtime_target,
-                                                               instance=target["instance"], capture=True)
+                                                               instance=target["instance"], capture=True,
+                                                               pinned=bool(target.get("shared")))
                         except browser.BrowserTimeout:
                             stopped = {"index": index, "reason": "browser_timeout", "not_run": len(commands) - index - 1,
                                        "message": _TIMEOUT_MESSAGE}
@@ -267,6 +272,18 @@ class BrowserAccess:
                      else "failed" if stopped else "succeeded")
             result["action"] = {"action_id": action_id, "state": state}
         return result
+
+    def _runner(self, actor, command):
+        """What runs a checked command: ``agent-browser`` for a page command, the server itself for ``captcha``."""
+        from qorqut.bootstrap import browser
+        from . import captcha
+        if captcha.is_command(command):
+            return captcha.runner(self.runtime, actor.principal.id)
+        try:
+            browser.validate_arguments(command)
+        except browser.BrowserError as exc:
+            raise DomainError("validation_error", str(exc)) from exc
+        return browser.run
 
     def tool(self, actor, action, body):
         """Agent-facing browser calls carry only a short, persisted handle."""
@@ -499,10 +516,7 @@ class BrowserAccess:
                               "action there has its own durable record that can be reconciled. Send command, not commands.")
         if not isinstance(command, list) or not command or any(not isinstance(item, str) for item in command):
             raise DomainError("validation_error", "command must be a non-empty list of strings")
-        try:
-            browser.validate_arguments(command)
-        except browser.BrowserError as exc:
-            raise DomainError("validation_error", str(exc)) from exc
+        run = self._runner(actor, command)
         with self.runtime.database.transaction(operation="browser.turn.intent") as uow:
             intent, fresh = self.turns.begin_action(uow, turn_id, parent_principal_id=actor.principal.id,
                 requester_id=requester, generation=generation, lease_id=lease_id,
@@ -515,8 +529,9 @@ class BrowserAccess:
         before = self._artifact_state(workspace)
         try:
             target = self._worker_target(browser_key, actor.principal.id)
-            code, stdout, errors = browser.run(workspace, command, target=(target["cdp_endpoint"],
-                browser.runtime_executable(target["runtime_dir"])), instance=target["instance"], capture=True)
+            code, stdout, errors = run(workspace, command, target=(target["cdp_endpoint"],
+                browser.runtime_executable(target["runtime_dir"])), instance=target["instance"], capture=True,
+                        pinned=bool(target.get("shared")))
             outcome_state = "succeeded" if code == 0 else "failed"
             outcome = {"exit_code": code, "stdout": stdout[-65_536:], "stderr": errors[-16_384:]}
             with self.runtime.database.transaction(operation="browser.turn.settle") as uow:
@@ -634,14 +649,28 @@ class BrowserAccess:
                                                  (parent_principal_id,)).fetchone()
             if profile is None:
                 raise DomainError("operation_unavailable", "The configured browser workspace is unavailable")
+            workspace = agent_workspace_of(self.runtime.paths, parent_principal_id, profile["home_business_id"],
+                                           profile["slug"])
             try:
-                endpoint, executable = browser.load_target(agent_workspace_of(
-                    self.runtime.paths, parent_principal_id, profile["home_business_id"], profile["slug"]))
+                endpoint, executable = browser.load_target(workspace)
             except browser.BrowserNotConfigured:
                 raise DomainError("browser_not_configured", self.runtime.resolver.require_agentic_view().runtime_instructions().render('browser-worker-unconfigured')) from None
             except browser.BrowserError as exc:
                 raise DomainError("browser_configuration_invalid", "Your configured browser is unusable (" + str(exc) +
                                   self.runtime.resolver.require_agentic_view().runtime_instructions().render('browser-worker-repair')) from None
             return {"cdp_endpoint": endpoint, "generation": "configured", "instance": browser_key,
-                    "runtime_dir": str(browser.runtime_directory(executable)), "browser_key": browser_key}
+                    "runtime_dir": str(browser.runtime_directory(executable)), "browser_key": browser_key,
+                    "shared": self._shared_target(parent_principal_id, workspace, endpoint)}
         raise DomainError("forbidden", "Browser target is not an approved configured target")
+
+    def _shared_target(self, agent_id, workspace, endpoint):
+        """Whether the agent's target is the Shared browser. The agent's saved choice and its target file must agree, and a
+        Shared target must name the Shared browser as it is recorded now: an agent is never sent to another browser."""
+        from .agent_browsers import shared_target, uses_shared
+        from qorqut.bootstrap import browser
+        chosen, marked = uses_shared(self.runtime.paths, agent_id), browser.target_shared(workspace)
+        expected = shared_target(self.runtime.paths) if chosen else None
+        if chosen != marked or (chosen and (expected is None or expected["cdp_endpoint"] != endpoint)):
+            raise DomainError("browser_configuration_invalid", "Your browser target file does not match your saved browser "
+                              "choice, so no browser was used. Tell Ordubashy; he can repair it with agent_browser_manage.")
+        return chosen

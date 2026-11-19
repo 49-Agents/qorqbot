@@ -354,13 +354,31 @@ def translate(args, endpoint=""):
     return translated
 
 
-def command(executable, session, endpoint, directory, args):
-    """Translate the prepared launcher surface without exposing lifecycle overrides."""
+def command(executable, session, endpoint, directory, args, *, pinned=False):
+    """Translate the prepared launcher surface without exposing lifecycle overrides.
+
+    ``pinned`` is for a Chrome that several agents share: the session keeps to the tab it is bound to. A new session
+    opens a tab of its own instead of adopting one that is open, a tab another session opens does not become this
+    session's tab, and a command whose tab is closed fails with ``tab_gone`` instead of moving to another tab."""
     translated = translate(args, endpoint)
     config = Path(directory) / "agent-browser.json"
     config.write_text("{}\n")
     return [str(executable), "--config", str(config), "--session", session,
-            "--cdp", endpoint, *translated]
+            *(["--pin-tab"] if pinned else []), "--cdp", endpoint, *translated]
+
+
+TAB_GONE_ADVICE = "Open a new tab with tab-new <url> and continue there."
+
+
+def explain(output, pinned):
+    """What a pinned session is told when its tab is gone (closed, or the shared Chrome was restarted).
+
+    agent-browser's own advice names commands an agent does not have (``agent-browser tab new``) and offers to pick an open
+    tab, which in a shared Chrome is another agent's. The report of the gone tab stays; the advice becomes the agent's own
+    command."""
+    if not pinned or "tab_gone" not in output:
+        return output
+    return output.split(" Run `agent-browser", 1)[0].rstrip() + " " + TAB_GONE_ADVICE + "\n"
 
 
 def standard_input(args):

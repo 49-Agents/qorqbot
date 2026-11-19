@@ -70,7 +70,7 @@ class Folder(unittest.TestCase):
         def use(_paths, _agent_id):
             yield
 
-        def run(workspace, command, *, target, instance, capture):
+        def run(workspace, command, *, target, instance, capture, pinned=False):
             directory = workspace / FOLDER
             directory.mkdir(parents=True, exist_ok=True)
             # Every real command opens its lock and rewrites its tool config, whatever else it does.

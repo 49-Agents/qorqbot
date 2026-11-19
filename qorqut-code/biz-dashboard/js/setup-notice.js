@@ -1,5 +1,5 @@
-// A notice at the top of the dashboard when something Qorqbot cannot install itself is missing: Google Chrome, which the
-// agents' own browsers run on. Everything else Qorqbot installs by itself. Facts come from /root/about (owner only).
+// A notice at the top of the dashboard when the owner has to install Google Chrome: none is installed and the Chrome
+// Qorqbot downloads for itself cannot be used on this computer. Facts come from /root/about (owner only).
 // `setupNotice.message` is pure (tested with node --test); `setupNotice.show` paints it.
 const setupNotice = (() => {
   const CHROME_URL = 'https://www.google.com/chrome/';

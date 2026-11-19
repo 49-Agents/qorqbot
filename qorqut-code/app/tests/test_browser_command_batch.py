@@ -88,7 +88,7 @@ class BatchCase(unittest.TestCase):
             if command[0] == "close":
                 raise browser.BrowserError("'close' is not a supported browser command.")
 
-        def run(workspace, command, *, target, instance, capture):
+        def run(workspace, command, *, target, instance, capture, pinned=False):
             if not self.ran:
                 self.validated_before_first_run = len(self.validated)
             self.ran.append({"command": command, "target": target[0], "instance": instance, "capture": capture,
@@ -312,6 +312,12 @@ class BatchOutputTest(BatchCase):
         self.assertEqual((reply["stopped"]["index"], reply["stopped"]["reason"], reply["stopped"]["not_run"]),
                          (1, "browser_failed", 1))
         self.assertIn("may not have reached the page", reply["stopped"]["message"])
+
+    def test_captcha_is_refused_in_a_batch_before_anything_runs(self):
+        with self.assertRaises(DomainError) as refused:
+            self.batch([["click", "e1"], ["captcha"]])
+        self.assertIn("commands[1]", str(refused.exception))
+        self.assertEqual(self.ran, [])
 
     def test_an_unexpected_failure_of_the_first_command_raises(self):
         self.script = [step(raises=OSError("pipe"))]
