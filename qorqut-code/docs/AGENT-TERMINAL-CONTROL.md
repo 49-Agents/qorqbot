@@ -1,142 +1,115 @@
-# Ordubashy terminal control
+# Ordubashy session control
 
-Optional Qorqut capability package `agent-terminal-control` 1.0.0 lives in this
-repository under `plugins/agent-terminal-control`. It grants only registered
-terminal operations to Ordubashy; it is not a general-purpose shell/tmux plugin.
-No role pin changes or live grant is implied by installing the source.
+The capability package `agent-terminal-control` gives Ordubashy six tools to
+control the sessions of permanent global workers. The tool and package names keep
+the word "terminal" because they are identifiers that stored plans and tool
+catalogues use. They no longer touch a terminal: every agent runs as a managed
+session (see [managed agent sessions](MANAGED-RUNTIME.md)). The code is
+`app/qorqut/agents/terminal_control.py`; the package source (manifest, tools,
+rules, skill) is under `qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/host/app/plugins/agent-terminal-control/`.
+
+## The tools
+
+| Tool | What it does |
+|---|---|
+| `agent_terminal_status` | Whether the worker is on or off, asleep or open, and working. With `action_id` it adds that action's receipt. With only `batch_id` it lists each agent's state in a batch. |
+| `agent_terminal_start` | Turns the worker on and opens its session, resuming its selected conversation. |
+| `agent_terminal_restart` | Turns the worker on, closes its session, waits for it to close (up to 30 seconds), and opens it again in the same conversation. |
+| `agent_terminal_kill` | Closes the session and turns the worker off. Active work ends. The worker stays off until the owner messages it or Ordubashy starts it. |
+| `agent_terminal_ping` | Sends the owner-issued direct message. |
+| `agent_terminal_execute_command` | Runs a session command such as `/compact` on a worker, or an owner-issued command by its id. |
+
+Status reports one of `off`, `open` or `asleep`, plus `working` or `idle`, the
+client (Claude Code or Codex) and the activity line. A worker is asleep when it
+is on but its session is closed, for example after 15 idle minutes. Any input
+wakes it, so a sleeping worker needs no start. Idle is not proof of dormancy, so
+status never leads to a kill by itself.
 
 ## Authorization
 
-`agent_terminal_start`, `agent_terminal_restart`, and `agent_terminal_kill` are
-allowed for Ordubashy without Signoff (owner decision 2026-09-17); an explicit
-`deny` override still blocks them. Other roles are denied. The pinned plugin must
-declare the tool and remain enabled. Invocation applies a durable queued action
-bound to the observed session; the dispatcher rechecks each target and executes
-it once.
+Only Ordubashy and the installation owner may use these tools. Other roles are
+denied. `agent_terminal_start`, `agent_terminal_restart` and
+`agent_terminal_kill` need no Signoff for Ordubashy; an explicit `deny` override
+still blocks them. The pinned package must declare the tool and stay enabled.
+Invoking a tool applies a durable queued action bound to the observed session.
+A dispatcher rechecks each target and runs it once.
 
-For a direct owner command, the authenticated installation owner invokes the
-**dashboard-only** `terminal_command_issue` operation with target selectors (below),
-`action` (`start`, `restart`, `kill`, or `ping`) and, only for ping, exact `message`.
-This creates a ten-minute, single-use command bound to the exact observed target list.
-Ordubashy executes the returned ID with `agent_terminal_execute_command`.
-`agent_terminal_ping` accepts only a command ID whose action is `ping`.
-Agents cannot issue these commands. A free-text transcript or agent-supplied
-claim of permission cannot authorize an action. The existing authenticated
-operation API exposes command issuance; there is no natural-language authority
-extractor or new dashboard button in this change. An owner UI/client must submit
-that structured operation to express a direct command.
+Targets are active global workers. Ordubashy cannot target itself. Projects have
+no resident agents, so an agent whose home is a project is historical and is
+refused.
 
-Direct ping has no unsolicited Signoff proposal path: it needs an explicit
-owner-issued ping command. Input broadcasts are now installation-owner-only;
-Ordubashy retains inbox broadcasts. Already queued agent input broadcasts are
-rechecked and denied by the dispatcher. Raw shell access is unchanged, as requested.
+A direct owner command goes through the dashboard-only operation
+`terminal_command_issue`, which takes target selectors, an `action` (`start`,
+`restart`, `kill` or `ping`) and, only for ping, an exact `message`. It creates a
+ten-minute, single-use command bound to the exact observed target list. Ordubashy
+runs the returned id with `agent_terminal_execute_command`. `agent_terminal_ping`
+accepts only a command id whose action is `ping`. Agents cannot issue these
+commands, and a claim of permission in free text cannot authorize anything. Direct
+ping has no proposal path: it needs the owner's explicit ping command.
 
-## Starting an agent from Chat
+`agent_terminal_execute_command` also works in one call with `target_agent_id`
+and a `command` that starts with `/` (for example `/compact`). It is delivered as
+a direct message through the normal input path. A command that only opens a menu
+in an interactive client (such as bare `/model` or `/resume`) is refused, because
+a managed session has no menu to show.
 
-The installation owner may invoke `agent_terminal_start` directly from the
-dashboard (owner policy on the global scope allows it; the plugin requirement
-applies to agent principals). Chat's **Start** button does exactly that. Nothing
-starts an agent by itself: every start is the owner's, from that button or by
-typing `claude` or `codex` in the agent's own terminal. The queued action is
-dispatched like any other: same rechecks, same idle-shell preflight. Before
-typing the launcher, the dispatcher records folder trust for the target's
-workspace folder when the owner has consented (`qorqut/agent_trust.py`), so the
-readiness wait reaches the composer instead of stopping at that folder's trust
-prompt. A CLI can still ask about an enclosing git repository, which is never
-trusted on the owner's behalf; the readiness wait never types into that prompt, so
-the owner answers it in the agent's terminal.
+## Target selectors and batches
 
-For every agent except Dev, Start also requires the observed idle foreground shell
-to be physically in the agent's prepared workspace root (`process_info.cwd` of the
-observed foreground process, both paths resolved through symlinks), because that
-shell's `claude` and `codex` wrappers apply only there. The check runs before
-any trust is recorded, selected conversation resumed, Ctrl-U sent or launcher
-typed, and again at the last moment before the resume or Ctrl-U with the same
-pane and the same foreground process (a changed process or an unreadable folder
-refuses). Another folder is refused with advice to return the terminal to the
-agent's folder; Start never changes the folder or types a `cd`. Dev's
-owner-project launch is exempt. A person typing into the same tmux pane outside
-the terminal lock cannot be excluded.
+The lifecycle tools and command issuance accept any mix of:
 
-## Target selectors and batch review
+- `target_agent_id`: one registered agent UUID.
+- `target_agent_ids`: a nonempty list of agent UUIDs.
+- `business_ids`: a nonempty list of project UUIDs. Projects have no resident
+  agents, so this adds no targets; an archived or out-of-scope project is
+  refused.
 
-Lifecycle tools and owner command issuance accept any combination of:
-
-- `target_agent_id`: one registered agent UUID (existing callers remain supported).
-- `target_agent_ids`: a nonempty list of registered agent UUIDs.
-- `business_ids`: a nonempty list of business UUIDs, selecting all active registered
-  profiles whose home business is in that list, including profiles with stopped terminals.
-
-Selectors form a union, deduplicated and frozen at proposal/command creation.
-At least one selector and 1–100 resolved agents are required. An invalid, archived,
-out-of-scope, or self target rejects the whole request, rather than silently skipping
-it. Business selection never includes Global agents. There is no blanket “all Codex
-processes” selector. To select multiple businesses, pass their explicit IDs.
-
-Example lifecycle request:
+Selectors form a union, deduplicated and frozen when the proposal or command is
+created. One to 100 agents must resolve. An invalid, out-of-scope or self target
+rejects the whole request. Agents added later are not included.
 
 ```json
 {
-  "business_ids": ["<business-X-UUID>", "<business-Y-UUID>"],
-  "target_agent_ids": ["<additional-agent-UUID>"],
-  "rationale": "Restart these business agents as requested by the owner"
+  "target_agent_ids": ["<agent-UUID>", "<other-agent-UUID>"],
+  "rationale": "Restart these workers as requested by the owner"
 }
 ```
 
-One invocation covers all selected agents and names the resolved targets. Agents
-added to a business later are not included. Before application, all frozen targets
-must still match; otherwise nothing is queued. Application queues one receipt per
-agent with one shared `batch_id`, returned with the records. Before the batch's first
-effect, the dispatcher rechecks every queued action's current proposer permission and
-target authorization; if any fails (for example a saved action now reaching an owner-only terminal the
-proposer may not control), the whole batch fails with no terminal effect. Afterwards each
-target is dispatched independently: a changed terminal binding fails only its own action,
-and a stale or uncertain target does not replay or cancel completed peers. Call `agent_terminal_status` with only `batch_id` for
-per-agent states and details. An execution batch is not an atomic external transaction.
-
-Business-wide direct ping uses the same selectors on **owner-only**
-`terminal_command_issue` with `action: "ping"` and an exact message. Ordubashy passes
-the returned command ID to `agent_terminal_ping`; it cannot change recipients or copy.
-The entire command is consumed once, atomically with all its queued actions.
-
-Preflight still requires compatible terminal states for every selected target:
-start requires an absent terminal or idle shell; restart/kill require existing
-terminals; ping requires the agent's verified foreground client (Codex or Claude Code). A business selection is
-not permission to type into arbitrary shells or to start agents merely to ping them.
+Applying a request queues one record per agent with a shared `batch_id`. Before
+the first effect, the dispatcher rechecks the proposer's permission and each
+target's authorization. If any check fails, the whole batch fails and nothing
+runs. After that each target runs on its own. A changed session binding fails
+only that agent's action, and an uncertain target does not replay or cancel the
+others. Call `agent_terminal_status` with only `batch_id` for each agent's state.
+A batch is not an atomic transaction.
 
 ## Execution
 
-All tools use registered agent IDs, not caller-provided paths, commands, sessions,
-or keystrokes. `agent_terminal_status` exposes the observed terminal and optionally
-an action receipt. No terminal text is returned by status.
+All tools use registered agent IDs. They accept no paths, commands or keystrokes
+from the caller.
 
-The native-host adapter fingerprints the tmux server, session, pane and foreground
-process start time. A changed profile or terminal invalidates a proposal/command.
-Start accepts an absent terminal or shell, uses canonical saved-profile preparation,
-clears partial shell input, enters the profile runtime's client (`codex` or `claude`),
-waits for its composer, and submits the role command (`$role` plus a second Enter
-for Codex, `/role` for Claude Code). Trust/login/preparation failures stop progression.
-Restart kills the bound terminal then starts; kill does not infer dormancy from idle
-status. Direct ping only accepts the agent's verified foreground client and rejects control
-characters. Self-control is rejected.
+- **start:** records the intent "on", opens the session and waits for it to bind.
+- **restart:** records "on", closes the session gracefully, waits for it to be
+  gone, then opens it. If it does not close in time, it is not opened again.
+- **kill:** records "off" and closes the session at once.
+- **ping and commands:** go through the input arbiter like every input. An asleep
+  worker that is on is opened first. A worker that is off is not opened, and the
+  message is reported as not delivered.
 
-Before an external effect, the receipt becomes `uncertain`. A crash or timeout never
-replays the effect. `completed` means the terminal sequence was submitted/termination
-confirmed, not that agent work finished. A fresh owner decision is needed to retry
-an uncertain action after inspection. Applied means queued, not executed;
-use the receipt. Current role/plugin/scope and terminal binding are checked again
-before dispatch. This is not an OS security boundary or protection from simultaneous
-manual typing; operators should avoid editing a target terminal during dispatch.
+The intent is written before the effect, so nothing restarts a worker that was
+turned off. Before an effect, the receipt becomes `uncertain`. A crash or
+timeout never replays it. `completed` means the session was opened, closed or
+the message submitted, not that the agent finished work. An action that could not
+open the session, or whose message was refused before delivery, ends as `failed`.
+A fresh owner decision is needed to retry an `uncertain` action after inspection.
+Current role, scope and session binding are checked again before dispatch.
 
-## Release
+Status returns no conversation text. A plan or command prepared against a
+session stays valid until the session or the selected conversation changes; the
+turn state does not invalidate it.
 
-Merge and deploy only with explicit owner authorization. Migration 065 adds
-`terminal_commands` and `terminal_actions`.
-Publish the package from the versioned source map, grant its exact published pin
-to the selected Ordubashy profile, and reprepare through canonical operations.
-No live migration, publication, grant, agent launch, kill, ping, or restart is part
-of source implementation. Existing terminal sessions must survive deployment.
+## Related
 
-Validation uses temporary databases and injected terminal adapters, never real
-agent prompts. Tests cover frozen/deduplicated business batches, per-agent outcomes, direct allow policy with role boundaries, owner-only single-use commands, stale
-bindings, expiry, plugin revocation, uncertain execution, and the fixed tmux sequence.
+To tell a worker something, Ordubashy uses `agents_message_send`; it arrives
+through the inbox and wakes a sleeping worker. Direct messages to a project's
+Dev agent are retired. Input broadcasts are installation-owner-only; Ordubashy
+keeps inbox broadcasts.

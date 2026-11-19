@@ -1,5 +1,7 @@
 # Qorqut agent platform
 
+> **Historical record.** Since 2026-11-19 every agent runs as a managed session, and the terminal mechanism described below (tmux, the terminal view, typed client commands) was removed; see [managed agent sessions](../MANAGED-RUNTIME.md).
+
 These are application contracts. The application is one shared service with an MCP and
 HTTP interface, explicit roles and optional capability plugins, database-backed
 operational records, and owner Signoffs for protected changes.

@@ -65,7 +65,7 @@ business information in business tasks, not Global task bodies or comments.
 Global task assignment and owner-task-following use the existing agent inbox;
 read-time permissions filter every notification. Global session context includes
 the same bounded task attention.
-No terminal is started, resumed, or messaged by a task change.
+A task change by itself opens no session and messages no agent.
 
 [Task snoozing](TASK-SNOOZING.md) applies in this namespace too: use the same task
 operations, revision checks and active/snoozed/all filters. Migration 047 follows

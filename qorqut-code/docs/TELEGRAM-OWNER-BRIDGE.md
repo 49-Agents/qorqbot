@@ -30,7 +30,7 @@ receiving it.
 | Urgent Notifications | out | Actionable events from trusted programs (`telegram_notify`, gateway) |
 
 Notices and queued-input feedback stay in the topic they belong to. The bridge runs one long-poller (`getUpdates`, `message` and `message_reaction` only) and one control thread. It never
-installs or removes a webhook, never creates chats, and never starts, restarts, or kills a terminal session.
+installs or removes a webhook, never creates chats, and never ends an agent session. An owner message to an agent whose session is asleep opens it through the shared input path.
 
 ## Private configuration
 
@@ -108,7 +108,7 @@ the bridge verify it. The change is a **new generation** whose effective time is
 repin, and the cursor and original `activation_at` carry over. Only the IDs matter: the fingerprint is unchanged for a
 configuration with no topics, so upgrading the code alone resets no generation. Then:
 
-- queued sends, stored updates, saved intents and queued terminal input of the old layout are closed (`binding_changed`),
+- queued sends, stored updates, saved intents and queued agent input of the old layout are closed (`binding_changed`),
   never retargeted or sent to the new destination;
 - a pending blocking request at a destination that is no longer the configured one is cancelled (its record, text and times
   are kept) so it cannot block the new destination;
@@ -124,7 +124,7 @@ An owner repin with every topic unchanged behaves as described in the next secti
 
 ### The pinned installation and Qorqut owner
 
-Two identities are pinned, so that no update, reply, decision or terminal input is ever attributed to whoever happens to be
+Two identities are pinned, so that no update, reply, decision or agent input is ever attributed to whoever happens to be
 the owner *now*:
 
 - **Installation.** `expected_installation_id` must equal the authoritative installation record. It is saved on first
@@ -133,12 +133,12 @@ the owner *now*:
   Another installation needs its own separately configured fresh state.
 - **Qorqut owner.** `expected_owner_principal_id` must equal the active human installation owner. At first activation both
   values are matched against the authoritative records and saved as the pin. On every later start *and on every use* (a poll,
-  a send, a deletion, a terminal delivery, a Signoff decision, an agent tool) the pin is read against the installation record
+  a send, a deletion, a delivery to an agent, a Signoff decision, an agent tool) the pin is read against the installation record
   again. The same file with a different database owner is `owner_binding_mismatch`. The bridge never adopts a new owner by
   itself, on restart or otherwise.
 
 **On a mismatch the bridge fails closed.** There is no polling or ingestion, no tool or gateway send, no outbox effect, no
-Telegram deletion, no direct terminal input and no Signoff decision, and agent tools (including `telegram_history`) return
+Telegram deletion, no direct input to an agent and no Signoff decision, and agent tools (including `telegram_history`) return
 `owner_binding_mismatch`. Local spool expiry and orphan cleanup, and body-free `telegram_status` (`binding.state`, health
 component `binding`), keep running. Status only reports; it repairs nothing. Effects already on the wire cannot be recalled:
 their receipts keep the identity they were bound to and never authorize anything under another one, and a decision that was
@@ -156,7 +156,7 @@ file. Once the file validates against the authoritative owner the bridge starts 
   earlier can never gain the new generation's authority, even when it is fetched only afterwards (Telegram dates have second
   precision, so the reconfiguration second itself is excluded too). Only its metadata and a reason are kept, never its text;
 - the poll cursor and the original `activation_at` carry over; the effective time is an additional cutoff, not a reset;
-- every older queued send, edit, stored update, saved decision intent and terminal input keeps the
+- every older queued send, edit, stored update, saved decision intent and agent input keeps the
   identity and generation it was accepted under and is closed (`binding_changed`), never upgraded, retargeted or
   reattributed. What was saved earlier keeps its original attribution.
 
@@ -226,7 +226,6 @@ Offline equivalents:
 
     python -m qorqut_telegram status --url http://127.0.0.1:1071
     python -m qorqut_telegram resolve --url http://127.0.0.1:1071 --outbox-id ID --expected-revision R --action mark_delivered --provider-message-id N
-    python -m qorqut_telegram composer-check --client claude --screen saved-screen.txt [--cursor X,Y] [--pasted-file text.txt]
 
 ## Urgent notifications and the local program gateway
 
@@ -281,37 +280,27 @@ queued sends too: they are cancelled as `producer_revoked` before any send. Ther
 ## Owner messages and guarded input
 
 Any text from the exact owner user in an agent chat is a durable canonical owner-to-agent inbox message with one shared
-correlation, then a direct delivery to that agent's own terminal when it is safe. Forwarded text is content, never
+correlation, then a direct delivery to that agent's own session when it is safe. Forwarded text is content, never
 authorization. Bots, other users, anonymous senders, edits, channel posts, and reaction counts are ignored.
 
 Each accepted message is attributed to the pinned Qorqut owner and freezes the identity it was accepted under: installation,
 owner, configuration generation and binding, and the target's registration (agent, home scope, workspace, role and runtime).
-It is checked again when the delivery is loaded and inside the very transaction that commits the input, after any terminal
-wait. A change to the installation owner, the Telegram owner, the chat-agent binding, the role or home scope, or the target's
+It is checked again when the delivery is loaded and inside the very transaction that commits the input, after any wait
+for the session to open. A change to the installation owner, the Telegram owner, the chat-agent binding, the role or home scope, or the target's
 registration fails that delivery (`binding_changed`, `target_changed`); it is never retargeted or reattributed. The canonical
 inbox message stays.
 
-Direct delivery reuses the registered terminal binding and process fingerprint, and rechecks them immediately before the
-paste. It finds the actual composer first, from the cursor and the client's own layout, and reads the client chrome around
-it (a running-turn indicator, a modal, a shell) separately from ordinary transcript and from whatever the owner typed, so a
-message that itself says "sign in" or ends in a question never blocks delivery. A real tool, trust or authentication menu, a
-shell, a busy turn or partially typed text still stops it: Telegram input is idle-only, and a running turn queues it. (Terminal
-Chat alone opts in to steering a running turn, through an explicit option this bridge never passes; see
-`v1.2/NATIVE_CHAT_CHECKPOINT.md`.) Each of its three observations must show the ordinary empty
-composer on the same terminal and client; other output, such as a timer, the footer or new transcript text, may change between
-them. After the paste it requires evidence that the intended literal
-text occupies that same composer before pressing Enter. Otherwise the input stays queued, with one status notice and a
-status diagnostic. Once a
-write may have happened, the delivery is `uncertain` and is never replayed. Once input was attempted, the row keeps a
-terminal receipt (`receipt_json`: the client, a hash of the observed terminal identity and the composer fingerprint; never screen
-text or the typed text). Submission is not acknowledgement; the agent still handles the inbox event once.
+Direct delivery goes through the shared input path, which verifies the agent's registered session. If the session is asleep,
+the input path opens it in the background and answers that the session is starting; the queue never waits for the open, and
+its next attempt, on its own backoff, delivers the input once the session is bound. If the open fails, the input stays
+queued with the open's own reason. Telegram input is idle-only: a running turn defers it and it queues. (Owner Chat alone
+steers a running turn; see `v1.2/NATIVE_CHAT_CHECKPOINT.md`.) Otherwise the input stays queued, with one status notice and a
+status diagnostic. Once a write may have happened, the delivery is `uncertain` and is never replayed. Once input was
+attempted, the row keeps a receipt (`receipt_json`: the client, the transport and the message id; never the text).
+Submission is not acknowledgement; the agent still handles the inbox event once.
 
 Limits: text over 16 000 characters gets a clear failure and is never truncated. Photos, documents, voice, and other
-media are not downloaded, and the owner gets one reply asking for text or the dashboard upload flow. The composer
-recognizers are fixture-based and have not been validated against live clients; use `composer-check` on saved
-`tmux capture-pane -p -e` screens (with `--pasted-file` for a capture taken after a paste) during the activation checklist,
-and repeat it whenever a client version changes. Nothing here removes the possibility of a human typing at
-the same instant.
+media are not downloaded, and the owner gets one reply asking for text or the dashboard upload flow.
 
 ### Sensitive input
 
@@ -367,14 +356,14 @@ does not hook into Signoff transactions, so a change appears in Telegram on the 
   reaction) get one explanation. A reply must be inside the Signoffs topic and to a post in it; a reply pointing at another
   topic's message is refused unread and cannot decide or reach any agent. A reply to a post that is no longer current is saved as a comment and says so, with the link
   that opens the Signoffs view. An inactive proposer gets an explicit notice, never a silent reassignment to Ordubashy.
-- The direct terminal input of a reply is queued exactly like an ordinary owner message and **never expires**: an agent that is
-  offline receives it, once, whenever its terminal is next available, however long that is. It becomes `failed` only on an
+- The direct input of a reply is queued exactly like an ordinary owner message and **never expires**: an agent that is
+  offline receives it, once, whenever its session is next available, however long that is. It becomes `failed` only on an
   explicit loss of authority or target (a rebinding, a changed registration) and `uncertain` after possible input; neither is
   retried or reassigned. The canonical note and inbox event stay durable throughout.
 - If the proposer cannot receive the handoff when the reply is saved, the reply and the post it answered are **held**
   (`held_replies` in status) and nothing is deleted or retired for good; reconciliation finishes only once a valid handoff
   exists. A reply to a post that is no longer current is held the same way when its proposer is inactive, and its note is still
-  saved as a comment. A hold made under an older binding generation ends without queuing terminal input under the new one.
+  saved as a comment. A hold made under an older binding generation ends without queuing agent input under the new one.
 - Every accepted 👍/👎 or reply intent freezes the pinned owner and generation it was saved under. It is verified before its
   owner context is built and again immediately before the canonical call, and under a later generation it fails
   (`binding_changed`) without deciding anything. During an owner mismatch it stays pending and is never applied.
@@ -472,11 +461,9 @@ For a **future, separately approved** release only. None of these steps is perfo
 3. Create the private forum group and its three topics by hand (see [Forum topics](#forum-topics)), then write the private
    configuration and token files with the group and topic IDs and the two pins (`expected_installation_id`,
    `expected_owner_principal_id`, discovered as described above), then run `validate`.
-4. Save composer screens for the two native clients and run `composer-check` on each. The recognizers are unvalidated
-   until then.
-5. Set `enabled: true` with the intended `activation_at`, and restart under the approved release.
-6. Confirm `telegram_status` shows `running` and no unavailable targets.
-7. With the owner, run an end-to-end acceptance test. That covers one agent conversation both ways in Ordubashy's topic,
+4. Set `enabled: true` with the intended `activation_at`, and restart under the approved release.
+5. Confirm `telegram_status` shows `running` and no unavailable targets.
+6. With the owner, run an end-to-end acceptance test. That covers one agent conversation both ways in Ordubashy's topic,
    one Signoff post with a reaction and with a reply, and one urgent event and its recovery,
    each confirmed to appear in its own topic (startup cannot prove a topic ID exists). Check that a reaction, and a reply
    across topics, decide nothing. Do not run real decisions without the owner.

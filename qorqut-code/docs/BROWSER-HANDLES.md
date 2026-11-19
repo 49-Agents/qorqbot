@@ -148,7 +148,7 @@ only the handle. Raw fields remain labeled legacy in discovery during transition
 A handle never falls back to the legacy path. Ordubashy 1.37.1 selects the compact
 protocol when separately published/adopted and prepared. Do not replay an existing
 v1 action through a fresh handle. Preserve configured
-Chrome, its tabs/profile, operational data and agent terminals. No provider trial,
+Chrome, its tabs/profile, operational data and agent sessions. No provider trial,
 role adoption, merge or deployment is performed by this source change.
 
 The reviewed release manifest must include the exact commits and migration 088.

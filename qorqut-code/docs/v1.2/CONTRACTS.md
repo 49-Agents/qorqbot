@@ -1,5 +1,7 @@
 # v1.2 contracts and boundaries
 
+> **Historical record.** Since 2026-11-19 every agent runs as a managed session, and the terminal mechanism described below (tmux, the terminal view, typed client commands) was removed; see [managed agent sessions](../MANAGED-RUNTIME.md).
+
 This document specifies the planned target. It does not describe already implemented v1.2 behavior. The owner decisions and current authorization are in [the plan](README.md).
 
 The owner subsequently accepted the standalone engine, new host composition, folder separation and operational Git history. Preserve the behavioral contracts below while moving their code to the owners defined in [architecture](ARCHITECTURE.md). References to “v1 policy/application” mean the preserved semantics inside the new Operations package, not a second running v1 core.

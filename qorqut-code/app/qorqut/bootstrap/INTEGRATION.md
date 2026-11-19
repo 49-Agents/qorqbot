@@ -139,7 +139,7 @@ block the other. The old `prepare_claude_agent` entry remains a compatibility
 wrapper. The profile's existing `runtime` field is descriptive, not a lock on
 which CLI can use its identity; opening either does not mutate the profile.
 
-Minimum contracts are Claude Code 2.1.263 and Codex CLI 0.153.4. These checks do
+Minimum contracts are Claude Code 2.1.263 and Codex CLI 0.170.0 (both come from `agent_cli_install.MINIMUM_VERSIONS`). These checks do
 not establish login or host sandbox compatibility. Prepared Codex uses a
 restricted permission profile; legacy personal `sandbox_mode` settings override
 such profiles and must be reconciled by the owner. Do not disable the sandbox.

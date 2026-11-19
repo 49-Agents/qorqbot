@@ -6,6 +6,8 @@
 > described here. A v1.3 target must not contain or call the retired seven engine tables or `learnings.engine_extract`;
 > use `qorqut.bootstrap.learning_removal` instead. This file remains for predecessor context only.
 
+> **Historical record.** Since 2026-11-19 every agent runs as a managed session, and the terminal mechanism described below (tmux, the terminal view, typed client commands) was removed; see [managed agent sessions](../MANAGED-RUNTIME.md).
+
 This guide describes the implementation and installation of the Learning Applier and
 the context library.
 

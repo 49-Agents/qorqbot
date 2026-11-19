@@ -1,5 +1,7 @@
 # Architecture
 
+> **Historical record.** Since 2026-11-19 every agent runs as a managed session, and the terminal mechanism described below (tmux, the terminal view, typed client commands) was removed; see [managed agent sessions](../MANAGED-RUNTIME.md).
+
 One shared application serves the dashboard and Claude Code and Codex agents. See
 [domain APIs](../../DOMAIN-APIS.md) and the [v1.2 contracts](../v1.2/CONTRACTS.md) for the
 companion contracts for storage, permissions and context delivery.

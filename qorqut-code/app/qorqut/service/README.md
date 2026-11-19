@@ -25,7 +25,7 @@ curl --fail --silent --show-error --max-time 5 http://qorqut.example:1071/health
 curl --fail --silent --show-error --max-time 5 http://qorqut.example:1071/health/ready
 ```
 
-Inspect the running service command and the release receipt before using either as deployment evidence. Agent preparation uses the service interpreter by default. Terminal connections mirror registered tmux sessions; Chat and inbox nudges share the exact native-session input arbiter. Opening Chat does not start an agent. See [owner API access](../../../docs/v1.2/CONTROL_VIA_API.md) and [Inbox](../../../docs/AGENT-INBOX.md).
+Inspect the running service command and the release receipt before using either as deployment evidence. Agent preparation uses the service interpreter by default. Every agent runs as a managed session ([managed agent sessions](../../../docs/MANAGED-RUNTIME.md)); Chat and inbox nudges share the exact native-session input arbiter. Opening Chat does not start an agent; sending a message does. See [owner API access](../../../docs/v1.2/CONTROL_VIA_API.md) and [Inbox](../../../docs/AGENT-INBOX.md).
 
 Nightly maintenance receives `runtime.paths` and the host locks; its receipts and default backups live under `operations/.runtime/maintenance/` and `operations/.runtime/backups/`. Capture requires the actual host recovery barrier. Operational Git snapshots, exact domain histories, private backups and Context Git history have distinct owners and coverage.
 

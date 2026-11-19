@@ -40,8 +40,8 @@ steps each need their own approval.
   an ordinary parent Task; there is no separate Story record, API or destination.
 - Tasks and Actions retain one owning global/project scope. Shared tags are labels, not
   scope or grants. Signoffs and routines keep their policy and lifecycle semantics.
-- Chat targets the exact existing native conversation. Conversations are started and
-  resumed manually in Terminal; Chat has no conversation selector. Raw native archives and
+- Chat targets the exact existing native conversation. Qorqbot opens and resumes
+  conversations itself as managed sessions when input arrives; Chat has no conversation selector. Raw native archives and
   durable read metadata back Chat history and notifications.
 - The backend delivers advisory inbox nudges through the same input arbiter as Chat, with
   Chat closed too. There is no agent-side polling or Monitor setup. See
