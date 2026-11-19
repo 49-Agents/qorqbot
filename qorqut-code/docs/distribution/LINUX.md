@@ -1,8 +1,12 @@
 # Qorqbot desktop app for Linux
 
-Ubuntu 24.04 on an Intel or AMD 64-bit computer (x86_64). The app is an AppImage or a `.deb`; both
-show Qorqbot in its own window. The browser path (the `.tar.gz` started from a terminal) still works
-and is described in [README.md](README.md).
+Ubuntu 24.04 or newer on an Intel or AMD 64-bit computer (x86_64); other distributions with glibc 2.38 or
+newer (Fedora 39+, Debian 13) also work. Debian 12 and Ubuntu 22.04 are too old for the shipped tmux and git.
+The app is an AppImage or a `.deb`; both show Qorqbot in its own window. Everything Qorqbot needs (Python 3.12,
+tmux, git, the agent-browser tool) is inside; install and sign in to `claude` or `codex` yourself.
+
+The same self-contained `.tar.gz` also runs without the app: extract it, `cd qorqbot` and run `./qorqbot`; it
+opens the dashboard in your browser. The older system-Python path is described in [README.md](README.md).
 
 The app carries the exact Linux archive unchanged in its `qorqbot-payload` folder. That archive is
 self-contained: it brings its own Python 3.12, git, tmux and the agent-browser tool, so nothing has to be
