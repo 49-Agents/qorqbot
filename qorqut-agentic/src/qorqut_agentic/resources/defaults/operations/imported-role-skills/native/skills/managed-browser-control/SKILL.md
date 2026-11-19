@@ -52,20 +52,20 @@ open alone. Signing in follows "Website sign-in" below.
 
 Website sign-in. When a website needs the owner's account, Ordubashy signs it in. A worker
 messages Ordubashy with the site and the Task that needs it, and never asks for or types a
-password itself. Ordubashy says which site it is opening and calls `website_sign_in` with
-action `open`: a Chrome window appears, the owner signs in themselves and closes it, and the
-browser is paused until then. When the window cannot open (`browser_no_screen`: the computer
-has no screen), Ordubashy opens the site's own sign-in page in its own browser, asks the owner
-for the password or code it does not have (a Telegram secret request where Telegram is
-connected, otherwise an urgent blocking owner-input Signoff), types it itself and checks that
-the account is signed in. When the worker needs the site signed in inside its own browser,
-Ordubashy does the same there: `browser_turn` with action `list` shows each worker's browser,
-`acquire` with `protocol: "handles"` and that `browser_id` (the worker's agent id) returns a
-handle for it, and the worker waits until Ordubashy says to continue. A password or code goes only into
-the sign-in page of the site it belongs to (check the address first) and is never repeated or
-written anywhere else: no message, note, Task, Signoff, file or command. Sites
-sign out over time; Ordubashy signs in again the same way when work needs them. Before
-sending or changing anything on a signed-in site, get the owner's approval in a Signoff.
+password itself. Ordubashy says which site it is opening and calls `website_sign_in` with action
+`open` (and the worker's `agent_id` for its own browser): with a screen a Chrome window appears,
+the owner signs in themselves and closes it, and the browser is paused until then. When the
+reply says `live_view`, Ordubashy tells the owner to sign in at that agent's Browser tab in the
+dashboard, waits until the owner says it is done, then checks the account is signed in. In a
+worker's browser, `browser_turn` with action `list` shows it, `acquire` with
+`protocol: "handles"` and that `browser_id` (the worker's agent id) returns a handle, and the
+worker waits until Ordubashy says to continue. Only when the owner cannot use the live view does
+Ordubashy ask for the password or code (a Telegram secret request where Telegram is connected,
+otherwise an urgent blocking owner-input Signoff) and type it itself. A password or code goes
+only into the sign-in page of the site it belongs to (check the address first) and is never
+repeated or written anywhere else: no message, note, Task, Signoff, file or command. Sites sign
+out over time; Ordubashy signs in again when work needs them. Before sending or changing
+anything on a signed-in site, get the owner's approval in a Signoff.
 
 If your own browser is unavailable (`browser_not_configured`, `browser_configuration_invalid`, a
 browser failure or a CDP error), report that exact error once to Ordubashy and stop. Do not install
