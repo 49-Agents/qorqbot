@@ -39,11 +39,19 @@ class FakeMachine(cutover.Machine):
         self.procs, self.clock, self.signals, self.later, self.stubborn = {}, 0.0, [], [], set()
         self.term_delay = 1.0
         self.hooks = []
+        self.survivors = set()      # children that outlive their parent (reparented to init) instead of ending with it
 
-    def add(self, pid, ppid, argv, *, comm=None, cwd='/', environ=None, files=(), exe=None):
+    def add(self, pid, ppid, argv, *, comm=None, cwd='/', environ=None, files=(), exe=None, sid=None, uid=None):
         self.procs[pid] = {'ppid': ppid, 'argv': list(argv), 'comm': comm or Path(argv[0]).name, 'cwd': cwd, 'start': str(1000 + pid),
-                           'environ': environ or {}, 'files': list(files), 'exe': exe or comm or Path(argv[0]).name}
+                           'environ': environ or {}, 'files': list(files), 'exe': exe or comm or Path(argv[0]).name,
+                           'sid': pid if sid is None else sid, 'uid': os.getuid() if uid is None else uid}
         return pid
+
+    def session(self, pid):
+        return self._proc(pid)['sid']
+
+    def owner(self, pid):
+        return self._proc(pid)['uid']
 
     def _proc(self, pid):
         if pid not in self.procs:
@@ -83,7 +91,10 @@ class FakeMachine(cutover.Machine):
 
     def kill_tree(self, pid):
         for child in [p for p, info in self.procs.items() if info['ppid'] == pid]:
-            self.kill_tree(child)
+            if child in self.survivors:
+                self.procs[child]['ppid'] = 1
+            else:
+                self.kill_tree(child)
         self.procs.pop(pid, None)
 
     def signal(self, pid, number):
@@ -203,13 +214,13 @@ class Installation(unittest.TestCase):
         index = [agent[0] for agent in AGENTS].index(agent_id)
         shell_pid = shell + index * 10
         workspace = str(self.workspace[agent_id])
-        self.machine.add(shell_pid, 1, ['bash', '--rcfile', '.qorqut/agent-shell.bash', '-i'], comm='bash', cwd=workspace)
+        self.machine.add(shell_pid, 1, ['bash', '--rcfile', '.qorqut/agent-shell.bash', '-i'], comm='bash', cwd=workspace)  # session leader
         pid = shell_pid + 1
         conversation = conversation or dict((a[0], a[4]) for a in AGENTS)[agent_id]
         if client == 'claude':
             argv = argv or ['/opt/claude', '--settings', workspace + '/.qorqut/claude-launch-settings.json', '--model', 'claude-opus-5-5',
                             '--effort', 'medium', '--resume', conversation]
-            self.machine.add(pid, shell_pid, argv, comm='claude', cwd=cwd or workspace, environ={'CLAUDE_CONFIG_DIR': str(self.cfg)})
+            self.machine.add(pid, shell_pid, argv, comm='claude', cwd=cwd or workspace, environ={'CLAUDE_CONFIG_DIR': str(self.cfg)}, sid=shell_pid)
             self.claude_status(pid, conversation, turn)
             (self.cfg / 'projects/p').mkdir(parents=True, exist_ok=True)
             (self.cfg / 'projects/p' / f'{conversation}.jsonl').write_text(
@@ -219,7 +230,7 @@ class Installation(unittest.TestCase):
             rollout = self.codex / f'sessions/2026/11/19/rollout-2026-11-19T10-00-00-{conversation}.jsonl'
             rollout.parent.mkdir(parents=True, exist_ok=True)
             self.codex_turn(rollout, turn)
-            self.machine.add(pid, shell_pid, argv, comm='codex', cwd=cwd or workspace, environ={'CODEX_HOME': str(self.codex)},
+            self.machine.add(pid, shell_pid, argv, comm='codex', cwd=cwd or workspace, environ={'CODEX_HOME': str(self.codex)}, sid=shell_pid,
                              files=[str(self.codex / f'thread-writer-locks/{conversation}.lock'), str(rollout)])
         elif client == 'other':
             self.machine.add(pid, shell_pid, argv or ['vim', 'notes.txt'], comm='vim', cwd=workspace)
@@ -601,6 +612,109 @@ class WrongProcess(Installation):
         document = self.apply(only='agent-a', force=True)
         self.assertEqual(document['results'][0]['status'], 'done')
         self.assertEqual(len(self.server.kills()), 1)
+
+
+class LeftoverProcesses(Installation):
+    """What an ended client leaves behind: its own helpers are ended with it, someone else's processes never."""
+    BRIDGE = ['python', '-I', '-m', 'qorqut.bootstrap.mcp_reconnect', '--registration', '/x/registration.json']
+    DAEMON = ['/home/u/.codex/packages/app-server-daemon/releases/0.1/bin/codex', 'app-server', '--listen', 'unix://', '--managed-daemon']
+    UPDATER = ['/home/u/.codex/packages/app-server-daemon/releases/0.1/bin/codex', 'app-server', 'daemon', 'pid-update-loop']
+
+    def signalled(self, pid):
+        return [number for target, number in self.machine.signals if target == pid]
+
+    def test_a_helper_that_outlives_its_client_is_ended_by_pid_and_start_time(self):
+        shell, client = self.live('agent-a', 'claude')
+        bridge = self.machine.add(shell + 5, client, self.BRIDGE, comm='python', sid=shell)
+        self.machine.survivors.add(bridge)
+        result = self.apply(only='agent-a')
+        done = result['results'][0]['done']
+        self.assertEqual(result['results'][0]['status'], 'done')
+        self.assertNotIn(bridge, self.machine.procs)
+        self.assertEqual(self.signalled(bridge), [signal.SIGTERM])
+        self.assertTrue(any('leftover process(es) of the client' in item and f'pid {bridge} (python)' in item for item in done), done)
+        self.assertLess(done.index(next(item for item in done if 'leftover' in item)), done.index('tmux session ended'))
+
+    def test_an_orphan_of_the_clients_terminal_session_is_found_although_its_parent_is_init(self):
+        shell, client = self.live('agent-a', 'claude')
+        orphan = self.machine.add(shell + 5, 1, self.BRIDGE, comm='python', sid=shell)
+        self.apply(only='agent-a')
+        self.assertNotIn(orphan, self.machine.procs)
+
+    def test_a_process_of_another_session_is_never_touched_whatever_it_is_called(self):
+        shell, client = self.live('agent-a', 'claude')
+        other_shell, other_client = self.live('agent-b', 'codex')
+        look_alike = self.machine.add(900, 1, self.BRIDGE, comm='python', sid=900)               # same program, own session
+        sibling = self.machine.add(901, other_client, self.BRIDGE, comm='python', sid=other_shell)  # another agent's helper
+        self.apply(only='agent-a')
+        self.assertEqual(self.signalled(look_alike) + self.signalled(sibling), [])
+        self.assertIn(look_alike, self.machine.procs)
+        self.assertIn(sibling, self.machine.procs)
+
+    def test_what_the_owner_left_running_in_the_pane_is_not_the_clients_to_end(self):
+        shell, client = self.live('agent-a', 'claude')
+        editor = self.machine.add(shell + 7, shell, ['vim', 'notes.txt'], comm='vim', sid=shell)
+        result = self.apply(only='agent-a')
+        self.assertEqual(self.signalled(editor), [])
+        self.assertEqual(result['results'][0]['status'], 'failed')
+        self.assertEqual(result['results'][0]['error']['code'], 'other_processes_in_pane')
+
+    def test_a_helper_that_ignores_sigterm_is_killed_only_with_force(self):
+        shell, client = self.live('agent-a', 'claude')
+        bridge = self.machine.add(shell + 5, 1, self.BRIDGE, comm='python', sid=shell)
+        self.machine.stubborn.add(bridge)
+        refused = self.apply(only='agent-a', term_wait=8.0)
+        self.assertEqual(refused['results'][0]['error']['code'], 'client_did_not_end')
+        self.assertIn(bridge, self.machine.procs)
+        forced = self.apply(only='agent-a', term_wait=8.0, force=True)
+        self.assertNotIn(bridge, self.machine.procs)
+        self.assertIn(signal.SIGKILL, self.signalled(bridge))
+        self.assertEqual(forced['results'][0]['status'], 'done')
+
+    def daemon(self, parent=1):
+        server = self.machine.add(700, parent, self.DAEMON, comm='codex', sid=700)
+        updater = self.machine.add(701, parent, self.UPDATER, comm='codex', sid=701)
+        return server, updater
+
+    def test_the_codex_daemon_is_reported_by_inspect_and_never_signalled(self):
+        server, updater = self.daemon()
+        self.live('agent-b', 'codex')
+        state = self.survey()
+        self.assertEqual([(item['pid'], item['role']) for item in state['shared_processes']], [(700, 'server'), (701, 'update-loop')])
+        self.assertEqual(state['shared_processes'][0]['codex_home'], '/home/u/.codex')
+        text = cutover.render_inspect(state)
+        self.assertIn('Codex background server running: pid 700 (server), pid 701 (update-loop)', text)
+        self.assertIn('can be left running', text)
+        result = self.apply()
+        self.assertEqual(self.signalled(server) + self.signalled(updater), [])
+        self.assertEqual([item['pid'] for item in result['shared_processes']], [700, 701])
+        self.assertIn('still running', cutover.render_apply(result))
+
+    def test_a_daemon_of_another_user_or_a_codex_that_is_no_daemon_is_not_reported(self):
+        self.machine.add(700, 1, self.DAEMON, comm='codex', uid=os.getuid() + 1)
+        self.machine.add(701, 1, ['/usr/bin/codex', 'app-server', '--listen', 'stdio://'], comm='codex')
+        self.assertEqual(self.survey()['shared_processes'], [])
+        self.assertNotIn('Codex background server', cutover.render_inspect(self.survey()))
+
+
+class StoppedHalfWay(Installation):
+    def test_a_refused_running_turn_says_the_agents_before_it_are_already_ended(self):
+        self.live('agent-b', 'codex')
+        self.live('agent-a', 'claude', turn='running')
+        self.live('agent-c', 'claude')
+        result = self.apply(wait_seconds=3.0)
+        self.assertEqual([(item['name'], item['status']) for item in result['results']],
+                         [('dev', 'done'), ('ordubashy', 'failed'), ('qa', 'not_attempted')])
+        text = cutover.render_apply(result)
+        self.assertIn('Already ended earlier in this run, and staying ended (dev)', text)
+        self.assertIn('not all-or-nothing', text)
+
+    def test_nothing_is_said_when_the_first_agent_is_the_one_refused(self):
+        self.live('agent-b', 'codex', turn='running')
+        self.live('agent-a', 'claude')
+        text = cutover.render_apply(self.apply(wait_seconds=3.0))
+        self.assertIn('FAILED: turn_in_progress', text)
+        self.assertNotIn('Already ended earlier', text)
 
 
 class ForeignServers(Installation):

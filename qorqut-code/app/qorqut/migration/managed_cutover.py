@@ -15,9 +15,15 @@ never touched.
 ``apply`` takes the instance lifetime lock (so it refuses while the service runs) and then, agent by agent, stopping at the
 first failure: records the client, model and effort the client was started with in the agent's ``options.json``; ends the
 client with SIGTERM (waits for a turn in progress up to ``--wait-seconds`` unless ``--force``), verifies by pid and start time
-that it is gone; ends the agent's tmux session; removes the per-agent leftovers that only served terminals. Database rows are
+that it is gone; ends the helpers the client leaves behind (an MCP bridge, a tool: its children, and any process still in the agent's
+terminal session whose parent has ended, each by pid and start time, never by name); ends the agent's tmux session; removes the per-agent leftovers that only served terminals. Database rows are
 never edited: they stay as history and the service settles them on its next start; the next input resumes the recorded
-conversation. A second run only finishes what is left.
+conversation. A second run only finishes what is left. The tool is not all-or-nothing: when one agent is refused (a running turn, ``--wait-seconds``
+too short), the agents handled before it are already ended and stay ended, and the output says so.
+
+Codex's app-server daemon (``codex app-server --managed-daemon`` and its ``pid-update-loop``) is started detached by the interactive
+Codex client and shared by every Codex window of the same Codex home, possibly including Codex used outside Qorqbot. It is reported
+by ``inspect`` and in the apply record, never ended.
 
 Why SIGTERM (measured with the real clients, see the package report): Claude Code and Codex both end promptly on it, Claude Code
 runs its SessionEnd hook, the conversation file is complete and parseable afterwards and ``claude -p --resume`` /
@@ -72,6 +78,7 @@ CLAUDE_VALUE_FLAGS = frozenset({'--model', '--effort', '--settings', '--permissi
 CODEX_VALUE_FLAGS = frozenset({'-m', '--model', '-c', '--config', '-C', '--cd', '-s', '--sandbox', '-a', '--ask-for-approval', '-p',
                                '--profile', '-i', '--image', '--enable', '--disable', '--add-dir', '--local-provider', '--oss-provider'})
 CODEX_INTERACTIVE_SUBCOMMANDS = frozenset({'resume', 'fork'})
+CHILD_GRACE = 3.0         # seconds the helpers of an ended client get to end on their own before they are asked to
 TERM_WAIT = 30.0          # seconds a client gets to end after SIGTERM before ``--force`` may kill it
 KILL_WAIT = 10.0
 
@@ -116,6 +123,13 @@ class Machine:
 
     def zombie(self, pid):
         return process_info.is_zombie(pid)
+
+    def session(self, pid):
+        """The terminal session id of the process (a child whose parent ended keeps it; a daemon that made its own session has another)."""
+        return os.getsid(int(pid))
+
+    def owner(self, pid):
+        return process_info.uids(pid)[0]
 
     def open_files(self, pid):
         """Paths this process has open; a platform that cannot say returns an empty list."""
@@ -387,6 +401,30 @@ def children_map(machine):
     return children
 
 
+def family(machine, pane_pids, children=None):
+    """``{pid: start token}`` of what belongs to one agent's client in its tmux session, besides the client itself and the shell:
+    everything below the client, and every process still in the pane's terminal session whose parent has ended (it is reparented but
+    keeps the session id; a daemon that started a session of its own is not in it and is never included). Whatever else the pane's
+    shell runs (an editor the owner left open) is not the client's and is left out; the session check handles it."""
+    children = children_map(machine) if children is None else children
+    pane = Pane(machine, pane_pids, children)
+    if len(pane.clients) > 1:
+        return {}
+    client = pane.clients[0]['pid'] if pane.clients else None
+    below_client = set(Pane._subtree(client, children)) if client is not None else set()
+    outside = set()
+    for pid in pane.pane_pids:
+        outside |= set(Pane._subtree(pid, children))
+    outside -= below_client
+    found = set(below_client)
+    roots = set(pane.pane_pids)
+    for pid in _try(machine.pids, default=[]):
+        if pid not in outside and _try(machine.session, pid, default=None) in roots:
+            found.add(pid)
+    found -= {client} | roots
+    return {pid: start for pid in found if (start := _try(machine.start, pid)) is not None}
+
+
 class Pane:
     """The processes of one agent's tmux session: its shell(s), the interactive client if any, everything else."""
 
@@ -648,6 +686,30 @@ def _write_options_fallback(paths, agent_id, changes):
     return merged
 
 
+SHARED_SENTENCE = ('This is Codex\'s shared background server for one Codex home, started by the interactive Codex client; other Codex '
+                   'windows, possibly ones you use outside Qorqbot, may be using it, so this tool does not end it, and it can be left running.')
+
+
+def shared_processes(machine):
+    """Codex's app-server daemon pair (the daemon and its ``pid-update-loop``), if running for this user. The interactive Codex client
+    starts it detached (its parent is init), so it belongs to no agent's session; it is shared by everything that uses the same Codex
+    home and so is reported, never ended."""
+    me = os.getuid() if hasattr(os, 'getuid') else None
+    found = []
+    for pid in _try(machine.pids, default=[]):
+        argv = _try(machine.argv, pid, default=None) or []
+        if 'app-server' not in argv or Path(argv[0]).name != 'codex':
+            continue
+        role = 'server' if '--managed-daemon' in argv else 'update-loop' if 'pid-update-loop' in argv else None
+        if role is None or (me is not None and _try(machine.owner, pid, default=me) != me):
+            continue
+        parts = Path(argv[0]).parts
+        home = str(Path(*parts[:parts.index('packages')])) if 'packages' in parts else None
+        found.append({'kind': 'codex-app-server-daemon', 'role': role, 'pid': pid, 'parent': _try(machine.parent, pid),
+                      'started': _try(machine.start, pid), 'codex_home': home, 'note': SHARED_SENTENCE})
+    return found
+
+
 def survey(paths, env, *, machine=None, tmux_factory=None, socket=None, folder=None, now_wall=None):
     """Everything inspect reports: for each agent its tmux session and client, the owner's own sessions, and per-socket status."""
     machine = machine or Machine()
@@ -678,7 +740,8 @@ def survey(paths, env, *, machine=None, tmux_factory=None, socket=None, folder=N
     for agent in agents:
         entry = entries.get(agent['agent_id'])
         report.append(describe_agent(paths, agent, entry, machine, now_wall, children))
-    return {'servers': servers, 'agents': report, 'owner_shell_sessions': owner_sessions, 'other_sessions': other_sessions}
+    return {'servers': servers, 'agents': report, 'owner_shell_sessions': owner_sessions, 'other_sessions': other_sessions,
+            'shared_processes': shared_processes(machine)}
 
 
 def describe_agent(paths, agent, entry, machine, now_wall, children=None):
@@ -688,12 +751,13 @@ def describe_agent(paths, agent, entry, machine, now_wall, children=None):
                  'conversation_db': agent['db_conversation'], 'conversation_process': None, 'conversation_source': None,
                  'db_client': agent['db_client'], 'model': None, 'effort': None, 'observed_model': None, 'transcript': None,
                  'turn': None, 'other_processes': [], 'problems': [], 'warnings': [], 'stored_options': stored_options(paths, agent['agent_id']),
-                 'leftovers': leftovers(paths, agent), '_client': None, '_session_id': entry[1]['id'] if entry else None})
+                 'leftovers': leftovers(paths, agent), '_client': None, '_pane_pids': [], '_session_id': entry[1]['id'] if entry else None})
     if entry is None:
         view['plan'] = _plan(view)
         return view
     tmux, item = entry
     panes = tmux.pane_pids(item['id'])
+    view['_pane_pids'] = list(panes)
     pane = Pane(machine, panes, children)
     view['client'] = pane.kind()
     view['other_processes'] = [' '.join(info['argv'])[:120] for info in pane.others + pane.headless]
@@ -714,6 +778,12 @@ def describe_agent(paths, agent, entry, machine, now_wall, children=None):
         _check(view, agent, pane, client)
         if view['client'] == 'claude' and found['conversation'] and not found['transcript']:
             view['warnings'].append('no transcript file is found yet for this conversation (no turn so far?): the conversation cannot be resumed')
+    if view['client'] == 'none':
+        # Helpers an earlier run left behind (the client is gone, they are not): reported, and ended by apply.
+        view['helpers'] = [{'pid': item, 'name': _try(machine.comm, item, default='?') or '?'}
+                           for item in sorted(family(machine, panes, children))]
+        if view['helpers']:
+            view['warnings'].append('leftover process(es) of an ended client: ' + ', '.join(f'pid {h["pid"]} ({h["name"]})' for h in view['helpers']))
     view['plan'] = _plan(view)
     return view
 
@@ -750,6 +820,8 @@ def _plan(view):
         steps.append(f'end {view["client"]} pid {view["pid"]} with SIGTERM' + (' after the running turn finishes (or --force)' if view['turn'] == 'running' else ''))
     elif view['session_present'] and view['client'] == 'none':
         steps.append('no client runs in the session: nothing to record')
+        if view.get('helpers'):
+            steps.append(f'end {len(view["helpers"])} leftover process(es) of the ended client')
     elif view['session_present']:
         steps.append('refuse: the pane holds something that is not this agent\'s client')
     if view['session_present']:
@@ -774,16 +846,45 @@ def refusals(view, *, force, allow_mismatch):
     return problems
 
 
-def process_gone(machine, members, start_by_pid):
-    return all(not machine.alive(pid, start_by_pid[pid]) for pid in members)
+def end_orphans(machine, view, done, *, force, poll, term_wait=TERM_WAIT, kill_wait=KILL_WAIT):
+    """Helpers of a client that is already gone (an earlier run ended the client but not them): the processes still in the agent's
+    terminal session. SIGTERM, then SIGKILL only with ``--force``; each is addressed by pid and start token."""
+    members = family(machine, view['_pane_pids'])
+    if not members:
+        return
+    names = {item: _try(machine.comm, item, default='?') or '?' for item in members}
+    for item, token in members.items():
+        if machine.alive(item, token):
+            _try(machine.signal, item, signal.SIGTERM)
+    done.append(f'SIGTERM to {len(members)} leftover process(es) of the client: ' + ', '.join(f'pid {item} ({names[item]})' for item in members))
+    deadline = machine.now() + term_wait
+    while any(machine.alive(item, token) for item, token in members.items()) and machine.now() < deadline:
+        machine.sleep(poll)
+    stuck = [item for item, token in members.items() if machine.alive(item, token)]
+    if stuck:
+        if not force:
+            raise CutoverError('client_did_not_end', f'leftover process(es) of the client {stuck} did not end within {term_wait:g} s of SIGTERM; '
+                               're-run with --force to kill them')
+        for item in stuck:
+            _try(machine.signal, item, signal.SIGKILL)
+        done.append(f'SIGKILL to {stuck} (--force)')
+        deadline = machine.now() + kill_wait
+        while any(machine.alive(item, members[item]) for item in stuck) and machine.now() < deadline:
+            machine.sleep(poll)
+        if any(machine.alive(item, members[item]) for item in stuck):
+            raise CutoverError('client_did_not_end', f'leftover process(es) {stuck} are still running after SIGKILL')
 
 
-def end_client(machine, view, done, *, force, wait_seconds, poll, term_wait=TERM_WAIT, kill_wait=KILL_WAIT):
+def end_client(machine, view, done, *, force, wait_seconds, poll, term_wait=TERM_WAIT, kill_wait=KILL_WAIT, child_grace=CHILD_GRACE):
     """Wait out a turn in progress, SIGTERM the verified client, verify by pid and start token that it and its processes are gone.
-    Appends what was done to ``done`` as it goes, so a failure still reports the steps before it."""
+    Helpers of the client that outlive it (an MCP bridge, a tool) belong to this agent only: the ones that do not end on their own
+    within ``child_grace`` are ended too, by pid and start token, never by name. Appends what was done to ``done`` as it goes, so a
+    failure still reports the steps before it."""
     client = view['_client']
     pid, start = client['pid'], client['start']
-    starts = {item: _try(machine.start, item) for item in client['members']}
+    members = {item: _try(machine.start, item) for item in client['members'] if item != pid}
+    members.update(family(machine, view['_pane_pids']))
+    members.pop(pid, None)
     if view['turn'] == 'running' and not force:
         deadline = machine.now() + wait_seconds
         while view['turn'] == 'running':
@@ -799,22 +900,45 @@ def end_client(machine, view, done, *, force, wait_seconds, poll, term_wait=TERM
     machine.signal(pid, signal.SIGTERM)
     done.append(f'SIGTERM to pid {pid}')
     deadline = machine.now() + term_wait
-    while not process_gone(machine, client['members'], starts):
+    asked, names, client_gone_at = [], {}, None
+
+    def remaining():
+        return [item for item, token in members.items() if machine.alive(item, token)]
+    while True:
+        gone = not machine.alive(pid, start)
+        if gone:
+            # Helpers that started after the survey are found by their terminal session.
+            for item, token in family(machine, view['_pane_pids']).items():
+                members.setdefault(item, token)
+        if gone and not remaining():
+            break
         if machine.now() >= deadline:
             break
+        if gone:
+            client_gone_at = machine.now() if client_gone_at is None else client_gone_at
+            if machine.now() - client_gone_at >= child_grace:
+                for item in remaining():
+                    if item not in asked:
+                        asked.append(item)
+                        names[item] = _try(machine.comm, item, default='?') or '?'
+                        _try(machine.signal, item, signal.SIGTERM)
         machine.sleep(poll)
-    if not process_gone(machine, client['members'], starts):
-        stuck = [item for item in client['members'] if machine.alive(item, starts[item])]
+    if asked:
+        done.append('SIGTERM to ' + str(len(asked)) + ' leftover process(es) of the client: '
+                    + ', '.join(f'pid {item} ({names[item]})' for item in asked))
+    stuck = ([pid] if machine.alive(pid, start) else []) + remaining()
+    if stuck:
         if not force:
             raise CutoverError('client_did_not_end', f'{view["client"]} pid {pid} did not end within {term_wait:g} s of SIGTERM '
                                f'(still running: {stuck}); re-run with --force to kill it')
+        tokens = {pid: start, **members}
         for item in stuck:
             _try(machine.signal, item, signal.SIGKILL)
         done.append(f'SIGKILL to {stuck} (--force)')
         deadline = machine.now() + kill_wait
-        while not process_gone(machine, client['members'], starts) and machine.now() < deadline:
+        while (machine.alive(pid, start) or remaining()) and machine.now() < deadline:
             machine.sleep(poll)
-        if not process_gone(machine, client['members'], starts):
+        if machine.alive(pid, start) or remaining():
             raise CutoverError('client_did_not_end', f'{view["client"]} pid {pid} is still running after SIGKILL')
     done.append('client gone (pid and start time verified)')
 
@@ -847,6 +971,7 @@ def apply_agent(paths, view, machine, tmux, outcome, *, force, wait_seconds, pol
         end_client(machine, view, done, force=force, wait_seconds=wait_seconds, poll=poll, term_wait=term_wait)
     elif view['session_present']:
         skipped.append('no client in the session')
+        end_orphans(machine, view, done, force=force, poll=poll, term_wait=term_wait)
     if view['session_present']:
         done += end_session(machine, tmux, view, force=force)
     done += remove_leftovers(paths, view, keep_mode_files=keep_mode_files)
@@ -955,6 +1080,7 @@ def _apply_locked(paths, env, only, force, wait_seconds, poll, keep_mode_files, 
         if path is not None:
             write_record(path, document)
     document['stopped_at'] = failed
+    document['shared_processes'] = shared_processes(machine)
     document['record'] = str(path) if path else None
     if path is not None:
         write_record(path, document)
@@ -964,6 +1090,14 @@ def _apply_locked(paths, env, only, force, wait_seconds, poll, keep_mode_files, 
 # ----------------------------------------------------------------------------------------------------------------------
 # Output and command line.
 # ----------------------------------------------------------------------------------------------------------------------
+def _render_shared(items, verb):
+    if not items:
+        return []
+    names = ', '.join(f'pid {item["pid"]} ({item["role"]})' for item in items)
+    return ['', f'Codex background server {verb}: {names}' + (f', home {items[0]["codex_home"]}' if items[0].get('codex_home') else ''),
+            '  ' + SHARED_SENTENCE]
+
+
 def render_inspect(state):
     lines = []
     for server in state['servers']:
@@ -987,6 +1121,7 @@ def render_inspect(state):
                 lines.append(f'  {kind[:-1]}: {item}')
         for step in view['plan']:
             lines.append(f'  apply would: {step}')
+    lines += _render_shared(state.get('shared_processes') or [], 'running')
     if state['owner_shell_sessions']:
         lines += ['', 'owner shell sessions (not agents, left alone): ' + ', '.join(item['session'] for item in state['owner_shell_sessions'])]
     if state['other_sessions']:
@@ -1005,12 +1140,18 @@ def render_apply(document):
         if result.get('error'):
             lines.append(f'  FAILED: {result["error"]["code"]}: {result["error"]["message"]}')
     if document['stopped_at']:
+        ended = [result['name'] for result in document['results']
+                 if any(item.startswith(('client gone', 'tmux session ended')) for item in result.get('done', []))]
         lines.append('')
         lines.append(f'Stopped at {document["stopped_at"]["name"]}; later agents were not touched. Fix the cause and run again: '
                      'agents already done are skipped.')
+        if ended:
+            lines.append(f'Already ended earlier in this run, and staying ended ({", ".join(ended)}): the tool goes agent by agent and is '
+                         'safe to run again; it is not all-or-nothing.')
     elif document['results']:
         lines.append('')
         lines.append('All agents are cut over. The conversations stay in the database; the first input to each agent resumes its conversation.')
+    lines += _render_shared(document.get('shared_processes') or [], 'still running')
     if document.get('record'):
         lines.append(f'Record: {document["record"]}')
     return '\n'.join(lines)
@@ -1041,7 +1182,8 @@ def main(argv=None, *, env=None, machine=None, tmux_factory=None):
             state = survey(paths, env, **common)
             state['agents'] = [v for v in state['agents'] if options.only in (None, v['agent_id'])]
             payload = {'ok': True, 'mode': 'inspect', 'servers': state['servers'], 'agents': [public(v) for v in state['agents']],
-                       'owner_shell_sessions': state['owner_shell_sessions'], 'other_sessions': state['other_sessions']}
+                       'owner_shell_sessions': state['owner_shell_sessions'], 'other_sessions': state['other_sessions'],
+                       'shared_processes': state['shared_processes']}
             text = render_inspect(state)
         else:
             document = run_apply(paths, env, only=options.only, force=options.force, wait_seconds=options.wait_seconds,

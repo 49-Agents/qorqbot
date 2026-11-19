@@ -126,7 +126,13 @@ def main(argv=None):
     parser.add_argument("--recovery-config", type=Path, help="Private external host configuration for local encrypted recovery")
     parser.add_argument("--context-config", type=Path, help="Explicit JSON file of Context RunnerConfig fields (model, effort, limits); "
                         "the library defaults apply without it")
+    # Removed with the agent terminals. An earlier version's start command (a hand-made service unit) still passes it, so it is
+    # accepted and ignored, with one warning, instead of ending the service at start.
+    parser.add_argument("--terminal-workspace", type=Path, default=None, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.terminal_workspace is not None:
+        logging.getLogger(__name__).warning("Ignoring --terminal-workspace: agents no longer run in terminals, so the option has no "
+                                            "effect. Remove it from this start command.")
     try:
         if args.workspace is None:
             raise DomainError("invalid_configuration", "Set the explicit engine workspace with --workspace")

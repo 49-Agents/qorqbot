@@ -194,10 +194,28 @@ client with SIGTERM, checks it is gone, ends the agent's tmux session, and
 removes the old shell files. `--only <agent id>` limits it to one agent,
 `--wait-seconds` sets how long a running turn may finish, `--force` ends a
 client that does not stop, and `--dry-run` reports without changing. Database
-rows stay as history; the next input resumes the recorded conversation. Run it
+rows stay as history; the next input resumes the recorded conversation.
+The tool goes agent by agent and is not all-or-nothing: if one agent is refused (for example a turn still running after
+`--wait-seconds`), the agents handled before it stay ended, and the output says so; run it again to finish. Helpers a client
+leaves behind (its MCP bridge, tools) are ended with it, by pid and start time. Codex's own background server (the app-server
+daemon) is shared by every Codex window of the same Codex home, so the tool only reports it in `inspect` and in the apply record
+and never ends it; it can be left running. Run it
 with the same `CLAUDE_CONFIG_DIR`, `HOME` and `CODEX_HOME` the old clients had,
 or the conversations are not found. It only touches the installation's own tmux
 socket. This is the one place tmux is still named.
+
+### Packages and a start command carried over
+
+After the instruction update and `python -m qorqut.migration.upgrade apply`, and before the service starts, run
+`python -m qorqut.migration.package_adoption apply` with the service's own `--workspace`, `--instance-root`, `--component` and
+`--extensions-config` arguments (`inspect` first shows the plan). An installation made by an earlier release holds the old role and
+plugin packages in its catalog and pinned in its agent profiles; the instruction update replaces the authored text, which agents read
+by package id, but not those pins. Without this step Ordubashy has no agent-control tools (`agent_terminal_status`, `_start`,
+`_restart`, `_kill`, `_ping`, `_execute_command`) and the role version in an agent's identity is the old one. The step publishes what
+the installation lacks, moves each pin forward only, and gives Ordubashy the control plugin; running it again changes nothing.
+
+A start command written for the previous version may still pass `--terminal-workspace`. The service accepts it, ignores it and logs one
+warning; remove it from the command at the next convenient restart. The `QORQUT_TERMINAL_WORKSPACE` environment variable is ignored.
 
 ## Known limits
 
