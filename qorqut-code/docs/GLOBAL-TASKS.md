@@ -2,9 +2,28 @@
 
 Global tasks use the ordinary task operations with `scope: "global"`. They have
 no business ID and are not a cross-business task collection. An invocation with
-no selected business defaults to Global; `scope: "business"` still requires an
+no selected business defaults to Global, except a registered agent's MCP call
+that names one task by `task_id` (below); `scope: "business"` still requires an
 explicit business. Explicit Global selection clears the selected business for
 the whole task plan, its comments, dependencies and assignment edges.
+
+### Finding a task's scope from its id
+
+A registered agent's MCP call that names one task by `task_id` and selects no
+scope (no `business_id`, no `scope`) runs in the scope that holds the task, as if
+that scope had been selected: the same authorization, policy, signoff staging and
+idempotency receipt. Only the agent's own active projects, and Global when it may
+use Global tasks, are searched, and only where it may read tasks. An id found in
+several of them is refused with `validation_error` listing them as
+`{business_id, business_name, title}`; pass `business_id` (or `scope: "global"`).
+On any MCP call a selected scope still stands (an owner session's is its bound
+project): a task found in exactly one other reachable scope is refused with
+`not_found` and `details.task`. With no exact match, an id with upper-case
+letters is retried in lower case, and at least six `[0-9a-f-]` characters that
+begin exactly one reachable task id are refused with `not_found` and
+`details.did_you_mean`; the operation never runs on a guess. A replay of an
+idempotent write returns its saved receipt even if the task moved since. HTTP
+(the dashboard), workers and delegated assignments are unchanged.
 
 Only the installation owner or an active ecosystem agent with
 `read_global_context` and the relevant task operation grant can access them.
@@ -67,8 +86,8 @@ built-in `design/software` tag without rewriting saved scope configuration; it
 is independent of assignee and task kind.
 Titles longer than 180 characters are shortened and marked `title_truncated`.
 Notes, custom fields, dependencies, execution details and revisions are not loaded.
-Read `tasks_get` in the returned scope for details and a fresh revision before
-editing. This operation changes no task, signoff or session state.
+Read `tasks_get` with the full task id (its scope is found from the id) for
+details and a fresh revision before editing. This operation changes no task, signoff or session state.
 
 The page limit applies across all scopes, with active work before snoozed work,
 then earliest due date and stable scope/ID ordering. Counts include all matches,

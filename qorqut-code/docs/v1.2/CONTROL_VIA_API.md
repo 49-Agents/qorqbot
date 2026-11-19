@@ -74,7 +74,8 @@ JSON
 | Global, when that operation has a root route | `/api/root/operations/<operation_name>` |
 
 Business route scope comes from the URL. Do not use a different `business_id`
-inside the body. Global is a separate namespace, not an instruction to include
+inside the body. HTTP never looks a task id up beyond the route's scope; only MCP
+calls do ([details](../GLOBAL-TASKS.md#finding-a-tasks-scope-from-its-id)). Global is a separate namespace, not an instruction to include
 all businesses. Use explicit `scope: "global"` when that operation supports it.
 The root route has an explicit operation allowlist: **not every MCP tool or
 business operation has a Global HTTP route**. A 404 does not prove that the

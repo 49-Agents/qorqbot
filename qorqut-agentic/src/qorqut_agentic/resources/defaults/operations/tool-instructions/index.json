@@ -1122,6 +1122,11 @@
       "line": 48
     },
     {
+      "id": "operations-pass-task-id-alone-its-project-is-found",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/lookup.py",
+      "line": 33
+    },
+    {
       "id": "associated-read-the-actions-or-signoffs-associated-with-a",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/associated.py",
       "line": 98
@@ -1174,7 +1179,7 @@
     {
       "id": "operations-also-return-the-first-page-of-the-associated",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/operations.py",
-      "line": 167
+      "line": 170
     },
     {
       "id": "operations-tags-are-ordinary-labels-that-group-work-they",
@@ -1189,7 +1194,7 @@
     {
       "id": "operations-leave-out-a-short-task-id-is-generated",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/operations.py",
-      "line": 179
+      "line": 185
     },
     {
       "id": "overview-ordubashy-only-brief-owner-self-task-overview-across",

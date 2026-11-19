@@ -54,7 +54,7 @@ who creates one only for the owner's request or agreement.
 Do the assignment with the tools you hold; loading a skill grants nothing. A goal is
 finished only at its finish line: an ended turn, a finished batch or a sent report is a
 checkpoint, so take the next item without waiting for a reply unless the assignment says
-to stop for review there. Keep the goal's target, count done, position and next step in
+to stop for review there. Keep the goal's target, count done, position, next step and full task IDs in
 working memory and read them first after a restart or a reminder. Write a thread note
 only for a result, a question or a blocker, with `for_owner: true`. At the finish line verify your
 result, then close the Task with `tasks_complete(result=...)`: one sentence the owner can

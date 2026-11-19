@@ -102,7 +102,8 @@ They keep naming the old scope and stay navigable through the location resolver 
 may read the Task where it is now; anyone else gets the ordinary `not_found`. A mutation never writes into the new scope.
 Global is a real scope: a Global Task that moved to Project A and then to Project B resolves, from Global, to B. Resolution
 is bounded, follows successive moves, never prefers history over a current exact-scope row and gives up on an ambiguous
-identity (a reused bare id) instead of guessing.
+identity (a reused bare id) instead of guessing. An agent's MCP call that selects no project finds the Task where it is now
+([Global tasks](GLOBAL-TASKS.md#finding-a-tasks-scope-from-its-id)); one that selects the old project still gets `record_moved`.
 
 ### Historical reference scope
 

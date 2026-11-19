@@ -14,15 +14,20 @@ def task_namespace(ctx, args):
     return "business:" + (ctx.business_id or "")
 
 
-def task_context(ctx, args, uow):
-    """The context a Task operation runs in: unchanged for a business, restricted for Global (owner or granted global agent)."""
-    if task_namespace(ctx, args) != "global":
-        return ctx
+def global_tasks_allowed(ctx, uow) -> bool:
+    """Whether this caller may use Global Tasks at all: the owner or an authorized global agent, with ``read_global_context``."""
     if ctx.principal_kind == "human":
         installation = uow.repository("installation").get("service")
         allowed = installation and installation["owner_principal_id"] == ctx.principal_id
     else:
         allowed = ctx.principal_kind == "agent" and is_global_agent(uow.connection, ctx.principal_id)
-    if not allowed or "read_global_context" not in ctx.global_capabilities:
+    return bool(allowed) and "read_global_context" in ctx.global_capabilities
+
+
+def task_context(ctx, args, uow):
+    """The context a Task operation runs in: unchanged for a business, restricted for Global (owner or granted global agent)."""
+    if task_namespace(ctx, args) != "global":
+        return ctx
+    if not global_tasks_allowed(ctx, uow):
         raise DomainError("forbidden", "Global tasks require the owner or an authorized global agent")
     return replace(ctx, business_id=None, review_business_id=None)

@@ -37,6 +37,7 @@ from qorqut_operations.tasks.associated import TaskAssociatedRecords
 from qorqut_operations.tasks.detail import task_views
 from qorqut_operations.tasks.history import HistoricalReferences
 from qorqut_operations.tasks.identity import in_use, mentioned, new_task_id, taken
+from qorqut_operations.tasks.lookup import LOCATED, TaskLookup
 from qorqut_operations.tasks.models import (DEFAULT_CONFIG, DEFAULT_STATE, full_config, normalize_snooze, stored_fields,
                                             validate_config, validate_dependencies, validate_parent, validate_task)
 from qorqut_operations.tasks.overview import TaskOverview
@@ -94,6 +95,8 @@ class TaskOperations:
         # The host adds the adapters for the references it owns; a Task move itself is a host-registered operation.
         self.relocation = TaskRelocation(self)
         self.history = HistoricalReferences(self)
+        # The ``locate_scope`` hook of every operation that names one Task by ``task_id`` (here and in the host).
+        self.lookup = TaskLookup(self)
         unknown = sorted(set(ports.references.types) - set(items.kinds) - set(ports.references.host_types))
         if unknown:
             raise AssemblyError("Note reference types are neither engine items nor host references: " + ", ".join(unknown))
@@ -169,11 +172,14 @@ class TaskOperations:
             "tasks_notes_list": {**PAGE, "task_id": IDENTITY, "audience": AUDIENCE},
             "tasks_config_get": {}, "assignees_list": {}, "workers_list": {},
         }
+        # An operation that names one Task finds its project from the id when the caller selects none.
+        located = dict(locate_scope=self.lookup, description=common["description"] + LOCATED)
         descriptors = [self.overview.descriptor(), self.associated.descriptor()]
         for name, properties in reads.items():
             descriptors.append(OperationDescriptor(
                 name, schema({**SCOPE, **properties}, ("task_id",) if name in {"tasks_get", "tasks_notes_list", "tasks_thread_get"} else ()),
-                **common, effect_kind="read", supports_signoff=False, read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
+                **({**common, **located} if "task_id" in properties else common), effect_kind="read", supports_signoff=False,
+                read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
         comment = {"note_refs": refs, "summary": SUMMARY, "relay": RELAY, "for_owner": FOR_OWNER}
         mutations = {
             "tasks_create": ({**TASK_FIELDS, "id": {**IDENTITY, "description": instruction_text('operations-leave-out-a-short-task-id-is-generated')},
@@ -197,6 +203,8 @@ class TaskOperations:
                            instruction_text('operations-tags-are-ordinary-labels-that-group-work-they')}
             if name == "tasks_delegate":
                 options = {**common, "description": lifecycle.DELEGATE}
+            if "task_id" in properties:
+                options = {**options, "locate_scope": self.lookup, "description": options["description"] + LOCATED}
             descriptors.append(OperationDescriptor(
                 name, schema({**SCOPE, **properties, "rationale": TEXT}, required), **options,
                 normalize_arguments=normalize_arguments if name in {"tasks_create", "tasks_update"} else None,
@@ -204,7 +212,8 @@ class TaskOperations:
                 apply=self.apply, validate_targets=self.validate_prepared))
         descriptors.append(OperationDescriptor(
             TASK_FOLLOW, schema({**SCOPE, **FOLLOW.get("properties", {})}, ("task_id", "following")),
-            **{**common, "description": instruction_text('operations-follow-or-unfollow-a-task-s-discussion-for')},
+            **{**common, "locate_scope": self.lookup,
+               "description": instruction_text('operations-follow-or-unfollow-a-task-s-discussion-for') + LOCATED},
             supports_signoff=False, prepare=self.prepare_follow, apply=self.apply_follow))
         return tuple(descriptors)
 

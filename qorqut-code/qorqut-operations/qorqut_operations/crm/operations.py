@@ -19,6 +19,7 @@ from qorqut_operations.items import ItemResolver
 from qorqut_operations.discussion.threads import BODY, RELAY
 from qorqut_operations.storage.assembly import AssemblyError
 from qorqut_operations.tables.operations import CELLS, KEY, SCOPE, TableOperations, table_context, table_namespace
+from qorqut_operations.tasks.lookup import LOCATED
 from qorqut_operations.tasks.operations import TaskOperations
 from qorqut_operations.tasks.scope import task_namespace
 
@@ -120,7 +121,8 @@ class CRMOperations:
                 "event_key": {"type": "string", "minLength": 1, "maxLength": EVENT_KEY_LIMIT},
                 "corrects_event_id": UUID, "rationale": TEXT},
                 ("task_id", "kind", "summary", "body", "occurred_at", "source", "event_key")),
-            description=instruction_text('operations-record-an-email-message-or-development-you-observed'), derived_effects=("tasks_comment",),
+            description=instruction_text('operations-record-an-email-message-or-development-you-observed') + LOCATED,
+            derived_effects=("tasks_comment",), locate_scope=self.tasks.lookup,
             prepare=self.activity.prepare_record, apply=self.activity.apply_record, validate_targets=self.activity.validate_record,
             replay_validator=self.activity.validate_replay, **task_scope))
         return self
