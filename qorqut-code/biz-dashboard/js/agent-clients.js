@@ -1,5 +1,5 @@
 // Claude Code and Codex, set up from the dashboard: one row per product, one button that moves Download, Connect,
-// Ready. Qorqbot downloads each product and opens its sign-in page in the owner's browser; nobody opens a terminal.
+// Ready. Qorqbot downloads each product and opens its sign-in page in the owner's browser.
 // Shown in Settings (Agents) and, when neither product is both installed and signed in, as a screen after the Qorqbot
 // sign-in and before the walkthrough (`preflight`, called from main.js).
 // Server: GET /root/agent-clients -> {claude, codex}; POST /root/agent-clients {provider, action} -> the same view,
@@ -18,7 +18,7 @@ const agentClients = (() => {
   const POLL_MS = 2000, SLOW_MS = 15000, POLL_FAILURES = 5, POLL_LIMIT = 450;
   // The first read before the walkthrough waits this long; the dashboard never waits longer for this screen.
   const FIRST_READ_MS = 5000;
-  const MANAGED_NOTE = 'Agents you start from now on use this copy.';
+  const MANAGED_NOTE = 'Agents use this copy from their next session on.';
   const LATER_KEY = 'qorqbot:agent-setup-later';
   // What a button says while its request is on the way, so it never sits disabled without a reason.
   const BUSY = {download: 'Starting…', connect: 'Opening your browser…', cancel_download: 'Cancelling…', cancel_connect: 'Cancelling…'};
@@ -60,7 +60,7 @@ const agentClients = (() => {
       // Signed in with an API key there is no email to show.
       const who = email ? ` as ${email}${plan ? ` (${plan})` : ''}` : info.method === 'api_key' ? ' with an API key' : '';
       Object.assign(row, {key: 'ready', pill: 'Ready', tone: 'ok', detail: `Signed in${who}.${version ? ` Version ${version}.` : ''}`,
-        // An agent terminal opened before the download finished keeps the copy it started with.
+        // A session opened before the download finished keeps the copy it started with.
         note: it.source === 'managed' ? MANAGED_NOTE : ''});
     } else if (it.installed) {
       const failed = it.sign_in && it.sign_in.state === 'failed';
@@ -83,7 +83,7 @@ const agentClients = (() => {
     } else {
       // The server says why when the copy on this computer cannot be used (too old): that comes before the Download action.
       Object.assign(row, {key: 'download', pill: 'Not installed', tone: 'warn',
-        detail: sentence(it.install && it.install.message) || `Qorqbot downloads ${name} for you. You do not need a terminal.`});
+        detail: sentence(it.install && it.install.message) || `Qorqbot downloads ${name} for you.`});
       act('download', 'Download');
     }
     if (pending) {
@@ -281,7 +281,7 @@ const agentClients = (() => {
         gate.className = 'ac-gate';
         gate.innerHTML = `<section class="onboarding-card ac-gate-card" role="dialog" aria-modal="true" aria-labelledby="ac-gate-title" aria-describedby="ac-gate-lead">
           <h2 id="ac-gate-title">get your agents ready</h2>
-          <p id="ac-gate-lead">Your agents work through Claude Code or Codex. Set up one of them below. You only do this once, and you do not need a terminal.</p>
+          <p id="ac-gate-lead">Your agents work through Claude Code or Codex. Set up one of them below. You only do this once.</p>
           <div class="ac-gate-rows" data-ac-gate-rows></div>
           <p class="ac-gate-hint" id="ac-gate-hint" data-ac-gate-hint role="status"></p>
           <div class="ac-gate-actions"><button type="button" class="ghost ac-later" data-ac-later>Set up later</button>

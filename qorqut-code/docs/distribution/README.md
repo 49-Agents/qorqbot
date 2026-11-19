@@ -7,13 +7,13 @@ using Ubuntu's package manager before running Qorqbot:
 sudo apt install python3.12 python3.12-venv git
 ```
 
-For agent terminals, also install `tmux` and your chosen Codex or Claude Code
-client using its vendor's instructions. Authenticate that client yourself.
+Qorqbot downloads Claude Code and Codex itself. You sign in to your own account
+from the dashboard, in your browser; nothing is typed in a terminal.
 Browser automation needs a user-installed compatible Google Chrome and
 `agent-browser`; Node is needed when the selected external tool requires it.
 Desktop viewing additionally requires its configured TigerVNC/Openbox/X11/session
-tools. These programs are not included or installed by Qorqbot. Git 2.43 and tmux
-3.4 are the Ubuntu baseline; Python must be 3.12 for this wheel set.
+tools. These programs are not included or installed by Qorqbot. Git 2.43
+is the Ubuntu baseline; Python must be 3.12 for this wheel set.
 
 ## Install and run
 
@@ -30,8 +30,9 @@ cd qorqbot
 ```
 
 Press Ctrl+C to stop. `./qorqbot status`, `./qorqbot stop` and `./qorqbot verify`
-are available from another terminal. Agent terminals have independent lifetimes;
-close them before updating or deleting the installation. Application files live
+are available from another terminal. Agents run as background sessions that close
+by themselves when idle; the updater closes any that are open, and they start again
+when you next message them. Stop Qorqbot before deleting the installation. Application files live
 in `runtime/`; your records/work live in `instance/operations/`. Qorqbot's own
 configuration, profiles, logs and caches stay here. Existing vendor clients keep
 using their user-owned account configuration. Explicit `CODEX_HOME` and

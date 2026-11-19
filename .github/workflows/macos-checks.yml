@@ -51,13 +51,13 @@ jobs:
       - name: Check native target and install build prerequisites
         run: |
           test "$(uname -m)" = arm64
-          brew install tmux librsvg
+          brew install librsvg
           python -m pip install packaging
       - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: ~/.cache/qorqbot/mac-tools
           key: ${{ runner.os }}-${{ runner.arch }}-qorqbot-mac-tools-v1-${{ hashFiles('qorqut-code/tools/distribution/macos_tools.py') }}
-      - name: Build the programs the package ships (Python, tmux, git)
+      - name: Build the programs the package ships (Python, git)
         run: |
           tools="$HOME/.cache/qorqbot/mac-tools"
           if [ ! -f "$tools/out/TOOLS.json" ]; then
@@ -185,9 +185,9 @@ jobs:
           test "${{ steps.suite.outcome }}" != failure -a "${{ steps.new_tests.outcome }}" != failure -a "${{ steps.agent_cli.outcome }}" != failure -a "${{ steps.managed_host.outcome }}" != failure
       # This job prepares and checks a candidate only. It does not publish,
       # change repository visibility or use accounts/native agent clients.
-      # Real terminal/browser acceptance remains a separate Mac release gate.
+      # Real browser acceptance remains a separate Mac release gate.
   first-open:
-    # Release gate: the disk image built above, opened on a new Mac with no Homebrew, Python, tmux or Apple
+    # Release gate: the disk image built above, opened on a new Mac with no Homebrew, Python or Apple
     # developer tools, must set itself up and show the sign-in screen.
     name: Clean Mac opens the download (${{ matrix.os }})
     needs: macos

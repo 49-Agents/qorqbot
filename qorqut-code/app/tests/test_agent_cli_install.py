@@ -138,7 +138,7 @@ class ResolveTests(Case):
         own = self.own_cli("claude", "2.1.300")
         self.assertEqual(cli.resolve("claude", self.environ)["path"], own)
         managed = self.executable(cli.managed_path("claude", self.root))
-        self.assertEqual(cli.resolve("claude", self.environ), {"path": managed, "source": "managed", "version": "2.1.269"})
+        self.assertEqual(cli.resolve("claude", self.environ), {"path": managed, "source": "managed", "version": "2.1.327"})
 
     def test_our_copy_comes_before_the_one_on_path(self):
         managed = self.executable(cli.managed_path("codex", self.root))
@@ -151,8 +151,8 @@ class ResolveTests(Case):
         self.assertEqual(cli.resolve("claude", self.environ)["source"], "managed")
 
     def test_the_owners_own_cli_is_used_when_we_have_none_and_it_is_new_enough(self):
-        found = self.own_cli("claude", "2.1.269")
-        self.assertEqual(cli.resolve("claude", self.environ), {"path": found, "source": "system", "version": "2.1.269"})
+        found = self.own_cli("claude", "2.1.327")
+        self.assertEqual(cli.resolve("claude", self.environ), {"path": found, "source": "system", "version": "2.1.327"})
         found = self.own_cli("codex", "0.200.1")
         self.assertEqual(cli.resolve("codex", self.environ), {"path": found, "source": "system", "version": "0.200.1"})
 
@@ -232,7 +232,7 @@ class ManagedLaunchTests(Case):
         claude = str(self.root / "tools/claude-current/claude")
         self.assertEqual(cli.managed_launch("claude", self.environ),
                          {"path": claude, "bin_dir": str(Path(claude).parent), "env": cli.launch_environment("claude"),
-                          "args": [], "source": "managed", "version": "2.1.269"})
+                          "args": [], "source": "managed", "version": "2.1.327"})
         launch = cli.managed_launch("codex", self.environ)
         self.assertEqual((launch["path"], launch["bin_dir"]),
                          (str(self.root / "tools/codex-current/bin/codex"), str(self.root / "tools/codex-current/bin")))
@@ -281,7 +281,7 @@ class StablePathTests(Case):
             self.assertIsNone(cli.resolve("claude", self.environ))  # not installed yet: the open session still has its path
             self.assertTrue(os.access(session_path, os.X_OK))
             self.install("claude")
-            self.assertFalse((self.root / "tools/claude-2.1.269").exists())
+            self.assertFalse((self.root / "tools/claude-2.1.327").exists())
             self.assertEqual(os.readlink(self.root / "tools/claude-current"), "claude-2.1.270")
             self.assertTrue(os.access(session_path, os.X_OK))
             self.assertNotEqual(os.stat(session_path).st_ino, before)
@@ -293,25 +293,25 @@ class StablePathTests(Case):
         (self.root / "tools/claude-current").mkdir()  # not a link: left alone
         with mock.patch.dict(cli.VERSIONS, {"claude": "2.1.270"}):
             self.install("claude")
-        self.assertTrue((self.root / "tools/claude-2.1.269").exists())
+        self.assertTrue((self.root / "tools/claude-2.1.327").exists())
         self.assertTrue((self.root / "tools/claude-current").is_dir())
 
     def test_a_copy_installed_before_the_link_existed_gets_its_link_when_asked(self):
         self.executable(cli.managed_path("claude", self.root))
         self.assertFalse((self.root / "tools/claude-current").exists())
         self.assertEqual(cli.managed_launch("claude", self.environ)["path"], str(self.root / "tools/claude-current/claude"))
-        self.assertEqual(os.readlink(self.root / "tools/claude-current"), "claude-2.1.269")
+        self.assertEqual(os.readlink(self.root / "tools/claude-current"), "claude-2.1.327")
         # A link left by an older pin is moved to the installed one.
         (self.root / "tools/claude-current").unlink()
         (self.root / "tools/claude-current").symlink_to("claude-2.0.0")
         self.assertEqual(cli.managed_launch("claude", self.environ)["path"], str(self.root / "tools/claude-current/claude"))
-        self.assertEqual(os.readlink(self.root / "tools/claude-current"), "claude-2.1.269")
+        self.assertEqual(os.readlink(self.root / "tools/claude-current"), "claude-2.1.327")
 
     def test_a_variable_naming_the_stable_path_is_still_our_copy_and_a_broken_link_is_not(self):
         self.install("claude")
         self.environ["QORQUT_CLAUDE_EXECUTABLE"] = str(self.root / "tools/claude-current/claude")
         self.assertEqual(cli.resolve("claude", self.environ)["source"], "managed")
-        shutil.rmtree(self.root / "tools/claude-2.1.269")
+        shutil.rmtree(self.root / "tools/claude-2.1.327")
         self.assertIsNone(cli.resolve("claude", self.environ))
         self.assertIsNone(cli.managed_launch("claude", self.environ))
 
@@ -345,10 +345,10 @@ class InstallTests(Case):
         data = tarball("claude", extra=[("README.md", b"x", 0o644)])
         self.pin("claude", data)
         path = self.install("claude", FakeOpener(data))
-        self.assertEqual(path, self.root / "tools/claude-2.1.269/claude")
+        self.assertEqual(path, self.root / "tools/claude-2.1.327/claude")
         self.assertTrue(os.access(path, os.X_OK))
         self.assertEqual([p.name for p in path.parent.iterdir()], ["claude"])
-        self.assertEqual(sorted(p.name for p in (self.root / "tools").iterdir()), ["claude-2.1.269", "claude-current"])
+        self.assertEqual(sorted(p.name for p in (self.root / "tools").iterdir()), ["claude-2.1.327", "claude-current"])
 
     def test_codex_keeps_the_folders_it_finds_beside_its_program(self):
         data = tarball("codex")
@@ -491,7 +491,7 @@ class InterruptedInstallTests(Case):
         self.assertTrue(old.exists())
         cli.install("claude", self.root, opener=FakeOpener(data), run=passes("claude"), **MACHINE)
         self.assertFalse(old.exists())
-        self.assertTrue(other.exists() and notes.exists() and (self.root / "tools/claude-2.1.269/claude").exists())
+        self.assertTrue(other.exists() and notes.exists() and (self.root / "tools/claude-2.1.327/claude").exists())
 
     def test_cancel_between_files_leaves_nothing(self):
         cancelled = threading.Event()
@@ -539,13 +539,13 @@ class InterruptedInstallTests(Case):
         self.assertEqual(list((self.root / "tools").iterdir()), [])
 
     def test_a_folder_that_is_not_a_working_install_does_not_block_the_install(self):
-        target = self.root / "tools/claude-2.1.269"
+        target = self.root / "tools/claude-2.1.327"
         (target / "junk/deeper").mkdir(parents=True)
         (target / "junk/deeper/file").write_text("partial")
         path = self.install("claude", tarball("claude"), run=passes("claude"))
         self.assertEqual([entry.name for entry in path.parent.iterdir()], ["claude"])
         self.assertTrue(os.access(path, os.X_OK))
-        self.assertEqual(sorted(entry.name for entry in (self.root / "tools").iterdir()), ["claude-2.1.269", "claude-current"])
+        self.assertEqual(sorted(entry.name for entry in (self.root / "tools").iterdir()), ["claude-2.1.327", "claude-current"])
         shutil.rmtree(target)
         target.write_text("a stray file")
         path = self.install("claude", tarball("claude"), run=passes("claude"))
@@ -554,7 +554,7 @@ class InterruptedInstallTests(Case):
     def test_a_working_install_that_appears_meanwhile_is_kept(self):
         data = tarball("claude")
         self.pin("claude", data)
-        target = self.root / "tools/claude-2.1.269"
+        target = self.root / "tools/claude-2.1.327"
 
         def other_process(command, **options):
             self.executable(target / "claude", "#!/bin/sh\necho theirs\n")
@@ -562,7 +562,7 @@ class InterruptedInstallTests(Case):
 
         path = cli.install("claude", self.root, opener=FakeOpener(data), run=other_process, **MACHINE)
         self.assertIn("theirs", path.read_text())
-        self.assertEqual(sorted(entry.name for entry in (self.root / "tools").iterdir()), ["claude-2.1.269", "claude-current"])
+        self.assertEqual(sorted(entry.name for entry in (self.root / "tools").iterdir()), ["claude-2.1.327", "claude-current"])
 
     def test_running_out_of_space_while_unpacking_gives_a_plain_message(self):
         def full(source, output, *args):
@@ -587,7 +587,7 @@ class InterruptedInstallTests(Case):
         data = tarball("claude", links=[("link-to-nothing", "/etc/passwd")])
         self.pin("claude", data)
         self.assertTrue(cli.install("claude", self.root, opener=FakeOpener(data), run=passes("claude"), **MACHINE).is_file())
-        shutil.rmtree(self.root / "tools/claude-2.1.269")
+        shutil.rmtree(self.root / "tools/claude-2.1.327")
         data = tarball("claude", links=[("claude", "/bin/sh")])
         self.pin("claude", data)
         with self.assertRaisesRegex(cli.InstallProblem, "unexpected layout"):
@@ -604,10 +604,10 @@ class BackgroundDownloadTests(Case):
     def test_not_downloaded_then_ready_with_progress_reported_in_between(self):
         data = tarball("claude")
         self.pin("claude", data)
-        self.assertEqual(self.status("claude"), {"phase": "not_downloaded", "progress": None, "message": None, "version": "2.1.269"})
+        self.assertEqual(self.status("claude"), {"phase": "not_downloaded", "progress": None, "message": None, "version": "2.1.327"})
         gate = threading.Event()
         started = self.start("claude", FakeOpener(data, gate=gate))
-        self.assertEqual((started["phase"], started["version"]), ("downloading", "2.1.269"))
+        self.assertEqual((started["phase"], started["version"]), ("downloading", "2.1.327"))
         deadline = threading.Event()
         for _ in range(200):
             if (self.status("claude")["progress"] or 0) > 0:
@@ -618,7 +618,7 @@ class BackgroundDownloadTests(Case):
         self.assertTrue(0 < middle["progress"] < 100, middle)
         gate.set()
         self.wait("claude")
-        self.assertEqual(self.status("claude"), {"phase": "ready", "progress": 100, "message": None, "version": "2.1.269"})
+        self.assertEqual(self.status("claude"), {"phase": "ready", "progress": 100, "message": None, "version": "2.1.327"})
         self.assertEqual(cli.resolve("claude", self.environ)["source"], "managed")
 
     def test_starting_twice_downloads_once(self):

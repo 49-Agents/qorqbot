@@ -206,7 +206,7 @@ class ManagerFixture(Fixture):
         self.runtime = SimpleNamespace(paths=self.paths)
         self.resume = None
         self.manager = hosts.ManagedRuntime(self.runtime, launcher=self.launcher, prepare=prepare, resume=lambda agent: self.resume,
-                                            executable=str(self.cli), clock=lambda: self.now[0], sleep=self.advance)
+                                            executable=str(self.cli), clock=lambda: self.now[0], sleep=self.advance, ready=lambda client: True)
 
     def advance(self, seconds):
         self.now[0] += seconds
@@ -452,7 +452,7 @@ class EnsureOpen(ManagerFixture):
         self.assertEqual(state_dir, self.paths.runtime / "managed-agents" / AGENT)
         self.assertEqual((spec["agent_id"], spec["folder"], spec["executable"]), (AGENT, str(self.workspace), str(self.cli)))
         self.assertEqual(spec["args"], ["--settings", str(self.workspace / ".qorqut/claude-launch-settings.json")])
-        self.assertEqual((spec["resume_session_id"], spec["send_role"], spec["idle_seconds"]), (None, True, 900))
+        self.assertEqual((spec["resume_session_id"], spec["send_role"], spec["idle_seconds"]), (None, "/role", 900))
         self.assertEqual(spec["env"]["SECRET_ROLE_KEY"], "s3cret-value", "the environment goes to the launcher's private launch file")
         self.assertNotIn("s3cret-value", json.dumps(spec["args"]), "and never into an argument")
         self.assertLessEqual(timeout, 30)
@@ -560,7 +560,7 @@ class Resume(ManagerFixture):
         database = SimpleNamespace(read=lambda: _reading())
         runtime = SimpleNamespace(paths=self.paths, database=database)
         manager = hosts.ManagedRuntime(runtime, launcher=self.launcher, prepare=self.manager._prepare_override, executable=str(self.cli),
-                                       clock=lambda: self.now[0], sleep=self.advance)
+                                       clock=lambda: self.now[0], sleep=self.advance, ready=lambda client: True)
         for target, value in (("qorqut.native_chat.selection.selected", chosen), ("qorqut.native_chat.store.get_capture", capture)):
             patcher = mock.patch(target, return_value=value)
             patcher.start()
@@ -595,7 +595,7 @@ class Resume(ManagerFixture):
         manager = self.manager_for(self.chosen(), {"transcript_path": str(self.base / "gone.jsonl"), "receipt_id": "r", "captured_length": 5})
         opened = self.open(manager, new_conversation=True)
         spec = self.launcher.started[0][1]
-        self.assertEqual((spec["resume_session_id"], spec["send_role"], opened["role_pending"]), (None, True, True))
+        self.assertEqual((spec["resume_session_id"], spec["send_role"], opened["role_pending"]), (None, "/role", True))
 
     def test_a_selection_with_nothing_recorded_a_foreign_provider_or_no_selection_starts_fresh_without_a_refusal(self):
         for chosen, capture in ((self.chosen(), {"transcript_path": None, "receipt_id": None, "captured_length": 0}),
@@ -621,7 +621,7 @@ class OpenRaces(ManagerFixture):
         super().setUp()
         # Real time: these tests run threads against each other.
         self.manager = hosts.ManagedRuntime(self.runtime, launcher=self.launcher, prepare=self.manager._prepare_override, resume=lambda agent: None,
-                                            executable=str(self.cli), max_opens=1)
+                                            executable=str(self.cli), max_opens=1, ready=lambda client: True)
         self.switch()
         self.switch(OTHER)
         self.release = threading.Event()

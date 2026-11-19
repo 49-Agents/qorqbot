@@ -66,7 +66,7 @@ class EnvironmentTests(unittest.TestCase):
             return native_launch.environment(self.root, self.root / 'home')
 
     def test_the_service_environment_is_the_same_with_or_without_downloaded_copies(self):
-        # The service environment reaches the tmux server and every session, including those running the owner's own Claude Code
+        # The service environment reaches every process Qorqbot starts, including those running the owner's own Claude Code
         # or Codex: no updater variable, no executable override and no versioned folder on PATH goes into it. Each launch site
         # finds the downloaded copy itself (app/qorqut/agent_cli_launch.py) and applies its settings to that copy only.
         before = self.environment()

@@ -649,12 +649,22 @@ class UploadTests(ChatCase):
     def upload(self, pin=None):
         return self.chat.upload(OWNER, AGENT, "upload-key-0001", pin, "notes.txt", b"hello")
 
-    def test_a_closed_managed_session_says_to_send_a_message_first(self):
-        with self.assertRaises(DomainError) as refused:
-            self.upload("pin-not-used")
-        self.assertEqual(refused.exception.code, "session_closed")
-        self.assertIn("Send a message to start the session", refused.exception.message)
-        self.assertNotIn("Terminal", refused.exception.message)
+    def test_a_file_for_an_asleep_managed_agent_opens_its_session_and_is_attached_to_the_binding_that_comes_up(self):
+        """Was ``session_closed``: a file is input like a message now, and wakes the agent (stage 1 of the cutover)."""
+        self.host_starts()
+        (self.root / "workspace").mkdir()
+        with mock.patch("qorqut.native_chat.uploads.save", return_value={"saved": True}) as save:
+            self.assertEqual(self.upload("a-pin-from-a-closed-session"), {"saved": True})
+        live = store.live_session(self.db.connection, AGENT)
+        self.assertEqual((self.managed.opened, save.call_args.args[3]), ([AGENT], live["id"]))
+
+    def test_a_file_for_an_agent_that_cannot_be_opened_is_refused_and_not_saved(self):
+        self.managed.on_open = lambda: None
+        with mock.patch.object(chat_module, "OPEN_TOTAL_SECONDS", 0.2), \
+                mock.patch("qorqut.native_chat.uploads.save") as save:
+            with self.assertRaises(DomainError) as refused:
+                self.upload("pin-not-used")
+        self.assertEqual((refused.exception.code, save.called), ("open_timeout", False))
 
     def test_a_session_still_starting_is_binding_not_ready(self):
         self.managed.view = {**OPEN_VIEW, "state": "starting", "phase": "starting"}

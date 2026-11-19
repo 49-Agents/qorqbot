@@ -19,6 +19,12 @@ one the driver chose or resumed), or earlier when the driver announces the sessi
 announcement makes it ready). The transcript file does not exist until a message was processed: ``transcript_path`` is reported
 anyway and ``transcript_exists`` says whether the file is there yet.
 
+Permissions: the owner is never asked. A ``permission_request`` from the driver is answered by the host itself (``_answer_permission``):
+allow when ``launch.json`` says ``permission_mode`` ``bypass`` (the manager reads the agent's prepared settings), deny for anything
+else, including a missing or unknown mode. It is logged (``permission_request`` without its input, then ``permission_answered``) and never
+stored as pending, so ``pending`` only ever holds questions (``kind`` ``question``). ``launch.json`` also names the ``client`` (``claude``
+or ``codex``; default ``claude``), which picks the default role command and is published in ``hello`` and ``host.json``.
+
 Exit codes follow the browser supervisor: 0 stopped (closed on request, idle, or Claude ended cleanly), 1 failed, 75 already
 supervised, 78 invalid configuration. ``host.json`` records ``exit{code, reason}``: reasons are ``requested``, ``idle``,
 ``signal``, ``claude_exited`` (unexpected), ``claude_ended``, ``driver_unavailable`` (the driver or CLI could not start),
@@ -41,6 +47,7 @@ import time
 import uuid
 from pathlib import Path
 
+from . import clients as table
 from . import protocol, state as layout
 from .state import (EXIT_BUSY, EXIT_CONFIG, EXIT_FAILED, EXIT_STOPPED, HOST_FILE, LAUNCH_FILE, LOCK_FILE, TOKEN_FILE)
 
@@ -60,9 +67,12 @@ MAX_OUTCOMES = 50
 EVENT_DROP_KEYS = {                       # fields the event log (memory and events.jsonl) does not keep; status has what the UI needs
     "turn_finished": ("result_text",),
     "permission_request": ("input", "suggestions"),
+    "permission_answered": ("input",),
     "question": ("input", "questions"),
 }
 RESERVED_EVENT_KEYS = ("seq", "ts", "type")
+# What a client is told when a permission request is refused, according to the agent's prepared settings.
+DENY_MESSAGE = "Qorqbot does not allow this action for this agent."
 
 
 def log(message: str) -> None:
@@ -289,7 +299,8 @@ class ManagedHost:
                        "host_pid": os.getpid(), "host_identity": identity, "protocol": layout.PROTOCOL,
                        "state": "starting", "started_at": layout.now_iso(), "session_id": None, "transcript_path": None,
                        "claude_pid": None, "claude_identity": None, "last_activity_at": self.last_activity_at,
-                       "socket_path": str(self._socket_path), "socket_fallback": fallback, "exit": None}
+                       "socket_path": str(self._socket_path), "socket_fallback": fallback, "exit": None,
+                       "client": launch.get("client") or table.CLAUDE}
         self._write_managed_host_file(identity)
         self._publish()
         self._serving = True
@@ -344,7 +355,13 @@ class ManagedHost:
         if not isinstance(role, (bool, str)):
             raise ValueError("send_role")
         number = lambda key, default: float(launch[key]) if launch.get(key) is not None else float(default)
-        launch.update(args=args, env=env, host_env=host_env, instance=str(launch.get("instance") or uuid.uuid4()),
+        client = launch.get("client")
+        if client is not None and not table.known(client):
+            raise ValueError("client")
+        # How permission requests are answered here. Anything but an explicit ``bypass`` is ``deny``: a launch that says nothing,
+        # or something unrecognised, never allows a tool.
+        permission_mode = table.BYPASS if launch.get("permission_mode") == table.BYPASS else table.DENY
+        launch.update(client=client or table.CLAUDE, permission_mode=permission_mode, args=args, env=env, host_env=host_env, instance=str(launch.get("instance") or uuid.uuid4()),
                       idle_seconds=number("idle_seconds", DEFAULT_IDLE_SECONDS), close_seconds=number("close_seconds", DEFAULT_CLOSE_SECONDS),
                       ready_seconds=number("ready_seconds", DEFAULT_READY_SECONDS),
                       event_limit=int(number("event_limit", DEFAULT_EVENT_LIMIT)), send_role=role,
@@ -452,6 +469,7 @@ class ManagedHost:
 
     def _identity(self) -> dict:
         return {"agent_id": self.launch["agent_id"], "instance": self.launch["instance"], "host_pid": os.getpid(),
+                "client": self.launch.get("client") or table.CLAUDE,
                 "host_identity": self.record.get("host_identity"), "host_ticks": self._ticks(self.record.get("host_identity")),
                 "state": self.phase_state, "protocol": layout.PROTOCOL,
                 "session_id": self.session_id, "transcript_path": self.transcript_path,
@@ -629,7 +647,7 @@ class ManagedHost:
         self.events.append("host_state", {"state": "ready"})
         role = self.launch["send_role"]
         if role and not self.launch.get("resume_session_id"):
-            self._send_role(role if isinstance(role, str) else "/role")
+            self._send_role(role if isinstance(role, str) else table.role_command(self.launch.get("client") or table.CLAUDE))
         self._cond.notify_all()
         self._publish()
 
@@ -763,6 +781,30 @@ class ManagedHost:
             dropped = EVENT_DROP_KEYS.get(kind, ())
             self.events.append(kind, {key: value for key, value in event.items() if key != "type" and key not in dropped})
             self._cond.notify_all()
+        if kind == "permission_request":
+            self._answer_permission(event)
+
+    def _answer_permission(self, event):
+        """The host's own answer to a client's permission request: allow when the agent's prepared settings say bypass, deny
+        otherwise (also for an unknown or missing mode). The request is never stored as pending and never reaches the service.
+        Called on the driver's event thread without the state lock, because the driver writes the reply itself. A request without
+        a usable id cannot be answered and is dropped (the client then times out its own request)."""
+        request_id = event.get("request_id")
+        driver = self._driver
+        if not isinstance(request_id, str) or not request_id or driver is None:
+            return
+        allow = self.launch.get("permission_mode") == table.BYPASS
+        decision = True if allow else {"behavior": "deny", "message": DENY_MESSAGE}
+        delivered = False
+        try:
+            delivered = bool(driver.answer(request_id, decision))
+        except Exception as error:  # noqa: BLE001 - a ValueError (bad decision) or a driver that is closing: nothing more can be done
+            log("permission answer failed: " + type(error).__name__)
+        with self._lock:
+            if self.events is not None:
+                self.events.append("permission_answered", {
+                    "request_id": request_id[:200], "tool": str(event.get("tool") or "")[:200],
+                    "decision": "allow" if allow else "deny", "delivered": delivered})
 
     def _event_session_started(self, event):
         self._session_confirmed = True
@@ -790,7 +832,8 @@ class ManagedHost:
         self._touch()                                  # a turn the host did not start (a wake-up) is still activity
 
     def _event_permission_request(self, event):
-        self._add_pending(event, "permission")
+        # Never a pending request: the owner is not asked for permissions (``_answer_permission`` replies, outside the lock).
+        self._touch()
 
     def _event_question(self, event):
         self._add_pending(event, "question")

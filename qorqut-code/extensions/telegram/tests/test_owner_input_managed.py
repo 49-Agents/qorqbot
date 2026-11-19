@@ -73,13 +73,23 @@ class ManagedOwnerInputTests(unittest.TestCase):
         self.assertEqual((outcome.status, outcome.reason), ("uncertain", "host_timeout"))
 
     # what the owner reads
-    def test_a_closed_session_says_that_chat_opens_it_and_not_that_a_composer_is_involved(self):
+    def test_a_closed_session_says_it_could_not_be_opened_and_not_that_a_composer_is_involved(self):
         text = self.deliver("session_closed")
-        self.assertIn("its session is not open; sending a message in Chat opens it", text)
+        self.assertIn("its session is not open and could not be opened right now", text)
         self.assertIn("will be delivered when its session can take it", text)
         self.assertNotIn("terminal", text.replace("nothing was started", ""))
         self.assertNotIn("composer", text)
-        self.assertIn("Nothing was started or interrupted.", text)
+        self.assertIn("Nothing was interrupted.", text)
+        self.assertNotIn("Nothing was started", text)
+
+    def test_an_open_that_failed_is_queued_with_the_reason_it_failed_for(self):
+        for reason, words in (("cli_unavailable", "Claude Code is not installed"), ("resume_unavailable", "its file is missing"),
+                              ("open_busy", "several sessions are starting"), ("session_starting", "still starting")):
+            with self.subTest(reason=reason):
+                outcome = OwnerInputs._outcome(InputResult(state=RESULT_DEFERRED, reason=reason))
+                self.assertEqual((outcome.status, outcome.reason), ("deferred", reason))
+                self.assertIn(words, self.deliver(reason))
+                self.assertNotIn("composer", self.deliver(reason))
 
     def test_a_running_turn_is_waited_out_in_a_sentence_about_the_agent(self):
         text = self.deliver("turn_running")

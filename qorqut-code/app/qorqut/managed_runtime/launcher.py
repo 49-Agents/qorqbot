@@ -88,6 +88,9 @@ def prepare_launch(state_dir, spec: dict) -> dict:
     ``executable`` (the claude binary), ``args`` (list of str, no driver-owned flags), ``env`` (name -> value, ``None`` removes),
     ``resume_session_id`` or ``None``, ``send_role`` (``True`` sends ``/role`` on a fresh session; a string sends that text),
     ``idle_seconds`` (default 900; 0 disables), ``driver`` (``module:Class``; default the Claude driver), and the optional
+    ``client`` (``claude`` or ``codex``: what the host's role command and permission answers key on), ``permission_mode`` (``bypass``
+    or ``deny``: how the host answers the client's permission requests itself; anything else is ``deny``), ``model`` and ``effort``
+    (the owner's launch options, for a driver that takes them other than as arguments), and the optional
     ``socket_path``, ``close_seconds``, ``ready_seconds`` (how long the Claude process must have stayed up before the host is
     ready, default 0.4; 0 waits for the driver's announcement), ``event_limit``, ``token`` and ``instance``. The launcher may add
     ``host_env`` (the host process's credential-bearing environment, see ``UserUnitLauncher``)."""
@@ -107,7 +110,8 @@ def prepare_launch(state_dir, spec: dict) -> dict:
             raise ValueError("env")
     except (KeyError, TypeError, ValueError, AttributeError) as error:
         raise LaunchError("invalid_launch", "bad launch field: %s" % (error.args[0] if error.args else "spec")) from None
-    record = {key: spec[key] for key in ("socket_path", "close_seconds", "ready_seconds", "event_limit", "driver") if spec.get(key) is not None}
+    record = {key: spec[key] for key in ("socket_path", "close_seconds", "ready_seconds", "event_limit", "driver", "client",
+                                                   "permission_mode", "model", "effort") if spec.get(key) is not None}
     record.update(schema_version=layout.SCHEMA_VERSION, agent_id=agent_id, folder=spec["folder"], executable=spec["executable"],
                   args=args, env=env, resume_session_id=spec.get("resume_session_id"), send_role=spec.get("send_role", False),
                   idle_seconds=spec.get("idle_seconds", 900), token=spec.get("token") or new_token(),
@@ -296,6 +300,7 @@ class VerifiedHost:
     transcript_path: str | None
     state: str
     hello: dict = field(repr=False, default_factory=dict)
+    agent_client: str | None = None   # ``claude`` or ``codex`` (``client()`` is the connection)
 
     @property
     def owner(self) -> str:
@@ -380,7 +385,8 @@ def inspect_host(state_dir, *, timeout: float = 3.0, clock=time.monotonic) -> In
     return Inspection("running", "", VerifiedHost(
         state_dir=state_dir, agent_id=hello["agent_id"], instance=hello["instance"], host_pid=pid, host_identity=identity,
         claude_pid=claude_pid, claude_identity=claude_identity, session_id=hello.get("session_id"),
-        transcript_path=hello.get("transcript_path"), state=hello.get("state") or record["state"], hello=hello))
+        transcript_path=hello.get("transcript_path"), state=hello.get("state") or record["state"], hello=hello,
+        agent_client=hello.get("client") if isinstance(hello.get("client"), str) else None))
 
 
 def verify_host(state_dir, **options) -> VerifiedHost | None:

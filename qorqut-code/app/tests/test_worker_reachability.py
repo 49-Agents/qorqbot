@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from qorqut.agents import unreachable
 from qorqut.inbox.messages import MessageHost, WORKER_MESSAGE_LIMIT
+from qorqut.native_chat import opener
 from qorqut.native_chat.nudges import paced
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.inbox.messages import Messages
@@ -21,6 +22,7 @@ SCHEMA = (
     'CREATE TABLE inbox_events(id INTEGER PRIMARY KEY AUTOINCREMENT,source_type TEXT,source_id TEXT,event_type TEXT,'
     'summary TEXT,created_at TEXT)',
     'CREATE TABLE inbox_deliveries(agent_id TEXT,event_id INTEGER,acknowledged_at TEXT,required INTEGER)',
+    'CREATE TABLE native_session_owners(agent_id TEXT PRIMARY KEY,desired_state TEXT)',
 )
 
 
@@ -102,11 +104,51 @@ class UnreachableWorkerTests(unittest.TestCase):
         self.assertEqual(self.told(), [])
         self.assertIsNone(unreachable.blocked(self.conn, COMPASS, NOW))
 
-    def test_a_worker_without_a_session_is_reported(self):
+    def test_a_worker_that_is_asleep_and_on_is_not_reported_however_long_it_waits(self):
+        """Was reported as having "no running session": a managed session closes when idle and the next input opens it."""
+        self.need(SCOUT, reason='offline', updated=ago(hours=5))
+        self.assertEqual(self.told(), [])
+        self.conn.execute("INSERT INTO native_session_owners VALUES(?, 'running')", (SCOUT,))
+        self.assertEqual(self.told(), [])
+
+    def test_a_worker_that_is_off_with_something_waiting_is_reported_with_a_repair_that_works(self):
         self.need(SCOUT, reason='offline', updated=ago(minutes=30))
         self.need(COMPASS, reason='offline', updated=ago(minutes=5))
+        self.conn.executemany("INSERT INTO native_session_owners VALUES(?, 'stopped')", [(SCOUT,), (COMPASS,)])
+        self.assertEqual(self.told(), [SCOUT])  # COMPASS has waited under the period
+        summary = self.conn.execute('SELECT summary FROM inbox_events').fetchone()[0]
+        self.assertIn('it is turned off', summary)
+        self.assertIn('agent_terminal_start', summary)
+        self.assertNotIn('agent_terminal_restart', summary)
+
+    def test_an_open_that_keeps_failing_is_reported_after_the_period_with_the_repair_for_its_reason(self):
+        clock = [NOW - timedelta(hours=1)]
+        failures = opener.OpenFailures(clock=lambda: clock[0])
+        patch.object(opener, 'FAILURES', failures).start()
+        self.need(SCOUT, reason='offline', updated=ago(hours=5))
+        failures.failed(SCOUT, 'cli_unavailable')
+        self.assertEqual(self.told(), [])  # one failure is not a streak
+        clock[0] = NOW - timedelta(minutes=30)
+        failures.failed(SCOUT, 'cli_unavailable')
         self.assertEqual(self.told(), [SCOUT])
-        self.assertIn('it has no running session', self.conn.execute('SELECT summary FROM inbox_events').fetchone()[0])
+        summary = self.conn.execute('SELECT summary FROM inbox_events').fetchone()[0]
+        self.assertIn('Claude Code is not installed', summary)
+        self.assertIn('tell the owner to install Claude Code', summary)
+
+    def test_a_busy_or_slow_host_never_makes_a_streak_and_a_success_ends_one(self):
+        clock = [NOW - timedelta(hours=1)]
+        failures = opener.OpenFailures(clock=lambda: clock[0])
+        patch.object(opener, 'FAILURES', failures).start()
+        self.need(SCOUT, reason='offline', updated=ago(hours=5))
+        for code in ('open_busy', 'open_timeout', 'session_opening', 'host_unverified'):
+            failures.failed(SCOUT, code)
+            failures.failed(SCOUT, code)
+        self.assertEqual(self.told(), [])
+        clock[0] = NOW - timedelta(minutes=45)
+        failures.failed(SCOUT, 'resume_unavailable')
+        failures.failed(SCOUT, 'resume_unavailable')
+        failures.opened(SCOUT)
+        self.assertEqual(self.told(), [])
 
     def test_a_new_stretch_after_a_recovery_is_reported_within_the_period(self):
         self.need(SCOUT)

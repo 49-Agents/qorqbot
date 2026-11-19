@@ -97,16 +97,16 @@ class AgentClientsTest(unittest.TestCase):
 
     def test_a_managed_copy_reports_source_version_and_download_progress(self):
         class Managed:
-            found = {"claude": {"path": str(self.bin / "claude"), "source": "managed", "version": "2.1.269"}}
+            found = {"claude": {"path": str(self.bin / "claude"), "source": "managed", "version": "2.1.327"}}
             def resolve(self, provider, environ=None): return self.found.get(provider)
             def status(self, provider):
-                return ({"phase": "ready", "progress": 100, "message": None, "version": "2.1.269"} if provider in self.found else
+                return ({"phase": "ready", "progress": 100, "message": None, "version": "2.1.327"} if provider in self.found else
                         {"phase": "downloading", "progress": 40, "message": "Downloading", "version": None})
             def launch_environment(self, provider): return {"DISABLE_AUTOUPDATER": "1"}
         self.install = Managed()
         self.cli("claude"); self.stored_sign_in()
         view = self.view({})
-        self.assertEqual((view["claude"]["installed"], view["claude"]["source"], view["claude"]["version"]), (True, "managed", "2.1.269"))
+        self.assertEqual((view["claude"]["installed"], view["claude"]["source"], view["claude"]["version"]), (True, "managed", "2.1.327"))
         self.assertEqual(view["claude"]["install"], {"phase": "ready", "progress": 100, "message": None})
         self.assertEqual(view["codex"]["install"], {"phase": "downloading", "progress": 40, "message": "Downloading"})
         self.assertFalse(view["codex"]["installed"])

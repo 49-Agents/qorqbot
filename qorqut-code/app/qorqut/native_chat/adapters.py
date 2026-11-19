@@ -118,11 +118,11 @@ MANAGED_DEFERRALS = frozenset({"session_starting", "session_closing", "session_c
 # everything else that happened before the request was written is a host that could not be verified.
 MANAGED_NOT_RUNNING = frozenset({"no_host", "not_running"})
 MANAGED_EXIT = "/exit"
-MANAGED_RUNTIME = "claude-code"
 
 
 class ManagedAdapter:
-    """A managed agent's Claude Code session, reached through its host. ``managed`` is the ``ManagedRuntime`` (or a callable
+    """A managed agent's session (Claude Code or Codex), reached through its host. The client is the bound session's
+    (``session["provider"]``), looked up in ``managed_runtime.clients``: a client with no driver yet fails ``driver_unavailable``. ``managed`` is the ``ManagedRuntime`` (or a callable
     returning it, or None while it is not composed: every input is then deferred as ``session_closed``)."""
 
     name = "managed"
@@ -137,21 +137,16 @@ class ManagedAdapter:
             found = found()
         return found
 
-    @staticmethod
-    def _runtime_of(profile) -> str | None:
-        try:
-            value = profile.get("profile_json")
-            value = json.loads(value) if isinstance(value, str) else value
-            return value.get("runtime") if isinstance(value, dict) else None
-        except (ValueError, AttributeError):
-            return None
-
     def submit(self, profile: dict, session: dict, text: str, *, steer: bool, echo: bool, checkpoint,
                replace_composer=False) -> OwnerInputOutcome:
         # ``echo`` and ``replace_composer`` are about a terminal's composer; a headless session has none.
-        from qorqut.managed_runtime import manager as hosts
-        if self._runtime_of(profile) != MANAGED_RUNTIME or session.get("provider") != "claude":
+        from qorqut.managed_runtime import clients, manager as hosts
+        client = clients.by_provider(session.get("provider"))
+        if client is None:
             return OwnerInputOutcome(FAILED, "unsupported_runtime")
+        if not clients.available(client):
+            return OwnerInputOutcome(FAILED, "driver_unavailable")
+        named = clients.receipt_client(client)
         managed = self._runtime()
         if managed is None:
             return OwnerInputOutcome(DEFERRED, "session_closed")
@@ -180,14 +175,14 @@ class ManagedAdapter:
         except Exception:  # noqa: BLE001 - nothing was sent
             return OwnerInputOutcome(DEFERRED, "checkpoint_failed")
         if text.strip() == MANAGED_EXIT:
-            return self._close(hosts, host)
+            return self._close(hosts, host, named)
         # An owner message that opened the session was already handed to the host (``ManagedRuntime.send_first``) with its own
         # uuid, because the session could not be bound before Claude had taken a first message. The host keeps one copy of each
         # uuid, so sending that uuid again is recognised (``accepted_by_host``) and the message is not typed twice.
         staged = getattr(managed, "staged_uuid", None)
         message_uuid = (staged(agent_id, text) if staged is not None else None) or str(
             self._new_uuid() if self._new_uuid is not None else uuid.uuid4())
-        receipt = {"client": "claude", "transport": "managed", "message_uuid": message_uuid, "queued": False}
+        receipt = {"client": named, "transport": "managed", "message_uuid": message_uuid, "queued": False}
         try:
             reply = host.client.send(text, message_uuid, steer)
         except Exception as error:  # noqa: BLE001
@@ -232,8 +227,8 @@ class ManagedAdapter:
     # ----- the write and what it can leave behind -------------------------------------------------------------------
 
     @staticmethod
-    def _close(hosts, host) -> OwnerInputOutcome:
-        receipt = {"client": "claude", "transport": "managed", "closed": True}
+    def _close(hosts, host, named="claude") -> OwnerInputOutcome:
+        receipt = {"client": named, "transport": "managed", "closed": True}
         try:
             reply = host.client.close("graceful")
         except Exception as error:  # noqa: BLE001

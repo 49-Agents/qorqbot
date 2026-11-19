@@ -1,11 +1,15 @@
-"""Guarded delivery of owner input to an agent's registered native terminal.
+"""Guarded delivery of owner input to an agent's native session.
 
-Every accepted owner message is already a durable canonical inbox message; this worker additionally types the same text
+Every accepted owner message is already a durable canonical inbox message; this worker additionally delivers the same text
 into the exact agent's native session through the shared input arbiter, when, and only when, the arbiter verifies the
-registered session and an idle empty composer of the right client. Anything else queues with a stable reason, is retried
-with bounded backoff, and produces one owner-visible notice per queue episode. The intent is committed as ``submitting``
-before the first input, so a crash or a doubtful outcome is ``uncertain`` and is never typed again. This worker never
-starts, restarts or kills a terminal.
+registered session (and, for a terminal, an idle empty composer of the right client). Anything else queues with a stable reason,
+is retried with bounded backoff, and produces one owner-visible notice per queue episode. The intent is committed as
+``submitting`` before the first input, so a crash or a doubtful outcome is ``uncertain`` and is never delivered again.
+
+A managed agent whose session is asleep is opened by the arbiter for this input (the owner's own input also turns an agent that
+was ended back on): the arbiter starts the open in the background and answers ``session_starting``, so this queue never waits for
+it, and the next attempt, on the queue's own backoff, delivers the input once the session is bound. A failed open leaves the input
+queued with the open's own reason. This worker never kills a session.
 """
 
 from __future__ import annotations
@@ -30,9 +34,16 @@ NOTICE_REASONS = {
     "terminal_absent": "its terminal is not running (nothing was started)",
     "terminal_unverified": "its terminal is not running the expected client",
     "terminal_unsupported": "its terminal cannot be reached from here",
-    # A managed agent has no terminal: its session is a headless one the owner opens by sending a message in Chat.
-    "session_closed": "its session is not open; sending a message in Chat opens it (nothing was started)",
+    # A managed agent has no terminal: its session is a headless one that is opened for the message.
+    "session_closed": "its session is not open and could not be opened right now",
     "session_starting": "its session is still starting",
+    "session_opening": "its session is being opened",
+    "open_busy": "several sessions are starting right now",
+    "open_timeout": "its session did not become ready in time",
+    "cli_unavailable": "Claude Code is not installed on this computer",
+    "resume_failed": "its earlier conversation could not be continued",
+    "resume_unavailable": "its earlier conversation can't be continued (its file is missing); a new conversation has to be started in Chat",
+    "driver_unavailable": "its session could not be started",
     "session_closing": "its session is closing",
     "turn_running": "it is working on something",
     "host_busy": "its session is handling another message",
@@ -274,7 +285,7 @@ class OwnerInputs:
                             else "will be typed into the terminal when the composer is free. ")
                 notice(bridge, uow, message,
                        f"Your message is queued for the {label} agent because {why}. {kept} and {delivery}"
-                       "Nothing was started or interrupted.",
+                       + ("Nothing was interrupted." if managed else "Nothing was started or interrupted."),
                        f"input:{row['id']}:queued")
                 changes["notice_sent_at"] = now
             uow.repository("telegram_owner_inputs").update(row["id"], changes, expected_revision=current["revision"])

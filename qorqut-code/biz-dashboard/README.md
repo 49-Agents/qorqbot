@@ -3,7 +3,7 @@
 The owner dashboard for the Qorqut agent platform. It is a component of the
 Qorqut host, not an independent production server: the host service
 (`qorqut.service`, from `qorqut-code/app`) serves these static assets, the
-tmux terminal mirrors and the authenticated HTTP MCP endpoint from one process.
+workspace terminal and the authenticated HTTP MCP endpoint from one process.
 `start.sh` launches that service; `server.py` is only a thin entry point that
 forwards its arguments to it. There is no business-chat subprocess, CLI domain
 bridge, per-agent MCP server or arbitrary command runner.
@@ -24,7 +24,7 @@ Nothing in this component installs, deploys or restarts a service.
 | `index.html`, `file-viewer.html`, `tables-view.html` | Entry pages: the shell, the standalone file reader and the read-only table page. |
 | `js/`, `css/`, `app.css` | Static modules and styles. There is no frontend build step. |
 | `server.py` | Thin entry point: imports the installed host's `qorqut.service.main` and forwards its arguments. It never looks for a sibling host checkout and holds no service, configuration or write logic. |
-| `pty_broker.py` | The tmux/PTY mirror. |
+| `pty_broker.py` | The workspace Terminal's shell (the owner's own, not an agent's; needs `tmux` on the computer). |
 | `start.sh`, `.env.dashboard.example` | Launcher and its machine config (see [Setup and lifecycle](#setup-and-lifecycle)). |
 | `docs/` | Component contracts (see [Documents](#documents)). |
 | `tests/` | Node browser fixtures and Python launcher/broker tests. |
@@ -285,8 +285,7 @@ as components mounted directly in a test page, not as reachable features. Checks
 `tests/test_terminal_browser.js`, `tests/test_broadcast_browser.js` and
 `tests/test_broadcast_real_browser.js` (direct `renderBroadcast` mounts),
 `tests/test_working_memory_browser.js` (direct
-`workingMemoryMount`), `python3 -m pytest -q tests/test_broadcast_submit.py` (isolated
-tmux; `QORQUT_TEST_CODEX_INPUT=1` also checks a local Codex `/status`).
+`workingMemoryMount`).
 
 Shift+Tab cycles agents on Global → Agents; hold Tab and press O to jump to
 Ordubashy on Global → Agents (not while typing or with a dialog open). Check: `tests/test_agent_shortcuts_browser.js`.
@@ -458,9 +457,7 @@ TEST_PYTHON=/absolute/path/to/python \
 python3 -m pytest -q tests/test_foreground_launcher.py
 ```
 
-Browser fixtures use real assets with synthetic API responses (or the host's
-`tests/service_browser_fixture.py` on isolated ports and separate test tmux sockets) and
-never launch Claude. They need Playwright with Chromium: set `PLAYWRIGHT_MODULE` (or
+Browser fixtures use real assets with synthetic API responses and never launch Claude. They need Playwright with Chromium: set `PLAYWRIGHT_MODULE` (or
 `NODE_PATH`) and, for an existing browser, `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (the Global
 task check uses `CHROMIUM_PATH`). Plain Node checks need no browser, for example
 `node tests/test_learning.js`, `tests/test_routines.js`, `tests/test_task_state.js`,

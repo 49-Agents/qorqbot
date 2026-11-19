@@ -5,7 +5,7 @@
 #   first_open_check.sh DISK_IMAGE OUTPUT_FOLDER
 #
 # The app is opened straight from the disk image window and must move itself to Applications first.
-# It takes Homebrew, Python, tmux, Node.js and Apple's developer tools away for the length of the check and puts
+# It takes Homebrew, Python, Node.js and Apple's developer tools away for the length of the check and puts
 # them back afterwards (needs sudo without a password, as on GitHub's Macs). macOS's warning for a downloaded app
 # is not part of this check: the app is opened as an approved app.
 set -u
@@ -52,7 +52,7 @@ hide /usr/local/bin
 hide /usr/local/Homebrew
 hide /Library/Developer/CommandLineTools
 for xcode in /Applications/Xcode*.app; do hide "$xcode"; done
-for tool in python3.12 python3 tmux brew node git; do
+for tool in python3.12 python3 brew node git; do
   for _ in 1 2 3 4 5; do
     found="$(login_which "$tool")"
     case "$found" in ''|/usr/bin/*|/bin/*) break ;; esac
@@ -60,7 +60,7 @@ for tool in python3.12 python3 tmux brew node git; do
     hide "$found"
   done
 done
-for tool in brew python3.12 tmux node; do
+for tool in brew python3.12 node; do
   found="$(login_which "$tool")"
   note "  $tool: ${found:-not found}"
   [ -z "$found" ] || fail "$tool is still available at $found"
@@ -164,21 +164,12 @@ section "Programs Qorqbot runs on"
 SERVICE="$(ps -axo command | grep -m 1 '[q]orqut.service' | cut -d ' ' -f 1)"
 note "  service runs on: ${SERVICE:-not running}"
 case "$SERVICE" in "$ROOT"/runtime/venv/bin/*) ;; *) fail "the service does not run on the Python inside $ROOT" ;; esac
-for tool in tmux git agent-browser; do
+for tool in git agent-browser; do
   program="$ROOT/runtime/native/bin/$tool"
-  flag="--version"; [ "$tool" = tmux ] && flag="-V"
-  if version="$("$program" "$flag" 2>&1 | head -n 1)"; then note "  $tool: $version"; else fail "$program does not run: $version"; fi
+  if version="$("$program" --version 2>&1 | head -n 1)"; then note "  $tool: $version"; else fail "$program does not run: $version"; fi
 done
 "$ROOT/runtime/native/bin/git" -C "$ROOT/instance/operations" log --oneline -1 >>"$OUT/errors.txt" 2>&1 \
   || fail "the records folder was not created with the shipped git"
-# A terminal session on the shipped tmux, as agent terminals use it.
-if TERM=xterm-256color "$ROOT/runtime/native/bin/tmux" -L first-open-check new-session -d 'sleep 30' 2>>"$OUT/errors.txt" \
-    && "$ROOT/runtime/native/bin/tmux" -L first-open-check list-sessions >>"$OUT/errors.txt" 2>&1; then
-  note "  a tmux session starts"
-else
-  fail "a tmux session does not start"
-fi
-"$ROOT/runtime/native/bin/tmux" -L first-open-check kill-server 2>/dev/null
 
 section "Result"
 cp "$LAUNCHER_LOG" "$OUT/launcher.log" 2>/dev/null

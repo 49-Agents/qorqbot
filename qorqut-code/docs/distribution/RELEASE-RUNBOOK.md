@@ -25,7 +25,7 @@ For a local build:
 5. Run `python3 qorqut-code/tools/distribution/native_build.py --prepared PREPARED --output BUILD --report BUILD_REPORT.json --version VERSION`.
    The builder audits source, wheels, notices/resources and console entry points
    once, retaining the findings in `source_audit`. It assembles the verified
-   wheelhouse and archive. Python, Git/tmux, clients and browsers stay external.
+   wheelhouse and archive. Python, Git and browsers stay external; Claude Code and Codex are downloaded by Qorqbot itself.
 6. Run `python3 qorqut-code/tools/distribution/check_native.py --archive BUILD/ARCHIVE.tar.gz --output NEW_ACCEPTANCE_DIRECTORY`.
    The exact archive runs as a nonroot user with networking disabled. Check fresh
    setup, missing-tool messages, restart, supported repeated updates and retained
@@ -56,8 +56,8 @@ Run `tools/distribution/windows_bundle.py --linux-archive ARCHIVE --sha256 SHA25
 checksum. Test installation inside the WSL Linux filesystem and dashboard access
 from a Windows browser before claiming Windows host acceptance. See WINDOWS.md.
 
-Mac targets native Apple silicon, macOS 14+, with user-installed Python 3.12,
-Git and tmux. Follow export, projection and preparation steps above, then add
+Mac targets native Apple silicon, macOS 14+, with user-installed Python 3.12 and
+Git. Follow export, projection and preparation steps above, then add
 `--target macos14-arm64` to native_build.py. A Linux assembly can fetch Mac wheels
 but cannot qualify them. On an actual Mac run `tools/distribution/check_posix.py
 --archive MAC_ARCHIVE --output /tmp/qb-mac-check`; the output must be a new short
@@ -78,7 +78,7 @@ CI artifacts do not prove the downloaded app's Gatekeeper/Open Anyway flow,
 a separate macOS user account, or interactive agent sign-in. Record those
 checks separately before promoting the candidate to the website.
 
-Record fresh setup, restart, stopped updates, process permissions, agent terminal
+Record fresh setup, restart, stopped updates, process permissions, agent session
 and browser results separately. Mac process inspection can be denied or return
 an empty environment for another process; update/connector installation must
 then refuse rather than infer that the installation's tools are stopped. Native

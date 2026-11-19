@@ -209,7 +209,7 @@ class Stack:
         self.launcher = DriverLauncher(self.log)
         self.managed = ManagedRuntime(
             self.runtime, launcher=self.launcher, prepare=lambda agent_id: {"workspace": str(self.workspace), "env": {}},
-            executable=sys.executable, idle_seconds=idle_seconds,
+            executable=sys.executable, idle_seconds=idle_seconds, ready=lambda client: True,
             resume=(lambda agent_id: resume) if resume is not None else None)
         self.hooks = Hooks(self, delay=hook_delay, block_role=block_role)
         self.probe = SessionProbe(marker_reader=lambda profile: dict(self.hooks.marker) if self.hooks.marker else None,
@@ -405,26 +405,13 @@ class ManagedEndToEnd(unittest.TestCase):
             chat.interrupt("someone-else", agent, pin)
         self.assertEqual(nobody.exception.code, "forbidden")
 
-        # ----- 6. a permission request is shown and answered; a question is answered with the question's own text ---------
+        # ----- 6. a permission request is answered by the host itself and never shown; a question is answered with its own text
         ask = self.say(stack, "PERM write the file", pin)
         self.submitted(stack, ask)
-        blocked = self.settle(stack, "blocked")
-        request = blocked["pending"][0]
-        self.assertEqual((request["kind"], request["tool"], request["input_summary"]), ("permission", "Write", "/tmp/x"))
-        self.assertEqual(blocked["can_stop"], True)
-        with self.assertRaises(DomainError) as invalid:
-            chat.answer(OWNER, agent, pin, request["request_id"], "maybe")
-        self.assertEqual(invalid.exception.code, "validation_error")
-        with self.assertRaises(DomainError) as wrong_kind:
-            chat.answer(OWNER, agent, pin, request["request_id"], {"answers": {"Which?": "A"}})
-        self.assertEqual(wrong_kind.exception.code, "validation_error")
-        self.assertEqual(chat.answer(OWNER, agent, pin, request["request_id"], "allow"), {"answered": True})
+        wait_for(lambda: stack.logged("answer"), WAIT, message="the host's own answer to the permission request")
         self.settle(stack, "idle")
-        self.assertEqual(stack.logged("answer")[-1]["decision"], "allow")
+        self.assertEqual(stack.logged("answer")[-1]["decision"]["behavior"], "deny", "the prepared settings do not say bypass")
         self.assertEqual(stack.managed_view()["pending"], [])
-        with self.assertRaises(DomainError) as gone:
-            chat.answer(OWNER, agent, pin, request["request_id"], "allow")
-        self.assertEqual(gone.exception.code, "not_found")
 
         question = self.say(stack, "ASK which one", pin)
         self.submitted(stack, question)
@@ -436,6 +423,7 @@ class ManagedEndToEnd(unittest.TestCase):
         self.assertEqual(chat.answer(OWNER, agent, pin, asked["request_id"], {"answers": {"Which?": "A"}}), {"answered": True})
         self.settle(stack, "idle")
         self.assertEqual(stack.logged("answer")[-1]["decision"], {"answers": {"Which?": "A"}})
+        self.assertEqual(len(stack.logged("answer")), 2, "one answer from the host, one from the owner")
 
         # ----- 7. a prompt a hook blocked: the input stays submitted and says it was not processed --------------------
         blocked_input = self.say(stack, "BLOCK this one", pin)
@@ -462,16 +450,33 @@ class ManagedEndToEnd(unittest.TestCase):
                          ("offline", "session_closed", True, None, False))
         self.assertEqual(stack.logged("close")[-1]["kind"], "close")
 
-        # ----- 9. a nudge-style input finds the session closed; it never starts one and is not a failure --------------
+        # ----- 9. a nudge-style input finds the session closed and is not a failure; the arbiter does not wake for it ----
         nudge = InputRequest(agent, TYPE_NUDGE, "nudge-after-close-1", "You have a task waiting", wait=False)
         result = stack.arbiter.submit(nudge)
         self.assertEqual((result.state, result.reason, result.input_id), (RESULT_DEFERRED, "session_closed", None))
         self.assertEqual(nudges.outcome_of(result, store.binding_of(ended)), "session_closed")
-        telegram = stack.arbiter.submit(InputRequest(agent, TYPE_TELEGRAM, "tg-after-close-01", "hi", wait=False))
-        self.assertEqual((telegram.state, telegram.reason), (RESULT_DEFERRED, "session_closed"))
         self.assertFalse(stack.host_running())
         self.assertEqual(stack.logged("start").__len__(), 1)
-        # closing a session that is not open is not an error and starts nothing
+
+        # ----- 10. Telegram owner input wakes the asleep agent: the attempt starts the open and is told so, the retry delivers --
+        telegram_request = InputRequest(agent, TYPE_TELEGRAM, "tg-after-close-01", "hi", wait=False)
+        telegram = stack.arbiter.submit(telegram_request)
+        self.assertEqual((telegram.state, telegram.reason, telegram.input_id), (RESULT_DEFERRED, "session_starting", None))
+        wait_for(lambda: stack.live() is not None, WAIT, message="the wake to bind a session")
+        self.assertEqual(stack.logged("start").__len__(), 2)
+
+        def retried():
+            again = stack.arbiter.submit(telegram_request)
+            return again if again.state == STATE_SUBMITTED else None
+        delivered = wait_for(retried, WAIT, message="the retry to deliver the Telegram input")
+        self.assertEqual([entry["text"] for entry in stack.logged("send")].count("hi"), 1, "typed once, by its own claim")
+        self.assertEqual(delivered.input_id, stack.arbiter.submit(telegram_request).input_id)
+        self.settle(stack, "idle")
+
+        # ----- 11. End session closes it and turns the agent off; a session that is not open is not an error ----------------
+        self.assertEqual(chat.close(OWNER, agent), {"closing": True})
+        self.assertTrue(launcher.wait_until_gone(stack.state, WAIT))
+        wait_for(lambda: stack.live() is None, WAIT, message="the binding to end")
         self.assertEqual(chat.close(OWNER, agent), {"closing": False})
         self.assertEqual(stack.observer.errors, [])
 

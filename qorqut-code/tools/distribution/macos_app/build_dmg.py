@@ -5,7 +5,7 @@ Build tooling only; runs on macOS with Node.js/npm. The app is an Electron shell
 window. electron-builder (pinned in ``electron/package-lock.json``) packages and
 signs the app and lays out the disk image window; this script prepares its
 inputs (icon, window background, the archive) and checks the result. It carries the archive unchanged in ``Contents/Resources/qorqbot-payload``;
-a self-contained archive brings its own Python, git and tmux, so the app adds none.
+a self-contained archive brings its own Python and git, so the app adds none.
 
 Signing: ``--identity -`` (default) applies an ad-hoc signature. Downloaded
 copies then show the Gatekeeper prompt once; users open it through System

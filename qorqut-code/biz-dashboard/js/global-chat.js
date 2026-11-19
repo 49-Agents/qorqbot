@@ -1,7 +1,7 @@
 // Persistent chat for any registered agent (global or business). It is a projection of the agent's native session
 // conversation (qorqut-code docs/v1.2/NATIVE_CHAT_DTO.md): opening, switching or reading never starts, resumes, stops or types
-// into an agent; Terminal owns the session lifecycle. One mount owns one SSE stream, its timers and listeners, and releases all
-// of them in dispose().
+// into an agent; a message from the owner starts or wakes the agent's session, and End session turns the agent off. One mount owns
+// one SSE stream, its timers and listeners, and releases all of them in dispose().
 // Composer state is bound to the exact agent and conversation, and outlives a mount so a switch never leaks or loses it.
 const GLOBAL_CHAT_DRAFTS = new Map();           // scope -> unsent composer text
 const GLOBAL_CHAT_FILES = new Map();            // scope -> selected browser Files; copied only when Send is pressed
@@ -83,15 +83,15 @@ const GLOBAL_CHAT_REFUSALS = new Set(['terminal_offline', 'capture_disabled', 'c
   'managed_command', 'session_closed', 'driver_unavailable', 'cli_unavailable', 'resume_failed', 'resume_unavailable', 'open_timeout', 'open_busy',
   'session_opening', 'terminal_present', 'host_unverified']);
 const GLOBAL_CHAT_REFUSAL_TEXT = {
-  terminal_offline: 'Not running. Start or resume it in Terminal, then send again.',
+  terminal_offline: 'Not running. Send the message again to start it.',
   capture_disabled: 'Chat unavailable.',
   capture_not_ready: 'Connecting. Try again in a moment.',
   binding_not_ready: 'Connecting. Try again in a moment.',
   terminal_changed: 'Not delivered. Check the agent and try again.',
-  terminal_required: 'This command runs only in the agent’s Terminal. Open Terminal and run it there.',
+  terminal_required: 'This command isn’t available when Qorqbot runs the agent.',
   managed_command: 'This command isn’t available when Qorqbot runs the agent.',
   session_closed: 'Not running. Send the message again to start it.',
-  driver_unavailable: 'Couldn’t start the session. Check that Claude Code is signed in, then try again.',
+  driver_unavailable: 'Couldn’t start. Check in Settings that Claude Code or Codex is connected, then send again.',
 };
 const GLOBAL_CHAT_INPUT_LABEL = {inbox_nudge: 'Inbox nudge', bootstrap_recovery: 'Session recovery', telegram: 'Telegram', broadcast: 'Broadcast', direct_message: 'Direct message'};
 const GLOBAL_CHAT_INPUT_STATE = {
@@ -110,66 +110,33 @@ const globalChatNoticeLabel = system => !system ? 'System notice'
 const globalChatBase = id => `/root/agents/${encodeURIComponent(id)}/chat`;
 const globalChatHasContext = agent => ['ordubashy','global-worker'].includes(agent.role?.id || agent.role_id);
 // ---- the mount
-function globalChatViewToggle(terminal = false) {
-  return `<div class="gchat-view-toggle" role="group" aria-label="Agent view">
-    <button type="button" class="ttab" data-chat-return aria-label="Chat" aria-pressed="${!terminal}" ${terminal ? '' : 'disabled'}><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
-    <button type="button" class="ttab" data-terminal aria-label="Terminal" aria-pressed="${terminal}" ${terminal ? 'disabled' : ''}><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 17 6-6-6-6M12 19h8"/></svg></button>
-  </div>`;
-}
-
-// One Chat/Terminal lifecycle for any registered agent, on the Global page and in a business workspace.
-// `agent.agent_id` is the registered id the chat API needs; `terminal.key`/`terminal.base` name the exact existing terminal route.
-// Keep the current agent’s two views mounted across toggles; navigation/dispose releases both streams.
-// opts: {terminal: {key, base?}, isCurrent(): bool, onTerminalStatus(status), view: 'chat'|'terminal'}
+// One Chat for any registered agent, on the Global page and in a business workspace.
+// `agent.agent_id` is the registered id the chat API needs. Navigation/dispose releases its stream.
+// opts: {isCurrent(): bool}
 let globalAgentViewActive = null;
 function agentViewDispose() { globalAgentViewActive?.dispose(); }
-function mountAgentView(pane, agent, opts) {
+function mountAgentView(pane, agent, opts = {}) {
   agentViewDispose();
-  let chat = null, closeTerminal = null, disposed = false, managed = false;
-  const chatHost = document.createElement('div'), terminalHost = document.createElement('div');
-  for (const host of [chatHost, terminalHost]) { host.className = 'gchat-view-host'; host.hidden = true; }
-  pane.replaceChildren(chatHost, terminalHost);
-  // Release a legacy viewer once on entry, not when returning to this agent's warm Chat.
-  if (typeof teardownTerm === 'function') teardownTerm();
+  let chat = null, disposed = false;
+  const chatHost = document.createElement('div');
+  chatHost.className = 'gchat-view-host';
+  pane.replaceChildren(chatHost);
   const current = () => !disposed && (!opts.isCurrent || opts.isCurrent());
   const showChat = () => {
     if (!current()) return;
-    terminalHost.hidden = true; chatHost.hidden = false;
+    chatHost.hidden = false;
     if (chat) return;
     const originAgentId = String(agent.agent_id ?? '');
-    chat = mountGlobalChat(chatHost, agent, {openTerminal: showTerminal, onExecution: setManaged, openReference: ref => globalChatOpenFocusReference(ref, {
+    chat = mountGlobalChat(chatHost, agent, {openReference: ref => globalChatOpenFocusReference(ref, {
       agentId: originAgentId,
       isCurrent: () => current() && !chatHost.hidden,
     })});
   };
-  // A managed agent runs headless: it has no Terminal to show, so its Terminal view is released and Chat is the only view.
-  const setManaged = on => {
-    managed = on === true;
-    if (!managed) return;
-    closeTerminal?.(); closeTerminal = null; terminalHost.replaceChildren();
-    if (!terminalHost.hidden) showChat();
-  };
-  // Refresh explicitly replaces the terminal viewer; ordinary toggles retain its renderer and stream.
-  const showTerminal = (refresh = false) => {
-    if (!current()) return;
-    if (managed) { showChat(); return; }
-    chatHost.hidden = true; terminalHost.hidden = false;
-    if (closeTerminal && !refresh) return;
-    closeTerminal?.();
-    const label = agent.display_name || agent.name;
-    terminalHost.innerHTML = `<div class="gchat-terminal"><div class="gchat-top"><span class="gchat-name">${esc(label)}</span><span class="gchat-status">Terminal</span></div><div class="gchat-session-switch">${globalChatViewToggle(true)}</div><div class="gchat-terminal-host"></div></div>`;
-    terminalHost.querySelector('[data-chat-return]').onclick = () => showChat();
-    const shellStatus = terminalHost.querySelector('.gchat-status');
-    closeTerminal = mountTerminal(opts.terminal.key, terminalHost.querySelector('.gchat-terminal-host'), status => {
-      shellStatus.textContent = status === 'ended' ? 'Terminal exited' : status === 'disconnected' ? 'Terminal disconnected' : 'Terminal';
-      opts.onTerminalStatus?.(status);
-    }, opts.terminal.base);
-  };
-  // Also clean up if navigation removes/replaces the hosts without explicitly disposing the view.
+  // Also clean up if navigation removes/replaces the host without explicitly disposing the view.
   const watcher = setInterval(() => {
-    if (!chatHost.isConnected || !terminalHost.isConnected || !current()) view.dispose();
+    if (!chatHost.isConnected || !current()) view.dispose();
   }, 2000);
-  const view = {showChat, showTerminal,
+  const view = {showChat,
     selectPairedSource(source, generation, onUnavailable, onReference, onBack) {
       if (disposed || !opts.isCurrent?.()) return false;
       if (chatHost.hidden) showChat();
@@ -189,12 +156,11 @@ function mountAgentView(pane, agent, opts) {
     if (disposed) return;
     disposed = true; clearInterval(watcher);
     chat?.dispose(); chat = null;
-    closeTerminal?.(); closeTerminal = null;
-    chatHost.remove(); terminalHost.remove();
+    chatHost.remove();
     if (globalAgentViewActive === view) globalAgentViewActive = null;
   }};
   globalAgentViewActive = view;
-  (opts.view === 'terminal' ? showTerminal : showChat)();
+  showChat();
   return view;
 }
 
@@ -215,20 +181,21 @@ function mountGlobalChat(pane, agent, options = {}) {
   const cleanups = [];
   const reads = new AbortController();
 
-  // Native shell: view switch and the session line stay here; every message, composer and preview is the shared view.
+  // Native shell: the session line stays here; every message, composer and preview is the shared view.
   const hasContext=globalChatHasContext(agent);
-  // Managed runtime (js/agent-runtime.js): built the first time the agent is managed or can be switched, so a terminal agent that
-  // cannot be switched gets no extra element at all.
-  let runtimeToggle = null, managedBar = null, reportedExecution = null;
-  const controls=options.openTerminal ? `<div class="gchat-session-switch">${globalChatViewToggle()}</div>` : '';
-  pane.innerHTML = `<div class="gchat" data-global-chat="${esc(agentId)}">
-    ${controls}
-  </div>`;
+  // Managed runtime (js/agent-runtime.js): the Stop, activity and question block is built with the first session read.
+  let managedBar = null;
+  pane.innerHTML = `<div class="gchat" data-global-chat="${esc(agentId)}"></div>`;
   const root = pane.firstElementChild;
   const $q = selector => root.querySelector(selector);
   const sessionLine = document.createElement('div');
   sessionLine.className = 'gchat-session'; sessionLine.setAttribute('role', 'status'); sessionLine.setAttribute('aria-live', 'polite'); sessionLine.dataset.state = 'loading';
   sessionLine.innerHTML = `<span class="gchat-working-tag" role="img" aria-label="${esc(label)} is working" hidden><span class="gchat-working-dots" aria-hidden="true"><i></i><i></i><i></i></span></span><span class="gchat-session-dot" aria-hidden="true"></span><span class="gchat-session-text">Loading…</span>`;
+  // End session sits at the end of the session line, shown only while a session is open.
+  const endSession = agentRuntime.createEnd({send: (path, body) => runtimeSend(path, body), onError: text => showBanner(text), onDone: () => {
+    showBanner(''); session = agentRuntime.afterEnd(session); paintSession(); void load();
+  }});
+  sessionLine.append(endSession.el);
   const sessionText = sessionLine.querySelector('.gchat-session-text');
   const workingTag = sessionLine.querySelector('.gchat-working-tag');
 
@@ -397,28 +364,15 @@ function mountGlobalChat(pane, agent, options = {}) {
   // A closed managed agent has no binding to pin: sending a message opens its session.
   const canSend = () => !pairedHost && !!session?.can_send && (viewingLive() || agentRuntime.canOpen(session)) && !finished;
   const selectedFiles = () => GLOBAL_CHAT_FILES.get(composerScope) || [];
-  function sessionSummary() {
-    if (!session) return {key: 'loading', line: ''};
-    const managed = agentRuntime.summary(session, label, viewingLive());
-    if (managed) return managed;
-    if (session.state === 'live' && session.can_send && !viewingLive()) return {key: 'starting', line: ''};
-    if (session.state === 'live') {
-      if (session.reason === 'capture_disabled') return {key: 'disabled', line: ''};
-      if (session.reason === 'binding_not_ready') return {key: 'starting', line: ''};
-      if (session.reason === 'capture_not_ready') return {key: 'starting', line: ''};
-      return {key: session.working ? 'working' : 'live', line: ''};
-    }
-    const direction = ['other_conversation', 'selection_required', 'registering'].includes(session.reason) ? 'Connecting to the conversation in Terminal…'
-      : `${startHint()}.`;
-    if (session.reason === 'capture_disabled') return {key: 'disabled', line: ''};
-    if (session.reason === 'unsupported_runtime') return {key: 'offline', line: ''};
-    return {key: 'offline', line: direction};
-  }
+  // What the conversation holds, and whether a message that starts the session is on its way: the wording of the session line.
+  const hasHistory = () => entries.size > 0 || shownInputs.length > 0 || hasLocal;
+  const sessionSummary = () => session ? agentRuntime.summary(session, label, viewingLive(), {history: hasHistory(),
+    opening: agentRuntime.closed(session) && GLOBAL_CHAT_INFLIGHT.has(composerScope)}) : {key: 'loading', line: ''};
   // ---- slash commands: the catalog for the CLI this session runs
   const commandCatalogs = new Map();
   let slashMenu = null;
   function commandCatalog() {
-    const provider = session?.provider || (agentRuntime.isManaged(session) ? 'claude' : null);
+    const provider = session ? session.provider || 'claude' : null;
     if (!provider) return null;
     if (!commandCatalogs.has(provider)) {
       commandCatalogs.set(provider, null);
@@ -428,66 +382,50 @@ function mountGlobalChat(pane, agent, options = {}) {
     }
     return commandCatalogs.get(provider);
   }
-  // Names the programs that connect: any supported CLI started in this agent's own terminal, the agent's default first.
-  function startHint() {
-    const managed = agentRuntime.startHint(session, label);
-    if (managed) return managed;
-    const commands = session?.launch_commands || [];
-    return commands.length ? `Open the terminal (>_) and run ${commands.join(' or ')} to start ${label}` : `Start or resume ${label} in Terminal`;
-  }
   function emptyState() {
     if (entries.size || shownInputs.length || hasLocal || !session) return {text: '', action: null};
     const key = sessionSummary().key;
     if (key === 'live' || key === 'working') return {text: 'Your agent conversation appears here.', action: null};
-    if ((key === 'closed' || key === 'offline') && agentRuntime.isManaged(session)) return {text: agentRuntime.emptyText(session, label), action: null};
-    if (key === 'starting') return {text: 'Connecting…', action: null};
+    if (key === 'closed' || key === 'off' || key === 'offline') return {text: agentRuntime.emptyText(session, label), action: null};
+    if (key === 'starting') return {text: `Starting ${label}…`, action: null};
     if (key === 'disabled') return {text: 'Chat unavailable.', action: null};
-    return {text: `${startHint()}. Its conversation will appear here.`, action: options.openTerminal ? {key: 'terminal', label: 'Open terminal'} : null};
+    return {text: '', action: null};
   }
-  // ---- managed runtime: Stop, the activity line, the cards and the runtime switch follow the session
+  // ---- managed runtime: Stop, the activity line, the cards and End session follow the session
   const runtimeSend = async (path, body) => coreData(await post(`${base}${path}`, body));
   function syncManaged() {
-    const managed = agentRuntime.isManaged(session);
-    if (managed && !managedBar && sessionLine.parentNode) {
+    if (session && !managedBar && sessionLine.parentNode) {
       managedBar = agentRuntime.createBar({label, send: runtimeSend, binding: () => liveBinding()?.binding_id || null,
         onChange: () => { paintSession(); void load(); }, onError: showBanner});
       sessionLine.parentNode.insertBefore(managedBar.el, sessionLine);
       cleanups.push(() => managedBar?.dispose());
     }
     managedBar?.update(session);
-    const switchHost = $q('.gchat-session-switch'), show = !!session && agentRuntime.eligible(agent, session);
-    if (show && !runtimeToggle && switchHost) {
-      runtimeToggle = agentRuntime.createToggle({label, send: runtimeSend, onDone: () => { showBanner(''); paintSession(); void load(); }, onError: showBanner});
-      switchHost.prepend(runtimeToggle.el);
-    }
-    runtimeToggle?.update(session, show);
-    const mode = agentRuntime.execution(session);
-    // A managed agent has no Terminal: the Chat/Terminal switch goes and the host drops its Terminal view.
-    const viewSwitch = $q('.gchat-view-toggle');
-    if (viewSwitch) viewSwitch.hidden = managed;
-    if (managed) root.dataset.execution = 'managed'; else delete root.dataset.execution;
-    if (session && mode !== reportedExecution) { reportedExecution = mode; options.onExecution?.(mode === 'managed'); }
+    endSession.update(finished ? null : session);
   }
+  // The session line says what the empty conversation does not already say in the middle of the pane.
+  const sessionLineText = (summary, hint) => hint.text && ['closed', 'off', 'starting'].includes(summary.key) ? '' : summary.line;
   // One repaint: the native status line, then every presentation field the view displays. `patch` adds fields such as the entries.
   function paint(patch = {}, scroll = 'preserve') {
     if (disposed) return;
     const summary = sessionSummary(), working = summary.key === 'working' && !streamDown && !finished;
     sessionLine.dataset.state = streamDown && summary.key === 'working' ? 'live' : summary.key;
     sessionLine.classList.toggle('gchat-session-working', working);
-    // An empty conversation already shows the same direction, with its button, in the middle of the pane.
+    // An empty conversation already shows the same direction in the middle of the pane.
     const hint = emptyState();
-    sessionText.textContent = finished ? 'This chat is no longer available.' : hint.action || (summary.key === 'closed' && hint.text) ? '' : summary.line;
-    workingTag.hidden = !working;
+    sessionText.textContent = finished ? 'This chat is no longer available.' : sessionLineText(summary, hint);
+    // The activity line (Stop, what the agent is doing) already shows the dots while it is there; in the focus panel they stay.
+    workingTag.hidden = !working || (workingTag.parentElement === sessionLine && !!agentRuntime.activity(session).text);
     contextStatus?.show();
-    sessionLine.hidden = !sessionText.textContent && (!working || workingTag.parentElement !== sessionLine);
-    const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope);
     syncManaged();
+    sessionLine.hidden = !sessionText.textContent && endSession.el.hidden && (!working || workingTag.parentElement !== sessionLine);
+    const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope);
     const pending = presentInputs();
     view.render({
       ...patch, pending,
       composer: {inputDisabled: !enabled, sendDisabled: !enabled || sending, filesDisabled: !enabled || sending || agentRuntime.canOpen(session),
         attachments: selectedFiles().map(file => ({key: file.key, name: file.file.name})),
-        placeholder: enabled || !session ? `Message ${label}…` : 'Not available to send'},
+        placeholder: enabled || !session ? agentRuntime.placeholder(session, label, hasHistory()) : 'Not available to send'},
       older: {visible: older != null, disabled: olderBusy},
       empty: emptyState(),
     }, {scroll});
@@ -498,9 +436,6 @@ function mountGlobalChat(pane, agent, options = {}) {
   const paintInputs = () => paint();
   const paintSession = () => paint();
   const showBanner = text => { bannerText = text || ''; reconnecting = false; view.render({banner: {text: bannerText}}); };
-  listen(root, 'click', event => {
-    if (event.target.closest('[data-terminal]')) options.openTerminal?.();
-  });
 
   // Drops the displayed page and its session so nothing stale can be read, sent or acknowledged until a fresh successful state
   // arrives. The unsent draft stays in its conversation-specific store.
@@ -530,7 +465,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     });
   }
   const saveDraft = () => { if (!composerScope) return; const text = view.getDraft(); if (text) GLOBAL_CHAT_DRAFTS.set(composerScope, text); else GLOBAL_CHAT_DRAFTS.delete(composerScope); };
-  const refusalText = problem => problem.offered ? '' : agentRuntime.refusalText(session, problem.code) || GLOBAL_CHAT_REFUSAL_TEXT[problem.code] || "Couldn't send. Try again";
+  const refusalText = problem => problem.offered ? '' : agentRuntime.refusalText(problem.code) || GLOBAL_CHAT_REFUSAL_TEXT[problem.code] || "Couldn't send. Try again";
   // One admission request. The result is recorded in module state so a mount that was left meanwhile loses nothing.
   // A closed managed agent has no session to pin: the message goes without a binding and opens one.
   // The owner's explicit choice to start a fresh conversation instead of the one that can't be continued: the next request (and its
@@ -553,7 +488,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       // conversation offers the owner a new one, and says so beside the composer instead of in the banner.
       if (agentRuntime.isRetryable(problem?.code)) problem.keepAttempt = true;
       else if (fresh) freshChoice = null;
-      const offer = managedBar ? agentRuntime.newConversationOffer(session, problem?.code) : null;
+      const offer = managedBar ? agentRuntime.newConversationOffer(problem?.code) : null;
       if (offer) { problem.offered = true; managedBar.offer(offer, () => { const draft = live() ? view.getDraft() : ''; if (draft.trim()) void startFresh(draft); }); }
       throw problem;
     }
@@ -571,7 +506,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (!mine || !text.trim() && !files.length || !canSend() || GLOBAL_CHAT_INFLIGHT.has(mine)) return;
     // A known slash command is judged for the session it is sent to, before anything is uploaded or sent. A shared Codex server
     // cannot run it: the draft and attachments stay as they are and the owner is told where it runs (the backend refuses it too).
-    const slash = slashCommands.command(commandCatalog() || [], text), provider = session?.provider;
+    const slash = slashCommands.command(commandCatalog() || [], text);
     const refusal = slashCommands.refusal(session, slash, label);
     if (refusal) { showBanner(refusal); return; }
     // A retry of the same text reuses its key and its original binding pin, so a lost response can never become a second
@@ -599,10 +534,6 @@ function mountGlobalChat(pane, agent, options = {}) {
         }
         const result = await admit(payload, attempt.key, attempt.pin);
         globalChatAccept(mine, payload, result.input, attempt.position, !!slash);
-        if (slashCommands.opensTerminal(slash, text, provider) && options.openTerminal) {
-          toast(`Finish ${slash.name} in ${label}’s Terminal.`);
-          options.openTerminal();
-        }
         if (GLOBAL_CHAT_SENDS.get(mine) === attempt) GLOBAL_CHAT_SENDS.delete(mine);
         if (GLOBAL_CHAT_DRAFTS.get(mine) === text) GLOBAL_CHAT_DRAFTS.delete(mine);
         const sent = new Set(attempt.files.map(file => file.key));
@@ -682,9 +613,6 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (action === 'resend') void resendInput(id);
       else if (action === 'dismiss') { GLOBAL_CHAT_HIDDEN.add(id); paintInputs(); }
     },
-    onEmptyAction: action => {
-      if (action === 'terminal') options.openTerminal?.();
-    },
   });
   paint();
   // Slash commands: the running CLI's catalog, loaded once per provider (native_chat/commands.py).
@@ -699,7 +627,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   }
 
   // ---- loading: a state fetch is idempotent, so every "changed" event just reads it again (coalesced)
-  // Terminal owns conversation selection; Chat always follows the backend's current conversation.
+  // Chat always follows the backend's current conversation.
   const stateUrl = () => `${base}?limit=${GLOBAL_CHAT_PAGE}`;
   async function load(reset = false) {
     if (loading) { again = true; return; }
@@ -758,8 +686,9 @@ function mountGlobalChat(pane, agent, options = {}) {
   // cannot say whether the conversation changed too.
   function showManagedEvent(data) {
     const summary = data?.managed;
-    if (!summary || typeof summary !== 'object' || !agentRuntime.isManaged(session) || !session.managed) return;
+    if (!summary || typeof summary !== 'object' || !session?.managed) return;
     if ((summary.open !== false) !== (session.managed.open !== false)) return;
+    if ('off' in summary && (summary.off === true) !== (session.managed.off === true)) return;
     session = {...session, managed: {...session.managed, ...summary}};
     paintSession();
   }

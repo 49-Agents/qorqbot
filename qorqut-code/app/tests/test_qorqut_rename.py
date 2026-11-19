@@ -59,13 +59,19 @@ class RenameCompatibilityTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('rename_native_launch', path)
         launch = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(launch)
-        replies = [subprocess.CompletedProcess([], 1, '', 'no server running'),
-                   subprocess.CompletedProcess([], 0, 'worker', '')]
-        with mock.patch.object(launch.shutil, 'which', return_value='/usr/bin/tmux'), \
-                mock.patch.object(launch.subprocess, 'run', side_effect=replies) as run:
-            with self.assertRaisesRegex(ValueError, 'Stop this installation'):
-                launch.require_stopped_terminals(Path('/tmp/rename-fixture'), {})
-        self.assertEqual([call.args[0][2] for call in run.call_args_list], ['qorqut', 'bazarlyk'])
+        # An older version's terminal server left its socket under .run/tmux-<uid>/; a live one blocks, a dead one does not.
+        with tempfile.TemporaryDirectory(dir='/tmp') as directory:
+            root = Path(directory)
+            sockets = root / '.run' / 'tmux-1000'
+            sockets.mkdir(parents=True)
+            launch.require_no_terminal_agents(root)
+            import socket
+            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.addCleanup(server.close)
+            server.bind(str(sockets / 'bazarlyk'))
+            server.listen(1)
+            with self.assertRaisesRegex(ValueError, 'managed cutover'):
+                launch.require_no_terminal_agents(root)
 
     def test_first_new_history_ref_continues_the_old_history(self):
         with tempfile.TemporaryDirectory() as directory:

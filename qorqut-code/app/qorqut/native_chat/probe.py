@@ -264,11 +264,42 @@ class SessionProbe:
                 and identity.get("conversation_id") in (None, marker.get("session_id"))
                 and isinstance(identity.get("owner"), str) and identity["owner"] == hit.get("owner"))
 
+    def _managed_hit(self, profile: dict, marker: dict, pid: int) -> dict | None:
+        """``{"transport": "managed", "owner"}`` for the marker's process when it is exactly the client of this agent's verified
+        host, else ``None``. For Codex the process must also be an ``app-server --listen stdio://`` holding this conversation's
+        thread-writer lock (a platform that cannot show locks, macOS, relies on the host identity alone), so a thread another process
+        serves, or a ``codex`` that is not the host's app-server, never counts even when it descends from the host."""
+        try:
+            hit = self._managed.verify(profile, marker)
+            hit = hit if hit and self._is_the_hosted_client(profile, marker, hit) else None
+            if hit and marker["runtime"] == "codex" and not self._serves_thread(pid, marker["session_id"]):
+                hit = None
+        except Exception:
+            LOG.debug("Managed host verification failed for %s", profile["agent_id"], exc_info=True)
+            return None
+        if hit and hit.get("transport") == "managed" and isinstance(hit.get("owner"), str):
+            return {"transport": "managed", "owner": hit["owner"]}
+        return None
+
+    @staticmethod
+    def _serves_thread(pid: int, session: str) -> bool:
+        if not codex_session.runs_app_server(_process_argv(pid)):
+            return False
+        return sys.platform == "darwin" or codex_session.thread_owner(pid, session, home=False) is not None
+
     def _verify_process(self, profile: dict, marker: dict) -> dict | None:
         pid = int(marker["pid"])
         native = process_fields(pid)
         if native[0] == "Z" or native[19] != marker["started"]:
             return None
+        if self._managed is not None and profile.get("execution") == "managed" and marker["runtime"] in ("claude-code", "codex"):
+            # A managed agent's client has no pane: Claude's ``claude -p``, Codex's ``app-server --listen stdio://`` (one thread per
+            # app-server). Its host must be verified and the marker's process must be the very client the host reports. This comes
+            # BEFORE the shared-server branch below: an app-server whose parent is the agent's own host is not a shared desktop server.
+            # A miss falls through: a managed-mode agent whose client runs in a tmux pane is still judged by that pane.
+            hit = self._managed_hit(profile, marker, pid)
+            if hit:
+                return hit
         if (marker["runtime"] == "codex"
                 and b"app-server" in _process_argv(pid)):
             # The desktop server is shared by many conversations. Only this session's held writer lock proves that its
@@ -276,17 +307,6 @@ class SessionProbe:
             owner = codex_session.thread_owner(pid, marker["session_id"])
             return ({"transport": "codex_queue", "owner": owner}
                     if owner and self._displayed_codex(profile, owner, marker["session_id"]) else None)
-        if self._managed is not None and profile.get("execution") == "managed" and marker["runtime"] == "claude-code":
-            # A managed agent's claude has no pane. Its host must be verified and the marker's process must descend from it.
-            # A miss falls through: a managed-mode agent whose claude runs in a tmux pane is still judged by that pane.
-            try:
-                hit = self._managed.verify(profile, marker)
-                hit = hit if hit and self._is_the_hosted_client(profile, marker, hit) else None
-            except Exception:
-                LOG.debug("Managed host verification failed for %s", profile["agent_id"], exc_info=True)
-                hit = None
-            if hit and hit.get("transport") == "managed" and isinstance(hit.get("owner"), str):
-                return {"transport": "managed", "owner": hit["owner"]}
         backend = self._backend()
         if backend is None:
             return None
@@ -334,8 +354,12 @@ class SessionProbe:
             # The hook records its client process, ``pid:ticks``. A managed observation's owner is its host, so for it the
             # client process is what the activity file has to name.
             owner = (None if verified.get("transport") == "managed" else verified.get("owner")) or f"{marker['pid']}:{marker['started']}"
+            # A managed Codex app-server's hook writes its held-lock owner (``pid:ticks:fd:dev:inode``): the same process.
+            written = activity.get("owner")
+            if verified.get("transport") == "managed" and marker["runtime"] == "codex":
+                written = codex_session.owner_process(written)
             return (all(activity.get(key) == marker[key] for key in ("agent_id", "session_id", "runtime"))
-                    and activity.get("owner") == owner
+                    and written == owner
                     and activity.get("state") == "running")
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             return False

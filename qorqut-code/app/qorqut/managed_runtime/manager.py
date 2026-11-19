@@ -47,7 +47,9 @@ import uuid
 from qorqut import agent_cli_launch
 from qorqut_operations.contracts import DomainError
 
+from . import clients as table
 from . import mode as modes
+from . import options as launch_options
 from . import state as layout
 from .client import HostUnavailable
 
@@ -76,7 +78,8 @@ class ManagedError(DomainError):
     """A managed operation that did not happen. ``code`` is stable: ``managed_unavailable``, ``not_managed``, ``session_closed``,
     ``host_unverified``, ``cli_unavailable``, ``resume_unavailable`` (the selected conversation's transcript is gone: the owner
     must choose a new conversation), ``resume_failed``, ``host_failed``, ``host_start_failed``, ``open_timeout`` and ``open_busy``
-    (retryable), ``terminal_present``, ``session_opening`` (retryable), ``host_busy`` (retryable), ``host_rejected``."""
+    (retryable), ``terminal_present``, ``session_opening`` (retryable), ``host_busy`` (retryable), ``host_rejected``, ``driver_unavailable`` (the
+    agent's client has no managed driver yet)."""
 
 
 class HostUnverified(Exception):
@@ -118,7 +121,8 @@ def _ticks(identity):
 
 def _identity(agent_id, record):
     host_pid, host_started = record.get("host_pid"), _ticks(record.get("host_identity"))
-    return {"agent_id": agent_id, "provider": "claude", "conversation_id": record.get("session_id"),
+    client = record.get("client")
+    return {"agent_id": agent_id, "provider": client if table.known(client) else "claude", "conversation_id": record.get("session_id"),
             "pid": record.get("claude_pid"), "started": _ticks(record.get("claude_identity")),
             "owner": f"host:{host_pid}:{host_started}" if host_pid and host_started else None,
             "host_pid": host_pid, "host_started": host_started, "instance": record.get("instance"),
@@ -223,11 +227,13 @@ class ManagedRuntime:
     preparation); ``launcher`` is the host launcher (default: the ``launcher`` module of this package)."""
 
     def __init__(self, runtime, *, launcher=None, prepare=None, resume=None, executable=None, clock=time.monotonic, sleep=time.sleep,
-                 idle_seconds=IDLE_SECONDS, max_opens=MAX_CONCURRENT_OPENS):
+                 idle_seconds=IDLE_SECONDS, max_opens=MAX_CONCURRENT_OPENS, ready=None):
         self._runtime = runtime
         self.paths = getattr(runtime, "paths", None)
         self._launcher, self._prepare_override, self._resume_override = launcher, prepare, resume
         self._executable = executable
+        # ``ready(client)``: that CLI is installed and signed in. Asked only for an agent with no stored client (options.py).
+        self._ready = ready
         self._clock, self._sleep, self._idle = clock, sleep, idle_seconds
         self._guard = threading.RLock()
         self._views: dict[str, dict] = {}
@@ -283,7 +289,8 @@ class ManagedRuntime:
     def _record(found) -> dict:
         return {"host_pid": found.host_pid, "host_identity": found.host_identity, "state": found.state,
                 "session_id": found.session_id, "transcript_path": found.transcript_path, "claude_pid": found.claude_pid,
-                "claude_identity": found.claude_identity, "instance": found.instance, "agent_id": found.agent_id}
+                "claude_identity": found.claude_identity, "instance": found.instance, "agent_id": found.agent_id,
+                "client": getattr(found, "agent_client", None)}
 
     def _find(self, agent_id):
         """The agent's ``Host`` (running, or still starting), or None when none runs. Raises ``HostUnverified`` when a process
@@ -540,25 +547,36 @@ class ManagedRuntime:
                         except HostUnverified:
                             raise ManagedError("host_unverified", "A session of this agent could not be verified", retryable=True) from None
                         if present is None:
-                            record, resume = self._launch(profile, deadline, new_conversation)
-                            return self._opened(agent_id, record, True, resume)
+                            record, resume, client = self._launch(profile, deadline, new_conversation)
+                            opened = self._opened(agent_id, record, True, resume)
+                            launch_options.remember(self.paths, agent_id, client)   # sticky: the client that worked stays the agent's
+                            return opened
             # Another caller holds the lifecycle lock, or the host is still starting or closing: look again shortly.
             if self._clock() >= deadline:
                 raise ManagedError("open_timeout", "The session did not become ready in time", retryable=True)
             self._sleep(POLL_INTERVAL)
 
+    def client_for(self, profile) -> str:
+        """The effective client of this agent: its stored one, else the best ready one (``options.effective_client``)."""
+        ready = self._ready if self._ready is not None else launch_options.ready_function()
+        return launch_options.effective_client(self.paths, profile["agent_id"], profile, ready)
+
     def _launch(self, profile, deadline, new_conversation):
-        """Under the lifecycle lock, with no host present: check that this agent may be started, then start it. ``(record, resume)``."""
+        """Under the lifecycle lock, with no host present: check that this agent may be started, then start it.
+        ``(record, resume, client)``."""
         agent_id = profile["agent_id"]
         if self.mode(agent_id) != modes.MANAGED:
             raise ManagedError("not_managed", "This agent runs in its terminal")
         if self.terminal_present(profile):
             raise ManagedError("terminal_present", "This agent's Terminal is still running. Close it first, then send the message again")
+        client = self.client_for(profile)
+        if not table.available(client):
+            raise ManagedError("driver_unavailable", "Running this agent with " + client.capitalize() + " is not available yet")
         if not self._slots.acquire(blocking=False):
             raise ManagedError("open_busy", "Several sessions are starting right now. Try again in a moment", retryable=True)
         try:
-            resume = self._resume_id(agent_id, new_conversation)
-            return self._start(profile, resume, max(1.0, deadline - self._clock())), resume
+            resume = self._resume_id(agent_id, new_conversation, client)
+            return self._start(profile, resume, max(1.0, deadline - self._clock()), client), resume, client
         finally:
             self._slots.release()
 
@@ -610,24 +628,27 @@ class ManagedRuntime:
                 fcntl.flock(descriptor, fcntl.LOCK_UN)
             os.close(descriptor)
 
-    def _resume_id(self, agent_id, new_conversation=False):
+    def _resume_id(self, agent_id, new_conversation=False, client=table.CLAUDE):
         """The conversation to resume, or None for a fresh start. A fresh start is only ever ``new_conversation`` (the owner chose
-        it), no selection, a selection that is not Claude's, or a selected conversation that has nothing recorded to lose. A
+        it), no selection, a selection that is not this client's, or a selected conversation that has nothing recorded to lose. A
         selected conversation whose transcript is gone, while Qorqbot's archive holds what it said, is ``resume_unavailable``:
         a terminal agent would not silently start another conversation in its place either."""
         if new_conversation:
             return None
         if self._resume_override is not None:
             return self._resume_override(agent_id)
+        if client != table.CLAUDE:
+            # TODO(codex): a Codex thread is resumed by its thread id from the rollout on disk; the lookup is written with its driver.
+            raise ManagedError("driver_unavailable", "Resuming a " + str(client).capitalize() + " conversation is not available yet")
         database = getattr(self._runtime, "database", None)
         if database is None:
             return None
         from qorqut.native_chat import selection, store
         with database.read() as uow:
             chosen = selection.selected(uow.connection, agent_id)
-            if chosen is None or chosen.provider != "claude":
+            if chosen is None or chosen.provider != table.entry(client)["provider"]:
                 return None
-            capture = store.get_capture(uow.connection, agent_id, "claude", chosen.conversation_id)
+            capture = store.get_capture(uow.connection, agent_id, chosen.provider, chosen.conversation_id)
         path = capture["transcript_path"] if capture else None
         try:
             if path and Path(path).is_file():
@@ -647,29 +668,30 @@ class ManagedRuntime:
             raise ManagedError("managed_unavailable", "Workspace preparation is not available")
         return terminals.prepare_managed(agent_id)
 
-    def _locate_claude(self, env):
-        """The ``claude`` to run and where it looked: ``(path or None, searched)``. An explicit executable (tests, an operator)
-        first; otherwise Qorqbot's own downloaded copy while it is the selected one, then the owner's own Claude Code on the PATH
-        their terminals use (the native user environment, not this service's minimal PATH), through the same selection the
+    def _locate(self, client, env):
+        """The executable of this client to run and where it looked: ``(path or None, searched)``. An explicit executable (tests,
+        an operator) first; otherwise Qorqbot's own downloaded copy while it is the selected one, then the owner's own copy on the
+        PATH their terminals use (the native user environment, not this service's minimal PATH), through the same selection the
         installer uses (``agent_cli_install.resolve``)."""
+        program = table.entry(client)["provider"]
         if self._executable:
             if os.path.isabs(self._executable):
                 return (self._executable if os.access(self._executable, os.X_OK) and os.path.isfile(self._executable) else None), [self._executable]
             found = shutil.which(self._executable, path=env.get("PATH") or os.environ.get("PATH"))
             return found, [env.get("PATH") or os.environ.get("PATH") or ""]
-        own = agent_cli_launch.executable("claude", None)
+        own = agent_cli_launch.executable(program, None)
         if own and os.access(own, os.X_OK):
             return own, []
         search = self._search_environment(env)
         folders = [item for item in (search.get("PATH") or "").split(os.pathsep) if item]
         try:
             from qorqut import agent_cli_install
-            chosen = agent_cli_install.resolve("claude", search, probe=False)
+            chosen = agent_cli_install.resolve(program, search, probe=False)
         except Exception:  # noqa: BLE001 - the installer is not part of the build, or could not look
             chosen = None
         path = chosen["path"] if isinstance(chosen, dict) else None
         if not path:
-            path = shutil.which("claude", path=search.get("PATH"))
+            path = shutil.which(program, path=search.get("PATH"))
         return (path if path and os.access(path, os.X_OK) else None), folders
 
     @staticmethod
@@ -684,23 +706,34 @@ class ManagedRuntime:
         folders = [folder for text in (env.get("PATH") or "", base.get("PATH") or "") for folder in text.split(os.pathsep) if folder]
         return {**base, "PATH": os.pathsep.join(dict.fromkeys(folders))}
 
-    def _start(self, profile, resume, timeout):
-        """Prepare, launch and wait for ``ready``. Returns the verified host's record."""
+    def _start(self, profile, resume, timeout, client=table.CLAUDE):
+        """Prepare, launch and wait for ``ready``. Returns the verified host's record. ``client`` is the agent's effective client:
+        it decides the executable, the driver, the first message of a fresh session, the model and effort flags, and how the host
+        answers permission requests."""
         agent_id = profile["agent_id"]
+        if not table.available(client):
+            raise ManagedError("driver_unavailable", "Running this agent with " + str(client).capitalize() + " is not available yet")
+        item, name = table.entry(client), table.NAMES[client]
         prepared = self._prepared(agent_id)
         workspace, env = str(prepared["workspace"]), dict(prepared["env"])
-        found, searched = self._locate_claude(env)
+        found, searched = self._locate(client, env)
         if not found:
             where = "Qorqbot's own copy and these folders: " + ", ".join(searched[:8]) if searched else "Qorqbot's own copy"
-            raise ManagedError("cli_unavailable", "Claude Code could not be found. Qorqbot looked in " + where
-                               + (" and others" if len(searched) > 8 else "") + ". Install Claude Code from Settings, then send again.")
-        extra = agent_cli_launch.for_executable("claude", found)
+            raise ManagedError("cli_unavailable", name + " could not be found. Qorqbot looked in " + where
+                               + (" and others" if len(searched) > 8 else "") + ". Install " + name + " from Settings, then send again.")
+        extra = agent_cli_launch.for_executable(item["provider"], found)
         args = list(extra["args"])
-        settings = Path(workspace) / ".qorqut/claude-launch-settings.json"
-        if settings.is_file():
-            args += ["--settings", str(settings)]
+        if item["settings"]:
+            settings = Path(workspace) / item["settings"]
+            if settings.is_file():
+                args += ["--settings", str(settings)]
+        chosen = launch_options.read(self.paths, agent_id)
+        args += table.allowed_tool_arguments(client, workspace)
+        args += table.launch_arguments(client, chosen.model, chosen.effort)
         spec = {"agent_id": agent_id, "folder": workspace, "executable": found, "args": args, "env": {**env, **extra["env"]},
-                "resume_session_id": resume, "send_role": resume is None, "idle_seconds": self._idle}
+                "resume_session_id": resume, "send_role": table.role_command(client) if resume is None else False,
+                "idle_seconds": self._idle, "client": client, "driver": table.driver(client),
+                "permission_mode": table.permission_mode(client, workspace), "model": chosen.model, "effort": chosen.effort}
         launcher = self._launcher_for()
         try:
             verified = launcher.start_host(self._state_dir(agent_id), spec, timeout=timeout)

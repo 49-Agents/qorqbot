@@ -105,3 +105,22 @@ def of_session(row: dict) -> str:
         host = managed_host(row["owner"])
         return worst(state(row["process_pid"], row["process_started"]), UNKNOWN if host is None else state(*host))
     return state(row["process_pid"], row["process_started"])
+
+
+# ----- availability -----------------------------------------------------------------------------------------------------
+# What a reader that says "online" or "offline" about a managed agent reports instead (``native_chat/opener.py`` has the rules):
+# ``open`` a session is bound; ``asleep`` none is, and the next input opens one; ``off`` the owner (or Ordubashy) turned it off, so
+# only the owner's own input (or Ordubashy's start) does; ``unavailable`` nothing can open it (paused, no managed runtime).
+OPEN, ASLEEP, OFF, UNAVAILABLE = "open", "asleep", "off", "unavailable"
+
+
+def availability(*, open_session: bool, desired_state: str | None, can_open: bool) -> str:
+    """Where an agent stands for the readers: an open session is ``open``; otherwise ``off`` when its recorded intent is stopped,
+    ``asleep`` when it can be opened (``can_open``) and is not paused, else ``unavailable``."""
+    if open_session:
+        return OPEN
+    if desired_state == "stopped":
+        return OFF
+    if can_open and desired_state != "paused":
+        return ASLEEP
+    return UNAVAILABLE

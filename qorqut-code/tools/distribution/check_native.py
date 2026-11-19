@@ -33,7 +33,7 @@ def inside(phase):
         spec.loader.exec_module(launcher)
         env = launcher.environment(root, root / 'instance/home')
         assert not (root / 'runtime/native').exists()
-        for name, flag in (('git', '--version'), ('tmux', '-V')):
+        for name, flag in (('git', '--version'),):
             path = shutil.which(name, path=env['PATH'])
             assert path and not Path(path).is_relative_to(root), name
             subprocess.run([path, flag], env=env, cwd=root, check=True, timeout=60)

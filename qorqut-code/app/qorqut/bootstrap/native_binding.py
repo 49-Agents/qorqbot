@@ -11,14 +11,17 @@ from qorqut_operations.contracts import DomainError
 from .client import load_registration, path_has_symlink, write_json_private
 from qorqut.release_worker.lifetime import local_instance
 
-# A managed agent's claude runs headless (``claude -p``) as a child of a runtime host the service launched. That is the only
-# ``-p`` client that may own inbox delivery. Who is that client is decided by the SERVICE (``NativeBindingAdapter.verify_managed``:
+# A managed agent's client runs headless as a child of a runtime host the service launched: Claude Code as ``claude -p``, Codex as
+# ``codex app-server --listen stdio://``. The comments below speak of claude; the Codex case is the same rule with the process name
+# and argument vector of ``HEADLESS``. That client is the only headless one that may own inbox delivery. Who is that client is decided by the SERVICE (``NativeBindingAdapter.verify_managed``:
 # the pid and start ticks the token-verified host reports). Everything below that runs in the agent's own processes
 # (``managed_host``, ``attest``, the bridge) is a filter over facts the agent's shell can also produce; it only decides whether a
 # claim is worth making, never whether it is true.
 MANAGED_HOST_RECORD = '.qorqut/managed-host.json'
 HOST_MODULE = b'qorqut.managed_runtime.host'
 CLIENT_NAMES = frozenset({'claude', 'claude.exe'})
+# The process names a managed host's client can have, by the runtime of the hook or session that claims it.
+HEADLESS = {'claude-code': CLIENT_NAMES, 'codex': frozenset({'codex'})}
 MAX_RECORD_BYTES = 4096
 MAX_HOPS = 24
 MAX_ARGUMENT = 4096
@@ -85,7 +88,7 @@ def host_id_of(value, pid, ticks):
     return value if isinstance(value, str) and IDENTIFIER.fullmatch(value) else f'host:{pid}:{ticks}'
 
 
-def managed_host(workspace, pid, agent_id=None, *, processes=None):
+def managed_host(workspace, pid, agent_id=None, *, processes=None, runtime='claude-code'):
     """A managed runtime host that plausibly drives the headless client ``pid``, or ``None``. A FILTER, not an authority.
 
     It runs inside the agent's own processes and reads only what the agent's shell can also write or fake: the workspace record
@@ -97,8 +100,15 @@ def managed_host(workspace, pid, agent_id=None, *, processes=None):
     The claim holds while: the record is well formed; the host process has those start ticks, runs exactly
     ``python [-flags] -m qorqut.managed_runtime.host --state <dir>`` and, where the platform shows it, an executable named
     ``python*``; ``pid`` is a live ``claude``; and walking up from ``pid`` reaches the host without passing another ``claude``.
-    Anything unreadable is a refusal."""
+    Anything unreadable is a refusal.
+
+    ``runtime='codex'`` is the same rule for the other client: ``pid`` is a live process named ``codex`` whose command line ends in
+    exactly ``app-server --listen stdio://`` (what the Codex driver starts; never ``exec``, ``queue`` or a terminal client), and the walk
+    up to the host passes no other ``codex``, so a ``codex`` an agent starts from its own shell is refused."""
     processes = processes or ProcessTable()
+    names = HEADLESS.get(runtime)
+    if names is None:
+        return None
     try:
         path = Path(workspace) / MANAGED_HOST_RECORD
         if path_has_symlink(path) or not path.is_file() or path.stat().st_size > MAX_RECORD_BYTES:
@@ -115,13 +125,17 @@ def managed_host(workspace, pid, agent_id=None, *, processes=None):
         if exe is not None and not EXE_NAME.fullmatch(exe.lower()):
             return None
         client = processes.fields(pid)
-        if client[0] == 'Z' or processes.comm(pid) not in CLIENT_NAMES:
+        if client[0] == 'Z' or processes.comm(pid) not in names:
             return None
+        if runtime == 'codex':
+            from .codex_session import runs_app_server
+            if not runs_app_server(processes.argv(pid)):
+                return None
         parent = int(client[1])
         for _ in range(MAX_HOPS):
             if parent == host_pid:
                 return {'host_id': host_id_of(record.get('host_id'), host_pid, ticks), 'host_pid': host_pid, 'host_ticks': ticks}
-            if parent <= 1 or processes.comm(parent) in CLIENT_NAMES:
+            if parent <= 1 or processes.comm(parent) in names:
                 return None
             parent = int(processes.fields(parent)[1])
     except (OSError, ValueError, IndexError, KeyError, TypeError, AttributeError):
@@ -138,8 +152,15 @@ def attest(hook, registration_path, runtime):
         raise DomainError('inbox_binding_required','A diagnostic or subagent hook cannot select the parent inbox')
     session = hook['session_id']
     if runtime == 'codex':
-        from .codex_session import session_process
-        owner = session_process(session)
+        from .codex_session import hosted_session_process, session_process
+        # The app-server a managed host of this agent started, serving this very thread (writer lock held), is bound by its process
+        # alone (a two-part owner, like the managed claude); the service then checks it against its own host identity. Any other
+        # app-server keeps what it always had: its held-lock owner, which only a terminal that displays the thread can make current.
+        hosted = hosted_session_process(session, registration['workspace'], registration['agent_id'])
+        if hosted is not None:
+            owner, host = hosted
+        else:
+            owner = session_process(session)
         pid, started = owner.split(':')[:2]
     else:
         from .terminal_chat import native_process
@@ -226,10 +247,15 @@ print(json.dumps(v))
 # does not decide who the client is: the SERVICE passes in the pid and start ticks of the claude and of the host that the
 # token-verified host identity reports, and this script only refuses when the machine disagrees (a different process, the
 # workspace record or the hook's marker naming another one, a host that does not look like the launcher's, a ``claude`` between
-# them). ``-p`` is waived here and nowhere else.
-MANAGED_PROBE = '''import json,re,sys
+# them). ``-p`` is waived here and nowhere else. The optional ninth argument names the client the service's identity says the host
+# runs (``claude-code``, the default, or ``codex``): a Codex client must be an ``app-server --listen stdio://`` that holds this
+# conversation's thread-writer lock (where the platform shows it).
+MANAGED_PROBE = '''import json,re,sys,uuid
 from pathlib import Path
-workspace,session,agent,registration,cpid,cstarted,hpid,hticks=sys.argv[1:]
+workspace,session,agent,registration,cpid,cstarted,hpid,hticks=sys.argv[1:9]
+runtime=sys.argv[9] if len(sys.argv)>9 else 'claude-code'
+assert runtime in ('claude-code','codex')
+names=('codex',) if runtime=='codex' else ('claude','claude.exe')
 if sys.platform=='darwin':
  from qorqut import process_info
 def fields(pid):
@@ -252,7 +278,7 @@ def safe(path):
  return json.loads(path.read_text())
 v=safe(Path(workspace)/'.qorqut/native-binding.json')
 assert v['session_id']==session and v['agent_id']==agent and v['registration_id']==registration and v['workspace']==workspace
-assert v['runtime']=='claude-code'
+assert v['runtime']==runtime
 assert v['pid']==int(cpid) and v['started']==cstarted
 record=Path(workspace)/'.qorqut/managed-host.json'
 assert record.stat().st_size<=4096
@@ -267,12 +293,24 @@ if sys.platform!='darwin':
  except OSError: exe=None
  assert exe is None or re.fullmatch(r'python[0-9.]*(\\.exe)?',exe.lower().replace(' (deleted)',''))
 native=fields(pid)
-assert native[0]!='Z' and native[19]==cstarted and comm(pid) in ('claude','claude.exe')
+assert native[0]!='Z' and native[19]==cstarted and comm(pid) in names
 assert not any(a in argv(pid) for a in (b'exec',b'queue',b'--agent-id'))
+if runtime=='codex':
+ a=list(argv(pid))
+ if a and a[-1]==b'': a.pop()
+ assert a[-3:]==[b'app-server',b'--listen',b'stdio://']
+ if sys.platform!='darwin':
+  lock=str(uuid.UUID(session))+'.lock';held=False
+  for d in Path('/proc/'+str(pid)+'/fd').iterdir():
+   try: t=d.readlink()
+   except OSError: continue
+   if t.name==lock and t.parent.name=='thread-writer-locks':
+    held=held or any(l.split()[2:6]==['FLOCK','ADVISORY','WRITE',str(pid)] for l in Path('/proc/'+str(pid)+'/fdinfo/'+d.name).read_text().splitlines() if l.startswith('lock:'))
+  assert held
 parent=int(native[1])
 for _ in range(24):
  if parent==host: break
- assert parent>1 and comm(parent) not in ('claude','claude.exe')
+ assert parent>1 and comm(parent) not in names
  parent=int(fields(parent)[1])
 else: raise ValueError('not a managed host child')
 if sys.platform=='darwin': assert process_info.start_token(pid)==cstarted
@@ -373,6 +411,7 @@ class NativeBindingAdapter:
         if identity.get('conversation_id') not in (None, session_id):
             return None
         return {'pid': pid, 'started': started, 'host_pid': host_pid, 'host_started': host_started,
+                'runtime': 'codex' if identity.get('provider') == 'codex' else 'claude-code',
                 'host_id': host_id_of(identity.get('instance'), host_pid, host_started)}
 
     def verify_managed(self, execution, profile, agent_id, registration_id, session_id):
@@ -395,7 +434,7 @@ class NativeBindingAdapter:
                 return None
             marker = json.loads(self.run(execution, MANAGED_PROBE, [
                 profile['workspace'], session_id, agent_id, registration_id,
-                known['pid'], known['started'], known['host_pid'], known['host_started']]))
+                known['pid'], known['started'], known['host_pid'], known['host_started'], known['runtime']]))
         except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
             return None
         value = {key: marker[key] for key in MARKER_KEYS if isinstance(marker.get(key), str) and len(marker[key]) <= 256}

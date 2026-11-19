@@ -1,42 +1,17 @@
-// A small owner-only walkthrough. Navigation is real; messages and CLI commands
-// are never sent by the tour. Progress belongs to the installation, not a browser.
+// A small owner-only walkthrough. Navigation is real; the only message the tour ever sends is the hello its last step types for the
+// owner, when the owner presses done. Progress belongs to the installation, not a browser.
 const onboarding = (() => {
-  const chapterTitles = {online: 'get online', workspace: 'your workspace', projects: 'projects and decisions', yours: 'make it yours',
+  const chapterTitles = {online: 'get started', workspace: 'your workspace', projects: 'projects and decisions', yours: 'make it yours',
     connect: 'connect your tools'};
   const pane = () => document.querySelector('#agpad');
-  // The source list: onboardingPlan.variantSteps(allSteps, variant) gives the tour that is shown. A step with `variant` belongs to
-  // that variant only; `managed: {...}` replaces fields of the step in the managed variant (Qorqbot runs Ordubashy, no terminal).
+  // One tour for everyone: Qorqbot runs every agent, and the owner only uses Chat. Ordubashy starts with the first Chat message.
   const allSteps = [
-    // The agent list, Walkthrough, Terminal and Settings live in the menu under the mark at the top left. Steps marked `menu`
+    // The agent list, Walkthrough and Settings live in the menu under the mark at the top left. Steps marked `menu`
     // hold that menu open (globalAgentNavHold) while they point into it.
     {id: 'assistant', chapter: 'online', title: 'meet ordubashy', menu: true,
-      body: 'Ordubashy is your lead agent. Give him a goal. He carries the work forward, hands parts to helpers and brings decisions back to you. Next, you start him in his own terminal.',
-      hint: 'This menu opens when you point at the mark at the top left. It lists your agents, Terminal and Settings.',
-      target: () => agentButton('ordubashy'),
-      managed: {body: 'Ordubashy is your lead agent. Give him a goal. He carries the work forward, hands parts to helpers and brings decisions back to you. Qorqbot runs him for you, and you talk to him in Chat.'}},
-    // Once per installation: trust Qorqbot's own agent folders, so claude and codex skip their folder-trust and hook-review
-    // prompts there. A CLI can still ask about an enclosing repository; the owner answers that in the terminal.
-    // Terminal variant only: a managed session never shows the folder-trust prompts this spares.
-    {id: 'start', chapter: 'online', variant: 'terminal', title: 'allow qorqbot’s folders', consent: true,
-      body: 'Claude Code and Codex ask before they work in a new folder. Allow Qorqbot’s own agent folders once, and they open straight into the session from now on.',
-      instructions: ['Only the folders Qorqbot prepares for its agents are trusted. Your other projects are not changed.',
-        'A CLI can still ask about a larger folder around an agent, such as a git repository. You answer that in the terminal.',
-        'You can turn this off in Settings.'],
-      target: () => null},
-    // The launch itself, the way the owner will do it every time: claude or codex, typed in his own terminal.
-    {id: 'terminal', chapter: 'online', variant: 'terminal', title: 'start ordubashy', launch: true, terminal: true,
-      body: 'This is Ordubashy’s own terminal. Click in it, type <code>claude</code> or <code>codex</code> and press Enter.',
-      instructions: ['<code>claude</code> runs him in Claude Code, <code>codex</code> in Codex. Use the one you are signed in to.',
-        'He connects to Chat by himself. This is how you start him every time.'],
-      prompts: 'First time in this folder? Claude asks to trust it: press ↓, then Enter on “Yes, I trust this folder”. Codex asks you to review hooks: choose to trust them. If either asks about a larger folder around this one, such as a git repository, read the question and answer it yourself.',
-      online: 'Ordubashy is online. He sets himself up while you look around, and you say hello to him at the end of the tour.',
-      target: () => document.querySelector('#global-agent-terminal .gchat-terminal')},
-    // The managed variant's launch: Qorqbot switches Ordubashy to managed (once, in a first walkthrough) and he starts with the
-    // first Chat message. It saves as 'terminal', so progress saved in either variant resumes here or at the terminal step.
-    {id: 'managed-start', chapter: 'online', variant: 'managed', progressStep: 'terminal', title: 'start ordubashy', standalone: true, managedStart: true,
-      body: 'Qorqbot runs Ordubashy for you with the Claude Code you connected. There is no terminal to open and nothing to type.',
-      hint: 'If you would rather run him in his terminal, use the Terminal / Managed switch above Chat.',
-      target: () => null},
+      body: 'Ordubashy is your lead agent. Give him a goal. He carries the work forward, hands parts to helpers and brings decisions back to you. Qorqbot runs him for you, and you talk to him in Chat.',
+      hint: 'This menu opens when you point at the mark at the top left. It lists your agents, Walkthrough and Settings.',
+      target: () => agentButton('ordubashy')},
     {id: 'focus', chapter: 'workspace', view: 'focus', title: 'focus',
       body: 'The right side is Ordubashy’s workspace. Focus keeps what needs you in one place: signoffs waiting for your answer, side chats and the threads you pin, with your own notes below.',
       hint: 'Only you see these notes; agents never read them.',
@@ -62,7 +37,7 @@ const onboarding = (() => {
       target: pane, action: 'open signoffs',
       run: () => { sgAttentionNavigate(null); return 'Close the list, or press Esc, to continue the walkthrough.'; }},
     {id: 'settings', chapter: 'yours', title: 'settings', menu: true,
-      body: 'Settings holds your connections, how agents start, the theme and text size, and values such as API keys.',
+      body: 'Settings holds your connections, the client and model each agent uses, the theme and text size, and values such as API keys.',
       hint: 'Walkthrough, in this same menu, takes this tour again, or one chapter of it.',
       target: () => document.querySelector('[data-global-settings]')},
     // No target: the whole screen dims and the promise stands on its own.
@@ -81,29 +56,24 @@ const onboarding = (() => {
     // The tour ends where the first conversation starts, so his questions never arrive behind the tour.
     {id: 'chat', chapter: 'connect', title: 'say hello', hello: true,
       body: 'Type “hi, help me get set up” and press send. Ordubashy asks a few quick questions about you, then connects the tools you want him to use.',
-      hint: 'His replies appear here in Chat. To watch him work, the >_ icon above Chat opens his terminal.',
-      offline: 'He isn’t running yet. Open his terminal with the >_ icon above Chat and type claude or codex, then say hello.',
+      hint: 'His replies appear here in Chat. He starts with your first message.',
+      // Neither Claude Code nor Codex is connected: nothing would answer. Settings is where one gets connected.
+      setup: {none: 'Ordubashy needs Claude Code or Codex to answer, and neither is connected yet. Connect one in Settings, then come back and say hello.',
+        chosen: name => `Ordubashy is set to use ${name}, which isn’t connected. Connect it in Settings, or choose the other one under Agents, then say hello.`},
       // A first walkthrough types the hello for the owner, and done sends it.
       typed: '“hi, help me get set up” is typed in below. Press done to send it. Ordubashy asks a few quick questions about you, then connects the tools you want him to use.',
-      target: () => document.querySelector('#global-agent-terminal .gchat-composer'),
-      // A managed Ordubashy with a closed session is the normal state: a message starts him. `switch` and `blocked` replace
-      // `offline` when he cannot be started that way.
-      managed: {hint: 'His replies appear here in Chat.', offline: undefined,
-        switch: 'He isn’t running yet. Use the Terminal / Managed switch above Chat to let Qorqbot run him, then say hello.',
-        blocked: 'Qorqbot can’t start him right now. Check that Claude Code is connected in Settings, then say hello.'}},
+      target: () => document.querySelector('#global-agent-terminal .gchat-composer')},
   ];
-  let variant = 'terminal', steps = onboardingPlan.variantSteps(allSteps, variant);
+  const steps = allSteps;
   let root = null, card = null, target = null, index = 0, generation = 0, busy = false;
   let saved = null, writes = Promise.resolve(), observer = null, resize = null, frame = 0, previousFocus = null;
-  let targetDescription = null, welcome = false, booted = false, savedInert = false, skippedConsent = false, stepTargetReady = false;
+  let targetDescription = null, welcome = false, booted = false, savedInert = false, stepTargetReady = false;
   // Taking a finished walkthrough again (from Settings or the menu) never changes its saved progress.
   // Set once a step's action opened a list in the workspace (the signoffs step), so the tour closes it when it moves on.
   let openedList = false;
   let replay = false;
   // The agent the first message goes to when a first walkthrough finishes on the hello step; null when the owner types it.
-  let greet = null;
-  // A notice for the next step shown (the fallback to the terminal tour sets it), and the switch request while it is in flight.
-  let pendingNotice = '', managedSwitch = null;
+  let greet = null, unanswered = false;
   const HELLO = 'hi, help me get set up';
   const holdMenu = hold => { if (typeof globalAgentNavHold === 'function') globalAgentNavHold(hold); };
   const visible = el => !!el?.isConnected && !!el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
@@ -185,7 +155,8 @@ const onboarding = (() => {
         .then(() => globalAgentsNavigate(assistant.agent_id, {chat: true}))
         .then(() => sendHello(greet === assistant.agent_id))
         .catch(() => {});
-      toast(again ? 'Walkthrough finished.' : 'You’re all set. Take the walkthrough again anytime from Settings.');
+      toast(unanswered ? 'Walkthrough finished. Connect Claude Code or Codex in Settings, then say hello to Ordubashy in Chat.'
+        : again ? 'Walkthrough finished.' : 'You’re all set. Take the walkthrough again anytime from Settings.');
     } else {
       toast(again ? 'Walkthrough closed.' : 'Walkthrough skipped. Take it anytime from Settings.');
     }
@@ -218,127 +189,17 @@ const onboarding = (() => {
     // A list opened from the tour (the signoffs step's "open signoffs") closes on Esc first; the tour stays.
     if (event.key === 'Escape' && !welcome) {
       const close = document.querySelector('#agpad [data-surface-close]');
-      if (visible(close) && !(steps[index].terminal && target?.contains(event.target))) {
+      if (visible(close)) {
         event.preventDefault(); event.stopImmediatePropagation(); close.click(); notice('');
         card?.querySelector('[data-tour-next]')?.focus({preventScroll: true});
         return;
       }
     }
-    // Keys typed in the terminal step's highlighted area (Ordubashy's terminal) belong to it: Esc and Tab are the CLI's own
-    // keys there. On every other step they belong to the tour (onboardingPlan.handleKey).
-    onboardingPlan.handleKey(event, {step: steps[index], target, active: document.activeElement, focusables, exit: pause});
+    onboardingPlan.handleKey(event, {target, active: document.activeElement, focusables, exit: pause});
   }
   function schedule() { if (root && !frame) frame = requestAnimationFrame(() => { frame = 0; position(); }); }
-  const LAUNCH_TEXT = {
-    checking: 'Checking whether Ordubashy is running…',
-    waiting: 'Waiting for you to type claude or codex…',
-    connecting: 'He started. Connecting to Chat…',
-    online: 'Online',
-    unreachable: 'Can’t reach Qorqbot to check on Ordubashy. Make sure Qorqbot is still running. Still trying…',
-  };
-  let launchSession = null, launchTimer = 0, trustView = null, launchUnreachable = false;
-  // The launch step follows Ordubashy's Chat session from the API, because Chat itself is not mounted while Terminal shows.
-  function watchLaunch(token) {
-    clearTimeout(launchTimer);
-    const assistant = findAgent('ordubashy');
-    if (!assistant || !isCurrent(token)) return;
-    api(`${globalChatBase(assistant.agent_id)}?limit=1`, {signal: AbortSignal.timeout(4000)})
-      .then(data => { if (isCurrent(token)) { launchUnreachable = false; launchSession = coreData(data).session || {state: 'offline'}; paintLaunch(); } })
-      .catch(() => { if (isCurrent(token)) { launchUnreachable = true; paintLaunch(); } })
-      .finally(() => { if (isCurrent(token)) launchTimer = setTimeout(() => watchLaunch(token), 2000); });
-  }
-  function paintLaunch() {
-    const panel = card?.querySelector('[data-launch]'); if (!panel) return;
-    const phase = onboardingPlan.launchPhase(launchSession);
-    panel.querySelector('[data-launch-text]').textContent = launchUnreachable ? LAUNCH_TEXT.unreachable : LAUNCH_TEXT[phase];
-    if (panel.dataset.phase !== phase) {
-      panel.dataset.phase = phase;
-      if (phase === 'online') {
-        card.querySelector('#onboarding-description').textContent = steps[index].online;
-        card.querySelector('.onboarding-instructions')?.remove();
-        card.querySelector('[data-launch-prompts]')?.remove();
-        const hint = card.querySelector('.onboarding-hint'); if (hint) hint.textContent = 'Press next to continue the tour.';
-      }
-    }
-    const later = card.querySelector('[data-launch-later]'); if (later) later.hidden = phase === 'online';
-    const next = card.querySelector('[data-tour-next]');
-    if (next && !busy) next.disabled = phase !== 'online';
-  }
-  // ---- the managed variant's start step. His session is read once; when he is not managed yet (first walkthrough only) one
-  // switch request is sent. `managedSwitch` is shared by every visit, so going back and next never sends it twice.
-  const MANAGED_TEXT = {
-    checking: 'Checking how Ordubashy runs…',
-    switching: 'Setting him up to run in Qorqbot…',
-    ready: 'Ready. He starts when you send him your first message, at the end of this tour.',
-  };
-  function watchManaged(token) {
-    clearTimeout(launchTimer);
-    const assistant = findAgent('ordubashy');
-    if (!assistant || !isCurrent(token)) return;
-    api(`${globalChatBase(assistant.agent_id)}?limit=1`, {signal: AbortSignal.timeout(4000)})
-      .then(data => {
-        if (!isCurrent(token)) return;
-        launchUnreachable = false; launchSession = coreData(data).session || {state: 'offline'};
-        if (onboardingPlan.managedStartPhase(launchSession) === 'ready') paintManaged();
-        // A replay sends nothing: if he is not managed any more, the tour goes on as the terminal one.
-        else if (replay) return fallBack(token, assistant, null);
-        else return switchToManaged(token, assistant);
-      })
-      .catch(() => { if (isCurrent(token)) { launchUnreachable = true; paintManaged(); launchTimer = setTimeout(() => watchManaged(token), 2000); } });
-  }
-  async function switchToManaged(token, assistant) {
-    paintManaged();
-    managedSwitch ||= post(`${globalChatBase(assistant.agent_id)}/runtime`, {mode: 'managed'}).then(coreData).finally(() => { managedSwitch = null; });
-    try { await managedSwitch; } catch (error) { if (isCurrent(token)) await fallBack(token, assistant, error); return; }
-    if (!isCurrent(token)) return;
-    launchSession = {...launchSession, execution: 'managed'}; paintManaged(); schedule();
-  }
-  // The switch was refused or failed: the owner is never stranded. The tour becomes the terminal one in place and shows the
-  // consent step and the terminal launch. If a session is already open in his terminal and he is online, it goes straight to
-  // that launch step, which then reads Online.
-  async function fallBack(token, assistant, error) {
-    let online = false;
-    if (onboardingPlan.terminalOpenRefusal(error)) {
-      const session = await api(`${globalChatBase(assistant.agent_id)}?limit=1`, {signal: AbortSignal.timeout(4000)})
-        .then(data => coreData(data).session).catch(() => null);
-      if (!isCurrent(token)) return;
-      online = onboardingPlan.launchPhase(session) === 'online';
-    }
-    variant = 'terminal'; steps = onboardingPlan.variantSteps(allSteps, variant);
-    pendingNotice = online ? '' : 'Qorqbot couldn’t start him by itself. He can be started in his terminal instead.';
-    showStep(steps.findIndex(step => step.id === (online ? 'terminal' : 'start')));
-  }
-  function paintManaged() {
-    const panel = card?.querySelector('[data-managed]'); if (!panel) return;
-    const phase = onboardingPlan.managedStartPhase(launchSession);
-    panel.dataset.phase = phase;
-    panel.querySelector('[data-launch-text]').textContent = launchUnreachable ? LAUNCH_TEXT.unreachable : MANAGED_TEXT[phase];
-    const next = card.querySelector('[data-tour-next]');
-    if (next && !busy) next.disabled = phase !== 'ready';
-  }
-  // Decides the variant before a tour is shown (see onboardingPlan.chooseVariant); anything unreadable gives the terminal tour.
-  async function chooseVariant() {
-    const assistant = findAgent('ordubashy'), read = path => api(path, {signal: AbortSignal.timeout(4000)}).then(coreData).catch(() => null);
-    const [chat, clients] = assistant ? await Promise.all([read(`${globalChatBase(assistant.agent_id)}?limit=1`), read('/root/agent-clients')]) : [null, null];
-    variant = onboardingPlan.chooseVariant({replay: saved?.status === 'completed', profile: assistant, clients,
-      session: chat ? chat.session || {state: 'offline'} : null});
-    steps = onboardingPlan.variantSteps(allSteps, variant);
-  }
-  // The consent step: allowed already, or the button that asks (agent-start.js). Next unlocks once it is given.
-  function paintConsent() {
-    const panel = card?.querySelector('[data-consent]'); if (!panel) return;
-    const granted = !!trustView?.granted;
-    panel.dataset.phase = trustView ? (granted ? 'online' : 'waiting') : 'checking';
-    panel.querySelector('[data-launch-text]').textContent = !trustView ? 'Checking…' : granted ? 'Allowed for Qorqbot’s agent folders. A CLI may still ask about a larger folder.' : trustView.unreadable ? 'Qorqbot couldn’t check this setting. You can allow it now, or change it later in Settings.' : 'Not allowed yet.';
-    panel.querySelector('[data-consent-allow]').hidden = granted || !trustView;
-    const next = card.querySelector('[data-tour-next]');
-    if (next && !busy) next.disabled = !granted;
-  }
   function position() {
     if (!root) return;
-    if (!welcome && steps[index].launch) paintLaunch();
-    if (!welcome && steps[index].managedStart) paintManaged();
-    if (!welcome && steps[index].consent) paintConsent();
     root.classList.toggle('is-paused', appDialog());
     if (!welcome) describeTarget(stepTargetReady && visible(steps[index].target()) ? steps[index].target() : null);
     // Text size zooms the whole page (appearance.js). Everything is measured on screen, then placed in the page's own zoomed
@@ -396,7 +257,7 @@ const onboarding = (() => {
     create(); setWelcome(true); describeTarget(null); card.classList.remove('is-wide');
     const mascot = findAgent('ordubashy');
     const intro = resume ? `<p>You stopped at <b>${chapterTitles[steps[resume].chapter]}</b>.</p>`
-      : `<p>Qorqbot runs AI agents for you on this computer. This short tour gets Ordubashy online, shows you around and ends with your first conversation, in ${onboardingPlan.chapters(steps).length} chapters. Skip any of it, or take it again anytime from Settings.</p>`;
+      : `<p>Qorqbot runs AI agents for you on this computer. This short tour introduces Ordubashy, shows you around and ends with your first conversation, in ${onboardingPlan.chapters(steps).length} chapters. Skip any of it, or take it again anytime from Settings.</p>`;
     const promise = `<p class="onboarding-private"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.2 2.2 4.3-4.6"/></svg><span><b>Private by design.</b> Your work stays on this computer. Qorqbot only knows your email and that it is in use.</span></p>`;
     const list = menu ? `<div class="onboarding-chapters" aria-label="chapters">${onboardingPlan.chapters(steps).map((c, i) =>
       `<button type="button" class="onboarding-chapter-pick" data-tour-chapter-pick="${c.start}"><span>${String(i + 1).padStart(2, '0')}</span>${chapterTitles[c.id]}</button>`).join('')}</div>` : '';
@@ -425,11 +286,6 @@ const onboarding = (() => {
       if (isCurrent(token)) step.target().scrollIntoView({block: 'center', behavior: 'auto'});
       return;
     }
-    if (step.consent) {
-      try { trustView = await agentStart.read(); } catch (_) { trustView = {granted: false, unreadable: true}; }
-      if (isCurrent(token)) paintConsent();
-      return;
-    }
     // A standalone step dims the whole screen. Every other step opens its agent view first, because its target (Chat's
     // composer, for example) may not exist until then.
     if (step.standalone) {
@@ -442,37 +298,47 @@ const onboarding = (() => {
     if (!isCurrent(token)) return;
     const assistant = findAgent(step.agent || 'ordubashy');
     if (!assistant) throw new Error('This agent isn’t available yet. You can continue or skip.');
-    // Select only; this never starts a terminal or client.
+    // Select only; this never starts anything.
     const opened = await globalAgentsNavigate(assistant.agent_id, step.view ? {view: step.view} : {});
     if (!isCurrent(token)) return;
     if (!opened) throw new Error('This view could not open. Close the walkthrough, finish or close any open edit, then try again.');
-    if (step.terminal) globalAgentViewActive?.showTerminal();
-    else if (['chat', 'projects'].includes(step.id)) globalAgentViewActive?.showChat();
     if (opened && step.view && _agpad?.workspaceFrame) await _agpad.workspaceFrame.workspaceReady;
     if (!isCurrent(token)) return;
     if (step.menu) holdMenu(true);
     await waitFor(() => visible(step.target()) && step.target());
-    // The last step asks for the first message, so it says how to start him first when he isn't running. On the first
-    // walkthrough, while he is online and the owner has never written to him, it types the message for them and done
-    // sends it.
+    // The last step asks for the first message. If neither Claude Code nor Codex is connected nothing could answer it, so the step
+    // says so and offers Settings instead. On the first walkthrough, while the owner has never written to him, it types the message
+    // for them and done sends it; that works whether he is asleep or off, because sending turns him on.
     if (step.hello) {
-      const chat = await api(`${globalChatBase(assistant.agent_id)}?limit=20`, {signal: AbortSignal.timeout(4000)})
-        .then(coreData).catch(() => null);
+      const read = path => api(path, {signal: AbortSignal.timeout(4000)}).then(coreData).catch(() => null);
+      const [chat, clients, options] = await Promise.all([read(`${globalChatBase(assistant.agent_id)}?limit=20`), read('/root/agent-clients'),
+        read(`${globalChatBase(assistant.agent_id)}/options`)]);
       if (!isCurrent(token)) return;
-      // Online in a terminal tour; in a managed one, a message that can open his session counts the same.
-      const ready = onboardingPlan.helloReadiness(chat ? chat.session || {state: 'offline'} : null, variant, agentRuntime);
-      const online = ready === 'ready';
+      const ready = onboardingPlan.helloReadiness(clients, options);
       const hint = card.querySelector('.onboarding-hint');
-      if (hint && !online) hint.textContent = step[ready];
+      if (ready.state !== 'ready') {
+        unanswered = true;
+        card.querySelector('#onboarding-description').textContent = ready.state === 'chosen' ? step.setup.chosen(agentClients.NAMES[ready.client]) : step.setup.none;
+        if (hint) hint.remove();
+        const open = card.querySelector('[data-tour-settings]'); if (open) open.hidden = false;
+        return;
+      }
       const written = !chat || (chat.entries || []).some(entry => entry.speaker === 'user')
         || (chat.inputs || []).some(item => item.origin === 'owner');
       const input = step.target()?.querySelector('textarea');
-      if (online && !replay && !written && input && !input.disabled && [HELLO, ''].includes(input.value.trim())) {
+      if (!replay && !written && input && !input.disabled && [HELLO, ''].includes(input.value.trim())) {
         greet = assistant.agent_id;
         input.value = HELLO; input.dispatchEvent(new Event('input', {bubbles: true}));
         card.querySelector('#onboarding-description').innerHTML = step.typed;
       }
     }
+  }
+  // Leaves the tour for Settings, Agents, where Claude Code and Codex get connected. Progress stays on this step, as with Esc.
+  async function openSettings() {
+    if (!replay) persist('in_progress').catch(() => {});
+    dispose();
+    toast('Connect Claude Code or Codex here. The walkthrough picks up at the last step when you open it again.');
+    try { await selectGlobal('settings'); if (typeof settingsShowSection === 'function') settingsShowSection('agents'); } catch (_) { /* Settings opens from the menu too. */ }
   }
   async function showStep(next) {
     if (busy) return;
@@ -484,11 +350,10 @@ const onboarding = (() => {
       if (!isCurrent(token)) return;
     }
     if (openedList) { const close = document.querySelector('#agpad [data-surface-close]'); if (visible(close)) close.click(); openedList = false; }
-    index = Math.max(0, Math.min(next, steps.length-1)); const step = steps[index]; greet = null;
-    const carried = pendingNotice; pendingNotice = '';
+    index = Math.max(0, Math.min(next, steps.length-1)); const step = steps[index]; greet = null; unanswered = false;
     if (!step.menu) holdMenu(false);
     card.style.opacity = '0';
-    stepTargetReady = false; setWelcome(false); describeTarget(null); card.classList.toggle('is-wide', !!step.wide); launchSession = null; clearTimeout(launchTimer);
+    stepTargetReady = false; setWelcome(false); describeTarget(null); card.classList.toggle('is-wide', !!step.wide);
     persist('in_progress').catch(() => {});
     const chapter = onboardingPlan.chapterAt(steps, index), following = onboardingPlan.nextChapter(steps, index);
     card.innerHTML = `<div class="onboarding-step-head"><span class="onboarding-chapter">${chapterTitles[chapter.id]}</span><span class="onboarding-count">${String(chapter.number).padStart(2,'0')} <span>/ ${String(chapter.total).padStart(2,'0')}</span></span></div>
@@ -496,28 +361,14 @@ const onboarding = (() => {
       <h2 id="onboarding-title">${step.title}</h2><p id="onboarding-description">${step.body}</p>${step.instructions ? `<ol class="onboarding-instructions">${step.instructions.map(text => `<li>${text}</li>`).join('')}</ol>` : ''}${step.hint ? `<p class="onboarding-hint">${step.hint}</p>` : ''}
       ${step.example?`<div class="onboarding-example" aria-label="Example signoff"><span class="onboarding-example-tag">Example</span><p class="onboarding-example-from">${esc(step.example.agent)} asks</p><p class="onboarding-example-title">${esc(step.example.title)}</p><p class="onboarding-example-detail">${esc(step.example.detail)}</p><div class="onboarding-example-actions"><span>Approve</span><span>Decline</span></div></div>`:''}
       ${step.action?`<button type="button" class="onboarding-action" data-tour-action disabled>${step.action}<span aria-hidden="true">↗</span></button>`:''}
-      ${step.launch?`<div class="onboarding-launch" data-launch data-phase=""><p class="onboarding-launch-status"><span class="onboarding-launch-dot" aria-hidden="true"></span><span data-launch-text role="status">${LAUNCH_TEXT.checking}</span></p>${skippedConsent && step.prompts ? `<p class="onboarding-launch-prompts" data-launch-prompts>${step.prompts}</p>` : ''}<button type="button" class="ghost onboarding-launch-later" data-launch-later>start him later and continue the tour</button></div>`:''}
-      ${step.managedStart?`<div class="onboarding-launch" data-managed data-phase="checking"><p class="onboarding-launch-status"><span class="onboarding-launch-dot" aria-hidden="true"></span><span data-launch-text role="status">${MANAGED_TEXT.checking}</span></p></div>`:''}
-      ${step.consent?`<div class="onboarding-launch" data-consent data-phase="checking"><p class="onboarding-launch-status"><span class="onboarding-launch-dot" aria-hidden="true"></span><span data-launch-text role="status">Checking…</span></p><button type="button" class="onboarding-launch-start" data-consent-allow hidden>allow</button><button type="button" class="ghost onboarding-launch-later" data-consent-skip>not now, I’ll answer the prompts myself</button></div>`:''}
+      ${step.hello?'<button type="button" class="onboarding-action" data-tour-settings hidden>open settings<span aria-hidden="true">→</span></button>':''}
       <p class="onboarding-notice" data-tour-notice role="status">Opening this part of your workspace…</p>
       <div class="onboarding-footer"><div><button type="button" class="ghost onboarding-skip" data-tour-skip>skip</button>${following >= 0 ? '<button type="button" class="ghost onboarding-skip" data-tour-chapter>skip chapter</button>' : ''}</div><div><button type="button" class="ghost" data-tour-back ${index?'':'disabled'}>back</button><button type="button" data-tour-next disabled>${index===steps.length-1?'done':'next'}</button></div></div>`;
     card.querySelector('[data-tour-skip]').onclick = () => exit();
     card.querySelector('[data-tour-back]').onclick = () => showStep(index-1);
     const skipChapter = card.querySelector('[data-tour-chapter]'); if (skipChapter) skipChapter.onclick = () => showStep(following);
     card.querySelector('[data-tour-next]').onclick = () => index===steps.length-1 ? exit('completed') : showStep(index+1);
-    card.querySelector('[data-consent-allow]')?.addEventListener('click', async () => {
-      const view = await agentStart.consent();
-      if (!isCurrent(token)) return;
-      if (view) { trustView = view; skippedConsent = false; }
-      paintConsent(); schedule();
-      // The confirmation dialog returns focus to the button that opened it, which is hidden once allowed.
-      const next = card.querySelector('[data-tour-next]'), allow = card.querySelector('[data-consent-allow]:not([hidden])');
-      (next.disabled && allow ? allow : next).focus({preventScroll: true});
-    });
-    card.querySelector('[data-consent-skip]')?.addEventListener('click', () => { skippedConsent = true; showStep(index + 1); });
-    card.querySelector('[data-launch-later]')?.addEventListener('click', () => {
-      const following = onboardingPlan.nextChapter(steps, index); showStep(following >= 0 ? following : index + 1);
-    });
+    card.querySelector('[data-tour-settings]')?.addEventListener('click', openSettings);
     card.querySelector('[data-tour-action]')?.addEventListener('click', async event => {
       const button = event.currentTarget; button.disabled = true;
       try {
@@ -528,19 +379,15 @@ const onboarding = (() => {
       } catch (_) { if (isCurrent(token)) notice('This view couldn’t open. You can continue or try again.'); }
       finally { if (isCurrent(token)) { button.disabled = false; schedule(); } }
     });
-    try { await prepareStep(step, token); if (isCurrent(token)) { stepTargetReady = true; notice(carried); } }
+    try { await prepareStep(step, token); if (isCurrent(token)) { stepTargetReady = true; notice(''); } }
     catch (error) { if (isCurrent(token)) notice(error.message || 'This area is unavailable. You can still continue.'); }
     finally {
       if (isCurrent(token)) {
         busy = false; card.querySelector('[data-tour-next]').disabled = false;
-        if (step.launch) { paintLaunch(); watchLaunch(token); }
-        if (step.managedStart) { launchUnreachable = false; paintManaged(); watchManaged(token); }
-        if (step.consent) paintConsent();
         const action = card.querySelector('[data-tour-action]'); if (action) action.disabled = !stepTargetReady;
         position(); card.style.opacity = '1';
         if (motion) card.animate([{opacity: 0, transform: 'translateY(5px)'}, {opacity: 1, transform: 'translateY(0)'}], {duration: 260, easing: 'ease-out'});
-        const next = card.querySelector('[data-tour-next]'), launch = card.querySelector('[data-consent-allow]:not([hidden])');
-        (next.disabled && launch ? launch : next).focus({preventScroll: true});
+        (card.querySelector('[data-tour-settings]:not([hidden])') || card.querySelector('[data-tour-next]')).focus({preventScroll: true});
       }
     }
   }
@@ -552,14 +399,12 @@ const onboarding = (() => {
         if (!['new','in_progress'].includes(saved.status) || root) return;
         await waitFor(() => document.querySelector('.global-agents,.settingspane'));
         if (root || _modal) return;
-        await chooseVariant();
         if (!root && !_modal) invitation(onboardingPlan.resumeIndex(steps, saved));
       } catch (_) { /* A walkthrough never blocks loading the app. Settings can retry. */ }
     },
     async start(chapter = null) {
       if (agentWorkspaceEmbedded()) return;
       if (root) dispose();
-      await chooseVariant();
       const first = chapter ? Math.max(0, steps.findIndex(step => step.chapter === chapter)) : 0;
       index = first; create(); await showStep(first);
     },
@@ -568,7 +413,6 @@ const onboarding = (() => {
       if (agentWorkspaceEmbedded()) return;
       try { saved = coreData(await api('/root/onboarding')); } catch (_) { /* Open the menu even if progress can't be read. */ }
       if (root) dispose();
-      await chooseVariant();
       invitation(onboardingPlan.resumeIndex(steps, saved), true);
     },
     chapters: () => onboardingPlan.chapters(steps).map(c => ({id: c.id, title: chapterTitles[c.id]})),

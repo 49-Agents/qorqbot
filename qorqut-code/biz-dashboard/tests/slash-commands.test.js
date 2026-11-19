@@ -29,24 +29,29 @@ test('a sent text is matched to the command it runs', () => {
   assert.equal(slash.command(catalog, 'please /compact'), null);
 });
 
-test('only a bare /model, or another menu command, is finished in the Terminal', () => {
-  const opens = (text, provider) => slash.opensTerminal(slash.command(catalog, text), text, provider);
-  assert.equal(opens('/model', 'claude'), true);
-  assert.equal(opens('/model   ', 'claude'), true);
-  assert.equal(opens('/model sonnet', 'claude'), false);
-  assert.equal(opens(' /MODEL\nopus', 'claude'), false);
-  assert.equal(opens('/model sonnet', 'codex'), true);
-  assert.equal(opens('/cost now', 'claude'), true);
-  assert.equal(opens('/compact', 'claude'), false);
-  assert.equal(opens('/unknown', 'claude'), false);
+test('no command opens or hands anything over to a terminal', () => {
+  assert.equal(slash.opensTerminal, undefined);
+  assert.equal(slash.managedRefusal, undefined);
+});
+
+test('a command the catalog marks unavailable is refused with plain words, and nothing else is', () => {
+  const list = [{name: '/cost', where: 'unavailable'}, {name: '/compact', where: 'chat'}, {name: '/model', where: 'terminal'}];
+  const refuse = text => slash.unavailableRefusal(slash.command(list, text), 'Ada');
+  assert.equal(refuse('/cost'), '/cost isn’t available when Qorqbot runs Ada.');
+  assert.equal(refuse('/compact'), null);
+  assert.equal(refuse('/model sonnet'), null);
+  assert.equal(refuse('/unknown'), null);
+  assert.equal(refuse('hello'), null);
+  assert.equal(slash.refusal({}, list[0], 'Ada'), '/cost isn’t available when Qorqbot runs Ada.');
+  assert.doesNotMatch(refuse('/cost'), /terminal|tmux|CLI/i);
 });
 
 test('a known command is not sent to a shared Codex server', () => {
   const codex = [{name: '/compact', where: 'chat'}, {name: '/model', where: 'terminal'}];
   const shared = {provider: 'codex', transport: 'codex_queue'};
   const refusal = (session, text) => slash.sharedServerRefusal(session, slash.command(codex, text), 'Ada');
-  assert.equal(refusal(shared, '/compact now'), '/compact runs only in Ada’s Terminal. Open Terminal and run it there.');
-  assert.match(refusal(shared, '/model'), /^\/model runs only in Ada’s Terminal/);
+  assert.equal(refusal(shared, '/compact now'), '/compact isn’t available when Qorqbot runs Ada.');
+  assert.match(refusal(shared, '/model'), /^\/model isn’t available when Qorqbot runs Ada\.$/);
   assert.equal(refusal(shared, '/tmp/foo'), null);
   assert.equal(refusal(shared, 'run /compact'), null);
   assert.equal(refusal({provider: 'codex', transport: 'terminal'}, '/compact'), null);

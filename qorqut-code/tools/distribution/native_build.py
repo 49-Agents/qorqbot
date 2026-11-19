@@ -5,7 +5,7 @@ Build tooling only. Input is a prepare-local output of the filtered export. Neve
 No venv, configuration, HOME, build log or instance is copied from either input.
 
 With --bundled-tools (the output of macos_tools.py, built on the same Mac chip) the package is self-contained:
-it ships a ready-made Python environment in runtime/venv and tmux, git and the agents' browser tool in
+it ships a ready-made Python environment in runtime/venv and git and the agents' browser tool in
 runtime/native, so nothing is installed or built on the user's Mac.
 """
 from __future__ import annotations
@@ -153,7 +153,7 @@ def ready_made_environment(tools, runtime, platform_tag):
 
 
 def bundle_tools(tools, runtime, target):
-    """Copy tmux, git and the agents' browser tool into runtime/native."""
+    """Copy git and the agents' browser tool into runtime/native."""
     import native_launch
     native = runtime / 'native'
     shutil.copytree(tools / 'native', native, symlinks=True)
@@ -306,7 +306,7 @@ def main(argv=None):
     dependencies = {
         'platform': platform_name,
         'required': {'python': '3.12.x with venv/pip support', 'git': '2.43 or newer'},
-        'optional': {'tmux': '3.4 or newer for agent terminals', 'agent_client': 'user-installed Codex or Claude Code',
+        'optional': {'agent_client': 'Claude Code and Codex, downloaded by Qorqbot from its Settings',
                      'browser': 'user-installed compatible Chrome and agent-browser',
                      'node': 'as required by the selected external client/browser tool',
                      'desktop': 'Linux only: TigerVNC, Openbox, X11, D-Bus and keyring if a desktop is configured'},
@@ -315,10 +315,10 @@ def main(argv=None):
     if args.bundled_tools:
         dependencies.update({
             'required': {}, 'external_tools_bundled': True,
-            'bundled': {'python': shipped_tools['reported_versions']['python'], 'tmux': shipped_tools['reported_versions']['tmux'],
+            'bundled': {'python': shipped_tools['reported_versions']['python'],
                         'git': shipped_tools['reported_versions']['git'], 'agent-browser': native_launch.AGENT_BROWSER_VERSION,
                         'details': 'native/TOOLS.json, native/licenses'},
-            'optional': {'agent_client': 'user-installed Codex or Claude Code', 'browser': 'user-installed Google Chrome'}})
+            'optional': {'agent_client': 'Claude Code and Codex, downloaded by Qorqbot from its Settings', 'browser': 'user-installed Google Chrome'}})
     (runtime / 'DEPENDENCIES.json').write_text(json.dumps(dependencies, indent=2) + '\n')
     if args.bundled_tools:
         bundled = {name: native_launch.tree_digest(runtime / name) for name in native_launch.BUNDLED_TREES}

@@ -19,6 +19,9 @@ A managed agent (one the owner switched to a headless session, see ``managed_run
 * ``POST   .../runtime``    ``{mode}`` (``terminal``|``managed``) -> ``{execution, changed}``: refusals ``unsupported_role`` (only Ordubashy and worker agents),
   ``unsupported_runtime``, ``session_open``, ``waiting_inputs``, ``terminal_present``.
 
+* ``GET/POST .../options``  ``{client?, model?, effort?}`` -> ``{client, model, effort, effective_client, clients, session_open}``: the
+  agent's launch options (``launch_options.py``); a change of ``client`` while a session is open is refused ``session_open``.
+
 The first three act on a managed agent only (``not_managed`` otherwise). ``GET .../commands`` marks the commands a terminal
 alone can show ``unavailable`` for a managed agent, and the ``changed`` stream event carries ``managed`` (the session summary).
 """
@@ -117,6 +120,9 @@ async def route(runtime, request, principal_id, parts, request_id):
                                         managed=execution == "managed")))
         if tail == ["events"]:
             return await _events(chat, request, principal_id, agent_id)
+        if tail == ["options"]:
+            from . import launch_options
+            return ok(await run(partial(launch_options.view, chat, runtime, principal_id, agent_id)))
         raise DomainError("not_found", "Chat endpoint is not registered")
     if request.method != "POST":
         raise DomainError("not_found", "Chat endpoint is not registered")
@@ -159,6 +165,10 @@ async def route(runtime, request, principal_id, parts, request_id):
     if tail == ["close"]:
         checked_fields(body, {"expected_binding"})
         return ok(await run(partial(chat.close, principal_id, agent_id, body.get("expected_binding"))))
+    if tail == ["options"]:
+        # Owner-only like every Chat route (the Authorization header was refused above). The fields are checked by the handler.
+        from . import launch_options
+        return ok(await run(partial(launch_options.change, chat, runtime, principal_id, agent_id, body)))
     if tail == ["runtime"]:
         checked_fields(body, {"mode"}, {"mode"})
         return ok(await run(partial(chat.set_runtime, principal_id, agent_id, body["mode"])))

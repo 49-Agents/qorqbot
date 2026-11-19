@@ -1,9 +1,9 @@
 'use strict';
 // node --test biz-dashboard/tests/chat-managed.test.js
-// Chat for an agent Qorqbot runs itself (js/agent-runtime.js and its use in js/global-chat.js and js/slash-commands.js): the
-// session wording, Stop, the activity line, permission and question cards, the runtime switch, the hidden Terminal and the managed
-// slash-command refusal, plus proof that a session without `execution` still reads, and is sent to, as a terminal one.
-// The bar, switch and shell run against the small fake DOM below; global-chat.js functions are cut out of the source and run
+// Chat for an agent Qorqbot runs itself (js/agent-runtime.js and its use in js/global-chat.js and js/slash-commands.js). Every agent is
+// run that way: the session wording for each state (asleep, opening, working, ready, off, cannot start), Stop, the activity line,
+// the question cards, End session, the refusal words and the unavailable slash-command refusal.
+// The bar, End session and shell run against the small fake DOM below; global-chat.js functions are cut out of the source and run
 // against fakes (no browser, no server, no dependencies).
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -124,11 +124,12 @@ global.esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;
 
 const BINDING = {provider: 'claude', conversation_id: 'conversation-1', binding_id: 'binding-1'};
 const PAYLOAD = '<img src=x onerror="alert(1)"><script>alert(2)</script>';
-const managed = (over = {}, session = {}) => ({provider: 'claude', state: 'live', can_send: true, binding: BINDING, working: false, execution: 'managed',
+const managed = (over = {}, session = {}) => ({provider: 'claude', state: 'live', can_send: true, binding: BINDING, working: false,
   managed: {open: true, phase: 'idle', activity: '', turn_started_at: null, can_stop: true, pending: [], ...over}, ...session});
-const closedSession = () => ({provider: 'claude', state: 'offline', reason: 'session_closed', can_send: true, binding: null, execution: 'managed',
-  managed: {open: false, phase: 'idle', activity: '', turn_started_at: null, can_stop: false, pending: []}});
-const terminalSession = (over = {}) => ({provider: 'claude', state: 'live', can_send: true, binding: BINDING, working: false, ...over});
+const closedSession = (over = {}) => ({provider: 'claude', state: 'offline', reason: 'session_closed', can_send: true, binding: null,
+  managed: {open: false, phase: 'idle', activity: '', turn_started_at: null, can_stop: false, pending: [], ...over}});
+const offSession = () => closedSession({off: true});
+// A leftover permission request: the server never sends one now, and the page draws nothing for it.
 const permission = (over = {}) => ({request_id: 'req-1', kind: 'permission', tool: 'Bash', input_summary: 'npm test', questions: [], ...over});
 const question = (over = {}) => ({request_id: 'req-2', kind: 'question', tool: 'AskUserQuestion', input_summary: '', questions: [
   {question: 'Which branch?', header: 'Branch', multiSelect: false, options: [{label: 'main', description: 'The default'}, {label: 'dev', description: ''}]}], ...over});
@@ -146,33 +147,38 @@ function bar(over = {}) {
 }
 const cardsOf = ui => ui.el.querySelectorAll('.mchat-card');
 
-test('a session without `execution` is a terminal one: nothing managed shows, whatever else it carries', () => {
-  for (const session of [terminalSession(), {...terminalSession(), execution: 'terminal'}, {...terminalSession(), execution: undefined, managed: {open: true}}, null, undefined]) {
-    assert.equal(runtime.execution(session), 'terminal');
-    assert.equal(runtime.isManaged(session), false);
-    assert.equal(runtime.managedOf(session), null);
-    assert.equal(runtime.summary(session, 'Ada'), null);
-    assert.equal(runtime.startHint(session, 'Ada'), null);
-    assert.equal(runtime.emptyText(session, 'Ada'), null);
-    assert.equal(runtime.refusalText(session, 'terminal_offline'), null);
-    assert.equal(runtime.canOpen(session), false);
-    assert.equal(runtime.closed(session), false);
-    assert.deepEqual(runtime.activity(session), {text: '', stop: false});
+test('every session is managed: `execution` is neither needed nor read, and no session is a terminal one', () => {
+  for (const session of [managed(), {...managed(), execution: 'managed'}, {...managed(), execution: 'terminal'}, {...managed(), execution: undefined}]) {
+    assert.equal(runtime.managedOf(session).open, true);
+    assert.equal(runtime.summary(session, 'Ada').key, 'live');
+    assert.equal(runtime.startHint(session, 'Ada'), 'Send a message to start Ada');
+    assert.equal(runtime.canEnd(session), true);
   }
+  assert.equal(runtime.managedOf(null), null);
+  assert.equal(runtime.summary(null, 'Ada'), null);
+  assert.equal(runtime.canEnd(null), false);
+  // a session that arrives with no `managed` part at all reads as open while it is live, and closed once the server says so
+  assert.equal(runtime.managedOf({state: 'live', can_send: true}).open, true);
+  assert.equal(runtime.managedOf({state: 'offline', reason: 'session_closed'}).open, false);
+  assert.equal(runtime.closed({state: 'offline', reason: 'session_closed', can_send: true}), true);
   const ui = bar();
-  ui.update(terminalSession({managed: {open: true, phase: 'working', can_stop: true, pending: [permission()]}}));
-  assert.equal(ui.el.hidden, true);
-  assert.equal(cardsOf(ui).length, 0);
+  ui.update(managed({phase: 'working', can_stop: true}, {execution: 'terminal'}));
+  assert.equal(ui.el.hidden, false);
+  assert.equal(ui.el.querySelector('.mchat-stop').hidden, false);
 });
 
-test('a closed managed session says sending a message starts it and never mentions a terminal or `claude`', () => {
+test('an asleep agent that was never started invites a message; with history it says it is asleep and wakes by itself', () => {
   const session = closedSession();
-  assert.deepEqual(runtime.summary(session, 'Ada'), {key: 'closed', line: 'Sending a message starts Ada.'});
+  assert.deepEqual(runtime.summary(session, 'Ada'), {key: 'closed', line: ''});
+  assert.deepEqual(runtime.summary(session, 'Ada', true, {history: true}), {key: 'closed', line: 'Ada is asleep. It wakes when there is something to do.'});
   assert.equal(runtime.startHint(session, 'Ada'), 'Send a message to start Ada');
   assert.equal(runtime.emptyText(session, 'Ada'), 'Send a message to start Ada. Its conversation will appear here.');
+  assert.equal(runtime.placeholder(session, 'Ada', false), 'Message Ada to start it…');
+  assert.equal(runtime.placeholder(session, 'Ada', true), 'Message Ada…');
   assert.equal(runtime.canOpen(session), true);
-  for (const text of [runtime.summary(session, 'Ada').line, runtime.startHint(session, 'Ada'), runtime.emptyText(session, 'Ada'), runtime.refusalText(session, 'terminal_offline')]) {
-    assert.doesNotMatch(text, /terminal|claude|>_/i);
+  for (const text of [runtime.summary(session, 'Ada', true, {history: true}).line, runtime.startHint(session, 'Ada'), runtime.emptyText(session, 'Ada'),
+    runtime.placeholder(session, 'Ada', false), runtime.refusalText('terminal_offline')]) {
+    assert.doesNotMatch(text, /terminal|tmux|\bCLI\b|session id|claude|>_|!|—|–/i);
   }
   // Closed by the server's word or by the managed summary alone.
   assert.equal(runtime.closed({...closedSession(), reason: undefined}), true);
@@ -181,16 +187,42 @@ test('a closed managed session says sending a message starts it and never mentio
   assert.equal(runtime.canOpen({...closedSession(), binding: BINDING}), false);
 });
 
-test('an open managed session reads starting, live, working or disabled like a terminal one', () => {
-  assert.equal(runtime.summary(managed({phase: 'starting'}), 'Ada').key, 'starting');
-  assert.equal(runtime.summary(managed({phase: 'idle'}), 'Ada').key, 'live');
+test('an agent the owner turned off says it stays off until a message is sent, and a message is still welcome', () => {
+  const session = offSession();
+  assert.equal(runtime.managedOf(session).off, true);
+  assert.equal(runtime.managedOf(session).open, false);
+  assert.deepEqual(runtime.summary(session, 'Ada'), {key: 'off', line: 'Ada is off. It stays off until you send a message.'});
+  assert.deepEqual(runtime.summary(session, 'Ada', true, {history: true}), {key: 'off', line: 'Ada is off. It stays off until you send a message.'});
+  assert.equal(runtime.startHint(session, 'Ada'), 'Send a message to turn Ada on');
+  assert.equal(runtime.emptyText(session, 'Ada'), 'Ada is off. Send a message to turn it on.');
+  assert.equal(runtime.placeholder(session, 'Ada', true), 'Message Ada to turn it on…');
+  assert.equal(runtime.placeholder(session, 'Ada', false), 'Message Ada to turn it on…');
+  assert.equal(runtime.canOpen(session), true, 'the composer is usable: the message turns it on');
+  assert.equal(runtime.canEnd(session), false);
+  // off wins over a stale open flag, and over the server's closed text; a message on its way reads as starting
+  assert.equal(runtime.managedOf({...managed(), managed: {open: true, off: true}}).open, false);
+  assert.equal(runtime.summary(closedSession({off: true, closed_text: 'x'}), 'Ada').key, 'off');
+  assert.deepEqual(runtime.summary(session, 'Ada', true, {opening: true}), {key: 'starting', line: 'Starting Ada…'});
+  for (const text of [runtime.summary(session, 'Ada').line, runtime.startHint(session, 'Ada'), runtime.emptyText(session, 'Ada'), runtime.placeholder(session, 'Ada', true)]) {
+    assert.doesNotMatch(text, /terminal|tmux|\bCLI\b|session id|!|—|–/i);
+  }
+});
+
+test('an open session reads starting, ready, working or disabled, in short plain words', () => {
+  assert.deepEqual(runtime.summary(managed({phase: 'starting'}), 'Ada'), {key: 'starting', line: 'Starting Ada…'});
+  assert.deepEqual(runtime.summary(managed({phase: 'idle'}), 'Ada'), {key: 'live', line: 'Ada is ready.'});
   assert.equal(runtime.summary(managed({phase: 'working'}), 'Ada').key, 'working');
+  assert.equal(runtime.summary(managed({phase: 'working'}), 'Ada').line, '', 'the activity line says what it does');
   assert.equal(runtime.summary(managed({phase: 'blocked'}), 'Ada').key, 'working');
   assert.equal(runtime.summary(managed({phase: ''}, {working: true}), 'Ada').key, 'working');
   assert.equal(runtime.summary(managed(), 'Ada', false).key, 'starting');
   assert.equal(runtime.summary(managed({}, {reason: 'binding_not_ready'}), 'Ada').key, 'starting');
   assert.equal(runtime.summary(managed({}, {reason: 'capture_disabled'}), 'Ada').key, 'disabled');
   assert.equal(runtime.summary(managed({}, {state: 'offline', can_send: false}), 'Ada').key, 'offline');
+  assert.equal(runtime.summary(managed({}, {state: 'offline', can_send: false}), 'Ada').line, 'Ada isn’t available right now.');
+  // a message that starts the session is on its way
+  assert.deepEqual(runtime.summary(closedSession(), 'Ada', true, {opening: true, history: true}), {key: 'starting', line: 'Starting Ada…'});
+  assert.equal(runtime.placeholder(managed(), 'Ada', true), 'Message Ada…');
 });
 
 test('Stop is shown only while the agent works, and only when the server says it can stop', () => {
@@ -228,74 +260,74 @@ test('a failed Stop tells the owner and a missing binding posts nothing', async 
   assert.equal(ui.errors.length, 1);
 });
 
-test('the activity line shows what the agent is doing as text, and waits for the owner when a card is open', () => {
+test('the activity line shows what the agent is doing as text, and waits for the owner when a question is open', () => {
   const ui = bar(), text = () => ui.el.querySelector('.mchat-activity-text').textContent, line = () => ui.el.querySelector('.mchat-activity');
   ui.update(managed({phase: 'working', activity: 'Reading src/app.py'}));
   assert.equal(line().hidden, false);
   assert.equal(text(), 'Reading src/app.py');
   ui.update(managed({phase: 'working', activity: ''}));
   assert.equal(text(), 'Working');
-  ui.update(managed({phase: 'blocked', activity: 'Running Bash', pending: [permission()]}));
+  ui.update(managed({phase: 'blocked', activity: 'Asking', pending: [question()]}));
   assert.equal(text(), 'Waiting for your answer');
   ui.update(managed({phase: 'idle', activity: 'Reading src/app.py'}));
   assert.equal(line().hidden, true);
   assert.equal(runtime.activity(managed({phase: 'working', activity: 'x'.repeat(500)})).text.length, 160);
 });
 
-test('activity, tool, summary, question and option text from the server is escaped: no element is ever created from it', () => {
+test('the block above the session line takes room only while it has something to show', () => {
+  const ui = bar();
+  ui.update(managed({phase: 'idle'})); assert.equal(ui.el.hidden, true);
+  ui.update(offSession()); assert.equal(ui.el.hidden, true);
+  ui.update(managed({phase: 'working', activity: 'Reading'})); assert.equal(ui.el.hidden, false);
+  ui.update(managed({phase: 'blocked', pending: [question()]})); assert.equal(ui.el.hidden, false);
+  ui.update(managed({phase: 'idle'})); assert.equal(ui.el.hidden, true);
+  ui.update(closedSession()); ui.offer({text: 't', label: 'l'}, () => {}); assert.equal(ui.el.hidden, false);
+  ui.clearOffer(); assert.equal(ui.el.hidden, true);
+  ui.update(null); assert.equal(ui.el.hidden, true);
+});
+
+test('no permission card is ever drawn: a permission request in the payload is ignored, question cards stay', () => {
+  const ui = bar();
+  ui.update(managed({phase: 'blocked', pending: [permission(), question()]}));
+  assert.deepEqual(cardsOf(ui).map(c => c.dataset.requestId), ['req-2']);
+  assert.equal(ui.el.querySelector('[data-answer="allow"]'), null);
+  assert.equal(ui.el.querySelector('[data-answer="deny"]'), null);
+  assert.deepEqual(runtime.managedOf(managed({pending: [permission()]})).pending, []);
+  assert.equal(runtime.activity(managed({phase: 'blocked', pending: [permission()]})).text, 'Working', 'nothing to wait for');
+});
+
+test('activity, question and option text from the server is escaped: no element is ever created from it', () => {
   const ui = bar();
   ui.update(managed({phase: 'working', activity: PAYLOAD}));
   for (const tag of ['img', 'script']) assert.equal(ui.el.querySelector(tag), null, tag);
   assert.ok(ui.el.querySelector('.mchat-activity-text').textContent.includes('<img src=x'));
   ui.update(managed({phase: 'working', activity: PAYLOAD, pending: [
-    permission({tool: PAYLOAD, input_summary: PAYLOAD}),
     question({request_id: 'req-"><script>alert(3)</script>', questions: [{question: PAYLOAD, header: PAYLOAD, options: [{label: PAYLOAD, description: PAYLOAD}]}]})]}));
   for (const tag of ['img', 'script']) assert.equal(ui.el.querySelector(tag), null, tag);
-  assert.ok(ui.el.querySelector('.mchat-card-title').textContent.includes('<img src=x'));
-  assert.ok(ui.el.querySelector('.mchat-card-input').textContent.includes('<script>'));
   assert.ok(ui.el.querySelector('.mchat-question').textContent.includes('<img src=x'));
-  assert.equal(cardsOf(ui)[1].dataset.requestId, 'req-"><script>alert(3)</script>');
-  for (const card of [permission({tool: PAYLOAD, input_summary: PAYLOAD}), question({questions: [{question: PAYLOAD, options: [{label: PAYLOAD, description: PAYLOAD}]}]})]) {
-    assert.doesNotMatch(runtime.cardHtml(card, PAYLOAD), /<img|<script/);
-  }
+  assert.equal(cardsOf(ui)[0].dataset.requestId, 'req-"><script>alert(3)</script>');
+  assert.doesNotMatch(runtime.cardHtml(question({questions: [{question: PAYLOAD, options: [{label: PAYLOAD, description: PAYLOAD}]}]}), PAYLOAD), /<img|<script/);
   assert.equal(runtime.escapeHtml(`<a href="x">'&`), '&lt;a href=&quot;x&quot;&gt;&#39;&amp;');
 });
 
-test('a permission request is a card with Allow and Deny, keyboard reachable, that posts the answer with the request and binding', async () => {
-  const ui = bar(); ui.update(managed({phase: 'blocked', pending: [permission()]}));
-  const [card] = cardsOf(ui);
-  assert.equal(card.getAttribute('role'), 'group');
-  assert.match(card.getAttribute('aria-label'), /Permission/);
-  assert.match(card.querySelector('.mchat-card-title').textContent, /^Ada wants to use Bash$/);
-  assert.equal(card.querySelector('.mchat-card-input').textContent, 'npm test');
-  const buttons = card.querySelectorAll('button');
-  assert.deepEqual(buttons.map(b => b.textContent), ['Allow', 'Deny']);
-  // Native buttons: focusable and operable from the keyboard with no extra wiring, and none is taken out of the tab order.
-  for (const b of buttons) { assert.equal(b.getAttribute('type'), 'button'); assert.equal(b.getAttribute('tabindex'), null); }
-  click(buttons[0]); await flush();
-  assert.deepEqual(ui.sent, [['/answer', {expected_binding: 'binding-1', request_id: 'req-1', decision: 'allow'}]]);
-  const again = bar(); again.update(managed({pending: [permission()]}));
-  click(cardsOf(again)[0].querySelectorAll('button')[1]); await flush();
-  assert.deepEqual(again.sent[0][1].decision, 'deny');
-});
-
-test('buttons stay disabled while the answer is in flight and after it is taken, and a failed answer re-enables them with a message', async () => {
+test('a question card stays disabled while the answer is in flight and after it is taken, and a failed answer re-enables it with a message', async () => {
+  const pick = card => { card.querySelectorAll('[data-q]')[0].checked = true; return card.querySelector('[data-answer="submit"]'); };
   const ui = bar(); let release; ui.state.hold = new Promise(done => { release = done; });
-  ui.update(managed({pending: [permission()]}));
-  const [card] = cardsOf(ui), [allow, deny] = card.querySelectorAll('button');
-  click(allow); click(deny); click(allow);
-  assert.equal(allow.disabled && deny.disabled, true);
+  ui.update(managed({pending: [question()]}));
+  const [card] = cardsOf(ui), send = pick(card);
+  click(send); click(send);
+  assert.equal(send.disabled, true);
   assert.equal(ui.sent.length, 1);
   release(); await flush();
-  assert.equal(allow.disabled && deny.disabled, true, 'sent: waiting for the server to clear the card');
+  assert.equal(send.disabled, true, 'sent: waiting for the server to clear the card');
   assert.equal(ui.changes.length, 1);
   // The server still lists it long after: let the owner try again.
-  ui.state.time += 9000; ui.update(managed({pending: [permission()]}));
-  assert.equal(allow.disabled || deny.disabled, false);
+  ui.state.time += 9000; ui.update(managed({pending: [question()]}));
+  assert.equal(send.disabled, false);
 
   const failing = bar(); failing.state.fail = Object.assign(new Error('no'), {code: 'internal'});
-  failing.update(managed({pending: [permission()]}));
-  const [again] = cardsOf(failing), [yes] = again.querySelectorAll('button');
+  failing.update(managed({pending: [question()]}));
+  const [again] = cardsOf(failing), yes = pick(again);
   click(yes); await flush();
   assert.equal(yes.disabled, false);
   assert.equal(again.querySelector('.mchat-card-error').hidden, false);
@@ -306,22 +338,22 @@ test('buttons stay disabled while the answer is in flight and after it is taken,
 });
 
 test('cards follow the pending list: the same card is kept (with what was typed), new ones appear, answered ones go', () => {
-  const ui = bar(); ui.update(managed({pending: [permission(), question()]}));
+  const ui = bar(); ui.update(managed({pending: [question({request_id: 'req-1'}), question()]}));
   const [first, second] = cardsOf(ui);
   assert.deepEqual(cardsOf(ui).map(c => c.dataset.requestId), ['req-1', 'req-2']);
   second.querySelector('[data-q-other]').value = 'typed';
-  ui.update(managed({phase: 'blocked', activity: 'newer', pending: [permission(), question()]}));
+  ui.update(managed({phase: 'blocked', activity: 'newer', pending: [question({request_id: 'req-1'}), question()]}));
   assert.equal(cardsOf(ui)[0], first); assert.equal(cardsOf(ui)[1], second);
   assert.equal(second.querySelector('[data-q-other]').value, 'typed');
-  ui.update(managed({pending: [question(), permission({request_id: 'req-3'})]}));
+  ui.update(managed({pending: [question(), question({request_id: 'req-3'})]}));
   assert.deepEqual(cardsOf(ui).map(c => c.dataset.requestId), ['req-2', 'req-3']);
   ui.update(managed({pending: []}));
   assert.equal(cardsOf(ui).length, 0);
   assert.equal(ui.el.querySelector('.mchat-cards').hidden, true);
   // A closed session shows no card even if a stale one is listed; an unknown kind or a missing id is not drawn.
-  ui.update(managed({pending: [permission({kind: 'other'}), permission({request_id: ''})]}));
+  ui.update(managed({pending: [question({kind: 'other'}), question({request_id: ''})]}));
   assert.equal(cardsOf(ui).length, 0);
-  ui.update({...closedSession(), managed: {open: false, pending: [permission()]}});
+  ui.update({...closedSession(), managed: {open: false, pending: [question()]}});
   assert.equal(cardsOf(ui).length, 0);
 });
 
@@ -362,105 +394,82 @@ test('multi-select and several questions: every question needs an answer, choice
 });
 
 test('without a binding an answer posts nothing and says so', async () => {
-  const ui = bar(); ui.state.binding = null; ui.update(managed({pending: [permission()]}));
-  const [card] = cardsOf(ui); click(card.querySelector('button')); await flush();
+  const ui = bar(); ui.state.binding = null; ui.update(managed({pending: [question()]}));
+  const [card] = cardsOf(ui); card.querySelectorAll('[data-q]')[0].checked = true; click(card.querySelector('[data-answer="submit"]')); await flush();
   assert.deepEqual(ui.sent, []);
   assert.match(card.querySelector('.mchat-card-error').textContent, /Not connected/);
 });
 
-// ---- the runtime switch
-function toggle() {
+// ---- End session
+function endButton() {
   freshPage();
   const sent = [], errors = [], done = [], state = {fail: null, hold: null};
-  const made = runtime.createToggle({label: 'Ada', doc,
+  const made = runtime.createEnd({doc,
     send: async (route, body) => { sent.push([route, body]); if (state.hold) await state.hold; if (state.fail) throw state.fail; return {}; },
     onDone: () => done.push(1), onError: text => errors.push(text)});
   doc.body.append(made.el);
-  return {...made, sent, errors, done, state, buttons: () => made.el.querySelectorAll('[data-runtime]')};
+  return {...made, sent, errors, done, state};
 }
 
-test('the switch marks the current way, posts the other one, and reloads when the server accepts', async () => {
-  const ui = toggle(); ui.update(terminalSession(), true);
-  assert.equal(ui.el.hidden, false);
-  assert.equal(ui.el.getAttribute('aria-label'), 'How Ada runs');
-  assert.deepEqual(ui.buttons().map(b => [b.textContent, b.getAttribute('aria-pressed'), b.disabled]), [['Terminal', 'true', true], ['Managed', 'false', false]]);
-  click(ui.buttons()[0]); assert.deepEqual(ui.sent, []);
-  click(ui.buttons()[1]); await flush();
-  assert.deepEqual(ui.sent, [['/runtime', {mode: 'managed'}]]);
-  assert.equal(ui.done.length, 1);
-  ui.update(managed(), true);
-  assert.deepEqual(ui.buttons().map(b => b.getAttribute('aria-pressed')), ['false', 'true']);
-  click(ui.buttons()[0]); await flush();
-  assert.deepEqual(ui.sent[1], ['/runtime', {mode: 'terminal'}]);
-});
-
-test('the switch disables both buttons while a change is in flight and shows the server’s refusal in plain words', async () => {
-  const ui = toggle(); let release; ui.state.hold = new Promise(done => { release = done; });
-  ui.update(terminalSession(), true);
-  click(ui.buttons()[1]); click(ui.buttons()[1]);
-  assert.deepEqual(ui.buttons().map(b => b.disabled), [true, true]);
-  assert.equal(ui.sent.length, 1);
-  ui.state.fail = Object.assign(new Error('Conflict'), {code: 'session_open', httpStatus: 409});
-  release(); await flush();
-  assert.deepEqual(ui.errors, ['A session is still open. End it, then switch.']);
-  assert.equal(ui.done.length, 0);
-  assert.equal(ui.buttons()[1].disabled, false);
-});
-
-test('refusal wording: each known reason, the server’s own plain message, and a safe default', () => {
-  const refuse = (code, message = '', details) => runtime.runtimeRefusal(Object.assign(new Error(message), {code, details}));
-  assert.match(refuse('session_open'), /session is still open/i);
-  assert.match(refuse('waiting_inputs'), /still waiting/);
-  assert.match(refuse('terminal_present'), /Terminal is still running/);
-  assert.match(refuse('unsupported_role'), /worker agents/);
-  assert.match(refuse('unsupported_runtime'), /Claude Code/);
-  assert.match(refuse('conflict', '', {reason: 'session_open'}), /session is still open/i);
-  assert.equal(refuse('some_new_code', 'Claude Code is not set up on this computer.'), 'Claude Code is not set up on this computer.');
-  assert.equal(refuse('network_unavailable', 'Qorqbot is not responding.'), 'Couldn’t switch. Try again.');
-  assert.equal(refuse('x', 'y'.repeat(300)), 'Couldn’t switch. Try again.');
-  assert.equal(refuse(''), 'Couldn’t switch. Try again.');
-});
-
-test('an open managed session offers End session, which posts the close; a closed or terminal one does not', async () => {
-  const ui = toggle(), end = () => ui.el.querySelector('[data-runtime-close]');
-  ui.update(managed(), true); assert.equal(end().hidden, false);
-  click(end()); await flush();
+test('End session is a quiet button, shown only while a session is open, that posts the close', async () => {
+  const ui = endButton();
+  assert.equal(ui.el.hidden, true);
+  assert.equal(ui.el.textContent, 'End session');
+  assert.equal(ui.el.getAttribute('type'), 'button');
+  assert.match(ui.el.className, /\bquiet\b/);
+  ui.update(managed()); assert.equal(ui.el.hidden, false);
+  click(ui.el); await flush();
   assert.deepEqual(ui.sent, [['/close', {}]]);
   assert.equal(ui.done.length, 1);
-  ui.update(closedSession(), true); assert.equal(end().hidden, true);
-  ui.update(terminalSession(), true); assert.equal(end().hidden, true);
-  ui.state.fail = new Error('x'); ui.update(managed(), true); click(end()); await flush();
-  assert.deepEqual(ui.errors, ['Couldn’t end the session. Try again.']);
+  assert.deepEqual(ui.errors, []);
+  for (const gone of [closedSession(), offSession(), null, managed({}, {state: 'offline', can_send: false})]) { ui.update(gone); assert.equal(ui.el.hidden, true, JSON.stringify(gone)); }
+  ui.update(managed({phase: 'working', can_stop: true})); assert.equal(ui.el.hidden, false, 'also while working');
+  ui.update(managed({phase: 'starting'})); assert.equal(ui.el.hidden, false, 'also while starting');
 });
 
-test('the switch is offered to Claude Code workers and Ordubashy, and to any agent already managed, and to nothing else', () => {
-  const worker = {role: {id: 'global-worker'}}, codexWorker = {role: {id: 'global-worker'}, runtime: 'codex'};
-  assert.equal(runtime.eligible(worker, terminalSession()), true);
-  assert.equal(runtime.eligible({role_id: 'global-worker', runtime: 'claude-code'}, terminalSession()), true);
-  assert.equal(runtime.eligible(codexWorker, terminalSession()), false);
-  assert.equal(runtime.eligible(worker, terminalSession({provider: 'codex'})), false);
-  assert.equal(runtime.eligible({role: {id: 'ordubashy'}}, terminalSession()), true);
-  assert.equal(runtime.eligible({role: {id: 'ordubashy'}, runtime: 'claude-code'}, terminalSession()), true);
-  assert.equal(runtime.eligible({role: {id: 'ordubashy'}, runtime: 'codex'}, terminalSession()), false);
-  assert.equal(runtime.eligible({role: {id: 'learning-applier'}}, terminalSession()), false);
-  assert.equal(runtime.eligible({role: {id: 'ordubashy'}}, managed()), true, 'an agent already managed can always go back');
+test('End session is disabled while the close is in flight, refuses a second press, and says so when it fails', async () => {
+  const ui = endButton(); let release; ui.state.hold = new Promise(done => { release = done; });
+  ui.update(managed());
+  click(ui.el); click(ui.el);
+  assert.equal(ui.el.disabled, true);
+  assert.equal(ui.sent.length, 1);
+  release(); await flush();
+  assert.equal(ui.el.disabled, false);
+  assert.equal(ui.done.length, 1);
+  ui.state.hold = null; ui.state.fail = new Error('x'); click(ui.el); await flush();
+  assert.deepEqual(ui.errors, ['Couldn’t end the session. Try again.']);
+  assert.equal(ui.done.length, 1);
+  assert.equal(ui.el.disabled, false);
+});
+
+test('after End session the view shows the off state at once: closed, off, no binding, nothing to stop or answer', () => {
+  const ended = runtime.afterEnd(managed({phase: 'working', activity: 'Reading', can_stop: true, pending: [question()]}, {working: true}));
+  assert.equal(ended.binding, null);
+  assert.equal(ended.state, 'offline');
+  assert.equal(runtime.managedOf(ended).off, true);
+  assert.equal(runtime.managedOf(ended).open, false);
+  assert.deepEqual(runtime.managedOf(ended).pending, []);
+  assert.equal(runtime.summary(ended, 'Ada').key, 'off');
+  assert.equal(runtime.canOpen(ended), true);
+  assert.equal(runtime.canEnd(ended), false);
+  assert.equal(runtime.afterEnd(null), null);
 });
 
 // ---- slash commands
-test('an unavailable slash command is refused for a managed agent and nothing else', () => {
+test('an unavailable slash command is refused with plain words, and nothing else is', () => {
   const cost = {name: '/cost', where: 'unavailable'}, compact = {name: '/compact', where: 'chat'}, model = {name: '/model', where: 'terminal'};
-  assert.equal(slashCommands.managedRefusal(managed(), cost, 'Ada'), '/cost isn’t available when Qorqbot runs Ada. Switch Ada to Terminal to use it.');
-  assert.equal(slashCommands.refusal(managed(), cost, 'Ada'), slashCommands.managedRefusal(managed(), cost, 'Ada'));
+  assert.equal(slashCommands.unavailableRefusal(cost, 'Ada'), '/cost isn’t available when Qorqbot runs Ada.');
+  assert.equal(slashCommands.refusal(managed(), cost, 'Ada'), slashCommands.unavailableRefusal(cost, 'Ada'));
+  assert.equal(slashCommands.refusal({...managed(), execution: 'terminal'}, cost, 'Ada'), slashCommands.unavailableRefusal(cost, 'Ada'), '`execution` is not read');
   assert.equal(slashCommands.refusal(managed(), compact, 'Ada'), null);
   assert.equal(slashCommands.refusal(managed(), null, 'Ada'), null);
-  assert.equal(slashCommands.refusal(terminalSession(), cost, 'Ada'), null);
-  assert.equal(slashCommands.refusal({...terminalSession(), execution: 'terminal'}, cost, 'Ada'), null);
-  assert.equal(slashCommands.refusal(terminalSession(), model, 'Ada'), null);
-  // The Codex shared-server refusal is unchanged.
+  assert.equal(slashCommands.refusal(managed(), model, 'Ada'), null);
+  // The Codex shared-server refusal has no terminal in its words either.
   const codex = {provider: 'codex', transport: 'codex_queue'};
   assert.equal(slashCommands.refusal(codex, model, 'Ada'), slashCommands.sharedServerRefusal(codex, model, 'Ada'));
-  assert.match(slashCommands.refusal(codex, model, 'Ada'), /runs only in Ada’s Terminal/);
-  assert.equal(slashCommands.opensTerminal(cost, '/cost', 'claude'), false);
+  assert.equal(slashCommands.refusal(codex, model, 'Ada'), '/model isn’t available when Qorqbot runs Ada.');
+  assert.equal(slashCommands.opensTerminal, undefined);
+  assert.equal(slashCommands.managedRefusal, undefined);
 });
 
 // ---- the Chat code in js/global-chat.js, cut out of the source and run against fakes
@@ -470,39 +479,53 @@ const between = (from, to) => {
   assert.ok(start >= 0 && end > start, `global-chat.js no longer contains ${from}`);
   return source.slice(start, end);
 };
-function statusParts({session, entries = 0, inputs = 0, viewing = true, options = {openTerminal() {}}}) {
-  const body = between('  function sessionSummary() {', '  // ---- slash commands') + between('  function startHint() {', '  // ---- managed runtime');
-  return new Function('session', 'label', 'agentRuntime', 'viewingLive', 'entries', 'shownInputs', 'hasLocal', 'options',
-    `${body}; return {sessionSummary, startHint, emptyState};`)(session, 'Ada', runtime, () => viewing, {size: entries}, {length: inputs}, false, options);
+function statusParts({session, entries = 0, inputs = 0, viewing = true, local = false, sending = false}) {
+  const body = between('  const hasHistory = ', '  // ---- slash commands') + between('  function emptyState() {', '  // ---- managed runtime') + between('  const sessionLineText = ', '  // One repaint');
+  return new Function('session', 'label', 'agentRuntime', 'viewingLive', 'entries', 'shownInputs', 'hasLocal', 'GLOBAL_CHAT_INFLIGHT', 'composerScope',
+    `${body}; return {sessionSummary, emptyState, sessionLineText, hasHistory};`)(session, 'Ada', runtime, () => viewing, {size: entries}, {length: inputs}, local,
+    {has: () => sending}, 'scope');
+}
+// What the owner reads in each state: the session line, the empty state in the middle of the pane, and the composer's placeholder.
+function wording(options) {
+  const chat = statusParts(options), summary = chat.sessionSummary(), empty = chat.emptyState();
+  return {key: summary.key, line: chat.sessionLineText(summary, empty), empty: empty.text,
+    placeholder: runtime.placeholder(options.session, 'Ada', chat.hasHistory())};
 }
 
-test('terminal agents keep their exact wording; a session with no `execution` reads the same as one marked terminal', () => {
-  const offline = {provider: 'claude', state: 'offline', reason: 'process_gone', can_send: false, binding: null, launch_commands: ['claude']};
-  for (const execution of [{}, {execution: 'terminal'}]) {
-    const chat = statusParts({session: {...offline, ...execution}});
-    assert.deepEqual(chat.sessionSummary(), {key: 'offline', line: 'Open the terminal (>_) and run claude to start Ada.'});
-    assert.equal(chat.startHint(), 'Open the terminal (>_) and run claude to start Ada');
-    assert.deepEqual(chat.emptyState(), {text: 'Open the terminal (>_) and run claude to start Ada. Its conversation will appear here.', action: {key: 'terminal', label: 'Open terminal'}});
-    const bare = statusParts({session: {...offline, launch_commands: [], ...execution}});
-    assert.equal(bare.startHint(), 'Start or resume Ada in Terminal');
-    assert.equal(statusParts({session: terminalSession(execution)}).sessionSummary().key, 'live');
-    assert.equal(statusParts({session: terminalSession({working: true, ...execution})}).sessionSummary().key, 'working');
-    assert.equal(statusParts({session: terminalSession(execution), viewing: false}).sessionSummary().key, 'starting');
-    assert.deepEqual(statusParts({session: terminalSession(execution)}).emptyState(), {text: 'Your agent conversation appears here.', action: null});
+test('the wording of every state, in the Chat code: asleep, never started, opening, working, ready, off', () => {
+  // asleep and on, never started: the empty state invites a message
+  assert.deepEqual(wording({session: closedSession()}), {key: 'closed', line: '', empty: 'Send a message to start Ada. Its conversation will appear here.', placeholder: 'Message Ada to start it…'});
+  // asleep and on, with history: the session line says so
+  assert.deepEqual(wording({session: closedSession(), entries: 3}), {key: 'closed', line: 'Ada is asleep. It wakes when there is something to do.', empty: '', placeholder: 'Message Ada…'});
+  assert.equal(wording({session: closedSession(), inputs: 1}).line, 'Ada is asleep. It wakes when there is something to do.');
+  // off: it stays off until the owner sends a message
+  assert.deepEqual(wording({session: offSession()}), {key: 'off', line: '', empty: 'Ada is off. Send a message to turn it on.', placeholder: 'Message Ada to turn it on…'});
+  assert.deepEqual(wording({session: offSession(), entries: 3}), {key: 'off', line: 'Ada is off. It stays off until you send a message.', empty: '', placeholder: 'Message Ada to turn it on…'});
+  // opening: a message is on its way to a closed session, or the session is starting
+  assert.deepEqual(wording({session: closedSession(), sending: true, entries: 3}), {key: 'starting', line: 'Starting Ada…', empty: '', placeholder: 'Message Ada…'});
+  assert.deepEqual(wording({session: offSession(), sending: true, entries: 3}).line, 'Starting Ada…');
+  assert.deepEqual(wording({session: managed({phase: 'starting'}), entries: 3}).line, 'Starting Ada…');
+  assert.deepEqual(wording({session: managed({phase: 'starting'})}), {key: 'starting', line: '', empty: 'Starting Ada…', placeholder: 'Message Ada…'});
+  // a send to an open session is not "opening"
+  assert.equal(wording({session: managed(), entries: 3, sending: true}).key, 'live');
+  // working: the activity line speaks, the session line stays quiet; idle and open: ready
+  assert.deepEqual(wording({session: managed({phase: 'working'}), entries: 3}), {key: 'working', line: '', empty: '', placeholder: 'Message Ada…'});
+  assert.deepEqual(wording({session: managed({phase: 'idle'}), entries: 3}), {key: 'live', line: 'Ada is ready.', empty: '', placeholder: 'Message Ada…'});
+  assert.equal(wording({session: managed()}).empty, 'Your agent conversation appears here.');
+  // the server's own sentence for a session that ended unexpectedly wins over "asleep"
+  const crashed = closedSession({closed_text: 'Claude Code stopped unexpectedly. Send a message to start the session again.'});
+  assert.equal(wording({session: crashed, entries: 3}).line, 'Claude Code stopped unexpectedly. Send a message to start the session again.');
+  assert.equal(statusParts({session: null}).sessionSummary().key, 'loading');
+  assert.deepEqual(statusParts({session: null}).emptyState(), {text: '', action: null});
+  // nothing a state says names a terminal, tmux, the CLI or a session id, or uses an exclamation mark or a dash
+  for (const options of [{session: closedSession()}, {session: closedSession(), entries: 1}, {session: offSession()}, {session: offSession(), entries: 1}, {session: closedSession(), sending: true},
+    {session: managed({phase: 'starting'})}, {session: managed()}, {session: managed({phase: 'working'})}]) {
+    const w = wording(options);
+    for (const text of [w.line, w.empty, w.placeholder]) assert.doesNotMatch(text, /terminal|tmux|\bCLI\b|session id|>_|!|—|–/i, text);
   }
 });
 
-test('a closed managed agent’s summary, empty state and start hint never send the owner to a terminal', () => {
-  const chat = statusParts({session: closedSession()});
-  assert.deepEqual(chat.sessionSummary(), {key: 'closed', line: 'Sending a message starts Ada.'});
-  assert.equal(chat.startHint(), 'Send a message to start Ada');
-  assert.deepEqual(chat.emptyState(), {text: 'Send a message to start Ada. Its conversation will appear here.', action: null});
-  assert.deepEqual(statusParts({session: closedSession(), entries: 3}).emptyState(), {text: '', action: null});
-  assert.deepEqual(statusParts({session: managed()}).emptyState(), {text: 'Your agent conversation appears here.', action: null});
-  assert.equal(statusParts({session: managed({phase: 'working'})}).sessionSummary().key, 'working');
-});
-
-test('a closed managed composer is enabled and its message goes without a binding pin; a terminal one still pins', async () => {
+test('a closed or off composer is enabled and its message goes without a binding pin; a live one still pins', async () => {
   const canSendSource = between('  const canSend = () =>', '  const selectedFiles');
   const admitSource = between('  let freshChoice = null;', '  function takeInput');
   const make = session => (...args) => new Function('session', 'viewingLive', 'pairedHost', 'finished', 'agentRuntime', 'base', 'post', 'coreData',
@@ -517,14 +540,14 @@ test('a closed managed composer is enabled and its message goes without a bindin
   assert.equal('expected_binding' in posts[0][1], false);
   await closed.admit('hello', 'key-2', 'binding-1');
   assert.deepEqual(posts[1][1], {text: 'hello', idempotency_key: 'key-2', expected_binding: 'binding-1'});
-  const cases = [[closedSession(), false, true], [{...closedSession(), can_send: false}, false, false], [terminalSession(), true, true],
-    [terminalSession(), false, false], [terminalSession({state: 'offline', binding: null, can_send: false}), false, false], [managed(), true, true], [managed(), false, false]];
-  for (const [session, viewing, want] of cases) assert.equal(make()(session, () => viewing, null, false, runtime, '', post, r => r).canSend(), want, JSON.stringify([session.execution, viewing]));
+  const cases = [[closedSession(), false, true], [offSession(), false, true], [{...closedSession(), can_send: false}, false, false], [{...offSession(), can_send: false}, false, false],
+    [managed(), true, true], [managed(), false, false], [managed({}, {state: 'offline', binding: null, can_send: false}), false, false]];
+  for (const [session, viewing, want] of cases) assert.equal(make()(session, () => viewing, null, false, runtime, '', post, r => r).canSend(), want, JSON.stringify([session.managed.open, session.managed.off, viewing]));
   assert.equal(make()(closedSession(), () => false, {}, false, runtime, '', post, r => r).canSend(), false, 'a takeover blocks it');
 });
 
 // ---- the pieces of global-chat.js that carry a refusal: the retry key, the offer of a new conversation, the flag it sends
-function admission({session, responses, draft = 'the draft'}) {
+function admission({session, responses, draft = 'the draft', noBar = false}) {
   const source = between('  let freshChoice = null;', '  function takeInput');
   const posts = [], offers = [], submitted = [];
   const managedBar = {offer: (what, choose) => offers.push({what, choose}), clearOffer: () => offers.push('cleared')};
@@ -532,7 +555,7 @@ function admission({session, responses, draft = 'the draft'}) {
   const coreData = r => r.data;
   const state = {submit: async () => {}};
   const api = new Function('session', 'agentRuntime', 'base', 'post', 'coreData', 'managedBar', 'live', 'view', 'submit',
-    `${source}; return {admit, startFresh};`)(session, runtime, '/chat', post, coreData, managedBar, () => true, {getDraft: () => draft},
+    `${source}; return {admit, startFresh};`)(session, runtime, '/chat', post, coreData, noBar ? null : managedBar, () => true, {getDraft: () => draft},
     async text => { submitted.push(text); await state.submit(text); });
   return {...api, posts, offers, submitted, state};
 }
@@ -571,7 +594,7 @@ test('the new-conversation flag follows its request through a retry with the sam
   assert.equal('new_conversation' in pinned.posts[0], false, 'a live session is never replaced');
 });
 
-test('"not yet" refusals keep the request (same key on the retry); other refusals drop it; a terminal agent is offered nothing', async () => {
+test('"not yet" refusals keep the request (same key on the retry); other refusals drop it; a live session is offered nothing', async () => {
   for (const code of ['open_timeout', 'open_busy', 'session_opening', 'host_unverified', 'binding_not_ready']) {
     const chat = admission({session: closedSession(), responses: [refusal(code)]});
     await assert.rejects(chat.admit('hello', 'key-1', null), problem => problem.keepAttempt === true && !problem.offered, code);
@@ -581,24 +604,48 @@ test('"not yet" refusals keep the request (same key on the retry); other refusal
     const chat = admission({session: closedSession(), responses: [refusal(code)]});
     await assert.rejects(chat.admit('hello', 'key-1', null), problem => !problem.keepAttempt && !problem.offered, code);
   }
-  const terminal = admission({session: terminalSession(), responses: [refusal('resume_unavailable')]});
-  await assert.rejects(terminal.admit('hello', 'key-1', 'binding-1'), problem => !problem.offered);
-  assert.deepEqual(terminal.offers, []);
+  const pinned = admission({session: managed(), responses: [refusal('resume_unavailable')], noBar: true});
+  await assert.rejects(pinned.admit('hello', 'key-1', 'binding-1'), problem => !problem.offered);
+  assert.deepEqual(pinned.offers, []);
 });
 
-test('the refusal wording: the offer replaces the banner, the new codes have plain words, and a terminal agent keeps its own', () => {
+test('the refusal wording: the offer replaces the banner, and every cannot-start refusal says what the owner can do', () => {
   const source = between('  const refusalText = problem =>', '  // One admission request.');
-  const GLOBAL_CHAT_REFUSAL_TEXT = {};
-  const text = session => new Function('session', 'agentRuntime', 'GLOBAL_CHAT_REFUSAL_TEXT', `${source}; return refusalText;`)(session, runtime, GLOBAL_CHAT_REFUSAL_TEXT);
-  assert.equal(text(closedSession())({code: 'resume_unavailable', offered: true}), '');
-  assert.match(text(closedSession())({code: 'open_busy'}), /Several sessions are starting/);
-  assert.match(text(closedSession())({code: 'terminal_present'}), /Terminal is still running/);
-  assert.match(text(closedSession())({code: 'session_opening'}), /being opened/);
-  assert.equal(text(terminalSession())({code: 'open_busy'}), "Couldn't send. Try again");
+  const GLOBAL_CHAT_REFUSAL_TEXT = {capture_disabled: 'Chat unavailable.'};
+  const text = new Function('agentRuntime', 'GLOBAL_CHAT_REFUSAL_TEXT', `${source}; return refusalText;`)(runtime, GLOBAL_CHAT_REFUSAL_TEXT);
+  assert.equal(text({code: 'resume_unavailable', offered: true}), '');
+  assert.match(text({code: 'open_busy'}), /Several sessions are starting/);
+  assert.equal(text({code: 'terminal_present'}), 'Couldn’t start. Try again in a moment.');
+  assert.match(text({code: 'session_opening'}), /being opened/);
+  assert.equal(text({code: 'capture_disabled'}), 'Chat unavailable.');
+  assert.equal(text({code: 'something_new'}), "Couldn't send. Try again");
   const refusals = between('const GLOBAL_CHAT_REFUSALS = new Set', 'const GLOBAL_CHAT_REFUSAL_TEXT');
   const known = new Function(`${refusals}; return GLOBAL_CHAT_REFUSALS;`)();
   for (const code of ['resume_unavailable', 'open_busy', 'session_opening', 'terminal_present']) assert.equal(known.has(code), true, code);
 });
+
+test('cannot start: the owner is pointed to Settings (where Claude Code and Codex are connected), never to a terminal', () => {
+  for (const code of ['cli_unavailable', 'driver_unavailable']) {
+    assert.match(runtime.refusalText(code), /Settings/, code);
+    assert.match(runtime.refusalText(code), /Claude Code or Codex/, code);
+  }
+  assert.match(runtime.refusalText('driver_unavailable'), /^Couldn’t start\. Check in Settings that Claude Code or Codex is connected, then send again\.$/);
+  assert.match(runtime.refusalText('cli_unavailable'), /^Claude Code or Codex isn’t installed yet\. Connect one in Settings, then send again\.$/);
+  assert.equal(runtime.refusalText('open_timeout'), 'Still starting. Try again in a moment.');
+  assert.equal(runtime.refusalText('resume_failed'), 'Couldn’t continue the earlier conversation, so nothing was started.');
+  assert.equal(runtime.refusalText('resume_unavailable'), 'The earlier conversation can’t be continued because its file is missing.');
+  // the new-conversation offer for the two refusals about the earlier conversation
+  assert.deepEqual(runtime.newConversationOffer('resume_failed'), {text: 'Couldn’t continue the earlier conversation, so nothing was started. Nothing was sent.', label: 'Start a new conversation'});
+  assert.equal(runtime.newConversationOffer('cli_unavailable'), null);
+  // every text the owner can read here, whatever the code
+  for (const code of ['terminal_offline', 'session_closed', 'terminal_changed', 'terminal_required', 'managed_command', 'driver_unavailable', 'cli_unavailable', 'resume_failed',
+    'resume_unavailable', 'open_timeout', 'open_busy', 'session_opening', 'terminal_present', 'host_unverified', 'binding_not_ready']) {
+    assert.doesNotMatch(runtime.refusalText(code), /terminal|tmux|\bCLI\b|session id|>_|!|—|–/i, code);
+  }
+  const chat = between('const GLOBAL_CHAT_REFUSAL_TEXT = {', 'const GLOBAL_CHAT_INPUT_LABEL');
+  for (const [, text] of Object.entries(new Function(`${chat}; return GLOBAL_CHAT_REFUSAL_TEXT;`)())) assert.doesNotMatch(text, /terminal|tmux|\bCLI\b|session id|>_|!|—|–/i, text);
+});
+
 
 test('the bar offers one action after a refusal, runs it once, and drops it when a session is open', () => {
   const ui = bar(); ui.update(closedSession());
@@ -620,61 +667,18 @@ test('the bar offers one action after a refusal, runs it once, and drops it when
   ui.offer({text: 't', label: 'l'}, () => chosen.push(2));
   ui.update(managed());
   assert.equal(notice.hidden, true, 'an open session ends the offer');
-  assert.deepEqual(runtime.newConversationOffer(terminalSession(), 'resume_unavailable'), null);
-  assert.equal(runtime.newConversationOffer(closedSession(), 'resume_unavailable').label, 'Start a new conversation');
-  assert.equal(runtime.newConversationOffer(closedSession(), 'open_timeout'), null);
+  assert.equal(runtime.newConversationOffer('resume_unavailable').label, 'Start a new conversation');
+  assert.equal(runtime.newConversationOffer('open_timeout'), null);
 });
 
 test('a session that ended unexpectedly says why in the server’s plain words; an ordinary close does not', () => {
   const crashed = {...closedSession(), managed: {...closedSession().managed, closed_text: 'Claude Code stopped unexpectedly. Send a message to start the session again.'}};
   assert.equal(runtime.summary(crashed, 'Ada').line, 'Claude Code stopped unexpectedly. Send a message to start the session again.');
-  assert.equal(runtime.summary(closedSession(), 'Ada').line, 'Sending a message starts Ada.');
+  assert.equal(runtime.summary(closedSession(), 'Ada').line, '');
   assert.equal(runtime.managedOf(crashed).closedText.includes('stopped unexpectedly'), true);
 });
 
 // ---- the permission card shows what is being allowed
-test('a permission card shows the whole command, escaped and scrollable, with the reason and path, and Allow works', async () => {
-  const command = 'git clone https://example.com/a.git &&\n  echo "<b>hi</b>" && rm -rf ./build ' + 'x'.repeat(900);
-  const ui = bar(); ui.update(managed({phase: 'blocked', pending: [permission({input_summary: 'git clone https://example.com/a.git && echo…', input_text: command, input_truncated: false,
-    decision_reason: 'Bash(rm *) needs approval <i>', blocked_path: '/home/me/project/build'})]}));
-  const [card] = cardsOf(ui), pre = card.querySelector('.mchat-card-input');
-  assert.equal(pre.textContent, command, 'all of it, with its line breaks, as text');
-  assert.equal(pre.getAttribute('tabindex'), '0', 'scrollable with the keyboard');
-  assert.equal(card.querySelector('.mchat-card-reason').textContent, 'Bash(rm *) needs approval <i>');
-  assert.equal(card.querySelector('.mchat-card-path code').textContent, '/home/me/project/build');
-  assert.equal(card.querySelector('.mchat-card-note'), null);
-  const allow = card.querySelector('[data-answer="allow"]');
-  assert.equal(allow.disabled, false);
-  assert.equal(card.querySelectorAll('b, i').length, 0, 'no element is made from the server’s text');
-  click(allow); await flush();
-  assert.equal(ui.sent[0][1].decision, 'allow');
-});
-
-test('when any of the input was cut Allow is disabled with a plain reason and cannot be pressed; Deny still works', async () => {
-  const ui = bar(); ui.update(managed({phase: 'blocked', pending: [permission({input_text: 'rm -rf /tmp/a…', input_truncated: true})]}));
-  const [card] = cardsOf(ui), allow = card.querySelector('[data-answer="allow"]'), deny = card.querySelector('[data-answer="deny"]');
-  assert.equal(allow.disabled, true);
-  assert.match(card.querySelector('.mchat-card-note').textContent, /too long to show in full, so it can’t be allowed from here\. You can deny it\./);
-  assert.equal(allow.getAttribute('aria-describedby'), card.querySelector('.mchat-card-note').getAttribute('id'));
-  click(allow); await flush();
-  assert.deepEqual(ui.sent, []);
-  click(deny); await flush();
-  assert.equal(ui.sent[0][1].decision, 'deny');
-  // a failed answer unlocks the buttons again, but never the one that was turned off for good
-  const failing = bar(); failing.state.fail = Object.assign(new Error('no'), {code: 'internal'});
-  failing.update(managed({pending: [permission({input_text: 'x', input_truncated: true})]}));
-  const [again] = cardsOf(failing);
-  click(again.querySelector('[data-answer="deny"]')); await flush();
-  assert.equal(again.querySelector('[data-answer="deny"]').disabled, false);
-  assert.equal(again.querySelector('[data-answer="allow"]').disabled, true);
-  // an older server that only sends a clipped one-line summary cannot show everything either
-  const old = bar(); old.update(managed({pending: [permission({input_summary: 'a long command that was clipped…'})]}));
-  assert.equal(cardsOf(old)[0].querySelector('[data-answer="allow"]').disabled, true);
-  const plain = bar(); plain.update(managed({pending: [permission({input_summary: 'npm test'})]}));
-  assert.equal(cardsOf(plain)[0].querySelector('[data-answer="allow"]').disabled, false);
-  assert.equal(cardsOf(plain)[0].querySelector('.mchat-card-input').textContent, 'npm test');
-});
-
 test('questions are answered the way the server checks them: every question, a single choice or typed text, several choices joined', async () => {
   const asked = [{question: 'Which database?', header: 'DB', multiSelect: false, options: [{label: 'Postgres', description: 'x'}, {label: 'SQLite', description: 'y'}]},
     {question: 'Which checks?', header: 'Checks', multiSelect: true, options: [{label: 'Lint', description: ''}, {label: 'Types', description: ''}]}];
@@ -698,17 +702,15 @@ test('questions are answered the way the server checks them: every question, a s
   assert.equal(other.querySelectorAll('[data-q-other]')[0].getAttribute('maxlength'), '2000');
 });
 
-test('the new refusal words and which refusals are only "not yet"', () => {
-  const closed = closedSession();
-  assert.match(runtime.refusalText(closed, 'resume_unavailable'), /file is missing/);
-  assert.match(runtime.refusalText(closed, 'open_busy'), /Several sessions are starting/);
-  assert.match(runtime.refusalText(closed, 'terminal_present'), /Close it/);
-  assert.equal(runtime.refusalText(terminalSession(), 'open_busy'), null);
+test('the refusal words and which refusals are only "not yet"', () => {
+  assert.match(runtime.refusalText('resume_unavailable'), /file is missing/);
+  assert.match(runtime.refusalText('open_busy'), /Several sessions are starting/);
+  assert.equal(runtime.refusalText('something_new'), null);
   for (const code of ['open_timeout', 'open_busy', 'session_opening', 'host_unverified', 'binding_not_ready']) assert.equal(runtime.isRetryable(code), true, code);
   for (const code of ['resume_unavailable', 'resume_failed', 'session_closed', 'cli_unavailable', 'terminal_present', 'validation_error']) assert.equal(runtime.isRetryable(code), false, code);
 });
 
-test('the real submit sends a closed managed agent’s message with no pin, and a plain message to a terminal agent with its pin', async () => {
+test('the real submit sends a closed agent’s message with no pin, and a live agent’s with its pin; an unavailable command is refused first', async () => {
   const submitSource = between('  async function submit(text) {', '  // A definitely undelivered input is resent');
   const run = async (session, binding) => {
     const admitted = [], banners = [];
@@ -726,54 +728,30 @@ test('the real submit sends a closed managed agent’s message with no pin, and 
   };
   const closed = await run(closedSession(), null);
   assert.deepEqual(closed.admitted, [['hi', 'req-1', null]]);
-  assert.deepEqual(closed.banners.filter(Boolean), ['/cost isn’t available when Qorqbot runs Ada. Switch Ada to Terminal to use it.']);
-  const terminal = await run(terminalSession(), BINDING);
-  assert.deepEqual(terminal.admitted, [['hi', 'req-1', 'binding-1'], ['/cost', 'req-1', 'binding-1']]);
-  assert.deepEqual(terminal.banners.filter(Boolean), []);
+  assert.deepEqual(closed.banners.filter(Boolean), ['/cost isn’t available when Qorqbot runs Ada.']);
+  const live = await run(managed(), BINDING);
+  assert.deepEqual(live.admitted, [['hi', 'req-1', 'binding-1']]);
+  assert.deepEqual(live.banners.filter(Boolean), ['/cost isn’t available when Qorqbot runs Ada.']);
 });
 
-// syncManaged against the fake DOM: what the Chat shell adds, and what it must not add to a terminal agent.
-function shell({agent, session, openTerminal = () => {}}) {
+// syncManaged against the fake DOM: the Stop block goes above the session line, and End session follows the session.
+function shell({session}) {
   freshPage();
   const root = doc.createElement('div'), chatView = doc.createElement('div'), sessionLine = doc.createElement('div');
-  const sw = doc.createElement('div'); sw.className = 'gchat-session-switch'; sw.innerHTML = '<div class="gchat-view-toggle"><button>Chat</button><button>Terminal</button></div>';
-  chatView.append(sessionLine); root.append(sw, chatView); doc.body.append(root);
-  const reported = [], cleanups = [], banners = [], loads = [];
-  const sync = new Function('agentRuntime', 'agent', 'label', 'sessionLine', 'liveBinding', 'paintSession', 'load', 'showBanner', 'cleanups', '$q', 'root', 'options', 'coreData', 'post', 'base', 'state',
-    `let runtimeToggle = null, managedBar = null, reportedExecution = null; let session = state.session;
-     ${between('  const runtimeSend =', '  // One repaint: the native status line')}
-     return {syncManaged, bar: () => managedBar, toggle: () => runtimeToggle, set: value => { session = value; }};`)(
-    runtime, agent, 'Ada', sessionLine, () => state.session?.binding, () => {}, () => loads.push(1), t => banners.push(t), cleanups, sel => root.querySelector(sel), root,
-    {onExecution: mode => reported.push(mode)}, r => r, async () => ({}), '/chat', {session});
-  return {root, sw, chatView, sessionLine, sync, reported, cleanups, banners, loads, viewSwitch: () => root.querySelector('.gchat-view-toggle')};
+  chatView.append(sessionLine); root.append(chatView); doc.body.append(root);
+  const cleanups = [], banners = [], loads = [], sent = [];
+  const state = {session, finished: false};
+  const sync = new Function('agentRuntime', 'label', 'sessionLine', 'liveBinding', 'paintSession', 'load', 'showBanner', 'cleanups', 'coreData', 'post', 'base', 'state', 'endSession',
+    `let managedBar = null; let session = state.session; let finished = false;
+     ${between('  const runtimeSend =', '  // The session line says what the empty')}
+     return {syncManaged, bar: () => managedBar, set: value => { session = value; }, finish: () => { finished = true; }};`)(
+    runtime, 'Ada', sessionLine, () => state.session?.binding, () => {}, () => loads.push(1), t => banners.push(t), cleanups, r => r, async (url, body) => { sent.push([url, body]); return {}; }, '/chat', state,
+    runtime.createEnd({doc, send: async () => ({}), onDone: () => {}, onError: () => {}}));
+  return {root, chatView, sessionLine, sync, cleanups, banners, loads, sent};
 }
-const WORKER = {agent_id: 'a1', role: {id: 'global-worker'}}, BOSS = {agent_id: 'o1', role: {id: 'learning-applier'}};
 
-test('a terminal agent that cannot be switched gets no managed element and its Chat/Terminal switch stays', () => {
-  const s = shell({agent: BOSS, session: terminalSession()});
-  const before = s.root.querySelectorAll('div').length;
-  s.sync.syncManaged();
-  assert.equal(s.sync.bar(), null); assert.equal(s.sync.toggle(), null);
-  assert.equal(s.root.querySelectorAll('div').length, before);
-  assert.equal(s.viewSwitch().hidden, false);
-  assert.equal(s.root.dataset.execution, undefined);
-  assert.deepEqual(s.reported, [false]);
-  s.sync.syncManaged();
-  assert.deepEqual(s.reported, [false], 'reported once');
-});
-
-test('a switchable terminal worker shows only the switch; the Terminal view is still there', () => {
-  const s = shell({agent: WORKER, session: terminalSession()});
-  s.sync.syncManaged();
-  assert.equal(s.sync.bar(), null);
-  assert.ok(s.sync.toggle());
-  assert.equal(s.sw.firstElementChild, s.sync.toggle().el, 'the switch sits before the Chat/Terminal buttons');
-  assert.equal(s.sync.toggle().el.hidden, false);
-  assert.equal(s.viewSwitch().hidden, false);
-});
-
-test('a managed agent gets the Stop block above the session line, loses the Terminal switch, and the host is told', () => {
-  const s = shell({agent: WORKER, session: managed({phase: 'working', activity: 'Editing', can_stop: true})});
+test('a managed agent gets the Stop block above the session line, and End session follows whether a session is open', () => {
+  const s = shell({session: managed({phase: 'working', activity: 'Editing', can_stop: true})});
   s.sync.syncManaged();
   const bar = s.sync.bar();
   assert.ok(bar);
@@ -781,18 +759,22 @@ test('a managed agent gets the Stop block above the session line, loses the Term
   assert.equal(s.chatView.children[1], s.sessionLine);
   assert.equal(bar.el.querySelector('.mchat-stop').hidden, false);
   assert.equal(bar.el.querySelector('.mchat-activity-text').textContent, 'Editing');
-  assert.equal(s.viewSwitch().hidden, true, 'no Terminal for a managed agent');
-  assert.equal(s.root.dataset.execution, 'managed');
-  assert.deepEqual(s.reported, [true]);
-  // Back to terminal: the block hides and the switch returns.
-  s.sync.set(terminalSession()); s.sync.syncManaged();
-  assert.equal(bar.el.hidden, true);
-  assert.equal(s.viewSwitch().hidden, false);
-  assert.deepEqual(s.reported, [true, false]);
   assert.equal(s.cleanups.length, 1);
+  // asleep: nothing to stop, nothing to end
+  s.sync.set(closedSession()); s.sync.syncManaged();
+  assert.equal(bar.el.hidden, true);
+  assert.equal(s.sync.bar(), bar, 'the same block is kept');
 });
 
-test('the event stream’s managed summary is shown at once and only for a managed session', () => {
+test('the Stop block is not built before the first session read', () => {
+  const s = shell({session: null});
+  const before = s.root.querySelectorAll('div').length;
+  s.sync.syncManaged();
+  assert.equal(s.sync.bar(), null);
+  assert.equal(s.root.querySelectorAll('div').length, before);
+});
+
+test('the event stream’s managed summary is shown at once, and a session that opened, closed or turned off is read in full', () => {
   const fn = between('  function showManagedEvent(data) {', '  function connect()');
   const run = (session, data) => {
     let painted = 0, current = session;
@@ -804,38 +786,33 @@ test('the event stream’s managed summary is shown at once and only for a manag
   assert.equal(patched.painted, 1);
   assert.equal(patched.session.managed.phase, 'working');
   assert.equal(patched.session.managed.can_stop, true, 'fields the summary leaves out are kept');
-  assert.equal(run(terminalSession(), {managed: {phase: 'working'}}).painted, 0);
+  assert.equal(run(null, {managed: {phase: 'working'}}).painted, 0);
   assert.equal(run(live, {revision: 3}).painted, 0);
   assert.equal(run(live, {managed: {open: false}}).painted, 0, 'a session that opened or closed is read in full');
+  assert.equal(run(live, {managed: {off: true}}).painted, 0, 'so is one that was turned off');
+  assert.equal(run(live, {managed: {off: false, phase: 'working'}}).painted, 1);
 });
 
-test('mountAgentView: a managed agent has no Terminal; a terminal agent opens it as before', () => {
+test('mountAgentView mounts Chat only: no Terminal view, no switch, and the options it never reads', () => {
   const body = between('let globalAgentViewActive = null;', 'function mountGlobalChat(');
   freshPage();
-  const chats = [], terminals = [], closed = [];
-  const build = () => new Function('document', 'esc', 'mountGlobalChat', 'mountTerminal', 'globalChatViewToggle', 'globalChatOpenFocusReference', `${body}; return mountAgentView;`)(
-    doc, global.esc, (host, agent, options) => { const chat = {options, disposed: false, dispose() { this.disposed = true; }}; chats.push(chat); return chat; },
-    (key, host) => { terminals.push(key); return () => closed.push(key); }, () => '<button type="button" data-chat-return></button>', () => true);
-  const views = [];
-  const mount = () => { const pane = doc.createElement('main'); doc.body.append(pane); const view = build()(pane, {agent_id: 'a1', name: 'Ada'}, {terminal: {key: 'a1', base: '/t'}, isCurrent: () => true}); views.push(view); return view; };
+  const chats = [];
+  const build = () => new Function('document', 'esc', 'mountGlobalChat', 'globalChatOpenFocusReference', `${body}; return mountAgentView;`)(
+    doc, global.esc, (host, agent, options) => { const chat = {options, disposed: false, dispose() { this.disposed = true; }}; chats.push(chat); return chat; }, () => true);
+  const mountView = build(), views = [];
+  const mount = opts => { const pane = doc.createElement('main'); doc.body.append(pane); const view = mountView(pane, {agent_id: 'a1', name: 'Ada'}, {isCurrent: () => true, ...opts}); views.push({view, pane}); return {view, pane}; };
   try {
-
-  const managedView = mount();
-  assert.equal(chats.length, 1);
-  managedView.showTerminal();
-  assert.equal(terminals.length, 1, 'terminal agent: Terminal opens');
-  chats[0].options.onExecution(true);
-  assert.deepEqual(closed, ['a1'], 'the Terminal viewer is released when the agent turns managed');
-  managedView.showTerminal(); managedView.showTerminal(true);
-  assert.equal(terminals.length, 1, 'managed agent: Terminal never opens');
-  managedView.dispose();
-
-  const plain = mount();
-  chats[1].options.onExecution(false);
-  plain.showTerminal();
-  assert.equal(terminals.length, 2);
-  plain.showChat();
-  plain.showTerminal();
-  assert.equal(terminals.length, 2, 'a warm Terminal is kept, not rebuilt');
-  } finally { views.forEach(view => view.dispose()); }
+    const {view, pane} = mount();
+    assert.equal(chats.length, 1);
+    assert.equal(pane.children.length, 1, 'one host: Chat');
+    assert.equal(view.showTerminal, undefined);
+    assert.deepEqual(Object.keys(chats[0].options), ['openReference'], 'no openTerminal, no onExecution');
+    view.showChat(); assert.equal(chats.length, 1, 'a warm Chat is kept, not rebuilt');
+    // an old caller that still passes the Terminal options changes nothing
+    const old = mount({terminal: {key: 'a1', base: '/t'}, view: 'terminal'});
+    assert.equal(chats.length, 2);
+    assert.equal(old.pane.children.length, 1);
+    assert.equal(chats[0].disposed, true, 'mounting another view releases the first');
+    old.view.dispose(); assert.equal(chats[1].disposed, true);
+  } finally { views.forEach(({view}) => view.dispose()); }
 });

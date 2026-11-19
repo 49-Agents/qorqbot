@@ -7,7 +7,10 @@ write transaction; eligibility is checked again in that same transaction.
 
 from datetime import datetime, timedelta, timezone
 import json
+import logging
 from uuid import uuid4
+
+from qorqut_operations.contracts import DomainError
 
 
 def _time(value):
@@ -455,7 +458,9 @@ class AttentionRuntime:
             return None
         session = store.live_session(uow.connection, agent)
         if not session or session['conversation_id'] != owner['consumer_id']:
-            return None
+            # An agent that is asleep and on is woken for a reminder that is due: nothing is claimed here, the reminder stays
+            # pending, and it is claimed and typed the ordinary way once the session is bound.
+            return {'wake': True} if not session and self._due_for_chat(uow, agent, now) else None
         advice = clock_advice(uow, agent, self.attention, now)
         current = self.attention.state(uow, agent)
         if not advice.get('chat_eligible'):
@@ -478,6 +483,30 @@ class AttentionRuntime:
         return {'occurrence_id': row['id'], 'generation': row['focus_generation'], 'kind': row['kind'],
                 'consumer': owner['consumer_id'], 'binding_generation': owner['generation'], 'token': token,
                 'session': session}
+
+    def _due_for_chat(self, uow, agent, now):
+        """Whether a reminder is due for the chat route right now, for an agent with no live session (reads only)."""
+        advice = clock_advice(uow, agent, self.attention, now)
+        if not advice.get('chat_eligible'):
+            return False
+        current = self.attention.state(uow, agent)
+        return uow.connection.execute("SELECT 1 FROM attention_reminders WHERE agent_id=? AND state='pending' "
+            'AND kind=? AND due_at=? AND sequence=? AND focus_generation=? LIMIT 1',
+            (agent, advice.get('kind'), advice.get('due_at'), advice.get('reminder_sequence'),
+             current['focus_generation'])).fetchone() is not None
+
+    def _wake(self, chat, profile):
+        """Start opening the asleep agent for its due reminder; never waits, and a refusal (off, paced, failing) leaves the reminder
+        pending exactly as it was."""
+        opener = getattr(chat, 'opener', None)
+        if opener is None:
+            return
+        try:
+            opener.wake(profile, 'attention')
+        except DomainError:
+            pass
+        except Exception:
+            logging.getLogger(__name__).debug('Waking %s for a reminder failed', profile['agent_id'], exc_info=True)
 
     def send_due(self, profile):
         """At most one chat attempt, under the arbiter's existing agent lock."""
@@ -502,6 +531,9 @@ class AttentionRuntime:
             claimed = self.runtime.database.write_if_needed(lambda uow: self._claim_chat(uow, agent),
                                                             operation='attention.reconcile_chat')
             if claimed is None:
+                return
+            if claimed.get('wake'):
+                self._wake(chat, profile)
                 return
             occurrence_id, generation, kind = claimed['occurrence_id'], claimed['generation'], claimed['kind']
             consumer, binding_generation = claimed['consumer'], claimed['binding_generation']

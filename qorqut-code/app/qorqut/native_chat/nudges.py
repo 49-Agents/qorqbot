@@ -11,11 +11,13 @@ and nothing else:
   with exactly what the transport reported. Chat inputs, replies and the native work/user counters neither rearm nor hold back a
   notice: only an event not yet announced to the conversation makes one due. The ``Observation`` it passes is diagnostic only.
 
-Nothing here starts, resumes or stops an agent, acknowledges an event, or changes a Task, Action, Signoff or routine. An offline
-agent keeps its pending need and is nudged only after someone starts a session by hand (a managed agent: after the owner opens one
-in Chat; a closed managed session is the same steady offline state); so does an agent whose recorded intent
-(``native_session_owners.desired_state``) is paused or stopped. ``submitted`` is the transport's report,
-never proof that the agent read its inbox.
+Nothing here stops an agent, acknowledges an event, or changes a Task, Action, Signoff or routine. A closed managed session is an
+agent asleep: when something authorized is waiting for it (the engine says ``offline``), the pass asks the session opener
+(``opener.py``) to open it in the background and goes on; the notice is then sent the ordinary way once the session is bound, so
+the engine's attempt record is touched only by a real delivery, and a failed open leaves the need exactly as it was (asleep, and
+asked again no sooner than the opener's own pacing and this pass's 30-second revalidation). An agent whose recorded intent
+(``native_session_owners.desired_state``) is paused or stopped is not opened by an inbox event: it keeps its pending need until the
+owner (or, for a worker, Ordubashy) turns it on. ``submitted`` is the transport's report, never proof that the agent read its inbox.
 
 The drain is bounded: ``stop`` joins the thread within its timeout and raises ``TimeoutError`` when it survives, keeping the
 reference so a later stop can still prove the drain.
@@ -247,8 +249,11 @@ class NudgeBackend:
     passes the accepted Task snooze reconciliation here). A failing hook never blocks nudges."""
 
     def __init__(self, runtime, engine: InboxNudges, probe, registry, arbiter, locks, *, interval: float = PASS_SECONDS,
-                 reconcile: Callable[[object], object] | None = None, monotonic: Callable[[], float] = time.monotonic):
+                 reconcile: Callable[[object], object] | None = None, monotonic: Callable[[], float] = time.monotonic,
+                 opener=None):
         self.runtime, self.engine, self.probe, self.registry, self.arbiter, self.locks = runtime, engine, probe, registry, arbiter, locks
+        # The session opener that wakes an asleep agent (``native_chat/opener.py``); None while nothing is composed to open one.
+        self.opener = opener
         self.interval, self.reconcile, self._monotonic = interval, reconcile, monotonic
         self._stop_event = threading.Event()
         self._wake = threading.Event()
@@ -261,7 +266,7 @@ class NudgeBackend:
         registry, arbiter and per-agent locks (the same serialization every native input uses)."""
         chat = runtime.native_chat
         return cls(runtime, InboxNudges(runtime.database, HostVisibility(inbox)), chat.probe, chat.registry, chat.arbiter,
-                   chat.arbiter.locks, interval=interval, reconcile=reconcile)
+                   chat.arbiter.locks, interval=interval, reconcile=reconcile, opener=getattr(chat, "opener", None))
 
     @property
     def database(self):
@@ -439,9 +444,26 @@ class NudgeBackend:
             if isinstance(verdict, Waiting):
                 self._memo[agent_id] = (fingerprint, verdict.reason, self._monotonic(),
                                         _moment(verdict.not_before) if verdict.not_before else None)
+                if binding is None and verdict.reason == "offline" and self._wake_agent(profile):
+                    return "waking"
                 return verdict.reason
             self._memo.pop(agent_id, None)
             return self._send(session, verdict)
+
+    def _wake_agent(self, profile: dict) -> bool:
+        """Something authorized waits for an agent with no bound session: start opening it, without waiting for it. True when an
+        open runs or was started; False when it must not or cannot be opened now (off, paced, not managed): the need stays
+        ``offline`` exactly as before and the next revalidation asks again."""
+        opener = self.opener
+        if opener is None:
+            return False
+        try:
+            return opener.wake(profile, "inbox") == "waking"
+        except DomainError:
+            return False
+        except Exception:
+            LOG.debug("Waking %s for its inbox failed", profile["agent_id"], exc_info=True)
+            return False
 
     def _send(self, session: dict, reservation: Reservation) -> str:
         stale: dict[str, bool] = {}
@@ -496,16 +518,25 @@ class NudgeBackend:
 
         Coverage is read for the live native conversation, so a fresh conversation that has not had a notice yet is ``pending``,
         not ``submitted`` because an earlier conversation was told. An agent with no live native session and anything
-        authorized pending is ``pending``/``offline`` and waits for a manual start, whatever an earlier conversation was told;
-        with nothing pending it stays ``idle``."""
+        authorized pending is ``pending`` with reason ``asleep`` (managed, on: it is opened for the notice) or ``offline`` (off, or not
+        openable), whatever an earlier conversation was told; with nothing pending it stays ``idle``."""
         with self.database.read() as uow:
             live = store.live_session(uow.connection, agent_id)
         if live is not None:
             return self.engine.status(agent_id, binding=binding_of(live))
         view = self.engine.status(agent_id)
         if view["state"] != "idle":
-            view = {**view, "state": "pending", "reason": "offline"}
+            # An agent asleep and on is available: its notice waits for the open that something pending starts. Only an agent that is
+            # off (or paused, or cannot be opened at all) is offline.
+            view = {**view, "state": "pending", "reason": "asleep" if self._wakeable(agent_id) else "offline"}
         return view
+
+    def _wakeable(self, agent_id: str) -> bool:
+        try:
+            return self.opener is not None and self.opener.wakeable(agent_id)
+        except Exception:
+            LOG.debug("The on/off state of %s is unavailable", agent_id, exc_info=True)
+            return False
 
 
 def delivery_view(backend, agent_id: str) -> dict:

@@ -6,11 +6,12 @@ It does not use a Linux VM. Native Mac acceptance is pending; do not present the
 prepared archive as a tested Mac release until the Mac check passes.
 
 The Mac archive is self-contained: it carries its own Python 3.12 with the
-libraries already installed, plus tmux, git and the agent-browser tool, in
+libraries already installed, plus git and the agent-browser tool, in
 `runtime/venv` and `runtime/native`. Nothing has to be installed first; it does
 not need Homebrew or Apple's developer tools. Setting `QORQUT_PYTHON` still
 selects another Python 3.12 for the launcher itself.
-Install and authenticate your chosen Codex or Claude Code client separately.
+Qorqbot downloads Claude Code and Codex itself; you sign in to your own account
+from the dashboard, in your browser.
 Browser automation needs your installed Google Chrome.
 Standard Chrome in `/Applications/Google Chrome.app` is detected; an explicit
 `QORQUT_CHROME_EXECUTABLE` overrides it. Browser sandboxing remains enabled.
@@ -28,7 +29,7 @@ Your browser opens the printed localhost address (`--no-open` skips that;
 `--port` picks another port and later starts reuse it). First launch checks the
 shipped programs against the package's checksums and creates your records; it
 builds and downloads nothing. The shipped programs come before your own on the
-PATH Qorqbot and its agent terminals use.
+PATH Qorqbot and its agents use.
 Application files are in `runtime/`; records/work are in `instance/operations/`.
 Keep the initialized folder at the same path. Roughly 50 bytes or fewer is
 recommended because Unix sockets have short path limits.
@@ -42,7 +43,7 @@ share one server: whichever starts second uses the running one, and quitting the
 app leaves a Terminal-started server running. Back up the entire stopped folder. The same-schema updater uses a
 matching Mac archive and refuses a Linux or other-CPU archive. Updates with
 separately installed connectors or changed managed instructions are not yet
-supported. Stop agents before updates or removal. Removing the folder removes
+supported. The updater closes any open agent sessions first; they start again when you next message the agent. Stop Qorqbot before removal. Removing the folder removes
 its data; user-installed external programs remain installed.
 
 Google Calendar is bundled inactive. Fastmail is a separate platform-neutral
@@ -54,7 +55,7 @@ Users supply their accounts and provider setup.
 ## Qualification limits
 
 The Mac code and package can be prepared on Linux, but only a real Mac can prove
-initialization, process permissions, agent terminals, browser ownership and safe
+initialization, process permissions, agent sessions, browser ownership and safe
 updates. Run the native acceptance workflow before making this download public.
 macOS hides the environment of Apple platform processes (Finder, Dock,
 `/bin/sleep`), even for the same user. The ownership scan used by updates and
@@ -78,7 +79,7 @@ sources; a few minutes, needs only Apple's developer tools), run
 native_build.py with `--target macos14-arm64 --bundled-tools TOOLS_FOLDER`,
 then run `check_posix.py` against the exact archive on an Apple silicon Mac.
 The prepared Mac workflow performs that sequence, then opens the built disk
-image on clean Macs that have no Homebrew, Python, tmux or developer tools and
+image on clean Macs that have no Homebrew, Python or developer tools and
 requires the sign-in screen (`macos_app/first_open_check.sh`). The command-line
 distribution itself adds no installer service, updater feed or VM.
 
@@ -87,7 +88,7 @@ What `--bundled-tools` adds to the archive:
 - `runtime/venv`: a complete Python 3.12 (python-build-standalone) with every
   library from `requirements.lock` installed and precompiled. It is not a
   virtual environment, so it works wherever the folder is unpacked.
-- `runtime/native`: tmux (with libevent, utf8proc and jemalloc), git and
+- `runtime/native`: git and
   agent-browser, their licenses in `native/licenses`, and `native/TOOLS.json`
   with the source of each. `macos_tools.py` refuses a program that links
   against anything outside macOS itself.
@@ -96,7 +97,7 @@ What `--bundled-tools` adds to the archive:
   extensions are installed into it afterwards.
 
 Without `--bundled-tools` the Mac archive is the earlier kind, which uses the
-computer's own Python 3.12, git and tmux and builds a virtual environment on
+computer's own Python 3.12 and git and builds a virtual environment on
 first launch.
 
 ## Qorqbot.app and DMG
@@ -104,8 +105,8 @@ first launch.
 `tools/distribution/macos_app/build_dmg.py` wraps the exact checked archive in
 `Qorqbot.app`, a desktop app built with Electron, and a drag-to-Applications
 DMG. The app shows Qorqbot in its own window. It carries the archive unchanged
-in `Contents/Resources/qorqbot-payload`; the archive brings its own Python, git
-and tmux, so the app needs nothing installed on the Mac.
+in `Contents/Resources/qorqbot-payload`; the archive brings its own Python and
+git, so the app needs nothing installed on the Mac.
 
 - Opened from the disk image, Downloads or the Desktop, the app first offers to
   move itself to Applications and reopens from there.

@@ -20,6 +20,11 @@ Delivery rules, in order of precedence:
   Codex's built-in commands is refused (``terminal_command``) before anything is stored or typed; it needs the agent's Terminal.
 * A managed session has no terminal either: an owner Chat input that is one of Claude's menu-only commands is refused
   (``managed_command``) the same way. With no session open, a managed agent is ``session_closed`` rather than ``terminal_offline``.
+* An asleep managed agent that is on (``opener.py``) is opened by the producers that attempt once (Telegram owner input, broadcast,
+  direct message) instead of being reported closed: Telegram's attempt starts the open in the background and is told
+  ``session_starting``, and asks again on its own schedule; a broadcast or direct message waits for the open and is then delivered
+  in the same call. The wake carries none of the input: the input is delivered afterwards by its own claim, exactly once. An agent
+  that is off is reported ``session_closed`` as before, except that Telegram owner input turns it on first.
 """
 
 from __future__ import annotations
@@ -37,10 +42,11 @@ from qorqut.inbox.owner_forwarding import forward_owner_message
 from . import store
 from .commands import codex_builtin
 from .contracts import (INPUT_TYPES, MAX_TEXT_CHARS, ORIGIN_SYSTEM, RESULT_DEFERRED, RESULT_REJECTED, STATE_FAILED,
-                        STATE_SUBMITTED, STATE_SUBMITTING, STATE_UNCERTAIN, STATE_UNDELIVERED, STATE_WAITING, TYPE_CHAT,
-                        TYPE_NUDGE, TYPE_RECOVERY, TYPE_TELEGRAM, InputRequest, InputResult, NativeChatError, managed_menu_command)
-from .probe import (ProbeResult, REASON_CAPTURE_DISABLED, REASON_LIVE, REASON_UNSUPPORTED, REASON_UNSUPPORTED_RUNTIME,
-                    SessionProbe)
+                        STATE_SUBMITTED, STATE_SUBMITTING, STATE_UNCERTAIN, STATE_UNDELIVERED, STATE_WAITING, TYPE_BROADCAST,
+                        TYPE_CHAT, TYPE_DIRECT, TYPE_NUDGE, TYPE_RECOVERY, TYPE_TELEGRAM, InputRequest, InputResult, NativeChatError,
+                        managed_menu_command)
+from .probe import (ProbeResult, REASON_CAPTURE_DISABLED, REASON_LIVE, REASON_NO_MARKER, REASON_PROCESS_GONE, REASON_SESSION_END,
+                    REASON_UNSUPPORTED, REASON_UNSUPPORTED_RUNTIME, SessionProbe)
 from .projection import marker_text
 from .sessions import SessionRegistry
 
@@ -49,6 +55,21 @@ NOT_TYPED = "not_typed"
 TERMINAL_COMMAND = "terminal_command"
 MANAGED_COMMAND = "managed_command"
 SESSION_CLOSED = "session_closed"
+SESSION_STARTING = "session_starting"
+# The attempt-once producers that wake an asleep, on agent; the owner's own input also turns an off agent on. A broadcast or a
+# direct message waits for the open (its caller has its own record of the attempt); Telegram's queue never blocks on it.
+WAKING_TYPES = frozenset({TYPE_TELEGRAM, TYPE_BROADCAST, TYPE_DIRECT})
+WAKING_WAITS = frozenset({TYPE_BROADCAST, TYPE_DIRECT})
+TURNS_ON = frozenset({TYPE_TELEGRAM})
+# The probe's reasons for "no session": only these are an agent asleep (a capture or runtime refusal is not).
+NO_SESSION = frozenset({REASON_NO_MARKER, REASON_PROCESS_GONE, REASON_SESSION_END})
+
+
+class _WakeNeeded:
+    """``_submit``'s answer when no session is bound and the agent may be woken: the wake runs without the agent's lock."""
+
+    def __init__(self, profile, observed):
+        self.profile, self.observed = profile, observed
 
 
 class AgentLocks:
@@ -74,6 +95,8 @@ class InputArbiter:
         self.runtime, self.probe, self.registry, self.adapters = runtime, probe, registry, dict(adapters)
         self.locks = locks or AgentLocks()
         self.wake: Callable[[], None] = lambda: None
+        # The session opener (``opener.py``), attached by the native Chat that owns this arbiter; None wakes nothing.
+        self.opener = None
 
     @property
     def database(self):
@@ -110,6 +133,37 @@ class InputArbiter:
         and just before the first input; if it raises, nothing is typed and the result is ``deferred``.
         """
         self.validate(request)
+        found = self._submit(request, on_checkpoint, True)
+        if not isinstance(found, _WakeNeeded):
+            return found
+        # No bound session and the agent may be woken: the open runs here, outside the agent's lock (the observer needs it to adopt
+        # the new conversation), and the input is then delivered the ordinary way, by its own claim.
+        refused = self._wake(found.profile, request)
+        if refused is not None:
+            return refused
+        again = self._submit(request, on_checkpoint, False)
+        if isinstance(again, _WakeNeeded):
+            return self._unavailable(request, again.observed, managed=True)
+        return again
+
+    def _wake(self, profile: dict, request: InputRequest) -> InputResult | None:
+        """Open the asleep agent for this input. None when its session is bound now (deliver); else the deferral to answer with:
+        ``session_starting`` while the open runs, the open's own refusal when it cannot start (never a delivery, nothing recorded)."""
+        opener = self.opener
+        agent_id = request.agent_id
+        try:
+            if request.input_type in TURNS_ON:
+                opener.turn_on(agent_id)  # the owner's own input turns an off agent on
+            if not opener.wakeable(agent_id):
+                return InputResult(state=RESULT_DEFERRED, reason=SESSION_CLOSED, origin=request.origin, input_type=request.input_type)
+            state = opener.wake(profile, request.input_type, wait=request.input_type in WAKING_WAITS)
+        except DomainError as error:
+            return InputResult(state=RESULT_DEFERRED, reason=error.code, origin=request.origin, input_type=request.input_type)
+        if state == "waking":
+            return InputResult(state=RESULT_DEFERRED, reason=SESSION_STARTING, origin=request.origin, input_type=request.input_type)
+        return None
+
+    def _submit(self, request: InputRequest, on_checkpoint, wake: bool):
         profile = self._profile(request.agent_id)
         if profile is None:
             return self._refused(request, RESULT_REJECTED, "agent_unavailable")
@@ -127,7 +181,11 @@ class InputArbiter:
             observed = self.probe.observe(profile)
             reconciled = self.registry.reconcile(profile, observed)
             if reconciled.session is None or not reconciled.live:
-                return self._unavailable(request, observed, managed=profile.get("execution") == "managed")
+                managed = profile.get("execution") == "managed"
+                if (wake and managed and self.opener is not None and request.origin != ORIGIN_SYSTEM
+                        and request.input_type in WAKING_TYPES and observed.reason in NO_SESSION):
+                    return _WakeNeeded(profile, observed)
+                return self._unavailable(request, observed, managed=managed)
             session = reconciled.session
             if request.expected_binding and request.expected_binding != session["id"]:
                 return self._refused(request, RESULT_REJECTED, "stale_session", session)
@@ -357,4 +415,4 @@ class InputArbiter:
                                         metadata=dict(metadata or {})))
 
 
-__all__ = ["AgentLocks", "InputArbiter", "MANAGED_COMMAND", "NOT_TYPED", "SESSION_CLOSED", "StaleSession", "TERMINAL_COMMAND"]
+__all__ = ["AgentLocks", "InputArbiter", "MANAGED_COMMAND", "NOT_TYPED", "SESSION_CLOSED", "SESSION_STARTING", "StaleSession", "TERMINAL_COMMAND"]

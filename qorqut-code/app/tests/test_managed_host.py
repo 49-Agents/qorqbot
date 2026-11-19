@@ -553,19 +553,61 @@ class InterruptAndAnswerTest(ManagedTestCase):
         self.assertEqual(settle(client)["last_turn_status"], "interrupted")
         self.assertEqual(len(self.logged("interrupt")), 1)
 
-    def test_permission_request_is_state_and_answer_resumes_the_turn(self):
+    def answers(self):
+        return [record for record in self.logged("answer")]
+
+    def test_a_permission_request_is_denied_by_the_host_and_never_pending_when_the_launch_says_nothing(self):
         client = InProcessHost(self).ready()
         client.send("PERM write", new_uuid())
-        status = settle(client, "blocked")
-        pending = status["pending"]
-        self.assertEqual(len(pending), 1)
-        self.assertEqual((pending[0]["kind"], pending[0]["tool"], pending[0]["input"]), ("permission", "Write", {"file_path": "/tmp/x"}))
-        # a second, fresh client (a restarted service) reads the same pending state: it is state, not an event
-        self.assertEqual(HostClient(self.state).status()["pending"], pending)
-        reply = client.answer(pending[0]["request_id"], "allow")
-        self.assertEqual((reply["status"], reply["delivered"]), ("ok", True))
-        self.assertEqual(settle(client)["pending"], [])
-        self.assertEqual(self.logged("answer")[0]["decision"], "allow")
+        status = settle(client)
+        self.assertEqual((status["pending"], status["last_turn_status"]), ([], "completed"))
+        answered = self.answers()
+        self.assertEqual(len(answered), 1)
+        self.assertEqual(answered[0]["decision"]["behavior"], "deny")
+        self.assertIn("Qorqbot", answered[0]["decision"]["message"])
+        events = client.events()["events"]
+        self.assertEqual([(e["type"], e.get("decision"), e.get("delivered")) for e in events if e["type"] == "permission_answered"],
+                         [("permission_answered", "deny", True)])
+
+    def test_bypass_allows_and_anything_else_denies(self):
+        for mode, expected in (("bypass", True), ("bypassPermissions", {"behavior": "deny"}), (None, {"behavior": "deny"})):
+            with self.subTest(mode=mode):
+                self.log.unlink() if self.log.exists() else None
+                state = self.root / "managed-agents" / str(uuid.uuid4())
+                layout.private_directory(state)
+                changes = {} if mode is None else {"permission_mode": mode}
+                running = InProcessHost(self, state=state, agent_id=state.name, **changes)
+                client = running.ready()
+                client.send("PERM write", new_uuid())
+                status = settle(client)
+                self.assertEqual(status["pending"], [])
+                decision = self.answers()[0]["decision"]
+                if expected is True:
+                    self.assertIs(decision, True)
+                else:
+                    self.assertEqual(decision["behavior"], "deny")
+                client.close()
+                running.join()
+
+    def test_a_permission_the_driver_cannot_take_is_dropped_not_kept_for_the_owner(self):
+        client = InProcessHost(self).ready()
+        with mock.patch.object(FakeSession, "answer", side_effect=ValueError("bad")):
+            client.send("PERM write", new_uuid())
+            wait_for(lambda: [e for e in client.events()["events"] if e["type"] == "permission_answered"], message="the answer")
+        self.assertEqual(client.status()["pending"], [])
+        self.assertEqual([e["delivered"] for e in client.events()["events"] if e["type"] == "permission_answered"], [False])
+        FakeSession.last.close()
+
+    def test_a_question_is_still_pending_and_a_permission_in_the_same_turn_is_not(self):
+        client = InProcessHost(self, permission_mode="bypass").ready()
+        client.send("ASK me", new_uuid())
+        pending = settle(client, "blocked")["pending"]
+        self.assertEqual([(item["kind"], item["tool"]) for item in pending], [("question", "AskUserQuestion")])
+        FakeSession.last._emit("permission_request", request_id="req-extra", tool="Write", input={"file_path": "/tmp/y"}, tool_use_id="t")
+        wait_for(lambda: [e for e in client.events()["events"] if e["type"] == "permission_answered"], message="the answer")
+        self.assertEqual([item["kind"] for item in client.status()["pending"]], ["question"])
+        client.answer(pending[0]["request_id"], {"answers": {"Which?": "A"}})
+        settle(client)
 
     def test_question_is_answered_with_an_object_and_an_unknown_request_is_not_delivered(self):
         client = InProcessHost(self).ready()
@@ -578,7 +620,7 @@ class InterruptAndAnswerTest(ManagedTestCase):
 
     def test_an_interrupt_withdraws_the_pending_request(self):
         client = InProcessHost(self).ready()
-        client.send("PERM", new_uuid())
+        client.send("ASK", new_uuid())
         settle(client, "blocked")
         client.interrupt()
         status = settle(client)
@@ -764,7 +806,7 @@ class LifecycleTest(ManagedTestCase):
     def test_a_running_turn_or_a_pending_request_is_never_idle(self):
         running = InProcessHost(self, idle_seconds=0.4)
         client = running.ready()
-        client.send("PERM", new_uuid())
+        client.send("ASK", new_uuid())
         settle(client, "blocked")
         time.sleep(1.2)
         self.assertEqual(client.status()["phase"], "blocked")
@@ -878,6 +920,27 @@ class RoleTest(ManagedTestCase):
         running = InProcessHost(self, send_role="$role")
         settle(running.ready())
         self.assertEqual(self.sent_texts(), ["$role"])
+
+    def test_the_first_message_is_the_clients_role_command_and_the_client_is_published(self):
+        for client_name, role in (("codex", "$role"), (None, "/role")):
+            with self.subTest(client=client_name):
+                self.log.unlink() if self.log.exists() else None
+                state = self.root / "managed-agents" / str(uuid.uuid4())
+                layout.private_directory(state)
+                changes = {} if client_name is None else {"client": client_name}
+                running = InProcessHost(self, state=state, agent_id=state.name, send_role=True, **changes)
+                client = running.ready()
+                settle(client)
+                self.assertEqual(self.sent_texts(), [role])
+                self.assertEqual(client.hello()["client"], client_name or "claude")
+                self.assertEqual(layout.read_host(state)["client"], client_name or "claude")
+                client.close()
+                running.join()
+
+    def test_an_unknown_client_is_an_invalid_launch(self):
+        running = InProcessHost(self, client="gemini")
+        self.assertEqual(running.join(), layout.EXIT_CONFIG)
+        self.assertEqual(layout.read_host(self.state)["exit"]["reason"], "invalid_launch")
 
     def test_a_resumed_session_and_a_session_without_send_role_get_no_role(self):
         running = InProcessHost(self, send_role=True, resume_session_id=new_uuid())
@@ -1044,7 +1107,7 @@ class SubprocessHostTest(ManagedTestCase):
         self.assertEqual(client.send("nope", new_uuid())["reason"], "turn_running")
         self.assertEqual(client.interrupt()["sent"], True)
         self.assertEqual(settle(client)["last_turn_status"], "interrupted")
-        client.send("PERM go", new_uuid())
+        client.send("ASK go", new_uuid())
         pending = settle(client, "blocked")["pending"][0]
         self.assertEqual(client.answer(pending["request_id"], True)["delivered"], True)
         settle(client)
@@ -1377,7 +1440,7 @@ class IdleCloseRaceTest(ManagedTestCase):
 class AnswerRestrictionTest(ManagedTestCase):
     def test_only_allow_deny_and_answers_reach_the_driver(self):
         client = InProcessHost(self).ready()
-        client.send("PERM write", new_uuid())
+        client.send("ASK write", new_uuid())
         pending = settle(client, "blocked")["pending"][0]
         reply = client.answer(pending["request_id"], {"behavior": "allow", "updated_input": {"file_path": "/etc/passwd"},
                                                       "updated_permissions": [{"type": "addRules"}], "message": "ok", "extra": 1})
@@ -1386,7 +1449,7 @@ class AnswerRestrictionTest(ManagedTestCase):
 
     def test_a_decision_the_driver_refuses_is_a_bad_request_and_the_request_stays_pending(self):
         client = InProcessHost(self).ready()
-        client.send("PERM write", new_uuid())
+        client.send("ASK write", new_uuid())
         pending = settle(client, "blocked")["pending"][0]
         with mock.patch.object(FakeSession, "answer", side_effect=ValueError("an explicit allow or deny is required")):
             with self.assertRaises(HostUnavailable) as caught:
@@ -1397,34 +1460,35 @@ class AnswerRestrictionTest(ManagedTestCase):
 
 
 class BoundsTest(ManagedTestCase):
-    def emit_permission(self, request_id, **fields):
-        base = {"request_id": request_id, "tool": "Bash", "input": {"command": "ls"}, "input_truncated": False, "tool_use_id": "tu"}
-        FakeSession.last._emit("permission_request", **{**base, **fields})
+    """The hardening around what the owner is shown applies to questions now: ``pending`` never holds anything else."""
 
-    def test_pending_items_keep_the_full_input_up_to_a_bound_and_the_reason_and_path(self):
+    def emit_question(self, request_id, **fields):
+        questions = fields.pop("questions", [{"question": "Which?", "options": [{"label": "A"}]}])
+        base = {"request_id": request_id, "questions": questions, "input": {"questions": questions}, "input_truncated": False,
+                "tool_use_id": "tu"}
+        FakeSession.last._emit("question", **{**base, **fields})
+
+    def test_pending_items_keep_the_whole_question_up_to_a_bound(self):
         client = InProcessHost(self).ready()
-        command = "echo " + "x" * 12000
-        self.emit_permission("req-full", input={"command": command}, decision_reason="Command contains a redirect",
-                             blocked_path="/work/dir/file.txt")
+        questions = [{"question": "Which? " + "x" * 12000, "options": [{"label": "A"}]}]
+        self.emit_question("req-full", questions=questions)
         item = wait_for(lambda: client.status()["pending"] or None, message="the request")[0]
-        self.assertEqual(item["input"], {"command": command})
-        self.assertEqual((item["input_truncated"], item["decision_reason"], item["blocked_path"]),
-                         (False, "Command contains a redirect", "/work/dir/file.txt"))
-        self.assertEqual(item["tool"], "Bash")
+        self.assertEqual((item["kind"], item["tool"], item["questions"], item["input_truncated"]),
+                         ("question", "AskUserQuestion", questions, False))
 
-    def test_an_oversized_request_cannot_make_status_unreadable_and_its_id_survives_in_the_log(self):
+    def test_an_oversized_question_cannot_make_status_unreadable_and_its_id_survives_in_the_log(self):
         client = InProcessHost(self).ready()
-        self.emit_permission("req-huge", suggestions=[{"type": "addRules", "rules": ["y" * 200000]}] * 30,
-                             input={"command": "z" * 300000}, title="t" * 100000)
+        self.emit_question("req-huge", suggestions=[{"type": "addRules", "rules": ["y" * 200000]}] * 30,
+                           questions=[{"question": "q" * 300000}], title="t" * 100000)
         item = wait_for(lambda: client.status()["pending"] or None, message="the request")[0]
         self.assertEqual(item["request_id"], "req-huge")
         self.assertLessEqual(len(json.dumps(item)), host_module.MAX_PENDING_ITEM_BYTES)
-        self.assertTrue(item["input_truncated"] or item["input"] is None or len(json.dumps(item["input"])) < 300000)
+        self.assertTrue(item["input_truncated"])
         self.assertLess(len(protocol.encode(client.status())), protocol.MAX_LINE)
         self.assertEqual(client.answer("req-huge", False)["delivered"], False)           # the fake does not know it; the host copes
-        events = [e for e in client.events()["events"] if e["type"] == "permission_request"]
+        events = [e for e in client.events()["events"] if e["type"] == "question"]
         self.assertEqual(events[-1]["request_id"], "req-huge")
-        logged = [e for e in layout.read_events_file(self.state) if e["type"] == "permission_request"]
+        logged = [e for e in layout.read_events_file(self.state) if e["type"] == "question"]
         self.assertEqual(logged[-1]["request_id"], "req-huge")
         self.assertLess((self.state / layout.EVENTS_FILE).stat().st_size, 256 * 1024)
 
@@ -1439,11 +1503,10 @@ class BoundsTest(ManagedTestCase):
         self.assertNotIn("big", stored)
         log.close()
 
-    def test_many_oversized_requests_still_fit_in_a_status_reply(self):
+    def test_many_oversized_questions_still_fit_in_a_status_reply(self):
         client = InProcessHost(self).ready()
         for index in range(host_module.MAX_PENDING):
-            self.emit_permission("req-%d" % index, input={"command": "c" * 15000}, title="t" * 400, decision_reason="r" * 400,
-                                 suggestions=[{"type": "addRules", "rules": ["s" * 1900]}] * 4)
+            self.emit_question("req-%d" % index, questions=[{"question": "c" * 15000}], title="t" * 400)
         status = wait_for(lambda: (lambda s: s if len(s["pending"]) == host_module.MAX_PENDING else None)(client.status()),
                           message="all requests")
         self.assertLess(len(protocol.encode(status)), protocol.MAX_LINE)
@@ -1453,17 +1516,20 @@ class BoundsTest(ManagedTestCase):
 
     def test_the_event_log_keeps_neither_result_text_nor_tool_input_but_status_has_what_the_ui_needs(self):
         client = InProcessHost(self).ready()
-        client.send("PERM write", new_uuid())
+        client.send("ASK write", new_uuid())
         pending = settle(client, "blocked")["pending"][0]
-        self.assertEqual(pending["input"], {"file_path": "/tmp/x"})
+        self.assertEqual(pending["questions"], [{"question": "Which?"}])
         client.answer(pending["request_id"], True)
+        settle(client)
+        client.send("PERM write", new_uuid())
         settle(client)
         for text in (json.dumps(client.events()["events"]), (self.state / layout.EVENTS_FILE).read_text()):
             self.assertNotIn("RESULT-TEXT-SECRET", text)
             self.assertNotIn("/tmp/x", text)
-        types = [e["type"] for e in client.events()["events"]]
-        self.assertIn("permission_request", types)
-        self.assertEqual([e for e in client.events()["events"] if e["type"] == "permission_request"][0]["request_id"], pending["request_id"])
+        events = client.events()["events"]
+        self.assertEqual([e["request_id"] for e in events if e["type"] == "question"], [pending["request_id"]])
+        self.assertEqual(len([e for e in events if e["type"] == "permission_request"]), 1)
+        self.assertEqual(len([e for e in events if e["type"] == "permission_answered"]), 1)
 
 
 class HostEnvironmentFileTest(ManagedTestCase):

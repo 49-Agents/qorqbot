@@ -56,7 +56,9 @@ async function globalAgentsNavigate(agentId, options = {}) {
 const GLOBAL_WORKSPACE_TERMINAL = '__qorqut_workspace_terminal__';
 // One owner shell keeps the original id, route and tmux session. Older saved or
 // linked Terminal 2/3 selections open it instead; their sessions and routes are untouched.
-const globalWorkspaceTerminal = id => /^__qorqut_workspace_terminal(?:_[23])?__$/.test(id || '')
+// `globalWorkspaceTerminalId` only recognizes a saved or linked id, whether or not the page still offers that entry.
+const globalWorkspaceTerminalId = id => /^__qorqut_workspace_terminal(?:_[23])?__$/.test(id || '');
+const globalWorkspaceTerminal = id => globalWorkspaceTerminalId(id)
   ? {id: GLOBAL_WORKSPACE_TERMINAL, label: 'Terminal', base: '/root/workspace-terminal'} : null;
 // Ordubashy and Learning Applier are singletons; any number of permanent workers share `global-worker`.
 const GLOBAL_AGENT_ROLES = ['ordubashy', 'global-worker', 'learning-applier'];
@@ -215,11 +217,15 @@ async function renderGlobalAgents(c) {
       </div>
     </section>
     <section class="global-agent-session" aria-label="Agent session"><div class="chat termmode" id="global-agent-terminal"></div></section>
-    <div class="agent-pane-divider" data-agent-pane-divider role="separator" aria-label="Terminal and agent pane divider" aria-orientation="vertical" tabindex="0"></div>
+    <div class="agent-pane-divider" data-agent-pane-divider role="separator" aria-label="Chat and agent pane divider" aria-orientation="vertical" tabindex="0"></div>
     <aside class="tasks agpad" id="agpad" aria-label="Agent pane"></aside>
   </div>`;
   const navTimeline=wireGlobalAgentNavOverlay($('.global-agents', c));
   const list = $('#global-agent-list', c), pane = $('#global-agent-terminal', c), nav = $('.listcol', c);
+  // The owner's workspace shell is an entry of this menu. A saved selection or a link that names it while the menu has no such entry
+  // (or any other id that no longer exists) is not an error: it falls back to Ordubashy without a message.
+  const hasWorkspaceShell = () => !!nav.querySelector(`[data-global-agent="${GLOBAL_WORKSPACE_TERMINAL}"]`);
+  const workspaceShell = id => hasWorkspaceShell() ? globalWorkspaceTerminal(id) : null;
   const comingSoon = $('#overseer-coming-soon', c);
   const comingSoonError = $('.overseer-coming-soon-error', comingSoon);
   const comingSoonRetry = $('.overseer-coming-soon-retry', comingSoon);
@@ -255,7 +261,7 @@ async function renderGlobalAgents(c) {
   };
 
   // ---- selection
-  // Global Chat displays the same native conversation as Terminal. Switching views only changes the UI.
+  // Selecting an agent mounts its Chat and its agent pane; the backend session is never started or stopped by selecting.
   const disposeChat = () => agentViewDispose();
   const root = $('.global-agents', c);
   let gated = false;
@@ -273,7 +279,7 @@ async function renderGlobalAgents(c) {
   };
   const enterComingSoon = () => {
     gated = true;
-    // Release only this browser view. The backend agent session, terminal process,
+    // Release only this browser view. The backend agent session,
     // permissions and saved data stay exactly as they were.
     disposeChat();
     if (typeof agpadDispose === 'function') agpadDispose();
@@ -302,7 +308,7 @@ async function renderGlobalAgents(c) {
   const select = (agent, requestedView = null, remember = true, leaveChecked = false) => {
     if (!current()) return;
     const selection = leaveChecked || ++selectionVersion;
-    const workspace = typeof agent === 'string' ? globalWorkspaceTerminal(agent) : null;
+    const workspace = typeof agent === 'string' ? workspaceShell(agent) : null;
     const id = workspace ? workspace.id : agent?.agent_id;
     if (!id) return;
     const comingSoonTarget = !workspace && overseerRole(agent) && !testingModeEnabled();
@@ -333,7 +339,7 @@ async function renderGlobalAgents(c) {
     leaveComingSoon();
     pane.dataset.agentPane = workspace ? 'off' : 'on';
     disposeChat();
-    if (!workspace) mountAgentView(pane, agent, {terminal: {key: agent.agent_id, base: `/root/terminal/${encodeURIComponent(agent.agent_id)}`}, isCurrent: () => current() && selected === agent.agent_id});
+    if (!workspace) mountAgentView(pane, agent, {isCurrent: () => current() && selected === agent.agent_id});
     else mountTerminal(selected, pane, () => {}, workspace.base);
     agpadMount(workspace ? '' : (agent.display_name || agent.name), $('#agpad', c), workspace ? {
       biz: null, open: false, isCurrent: () => false,
@@ -368,7 +374,7 @@ async function renderGlobalAgents(c) {
     if (!button) return;
     const id = button.dataset.globalAgent;
     if (event.ctrlKey || event.metaKey) { event.preventDefault(); agentOpenTab(id); return; }
-    select(globalWorkspaceTerminal(id) ? GLOBAL_WORKSPACE_TERMINAL : agents.find(a => a.agent_id === id));
+    select(workspaceShell(id) ? GLOBAL_WORKSPACE_TERMINAL : agents.find(a => a.agent_id === id));
   };
   $('.global-agents', c).openAgent = async (id, {chat = false, view = null, viewboxItem = null} = {}) => {
     ++selectionVersion;
@@ -379,12 +385,11 @@ async function renderGlobalAgents(c) {
     const selectedRequest = select(agent, gateTarget ? null : view), selection = selectionVersion;
     const selectedResult = await selectedRequest;
     // A cancelled unsaved-edit prompt, the Testing mode gate or a newer selection
-    // must stay where it is; no chat, terminal or workspace control is focused.
+    // must stay where it is; no chat or workspace control is focused.
     if (selection !== selectionVersion || selectedResult === false || !current() || selected !== id || gated || _agpad?.agentId !== id) return false;
     if (!gateTarget && view && agpadShownView(_agpad) !== view) return false;
     if (viewboxItem) agviewboxReveal(_agpad, viewboxItem);
     if (chat) {
-      pane.querySelector('[data-chat-return]:not(:disabled)')?.click();
       pane.querySelector('.gchat-jump')?.click();
       pane.querySelector('.gchat-composer textarea')?.focus({preventScroll: true});
     }
@@ -402,7 +407,9 @@ async function renderGlobalAgents(c) {
   const fresh = !!request;
   if (!request && !linkedAgent && !linkedFocus) request = agentWorkspaceRehydrate();
   const remembered = request?.agentId || linkedAgent || (linkedFocus ? agents.find(a => a.role?.id === 'ordubashy')?.agent_id : ls('ag:scope:global'));
-  const target = globalWorkspaceTerminal(remembered) ? GLOBAL_WORKSPACE_TERMINAL : agents.find(a => a.agent_id === remembered);
+  const savedShell = globalWorkspaceTerminalId(remembered), staleShell = savedShell && !hasWorkspaceShell();
+  if (staleShell) request = null;
+  const target = savedShell ? (staleShell ? undefined : GLOBAL_WORKSPACE_TERMINAL) : agents.find(a => a.agent_id === remembered);
   // A stored Business descriptor for an agent whose pane no longer offers it opens the shared Tables for a table selection,
   // and is otherwise dropped, leaving the agent on its own default view.
   if (request?.view === 'business' && target && !agentWorkspaceDescriptorRole('business', target.role?.id)) {
@@ -417,13 +424,15 @@ async function renderGlobalAgents(c) {
     return;
   }
   // A saved or linked agent that is no longer an active global opens nothing of its own.
-  if (remembered && !target) toast(GLOBAL_AGENT_UNAVAILABLE);
+  if (remembered && !target && !staleShell) toast(GLOBAL_AGENT_UNAVAILABLE);
   // ?workspace= links translate at this boundary: Tables is a drawer tab (it opens Global's list); Calendar became a request above.
   let linkedView = linkedWorkspace;
   if (linkedView === 'calendar') linkedView = null;
   else if (linkedView === 'tables') { linkedView = null; globalThis.ovOpen?.('tables', {scope: 'global'}); }
   agentWorkspaceRequest = request;
   agentWorkspaceApplied = JSON.stringify(request || null);
-  select(target || agents.find(a => a.role?.id === 'ordubashy') || agents[0] || GLOBAL_WORKSPACE_TERMINAL, request?.view || linkedView);
+  const first = target || agents.find(a => a.role?.id === 'ordubashy') || agents[0] || (hasWorkspaceShell() ? GLOBAL_WORKSPACE_TERMINAL : null);
+  if (first) select(first, request?.view || linkedView);
+  else pane.innerHTML = '<p class="muted" role="status">No agents are available.</p>';
   agentWorkspaceRequest = null;
 }

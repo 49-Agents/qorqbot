@@ -125,7 +125,7 @@ class HelperTests(Fixture):
 
     def test_an_unreadable_tools_folder_with_the_real_install_module_is_just_not_managed(self):
         root = self.base / "folder"
-        program(root / "tools/claude-2.1.269/claude")
+        program(root / "tools/claude-2.1.327/claude")
         (root / "tools").chmod(0)
         self.addCleanup((root / "tools").chmod, 0o755)
         if os.access(root / "tools", os.R_OK | os.X_OK):

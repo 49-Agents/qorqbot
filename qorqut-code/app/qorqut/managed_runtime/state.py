@@ -45,7 +45,7 @@ STATES = ("starting", "ready", "closing", "closed", "failed")
 LIVE_STATES = ("starting", "ready", "closing")
 HOST_FIELDS = ("schema_version", "agent_id", "instance", "host_pid", "host_identity", "protocol", "state", "started_at",
                "session_id", "transcript_path", "claude_pid", "claude_identity", "last_activity_at", "socket_path",
-               "socket_fallback", "exit")
+               "socket_fallback", "exit", "client")
 
 SOCKET_PATH_LIMIT = 104     # macOS; Linux allows 108
 HOST_RECORD_LIMIT = 64 * 1024

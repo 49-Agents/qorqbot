@@ -12,8 +12,9 @@ dashboard tells the owner when a newer release exists and links to the download
 page (`docs/ACCOUNT.md`), but there is no automatic download, automatic apply or
 extension marketplace.
 
-Stop the application and its agent terminals first. The updater takes both the
-launcher and instance lifetime locks, refuses running terminals, validates the
+Stop the application first. The updater takes both the launcher and instance
+lifetime locks, closes any agent sessions that are still open (they start again
+when the agent is next messaged) and refuses if one cannot be closed, validates the
 archive paths and payload hashes, closes the agents' own browsers (the application starts them again on its next start),
 refuses any other detached installation-owned browser/helper processes, including system executables,
 and checks the current database identity.

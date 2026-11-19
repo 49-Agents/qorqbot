@@ -45,7 +45,7 @@ import time
 import urllib.request
 
 PROVIDERS = ('claude', 'codex')
-VERSIONS = {'claude': '2.1.269', 'codex': '0.154.0'}
+VERSIONS = {'claude': '2.1.327', 'codex': '0.154.0'}
 EXECUTABLE_ENVIRONMENT = {'claude': 'QORQUT_CLAUDE_EXECUTABLE', 'codex': 'QORQUT_CODEX_EXECUTABLE'}
 NAMES = {'claude': 'Claude Code', 'codex': 'Codex'}
 # What `<binary> --version` prints, so a download that does not run (or is another version) installs nothing.
@@ -64,15 +64,15 @@ STALE_WORK = 3600            # seconds without a change before a leftover downlo
 # that becomes the installed folder; ``entry`` is the program, relative to it.
 _TARGETS = {
     'claude': {
-        'darwin-arm64': ('@anthropic-ai/claude-code-darwin-arm64/-/claude-code-darwin-arm64-2.1.269.tgz',
-                         'xZjM2thYhj79vsSYqgbqR4vNmgcxv3r0ZiEPkLUiZiSonzTkok0QghEg+jJV0nEFA1c+yH3jEDxUGjSAesaoew==',
-                         88971226, 203150817, 'package/'),
-        'darwin-x64': ('@anthropic-ai/claude-code-darwin-x64/-/claude-code-darwin-x64-2.1.269.tgz',
-                       'oK3VSmkZc8jTe/Hb/e39zZ7rl4b3ubtImvsZtEERurZGfMkP7rX48O0X2jc2UDnkJFroFNP/gIF/sEHgergBVg==',
-                       92993530, 211925305, 'package/'),
-        'linux-x64': ('@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-2.1.269.tgz',
-                      'Ti+9oKbf2p9pJuMMj1Fv+6YzljREpy9cx6SN7NV7Zik/vaaXPxC8u+cDiGF7HnPPJ5HsLbmwKoh3BnE3IhdAeQ==',
-                      98754406, 219652154, 'package/'),
+        'darwin-arm64': ('@anthropic-ai/claude-code-darwin-arm64/-/claude-code-darwin-arm64-2.1.327.tgz',
+                         'LAK6PYjIZLxLMqhjj/R4bexyKqItk8RXtyUpIHPpgs3opSBzNb7AszbbN3hfdyoyf0VacA2hThVsnDkkpz9R7g==',
+                         160673864, 354515681, 'package/'),
+        'darwin-x64': ('@anthropic-ai/claude-code-darwin-x64/-/claude-code-darwin-x64-2.1.327.tgz',
+                       'QNGpfnwjftqzx1otsZjD9f+PAyo7PBomfnB+yNBgZ911o/1ERu9S5n5oNL3jeJTGV2pLbrVRCx/yg2X4/zkqOA==',
+                       167418786, 369296313, 'package/'),
+        'linux-x64': ('@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-2.1.327.tgz',
+                      'uJ24I+t47cpQjeo31ZrHepsFQ8QUsLjCxmDxLshMjYHEtoxhQdgKc4iuViQDaKpFqn3puR85gwHlLj4e7s+1iQ==',
+                      172287003, 372905050, 'package/'),
     },
     'codex': {
         'darwin-arm64': ('@openai/codex/-/codex-0.154.0-darwin-arm64.tgz',

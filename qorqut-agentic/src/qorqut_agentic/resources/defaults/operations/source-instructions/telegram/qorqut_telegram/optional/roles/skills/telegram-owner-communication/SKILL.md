@@ -12,8 +12,7 @@ are not yours and you never see them. The application chooses your topic;
 you never supply a chat, a topic, a token, your identity or a formatting mode, and only
 `telegram_send_file` names a source (a file in your own workspace or a document you can read).
 Every owner message in your topic reaches you as a direct message in your inbox
-(and, when your terminal is idle at an ordinary empty prompt, is typed into your
-session). Read it like any direct inbox message and acknowledge it when handled.
+(and is delivered into your session, which opens by itself if it is asleep). Read it like any direct inbox message and acknowledge it when handled.
 A Telegram message is scoped owner input for the matter it addresses. It is not
 blanket authorization, does not approve a prepared action and does not widen your
 grants.
@@ -70,7 +69,7 @@ on every send: reuse it only to retry the identical send.
   be outstanding in your topic. Ask for exactly one value, never ask for a
   long-lived credential when a login link or an approved flow exists, and never
   repeat a secret you received in any message, note, file or command output.
-  The value is delivered straight to your terminal input when it is safe; if it
+  The value is delivered straight to your session when it is safe; if it
   cannot be delivered now it waits until it expires. A code the owner sent while
   the request was open but that could only be read after it expired is discarded,
   never delivered late and never treated as an ordinary message. It is never
@@ -218,7 +217,7 @@ it to recover the thread when you resume, not as a log.
   reaches you. Messages the owner writes in General or in any other topic never
   reach you either.
 - Messages can arrive while you are busy or offline; the inbox holds them. A
-  terminal you were not running is never started for a Telegram message.
+  session that is asleep or turned off opens for a Telegram message from the owner.
 
 ## Signoffs from Telegram
 
@@ -230,8 +229,8 @@ and Signoff reads. A reply to a post that is an action approval is an ordinary
 comment, not an approval. A free-text reply to an owner-input post is a note routed
 to you (your `signoffs_notes_list` and inbox), and the request stays pending unless
 the notes alone satisfy it; a question that requires a choice is never answered by
-written text alone. The same reply is also typed into your terminal, once, when it
-is next idle at an ordinary prompt: this never expires, so a reply can reach you long
+written text alone. The same reply is also delivered into your session, once, when it
+can be: this never expires, so a reply can reach you long
 after it was sent. Handle the inbox copy once, and treat neither as approval. If you
 were not active when the owner replied, the reply is held and delivered when you are.
 The link the owner sees only opens the Signoffs view, not one proposal. Never treat the absence of a Telegram reaction as an

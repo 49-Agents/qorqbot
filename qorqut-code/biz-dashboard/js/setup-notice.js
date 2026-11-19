@@ -13,8 +13,15 @@ const setupNotice = (() => {
   // page's controls; any `.setup-notice` added straight to the body is moved into it.
   function stack() {
     let host = document.querySelector('.setup-notices');
-    if (!host) { host = document.createElement('div'); host.className = 'setup-notices'; document.body.append(host); }
+    if (!host) { host = document.createElement('div'); host.className = 'setup-notices'; document.body.append(host); watchHeight(host); }
     return host;
+  }
+  // The app's toast messages sit in the same corner (css/app.css `.toasts`): they stand above the notices by this much.
+  function watchHeight(host) {
+    const root = document.documentElement;
+    const paint = () => root.style.setProperty('--notices-h', host.offsetHeight ? `${host.offsetHeight + 8}px` : '0px');
+    if (typeof ResizeObserver === 'function') new ResizeObserver(paint).observe(host);
+    paint();
   }
   function gather() {
     if (typeof MutationObserver !== 'function' || !document.body) return;

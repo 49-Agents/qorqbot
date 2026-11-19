@@ -17,7 +17,6 @@ import json
 from contextlib import nullcontext
 import logging
 from pathlib import Path
-import threading
 import time
 import uuid
 
@@ -31,6 +30,7 @@ from .adapters import CodexQueueAdapter, ManagedAdapter, TerminalAdapter
 from .attachment import AttachmentService
 from .arbiter import AgentLocks, InputArbiter, MANAGED_COMMAND, SESSION_CLOSED, TERMINAL_COMMAND
 from .captures import Indexer
+from .opener import SessionOpener, WAKE_TEXT
 from .contracts import (EXECUTION_MANAGED, EXECUTION_TERMINAL, InputRequest, NativeChatError, PROVIDER_RUNTIMES, PROVIDERS,
                         RESULT_DEFERRED, RESULT_REJECTED, TYPE_CHAT, managed_menu_command)
 from .probe import (BINDING, ProbeResult, REASON_CAPTURE_DISABLED, REASON_CAPTURE_NOT_READY, REASON_LIVE, REASON_NO_MARKER,
@@ -105,7 +105,7 @@ _OPEN_REFUSALS = {
 _OWN_MESSAGE = frozenset({"cli_unavailable", "resume_unavailable"})
 _OPEN_FAILED = ("driver_unavailable", "The session could not be started")
 # The fields of the managed state Chat shows (the dashboard reads exactly these under ``session.managed``).
-MANAGED_FIELDS = ("open", "phase", "activity", "turn_started_at", "can_stop", "pending", "last_turn_status", "closed_reason", "closed_text")
+MANAGED_FIELDS = ("open", "phase", "activity", "turn_started_at", "can_stop", "pending", "last_turn_status", "closed_reason", "closed_text", "off")
 # An answer to a permission request, or to a question: ``{"answers": {<question text>: <answer text>}}``.
 ANSWER_DECISIONS = ("allow", "deny")
 RUNTIME_MODES = (EXECUTION_TERMINAL, EXECUTION_MANAGED)
@@ -124,10 +124,14 @@ class NativeChat:
         self.transcripts = ArchiveTranscripts(runtime, indexer)
         # One instance for the life of the runtime, on the same per-agent locks as the arbiter and the backend, so Chat sends,
         # selection, reconnect, raw terminal input and controller lifecycle are never driven by two threads at once.
-        self.attachment = AttachmentService(runtime, probe, getattr(arbiter, "locks", None) or AgentLocks())
-        # The pinless message that last opened (or tried to open) each managed agent's session: ``agent_id -> (key, expires)``. A
-        # retry of it, after the open gave up while the host kept starting, is admitted for the session that has come up.
-        self._opens, self._opens_guard = {}, threading.Lock()
+        self.attachment_locks = getattr(arbiter, "locks", None) or AgentLocks()
+        self.attachment = AttachmentService(runtime, probe, self.attachment_locks)
+        # The one opener of a managed agent's session, for the owner's message and for every other input source (``opener.py``);
+        # the arbiter wakes an asleep agent through it, and so do the nudge pass, reminders and Telegram's retry.
+        self.opener = SessionOpener(runtime, managed_of=lambda: self.managed, probe=probe, registry=registry, locks=self.attachment_locks,
+                                    wake=lambda: self.backend.wake(), adopt=lambda profile: self.follow_terminal(profile), failure=self._open_failure,
+                                    limits=lambda: (OPEN_TOTAL_SECONDS, OPEN_POLL_SECONDS, ROLE_GRACE_SECONDS, OPEN_RECORD_SECONDS))
+        self.arbiter.opener = self.opener
         self.backend.follow_terminal = self.follow_terminal
 
     @classmethod
@@ -274,7 +278,17 @@ class NativeChat:
         summary["open"] = bool(found.get("open"))
         summary["can_stop"] = bool(found.get("can_stop"))
         summary["pending"] = [dict(item) for item in found.get("pending") or () if isinstance(item, dict)]
+        # ``off``: the owner ended this agent's session (or Ordubashy killed the worker) and nothing but the owner's own input
+        # starts it again. A closed session that is not off is asleep: anything that reaches the agent opens it.
+        summary["off"] = self._is_off(profile["agent_id"])
         return summary
+
+    def _is_off(self, agent_id: str) -> bool:
+        try:
+            return self.opener.is_off(agent_id)
+        except Exception:  # noqa: BLE001 - a read of the view never fails because of this flag
+            LOG.debug("The on/off state of %s is unavailable", agent_id, exc_info=True)
+            return False
 
     def state(self, principal_id: str, agent_id: str, *, before: int | None = None, limit: int = 50,
               conversation: str | None = None, provider: str | None = None) -> dict:
@@ -431,6 +445,7 @@ class NativeChat:
     def upload(self, principal_id, agent_id, key, expected_binding, name, data):
         from . import uploads
         uploads.validate(key, name, data)
+        expected_binding = self._session_for_upload(principal_id, agent_id, key, expected_binding)
         with self.runtime.application.writer_admission.writer(), self.arbiter.locks(agent_id):
             with self.database.read() as uow:
                 profile = self._target(uow, principal_id, agent_id)
@@ -448,6 +463,17 @@ class NativeChat:
             if not expected_binding or session["binding"]["binding_id"] != expected_binding:
                 raise DomainError("terminal_changed", "The agent conversation changed; send again")
             return uploads.save(self.runtime.root, profile, principal_id, expected_binding, key, name, data)
+
+    def _session_for_upload(self, principal_id, agent_id, key, expected_binding):
+        """A file for an asleep managed agent is owner input like a message: it turns the agent on and opens its session (nothing is
+        held while it opens), and the file is attached to the binding that comes up, whatever the page last saw. Any other
+        agent, and a session that is open, keep the binding the caller named."""
+        with self.database.read() as uow:
+            profile = self._target(uow, principal_id, agent_id)
+        if (profile.get("execution") != EXECUTION_MANAGED or self.managed is None or self._managed_summary(profile)["open"]
+                or not self._asleep(profile)):
+            return expected_binding  # a host that is up but not bound yet is the caller's ``binding_not_ready``, as before
+        return self.opener.open(profile, WAKE_TEXT, "upload:" + key)
 
     def thread_upload_target(self, principal_id):
         from qorqut.management.identity import private_participants
@@ -501,12 +527,19 @@ class NativeChat:
         if new_conversation and profile.get("execution") != EXECUTION_MANAGED:
             raise DomainError("validation_error", "A new conversation can only be started for an agent Qorqbot runs")
         opened = False
+        if (expected_binding is not None and not new_conversation and profile.get("execution") == EXECUTION_MANAGED
+                and self._asleep(profile)):
+            # A pin names a session that has since closed (idle close, a restart): the agent is asleep, so this is the message that
+            # starts it, exactly as one without a pin. A pin for a live session of another conversation is still refused below.
+            expected_binding = None
         if expected_binding is None:
             if profile.get("execution") != EXECUTION_MANAGED:
                 raise DomainError("validation_error", "The binding_id of the session being written to is required")
             expected_binding, opened = self._binding_for_open(profile, principal_id, text, key, new_conversation)
         elif new_conversation:
             raise DomainError("validation_error", "A new conversation can only be started when no session is open")
+        elif profile.get("execution") == EXECUTION_MANAGED:
+            self.opener.turn_on(agent_id)  # owner input turns the agent on, whatever the session state
         request = InputRequest(agent_id, TYPE_CHAT, store.chat_source_key(principal_id, key), text, wait=True,
                                principal_id=principal_id, expected_binding=expected_binding, steer=True)
         try:
@@ -556,60 +589,27 @@ class NativeChat:
                 raise DomainError("session_closed", "There is no open session to end")
         return self._open_session(profile, text, key, new_conversation), True
 
+    def _asleep(self, profile: dict) -> bool:
+        """Whether this managed agent has no verified live session now (nothing opens or writes)."""
+        with self.arbiter.locks(profile["agent_id"]):
+            return not self.registry.reconcile(profile, self.probe.observe(profile)).live
+
     def _opened_by(self, agent_id: str, key: str) -> bool:
-        with self._opens_guard:
-            found = self._opens.get(agent_id)
-            return found is not None and found[0] == key and found[1] > time.monotonic()
+        return self.opener.opened_by(agent_id, key)
 
     def _open_session(self, profile: dict, text: str, key: str, new_conversation: bool = False) -> str:
         """Start (or find) this managed agent's host, get the owner's message to it, and wait until its session is bound with a
         transcript Chat can show. The binding id is the pin the message is then admitted for. ``DomainError`` with a refusal code
         when it cannot be opened; nothing was admitted then, and the host (if it started) keeps starting for the retry.
 
-        One shared deadline (``OPEN_TOTAL_SECONDS``) covers the host's readiness, another caller's open it had to wait for, and the
-        binding. The binding cannot appear before Claude has taken up a first message (the hooks that make the marker run only
-        then, and a transcript file does not exist before it), so: a fresh session is given ``ROLE_GRACE_SECONDS`` to bind from the
-        ``/role`` its host sends, and when it does not (the role prompt was blocked, or Claude is slow) or when the session was
-        resumed (no role is sent) the owner's message is delivered to the host directly, with a uuid derived from the request. The
-        input admitted afterwards carries the same uuid, which the host recognises as already taken: it is typed once, and a retry
-        of the same request can neither send it twice nor open a second host. The file is never waited for, only the binding."""
-        agent_id = profile["agent_id"]
-        if self.managed is None:
-            raise DomainError(*_OPEN_FAILED)
-        with self._opens_guard:
-            self._opens[agent_id] = (key, time.monotonic() + OPEN_RECORD_SECONDS)
-        deadline = time.monotonic() + OPEN_TOTAL_SECONDS
-        try:
-            opened = self.managed.ensure_open(profile, timeout=OPEN_TOTAL_SECONDS, new_conversation=new_conversation)
-        except DomainError as error:
-            raise self._open_failure(error) from None
-        message_uuid = self.managed.first_message_uuid(agent_id, key, text)
-        role_pending = bool((opened or {}).get("role_pending"))
-        deliver_at, delivered = time.monotonic() + (ROLE_GRACE_SECONDS if role_pending else 0.0), False
-        while True:
-            self.backend.wake()
-            try:
-                self.follow_terminal(profile)
-            except Exception:  # noqa: BLE001 - the observer pass retries; adoption is not this call's failure
-                LOG.debug("Adoption of the new session of %s deferred", agent_id, exc_info=True)
-            with self.arbiter.locks(agent_id):
-                observed = self.probe.observe(profile)
-                reconciled = self.registry.reconcile(profile, observed)
-            if reconciled.live and reconciled.session is not None:
-                capture = observed.observation is not None and observed.observation.capture_enabled
-                # The transcript path the session row carries is where the file will be, not a file that exists yet.
-                if reconciled.session["transcript_path"] or not capture:
-                    return reconciled.session["id"]
-            now = time.monotonic()
-            if not delivered and now >= deliver_at:
-                try:
-                    self.managed.send_first(agent_id, text, message_uuid, deadline)
-                except DomainError as error:
-                    raise self._open_failure(error) from None
-                delivered = True
-            if now >= deadline:
-                raise DomainError(*_OPEN_REFUSALS["open_timeout"], retryable=True)
-            time.sleep(OPEN_POLL_SECONDS)
+        The flow is the opener's (``SessionOpener.open``), shared with every other input source: one shared deadline
+        (``OPEN_TOTAL_SECONDS``) covers the host's readiness, another caller's open it had to wait for, and the binding. The binding
+        cannot appear before Claude has taken up a first message, so a fresh session is given ``ROLE_GRACE_SECONDS`` to bind from
+        the ``/role`` its host sends, and when it does not or when the session was resumed (no role is sent) the owner's message is
+        delivered to the host directly, with a uuid derived from the request. The input admitted afterwards carries the same
+        uuid, which the host recognises as already taken: it is typed once, and a retry of the same request can neither send it
+        twice nor open a second host. Opening turns the agent on."""
+        return self.opener.open(profile, text, key, new_conversation)
 
     @staticmethod
     def _open_failure(error: DomainError) -> DomainError:
@@ -726,13 +726,20 @@ class NativeChat:
         return {"answered": True}
 
     def close(self, principal_id: str, agent_id: str, expected_binding=None) -> dict:
-        """End the managed agent's open session (its host closes the Claude session and exits). ``{"closing": bool}``: false when
-        no session was open. The optional pin must name the live session. Resuming is a message away; nothing is deleted."""
+        """End the managed agent's open session (its host closes the Claude session and exits) and turn the agent off.
+        ``{"closing": bool}``: false when no session was open. The optional pin must name the live session. Resuming is a message
+        away (the owner's input in Chat or Telegram turns it on again); nothing is deleted."""
         with self.arbiter.locks(agent_id):
             self._managed_session(principal_id, agent_id, expected_binding, pinned=False)
+            # The owner's End session turns the agent off: the intent is recorded before the effect, and put back when the close
+            # fails, so nothing but the owner's own input (Chat, Telegram) starts it again.
+            before = self.opener.desired(agent_id)
+            self.opener.turn_off(agent_id)
             try:
                 closing = bool(self.managed.close(agent_id, "graceful"))
             except DomainError as error:
+                if before is not None:
+                    self.opener.set_desired(agent_id, before)
                 raise self._control_failure(error) from None
         self.backend.wake()
         return {"closing": closing}

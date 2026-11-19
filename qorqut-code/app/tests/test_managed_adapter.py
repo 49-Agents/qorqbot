@@ -11,6 +11,7 @@ import shutil
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 import uuid
 
 from qorqut_operations.contracts import DomainError
@@ -167,16 +168,27 @@ class Deferrals(Fixture):
         self.assertOutcome(self.submit(Managed(host(self.client(status_reply=status(state="failed"))))), "failed", "driver_unavailable")
         self.assertUntouched()
 
-    def test_only_claude_code_is_managed(self):
-        for runtime in ("codex", None):
-            with self.subTest(runtime=runtime):
-                profile = {**PROFILE, "profile_json": json.dumps({"runtime": runtime})}
-                self.assertOutcome(self.submit(Managed(host(self.client())), profile=profile), "failed", "unsupported_runtime")
-        self.assertOutcome(self.submit(Managed(host(self.client())), session={**SESSION_ROW, "provider": "codex"}),
-                           "failed", "unsupported_runtime")
-        self.assertOutcome(self.submit(Managed(host(self.client())), profile={"agent_id": AGENT, "profile_json": "not json"}),
+    def test_the_profile_runtime_does_not_decide_the_client_does(self):
+        # The profile says codex (or nothing, or garbage) but the bound session is Claude's: the input is delivered.
+        for profile in ({**PROFILE, "profile_json": json.dumps({"runtime": "codex"})}, {**PROFILE, "profile_json": json.dumps({})},
+                        {"agent_id": AGENT, "profile_json": "not json"}):
+            with self.subTest(profile=profile["profile_json"]):
+                outcome = self.submit(Managed(host(self.client())), profile=profile)
+                self.assertEqual((outcome.status, outcome.receipt["client"]), ("submitted", "claude"))
+
+    def test_a_client_without_a_driver_fails_and_an_unknown_one_is_unsupported(self):
+        codex = {**SESSION_ROW, "provider": "codex"}
+        self.assertOutcome(self.submit(Managed(host(self.client())), session=codex), "failed", "driver_unavailable")
+        self.assertOutcome(self.submit(Managed(host(self.client())), session={**SESSION_ROW, "provider": "gemini"}),
                            "failed", "unsupported_runtime")
         self.assertUntouched()
+
+    def test_a_client_with_a_driver_is_delivered_with_its_own_receipt(self):
+        from qorqut.managed_runtime import clients
+        with mock.patch.dict(clients.DRIVER_READY, {"codex": True}):
+            outcome = self.submit(Managed(host(self.client())), session={**SESSION_ROW, "provider": "codex"},
+                                  profile={**PROFILE, "profile_json": json.dumps({"runtime": "codex"})})
+        self.assertEqual((outcome.status, outcome.receipt["client"], outcome.receipt["transport"]), ("submitted", "codex", "managed"))
 
 
 class Phase(Fixture):

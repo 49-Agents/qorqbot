@@ -36,7 +36,7 @@ from the normal package index.
 Needed only for the optional pieces you enable later (the scripts neither check nor install them):
 
 - **Browser runtime** (agent browser): Node **24+** and npm **11+** (`app/tools/browser/package.json` engines),
-  then Chrome (managed Global desktops: [Browser desktops](BROWSER-DESKTOPS.md)). Terminal control needs `tmux`.
+  then Chrome (managed Global desktops: [Browser desktops](BROWSER-DESKTOPS.md)).
 - **WhatsApp tool**: Go (the version in `extensions/whatsapp/native/go.mod`) and a C compiler (SQLite uses CGO).
 - **Native coding CLIs** for worker sessions (Claude Code, Codex): the pinned versions are in
   `app/tools/native_clis/package.json`.

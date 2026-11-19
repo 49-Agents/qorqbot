@@ -131,12 +131,12 @@ const view = (claude = {}, codex = {}) => ({claude: client(claude), codex: clien
 const row = (provider, over, extra) => clients.rowState(provider, client(over), extra);
 const installed = {installed: true, version: '2.1.3', source: 'managed', install: {phase: 'ready', progress: 100, message: null}};
 
-test('nothing installed: the button is Download and the row says Qorqbot does it, no terminal', () => {
+test('nothing installed: the button is Download and the row says Qorqbot does it', () => {
   const state = row('claude', {});
   assert.equal(state.key, 'download');
   assert.equal(state.pill, 'Not installed');
   assert.deepEqual(state.actions.map(a => [a.id, a.label]), [['download', 'Download']]);
-  assert.match(state.detail, /Qorqbot downloads Claude Code for you\. You do not need a terminal\./);
+  assert.match(state.detail, /Qorqbot downloads Claude Code for you\./);
   assert.equal(row('codex', {}).name, 'Codex');
 });
 
@@ -412,7 +412,7 @@ test('no text path prints undefined, null or [object Object] whatever the server
 
 test('a Ready managed copy says agents started from now on use it; a system copy or a row not Ready says nothing', () => {
   const managed = row('claude', {...installed, signed_in: true, source: 'managed'});
-  assert.equal(managed.note, 'Agents you start from now on use this copy.');
+  assert.equal(managed.note, 'Agents use this copy from their next session on.');
   assert.equal(row('claude', {...installed, signed_in: true, source: 'system'}).note, '');
   assert.equal(row('claude', {...installed, signed_in: true, source: null}).note, '');
   assert.equal(row('claude', {...installed, source: 'managed'}).note, '', 'installed but not signed in');
@@ -420,7 +420,7 @@ test('a Ready managed copy says agents started from now on use it; a system copy
   assert.ok(!/restart|reopen|quit/i.test(managed.note + managed.detail), 'no restart requirement is invented');
   const [host] = freshPage('host');
   const panel = clients.mount(host, {view: view({...installed, signed_in: true, source: 'managed'}, {...installed, signed_in: true, source: 'system'})});
-  assert.equal(panel.root.querySelector('[data-ac-row="claude"] .ac-note').textContent, 'Agents you start from now on use this copy.');
+  assert.equal(panel.root.querySelector('[data-ac-row="claude"] .ac-note').textContent, 'Agents use this copy from their next session on.');
   assert.equal(panel.root.querySelector('[data-ac-row="codex"] .ac-note'), null);
   panel.stop();
 });
@@ -651,7 +651,7 @@ test('the screen blocks the page, keeps Continue off with its reason until Ready
   assert.equal(hint.textContent, 'You are set. Continue to your workspace.');
   assert.equal(later.hidden, true);
   assert.equal(doc.activeElement, next);
-  assert.match(gate.querySelector('[data-ac-row="claude"] .ac-note').textContent, /from now on use this copy/);
+  assert.match(gate.querySelector('[data-ac-row="claude"] .ac-note').textContent, /from their next session on/);
   click(next);
   assert.equal(await result, finished);
   assert.equal(gateEl(), undefined);
@@ -711,7 +711,8 @@ test('Settings mounts the rows into the Agents section and tells the search filt
   paint(doc.createElement('div')); // no host: nothing happens
   assert.equal(mounted.length, 1);
   mounted[0].stop();
-  assert.ok(!settings.includes('run <code>'), 'the terminal instructions are gone');
+  assert.ok(!/terminal/i.test(settings), 'no terminal wording in Settings');
+  assert.ok(!settings.includes('Starting an agent') && !settings.includes('agent-trust'), 'no start row and no folder trust');
   assert.ok(!settings.includes("coreData(await api('/root/agent-clients'))"), 'Settings has no read of its own');
   assert.match(settings, /data-agent-clients><\/div>/);
 });

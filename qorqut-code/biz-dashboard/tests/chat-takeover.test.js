@@ -30,11 +30,9 @@ async function fixture(browser) {
     window.api = async () => ({session: {state: 'live', can_send: true, binding}, conversation: binding, entries: [...entries], cursor: 1, inputs: []});
     window.post = async (url, body) => ({last_read_sequence: body.sequence});
   });
-  for (const file of ['safe-links', 'chat-view', 'slash-commands', 'xterm', 'terminal', 'agent-runtime', 'global-chat']) await page.addScriptTag({path: path.join(root, 'js', file + '.js')});
+  for (const file of ['safe-links', 'chat-view', 'slash-commands', 'agent-runtime', 'global-chat']) await page.addScriptTag({path: path.join(root, 'js', file + '.js')});
   await page.evaluate(() => {
-    window.controller = mountAgentView(document.querySelector('#pane'), {agent_id: 'agent-1', name: 'Demo'}, {
-      terminal: {key: 'agent-1', base: '/terminal/agent-1'}, isCurrent: () => true, view: 'chat',
-    });
+    window.controller = mountAgentView(document.querySelector('#pane'), {agent_id: 'agent-1', name: 'Demo'}, {isCurrent: () => true});
     // A side chat stand-in: it may refuse to leave, like one with a message still sending.
     window.side = {allowLeave: true, disposed: 0};
     window.openSide = title => controller.openSide({title, mount(host, session) {
@@ -82,18 +80,6 @@ test('a side chat that cannot leave yet stays put, and another one replaces it o
     assert.notEqual(await page.evaluate(() => openSide('Second').then(Boolean)), false);
     assert.deepEqual(await takeover(page), {kind: 'side', title: 'Second', body: 'Second body', chat: false});
     assert.equal(await page.evaluate(() => side.disposed), 1);
-    assert.deepEqual(errors, []);
-  } finally { await browser.close(); }
-});
-
-test('opening a side chat from the Terminal view shows it in the Chat area', {skip: !available}, async () => {
-  const browser = await chromium.launch({headless: true, executablePath: executable});
-  try {
-    const {page, errors} = await fixture(browser);
-    await page.click('[data-terminal]:visible');
-    await page.evaluate(() => openSide('From terminal'));
-    assert.deepEqual(await takeover(page), {kind: 'side', title: 'From terminal', body: 'From terminal body', chat: false});
-    assert.equal(await page.locator('.gchat-takeover').isVisible(), true);
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });

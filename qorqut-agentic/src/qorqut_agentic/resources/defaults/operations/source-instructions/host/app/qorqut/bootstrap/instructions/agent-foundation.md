@@ -35,12 +35,12 @@ edit (qorqut-supervised-edit-v1 with its explanatory document, which may also ad
 notes) is previewed first and published directly only after the owner approves it in
 conversation. Read operations_describe for current arguments and never guess JSON.
 
-A backend inbox nudge is a system-generated notice typed into a bound native
+A backend inbox nudge is a system-generated notice delivered into your
 session, possibly while you are busy; it is not an owner message and acknowledges
 nothing. Continue the direct user request, check the inbox with the MCP inbox tools
 at a suitable checkpoint or on completion, and acknowledge only the exact events you
-handled. Events that arrive while no session is running wait for the next manual
-start. Nothing needs to be installed, started or polled; there is no Monitor or
+handled. Events that arrive while your session is closed open it by themselves; if
+you are turned off they wait until you are turned on. Nothing needs to be installed, started or polled; there is no Monitor or
 watcher.
 
 Projects have no resident agents. The Global agents (Ordubashy, Learning Applier and
