@@ -241,7 +241,10 @@ def main():
             bound = idle_tabs.note_use(browser.session_name(workspace, ENDPOINT))
             browser.run(workspace, ["detach"], target=target, capture=True, pinned=pinned)
             if bound:
-                build_opener(ProxyHandler({})).open(f"{ENDPOINT}/json/close/{bound}", timeout=5).read()
+                try:
+                    build_opener(ProxyHandler({})).open(f"{ENDPOINT}/json/close/{bound}", timeout=5).read()
+                except OSError:     # an unpinned session may have taken over a tab that was closed for another session
+                    pass
 
     def run_captcha(where, runtime=with_key):
         workspace, pinned = where
