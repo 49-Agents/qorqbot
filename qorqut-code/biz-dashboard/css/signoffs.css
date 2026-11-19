@@ -65,9 +65,9 @@
 .sg-attention-badge,.sg-signoff-count { display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 4px; border-radius:50%; background:var(--fg-3); color:var(--bg); font-size:10px; font-weight:700; flex:none; }
 .sg-attention-badge.urgent,.sg-signoff-count.urgent { background:#FF453A; color:white; }
 .sg-signoff-count { position:absolute; left:calc(50% + 9.5px); top:calc(50% - 9.5px); transform:translate(-50%, -50%); margin:0; pointer-events:none; }
-.sg-urgent h2 { color:#ef7777; }
-/* A blocking Signoff is framed in red in every list layout; the inset ring keeps the frame where a layout drops the border. */
-.sg .sg-rows .sg-row.sg-row-blocking, .sg .sg-rows .sg-row.sg-row-blocking:focus-within { border-color:#FF453A; box-shadow:inset 0 0 0 1px #FF453A; }
+.sg-urgent h2 { color:#A33A46; }
+/* A blocking Signoff is framed in a dark bordeaux in every list layout; the inset ring keeps the frame where a layout drops the border. */
+.sg .sg-rows .sg-row.sg-row-blocking, .sg .sg-rows .sg-row.sg-row-blocking:focus-within { border-color:#6B1520; box-shadow:inset 0 0 0 1px #6B1520; }
 .sg-urgent-link { display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; width:100%; height:auto; min-height:0; padding:12px; gap:5px; background:var(--wash); color:var(--fg); border:1px solid var(--line); border-radius:6px; text-align:left; white-space:normal; font-weight:400; }
 .sg-urgent-link:hover { background:var(--wash); color:var(--fg); transform:none; }
 .sg-urgent-link small { color:var(--fg-2); }
@@ -394,3 +394,16 @@
 .sg-focus.sg-single .sg-toread:not([hidden]){margin-top:0}
 .sg-focus.sg-single .sg > section:not([hidden]) > h2{margin-top:0}
 .sg-focus.sg-single .sg-detail > .sg-detail-footer{margin-top:0}
+/* A chat card has no comment line; a decision that needs written words is made in Focus. */
+.sg-chat .sg .sg-feedbackwrap { display:none; }
+.sg-chat .sg-chat-status:empty { display:none; }
+/* A pending chat card is compact: its title, then its choices with Send on the same row. The rest is one click away in Focus. */
+.sg-chat .sg .sg-row.sg-compact { cursor:pointer; }
+.sg-chat .sg .sg-row.sg-compact:hover { border-color:var(--line-3, var(--fg-3)); }
+.sg-chat .sg .sg-row.sg-compact :is(.sg-detailnotice,.sg-attention-meta,.sg-email-context,.sg-preview,.sg-effects,.sg-savedresponse) { display:none; }
+.sg-chat .sg .sg-row.sg-compact .sg-detail { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; }
+.sg-chat .sg .sg-row.sg-compact .sg-detail-body { flex:1 1 auto; min-width:0; padding:0; }
+.sg-chat .sg .sg-row.sg-compact .sg-choices { margin:0; }
+.sg-chat .sg .sg-row.sg-compact .sg-detail-footer { flex:none; margin-left:auto; padding:0; cursor:auto; }
+.sg-chat .sg .sg-row.sg-compact .sg-actionarea { border-top:0; padding-top:0; margin-top:0; }
+.sg-chat .sg .sg-actionarea { border-top:0; padding-top:0; }

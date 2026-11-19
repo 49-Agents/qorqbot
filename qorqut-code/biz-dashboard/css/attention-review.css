@@ -40,11 +40,11 @@
 .agfocus-review-open .sg .sg-choice:focus-visible .sg-choice-name { text-decoration:underline; text-underline-offset:4px; }
 .agfocus-review-open .sg .sg-feedbackwrap { margin-top:16px; }
 
-/* One flat single-item review, with the item title beside Close. */
-.agfocus-review-open .agfocus-surface-title{display:block;white-space:normal;overflow-wrap:anywhere;color:var(--fg);font-size:14px;font-weight:400;line-height:1.5}
+/* One flat single-item review: the item title is the headline, with Close at the right end of its row. */
+.agfocus-review-open .agfocus-surface-title{display:block;flex:1 1 auto;order:1;min-width:0;white-space:normal;overflow-wrap:anywhere;color:var(--fg);font-size:17px;font-weight:500;line-height:1.4}
 .agfocus-review-open .agfocus-surface-bar{align-items:flex-start;gap:12px;padding:6px 0 18px}
-.agfocus-review-open .agfocus-surface-title{padding-top:5px}
-.agfocus.agfocus-surface-open .agfocus-review-open .agfocus-close{flex:none;min-height:30px;height:30px;padding:0 10px;border:1px solid var(--line-2);border-radius:var(--r-full);background:none;color:var(--fg-2)}
+.agfocus-review-open .agfocus-surface-title{padding-top:3px}
+.agfocus.agfocus-surface-open .agfocus-review-open .agfocus-close{order:2;margin-left:auto;flex:none;min-height:30px;height:30px;padding:0 10px;border:1px solid var(--line-2);border-radius:var(--r-full);background:none;color:var(--fg-2)}
 .agfocus-review-open .agfocus-surface-body{border:0;border-radius:0;background:none;overflow:hidden}
 .agfocus-review-open .agfocus-expansion-content{padding:0;overflow:hidden}
 .agfocus-review-open .sg-focus.sg-single .sg-rowhead{display:none}
@@ -77,12 +77,11 @@
 /* Selection persists independently of the unread dot. */
 .agfocus .focus-signoff-queue .focus-signoff-chip{border:1px solid transparent}
 .agfocus .focus-signoff-queue .focus-signoff-chip[aria-current="true"]{border-color:var(--fg);background:var(--hover);color:var(--fg)}
-/* A blocking Signoff keeps its red frame in the queue, selected or not. */
-.agfocus .focus-signoff-queue .focus-signoff-chip[data-blocking="true"],.agfocus .focus-signoff-queue .focus-signoff-chip[data-blocking="true"][aria-current="true"]{border-color:#FF453A;box-shadow:inset 0 0 0 1px #FF453A}
+/* A blocking Signoff keeps a bordeaux wash in the queue, selected or not, without a frame. */
+.agfocus .focus-signoff-queue .focus-signoff-chip[data-blocking="true"],.agfocus .focus-signoff-queue .focus-signoff-chip[data-blocking="true"][aria-current="true"]{border-color:transparent;box-shadow:none;background:rgba(118,18,30,.38)}
+.agfocus .focus-signoff-queue .focus-signoff-chip[data-blocking="true"][aria-current="true"]{background:rgba(118,18,30,.55)}
 .focus-signoff-chip[aria-current="true"]::before{content:"";position:absolute;left:50%;bottom:-5px;transform:translateX(-50%);width:20px;height:2px;border-radius:2px;background:var(--fg);pointer-events:none}
 /* A question for the owner: the question as a heading, its choices as full-width buttons, a one-line answer and Send. */
-.agfocus-review-open:has(.sg-asks-one) .agfocus-surface-title{visibility:hidden}
-.agfocus-review-open .sg .sg-asks .sg-ask-title{margin:0 0 10px;color:var(--fg);font-size:22px;font-weight:500;line-height:1.35;letter-spacing:-.01em;overflow-wrap:anywhere}
 .agfocus-review-open .sg .sg-asks .sg-rationale{color:var(--fg-2);font-size:14px;line-height:1.6}
 .agfocus-review-open .sg .sg-asks .sg-choices{margin-top:20px}
 .agfocus-review-open .sg .sg-asks .sg-choices > div,
@@ -108,3 +107,5 @@
 .agfocus-review-open .sg .sg-asks .sg-actions .sg-approve{min-height:44px;height:44px;padding:0 22px;background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-size:14px;font-weight:600}
 .agfocus-review-open .sg-focus.sg-single .sg-urgent:has(.sg-asks) > h2{display:none}
 .agfocus-review-open .sg .sg-asks .sg-attention-meta .sg-notice{margin:0 0 6px;color:var(--warn);font-size:12px}
+/* A request (something for the owner to do) is an open white circle, as an open Task's state. */
+.focus-signoff-chip .attention-signoff[data-signoff-kind="request"]{color:var(--fg)}

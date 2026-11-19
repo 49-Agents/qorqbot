@@ -789,7 +789,11 @@ function sgCreateView(options) {
     const detail = row.querySelector(".sg-detail");
     detail.hidden = s.id !== sg.selected;
     // A question reads as one: the question as a heading, its choices as buttons, a one-line answer and Send.
-    row.classList.toggle('sg-asks', sgIsAsk(s)); row.classList.toggle('sg-asks-one', sgIsAsk(s) && !sgIsQuestionnaire(s));
+    row.classList.toggle('sg-asks', sgIsAsk(s));
+    // In a chat a pending card is compact (its title, then its choices and Send) and opens in Focus. An email, a message
+    // or a draft keeps its full text, since that text is what the owner approves.
+    const fullText = sgIsEmail(s) || !!SG_MESSAGE_RENDERERS.get(s.operation_name)?.message || /message/.test(s.operation_name || '') || sgIsDraftReview(s);
+    row.classList.toggle('sg-compact', !!options.chatLayout && s.state === 'pending' && !fullText && !messageEdits.has(s.id) && !reviewEdits.has(s.id));
     row.querySelector(".sg-rowhead").setAttribute("aria-expanded", String(!detail.hidden));
     if (detail.hidden) return;
     const error = sg.detailErrors.get(s.id), busy = sg.busy.get(busyKey(sg.slug, s));
@@ -821,7 +825,7 @@ function sgCreateView(options) {
       const facts = [priorityText ? `<p class="sg-meta">${esc(priorityText)}</p>` : '', s.decision && !sgIsAcknowledge(s) ? `<p class="sg-meta">Submitted ${esc(stamp(s.decision.at))}</p>` : ''].join('');
       html(detail.querySelector('.sg-focus-details'), facts ? `<details><summary>Details</summary>${facts}</details>` : '');
     }
-    if(!messageEdits.has(s.id) || !detail.querySelector(".sg-message-editor"))html(detail.querySelector(".sg-preview"), sgEmailOutcomeHtml(s) + (sgIsAsk(s) && !sgIsQuestionnaire(s) ? `<h2 class="sg-ask-title">${esc(s.input.title || s.title || '')}</h2>` : '') + previewHtml(s));
+    if(!messageEdits.has(s.id) || !detail.querySelector(".sg-message-editor"))html(detail.querySelector(".sg-preview"), sgEmailOutcomeHtml(s) + previewHtml(s));
     const reportTimeline = detail.querySelector('[data-report-timeline]');
     if (reportTimeline && !reportTimeline.dataset.mounted) void ownerTimelineReportMount(reportTimeline);
     // The collapsed class must settle first so an expanding editor is measured while visible.
@@ -909,11 +913,9 @@ function sgCreateView(options) {
       for (const cancel of area.querySelectorAll('[data-sg="cancel-message"],[data-sg="discard-draft"]')) cancel.textContent = 'Cancel';
       let status = area.querySelector('.sg-chat-status');
       if (!status) { status = document.createElement('span'); status.className = 'sg-chat-status'; (actions || area).prepend(status); }
-      status.textContent = editing ? 'Editing draft' : s.state !== 'pending' ? sgItemStatus(s, labels) : sgIsAcknowledge(s) ? 'To read' : 'Needs review';
-      if (actions && !editing && canEditMessage(s) && !actions.querySelector('[data-sg="edit-message"]')) {
-        const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'sg-edit';
-        edit.dataset.sg = 'edit-message'; edit.textContent = 'Edit'; actions.append(edit);
-      }
+      status.textContent = editing ? 'Editing draft' : s.state !== 'pending' ? sgItemStatus(s, labels) : sgIsAcknowledge(s) ? 'To read' : '';
+      // No Edit button: an email, message or draft shown in full is edited by clicking its text.
+      actions?.querySelector('[data-sg="edit-message"]')?.remove();
     }
   }
   function render() {
@@ -1393,7 +1395,8 @@ function sgCreateView(options) {
         const action = command.dataset.sg;
         if (action === 'edit-message') {
           const s = sg.items.get(commandRow?.dataset.id);
-          if (s && canEditMessage(s)) commandRow.querySelector('textarea.sg-message-editor[data-editable="true"]')?.focus({preventScroll:true});
+          // A compact chat card shows its message once the owner edits it.
+          if (s && canEditMessage(s)) { commandRow.classList.remove('sg-compact'); commandRow.querySelector('textarea.sg-message-editor[data-editable="true"]')?.focus({preventScroll:true}); }
           return;
         }
         if (['save-draft', 'discard-draft', 'rebase-draft'].includes(action)) {
@@ -1589,6 +1592,27 @@ function sgChatMount(ref, host, options = {}) {
     }, {rootMargin: '300px 0px'});
     observer.observe(host);
   });
+  const focusOpen = () => void Promise.resolve(window.sgAttentionNavigate?.(slug || null, ref.id)).catch(() => {});
+  // A click on a compact card, away from its choices and buttons, opens the whole Signoff in Focus.
+  const openInFocus = event => {
+    const card = event.target.closest('.sg-row.sg-compact');
+    if (!card || !host.contains(card) || event.target.closest('.sg-choices, .sg-detail-footer, textarea, input, select, a, label, button:not(.sg-rowhead)')) return;
+    if (String(window.getSelection?.() || '').trim()) return;
+    event.preventDefault(); focusOpen();
+  };
+  // A chat card has no comment line: a decision that needs written words (a rejection that must say why, an answer that
+  // must be written) is made in Focus instead.
+  const needsWords = event => {
+    const button = event.target.closest('[data-sg="reject"],[data-sg="respond"],[data-sg="approve"]'), card = button?.closest('.sg-row');
+    const words = card?.querySelector('.sg-feedback');
+    if (!button || !words || words.value.trim()) return;
+    const label = words.getAttribute('aria-label') || '';
+    const required = button.dataset.sg === 'reject' ? /required to reject/i.test(label) : /\(required\)/i.test(label);
+    if (!required || (button.dataset.sg !== 'reject' && card.querySelector('.sg-choice[aria-checked="true"]') && !/\(required\)/i.test(label))) return;
+    event.preventDefault(); event.stopPropagation(); focusOpen();
+  };
+  host.addEventListener('click', needsWords, true);
+  host.addEventListener('click', openInFocus);
   const dispose = signoff.dispose.bind(signoff);
   signoff.dispose = () => { disposed = true; observer?.disconnect(); dispose(); };
   return signoff;
