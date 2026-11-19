@@ -10,7 +10,7 @@ from qorqut_operations.contracts import DomainError
 
 from qorqut.browser import captcha_solver
 
-KEY = "0123456789abcdef0123456789abcdef"
+KEY = "test-solver-key"
 TASK = {"type": "RecaptchaV2TaskProxyless", "websiteURL": "https://shop.example/checkout", "websiteKey": "SITEKEY"}
 READY = {"errorId": 0, "status": "ready", "cost": "0.00095", "solution": {"gRecaptchaResponse": "ANSWER"}}
 

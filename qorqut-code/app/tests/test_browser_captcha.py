@@ -18,7 +18,7 @@ from qorqut.browser import captcha, captcha_solver
 from qorqut.browser.access import BrowserAccess
 from qorqut.browser.captcha import Frame
 
-KEY, TOKEN = "0123456789abcdef0123456789abcdef", "03AFcWeA-solver-answer"
+KEY, TOKEN = "test-solver-key", "test-solver-answer"
 PAGE = "https://shop.example/checkout?email=jane@example.com#pay"
 RECAPTCHA = "https://www.google.com/recaptcha/api2/anchor?ar=1&k=SITEKEY&co=aHR0cHM6&hl=en&size=normal&cb=x1"
 ENTERPRISE = "https://www.recaptcha.net/recaptcha/enterprise/anchor?ar=1&k=SITEKEY&size=normal"
