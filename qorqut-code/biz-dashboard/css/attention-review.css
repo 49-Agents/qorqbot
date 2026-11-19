@@ -78,8 +78,8 @@
 .agfocus .focus-signoff-queue .focus-signoff-chip{border:1px solid transparent}
 .agfocus .focus-signoff-queue .focus-signoff-chip[aria-current="true"]{border-color:var(--fg);background:var(--hover);color:var(--fg)}
 /* A blocking Signoff keeps a bordeaux wash in the queue, selected or not, without a frame. */
-.agfocus .focus-signoff-queue .focus-signoff-chip[data-blocking="true"],.agfocus .focus-signoff-queue .focus-signoff-chip[data-blocking="true"][aria-current="true"]{border-color:transparent;box-shadow:none;background:rgba(150,32,58,.28)}
-.agfocus .focus-signoff-queue .focus-signoff-chip[data-blocking="true"][aria-current="true"]{background:rgba(150,32,58,.42)}
+.agfocus .focus-signoff-queue .focus-signoff-chip[data-blocking="true"],.agfocus .focus-signoff-queue .focus-signoff-chip[data-blocking="true"][aria-current="true"]{border-color:transparent;box-shadow:none;background:rgba(118,18,30,.38)}
+.agfocus .focus-signoff-queue .focus-signoff-chip[data-blocking="true"][aria-current="true"]{background:rgba(118,18,30,.55)}
 .focus-signoff-chip[aria-current="true"]::before{content:"";position:absolute;left:50%;bottom:-5px;transform:translateX(-50%);width:20px;height:2px;border-radius:2px;background:var(--fg);pointer-events:none}
 /* A question for the owner: the question as a heading, its choices as full-width buttons, a one-line answer and Send. */
 .agfocus-review-open .sg .sg-asks .sg-rationale{color:var(--fg-2);font-size:14px;line-height:1.6}
