@@ -261,6 +261,34 @@ class AttentionTests(unittest.TestCase):
             self.assertTrue(claims.settle(uow, receipt, '2026-11-09T12:04:00Z'))
         delivered.assert_called_once()
 
+    def test_an_unconfirmed_reminder_counts_as_not_sent_and_is_sent_again(self):
+        # A reminder handed to a session that ended before confirming it stays uncertain. It used to keep its place
+        # for ever, so no later reminder was recorded until the focus changed.
+        self.agent('first')
+        claim = self.delivery.hook_claim('first', 'reg-first', 'session-first')
+        self.assertTrue(self.delivery.hook_begin('first', 'reg-first', claim))
+        first = self.row(claim['id'])
+        self.delivery._now = lambda: '2026-11-09T12:02:00.000000Z'              # the claim expired a minute ago
+        with patch('qorqut.agents.attention.enrolled_boards', return_value=['first']):
+            with self.database.transaction() as uow:
+                self.delivery.reconcile(uow)
+                self.delivery.reconcile(uow)                                    # a second pass changes nothing
+        self.assertEqual(self.row(claim['id'])['state'], 'uncertain')            # kept as the record of what happened
+        uow = NS(connection=self.conn)
+        self.assertEqual(self.attention.state(uow, 'first')['reminder_sequence'], first['sequence'] + 1)
+        following = [dict(row) for row in self.conn.execute(
+            "SELECT state,due_at FROM attention_reminders WHERE agent_id='first' AND sequence>?", (first['sequence'],))]
+        # Still owed from the same moment, so it goes out at the next opportunity rather than an interval later.
+        self.assertEqual(following, [{'state': 'pending', 'due_at': first['due_at']}])
+        again = self.delivery.hook_claim('first', 'reg-first', 'session-first')
+        self.assertEqual(again['text'], 'Current task reminder')
+        self.assertNotEqual(again['id'], claim['id'])
+        # A confirmation of the first one that arrives late is recorded and moves nothing.
+        self.assertTrue(self.delivery.hooks.settle(uow, {**claim, 'delivered_at': NOW}, '2026-11-09T12:03:00.000000Z'))
+        self.assertEqual(self.row(claim['id'])['state'], 'submitted')
+        self.assertEqual(self.attention.state(uow, 'first')['reminder_sequence'], first['sequence'] + 1)
+        self.assertEqual(self.row(again['id'])['state'], 'claimed')
+
     def test_clock_poll_does_not_write_unchanged_values_but_records_real_events(self):
         self.agent('first')
         uow = NS(connection=self.conn)
