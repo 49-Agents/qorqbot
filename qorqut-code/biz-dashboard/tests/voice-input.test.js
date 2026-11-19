@@ -59,10 +59,10 @@ test('the dashboard loads voice input and the composer offers the microphone', (
   assert.match(read('css/chat-view.css'), /\.gchat-mic\[data-state="recording"\]/);
 });
 
-test('a blocking Signoff is framed in red in the queue and in the list', () => {
+test('a blocking Signoff has a bordeaux wash in the queue and a bordeaux frame in the list', () => {
   const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
   assert.match(read('js/attention-queue.js'), /data-blocking="true"/);
-  assert.match(read('css/attention-review.css'), /\.focus-signoff-chip\[data-blocking="true"\][^}]*\{border-color:#FF453A/);
+  assert.match(read('css/attention-review.css'), /\.focus-signoff-chip\[data-blocking="true"\][^}]*\{border-color:transparent;box-shadow:none;background:rgba\(150,32,58,\.28\)/);
   assert.match(read('js/signoffs.js'), /classList\.toggle\('sg-row-blocking', s\.state === 'pending' && !!s\.attention\?\.blocking\)/);
-  assert.match(read('css/signoffs.css'), /\.sg-row\.sg-row-blocking[^}]*\{ border-color:#FF453A/);
+  assert.match(read('css/signoffs.css'), /\.sg-row\.sg-row-blocking[^}]*\{ border-color:#8E2A40/);
 });

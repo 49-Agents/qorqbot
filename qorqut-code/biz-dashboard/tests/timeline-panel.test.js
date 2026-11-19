@@ -156,8 +156,8 @@ test('the Global block asks for the Global item through the owner read',async()=
 test('open questions are question Signoffs in the sign-off strip, with their own icon and no separate card',()=>{
   const queue=read('attention-queue.js'),signoffs=read('signoffs.js'),workspace=read('record-workspace.js');
   assert.doesNotMatch(queue,/timeline_questions_list|agentQuestionOpen|data-question-key/);
-  assert.match(queue,/const asks=s=>!!s\.asks \|\| \['question','request'\]\.includes\(s\.input\?\.kind\);/);
-  assert.match(queue,/toRead\(s\) \? 'read' : asks\(s\) \? 'question'/);assert.match(queue,/question:'M12 21a9 9/);
+  assert.match(queue,/const askKind=s=>s\.asks===true \? 'question'/);assert.match(queue,/const asks=s=>!!askKind\(s\);/);
+  assert.match(queue,/toRead\(s\) \? 'read' : asks\(s\) \? askKind\(s\)/);assert.match(queue,/question:'M6\.5 8\.8C6\.5/);assert.match(queue,/request:'M12 20a8 8/);
   assert.match(signoffs,/function sgIsAsk\(s\) \{ return s\.category === 'input_request' && \['question', 'request'\]\.includes\(s\.input\?\.kind\); \}/);
   assert.match(signoffs,/sgIsAsk\(s\) \? 'Send' :/);assert.doesNotMatch(signoffs,/Clear selection/);
   assert.doesNotMatch(workspace,/record\.question|openThread:/);

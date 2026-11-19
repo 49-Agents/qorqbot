@@ -124,7 +124,7 @@ def queue(runtime, ctx, change=None):
             'created_at': row['created_at'],
             # Something to read and acknowledge, not a decision; a question for the owner shows as one.
             **({'to_read': True} if row.get('input_kind') == 'acknowledge' else {}),
-            **({'asks': True} if row.get('input_kind') in ('question', 'request') else {})})
+            **({'asks': row['input_kind']} if row.get('input_kind') in ('question', 'request') else {})})
     # Only acknowledge exact versions the owner could see; a newer reply remains new.
     allowed = {item['id'] for item in candidates}
     seen = viewed(runtime.paths.runtime, ctx.principal_id, [x for x in (change or {}).get('viewed', []) if x in allowed])

@@ -789,7 +789,7 @@ function sgCreateView(options) {
     const detail = row.querySelector(".sg-detail");
     detail.hidden = s.id !== sg.selected;
     // A question reads as one: the question as a heading, its choices as buttons, a one-line answer and Send.
-    row.classList.toggle('sg-asks', sgIsAsk(s)); row.classList.toggle('sg-asks-one', sgIsAsk(s) && !sgIsQuestionnaire(s));
+    row.classList.toggle('sg-asks', sgIsAsk(s));
     row.querySelector(".sg-rowhead").setAttribute("aria-expanded", String(!detail.hidden));
     if (detail.hidden) return;
     const error = sg.detailErrors.get(s.id), busy = sg.busy.get(busyKey(sg.slug, s));
@@ -821,7 +821,7 @@ function sgCreateView(options) {
       const facts = [priorityText ? `<p class="sg-meta">${esc(priorityText)}</p>` : '', s.decision && !sgIsAcknowledge(s) ? `<p class="sg-meta">Submitted ${esc(stamp(s.decision.at))}</p>` : ''].join('');
       html(detail.querySelector('.sg-focus-details'), facts ? `<details><summary>Details</summary>${facts}</details>` : '');
     }
-    if(!messageEdits.has(s.id) || !detail.querySelector(".sg-message-editor"))html(detail.querySelector(".sg-preview"), sgEmailOutcomeHtml(s) + (sgIsAsk(s) && !sgIsQuestionnaire(s) ? `<h2 class="sg-ask-title">${esc(s.input.title || s.title || '')}</h2>` : '') + previewHtml(s));
+    if(!messageEdits.has(s.id) || !detail.querySelector(".sg-message-editor"))html(detail.querySelector(".sg-preview"), sgEmailOutcomeHtml(s) + previewHtml(s));
     const reportTimeline = detail.querySelector('[data-report-timeline]');
     if (reportTimeline && !reportTimeline.dataset.mounted) void ownerTimelineReportMount(reportTimeline);
     // The collapsed class must settle first so an expanding editor is measured while visible.
