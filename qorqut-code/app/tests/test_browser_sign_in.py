@@ -111,6 +111,16 @@ class FlowTest(unittest.TestCase):
         self.assertIn("notion.so", str(caught.exception))
         self.assertEqual(self.calls, [])
 
+    def test_a_window_is_never_started_without_a_screen_and_the_browser_is_left_running(self):
+        with mock.patch.object(sign_in, "has_screen", return_value=False), mock.patch.object(sign_in.subprocess, "Popen") as popen, \
+                self.assertRaises(DomainError) as refused:
+            sign_in.start(self.runtime, AGENT, "slack.com")
+        self.assertEqual(refused.exception.code, "browser_no_screen")
+        self.assertIn("Browser tab", str(refused.exception))
+        popen.assert_not_called()
+        self.assertEqual(self.calls, [])
+        self.assertFalse(sign_in.active(AGENT))
+
     def test_failed_window_restores_the_browser_and_clears_the_session(self):
         (self.root / AGENT / "stop-requested.json").write_text("{}")
         # The window's environment is not under test; outside an installed folder it depends on how deep the system's
@@ -194,6 +204,10 @@ class AgentToolTest(unittest.TestCase):
         patcher = mock.patch("qorqut.management.identity.configured_ordubashy", return_value="ordubashy")
         patcher.start()
         self.addCleanup(patcher.stop)
+        # These calls reach the window, which is what a computer with a screen does; the live view has its own tests.
+        patcher = mock.patch.object(sign_in, "has_screen", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_only_ordubashy_can_call_it(self):
         with mock.patch.object(sign_in, "start") as start, self.assertRaises(DomainError) as caught:
@@ -208,12 +222,22 @@ class AgentToolTest(unittest.TestCase):
         self.assertEqual(result["opened"], "slack.com")
         self.assertIn("sign in themselves", result["next"])
 
-    def test_without_a_screen_ordubashy_is_told_to_sign_in_on_the_sites_own_page(self):
-        with mock.patch.object(sign_in.sys, "platform", "linux"), mock.patch.dict(sign_in.os.environ, clear=True), \
-                mock.patch.object(sign_in, "_require_agent", return_value="owner"), self.assertRaises(DomainError) as caught:
-            sign_in.agent_call(self.runtime, "ordubashy", {"action": "open", "site": "slack.com"})
-        self.assertEqual(caught.exception.code, "browser_no_screen")
-        self.assertIn("ask the owner for the password or code and type it yourself", str(caught.exception))
+    def test_with_a_screen_the_window_opens_as_before_and_the_live_view_is_not_used(self):
+        with mock.patch.object(sign_in, "has_screen", return_value=True), mock.patch.object(sign_in, "start") as start, \
+                mock.patch.object(sign_in, "open_in_live_view") as live_view:
+            result = sign_in.agent_call(self.runtime, "ordubashy", {"action": "open", "site": "slack.com"})
+        start.assert_called_once_with(self.runtime, "ordubashy", "slack.com")
+        live_view.assert_not_called()
+        self.assertEqual(set(result), {"opened", "next"})
+        self.assertIn("close the window", result["next"])
+
+    def test_without_a_screen_no_window_is_tried_and_the_page_opens_for_the_live_view(self):
+        with mock.patch.object(sign_in, "has_screen", return_value=False), mock.patch.object(sign_in, "start") as start, \
+                mock.patch.object(sign_in, "open_in_live_view", return_value={"where": "live_view"}) as live_view:
+            result = sign_in.agent_call(self.runtime, "ordubashy", {"action": "open", "site": "slack.com", "agent_id": "worker"})
+        start.assert_not_called()
+        live_view.assert_called_once_with(self.runtime, "worker", "slack.com", "https://slack.com")
+        self.assertEqual(result, {"where": "live_view"})
 
     def test_open_can_target_a_worker(self):
         with mock.patch.object(sign_in, "start") as start:
