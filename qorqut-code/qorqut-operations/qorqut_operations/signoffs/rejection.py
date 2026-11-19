@@ -8,6 +8,7 @@ from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.conversations import SUMMARY
 from qorqut_operations.storage.repositories import decode_row
+from .lookup import LOCATED
 
 
 class Rejection:
@@ -26,8 +27,8 @@ class Rejection:
             supports_signoff=False, scope_kinds=frozenset({'business', 'global'}),
             global_capability='read_global_context',
             resolve_namespace=lambda c,a: 'global' if a.get('scope') == 'global' else 'business:' + (c.business_id or ''),
-            description=instruction_text('rejection-ordubashy-only-reject-a-pending-action-signoff-with'),
-            prepare=self.prepare, apply=self.apply),)
+            description=instruction_text('rejection-ordubashy-only-reject-a-pending-action-signoff-with') + ' ' + LOCATED,
+            locate_scope=self.service.lookup, prepare=self.prepare, apply=self.apply),)
 
     def context(self, ctx, args, uow):
         if args.get('scope') == 'global':

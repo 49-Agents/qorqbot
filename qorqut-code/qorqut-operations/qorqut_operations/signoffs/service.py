@@ -23,6 +23,7 @@ from qorqut_operations.storage.receipts import ApplyReceipts, IdempotencyReceipt
 from qorqut_operations.storage.repositories import decode_row
 from qorqut_operations.storage.specs import TableSpec
 from .inputs import ACKNOWLEDGE_SQL, InputRequests, acknowledges, validate_response
+from .lookup import LOCATED, SignoffLookup
 from . import questions
 from .drafts import SCHEMA as DRAFT_SCHEMA, DraftReviews, is_draft, validate_values
 from .notes import SignoffNotes, eligible
@@ -94,6 +95,8 @@ class SignoffService:
         self._thread = None
         self._run_lock = RLock()
         self.last_worker_error = None
+        # The ``locate_scope`` hook of every agent-facing operation that names one Signoff by ``signoff_id``.
+        self.lookup = SignoffLookup(self)
         self.notifications = SignoffNotifications(self)
         self.notes = SignoffNotes(self)
         self.inputs = InputRequests(self)
@@ -129,8 +132,8 @@ class SignoffService:
             OperationDescriptor("signoffs_get", {"type": "object",
                 "required": ["signoff_id"], "properties": {**common, "signoff_id": {"type": "string", "minLength": 1, "maxLength": 200},
                     "draft_history_before": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807}}},
-                **scopes, effect_kind="read", supports_signoff=False, read=self._get_operation,
-                description=instruction_text('service-read-a-proposal-and-owner-feedback-in-the')),
+                **scopes, effect_kind="read", supports_signoff=False, read=self._get_operation, locate_scope=self.lookup,
+                description=instruction_text('service-read-a-proposal-and-owner-feedback-in-the') + ' ' + LOCATED),
             OperationDescriptor("signoffs_list", {"type": "object", "properties": {
                 **common, "responded": {"type": "boolean"}, "include_managed": {"type": "boolean"}, "category": {"enum": list(CATEGORIES)},
                 "execution_states": {"type": "array", "items": {"enum": list(self.ports.execution.execution_states)}, "uniqueItems": True},

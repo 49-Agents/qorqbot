@@ -9,6 +9,7 @@ from qorqut_operations.conversations import SUMMARY, author, normalize_summary, 
 from qorqut_operations.tasks.history import HistoricalReferences
 from qorqut_operations.team_channel import reject_owner_team_write
 from qorqut_operations.discussion.threads import RELAY, attribution, read_attribution, save_attribution
+from .lookup import LOCATED
 
 
 def eligible(uow, signoff_id):
@@ -34,7 +35,9 @@ class SignoffNotes:
     def descriptors(self):
         NOTE_REFS = note_refs_schema(self.service.ports.references.targets)
         fields = {'scope': {'enum': ['business','global']}, 'signoff_id': {'type':'string','minLength':1,'maxLength':200}}
+        # Both name one Signoff: its review scope is found from the id when the caller selects none.
         common = dict(supports_signoff=False, scope_kinds=frozenset({'business','global'}),
+            locate_scope=self.service.lookup, description=LOCATED,
             global_capability='read_global_context', resolve_namespace=lambda c,a:'global' if a.get('scope')=='global' else 'business:'+(c.business_id or ''))
         return (OperationDescriptor('signoffs_notes_list', schema({**fields,
             'before': {'type':'integer','minimum':1}, 'limit': {'type':'integer','minimum':1,'maximum':100}}, ('signoff_id',)),
