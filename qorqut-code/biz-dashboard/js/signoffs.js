@@ -390,15 +390,16 @@ function sgCreateView(options) {
   const capture = () => ({ slug: sg.slug, generation: sg.generation, mount: sg.mount });
   const mounted = c => c.slug === workspace() && c.slug === sg.slug && c.generation === sg.generation && c.mount === sg.mount && c.mount && c.mount.isConnected;
   const current = c => active() && mounted(c);
-  // Loading an inline preview near the viewport is not an owner read. Observe
-  // the selected detail itself, after it has rendered, including clipped feeds.
+  // A card in a chat or a thread is never an owner read, on screen or not: the Signoff stays on the attention queue
+  // until the owner opens it, decides it or dismisses it there. Elsewhere, observe the selected detail itself, after
+  // it has rendered, including clipped feeds.
   let readTarget=null,readVisible=false;
   const readObserver=typeof IntersectionObserver==='undefined'?null:new IntersectionObserver(entries=>{
     for(const entry of entries)if(entry.target===readTarget)readVisible=entry.isIntersecting;
     markSelectedRead();
   });
   function markSelectedRead(){
-    if(!active() || !sg.mount?.isConnected)return;
+    if(options.chatLayout || !active() || !sg.mount?.isConnected)return;
     const item=sg.items.get(sg.selected);
     const detail=[...sg.mount.querySelectorAll('.sg-row')].find(row=>row.dataset.id===sg.selected)?.querySelector('.sg-detail');
     if(detail!==readTarget){readObserver?.disconnect();readTarget=detail;readVisible=!readObserver;if(detail)readObserver?.observe(detail);}
